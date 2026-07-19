@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { AUTH_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
 
+const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
+
 export async function GET() {
   const user = await getCurrentSessionUser();
   if (!user) {
@@ -9,7 +11,7 @@ export async function GET() {
     await clearUserSession(token);
     const cookieStore = await cookies();
     cookieStore.delete(AUTH_COOKIE_NAME);
-    return NextResponse.json({ user: null }, { status: 200 });
+    return NextResponse.json({ user: null }, { status: 200, headers: AUTH_RESPONSE_HEADERS });
   }
   return NextResponse.json({
     user: {
@@ -38,5 +40,5 @@ export async function GET() {
       notificationPreferences: user.notificationPreferences ?? { inApp: true, email: false, sms: false },
       createdAt: user.createdAt,
     },
-  });
+  }, { headers: AUTH_RESPONSE_HEADERS });
 }

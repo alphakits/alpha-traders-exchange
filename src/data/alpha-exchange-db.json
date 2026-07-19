@@ -4,7 +4,7 @@
       "id": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
       "fullName": "markjozen",
       "email": "jozenmark834@yahoo.com",
-      "passwordHash": "5c8d4a7b401f7f77859776e9f8cc65a8:205b4b411c889b9e04345ae81ba79854d2a93e12c56fc23bf11ab79ace1af2c800c250d7175fc5f3f49439c7d5973594f7b8d1043174e2ef38fbea641b559466",
+      "passwordHash": "0be3993f418ce67f3dfe100eb7102e71:e4cbc355e41f1d21af79d405435f498988d02f7c0384fe59af9dcb19ae88a81e010146d5b596ff1ed527aeffa20b6ce5dc3787ef1087633ae782ca44bc13ecd2",
       "whatsappNumber": "9725967649",
       "role": "admin",
       "createdAt": "2026-07-19T08:14:44.504Z",
@@ -48,7 +48,7 @@
       "bio": "",
       "onlineStatus": "offline",
       "role": "buyer",
-      "sellerStatus": "pending_seller_approval",
+      "sellerStatus": "approved_seller",
       "createdAt": "2026-07-19T09:17:31.000Z",
       "updatedAt": "2026-07-19T19:21:26.064Z",
       "tradingExperience": "",
@@ -91,6 +91,14 @@
   "commissionRecords": [],
   "auditLogs": [
     {
+      "id": "audit-29f376eb-95b8-4530-88c9-fc57ef65513e",
+      "action": "trust_score_updated",
+      "actorUserId": "system",
+      "targetUserId": "user-guest-test123",
+      "details": "Trust score 0.0 -> 33.8 (System initialization)",
+      "createdAt": "2026-07-19T20:58:46.666Z"
+    },
+    {
       "id": "audit-15c57087-33f3-4300-8cf6-ff99a08766bc",
       "action": "beta_invite_created",
       "actorUserId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
@@ -100,20 +108,29 @@
   ],
   "authSessions": [
     {
-      "token": "f95fa465da59e45a3da4ddd1def2480e74846a1ec6b2a78d02c8e34b498835e1",
+      "token": "e50c0ad77f3f30f13fd05291572528e54020342c2d2df30f169ba3ee8b156f98",
       "userId": "user-guest-test123",
-      "createdAt": "2026-07-19T19:39:39.659Z",
-      "expiresAt": "2026-08-02T19:39:39.659Z"
+      "createdAt": "2026-07-19T21:10:27.348Z",
+      "expiresAt": "2026-08-02T21:10:27.348Z"
     },
     {
-      "token": "1f775cd4784bf5828c5ce73894351228a53ad81a1a5387da773467bc92dfc6ea",
+      "token": "6c33ef66ba9d50986adfac085812a97b1406ef23f29cf78cf409c95aafdb66a7",
       "userId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
-      "createdAt": "2026-07-19T19:40:11.223Z",
-      "expiresAt": "2026-08-02T19:40:11.223Z"
+      "createdAt": "2026-07-19T21:18:06.965Z",
+      "expiresAt": "2026-08-02T21:18:06.965Z"
     }
   ],
   "passwordResetTokens": [],
   "notifications": [
+    {
+      "id": "notif-b1c738e9-f8ad-45d7-b6eb-cd122432c2b6",
+      "userId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
+      "category": "trust",
+      "title": "Flagged seller detected",
+      "message": "Seller user-guest-test123 is flagged for trust/risk signals.",
+      "isRead": false,
+      "createdAt": "2026-07-19T20:58:46.679Z"
+    },
     {
       "id": "notif-5b060961-7023-4605-af69-fa2c525b1f63",
       "userId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
@@ -169,8 +186,58 @@
   ],
   "disputes": [],
   "sellerReports": [],
-  "trustSnapshots": [],
-  "trustScoreHistory": [],
+  "trustSnapshots": [
+    {
+      "sellerId": "user-guest-test123",
+      "snapshot": {
+        "sellerId": "user-guest-test123",
+        "trustScore": 33.83566666666666,
+        "reliabilityScore": 20,
+        "responseScore": 60,
+        "activityScore": 0.06666666666666667,
+        "marketplacePosition": 1,
+        "reputationSummary": "Growing Seller",
+        "level": "bronze",
+        "badges": [],
+        "rating": 4.2,
+        "completedTrades": 0,
+        "totalUsdtVolume": 0,
+        "successRate": 0,
+        "acceptanceRate": 0,
+        "cancellationRate": 0,
+        "completionRate": 0,
+        "responseTimeMinutes": 5,
+        "customerSatisfaction": 86.25,
+        "recentActivityScore": 0,
+        "accountAgeDays": 1,
+        "profileCompletion": 50,
+        "verificationScore": 100,
+        "disputesLost": 0,
+        "marketplaceViolations": 0,
+        "listingQualityScore": 40,
+        "profileViews": 220,
+        "listingViews": 340,
+        "tradeRequests": 0,
+        "monthlyGrowthPercent": -8,
+        "estimatedCommissionPaid": 0,
+        "revenueGenerated": 0,
+        "repeatBuyers": 0,
+        "averageTradeSize": 0
+      },
+      "updatedAt": "2026-07-19T20:58:46.606Z"
+    }
+  ],
+  "trustScoreHistory": [
+    {
+      "id": "trust-score-c7f045b7-799f-4961-ae15-135b6aa39e9d",
+      "sellerId": "user-guest-test123",
+      "oldScore": 0,
+      "newScore": 33.83566666666666,
+      "reason": "System initialization",
+      "triggeredBy": "system",
+      "createdAt": "2026-07-19T20:58:46.606Z"
+    }
+  ],
   "tradeEvidenceFiles": [],
   "privateBetaInvites": [
     {

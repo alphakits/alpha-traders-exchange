@@ -1,13 +1,12 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { Link, useRouter } from "@/i18n/navigation";
+import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirectTo?: string }) {
   const isAr = locale === "ar";
-  const router = useRouter();
   const [form, setForm] = useState({ email: "", password: "", rememberMe: true });
   const [resetMode, setResetMode] = useState(false);
   const [resetRequestEmail, setResetRequestEmail] = useState("");
@@ -19,18 +18,14 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
   const [isLoginSubmitting, setIsLoginSubmitting] = useState(false);
   const [isResetRequestSubmitting, setIsResetRequestSubmitting] = useState(false);
   const [isResetConfirmSubmitting, setIsResetConfirmSubmitting] = useState(false);
-
-  async function readApiError(response: Response, fallback: string) {
-    try {
-      const payload = (await response.json()) as { error?: string };
-      return payload.error ?? fallback;
-    } catch {
-      return fallback;
-    }
-  }
+  const defaultRedirectByRole = (user: { role?: string; sellerStatus?: string } | null | undefined) => {
+    if (user?.role === "admin") return "/admin/alpha-exchange";
+    if (user?.role !== "admin" && user?.sellerStatus === "approved_seller") return "/dashboard/seller";
+    return "/usdt-exchange";
+  };
 
   function resolveLoginRedirectTarget(rawRedirect?: string) {
-    const fallback = "/usdt-exchange";
+    const fallback = defaultRedirectByRole(undefined);
     if (!rawRedirect) return fallback;
     if (!rawRedirect.startsWith("/") || rawRedirect.startsWith("//")) return fallback;
     if (rawRedirect === `/${locale}`) return "/";
@@ -40,6 +35,12 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
     }
     if (/^\/(ar|en)\/(?:login|register)(?:\/|$)/.test(rawRedirect)) return fallback;
     return rawRedirect;
+  }
+
+  function toLocaleHref(path: string) {
+    if (/^\/(ar|en)(?:\/|$)/.test(path)) return path;
+    if (path === "/") return `/${locale}`;
+    return `/${locale}${path}`;
   }
 
   async function handleLoginSubmit(event: FormEvent<HTMLFormElement>) {
@@ -54,11 +55,18 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
+      let payload: { error?: string; user?: { role?: string; sellerStatus?: string } } | null = null;
+      try {
+        payload = (await response.json()) as { error?: string; user?: { role?: string; sellerStatus?: string } };
+      } catch {
+        payload = null;
+      }
       if (!response.ok) {
-        setErrorMessage(await readApiError(response, "Login failed."));
+        setErrorMessage(payload?.error ?? "Login failed.");
         return;
       }
-      router.push(resolveLoginRedirectTarget(redirectTo));
+      const target = redirectTo ? resolveLoginRedirectTarget(redirectTo) : defaultRedirectByRole(payload?.user);
+      window.location.assign(toLocaleHref(target));
     } catch {
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
     } finally {

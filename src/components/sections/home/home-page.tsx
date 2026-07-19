@@ -86,7 +86,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
               transition={{ duration: 0.6, ease: "easeOut" }}
               className={`max-w-3xl self-start pt-4 md:pt-8 ${isRtl ? "md:ms-auto md:text-right" : "md:me-auto md:text-left"}`}
             >
-              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/20 bg-black/25 px-3 py-1.5 text-xs uppercase tracking-[0.24em] text-[#C9A227]">
+              <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/20 bg-black/25 px-3 py-1.5 text-[11px] uppercase tracking-[0.2em] text-[#C9A227]">
                 <Image
                   src="/images/brand/alpha-traders-logo.png"
                   alt="Alpha Traders logo"
@@ -97,12 +97,12 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                 />
                 <span>{t("badge")}</span>
               </div>
-              <h1 className="text-4xl font-semibold leading-tight md:text-6xl md:leading-[1.1]">
+              <h1 className="text-4xl font-semibold leading-tight md:text-6xl md:leading-[1.08]">
                 {t("headlineLine1")}
                 <br />
                 {t("headlineLine2")}
               </h1>
-              <p className={`mt-5 max-w-2xl text-base leading-relaxed text-white/85 md:text-lg ${isRtl ? "md:ms-auto" : ""}`}>{t("subheadline")}</p>
+              <p className={`mt-4 max-w-xl text-base leading-relaxed text-white/85 md:text-lg ${isRtl ? "md:ms-auto" : ""}`}>{t("subheadline")}</p>
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -121,11 +121,12 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                     {t("watchIntro")}
                   </Button>
                 </Link>
-                <Link href="/usdt-exchange">
-                  <Button className="group relative overflow-hidden border border-[#6CAEFF]/45 bg-gradient-to-r from-[#1B60ED]/85 via-[#2A7BFF]/80 to-[#3A9DFF]/75 font-semibold text-white shadow-[0_10px_26px_rgba(36,121,255,0.34)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:opacity-100 hover:shadow-[0_16px_36px_rgba(36,121,255,0.5)]">
-                    <span className="relative z-10">{t("exploreExchange")}</span>
-                    <span className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 transition duration-700 group-hover:left-[120%] group-hover:opacity-100" />
-                  </Button>
+                <Link
+                  href="/usdt-exchange"
+                  className="group relative inline-flex h-11 items-center justify-center overflow-hidden rounded-full border border-[#6CAEFF]/45 bg-gradient-to-r from-[#1B60ED]/85 via-[#2A7BFF]/80 to-[#3A9DFF]/75 px-6 text-sm font-semibold text-white shadow-[0_10px_26px_rgba(36,121,255,0.34)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(36,121,255,0.5)]"
+                >
+                  <span className="relative z-10">{t("exploreExchange")}</span>
+                  <span className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 transition duration-700 group-hover:left-[120%] group-hover:opacity-100" />
                 </Link>
               </motion.div>
             </motion.div>

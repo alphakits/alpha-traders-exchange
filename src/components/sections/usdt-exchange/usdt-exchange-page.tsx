@@ -808,7 +808,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   const buyerMenu = ["Profile", "My Requests", "Settings"];
   const sellerMenu = ["Profile", "My Listings", "Create Listing", "My Requests", "Settings"];
-  const isApprovedSeller = sessionUser?.role === "approved_seller" && sessionUser?.sellerStatus === "approved_seller";
+  const isApprovedSeller = sessionUser?.role !== "admin" && sessionUser?.sellerStatus === "approved_seller";
   const isOwnerViewer = sessionUser?.role === "admin" && isAlphaExchangeOwnerEmail(sessionUser.email);
   const menuItems = isApprovedSeller ? sellerMenu : buyerMenu;
 

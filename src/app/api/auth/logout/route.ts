@@ -7,5 +7,5 @@ export async function POST() {
   await clearUserSession(token);
   const cookieStore = await cookies();
   cookieStore.delete(AUTH_COOKIE_NAME);
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store, max-age=0" } });
 }

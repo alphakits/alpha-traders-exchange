@@ -21,14 +21,14 @@ export default async function DashboardPage({ params }: { params: Promise<{ loca
   const user = await getCurrentSessionUser();
 
   if (!user) {
-    redirect(`/${locale}/login`);
+    redirect(`/${locale}/login?redirectTo=/${locale}/dashboard`);
   }
 
   if (user.role === "admin" && isAlphaExchangeOwnerEmail(user.email)) {
     redirect(`/${locale}/admin/alpha-exchange`);
   }
 
-  if (user.role === "approved_seller" && user.sellerStatus === "approved_seller") {
+  if (user.role !== "admin" && user.sellerStatus === "approved_seller") {
     redirect(`/${locale}/dashboard/seller`);
   }
 

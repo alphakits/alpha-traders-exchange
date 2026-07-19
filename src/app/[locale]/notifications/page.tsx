@@ -19,7 +19,7 @@ export default async function NotificationsRoute({ params }: { params: Promise<{
   const { locale } = await params;
   const user = await getCurrentSessionUser();
   if (!user) {
-    redirect(`/${locale}/login`);
+    redirect(`/${locale}/login?redirectTo=/${locale}/notifications`);
   }
 
   return <NotificationsPage locale={locale === "ar" ? "ar" : "en"} />;

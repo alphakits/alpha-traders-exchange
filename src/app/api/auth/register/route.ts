@@ -5,6 +5,8 @@ import { AUTH_COOKIE_NAME, createUserSession, hashPassword } from "@/lib/auth";
 import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
 import { checkRateLimit } from "@/lib/rate-limit";
 
+const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
+
 export async function POST(request: NextRequest) {
   const rate = checkRateLimit({
     headers: request.headers,
@@ -13,7 +15,7 @@ export async function POST(request: NextRequest) {
     windowMs: 60_000,
   });
   if (!rate.allowed) {
-    return NextResponse.json({ error: "Too many registration attempts. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
+    return NextResponse.json({ error: "Too many registration attempts. Please try again shortly." }, { status: 429, headers: { ...AUTH_RESPONSE_HEADERS, "Retry-After": String(rate.retryAfterSeconds) } });
   }
   try {
     const body = await request.json();
@@ -26,28 +28,28 @@ export async function POST(request: NextRequest) {
     const agreedToTerms = Boolean(body.agreedToTerms);
 
     if (!fullName || !email || !password || !confirmPassword || !whatsappNumber) {
-      return NextResponse.json({ error: "All fields are required." }, { status: 400 });
+      return NextResponse.json({ error: "All fields are required." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
     if (!inviteCode) {
-      return NextResponse.json({ error: "Invite code is required for private beta registration." }, { status: 400 });
+      return NextResponse.json({ error: "Invite code is required for private beta registration." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
     if (inviteCode.length > 64) {
-      return NextResponse.json({ error: "Invite code is invalid." }, { status: 400 });
+      return NextResponse.json({ error: "Invite code is invalid." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
     if (fullName.length > 100 || whatsappNumber.length > 30) {
-      return NextResponse.json({ error: "One or more fields exceed allowed length." }, { status: 400 });
+      return NextResponse.json({ error: "One or more fields exceed allowed length." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return NextResponse.json({ error: "Invalid email format." }, { status: 400 });
+      return NextResponse.json({ error: "Invalid email format." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
     if (!agreedToTerms) {
-      return NextResponse.json({ error: "Terms must be accepted." }, { status: 400 });
+      return NextResponse.json({ error: "Terms must be accepted." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
     if (password.length < 8) {
-      return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
+      return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
     if (password !== confirmPassword) {
-      return NextResponse.json({ error: "Passwords do not match." }, { status: 400 });
+      return NextResponse.json({ error: "Passwords do not match." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
 
     const passwordHash = await hashPassword(password);
@@ -75,9 +77,10 @@ export async function POST(request: NextRequest) {
         fullName: user.fullName,
         email: user.email,
         role: user.role,
+        sellerStatus: user.sellerStatus,
       },
-    });
+    }, { headers: AUTH_RESPONSE_HEADERS });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Registration failed." }, { status: 400 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Registration failed." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
   }
 }

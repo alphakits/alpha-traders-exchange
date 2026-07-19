@@ -20,7 +20,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ locale
   const user = await getCurrentSessionUser();
 
   if (!user) {
-    redirect(`/${locale}/login`);
+    redirect(`/${locale}/login?redirectTo=/${locale}/profile`);
   }
 
   return <AccountProfilePanel locale={locale === "ar" ? "ar" : "en"} />;

@@ -1003,7 +1003,7 @@ function isAdminEmail(email: string) {
 }
 
 export function canPublishListings(user: Pick<AlphaExchangeUser, "role" | "sellerStatus">) {
-  return user.role === "approved_seller" && user.sellerStatus === "approved_seller";
+  return user.role !== "admin" && user.sellerStatus === "approved_seller";
 }
 
 export function isPrivateBetaInviteOnlyModeEnabled() {
