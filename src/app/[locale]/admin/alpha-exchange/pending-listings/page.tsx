@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { redirect } from "next/navigation";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { buildPageMetadata } from "@/lib/seo";
@@ -16,22 +16,15 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   });
 }
 
-export default async function PendingListingsPage() {
+export default async function PendingListingsPage({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
   const user = await getCurrentSessionUser();
 
-  if (!user || user.role !== "admin" || !isAlphaExchangeOwnerEmail(user.email)) {
-    return (
-      <section className="section-container page-shell py-16">
-        <Card className="mx-auto max-w-2xl border-red-500/25 bg-[#0B0B0B]/95">
-          <CardHeader>
-            <CardTitle>403 - Access Denied</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-[#D1D5DB]">
-            <p>This page is restricted to the Owner account.</p>
-          </CardContent>
-        </Card>
-      </section>
-    );
+  if (!user) {
+    redirect(`/${locale}/login?redirectTo=/${locale}/admin/alpha-exchange/pending-listings`);
+  }
+  if (user.role !== "admin" || !isAlphaExchangeOwnerEmail(user.email)) {
+    redirect(`/${locale}/usdt-exchange`);
   }
 
   return <OwnerPendingListingsDashboard />;

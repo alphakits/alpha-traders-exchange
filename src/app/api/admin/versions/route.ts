@@ -4,7 +4,7 @@ import { readVersions } from "@/lib/admin-store";
 
 export async function GET(request: NextRequest) {
   try {
-    resolveAdminIdentity(request);
+    await resolveAdminIdentity(request);
     const versions = await readVersions();
     return NextResponse.json({ versions });
   } catch (error) {

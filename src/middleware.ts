@@ -8,13 +8,13 @@ const intlMiddleware = createMiddleware(routing);
 
 export default function middleware(request: Parameters<typeof intlMiddleware>[0]) {
   const { pathname } = request.nextUrl;
-  const isProtectedRoute = /^\/(ar|en)\/(?:dashboard|profile)(?:\/|$)/.test(pathname);
+  const isProtectedRoute = /^\/(ar|en)\/(?:academy|lessons|usdt-exchange|dashboard|profile|admin)(?:\/|$)/.test(pathname);
   const hasSession = Boolean(request.cookies.get(AUTH_COOKIE_NAME)?.value);
 
   if (isProtectedRoute && !hasSession) {
-    const locale = pathname.startsWith("/en/") ? "en" : "ar";
+    const locale = pathname.startsWith("/ar/") ? "ar" : "en";
     const loginUrl = new URL(`/${locale}/login`, request.url);
-    loginUrl.searchParams.set("redirectTo", pathname);
+    loginUrl.searchParams.set("redirectTo", `${pathname}${request.nextUrl.search}`);
     return NextResponse.redirect(loginUrl);
   }
 

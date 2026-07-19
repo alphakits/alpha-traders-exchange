@@ -5,7 +5,7 @@ import { courses } from "@/lib/content";
 
 export async function GET(request: NextRequest) {
   try {
-    resolveAdminIdentity(request);
+    await resolveAdminIdentity(request);
     const [lessons, media, versions] = await Promise.all([readLessons(), readMediaLibrary(), readVersions()]);
     return NextResponse.json({
       lessons,

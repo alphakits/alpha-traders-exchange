@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createUser } from "@/lib/alpha-exchange-store";
 import { AUTH_COOKIE_NAME, createUserSession, hashPassword } from "@/lib/auth";
+import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
@@ -58,7 +59,7 @@ export async function POST(request: NextRequest) {
       inviteCode,
     });
     const { token, expiresAt } = await createUserSession(user.id);
-    const secureCookies = process.env.AUTH_COOKIE_SECURE === "true";
+    const secureCookies = shouldUseSecureAuthCookie(request);
     const cookieStore = await cookies();
     cookieStore.set(AUTH_COOKIE_NAME, token, {
       httpOnly: true,

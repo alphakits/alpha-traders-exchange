@@ -1,6 +1,7 @@
 import { getLocale, getTranslations } from "next-intl/server";
 import { HomePage } from "@/components/sections/home/home-page";
 import { buildPageMetadata } from "@/lib/seo";
+import { getCurrentSessionUser } from "@/lib/auth";
 
 export async function generateMetadata() {
   const locale = await getLocale();
@@ -13,6 +14,7 @@ export async function generateMetadata() {
   });
 }
 
-export default function LocalizedHomePage() {
-  return <HomePage />;
+export default async function LocalizedHomePage() {
+  const user = await getCurrentSessionUser();
+  return <HomePage isAuthenticated={Boolean(user)} />;
 }

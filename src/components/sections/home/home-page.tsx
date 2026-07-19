@@ -11,10 +11,12 @@ import { courses, lessons } from "@/lib/content";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
-export function HomePage() {
+export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
   const t = useTranslations("home");
   const locale = useLocale();
   const isRtl = locale === "ar";
+  const academyHref = isAuthenticated ? "/academy" : `/login?redirectTo=${encodeURIComponent(`/${locale}/academy`)}`;
+  const exchangeHref = isAuthenticated ? "/usdt-exchange" : `/login?redirectTo=${encodeURIComponent(`/${locale}/usdt-exchange`)}`;
   const latestLessons = lessons.slice(0, 3);
   const featuredLessons = lessons.slice(0, 2);
   const primaryCourse = courses[0];
@@ -166,7 +168,7 @@ export function HomePage() {
                         </span>
                       ))}
                     </div>
-                    <Link href="/academy">
+                    <Link href={academyHref}>
                       <Button className="gap-2">
                         Start Learning
                         {isRtl ? <ArrowLeft className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
@@ -195,7 +197,7 @@ export function HomePage() {
                         </span>
                       ))}
                     </div>
-                    <Link href="/usdt-exchange">
+                    <Link href={exchangeHref}>
                       <Button className="group relative overflow-hidden border border-[#6CAEFF]/45 bg-gradient-to-r from-[#1B60ED]/85 via-[#2A7BFF]/80 to-[#3A9DFF]/75 font-semibold text-white shadow-[0_10px_26px_rgba(36,121,255,0.34)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(36,121,255,0.5)]">
                         <span className="relative z-10">Enter Exchange</span>
                         <span className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 transition duration-700 group-hover:left-[120%] group-hover:opacity-100" />

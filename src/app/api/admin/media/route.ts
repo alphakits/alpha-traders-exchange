@@ -1,12 +1,12 @@
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
-import { resolveAdminIdentity } from "@/lib/admin-auth";
+import { adminErrorStatus, resolveAdminIdentity } from "@/lib/admin-auth";
 import { addMediaItem, inferMediaType, readMediaLibrary, removeMediaItem, saveUploadedFile, validateUpload } from "@/lib/admin-store";
 import type { MediaProvider } from "@/types/admin";
 
 export async function GET(request: NextRequest) {
   try {
-    resolveAdminIdentity(request);
+    await resolveAdminIdentity(request);
     const items = await readMediaLibrary();
     return NextResponse.json({ items });
   } catch (error) {
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    resolveAdminIdentity(request);
+    await resolveAdminIdentity(request);
     const formData = await request.formData();
     const file = formData.get("file");
     if (!(file instanceof File)) {
@@ -37,13 +37,13 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ media }, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to upload media." }, { status: 400 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to upload media." }, { status: adminErrorStatus(error) });
   }
 }
 
 export async function DELETE(request: NextRequest) {
   try {
-    resolveAdminIdentity(request);
+    await resolveAdminIdentity(request);
     const url = new URL(request.url);
     const mediaId = url.searchParams.get("id");
     if (!mediaId) {
@@ -52,6 +52,6 @@ export async function DELETE(request: NextRequest) {
     await removeMediaItem(mediaId);
     return NextResponse.json({ ok: true });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to remove media." }, { status: 400 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to remove media." }, { status: adminErrorStatus(error) });
   }
 }

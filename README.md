@@ -1,36 +1,76 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Alpha Traders
 
-## Getting Started
+## Requirements
 
-First, run the development server:
+- Node.js 20+
+- npm 10+
+
+## First install
+
+```bash
+npm install
+```
+
+## Normal development
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Starts the Next.js dev server on `http://localhost:3000`.
+If another dev server is already running for this repo, the command now exits early with a clear message to prevent chunk-cache corruption.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Clean rebuild (recommended after runtime/chunk issues)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run clean
+npm run dev
+```
 
-## Learn More
+Or run both in one command:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm run dev:clean
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+`clean` removes generated runtime directories:
+- `.next`
+- `.next-dev`
+- `.next-runtime`
+- `.next-runtime-build`
+- `.next-stale`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Production build
 
-## Deploy on Vercel
+```bash
+npm run build
+npm run start
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+`npm run build` now refuses to run if a repo-local `next dev` process is active, preventing shared `.next` corruption.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Quality checks
+
+```bash
+npm run lint
+```
+
+## Common troubleshooting
+
+1. **Cannot find module './<chunk>.js'**  
+   Run `npm run dev:clean` and restart the server.
+2. **Dev server behaves inconsistently after branch switches**  
+   Run `npm run clean`, then `npm run dev`.
+3. **Build works locally but runtime is stale**  
+   Ensure no generated Next.js artifact folders are committed.
+4. **Cannot find module './<chunk>.js' while multiple dev terminals are open**  
+   Stop all existing `next dev` processes for this repo, then run `npm run dev:clean`.
+5. **Cannot find module './<chunk>.js' after running build and dev at the same time**  
+   Stop `next dev`, run `npm run clean`, then run either `npm run dev` or `npm run build` (not both concurrently).
+6. **`ERR_CONNECTION_REFUSED` on `http://localhost:3000`**  
+   No dev server is currently listening on port 3000. Start it with `npm run dev` and keep that terminal running.
+
+## Recommendation on custom `distDir`
+
+The previous custom `distDir` setting was not required by the app itself and increased risk of stale artifact drift across multiple runtime folders.  
+This project now uses Next.js default output (`.next`) for a more stable development workflow.

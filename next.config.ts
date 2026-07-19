@@ -4,9 +4,9 @@ import createNextIntlPlugin from "next-intl/plugin";
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
 const nextConfig: NextConfig = {
-  distDir: process.env.NEXT_DIST_DIR ?? ".next-runtime",
   images: {
     formats: ["image/avif", "image/webp"],
+    qualities: [75, 100],
   },
   experimental: {
     optimizePackageImports: ["lucide-react"],

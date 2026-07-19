@@ -5,7 +5,7 @@ import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-export function LoginForm({ locale }: { locale: "ar" | "en" }) {
+export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirectTo?: string }) {
   const isAr = locale === "ar";
   const router = useRouter();
   const [form, setForm] = useState({ email: "", password: "", rememberMe: true });
@@ -20,6 +20,28 @@ export function LoginForm({ locale }: { locale: "ar" | "en" }) {
   const [isResetRequestSubmitting, setIsResetRequestSubmitting] = useState(false);
   const [isResetConfirmSubmitting, setIsResetConfirmSubmitting] = useState(false);
 
+  async function readApiError(response: Response, fallback: string) {
+    try {
+      const payload = (await response.json()) as { error?: string };
+      return payload.error ?? fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  function resolveLoginRedirectTarget(rawRedirect?: string) {
+    const fallback = "/usdt-exchange";
+    if (!rawRedirect) return fallback;
+    if (!rawRedirect.startsWith("/") || rawRedirect.startsWith("//")) return fallback;
+    if (rawRedirect === `/${locale}`) return "/";
+    if (rawRedirect.startsWith(`/${locale}/`)) {
+      const localePath = rawRedirect.slice(`/${locale}`.length);
+      return localePath || "/";
+    }
+    if (/^\/(ar|en)\/(?:login|register)(?:\/|$)/.test(rawRedirect)) return fallback;
+    return rawRedirect;
+  }
+
   async function handleLoginSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setStatusMessage(null);
@@ -32,12 +54,13 @@ export function LoginForm({ locale }: { locale: "ar" | "en" }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
-      const data = (await response.json()) as { error?: string };
       if (!response.ok) {
-        setErrorMessage(data.error ?? "Login failed.");
+        setErrorMessage(await readApiError(response, "Login failed."));
         return;
       }
-      router.push("/usdt-exchange");
+      router.push(resolveLoginRedirectTarget(redirectTo));
+    } catch {
+      setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
     } finally {
       setIsLoginSubmitting(false);
     }
@@ -65,6 +88,8 @@ export function LoginForm({ locale }: { locale: "ar" | "en" }) {
       } else {
         setStatusMessage(isAr ? "إذا كان البريد مسجلاً فسيتم إنشاء رمز إعادة التعيين." : "If the email exists, a reset token has been generated.");
       }
+    } catch {
+      setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
     } finally {
       setIsResetRequestSubmitting(false);
     }
@@ -92,6 +117,8 @@ export function LoginForm({ locale }: { locale: "ar" | "en" }) {
         return;
       }
       setStatusMessage(isAr ? "تم تحديث كلمة المرور بنجاح." : "Password updated successfully.");
+    } catch {
+      setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
     } finally {
       setIsResetConfirmSubmitting(false);
     }
@@ -101,7 +128,30 @@ export function LoginForm({ locale }: { locale: "ar" | "en" }) {
     <section className="section-container page-shell">
       <div className="mx-auto w-full max-w-xl rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.4)] backdrop-blur-xl md:p-8">
         <h1 className="text-3xl font-semibold md:text-4xl">{isAr ? "تسجيل الدخول" : "Login"}</h1>
-        <p className="mt-2 text-sm text-[#9CA3AF]">{isAr ? "سجّل الدخول للوصول إلى تجربة Alpha Exchange." : "Sign in to access the Alpha Exchange experience."}</p>
+        <p className="mt-2 text-sm text-[#9CA3AF]">
+          {isAr ? "أنشئ حساب Alpha Traders للوصول إلى Alpha Academy و Alpha Exchange." : "Create your Alpha Traders account to access Alpha Academy and Alpha Exchange."}
+        </p>
+        <ul className="mt-4 grid gap-1 text-sm text-[#D1D5DB]">
+          {isAr ? (
+            <>
+              <li>• حفظ تقدّمك في الأكاديمية</li>
+              <li>• الوصول إلى دوراتك</li>
+              <li>• شراء وبيع USDT بأمان</li>
+              <li>• استلام الإشعارات</li>
+              <li>• بناء ملفك كمتداول</li>
+              <li>• تتبّع رحلتك في التداول</li>
+            </>
+          ) : (
+            <>
+              <li>• Save Academy progress</li>
+              <li>• Access your courses</li>
+              <li>• Buy &amp; sell USDT securely</li>
+              <li>• Receive notifications</li>
+              <li>• Build your trader profile</li>
+              <li>• Track your trading journey</li>
+            </>
+          )}
+        </ul>
 
         <form className="mt-6 grid gap-3" onSubmit={handleLoginSubmit}>
           <Input placeholder={isAr ? "البريد الإلكتروني" : "Email"} type="email" autoComplete="email" required value={form.email} onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))} />

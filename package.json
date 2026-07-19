@@ -3,8 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "clean": "node -e \"const fs=require('fs'); ['.next','.next-dev','.next-runtime','.next-runtime-build','.next-stale'].forEach((dir)=>{ if (fs.existsSync(dir)) fs.rmSync(dir,{recursive:true,force:true}); });\"",
+    "dev": "node scripts/ensure-single-dev.mjs && next dev",
+    "dev:clean": "npm run clean && npm run dev",
+    "build": "node scripts/ensure-no-active-dev.mjs && next build",
     "start": "next start",
     "lint": "eslint"
   },

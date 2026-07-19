@@ -56,6 +56,21 @@ type TimelineStep = {
   body: string;
 };
 
+type TradeMilestone = {
+  key: "request_submitted" | "request_accepted" | "payment_sent" | "usdt_sent" | "trade_completed" | "review_unlocked";
+  titleEn: string;
+  titleAr: string;
+};
+
+const TRADE_MILESTONES: TradeMilestone[] = [
+  { key: "request_submitted", titleEn: "Request submitted", titleAr: "تم إرسال الطلب" },
+  { key: "request_accepted", titleEn: "Seller accepted", titleAr: "البائع قبل الطلب" },
+  { key: "payment_sent", titleEn: "Buyer payment sent", titleAr: "المشتري أكد الدفع" },
+  { key: "usdt_sent", titleEn: "Seller USDT sent", titleAr: "البائع أكد إرسال USDT" },
+  { key: "trade_completed", titleEn: "Buyer completed trade", titleAr: "المشتري أكد إتمام الصفقة" },
+  { key: "review_unlocked", titleEn: "Review unlocked", titleAr: "نافذة المراجعة مفتوحة" },
+];
+
 function toNumber(value: string | number | null | undefined) {
   const normalized = String(value ?? "");
   return Number(normalized.replace(/[^\d.]/g, "")) || 0;
@@ -127,14 +142,6 @@ function formatRelativeMinutesLabel(value?: string) {
   return `${days}d ago`;
 }
 
-function sellerLevelRank(level?: SellerLevel) {
-  if (level === "elite") return 5;
-  if (level === "diamond") return 4;
-  if (level === "gold") return 3;
-  if (level === "silver") return 2;
-  return 1;
-}
-
 function sellerLevelLabel(level?: SellerLevel) {
   if (level === "elite") return "Elite";
   if (level === "diamond") return "Diamond";
@@ -169,9 +176,51 @@ function roleBadgeVariantFromSession(user: SessionUser) {
   return "buyer" as const;
 }
 
+function tradeProgressRank(request: PurchaseRequest) {
+  const timeline = request.timeline ?? [];
+  const acceptedSeen = timeline.some((event) => event.type === "request_accepted");
+  if (request.status === "pending") return 0;
+  if (request.status === "accepted") return 1;
+  if (request.status === "payment_sent") return 2;
+  if (request.status === "usdt_sent") return 3;
+  if (request.status === "completed" || request.status === "locked") return 4;
+  if (request.status === "review_open") return 5;
+  if (request.status === "cancelled") return acceptedSeen ? 1 : 0;
+  return 0;
+}
+
+function nextTradeActionHint(request: PurchaseRequest, isAr: boolean) {
+  if (request.status === "pending") {
+    return isAr ? "الإجراء التالي: البائع يقبل أو يرفض الطلب." : "Next action: seller accepts or declines the request.";
+  }
+  if (request.status === "accepted") {
+    return isAr ? "الإجراء التالي: المشتري يرفع إثبات الدفع ثم يؤكد Payment Sent." : "Next action: buyer uploads payment evidence and marks Payment Sent.";
+  }
+  if (request.status === "payment_sent") {
+    return isAr ? "الإجراء التالي: البائع يرفع إثبات التحويل ثم يؤكد USDT Sent." : "Next action: seller uploads transfer evidence and marks USDT Sent.";
+  }
+  if (request.status === "usdt_sent") {
+    return isAr ? "الإجراء التالي: المشتري يؤكد اكتمال الصفقة." : "Next action: buyer confirms trade completion.";
+  }
+  if (request.status === "review_open") {
+    return isAr ? "الإجراء التالي: يمكن للطرفين مراجعة نتيجة الصفقة." : "Next action: parties can leave/track the trade review.";
+  }
+  if (request.status === "declined") {
+    return isAr ? "تم إنهاء الصفقة: تم رفض الطلب من البائع." : "Trade ended: seller declined this request.";
+  }
+  return isAr ? "تم إنهاء الصفقة: تم إلغاء الطلب." : "Trade ended: request was cancelled.";
+}
+
+function tradeMilestoneTimestamp(request: PurchaseRequest, key: TradeMilestone["key"]) {
+  const timeline = request.timeline ?? [];
+  const event = timeline.find((item) => item.type === key);
+  return event?.createdAt;
+}
+
 export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const isAr = locale === "ar";
   const router = useRouter();
+  const showLegacyNotificationCenter = false;
 
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
@@ -498,9 +547,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   }, [refreshBetaChannels, refreshNotificationPreferences, refreshSellerWorkspace]);
 
   useEffect(() => {
-    if (!sessionUser) return;
+    if (!showLegacyNotificationCenter || !sessionUser) return;
     void refreshNotifications();
-  }, [sessionUser, notificationCategory, notificationQuery, notificationUnreadOnly, refreshNotifications]);
+  }, [notificationCategory, notificationQuery, notificationUnreadOnly, refreshNotifications, sessionUser, showLegacyNotificationCenter]);
 
   const features: FeatureCard[] = [
     {
@@ -1952,6 +2001,39 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         Message Buyer
                       </Button>
                     </div>
+                    <div className="mt-3 rounded-xl border border-white/10 bg-black/25 p-3">
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">
+                        {isAr ? "حالة الصفقة اللحظية" : "Live Trade Status"}
+                      </p>
+                      <p className="mt-1 text-xs text-[#D1D5DB]">{nextTradeActionHint(request, isAr)}</p>
+                      <div className="mt-3 space-y-2">
+                        {TRADE_MILESTONES.map((step, index) => {
+                          const rank = tradeProgressRank(request);
+                          const terminal = request.status === "declined" || request.status === "cancelled";
+                          const stepTimestamp = tradeMilestoneTimestamp(request, step.key);
+                          const done = index <= rank || Boolean(stepTimestamp);
+                          const current = !terminal && request.status !== "review_open" && index === Math.min(rank + 1, TRADE_MILESTONES.length - 1);
+                          const reviewCurrent = !terminal && request.status === "review_open" && step.key === "review_unlocked";
+                          return (
+                            <div key={`${request.id}-${step.key}`} className="flex items-center justify-between gap-3 text-xs">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`inline-flex h-4 w-4 rounded-full border ${
+                                    done ? "border-[#C9A227]/40 bg-[#C9A227]/25" : current || reviewCurrent ? "border-[#6CAEFF]/50 bg-[#6CAEFF]/25" : "border-white/15 bg-transparent"
+                                  }`}
+                                />
+                                <span className={done || current || reviewCurrent ? "text-[#F3F4F6]" : "text-[#9CA3AF]"}>
+                                  {isAr ? step.titleAr : step.titleEn}
+                                </span>
+                              </div>
+                              <span className="text-[11px] text-[#9CA3AF]">
+                                {stepTimestamp ? new Date(stepTimestamp).toLocaleTimeString("en-IL", { hour: "2-digit", minute: "2-digit" }) : done ? "✓" : current || reviewCurrent ? "•" : "—"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                     <div className="mt-3 grid gap-2 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB] md:grid-cols-2">
                       <div>
                         <p className="font-medium text-white">Buyer Evidence</p>
@@ -2109,7 +2191,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               </CardContent>
             </Card>
 
-            {notificationCenterCard}
+            {showLegacyNotificationCenter ? notificationCenterCard : null}
             {betaChannelsCard}
 
             <Card className="border-white/10 bg-[#0B0B0B]/90">
@@ -2318,6 +2400,39 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         Cancel
                       </Button>
                     </div>
+                    <div className="mt-3 rounded-xl border border-white/10 bg-black/25 p-3">
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">
+                        {isAr ? "حالة الصفقة اللحظية" : "Live Trade Status"}
+                      </p>
+                      <p className="mt-1 text-xs text-[#D1D5DB]">{nextTradeActionHint(request, isAr)}</p>
+                      <div className="mt-3 space-y-2">
+                        {TRADE_MILESTONES.map((step, index) => {
+                          const rank = tradeProgressRank(request);
+                          const terminal = request.status === "declined" || request.status === "cancelled";
+                          const stepTimestamp = tradeMilestoneTimestamp(request, step.key);
+                          const done = index <= rank || Boolean(stepTimestamp);
+                          const current = !terminal && request.status !== "review_open" && index === Math.min(rank + 1, TRADE_MILESTONES.length - 1);
+                          const reviewCurrent = !terminal && request.status === "review_open" && step.key === "review_unlocked";
+                          return (
+                            <div key={`${request.id}-buyer-${step.key}`} className="flex items-center justify-between gap-3 text-xs">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`inline-flex h-4 w-4 rounded-full border ${
+                                    done ? "border-[#C9A227]/40 bg-[#C9A227]/25" : current || reviewCurrent ? "border-[#6CAEFF]/50 bg-[#6CAEFF]/25" : "border-white/15 bg-transparent"
+                                  }`}
+                                />
+                                <span className={done || current || reviewCurrent ? "text-[#F3F4F6]" : "text-[#9CA3AF]"}>
+                                  {isAr ? step.titleAr : step.titleEn}
+                                </span>
+                              </div>
+                              <span className="text-[11px] text-[#9CA3AF]">
+                                {stepTimestamp ? new Date(stepTimestamp).toLocaleTimeString("en-IL", { hour: "2-digit", minute: "2-digit" }) : done ? "✓" : current || reviewCurrent ? "•" : "—"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                     <div className="mt-3 grid gap-2 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB] md:grid-cols-2">
                       <div>
                         <p className="font-medium text-white">Buyer Evidence</p>
@@ -2420,7 +2535,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               </CardContent>
             </Card>
           ) : null}
-          {sessionUser ? notificationCenterCard : null}
+          {showLegacyNotificationCenter && sessionUser ? notificationCenterCard : null}
           {sessionUser ? betaChannelsCard : null}
           {sessionUser ? (
             <Card className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">

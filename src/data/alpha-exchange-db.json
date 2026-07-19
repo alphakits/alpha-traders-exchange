@@ -4,11 +4,11 @@
       "id": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
       "fullName": "markjozen",
       "email": "jozenmark834@yahoo.com",
-      "passwordHash": "23df5c74a48094d16afb87bdca68594c:39c0ccf221d34a481ce4d424273f1e29b5049eb7f28821b423d33d0ddcaa3dae48b880c87147f527ac6c125d74408f75b7ad342331c657fe0d1e75ab62434b06",
+      "passwordHash": "5c8d4a7b401f7f77859776e9f8cc65a8:205b4b411c889b9e04345ae81ba79854d2a93e12c56fc23bf11ab79ace1af2c800c250d7175fc5f3f49439c7d5973594f7b8d1043174e2ef38fbea641b559466",
       "whatsappNumber": "9725967649",
       "role": "admin",
       "createdAt": "2026-07-19T08:14:44.504Z",
-      "updatedAt": "2026-07-19T12:23:21.811Z",
+      "updatedAt": "2026-07-19T19:21:38.893Z",
       "sellerStatus": "buyer",
       "preferredNetworks": [],
       "profilePhotoUrl": "",
@@ -23,7 +23,7 @@
       "country": "",
       "city": "",
       "coverBannerUrl": "",
-      "lastActiveAt": "2026-07-19T08:14:44.504Z",
+      "lastActiveAt": "2026-07-19T19:21:38.893Z",
       "isFeaturedSeller": false,
       "isProfileHidden": false,
       "notificationPreferences": {
@@ -50,14 +50,14 @@
       "role": "buyer",
       "sellerStatus": "pending_seller_approval",
       "createdAt": "2026-07-19T09:17:31.000Z",
-      "updatedAt": "2026-07-19T11:24:42.149Z",
+      "updatedAt": "2026-07-19T19:21:26.064Z",
       "tradingExperience": "",
       "workingHours": "",
       "preferredPaymentMethods": [],
       "country": "",
       "city": "",
       "coverBannerUrl": "",
-      "lastActiveAt": "2026-07-19T09:17:31.000Z",
+      "lastActiveAt": "2026-07-19T19:21:26.063Z",
       "isFeaturedSeller": false,
       "isProfileHidden": false,
       "notificationPreferences": {
@@ -89,13 +89,27 @@
   "marketplaceListings": [],
   "purchaseRequests": [],
   "commissionRecords": [],
-  "auditLogs": [],
+  "auditLogs": [
+    {
+      "id": "audit-15c57087-33f3-4300-8cf6-ff99a08766bc",
+      "action": "beta_invite_created",
+      "actorUserId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
+      "details": "Created invite AKB-CCC3293DBF (1 max uses).",
+      "createdAt": "2026-07-19T19:21:34.597Z"
+    }
+  ],
   "authSessions": [
     {
-      "token": "b7e7f932f2cabf89e983d8df8c36bf8038da94ff1f2e50aabe76b30626c254d5",
+      "token": "f95fa465da59e45a3da4ddd1def2480e74846a1ec6b2a78d02c8e34b498835e1",
       "userId": "user-guest-test123",
-      "createdAt": "2026-07-19T11:24:50.408Z",
-      "expiresAt": "2026-08-02T11:24:50.408Z"
+      "createdAt": "2026-07-19T19:39:39.659Z",
+      "expiresAt": "2026-08-02T19:39:39.659Z"
+    },
+    {
+      "token": "1f775cd4784bf5828c5ce73894351228a53ad81a1a5387da773467bc92dfc6ea",
+      "userId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
+      "createdAt": "2026-07-19T19:40:11.223Z",
+      "expiresAt": "2026-08-02T19:40:11.223Z"
     }
   ],
   "passwordResetTokens": [],
@@ -113,6 +127,38 @@
   ],
   "activityLog": [
     {
+      "id": "activity-6c5a7486-8034-44db-a1e0-9adf2ab1ed04",
+      "userId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
+      "category": "account",
+      "title": "Notification preferences updated",
+      "details": "inApp=true, email=false, sms=false",
+      "createdAt": "2026-07-19T19:21:37.313Z"
+    },
+    {
+      "id": "activity-0942501a-983a-473b-b6b1-e2304e02d399",
+      "userId": "user-guest-test123",
+      "category": "account",
+      "title": "Notification preferences updated",
+      "details": "inApp=true, email=false, sms=false",
+      "createdAt": "2026-07-19T19:21:23.812Z"
+    },
+    {
+      "id": "activity-d5cff450-a556-4301-b866-be02db9bb9c0",
+      "userId": "user-guest-test123",
+      "category": "account",
+      "title": "Notification preferences updated",
+      "details": "inApp=true, email=false, sms=false",
+      "createdAt": "2026-07-19T19:12:53.737Z"
+    },
+    {
+      "id": "activity-dd9cc8e5-b83f-4ec8-8b79-cfa4b0a3d22d",
+      "userId": "user-guest-test123",
+      "category": "account",
+      "title": "Notification preferences updated",
+      "details": "inApp=true, email=false, sms=false",
+      "createdAt": "2026-07-19T19:08:51.790Z"
+    },
+    {
       "id": "activity-cd43cb00-69c1-4f8d-98e8-4e4841354946",
       "userId": "user-guest-test123",
       "category": "application",
@@ -126,7 +172,18 @@
   "trustSnapshots": [],
   "trustScoreHistory": [],
   "tradeEvidenceFiles": [],
-  "privateBetaInvites": [],
+  "privateBetaInvites": [
+    {
+      "id": "invite-363e5ddf-d3e8-479b-8eee-feab6bbc3589",
+      "code": "AKB-CCC3293DBF",
+      "status": "active",
+      "maxUses": 1,
+      "usedCount": 0,
+      "createdByUserId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
+      "createdAt": "2026-07-19T19:21:34.597Z",
+      "updatedAt": "2026-07-19T19:21:34.597Z"
+    }
+  ],
   "privateBetaInviteUses": [],
   "betaFeedback": [],
   "betaAnnouncements": []

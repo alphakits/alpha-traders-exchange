@@ -1,0 +1,15 @@
+{
+  "totalChecks": 257,
+  "totalFailures": 0,
+  "failures": [],
+  "login": {
+    "buyer": {
+      "status": 200,
+      "token": "b5120353-f614-4d02-8bbe-2f05d3d9dd09-2b9045dee6768befd2108d3da5b69923492064ed2441e712"
+    },
+    "owner": {
+      "status": 401,
+      "token": null
+    }
+  }
+}

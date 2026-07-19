@@ -34,38 +34,61 @@ export default async function AcademyPage() {
         <div className="space-y-4">
           <h2 className="text-2xl font-semibold">{isAr ? "خارطة التعلم التفاعلية" : "Interactive Learning Roadmap"}</h2>
           <AcademyRoadmap />
+          <Card className="border-[#6CAEFF]/30 bg-[#0B0B0B]/95">
+            <CardHeader>
+              <CardDescription className="text-[#93C5FD]">{isAr ? "Alpha Exchange" : "Alpha Exchange"}</CardDescription>
+              <CardTitle>{isAr ? "بعد التعلم: ابدأ التداول الآمن" : "After learning: start trading safely"}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-[#9CA3AF]">
+                {isAr
+                  ? "عند إتقان أساسيات الأكاديمية، انتقل إلى Alpha Exchange لتطبيق منهجيتك مع بائعين موثوقين ونظام تقييم واضح."
+                  : "Once you master academy fundamentals, move to Alpha Exchange to apply your strategy with verified sellers and a transparent trust system."}
+              </p>
+              <Link href="/usdt-exchange" className="text-sm text-[#6CAEFF] hover:underline">
+                {isAr ? "الانتقال إلى Alpha Exchange" : "Go to Alpha Exchange"}
+              </Link>
+            </CardContent>
+          </Card>
         </div>
         <div className="grid gap-4">
-        {courses.map((course) => {
-          const lessonCount = getLessonsByCourse(course.id).length;
-          return (
-            <Card key={course.id} className="h-full hover:-translate-y-0.5">
-              <CardHeader>
-                <CardDescription>{course.level.toUpperCase()}</CardDescription>
-                <CardTitle>{isAr ? course.titleAr : course.title}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-[#9CA3AF]">{isAr ? course.summaryAr : course.summary}</p>
-                {courseSource.courseBySlug[course.slug as keyof typeof courseSource.courseBySlug] ? (
-                  <div className="space-y-1 text-sm text-[#D1D5DB]">
-                    {(isAr
-                      ? courseSource.courseBySlug[course.slug as keyof typeof courseSource.courseBySlug].valueAr
-                      : courseSource.courseBySlug[course.slug as keyof typeof courseSource.courseBySlug].value
-                    ).slice(0, 4).map((item) => (
-                      <p key={item}>• {item}</p>
-                    ))}
-                  </div>
-                ) : null}
-                <p className="text-xs text-[#9CA3AF]">
-                  {lessonCount} {isAr ? "درس" : "lessons"}
-                </p>
-                <Link href={`/academy/${course.slug}`} className="text-sm text-[#C9A227] hover:underline">
-                  {isAr ? "الدخول إلى المسار" : "Open Track"}
-                </Link>
+          {!courses.length ? (
+            <Card>
+              <CardContent className="pt-6 text-sm text-[#9CA3AF]">
+                {isAr ? "لا توجد مسارات متاحة حاليًا. تحقق مرة أخرى قريبًا." : "No learning tracks are available right now. Please check back soon."}
               </CardContent>
             </Card>
-          );
-        })}
+          ) : null}
+          {courses.map((course) => {
+            const lessonCount = getLessonsByCourse(course.id).length;
+            return (
+              <Card key={course.id} className="h-full hover:-translate-y-0.5">
+                <CardHeader>
+                  <CardDescription>{course.level.toUpperCase()}</CardDescription>
+                  <CardTitle>{isAr ? course.titleAr : course.title}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <p className="text-sm text-[#9CA3AF]">{isAr ? course.summaryAr : course.summary}</p>
+                  {courseSource.courseBySlug[course.slug as keyof typeof courseSource.courseBySlug] ? (
+                    <div className="space-y-1 text-sm text-[#D1D5DB]">
+                      {(isAr
+                        ? courseSource.courseBySlug[course.slug as keyof typeof courseSource.courseBySlug].valueAr
+                        : courseSource.courseBySlug[course.slug as keyof typeof courseSource.courseBySlug].value
+                      ).slice(0, 4).map((item) => (
+                        <p key={item}>• {item}</p>
+                      ))}
+                    </div>
+                  ) : null}
+                  <p className="text-xs text-[#9CA3AF]">
+                    {lessonCount} {isAr ? "درس" : "lessons"}
+                  </p>
+                  <Link href={`/academy/${course.slug}`} className="text-sm text-[#C9A227] hover:underline">
+                    {isAr ? "الدخول إلى المسار" : "Open Track"}
+                  </Link>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       </div>
     </section>

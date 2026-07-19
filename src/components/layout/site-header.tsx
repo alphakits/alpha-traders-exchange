@@ -7,6 +7,7 @@ import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
 import { AUTH_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { LocaleSwitcher } from "./locale-switcher";
 
 export async function SiteHeader({ locale }: { locale: AppLocale }) {
@@ -26,7 +27,7 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
   }
 
   const nav = [
-    { href: "", label: t("home") },
+    { href: "/", label: t("home") },
     { href: "/academy", label: t("academy") },
     { href: "/community", label: t("community") },
     { href: "/contact", label: t("contact") },
@@ -81,6 +82,7 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
           <Link href={dashboardHref} locale={locale} className="hidden sm:inline-flex">
             <Button size="sm">{dashboardLabel}</Button>
           </Link>
+          {sessionUser ? <NotificationBell locale={locale} /> : null}
           {sessionUser ? (
             <form action={logoutAction} className="hidden sm:inline-flex">
               <Button size="sm" variant="secondary" className="text-[#D1D5DB] hover:bg-white/10 hover:text-white">
@@ -121,6 +123,11 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
                   <Link href={dashboardHref} locale={locale} className="block rounded-lg px-3 py-2 text-sm text-[#d1d5db] transition hover:bg-white/5 hover:text-white">
                     {dashboardLabel}
                   </Link>
+                  {sessionUser ? (
+                    <Link href="/notifications" locale={locale} className="block rounded-lg px-3 py-2 text-sm text-[#d1d5db] transition hover:bg-white/5 hover:text-white">
+                      {t("notifications")}
+                    </Link>
+                  ) : null}
                   {sessionUser ? (
                     <form action={logoutAction}>
                       <button

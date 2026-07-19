@@ -20,6 +20,15 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  async function readApiError(response: Response, fallback: string) {
+    try {
+      const payload = (await response.json()) as { error?: string };
+      return payload.error ?? fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorMessage(null);
@@ -31,12 +40,13 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
-      const data = (await response.json()) as { error?: string };
       if (!response.ok) {
-        setErrorMessage(data.error ?? "Registration failed.");
+        setErrorMessage(await readApiError(response, "Registration failed."));
         return;
       }
       router.push("/usdt-exchange");
+    } catch {
+      setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
     } finally {
       setIsSubmitting(false);
     }

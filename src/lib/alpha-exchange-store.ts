@@ -3068,6 +3068,9 @@ export async function getNotificationsForUser(input: {
   category?: NotificationCategory;
   unreadOnly?: boolean;
   query?: string;
+  limit?: number;
+  offset?: number;
+  includeActivity?: boolean;
 }) {
   const db = await readDb();
   const category = input.category;
@@ -3080,9 +3083,15 @@ export async function getNotificationsForUser(input: {
     const haystack = `${notification.title} ${notification.message} ${notification.relatedTradeId ?? ""} ${notification.relatedListingId ?? ""}`.toLowerCase();
     return haystack.includes(query);
   });
-  const activity = db.activityLog.filter((entry) => entry.userId === input.userId).slice(0, 120);
+  const sortedNotifications = [...notifications].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+  const safeOffset = Math.max(0, Math.floor(input.offset ?? 0));
+  const safeLimit = Math.max(1, Math.min(200, Math.floor(input.limit ?? 200)));
+  const unreadCount = sortedNotifications.filter((item) => !item.isRead).length;
+  const activity = input.includeActivity === false ? [] : db.activityLog.filter((entry) => entry.userId === input.userId).slice(0, 120);
   return {
-    notifications: notifications.slice(0, 200),
+    notifications: sortedNotifications.slice(safeOffset, safeOffset + safeLimit),
+    total: sortedNotifications.length,
+    unreadCount,
     activity,
   };
 }

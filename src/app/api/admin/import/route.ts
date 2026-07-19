@@ -1,6 +1,6 @@
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
-import { resolveAdminIdentity } from "@/lib/admin-auth";
+import { adminErrorStatus, resolveAdminIdentity } from "@/lib/admin-auth";
 import { addMediaItem, appendVersion, createLesson, inferMediaType, saveUploadedFile, validateUpload } from "@/lib/admin-store";
 import type { Lesson } from "@/types/academy";
 
@@ -27,7 +27,7 @@ function guessLessonFromFileName(fileName: string): Partial<Lesson> {
 
 export async function POST(request: NextRequest) {
   try {
-    const identity = resolveAdminIdentity(request);
+    const identity = await resolveAdminIdentity(request);
     const formData = await request.formData();
     const files = formData.getAll("files").filter((item): item is File => item instanceof File);
     if (!files.length) {
@@ -86,6 +86,6 @@ export async function POST(request: NextRequest) {
       lessons: createdLessons,
     });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to import lessons." }, { status: 400 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to import lessons." }, { status: adminErrorStatus(error) });
   }
 }

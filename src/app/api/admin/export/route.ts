@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resolveAdminIdentity } from "@/lib/admin-auth";
+import { adminErrorStatus, resolveAdminIdentity } from "@/lib/admin-auth";
 import { readLessons, toCsv } from "@/lib/admin-store";
 
 export async function GET(request: NextRequest) {
   try {
-    resolveAdminIdentity(request);
+    await resolveAdminIdentity(request);
     const url = new URL(request.url);
     const format = url.searchParams.get("format") || "json";
     const lessons = await readLessons();
@@ -39,6 +39,6 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to export academy data." }, { status: 400 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to export academy data." }, { status: adminErrorStatus(error) });
   }
 }

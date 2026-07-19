@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resolveAdminIdentity } from "@/lib/admin-auth";
+import { adminErrorStatus, resolveAdminIdentity } from "@/lib/admin-auth";
 import { deleteLesson, setLessonStatus, updateLesson } from "@/lib/admin-store";
 import type { LessonStatus } from "@/types/academy";
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const identity = resolveAdminIdentity(request);
+    const identity = await resolveAdminIdentity(request);
     const { id } = await params;
     const body = (await request.json()) as { lesson: Record<string, unknown> };
     const lessonPatch = (body.lesson || {}) as Record<string, unknown>;
@@ -16,17 +16,17 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         : await updateLesson(Object.assign({ id }, lessonPatch), identity.role);
     return NextResponse.json({ lesson });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update lesson." }, { status: 400 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update lesson." }, { status: adminErrorStatus(error) });
   }
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const identity = resolveAdminIdentity(request);
+    const identity = await resolveAdminIdentity(request);
     const { id } = await params;
     await deleteLesson(id, identity.role);
     return NextResponse.json({ ok: true });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to delete lesson." }, { status: 400 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to delete lesson." }, { status: adminErrorStatus(error) });
   }
 }

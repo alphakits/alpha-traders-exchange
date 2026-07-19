@@ -1,0 +1,19 @@
+{
+  "totalChecks": 288,
+  "totalFailures": 0,
+  "failures": [],
+  "login": {
+    "buyer": {
+      "status": 200,
+      "token": "038c3373-86cc-49ef-9e41-69e05914f8bc-8925e59a3354848d3c65b6166cd0300fd4e36b6017eec19c"
+    },
+    "owner": {
+      "status": 401,
+      "token": null
+    }
+  },
+  "notes": [
+    "Statuses 200/3xx/4xx are accepted for this sweep; only network errors/5xx are treated as hard failures.",
+    "This matrix validates route/API stability and authorization surfaces; UI-visual checks still require manual browser pass."
+  ]
+}

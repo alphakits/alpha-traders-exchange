@@ -11,7 +11,14 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   });
 }
 
-export default async function LoginPage({ params }: { params: Promise<{ locale: string }> }) {
+export default async function LoginPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ locale: string }>;
+  searchParams: Promise<{ redirectTo?: string | string[] }>;
+}) {
   const { locale } = await params;
-  return <LoginForm locale={locale as "ar" | "en"} />;
+  const { redirectTo } = await searchParams;
+  return <LoginForm locale={locale as "ar" | "en"} redirectTo={typeof redirectTo === "string" ? redirectTo : undefined} />;
 }
