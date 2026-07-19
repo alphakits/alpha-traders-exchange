@@ -1,0 +1,572 @@
+[
+  {
+    "id": "l1",
+    "courseId": "c1",
+    "module": "Module 1 - Context Mapping",
+    "moduleAr": "الوحدة 1 - رسم سياق السوق",
+    "slug": "trend-and-range-context",
+    "title": "Trend & Range Context",
+    "titleAr": "سياق الاتجاه والتذبذب",
+    "description": "Learn how to classify market conditions and avoid context-blind entries.",
+    "descriptionAr": "تعلّم كيفية تصنيف حالات السوق وتجنّب الدخول بدون سياق.",
+    "summary": "This lesson builds a repeatable model for identifying trend continuation versus range expansion before execution.",
+    "summaryAr": "يبني هذا الدرس نموذجًا متكررًا للتمييز بين استمرارية الاتجاه وتوسع النطاق قبل التنفيذ.",
+    "objectives": [
+      "Define market state before searching entries",
+      "Separate pullback opportunities from consolidation traps",
+      "Use a context checklist for session planning"
+    ],
+    "objectivesAr": [
+      "تحديد حالة السوق قبل البحث عن الدخول",
+      "التمييز بين فرص التصحيح وفخاخ التذبذب",
+      "استخدام قائمة تحقق سياقية لتخطيط الجلسة"
+    ],
+    "takeaways": [
+      "Context is a mandatory filter, not an optional step",
+      "Breakout signals require structure confirmation",
+      "Bias is valid only when highs/lows behavior aligns"
+    ],
+    "takeawaysAr": [
+      "السياق فلتر أساسي وليس خطوة اختيارية",
+      "إشارات الاختراق تحتاج لتأكيد هيكلي",
+      "الانحياز صالح فقط عند توافق سلوك القمم والقيعان"
+    ],
+    "keywords": [
+      "market structure",
+      "trend",
+      "range",
+      "bias",
+      "context"
+    ],
+    "keywordsAr": [
+      "هيكل السوق",
+      "اتجاه",
+      "تذبذب",
+      "انحياز",
+      "سياق"
+    ],
+    "durationMinutes": 24,
+    "order": 1,
+    "tags": [
+      "Structure",
+      "Trend",
+      "Bias"
+    ],
+    "tagsAr": [
+      "هيكل السوق",
+      "اتجاه",
+      "انحياز"
+    ],
+    "assets": {
+      "videoProvider": "youtube",
+      "videoUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "videoChapters": [
+        {
+          "id": "l1-c1",
+          "title": "Market State Classification",
+          "titleAr": "تصنيف حالة السوق",
+          "timeSeconds": 0
+        },
+        {
+          "id": "l1-c2",
+          "title": "Trend Continuation Checklist",
+          "titleAr": "قائمة تحقق استمرارية الاتجاه",
+          "timeSeconds": 450
+        },
+        {
+          "id": "l1-c3",
+          "title": "Range Traps and Invalidations",
+          "titleAr": "فخاخ التذبذب ومستويات الإلغاء",
+          "timeSeconds": 980
+        }
+      ],
+      "pdfProvider": "google-drive",
+      "pdfFileId": "",
+      "pdfUrl": "/files/lessons/trend-range-context.pdf",
+      "presentationUrl": "/files/lessons/trend-range-context.pptx",
+      "notes": "Objective checklist for structure shift and continuation behavior.",
+      "notesAr": "قائمة تحقق موضوعية لتحول الهيكل واستمرارية الحركة.",
+      "resources": [
+        {
+          "id": "l1-r1",
+          "label": "Session Context Worksheet",
+          "labelAr": "ورقة عمل سياق الجلسة",
+          "url": "/files/lessons/trend-range-context.pdf",
+          "type": "worksheet"
+        },
+        {
+          "id": "l1-r2",
+          "label": "Slide Deck",
+          "labelAr": "عرض الشرائح",
+          "url": "/files/lessons/trend-range-context.pptx",
+          "type": "slide"
+        }
+      ],
+      "videoId": ""
+    },
+    "quiz": [
+      {
+        "id": "q1",
+        "question": "What validates a bullish continuation context?",
+        "questionAr": "ما الذي يؤكد سياق الاستمرارية الصاعدة؟",
+        "options": [
+          "Lower highs",
+          "Higher highs and defended pullbacks",
+          "Random volatility",
+          "Single candle"
+        ],
+        "optionsAr": [
+          "قمم أدنى",
+          "قمم أعلى وتصحيحات مدعومة",
+          "تذبذب عشوائي",
+          "شمعة واحدة"
+        ],
+        "correctIndex": 1,
+        "explanation": "Continuation requires repeated higher highs with pullbacks that hold structure and fail to break demand.",
+        "explanationAr": "الاستمرارية تتطلب قممًا أعلى متكررة مع تصحيحات تحافظ على الهيكل وتفشل في كسر مناطق الطلب.",
+        "type": "multiple-choice"
+      }
+    ],
+    "category": "beginner",
+    "status": "draft",
+    "difficulty": "medium",
+    "xpReward": 100,
+    "lessonNumber": 1,
+    "estimatedDurationMinutes": 24,
+    "instructor": "",
+    "thumbnail": "",
+    "updatedAt": "2026-07-17T15:00:53.942Z",
+    "quizSettings": {
+      "passingScore": 70,
+      "randomizedOrder": false,
+      "instantFeedback": true
+    }
+  },
+  {
+    "id": "l2",
+    "courseId": "c2",
+    "module": "Module 1 - Risk Engine",
+    "moduleAr": "الوحدة 1 - محرك إدارة المخاطر",
+    "slug": "position-sizing-protocol",
+    "title": "Position Sizing Protocol",
+    "titleAr": "بروتوكول حجم الصفقة",
+    "description": "Create fixed-risk execution rules for consistency and survivability.",
+    "descriptionAr": "بناء قواعد ثابتة للمخاطر من أجل الاتساق والاستمرارية.",
+    "summary": "You will build a practical sizing protocol that protects account longevity while preserving upside.",
+    "summaryAr": "ستبني بروتوكولًا عمليًا لتحديد حجم الصفقة يحافظ على بقاء الحساب مع إبقاء فرص النمو.",
+    "objectives": [
+      "Translate risk percentage into position size",
+      "Apply max daily loss constraints",
+      "Standardize risk in every setup"
+    ],
+    "objectivesAr": [
+      "تحويل نسبة المخاطرة إلى حجم صفقة",
+      "تطبيق قيود الخسارة اليومية القصوى",
+      "توحيد المخاطرة في كل إعداد"
+    ],
+    "takeaways": [
+      "Survival comes before aggressive growth",
+      "Daily loss limits prevent emotional spirals",
+      "Consistent sizing enables objective performance review"
+    ],
+    "takeawaysAr": [
+      "الاستمرارية تسبق النمو العدواني",
+      "حدود الخسارة اليومية تمنع الانزلاق العاطفي",
+      "ثبات حجم الصفقة يتيح مراجعة أداء موضوعية"
+    ],
+    "keywords": [
+      "risk management",
+      "position sizing",
+      "max loss",
+      "R-multiple"
+    ],
+    "keywordsAr": [
+      "إدارة المخاطر",
+      "حجم الصفقة",
+      "حد الخسارة",
+      "مضاعف R"
+    ],
+    "durationMinutes": 31,
+    "order": 1,
+    "tags": [
+      "Risk",
+      "Sizing",
+      "R-Multiple"
+    ],
+    "tagsAr": [
+      "مخاطر",
+      "حجم الصفقة",
+      "مضاعف R"
+    ],
+    "assets": {
+      "videoProvider": "vimeo",
+      "videoUrl": "https://vimeo.com/76979871",
+      "videoChapters": [
+        {
+          "id": "l2-c1",
+          "title": "Fixed Fractional Risk",
+          "titleAr": "المخاطرة الثابتة",
+          "timeSeconds": 0
+        },
+        {
+          "id": "l2-c2",
+          "title": "Sizing Formula Walkthrough",
+          "titleAr": "شرح معادلة الحجم",
+          "timeSeconds": 610
+        },
+        {
+          "id": "l2-c3",
+          "title": "Daily Risk Governance",
+          "titleAr": "حوكمة المخاطر اليومية",
+          "timeSeconds": 1230
+        }
+      ],
+      "pdfProvider": "google-drive",
+      "pdfFileId": "",
+      "pdfUrl": "/files/lessons/position-sizing.pdf",
+      "presentationUrl": "/files/lessons/position-sizing.pptx",
+      "notes": "Fixed-fractional framework and max daily loss governance.",
+      "notesAr": "إطار النسبة الثابتة وحدود الخسارة اليومية.",
+      "resources": [
+        {
+          "id": "l2-r1",
+          "label": "Risk Calculator Sheet",
+          "labelAr": "جدول حاسبة المخاطر",
+          "url": "/files/lessons/position-sizing.pdf",
+          "type": "worksheet"
+        },
+        {
+          "id": "l2-r2",
+          "label": "Position Sizing Slides",
+          "labelAr": "شرائح حجم الصفقة",
+          "url": "/files/lessons/position-sizing.pptx",
+          "type": "slide"
+        }
+      ],
+      "videoId": ""
+    },
+    "quiz": [
+      {
+        "id": "q2",
+        "question": "Which metric controls survivability first?",
+        "questionAr": "أي مقياس يحافظ على الاستمرارية أولاً؟",
+        "options": [
+          "Win rate only",
+          "Daily max loss",
+          "Entry frequency",
+          "Indicator count"
+        ],
+        "optionsAr": [
+          "نسبة النجاح فقط",
+          "حد الخسارة اليومي",
+          "تكرار الدخول",
+          "عدد المؤشرات"
+        ],
+        "correctIndex": 1,
+        "explanation": "A strict daily max loss limits downside clustering and protects capital during poor conditions.",
+        "explanationAr": "حد الخسارة اليومي الصارم يقلل تكتل الخسائر ويحمي رأس المال أثناء ظروف السوق الضعيفة.",
+        "type": "multiple-choice"
+      }
+    ],
+    "category": "intermediate",
+    "status": "draft",
+    "difficulty": "medium",
+    "xpReward": 100,
+    "lessonNumber": 1,
+    "estimatedDurationMinutes": 31,
+    "instructor": "",
+    "thumbnail": "",
+    "updatedAt": "2026-07-17T15:00:53.943Z",
+    "quizSettings": {
+      "passingScore": 70,
+      "randomizedOrder": false,
+      "instantFeedback": true
+    }
+  },
+  {
+    "id": "l3",
+    "courseId": "c4",
+    "module": "Module 1 - Liquidity Logic",
+    "moduleAr": "الوحدة 1 - منطق السيولة",
+    "slug": "liquidity-and-displacement",
+    "title": "Liquidity & Displacement",
+    "titleAr": "السيولة والإزاحة السعرية",
+    "description": "Understand liquidity targeting and displacement confirmation in ICT models.",
+    "descriptionAr": "فهم استهداف السيولة وتأكيد الإزاحة في نماذج ICT.",
+    "summary": "This lesson connects liquidity sweeps, displacement, and structure confirmation into one execution model.",
+    "summaryAr": "يربط هذا الدرس بين سحب السيولة والإزاحة وتأكيد الهيكل ضمن نموذج تنفيذ واحد.",
+    "objectives": [
+      "Map external and internal liquidity pools",
+      "Confirm displacement before entry",
+      "Align execution with session narrative"
+    ],
+    "objectivesAr": [
+      "تحديد تجمعات السيولة الخارجية والداخلية",
+      "تأكيد الإزاحة قبل الدخول",
+      "مواءمة التنفيذ مع سرد الجلسة"
+    ],
+    "takeaways": [
+      "Sweeps alone are not entries without displacement",
+      "Execution quality improves with session alignment",
+      "Structure confirmation reduces false reversals"
+    ],
+    "takeawaysAr": [
+      "سحب السيولة وحده ليس دخولًا دون إزاحة",
+      "جودة التنفيذ تتحسن مع توافق الجلسة",
+      "تأكيد الهيكل يقلل الانعكاسات الكاذبة"
+    ],
+    "keywords": [
+      "ict",
+      "liquidity",
+      "displacement",
+      "market structure",
+      "execution"
+    ],
+    "keywordsAr": [
+      "ICT",
+      "سيولة",
+      "إزاحة",
+      "هيكل السوق",
+      "تنفيذ"
+    ],
+    "durationMinutes": 28,
+    "order": 1,
+    "tags": [
+      "ICT",
+      "Liquidity",
+      "Execution"
+    ],
+    "tagsAr": [
+      "ICT",
+      "سيولة",
+      "تنفيذ"
+    ],
+    "assets": {
+      "videoProvider": "google-drive",
+      "videoUrl": "https://drive.google.com/file/d/1w7rS6VbJ8lQvJ9QJfD2uWm8u2g1G2x3p/view?usp=sharing",
+      "videoChapters": [
+        {
+          "id": "l3-c1",
+          "title": "Liquidity Pools",
+          "titleAr": "تجمعات السيولة",
+          "timeSeconds": 0
+        },
+        {
+          "id": "l3-c2",
+          "title": "Sweep and Displacement",
+          "titleAr": "السحب والإزاحة",
+          "timeSeconds": 530
+        },
+        {
+          "id": "l3-c3",
+          "title": "Entry Validation",
+          "titleAr": "التحقق من الدخول",
+          "timeSeconds": 1160
+        }
+      ],
+      "pdfProvider": "google-drive",
+      "pdfFileId": "",
+      "pdfUrl": "/files/lessons/liquidity-displacement.pdf",
+      "presentationUrl": "/files/lessons/liquidity-displacement.pptx",
+      "notes": "Map internal and external liquidity pools with session bias.",
+      "notesAr": "تحديد السيولة الداخلية والخارجية مع انحياز الجلسة.",
+      "resources": [
+        {
+          "id": "l3-r1",
+          "label": "Liquidity Checklist",
+          "labelAr": "قائمة تحقق السيولة",
+          "url": "/files/lessons/liquidity-displacement.pdf",
+          "type": "worksheet"
+        },
+        {
+          "id": "l3-r2",
+          "label": "Execution Slides",
+          "labelAr": "شرائح التنفيذ",
+          "url": "/files/lessons/liquidity-displacement.pptx",
+          "type": "slide"
+        }
+      ],
+      "videoId": ""
+    },
+    "quiz": [
+      {
+        "id": "q3",
+        "question": "What improves entry quality after liquidity sweep?",
+        "questionAr": "ما الذي يحسن جودة الدخول بعد سحب السيولة؟",
+        "options": [
+          "Immediate market order",
+          "Displacement + structure confirmation",
+          "Larger stop",
+          "No stop-loss"
+        ],
+        "optionsAr": [
+          "دخول فوري",
+          "إزاحة + تأكيد هيكل",
+          "وقف أكبر",
+          "بدون وقف خسارة"
+        ],
+        "correctIndex": 1,
+        "explanation": "The sweep identifies intent; displacement and structure confirmation validate that intent for execution.",
+        "explanationAr": "السحب يحدد النية، بينما الإزاحة وتأكيد الهيكل يثبتان صلاحية تلك النية للتنفيذ.",
+        "type": "multiple-choice"
+      }
+    ],
+    "category": "advanced",
+    "status": "draft",
+    "difficulty": "medium",
+    "xpReward": 100,
+    "lessonNumber": 1,
+    "estimatedDurationMinutes": 28,
+    "instructor": "",
+    "thumbnail": "",
+    "updatedAt": "2026-07-17T15:00:53.943Z",
+    "quizSettings": {
+      "passingScore": 70,
+      "randomizedOrder": false,
+      "instantFeedback": true
+    }
+  },
+  {
+    "id": "l-1784300453943",
+    "courseId": "c1",
+    "module": "Module 1 - Context Mapping",
+    "moduleAr": "الوحدة 1 - رسم سياق السوق",
+    "slug": "trend-and-range-context-copy",
+    "title": "Trend & Range Context (Copy)",
+    "titleAr": "سياق الاتجاه والتذبذب (نسخة)",
+    "description": "Learn how to classify market conditions and avoid context-blind entries.",
+    "descriptionAr": "تعلّم كيفية تصنيف حالات السوق وتجنّب الدخول بدون سياق.",
+    "summary": "This lesson builds a repeatable model for identifying trend continuation versus range expansion before execution.",
+    "summaryAr": "يبني هذا الدرس نموذجًا متكررًا للتمييز بين استمرارية الاتجاه وتوسع النطاق قبل التنفيذ.",
+    "objectives": [
+      "Define market state before searching entries",
+      "Separate pullback opportunities from consolidation traps",
+      "Use a context checklist for session planning"
+    ],
+    "objectivesAr": [
+      "تحديد حالة السوق قبل البحث عن الدخول",
+      "التمييز بين فرص التصحيح وفخاخ التذبذب",
+      "استخدام قائمة تحقق سياقية لتخطيط الجلسة"
+    ],
+    "takeaways": [
+      "Context is a mandatory filter, not an optional step",
+      "Breakout signals require structure confirmation",
+      "Bias is valid only when highs/lows behavior aligns"
+    ],
+    "takeawaysAr": [
+      "السياق فلتر أساسي وليس خطوة اختيارية",
+      "إشارات الاختراق تحتاج لتأكيد هيكلي",
+      "الانحياز صالح فقط عند توافق سلوك القمم والقيعان"
+    ],
+    "keywords": [
+      "market structure",
+      "trend",
+      "range",
+      "bias",
+      "context"
+    ],
+    "keywordsAr": [
+      "هيكل السوق",
+      "اتجاه",
+      "تذبذب",
+      "انحياز",
+      "سياق"
+    ],
+    "durationMinutes": 24,
+    "order": 4,
+    "tags": [
+      "Structure",
+      "Trend",
+      "Bias"
+    ],
+    "tagsAr": [
+      "هيكل السوق",
+      "اتجاه",
+      "انحياز"
+    ],
+    "assets": {
+      "videoProvider": "youtube",
+      "videoUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "videoChapters": [
+        {
+          "id": "l1-c1",
+          "title": "Market State Classification",
+          "titleAr": "تصنيف حالة السوق",
+          "timeSeconds": 0
+        },
+        {
+          "id": "l1-c2",
+          "title": "Trend Continuation Checklist",
+          "titleAr": "قائمة تحقق استمرارية الاتجاه",
+          "timeSeconds": 450
+        },
+        {
+          "id": "l1-c3",
+          "title": "Range Traps and Invalidations",
+          "titleAr": "فخاخ التذبذب ومستويات الإلغاء",
+          "timeSeconds": 980
+        }
+      ],
+      "pdfProvider": "google-drive",
+      "pdfFileId": "",
+      "pdfUrl": "/files/lessons/trend-range-context.pdf",
+      "presentationUrl": "/files/lessons/trend-range-context.pptx",
+      "notes": "Objective checklist for structure shift and continuation behavior.",
+      "notesAr": "قائمة تحقق موضوعية لتحول الهيكل واستمرارية الحركة.",
+      "resources": [
+        {
+          "id": "l1-r1",
+          "label": "Session Context Worksheet",
+          "labelAr": "ورقة عمل سياق الجلسة",
+          "url": "/files/lessons/trend-range-context.pdf",
+          "type": "worksheet"
+        },
+        {
+          "id": "l1-r2",
+          "label": "Slide Deck",
+          "labelAr": "عرض الشرائح",
+          "url": "/files/lessons/trend-range-context.pptx",
+          "type": "slide"
+        }
+      ],
+      "videoId": ""
+    },
+    "quiz": [
+      {
+        "id": "q1",
+        "question": "What validates a bullish continuation context?",
+        "questionAr": "ما الذي يؤكد سياق الاستمرارية الصاعدة؟",
+        "options": [
+          "Lower highs",
+          "Higher highs and defended pullbacks",
+          "Random volatility",
+          "Single candle"
+        ],
+        "optionsAr": [
+          "قمم أدنى",
+          "قمم أعلى وتصحيحات مدعومة",
+          "تذبذب عشوائي",
+          "شمعة واحدة"
+        ],
+        "correctIndex": 1,
+        "explanation": "Continuation requires repeated higher highs with pullbacks that hold structure and fail to break demand.",
+        "explanationAr": "الاستمرارية تتطلب قممًا أعلى متكررة مع تصحيحات تحافظ على الهيكل وتفشل في كسر مناطق الطلب.",
+        "type": "multiple-choice"
+      }
+    ],
+    "category": "beginner",
+    "status": "draft",
+    "difficulty": "medium",
+    "xpReward": 100,
+    "lessonNumber": 4,
+    "estimatedDurationMinutes": 24,
+    "instructor": "",
+    "thumbnail": "",
+    "updatedAt": "2026-07-17T15:00:53.943Z",
+    "quizSettings": {
+      "passingScore": 70,
+      "randomizedOrder": false,
+      "instantFeedback": true
+    }
+  }
+]

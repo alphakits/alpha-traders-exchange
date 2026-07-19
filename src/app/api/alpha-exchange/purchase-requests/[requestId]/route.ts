@@ -1,0 +1,48 @@
+import { NextRequest, NextResponse } from "next/server";
+import { updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
+import { requireApiUser } from "@/lib/api-auth";
+import { checkRateLimit } from "@/lib/rate-limit";
+
+type RouteContext = {
+  params: Promise<{ requestId: string }>;
+};
+
+function isValidRequestStatus(value: string): value is "pending" | "accepted" | "payment_sent" | "usdt_sent" | "completed" | "declined" | "cancelled" {
+  return value === "pending" || value === "accepted" || value === "payment_sent" || value === "usdt_sent" || value === "completed" || value === "declined" || value === "cancelled";
+}
+
+export async function PATCH(request: NextRequest, context: RouteContext) {
+  const { user, unauthorized } = await requireApiUser();
+  if (!user) return unauthorized;
+  const rate = checkRateLimit({
+    headers: request.headers,
+    key: "exchange:purchase-request-status",
+    maxRequests: 40,
+    windowMs: 60_000,
+  });
+  if (!rate.allowed) {
+    return NextResponse.json({ error: "Too many status updates. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
+  }
+
+  try {
+    const { requestId } = await context.params;
+    const body = await request.json();
+    const status = String(body.status ?? "").trim();
+    if (!status) {
+      return NextResponse.json({ error: "Status is required." }, { status: 400 });
+    }
+    if (!isValidRequestStatus(status)) {
+      return NextResponse.json({ error: "Invalid purchase request status." }, { status: 400 });
+    }
+
+    const updated = await updatePurchaseRequestStatus({
+      requestId,
+      actorUserId: user.id,
+      actorRole: user.role,
+      nextStatus: status,
+    });
+    return NextResponse.json({ request: updated });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update request." }, { status: 400 });
+  }
+}

@@ -1,0 +1,6 @@
+[
+  { "id": "s1", "label": "Active Learners", "labelAr": "متعلم نشط", "value": "12K+" },
+  { "id": "s2", "label": "Structured Lessons", "labelAr": "درس منظم", "value": "150+" },
+  { "id": "s3", "label": "Weekly Analysis", "labelAr": "تحليل أسبوعي", "value": "40+" },
+  { "id": "s4", "label": "Completion Rate", "labelAr": "معدل إكمال", "value": "87%" }
+]

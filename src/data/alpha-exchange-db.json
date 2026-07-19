@@ -1,0 +1,133 @@
+{
+  "users": [
+    {
+      "id": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
+      "fullName": "markjozen",
+      "email": "jozenmark834@yahoo.com",
+      "passwordHash": "23df5c74a48094d16afb87bdca68594c:39c0ccf221d34a481ce4d424273f1e29b5049eb7f28821b423d33d0ddcaa3dae48b880c87147f527ac6c125d74408f75b7ad342331c657fe0d1e75ab62434b06",
+      "whatsappNumber": "9725967649",
+      "role": "admin",
+      "createdAt": "2026-07-19T08:14:44.504Z",
+      "updatedAt": "2026-07-19T12:23:21.811Z",
+      "sellerStatus": "buyer",
+      "preferredNetworks": [],
+      "profilePhotoUrl": "",
+      "languages": [
+        "English"
+      ],
+      "bio": "",
+      "onlineStatus": "offline",
+      "tradingExperience": "",
+      "workingHours": "",
+      "preferredPaymentMethods": [],
+      "country": "",
+      "city": "",
+      "coverBannerUrl": "",
+      "lastActiveAt": "2026-07-19T08:14:44.504Z",
+      "isFeaturedSeller": false,
+      "isProfileHidden": false,
+      "notificationPreferences": {
+        "inApp": true,
+        "email": false,
+        "sms": false
+      },
+      "isFoundingMember": false,
+      "isFoundingSeller": false
+    },
+    {
+      "id": "user-guest-test123",
+      "fullName": "test123",
+      "email": "test123@guest.local",
+      "passwordHash": "d7aec14fcf45d919e3e2d16b09e708a0:0d30e27646e8d35c922f345613a2c1625b36e5593722d2d19fa90fb3f031c40e93b8d8697c177421bc301c53b0af3c37389f8360c39a9c4c12eb160754a7fd03",
+      "whatsappNumber": "0000000000",
+      "preferredNetworks": [],
+      "profilePhotoUrl": "",
+      "languages": [
+        "English"
+      ],
+      "bio": "",
+      "onlineStatus": "offline",
+      "role": "buyer",
+      "sellerStatus": "pending_seller_approval",
+      "createdAt": "2026-07-19T09:17:31.000Z",
+      "updatedAt": "2026-07-19T11:24:42.149Z",
+      "tradingExperience": "",
+      "workingHours": "",
+      "preferredPaymentMethods": [],
+      "country": "",
+      "city": "",
+      "coverBannerUrl": "",
+      "lastActiveAt": "2026-07-19T09:17:31.000Z",
+      "isFeaturedSeller": false,
+      "isProfileHidden": false,
+      "notificationPreferences": {
+        "inApp": true,
+        "email": false,
+        "sms": false
+      },
+      "isFoundingMember": false,
+      "isFoundingSeller": false
+    }
+  ],
+  "sellerApplications": [
+    {
+      "id": "seller-app-9204b78e-fbd0-4b64-a53c-5033e216e0dc",
+      "userId": "user-guest-test123",
+      "fullName": "test123",
+      "email": "test123@guest.local",
+      "whatsappNumber": "0000000000",
+      "preferredNetworks": [
+        "TRC20"
+      ],
+      "expectedMonthlyTradingVolume": "50000",
+      "additionalNotes": "beta seller application",
+      "status": "pending",
+      "createdAt": "2026-07-19T11:24:42.149Z",
+      "updatedAt": "2026-07-19T11:24:42.149Z"
+    }
+  ],
+  "marketplaceListings": [],
+  "purchaseRequests": [],
+  "commissionRecords": [],
+  "auditLogs": [],
+  "authSessions": [
+    {
+      "token": "b7e7f932f2cabf89e983d8df8c36bf8038da94ff1f2e50aabe76b30626c254d5",
+      "userId": "user-guest-test123",
+      "createdAt": "2026-07-19T11:24:50.408Z",
+      "expiresAt": "2026-08-02T11:24:50.408Z"
+    }
+  ],
+  "passwordResetTokens": [],
+  "notifications": [
+    {
+      "id": "notif-5b060961-7023-4605-af69-fa2c525b1f63",
+      "userId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
+      "category": "application",
+      "title": "New seller application",
+      "message": "test123 submitted a seller application.",
+      "isRead": true,
+      "relatedHref": "/admin/alpha-exchange",
+      "createdAt": "2026-07-19T11:24:42.150Z"
+    }
+  ],
+  "activityLog": [
+    {
+      "id": "activity-cd43cb00-69c1-4f8d-98e8-4e4841354946",
+      "userId": "user-guest-test123",
+      "category": "application",
+      "title": "Seller application submitted",
+      "details": "Your seller application is pending owner review.",
+      "createdAt": "2026-07-19T11:24:42.150Z"
+    }
+  ],
+  "disputes": [],
+  "sellerReports": [],
+  "trustSnapshots": [],
+  "trustScoreHistory": [],
+  "tradeEvidenceFiles": [],
+  "privateBetaInvites": [],
+  "privateBetaInviteUses": [],
+  "betaFeedback": [],
+  "betaAnnouncements": []
+}

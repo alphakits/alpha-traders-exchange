@@ -1,0 +1,377 @@
+{
+  "version": 3,
+  "pages404": true,
+  "caseSensitive": false,
+  "basePath": "",
+  "redirects": [
+    {
+      "source": "/:path+/",
+      "destination": "/:path+",
+      "internal": true,
+      "statusCode": 308,
+      "regex": "^(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))/$"
+    }
+  ],
+  "headers": [],
+  "rewrites": {
+    "beforeFiles": [],
+    "afterFiles": [],
+    "fallback": []
+  },
+  "dynamicRoutes": [
+    {
+      "page": "/api/admin/lessons/[id]",
+      "regex": "^/api/admin/lessons/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/admin/lessons/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/admin/lessons/[id]/duplicate",
+      "regex": "^/api/admin/lessons/([^/]+?)/duplicate(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/admin/lessons/(?<nxtPid>[^/]+?)/duplicate(?:/)?$"
+    },
+    {
+      "page": "/api/alpha-exchange/admin/listings/[listingId]",
+      "regex": "^/api/alpha\\-exchange/admin/listings/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPlistingId": "nxtPlistingId"
+      },
+      "namedRegex": "^/api/alpha\\-exchange/admin/listings/(?<nxtPlistingId>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/alpha-exchange/admin/private-beta/announcements/[announcementId]",
+      "regex": "^/api/alpha\\-exchange/admin/private\\-beta/announcements/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPannouncementId": "nxtPannouncementId"
+      },
+      "namedRegex": "^/api/alpha\\-exchange/admin/private\\-beta/announcements/(?<nxtPannouncementId>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/alpha-exchange/admin/private-beta/feedback/[feedbackId]",
+      "regex": "^/api/alpha\\-exchange/admin/private\\-beta/feedback/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPfeedbackId": "nxtPfeedbackId"
+      },
+      "namedRegex": "^/api/alpha\\-exchange/admin/private\\-beta/feedback/(?<nxtPfeedbackId>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/alpha-exchange/admin/private-beta/invites/[inviteId]",
+      "regex": "^/api/alpha\\-exchange/admin/private\\-beta/invites/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPinviteId": "nxtPinviteId"
+      },
+      "namedRegex": "^/api/alpha\\-exchange/admin/private\\-beta/invites/(?<nxtPinviteId>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/alpha-exchange/admin/seller-applications/[applicationId]/approve",
+      "regex": "^/api/alpha\\-exchange/admin/seller\\-applications/([^/]+?)/approve(?:/)?$",
+      "routeKeys": {
+        "nxtPapplicationId": "nxtPapplicationId"
+      },
+      "namedRegex": "^/api/alpha\\-exchange/admin/seller\\-applications/(?<nxtPapplicationId>[^/]+?)/approve(?:/)?$"
+    },
+    {
+      "page": "/api/alpha-exchange/admin/seller-applications/[applicationId]/reject",
+      "regex": "^/api/alpha\\-exchange/admin/seller\\-applications/([^/]+?)/reject(?:/)?$",
+      "routeKeys": {
+        "nxtPapplicationId": "nxtPapplicationId"
+      },
+      "namedRegex": "^/api/alpha\\-exchange/admin/seller\\-applications/(?<nxtPapplicationId>[^/]+?)/reject(?:/)?$"
+    },
+    {
+      "page": "/api/alpha-exchange/admin/sellers/[userId]/profile-state",
+      "regex": "^/api/alpha\\-exchange/admin/sellers/([^/]+?)/profile\\-state(?:/)?$",
+      "routeKeys": {
+        "nxtPuserId": "nxtPuserId"
+      },
+      "namedRegex": "^/api/alpha\\-exchange/admin/sellers/(?<nxtPuserId>[^/]+?)/profile\\-state(?:/)?$"
+    },
+    {
+      "page": "/api/alpha-exchange/admin/sellers/[userId]/reactivate",
+      "regex": "^/api/alpha\\-exchange/admin/sellers/([^/]+?)/reactivate(?:/)?$",
+      "routeKeys": {
+        "nxtPuserId": "nxtPuserId"
+      },
+      "namedRegex": "^/api/alpha\\-exchange/admin/sellers/(?<nxtPuserId>[^/]+?)/reactivate(?:/)?$"
+    },
+    {
+      "page": "/api/alpha-exchange/admin/sellers/[userId]/suspend",
+      "regex": "^/api/alpha\\-exchange/admin/sellers/([^/]+?)/suspend(?:/)?$",
+      "routeKeys": {
+        "nxtPuserId": "nxtPuserId"
+      },
+      "namedRegex": "^/api/alpha\\-exchange/admin/sellers/(?<nxtPuserId>[^/]+?)/suspend(?:/)?$"
+    },
+    {
+      "page": "/api/alpha-exchange/listings/[listingId]",
+      "regex": "^/api/alpha\\-exchange/listings/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPlistingId": "nxtPlistingId"
+      },
+      "namedRegex": "^/api/alpha\\-exchange/listings/(?<nxtPlistingId>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/alpha-exchange/notifications/[notificationId]",
+      "regex": "^/api/alpha\\-exchange/notifications/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPnotificationId": "nxtPnotificationId"
+      },
+      "namedRegex": "^/api/alpha\\-exchange/notifications/(?<nxtPnotificationId>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/alpha-exchange/purchase-requests/[requestId]",
+      "regex": "^/api/alpha\\-exchange/purchase\\-requests/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPrequestId": "nxtPrequestId"
+      },
+      "namedRegex": "^/api/alpha\\-exchange/purchase\\-requests/(?<nxtPrequestId>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/alpha-exchange/purchase-requests/[requestId]/evidence",
+      "regex": "^/api/alpha\\-exchange/purchase\\-requests/([^/]+?)/evidence(?:/)?$",
+      "routeKeys": {
+        "nxtPrequestId": "nxtPrequestId"
+      },
+      "namedRegex": "^/api/alpha\\-exchange/purchase\\-requests/(?<nxtPrequestId>[^/]+?)/evidence(?:/)?$"
+    },
+    {
+      "page": "/api/alpha-exchange/purchase-requests/[requestId]/evidence/[evidenceId]",
+      "regex": "^/api/alpha\\-exchange/purchase\\-requests/([^/]+?)/evidence/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPrequestId": "nxtPrequestId",
+        "nxtPevidenceId": "nxtPevidenceId"
+      },
+      "namedRegex": "^/api/alpha\\-exchange/purchase\\-requests/(?<nxtPrequestId>[^/]+?)/evidence/(?<nxtPevidenceId>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/alpha-exchange/purchase-requests/[requestId]/review",
+      "regex": "^/api/alpha\\-exchange/purchase\\-requests/([^/]+?)/review(?:/)?$",
+      "routeKeys": {
+        "nxtPrequestId": "nxtPrequestId"
+      },
+      "namedRegex": "^/api/alpha\\-exchange/purchase\\-requests/(?<nxtPrequestId>[^/]+?)/review(?:/)?$"
+    },
+    {
+      "page": "/api/alpha-exchange/sellers/[sellerId]/profile",
+      "regex": "^/api/alpha\\-exchange/sellers/([^/]+?)/profile(?:/)?$",
+      "routeKeys": {
+        "nxtPsellerId": "nxtPsellerId"
+      },
+      "namedRegex": "^/api/alpha\\-exchange/sellers/(?<nxtPsellerId>[^/]+?)/profile(?:/)?$"
+    },
+    {
+      "page": "/[locale]",
+      "regex": "^/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/[locale]/about-founder",
+      "regex": "^/([^/]+?)/about\\-founder(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/about\\-founder(?:/)?$"
+    },
+    {
+      "page": "/[locale]/academy",
+      "regex": "^/([^/]+?)/academy(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/academy(?:/)?$"
+    },
+    {
+      "page": "/[locale]/academy/dashboard",
+      "regex": "^/([^/]+?)/academy/dashboard(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/academy/dashboard(?:/)?$"
+    },
+    {
+      "page": "/[locale]/academy/[course]",
+      "regex": "^/([^/]+?)/academy/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale",
+        "nxtPcourse": "nxtPcourse"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/academy/(?<nxtPcourse>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/[locale]/admin",
+      "regex": "^/([^/]+?)/admin(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/admin(?:/)?$"
+    },
+    {
+      "page": "/[locale]/admin/alpha-exchange",
+      "regex": "^/([^/]+?)/admin/alpha\\-exchange(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/admin/alpha\\-exchange(?:/)?$"
+    },
+    {
+      "page": "/[locale]/admin/alpha-exchange/pending-listings",
+      "regex": "^/([^/]+?)/admin/alpha\\-exchange/pending\\-listings(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/admin/alpha\\-exchange/pending\\-listings(?:/)?$"
+    },
+    {
+      "page": "/[locale]/community",
+      "regex": "^/([^/]+?)/community(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/community(?:/)?$"
+    },
+    {
+      "page": "/[locale]/contact",
+      "regex": "^/([^/]+?)/contact(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/contact(?:/)?$"
+    },
+    {
+      "page": "/[locale]/dashboard",
+      "regex": "^/([^/]+?)/dashboard(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/dashboard(?:/)?$"
+    },
+    {
+      "page": "/[locale]/dashboard/seller",
+      "regex": "^/([^/]+?)/dashboard/seller(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/dashboard/seller(?:/)?$"
+    },
+    {
+      "page": "/[locale]/founder",
+      "regex": "^/([^/]+?)/founder(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/founder(?:/)?$"
+    },
+    {
+      "page": "/[locale]/lessons",
+      "regex": "^/([^/]+?)/lessons(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/lessons(?:/)?$"
+    },
+    {
+      "page": "/[locale]/lessons/[slug]",
+      "regex": "^/([^/]+?)/lessons/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale",
+        "nxtPslug": "nxtPslug"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/lessons/(?<nxtPslug>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/[locale]/login",
+      "regex": "^/([^/]+?)/login(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/login(?:/)?$"
+    },
+    {
+      "page": "/[locale]/profile",
+      "regex": "^/([^/]+?)/profile(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/profile(?:/)?$"
+    },
+    {
+      "page": "/[locale]/register",
+      "regex": "^/([^/]+?)/register(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/register(?:/)?$"
+    },
+    {
+      "page": "/[locale]/usdt-exchange",
+      "regex": "^/([^/]+?)/usdt\\-exchange(?:/)?$",
+      "routeKeys": {
+        "nxtPlocale": "nxtPlocale"
+      },
+      "namedRegex": "^/(?<nxtPlocale>[^/]+?)/usdt\\-exchange(?:/)?$"
+    }
+  ],
+  "staticRoutes": [
+    {
+      "page": "/",
+      "regex": "^/(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/(?:/)?$"
+    },
+    {
+      "page": "/_not-found",
+      "regex": "^/_not\\-found(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_not\\-found(?:/)?$"
+    },
+    {
+      "page": "/favicon.ico",
+      "regex": "^/favicon\\.ico(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/favicon\\.ico(?:/)?$"
+    },
+    {
+      "page": "/icon.png",
+      "regex": "^/icon\\.png(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/icon\\.png(?:/)?$"
+    },
+    {
+      "page": "/robots.txt",
+      "regex": "^/robots\\.txt(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/robots\\.txt(?:/)?$"
+    },
+    {
+      "page": "/sitemap.xml",
+      "regex": "^/sitemap\\.xml(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/sitemap\\.xml(?:/)?$"
+    }
+  ],
+  "dataRoutes": [],
+  "rsc": {
+    "header": "rsc",
+    "varyHeader": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+    "prefetchHeader": "next-router-prefetch",
+    "didPostponeHeader": "x-nextjs-postponed",
+    "contentTypeHeader": "text/x-component",
+    "suffix": ".rsc",
+    "prefetchSuffix": ".prefetch.rsc",
+    "prefetchSegmentHeader": "next-router-segment-prefetch",
+    "prefetchSegmentSuffix": ".segment.rsc",
+    "prefetchSegmentDirSuffix": ".segments"
+  },
+  "rewriteHeaders": {
+    "pathHeader": "x-nextjs-rewritten-path",
+    "queryHeader": "x-nextjs-rewritten-query"
+  }
+}

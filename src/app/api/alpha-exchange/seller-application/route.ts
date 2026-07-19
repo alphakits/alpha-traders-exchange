@@ -1,0 +1,120 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createSellerApplication, getSellerApplicationByUserId } from "@/lib/alpha-exchange-store";
+import { requireApiUser } from "@/lib/api-auth";
+import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
+import type { SupportedNetwork } from "@/types/alpha-exchange";
+
+function isValidNetwork(value: string): value is SupportedNetwork {
+  return value === "TRC20" || value === "ERC20" || value === "BEP20" || value === "SOL";
+}
+
+const SELLER_APPLICATION_ERROR_STATUS: Record<string, number> = {
+  "Account not found.": 404,
+  "Owner accounts cannot submit seller applications.": 403,
+  "Administrator accounts cannot submit seller applications.": 403,
+  "You are already an approved seller.": 400,
+  "Your seller application is already pending review.": 400,
+  "Your account is suspended.": 403,
+  "Full name is required.": 400,
+  "WhatsApp number is required.": 400,
+  "At least one preferred network is required.": 400,
+};
+
+export async function GET() {
+  const { user, unauthorized } = await requireApiUser();
+  if (!user) return unauthorized;
+  const application = await getSellerApplicationByUserId(user.id);
+  return NextResponse.json({ application });
+}
+
+export async function POST(request: NextRequest) {
+  const { user, unauthorized } = await requireApiUser();
+  if (!user) return unauthorized;
+  if (isAlphaExchangeOwnerEmail(user.email)) {
+    return NextResponse.json({ error: "Owner accounts cannot submit seller applications." }, { status: 403 });
+  }
+  if (user.role === "admin") {
+    return NextResponse.json({ error: "Administrator accounts cannot submit seller applications." }, { status: 403 });
+  }
+  if (user.sellerStatus === "approved_seller") {
+    return NextResponse.json({ error: "You are already an approved seller." }, { status: 400 });
+  }
+  if (user.sellerStatus === "pending_seller_approval") {
+    return NextResponse.json({ error: "Your seller application is already pending review." }, { status: 400 });
+  }
+  if (user.sellerStatus === "suspended") {
+    return NextResponse.json({ error: "Your account is suspended." }, { status: 403 });
+  }
+
+  let payload: Record<string, unknown> = {};
+  try {
+    const body = await request.json();
+    if (body && typeof body === "object" && !Array.isArray(body)) {
+      payload = body as Record<string, unknown>;
+    }
+  } catch (error) {
+    console.error("[alpha-exchange][seller-application][POST][invalid-json]", {
+      userId: user.id,
+      userEmail: user.email,
+      error,
+    });
+    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  }
+
+  const preferredNetworksInput = payload.preferredNetworks;
+  const preferredNetworksRaw = Array.isArray(preferredNetworksInput)
+    ? preferredNetworksInput.map((value) => String(value))
+    : [String(preferredNetworksInput ?? "")].filter(Boolean);
+  const preferredNetworks = preferredNetworksRaw.filter(isValidNetwork);
+
+  const fullName = String(payload.fullName ?? user.fullName).trim();
+  const whatsappNumber = String(payload.whatsappNumber ?? user.whatsappNumber).trim();
+
+  if (!fullName) {
+    return NextResponse.json({ error: "Full name is required." }, { status: 400 });
+  }
+  if (!whatsappNumber) {
+    return NextResponse.json({ error: "WhatsApp number is required." }, { status: 400 });
+  }
+  if (preferredNetworks.length === 0) {
+    return NextResponse.json({ error: "At least one preferred network is required." }, { status: 400 });
+  }
+
+  try {
+    const application = await createSellerApplication({
+      userId: user.id,
+      fullName,
+      email: String(payload.email ?? user.email),
+      whatsappNumber,
+      preferredNetworks,
+      expectedMonthlyTradingVolume: String(payload.expectedMonthlyTradingVolume ?? ""),
+      additionalNotes: String(payload.additionalNotes ?? ""),
+    });
+    return NextResponse.json({ application }, { status: 201 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown seller-application failure";
+    console.error("[alpha-exchange][seller-application][POST]", {
+      userId: user.id,
+      userEmail: user.email,
+      message,
+      stack: error instanceof Error ? error.stack : undefined,
+      error,
+    });
+    if (error instanceof Error) {
+      if (Object.prototype.hasOwnProperty.call(SELLER_APPLICATION_ERROR_STATUS, error.message)) {
+        const mappedStatus = SELLER_APPLICATION_ERROR_STATUS[error.message];
+        return NextResponse.json(
+          { error: error.message },
+          { status: mappedStatus },
+        );
+      }
+      if (/\brequired\b/i.test(error.message)) {
+        return NextResponse.json(
+          { error: error.message },
+          { status: 400 },
+        );
+      }
+    }
+    throw error;
+  }
+}

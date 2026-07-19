@@ -1,0 +1,98 @@
+import { NextRequest, NextResponse } from "next/server";
+import { canPublishListings, createMarketplaceListing, getMarketplaceListings } from "@/lib/alpha-exchange-store";
+import { requireApiUser } from "@/lib/api-auth";
+import type { SupportedNetwork } from "@/types/alpha-exchange";
+
+function toNumber(value: unknown) {
+  return Number(String(value ?? "").replace(/[^\d.]/g, ""));
+}
+
+function isValidNetwork(value: unknown): value is SupportedNetwork {
+  return value === "TRC20" || value === "ERC20" || value === "BEP20" || value === "SOL";
+}
+
+export async function GET() {
+  const listings = await getMarketplaceListings();
+  return NextResponse.json({ listings });
+}
+
+export async function POST(request: NextRequest) {
+  const { user, unauthorized } = await requireApiUser();
+  if (!user) return unauthorized;
+  if (!canPublishListings(user)) {
+    return NextResponse.json({ error: "You must be approved by Alpha Traders before publishing listings." }, { status: 403 });
+  }
+
+  try {
+    const body = await request.json();
+    const availableAmount = String(body.availableAmount ?? "").trim();
+    const price = String(body.price ?? "").trim();
+    const responseTime = String(body.responseTime ?? "").trim() || "5 min";
+    const currency = String(body.currency ?? "ILS").trim() || "ILS";
+    const paymentMethods = Array.isArray(body.paymentMethods)
+      ? body.paymentMethods.map((method: unknown) => String(method).trim()).filter(Boolean).slice(0, 8)
+      : String(body.paymentMethod ?? "")
+          .split(",")
+          .map((method) => method.trim())
+          .filter(Boolean)
+          .slice(0, 8);
+    const paymentMethod = paymentMethods[0] ?? "";
+    const minimumTrade = String(body.minimumTrade ?? "0").trim();
+    const maximumTrade = String(body.maximumTrade ?? availableAmount).trim();
+    const expiresAt = String(body.expiresAt ?? "").trim();
+    const notes = String(body.notes ?? "").trim();
+    const sellerDescription = String(body.sellerDescription ?? "").trim();
+    const photos = Array.isArray(body.photos) ? body.photos.map((photo: unknown) => String(photo).trim()).filter(Boolean).slice(0, 6) : [];
+    const network = body.network;
+
+    if (!availableAmount || toNumber(availableAmount) <= 0) {
+      return NextResponse.json({ error: "Available amount must be greater than zero." }, { status: 400 });
+    }
+    if (!price || toNumber(price) <= 0) {
+      return NextResponse.json({ error: "Price must be greater than zero." }, { status: 400 });
+    }
+    if (!isValidNetwork(network)) {
+      return NextResponse.json({ error: "Invalid network." }, { status: 400 });
+    }
+    if (!paymentMethods.length) {
+      return NextResponse.json({ error: "At least one payment method is required." }, { status: 400 });
+    }
+    if (toNumber(minimumTrade) < 0) {
+      return NextResponse.json({ error: "Minimum trade cannot be negative." }, { status: 400 });
+    }
+    if (toNumber(maximumTrade) <= 0 || toNumber(maximumTrade) > toNumber(availableAmount)) {
+      return NextResponse.json({ error: "Maximum trade must be greater than zero and less than or equal to available amount." }, { status: 400 });
+    }
+    if (toNumber(maximumTrade) < toNumber(minimumTrade)) {
+      return NextResponse.json({ error: "Maximum trade must be greater than or equal to minimum trade." }, { status: 400 });
+    }
+    if (expiresAt) {
+      const expiresMs = new Date(expiresAt).getTime();
+      if (!expiresMs || Number.isNaN(expiresMs)) {
+        return NextResponse.json({ error: "Invalid expiry date." }, { status: 400 });
+      }
+    }
+
+    const listing = await createMarketplaceListing({
+      sellerId: user.id,
+      sellerDisplayName: user.fullName,
+      photos,
+      availableAmount,
+      price,
+      currency,
+      network,
+      paymentMethod,
+      paymentMethods,
+      minimumTrade,
+      maximumTrade,
+      expiresAt: expiresAt || undefined,
+      notes,
+      sellerDescription,
+      responseTime,
+      actorUserId: user.id,
+    });
+    return NextResponse.json({ listing }, { status: 201 });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to create listing." }, { status: 400 });
+  }
+}

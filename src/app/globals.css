@@ -1,0 +1,729 @@
+@import "tailwindcss";
+
+:root {
+  --background: #050505;
+  --card: #101010;
+  --accent: #c9a227;
+  --foreground: #ffffff;
+  --muted-foreground: #9ca3af;
+  --border: rgba(255, 255, 255, 0.1);
+  --radius: 0.75rem;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-feature-settings: "ss01" on, "cv01" on;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.55;
+}
+
+.global-chain-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 16% 8%, rgba(201, 162, 39, 0.08), transparent 44%),
+    radial-gradient(circle at 82% 14%, rgba(240, 221, 149, 0.06), transparent 38%),
+    radial-gradient(circle at 58% 88%, rgba(201, 162, 39, 0.07), transparent 42%),
+    #050505;
+}
+
+.global-chain-bg__vignette {
+  position: absolute;
+  inset: -8%;
+  background:
+    radial-gradient(circle at 50% 50%, transparent 36%, rgba(0, 0, 0, 0.68) 86%),
+    linear-gradient(180deg, rgba(5, 5, 5, 0.08) 0%, rgba(5, 5, 5, 0.54) 100%);
+}
+
+.global-chain-bg__mesh {
+  position: absolute;
+  inset: -10%;
+  opacity: 0.15;
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(201, 162, 39, 0.16) 0px, rgba(201, 162, 39, 0.16) 1px, transparent 1px, transparent 64px),
+    repeating-linear-gradient(60deg, rgba(201, 162, 39, 0.1) 0px, rgba(201, 162, 39, 0.1) 1px, transparent 1px, transparent 64px),
+    repeating-linear-gradient(-60deg, rgba(201, 162, 39, 0.1) 0px, rgba(201, 162, 39, 0.1) 1px, transparent 1px, transparent 64px);
+  animation: blockchain-drift 34s linear infinite;
+}
+
+.global-chain-bg__network {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.21;
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  animation: blockchain-parallax 28s ease-in-out infinite alternate;
+}
+
+.global-chain-bg__network-lines path {
+  fill: none;
+  stroke: rgba(201, 162, 39, 0.4);
+  stroke-width: 1.1;
+  stroke-linecap: round;
+  stroke-dasharray: 5 10;
+  animation: blockchain-flow 16s linear infinite;
+}
+
+.global-chain-bg__network-lines path:nth-child(2n) {
+  animation-duration: 20s;
+}
+
+.global-chain-bg__network-lines path:nth-child(3n) {
+  animation-duration: 24s;
+}
+
+.global-chain-bg__network-nodes circle {
+  fill: rgba(240, 221, 149, 0.75);
+  filter: drop-shadow(0 0 8px rgba(201, 162, 39, 0.45));
+  animation: blockchain-node-pulse 7s ease-in-out infinite;
+}
+
+.global-chain-bg__network-nodes circle:nth-child(2n) {
+  animation-delay: -2s;
+}
+
+.global-chain-bg__network-nodes circle:nth-child(3n) {
+  animation-delay: -4s;
+}
+
+.global-chain-bg__hexband {
+  position: absolute;
+  opacity: 0.11;
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  background-size: 44px 76px;
+  background-image:
+    linear-gradient(30deg, rgba(201, 162, 39, 0.34) 12%, transparent 12.5%, transparent 87%, rgba(201, 162, 39, 0.34) 87.5%, rgba(201, 162, 39, 0.34)),
+    linear-gradient(150deg, rgba(201, 162, 39, 0.34) 12%, transparent 12.5%, transparent 87%, rgba(201, 162, 39, 0.34) 87.5%, rgba(201, 162, 39, 0.34)),
+    linear-gradient(90deg, rgba(201, 162, 39, 0.22) 2%, transparent 2.5%, transparent 97%, rgba(201, 162, 39, 0.22) 97.5%, rgba(201, 162, 39, 0.22));
+}
+
+.global-chain-bg__hexband--one {
+  inset: 5% -18% auto 42%;
+  height: 34vh;
+  animation: blockchain-drift 30s linear infinite reverse;
+}
+
+.global-chain-bg__hexband--two {
+  inset: auto 46% 8% -16%;
+  height: 30vh;
+  animation: blockchain-drift 36s linear infinite;
+}
+
+.global-chain-bg__pulse-line {
+  position: absolute;
+  height: 1px;
+  transform-origin: left center;
+  opacity: 0.22;
+  background: linear-gradient(90deg, rgba(201, 162, 39, 0), rgba(201, 162, 39, 0.5) 45%, rgba(201, 162, 39, 0));
+}
+
+.global-chain-bg__pulse-line::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -6%;
+  width: 18px;
+  height: 2px;
+  transform: translate3d(0, -50%, 0);
+  background: linear-gradient(90deg, rgba(201, 162, 39, 0), rgba(240, 221, 149, 0.95), rgba(201, 162, 39, 0));
+  filter: blur(0.4px);
+  animation-name: blockchain-pulse-travel;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  animation-duration: inherit;
+  animation-delay: inherit;
+}
+
+.global-chain-bg__particle {
+  position: absolute;
+  border-radius: 9999px;
+  background: rgba(240, 221, 149, 0.72);
+  box-shadow: 0 0 10px rgba(201, 162, 39, 0.5);
+  opacity: 0.2;
+  transform: translate3d(0, 0, 0);
+  will-change: transform, opacity;
+  animation-name: blockchain-particle-float;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+.global-chain-bg__crypto-layer {
+  --coin-parallax-x: 0px;
+  --coin-parallax-y: 0px;
+  position: absolute;
+  inset: -8%;
+  z-index: 1;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.global-chain-bg__crypto-grid {
+  position: absolute;
+  inset: 6% -4%;
+  opacity: 0.045;
+  background-size: 56px 96px;
+  background-image:
+    linear-gradient(30deg, rgba(125, 177, 255, 0.3) 12%, transparent 12.5%, transparent 87%, rgba(125, 177, 255, 0.3) 87.5%, rgba(125, 177, 255, 0.3)),
+    linear-gradient(150deg, rgba(201, 162, 39, 0.24) 12%, transparent 12.5%, transparent 87%, rgba(201, 162, 39, 0.24) 87.5%, rgba(201, 162, 39, 0.24));
+}
+
+.global-chain-bg__crypto-connection {
+  position: absolute;
+  height: 1px;
+  transform-origin: left center;
+  opacity: 0.2;
+  background: linear-gradient(90deg, rgba(108, 174, 255, 0), rgba(108, 174, 255, 0.42), rgba(201, 162, 39, 0.2), rgba(108, 174, 255, 0));
+}
+
+.global-chain-bg__crypto-connection-pulse {
+  position: absolute;
+  top: 50%;
+  left: -8%;
+  width: 14px;
+  height: 2px;
+  transform: translate3d(0, -50%, 0);
+  opacity: 0.5;
+  filter: blur(0.4px);
+  background: linear-gradient(90deg, rgba(108, 174, 255, 0), rgba(108, 174, 255, 0.9), rgba(201, 162, 39, 0.75), rgba(108, 174, 255, 0));
+  animation: blockchain-crypto-pulse-travel linear infinite;
+  animation-duration: inherit;
+  animation-delay: inherit;
+}
+
+.global-chain-bg__crypto-data-packet {
+  position: absolute;
+  top: 50%;
+  left: -6%;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  transform: translate3d(0, -50%, 0);
+  opacity: 0.4;
+  background: rgba(240, 221, 149, 0.85);
+  box-shadow: 0 0 10px rgba(201, 162, 39, 0.4);
+  animation: blockchain-crypto-packet-travel linear infinite;
+  animation-duration: inherit;
+  animation-delay: calc(var(--delay-adjust, 0s) + 4s);
+}
+
+.global-chain-bg__crypto-node {
+  position: absolute;
+  border-radius: 9999px;
+  opacity: 0.28;
+  background: rgba(125, 177, 255, 0.95);
+  box-shadow: 0 0 8px rgba(108, 174, 255, 0.55), 0 0 12px rgba(201, 162, 39, 0.35);
+  animation: blockchain-crypto-node-pulse 8s ease-in-out infinite;
+}
+
+.global-chain-bg__crypto-dust {
+  position: absolute;
+  border-radius: 9999px;
+  opacity: 0.12;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 0 8px rgba(108, 174, 255, 0.22);
+  animation: blockchain-crypto-dust-float ease-in-out infinite;
+}
+
+.global-chain-bg__crypto-coin {
+  position: absolute;
+  display: block;
+  border-radius: 9999px;
+  opacity: var(--coin-opacity, 0.2);
+  transform: translate3d(0, 0, 0);
+  will-change: transform, opacity;
+  backdrop-filter: blur(2px);
+  background: linear-gradient(140deg, rgba(20, 28, 42, 0.42), rgba(9, 14, 24, 0.15));
+  box-shadow:
+    0 0 0 1px rgba(125, 177, 255, 0.22),
+    0 8px 28px rgba(0, 0, 0, 0.42),
+    0 0 24px rgba(66, 140, 255, 0.2),
+    0 0 16px rgba(201, 162, 39, 0.22);
+  animation-name: blockchain-coin-float;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+.global-chain-bg__crypto-coin::after {
+  content: "";
+  position: absolute;
+  inset: 12%;
+  border-radius: 9999px;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.22), transparent 42%);
+  opacity: 0.4;
+}
+
+.global-chain-bg__coin-svg {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 0 10px rgba(201, 162, 39, 0.2));
+}
+
+.global-chain-bg__coin-ring {
+  fill: rgba(11, 16, 26, 0.4);
+  stroke: rgba(125, 177, 255, 0.38);
+  stroke-width: 1.6;
+}
+
+.global-chain-bg__coin-text {
+  fill: rgba(240, 221, 149, 0.95);
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.global-chain-bg__coin-shape {
+  fill: rgba(125, 177, 255, 0.9);
+}
+
+.global-chain-bg__coin-shape--muted {
+  fill: rgba(201, 162, 39, 0.82);
+}
+
+.global-chain-bg__coin-sol-a {
+  fill: rgba(125, 177, 255, 0.95);
+}
+
+.global-chain-bg__coin-sol-b {
+  fill: rgba(108, 174, 255, 0.76);
+}
+
+.global-chain-bg__coin-sol-c {
+  fill: rgba(201, 162, 39, 0.84);
+}
+
+.global-chain-bg__coin-stroke {
+  fill: none;
+  stroke: rgba(240, 221, 149, 0.92);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+
+.global-chain-bg__crypto-coin--btc {
+  box-shadow:
+    0 0 0 1px rgba(201, 162, 39, 0.24),
+    0 8px 28px rgba(0, 0, 0, 0.42),
+    0 0 26px rgba(201, 162, 39, 0.3);
+}
+
+.global-chain-bg__crypto-coin--eth,
+.global-chain-bg__crypto-coin--sol,
+.global-chain-bg__crypto-coin--usdt,
+.global-chain-bg__crypto-coin--bnb,
+.global-chain-bg__crypto-coin--xrp,
+.global-chain-bg__crypto-coin--ada {
+  box-shadow:
+    0 0 0 1px rgba(125, 177, 255, 0.2),
+    0 8px 28px rgba(0, 0, 0, 0.42),
+    0 0 24px rgba(66, 140, 255, 0.24),
+    0 0 14px rgba(201, 162, 39, 0.18);
+}
+
+.global-chain-bg__crypto-layer[data-low-power="true"] .global-chain-bg__crypto-coin {
+  animation-duration: 120s !important;
+  opacity: 0.14;
+}
+
+.global-chain-bg__crypto-layer[data-low-power="true"] .global-chain-bg__crypto-connection-pulse,
+.global-chain-bg__crypto-layer[data-low-power="true"] .global-chain-bg__crypto-data-packet,
+.global-chain-bg__crypto-layer[data-low-power="true"] .global-chain-bg__crypto-node,
+.global-chain-bg__crypto-layer[data-low-power="true"] .global-chain-bg__crypto-dust {
+  animation-duration: 120s !important;
+  opacity: 0.1;
+}
+
+* {
+  border-color: var(--border);
+}
+
+*::selection {
+  background: rgba(201, 162, 39, 0.25);
+  color: #fff;
+}
+
+a,
+button,
+input,
+textarea {
+  transition: color 180ms ease, border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+:focus-visible {
+  outline: 2px solid rgba(201, 162, 39, 0.9);
+  outline-offset: 2px;
+}
+
+.gold-gradient {
+  background-image: linear-gradient(135deg, #c9a227, #f0dd95 60%, #c9a227);
+}
+
+.premium-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01));
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+}
+
+.role-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  padding: 0.24rem 0.62rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+  transition: transform 220ms ease, box-shadow 220ms ease, filter 220ms ease;
+}
+
+.role-badge:hover {
+  transform: translateY(-1px);
+}
+
+.role-badge__content {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.role-badge__shine {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.22) 48%, transparent 100%);
+  opacity: 0;
+  transform: translate3d(-120%, 0, 0);
+  animation: role-badge-shimmer 7s ease-in-out infinite;
+}
+
+.role-badge__emblem {
+  margin-inline-start: 0.28rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  background: rgba(127, 29, 29, 0.48);
+  padding: 0.08rem 0.3rem;
+  font-size: 0.57rem;
+  letter-spacing: 0.12em;
+}
+
+.role-badge--member {
+  border-color: rgba(52, 211, 153, 0.45);
+  color: #86efac;
+  background: linear-gradient(140deg, rgba(6, 78, 59, 0.62), rgba(16, 185, 129, 0.24));
+  box-shadow: 0 8px 20px rgba(6, 95, 70, 0.28), 0 0 18px rgba(16, 185, 129, 0.2);
+}
+
+.role-badge--buyer {
+  border-color: rgba(96, 165, 250, 0.46);
+  color: #bfdbfe;
+  background: linear-gradient(140deg, rgba(30, 58, 138, 0.62), rgba(59, 130, 246, 0.22));
+  box-shadow: 0 8px 20px rgba(30, 64, 175, 0.25), 0 0 18px rgba(59, 130, 246, 0.22);
+}
+
+.role-badge--approved-seller {
+  border-color: rgba(251, 191, 36, 0.52);
+  color: #fde68a;
+  background: linear-gradient(140deg, rgba(180, 83, 9, 0.64), rgba(251, 146, 60, 0.32), rgba(201, 162, 39, 0.28));
+  box-shadow: 0 8px 22px rgba(180, 83, 9, 0.3), 0 0 22px rgba(251, 146, 60, 0.24);
+}
+
+.role-badge--moderator {
+  border-color: rgba(226, 232, 240, 0.52);
+  color: #f8fafc;
+  background: linear-gradient(140deg, rgba(71, 85, 105, 0.66), rgba(148, 163, 184, 0.3));
+  box-shadow: 0 8px 22px rgba(71, 85, 105, 0.28), 0 0 20px rgba(203, 213, 225, 0.2);
+}
+
+.role-badge--administrator {
+  border-color: rgba(250, 204, 21, 0.58);
+  color: #fef08a;
+  background: linear-gradient(140deg, rgba(146, 110, 9, 0.72), rgba(234, 179, 8, 0.34));
+  box-shadow: 0 8px 22px rgba(161, 98, 7, 0.32), 0 0 22px rgba(250, 204, 21, 0.28);
+}
+
+.role-badge--owner {
+  border-color: rgba(248, 113, 113, 0.62);
+  color: #fecaca;
+  background: linear-gradient(132deg, rgba(24, 24, 27, 0.86), rgba(127, 29, 29, 0.78), rgba(69, 10, 10, 0.92));
+  box-shadow: 0 8px 24px rgba(69, 10, 10, 0.4), 0 0 24px rgba(239, 68, 68, 0.36), inset 0 0 12px rgba(248, 113, 113, 0.2);
+  animation: role-badge-owner-energy 4.2s ease-in-out infinite;
+}
+
+.section-container {
+  @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+}
+
+.page-shell {
+  @apply py-10 md:py-14;
+  animation: page-fade-up 320ms ease-out both;
+}
+
+.page-title {
+  @apply text-3xl font-semibold leading-tight md:text-4xl;
+}
+
+.page-subtitle {
+  @apply mt-3 max-w-3xl text-sm text-[#9CA3AF] md:text-base;
+}
+
+@keyframes page-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  @keyframes role-badge-shimmer {
+    0%,
+    85% {
+      opacity: 0;
+      transform: translate3d(-120%, 0, 0);
+    }
+    92% {
+      opacity: 0.32;
+    }
+    100% {
+      opacity: 0;
+      transform: translate3d(120%, 0, 0);
+    }
+  }
+
+  @keyframes role-badge-owner-energy {
+    0%,
+    100% {
+      filter: drop-shadow(0 0 0 rgba(248, 113, 113, 0.2));
+    }
+    50% {
+      filter: drop-shadow(0 0 10px rgba(248, 113, 113, 0.38));
+    }
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes blockchain-drift {
+  0% {
+    transform: translate3d(-1.4%, -0.8%, 0) scale(1.01);
+  }
+  50% {
+    transform: translate3d(1.2%, 1.1%, 0) scale(1.02);
+  }
+  100% {
+    transform: translate3d(-1.4%, -0.8%, 0) scale(1.01);
+  }
+}
+
+@keyframes blockchain-parallax {
+  0% {
+    transform: translate3d(-0.9%, -0.6%, 0) scale(1.01);
+  }
+  100% {
+    transform: translate3d(0.9%, 0.6%, 0) scale(1.03);
+  }
+}
+
+@keyframes blockchain-flow {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -120;
+  }
+}
+
+@keyframes blockchain-node-pulse {
+  0%,
+  100% {
+    opacity: 0.42;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scale(1.24);
+  }
+}
+
+@keyframes blockchain-pulse-travel {
+  0% {
+    left: -8%;
+    opacity: 0;
+  }
+  8% {
+    opacity: 0.9;
+  }
+  92% {
+    opacity: 0.9;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
+
+@keyframes blockchain-particle-float {
+  0%,
+  100% {
+    opacity: 0.1;
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    opacity: 0.52;
+    transform: translate3d(0, -18px, 0);
+  }
+}
+
+@keyframes blockchain-coin-float {
+  0%,
+  100% {
+    opacity: calc(var(--coin-opacity, 0.2) - 0.04);
+    transform: translate3d(
+        calc(var(--coin-parallax-x, 0px) * var(--coin-parallax-factor, 0.08)),
+        calc(var(--coin-parallax-y, 0px) * var(--coin-parallax-factor, 0.08)),
+        0
+      )
+      rotate(0deg);
+  }
+  50% {
+    opacity: calc(var(--coin-opacity, 0.2) + 0.05);
+    transform: translate3d(
+        calc(var(--coin-drift-x, 18px) + (var(--coin-parallax-x, 0px) * var(--coin-parallax-factor, 0.08))),
+        calc(var(--coin-drift-y, -14px) + (var(--coin-parallax-y, 0px) * var(--coin-parallax-factor, 0.08))),
+        0
+      )
+      rotate(var(--coin-rotate, 8deg));
+  }
+}
+
+@keyframes blockchain-crypto-node-pulse {
+  0%,
+  100% {
+    opacity: 0.16;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.36;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes blockchain-crypto-pulse-travel {
+  0% {
+    left: -8%;
+    opacity: 0;
+  }
+  8% {
+    opacity: 0.4;
+  }
+  46% {
+    opacity: 0.55;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
+
+@keyframes blockchain-crypto-packet-travel {
+  0% {
+    left: -6%;
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.35;
+  }
+  88% {
+    opacity: 0.35;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
+
+@keyframes blockchain-crypto-dust-float {
+  0%,
+  100% {
+    opacity: 0.08;
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    opacity: 0.18;
+    transform: translate3d(0, -12px, 0);
+  }
+}
+
+@media (max-width: 1024px) {
+  .global-chain-bg__crypto-coin:nth-child(n + 6) {
+    display: none;
+  }
+
+  .global-chain-bg__crypto-connection:nth-child(n + 5),
+  .global-chain-bg__crypto-node:nth-child(n + 8),
+  .global-chain-bg__crypto-dust:nth-child(n + 7) {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .global-chain-bg__crypto-coin {
+    animation-duration: 110s !important;
+    opacity: calc(var(--coin-opacity, 0.2) - 0.03);
+  }
+
+  .global-chain-bg__crypto-coin:nth-child(n + 4) {
+    display: none;
+  }
+
+  .global-chain-bg__crypto-grid {
+    opacity: 0.028;
+  }
+
+  .global-chain-bg__crypto-connection:nth-child(n + 3),
+  .global-chain-bg__crypto-node:nth-child(n + 6),
+  .global-chain-bg__crypto-dust:nth-child(n + 5) {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .global-chain-bg__network,
+  .global-chain-bg__mesh,
+  .global-chain-bg__hexband,
+  .global-chain-bg__crypto-coin,
+  .global-chain-bg__crypto-connection-pulse,
+  .global-chain-bg__crypto-data-packet,
+  .global-chain-bg__crypto-node,
+  .global-chain-bg__crypto-dust,
+  .global-chain-bg__particle,
+  .global-chain-bg__network-lines path,
+  .global-chain-bg__network-nodes circle,
+  .global-chain-bg__pulse-line::after {
+    animation: none !important;
+  }
+}

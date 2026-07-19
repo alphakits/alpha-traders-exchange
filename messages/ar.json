@@ -1,0 +1,34 @@
+{
+  "brand": "𝔸𝕝𝕡𝕙𝕒 𝕋𝕣𝕒𝕕𝕖𝕣𝕤",
+  "nav": {
+    "home": "الرئيسية",
+    "academy": "الأكاديمية",
+    "lessons": "الدروس",
+    "analysis": "تحليلات السوق",
+    "founder": "عن المؤسس",
+    "community": "المجتمع",
+    "faq": "الأسئلة الشائعة",
+    "contact": "تواصل معنا",
+    "alphaExchange": "⇄ Alpha Exchange",
+    "profile": "الملف الشخصي",
+    "dashboard": "لوحة التحكم",
+    "signIn": "تسجيل الدخول",
+    "signOut": "تسجيل الخروج",
+    "login": "تسجيل الدخول",
+    "admin": "لوحة الإدارة"
+  },
+  "home": {
+    "badge": "مجتمع موثوق للتداول الاحترافي وUSDT Exchange",
+    "headlineLine1": "Trust Is Our Currency",
+    "headlineLine2": "And Freedom Is Our Goal",
+    "subheadline": "Alpha Traders ليس مجرد مجتمع للتداول، بل منظومة متكاملة تجمع بين التعليم الاحترافي، وتبادل عملة USDT بكل ثقة، ومجتمع يضم أكثر من 900 عضو نشط يتشاركون الخبرات والفرص ويساعدون بعضهم البعض لبناء مستقبل مالي أفضل.",
+    "startLearning": "ابدأ التعلم",
+    "exploreExchange": "Explore Alpha Exchange",
+    "watchIntro": "شاهد المقدمة",
+    "missionTitle": "رسالتنا",
+    "missionBody": "بناء جيل عربي يتقن التداول وفق منهجية احترافية قائمة على إدارة المخاطر، الانضباط النفسي، والتحليل الموضوعي."
+  },
+  "footer": {
+    "rights": "جميع الحقوق محفوظة لـ 𝔸𝕝𝕡𝕙𝕒 𝕋𝕣𝕒𝕕𝕖𝕣𝕤"
+  }
+}

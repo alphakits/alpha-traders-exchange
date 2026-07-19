@@ -1,0 +1,370 @@
+
+> alpha-traders@0.1.0 lint
+> eslint
+
+
+C:\Users\MARK\.copilot\chats\67ed60a9-852c-4a25-9cfa-539ba604ae17\alpha-traders\.next-runtime\types\routes.d.ts
+  14:8   error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  34:27  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  35:24  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  36:24  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  37:25  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  40:33  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  41:23  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  42:26  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  43:37  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  45:49  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  46:59  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  49:53  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  51:52  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  57:35  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  58:35  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  60:38  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  61:51  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  62:40  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  64:53  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  65:48  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  66:44  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  71:34  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  72:45  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  73:42  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  75:22  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  76:23  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  77:19  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  78:24  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  79:25  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  80:30  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  81:30  error  The `{}` ("empty object") type allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowObjectTypes' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+
+C:\Users\MARK\.copilot\chats\67ed60a9-852c-4a25-9cfa-539ba604ae17\alpha-traders\.next-runtime\types\validator.ts
+   10:71   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   10:126  error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   11:74   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   11:83   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   13:51   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   15:16   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   15:23   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   17:51   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   19:16   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   19:23   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   20:14   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   21:14   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   26:74   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   26:83   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   28:51   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   30:16   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   30:23   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   32:51   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   34:16   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   34:23   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   35:14   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   36:14   error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   53:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+   55:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+   56:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+   62:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+   64:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+   65:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+   71:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+   73:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+   74:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+   80:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+   82:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+   83:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+   89:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+   91:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+   92:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+   98:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  100:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  101:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  107:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  109:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  110:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  116:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  118:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  119:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  125:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  127:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  128:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  134:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  136:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  137:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  143:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  145:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  146:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  152:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  154:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  155:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  161:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  163:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  164:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  170:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  172:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  173:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  179:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  181:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  182:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  188:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  190:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  191:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  197:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  199:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  200:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  206:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  208:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  209:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  215:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  217:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  218:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  224:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  226:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  227:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  233:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  235:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  236:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  242:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  244:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  245:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  251:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  253:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  254:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  260:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  262:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  263:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  269:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  271:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  272:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  278:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  280:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  281:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  287:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  289:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  290:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  296:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  298:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  299:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  305:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  307:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  308:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  314:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  316:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  317:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  323:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  325:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  326:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  332:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  334:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  335:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  341:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  343:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  344:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  350:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  352:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  353:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  359:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  361:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  362:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  368:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  370:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  371:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  377:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  379:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  380:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  386:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  388:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  389:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  395:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  397:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  398:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  404:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  406:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  407:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  413:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  415:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  416:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  422:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  424:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  425:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  431:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  433:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  434:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  440:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  442:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  443:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  449:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  451:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  452:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  458:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  460:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  461:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  467:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  469:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  470:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  476:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  478:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  479:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  485:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  487:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  488:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  494:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  496:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  497:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  503:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  505:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  506:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  512:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  514:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  515:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  521:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  523:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  524:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  530:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  532:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  533:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  539:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  541:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  542:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  548:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  550:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  551:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  557:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  559:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  560:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  566:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  568:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  569:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  575:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  577:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  578:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  584:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  586:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  587:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  593:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  595:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  596:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  602:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  604:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  605:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  611:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  613:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  614:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  620:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  622:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  623:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  629:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  631:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  632:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  638:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  640:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  641:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  647:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  649:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  650:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  656:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  658:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  659:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  669:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  671:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  672:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+  678:9    warning  'handler' is assigned a value but only used as a type                                                                @typescript-eslint/no-unused-vars
+  680:3    error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  681:8    warning  '__Unused' is defined but never used                                                                                 @typescript-eslint/no-unused-vars
+
+C:\Users\MARK\.copilot\chats\67ed60a9-852c-4a25-9cfa-539ba604ae17\alpha-traders\src\components\sections\usdt-exchange\usdt-exchange-page.tsx
+  130:10  warning  'sellerLevelRank' is defined but never used  @typescript-eslint/no-unused-vars
+
+✖ 264 problems (123 errors, 141 warnings)
+

@@ -1,0 +1,144 @@
+
+> alpha-traders@0.1.0 build
+> next build
+
+   ▲ Next.js 15.5.20
+   - Experiments (use with caution):
+     · optimizePackageImports
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 21.4s
+   Linting and checking validity of types ...
+
+./src/components/sections/usdt-exchange/usdt-exchange-page.tsx
+130:10  Warning: 'sellerLevelRank' is defined but never used.  @typescript-eslint/no-unused-vars
+
+info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/app/api-reference/config/eslint#disabling-rules
+   Collecting page data ...
+   Generating static pages (0/72) ...
+   Generating static pages (18/72) 
+   Generating static pages (36/72) 
+   Generating static pages (54/72) 
+ ✓ Generating static pages (72/72)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                                                     Size  First Load JS
+┌ ○ /                                                                          259 B         103 kB
+├ ○ /_not-found                                                                993 B         103 kB
+├ ● /[locale]                                                                6.54 kB         205 kB
+├   ├ /ar
+├   └ /en
+├ ● /[locale]/about-founder                                                    275 B         115 kB
+├   ├ /ar/about-founder
+├   └ /en/about-founder
+├ ● /[locale]/academy                                                        3.59 kB         209 kB
+├   ├ /ar/academy
+├   └ /en/academy
+├ ƒ /[locale]/academy/[course]                                                 291 B         120 kB
+├ ● /[locale]/academy/dashboard                                              4.12 kB         210 kB
+├   ├ /ar/academy/dashboard
+├   └ /en/academy/dashboard
+├ ● /[locale]/admin                                                          10.3 kB         139 kB
+├   ├ /ar/admin
+├   └ /en/admin
+├ ● /[locale]/admin/alpha-exchange                                           12.5 kB         168 kB
+├   ├ /ar/admin/alpha-exchange
+├   └ /en/admin/alpha-exchange
+├ ● /[locale]/admin/alpha-exchange/pending-listings                          4.95 kB         116 kB
+├   ├ /ar/admin/alpha-exchange/pending-listings
+├   └ /en/admin/alpha-exchange/pending-listings
+├ ● /[locale]/community                                                      1.11 kB         121 kB
+├   ├ /ar/community
+├   └ /en/community
+├ ● /[locale]/contact                                                          800 B         103 kB
+├   ├ /ar/contact
+├   └ /en/contact
+├ ● /[locale]/dashboard                                                        140 B         200 kB
+├   ├ /ar/dashboard
+├   └ /en/dashboard
+├ ● /[locale]/dashboard/seller                                                 141 B         200 kB
+├   ├ /ar/dashboard/seller
+├   └ /en/dashboard/seller
+├ ● /[locale]/founder                                                        3.77 kB         186 kB
+├   ├ /ar/founder
+├   └ /en/founder
+├ ● /[locale]/lessons                                                        3.16 kB         142 kB
+├   ├ /ar/lessons
+├   └ /en/lessons
+├ ƒ /[locale]/lessons/[slug]                                                 12.2 kB         273 kB
+├ ● /[locale]/login                                                          3.95 kB         132 kB
+├   ├ /ar/login
+├   └ /en/login
+├ ● /[locale]/profile                                                         4.9 kB         116 kB
+├   ├ /ar/profile
+├   └ /en/profile
+├ ● /[locale]/register                                                       3.61 kB         132 kB
+├   ├ /ar/register
+├   └ /en/register
+├ ● /[locale]/usdt-exchange                                                    141 B         200 kB
+├   ├ /ar/usdt-exchange
+├   └ /en/usdt-exchange
+├ ƒ /api/admin/bootstrap                                                       259 B         103 kB
+├ ƒ /api/admin/export                                                          259 B         103 kB
+├ ƒ /api/admin/import                                                          259 B         103 kB
+├ ƒ /api/admin/lessons                                                         259 B         103 kB
+├ ƒ /api/admin/lessons/[id]                                                    259 B         103 kB
+├ ƒ /api/admin/lessons/[id]/duplicate                                          259 B         103 kB
+├ ƒ /api/admin/lessons/reorder                                                 259 B         103 kB
+├ ƒ /api/admin/media                                                           259 B         103 kB
+├ ƒ /api/admin/versions                                                        259 B         103 kB
+├ ƒ /api/alpha-exchange/admin-prep                                             259 B         103 kB
+├ ƒ /api/alpha-exchange/admin/listings/[listingId]                             259 B         103 kB
+├ ƒ /api/alpha-exchange/admin/pending-listings                                 259 B         103 kB
+├ ƒ /api/alpha-exchange/admin/private-beta/announcements                       259 B         103 kB
+├ ƒ /api/alpha-exchange/admin/private-beta/announcements/[announcementId]      259 B         103 kB
+├ ƒ /api/alpha-exchange/admin/private-beta/feedback/[feedbackId]               259 B         103 kB
+├ ƒ /api/alpha-exchange/admin/private-beta/invites                             259 B         103 kB
+├ ƒ /api/alpha-exchange/admin/private-beta/invites/[inviteId]                  259 B         103 kB
+├ ƒ /api/alpha-exchange/admin/seller-applications                              259 B         103 kB
+├ ƒ /api/alpha-exchange/admin/seller-applications/[applicationId]/approve      259 B         103 kB
+├ ƒ /api/alpha-exchange/admin/seller-applications/[applicationId]/reject       259 B         103 kB
+├ ƒ /api/alpha-exchange/admin/sellers/[userId]/profile-state                   259 B         103 kB
+├ ƒ /api/alpha-exchange/admin/sellers/[userId]/reactivate                      259 B         103 kB
+├ ƒ /api/alpha-exchange/admin/sellers/[userId]/suspend                         259 B         103 kB
+├ ƒ /api/alpha-exchange/disputes                                               259 B         103 kB
+├ ƒ /api/alpha-exchange/listings                                               259 B         103 kB
+├ ƒ /api/alpha-exchange/listings/[listingId]                                   259 B         103 kB
+├ ƒ /api/alpha-exchange/my-listings                                            259 B         103 kB
+├ ƒ /api/alpha-exchange/notification-preferences                               259 B         103 kB
+├ ƒ /api/alpha-exchange/notifications                                          259 B         103 kB
+├ ƒ /api/alpha-exchange/notifications/[notificationId]                         259 B         103 kB
+├ ƒ /api/alpha-exchange/private-beta/announcements                             259 B         103 kB
+├ ƒ /api/alpha-exchange/private-beta/feedback                                  259 B         103 kB
+├ ƒ /api/alpha-exchange/purchase-requests                                      259 B         103 kB
+├ ƒ /api/alpha-exchange/purchase-requests/[requestId]                          259 B         103 kB
+├ ƒ /api/alpha-exchange/purchase-requests/[requestId]/evidence                 259 B         103 kB
+├ ƒ /api/alpha-exchange/purchase-requests/[requestId]/evidence/[evidenceId]    259 B         103 kB
+├ ƒ /api/alpha-exchange/purchase-requests/[requestId]/review                   259 B         103 kB
+├ ƒ /api/alpha-exchange/reports                                                259 B         103 kB
+├ ƒ /api/alpha-exchange/seller-application                                     259 B         103 kB
+├ ƒ /api/alpha-exchange/seller-settings                                        259 B         103 kB
+├ ƒ /api/alpha-exchange/sellers/[sellerId]/profile                             259 B         103 kB
+├ ƒ /api/auth/login                                                            259 B         103 kB
+├ ƒ /api/auth/logout                                                           259 B         103 kB
+├ ƒ /api/auth/me                                                               259 B         103 kB
+├ ƒ /api/auth/profile                                                          259 B         103 kB
+├ ƒ /api/auth/register                                                         259 B         103 kB
+├ ƒ /api/auth/reset/confirm                                                    259 B         103 kB
+├ ƒ /api/auth/reset/request                                                    259 B         103 kB
+├ ○ /icon.png                                                                    0 B            0 B
+├ ○ /robots.txt                                                                259 B         103 kB
+└ ○ /sitemap.xml                                                               259 B         103 kB
++ First Load JS shared by all                                                 102 kB
+  ├ chunks/1255-d90f22433f14e976.js                                          46.2 kB
+  ├ chunks/4bd1b696-f785427dddbba9fb.js                                      54.2 kB
+  └ other shared chunks (total)                                                 2 kB
+
+
+ƒ Middleware                                                                   46 kB
+
+○  (Static)   prerendered as static content
+●  (SSG)      prerendered as static HTML (uses generateStaticParams)
+ƒ  (Dynamic)  server-rendered on demand
+

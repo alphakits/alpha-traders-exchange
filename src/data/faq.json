@@ -1,0 +1,23 @@
+[
+  {
+    "id": "f1",
+    "question": "Is Alpha Traders completely free?",
+    "questionAr": "هل منصة ألفا تريدرز مجانية بالكامل؟",
+    "answer": "Yes. Core educational content is free and structured for serious learners.",
+    "answerAr": "نعم. المحتوى التعليمي الأساسي مجاني ومُنظم للمتداولين الجادين."
+  },
+  {
+    "id": "f2",
+    "question": "Do I need trading experience to start?",
+    "questionAr": "هل أحتاج خبرة سابقة للبدء؟",
+    "answer": "No. The beginner roadmap starts from first principles and risk basics.",
+    "answerAr": "لا. مسار المبتدئين يبدأ من الأساسيات ومبادئ إدارة المخاطر."
+  },
+  {
+    "id": "f3",
+    "question": "Will there be certificates?",
+    "questionAr": "هل سيتم إضافة شهادات لاحقاً؟",
+    "answer": "Certificates are part of the roadmap and will be released in a future phase.",
+    "answerAr": "الشهادات ضمن خارطة الطريق وسيتم إطلاقها في مرحلة لاحقة."
+  }
+]

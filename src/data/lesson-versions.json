@@ -1,0 +1,452 @@
+[
+  {
+    "lessonId": "l1",
+    "action": "published",
+    "role": "editor",
+    "snapshot": {
+      "id": "l1",
+      "courseId": "c1",
+      "module": "Module 1 - Context Mapping",
+      "moduleAr": "الوحدة 1 - رسم سياق السوق",
+      "slug": "trend-and-range-context",
+      "title": "Trend & Range Context",
+      "titleAr": "سياق الاتجاه والتذبذب",
+      "description": "Learn how to classify market conditions and avoid context-blind entries.",
+      "descriptionAr": "تعلّم كيفية تصنيف حالات السوق وتجنّب الدخول بدون سياق.",
+      "summary": "This lesson builds a repeatable model for identifying trend continuation versus range expansion before execution.",
+      "summaryAr": "يبني هذا الدرس نموذجًا متكررًا للتمييز بين استمرارية الاتجاه وتوسع النطاق قبل التنفيذ.",
+      "objectives": [
+        "Define market state before searching entries",
+        "Separate pullback opportunities from consolidation traps",
+        "Use a context checklist for session planning"
+      ],
+      "objectivesAr": [
+        "تحديد حالة السوق قبل البحث عن الدخول",
+        "التمييز بين فرص التصحيح وفخاخ التذبذب",
+        "استخدام قائمة تحقق سياقية لتخطيط الجلسة"
+      ],
+      "takeaways": [
+        "Context is a mandatory filter, not an optional step",
+        "Breakout signals require structure confirmation",
+        "Bias is valid only when highs/lows behavior aligns"
+      ],
+      "takeawaysAr": [
+        "السياق فلتر أساسي وليس خطوة اختيارية",
+        "إشارات الاختراق تحتاج لتأكيد هيكلي",
+        "الانحياز صالح فقط عند توافق سلوك القمم والقيعان"
+      ],
+      "keywords": [
+        "market structure",
+        "trend",
+        "range",
+        "bias",
+        "context"
+      ],
+      "keywordsAr": [
+        "هيكل السوق",
+        "اتجاه",
+        "تذبذب",
+        "انحياز",
+        "سياق"
+      ],
+      "durationMinutes": 24,
+      "order": 1,
+      "tags": [
+        "Structure",
+        "Trend",
+        "Bias"
+      ],
+      "tagsAr": [
+        "هيكل السوق",
+        "اتجاه",
+        "انحياز"
+      ],
+      "assets": {
+        "videoProvider": "youtube",
+        "videoUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "videoChapters": [
+          {
+            "id": "l1-c1",
+            "title": "Market State Classification",
+            "titleAr": "تصنيف حالة السوق",
+            "timeSeconds": 0
+          },
+          {
+            "id": "l1-c2",
+            "title": "Trend Continuation Checklist",
+            "titleAr": "قائمة تحقق استمرارية الاتجاه",
+            "timeSeconds": 450
+          },
+          {
+            "id": "l1-c3",
+            "title": "Range Traps and Invalidations",
+            "titleAr": "فخاخ التذبذب ومستويات الإلغاء",
+            "timeSeconds": 980
+          }
+        ],
+        "pdfProvider": "google-drive",
+        "pdfFileId": "",
+        "pdfUrl": "/files/lessons/trend-range-context.pdf",
+        "presentationUrl": "/files/lessons/trend-range-context.pptx",
+        "notes": "Objective checklist for structure shift and continuation behavior.",
+        "notesAr": "قائمة تحقق موضوعية لتحول الهيكل واستمرارية الحركة.",
+        "resources": [
+          {
+            "id": "l1-r1",
+            "label": "Session Context Worksheet",
+            "labelAr": "ورقة عمل سياق الجلسة",
+            "url": "/files/lessons/trend-range-context.pdf",
+            "type": "worksheet"
+          },
+          {
+            "id": "l1-r2",
+            "label": "Slide Deck",
+            "labelAr": "عرض الشرائح",
+            "url": "/files/lessons/trend-range-context.pptx",
+            "type": "slide"
+          }
+        ],
+        "videoId": ""
+      },
+      "quiz": [
+        {
+          "id": "q1",
+          "question": "What validates a bullish continuation context?",
+          "questionAr": "ما الذي يؤكد سياق الاستمرارية الصاعدة؟",
+          "options": [
+            "Lower highs",
+            "Higher highs and defended pullbacks",
+            "Random volatility",
+            "Single candle"
+          ],
+          "optionsAr": [
+            "قمم أدنى",
+            "قمم أعلى وتصحيحات مدعومة",
+            "تذبذب عشوائي",
+            "شمعة واحدة"
+          ],
+          "correctIndex": 1,
+          "explanation": "Continuation requires repeated higher highs with pullbacks that hold structure and fail to break demand.",
+          "explanationAr": "الاستمرارية تتطلب قممًا أعلى متكررة مع تصحيحات تحافظ على الهيكل وتفشل في كسر مناطق الطلب.",
+          "type": "multiple-choice"
+        }
+      ],
+      "category": "beginner",
+      "status": "published",
+      "difficulty": "medium",
+      "xpReward": 100,
+      "lessonNumber": 1,
+      "estimatedDurationMinutes": 24,
+      "instructor": "",
+      "thumbnail": "",
+      "updatedAt": "2026-07-17T15:00:53.942Z",
+      "quizSettings": {
+        "passingScore": 70,
+        "randomizedOrder": false,
+        "instantFeedback": true
+      }
+    },
+    "id": "v-1784300504677-q9na0e",
+    "timestamp": "2026-07-17T15:01:44.677Z"
+  },
+  {
+    "lessonId": "l1",
+    "action": "updated",
+    "role": "editor",
+    "snapshot": {
+      "id": "l1",
+      "courseId": "c1",
+      "module": "Module 1 - Context Mapping",
+      "moduleAr": "الوحدة 1 - رسم سياق السوق",
+      "slug": "trend-and-range-context",
+      "title": "Trend & Range Context",
+      "titleAr": "سياق الاتجاه والتذبذب",
+      "description": "Learn how to classify market conditions and avoid context-blind entries.",
+      "descriptionAr": "تعلّم كيفية تصنيف حالات السوق وتجنّب الدخول بدون سياق.",
+      "summary": "This lesson builds a repeatable model for identifying trend continuation versus range expansion before execution.",
+      "summaryAr": "يبني هذا الدرس نموذجًا متكررًا للتمييز بين استمرارية الاتجاه وتوسع النطاق قبل التنفيذ.",
+      "objectives": [
+        "Define market state before searching entries",
+        "Separate pullback opportunities from consolidation traps",
+        "Use a context checklist for session planning"
+      ],
+      "objectivesAr": [
+        "تحديد حالة السوق قبل البحث عن الدخول",
+        "التمييز بين فرص التصحيح وفخاخ التذبذب",
+        "استخدام قائمة تحقق سياقية لتخطيط الجلسة"
+      ],
+      "takeaways": [
+        "Context is a mandatory filter, not an optional step",
+        "Breakout signals require structure confirmation",
+        "Bias is valid only when highs/lows behavior aligns"
+      ],
+      "takeawaysAr": [
+        "السياق فلتر أساسي وليس خطوة اختيارية",
+        "إشارات الاختراق تحتاج لتأكيد هيكلي",
+        "الانحياز صالح فقط عند توافق سلوك القمم والقيعان"
+      ],
+      "keywords": [
+        "market structure",
+        "trend",
+        "range",
+        "bias",
+        "context"
+      ],
+      "keywordsAr": [
+        "هيكل السوق",
+        "اتجاه",
+        "تذبذب",
+        "انحياز",
+        "سياق"
+      ],
+      "durationMinutes": 24,
+      "order": 1,
+      "tags": [
+        "Structure",
+        "Trend",
+        "Bias"
+      ],
+      "tagsAr": [
+        "هيكل السوق",
+        "اتجاه",
+        "انحياز"
+      ],
+      "assets": {
+        "videoProvider": "youtube",
+        "videoUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "videoChapters": [
+          {
+            "id": "l1-c1",
+            "title": "Market State Classification",
+            "titleAr": "تصنيف حالة السوق",
+            "timeSeconds": 0
+          },
+          {
+            "id": "l1-c2",
+            "title": "Trend Continuation Checklist",
+            "titleAr": "قائمة تحقق استمرارية الاتجاه",
+            "timeSeconds": 450
+          },
+          {
+            "id": "l1-c3",
+            "title": "Range Traps and Invalidations",
+            "titleAr": "فخاخ التذبذب ومستويات الإلغاء",
+            "timeSeconds": 980
+          }
+        ],
+        "pdfProvider": "google-drive",
+        "pdfFileId": "",
+        "pdfUrl": "/files/lessons/trend-range-context.pdf",
+        "presentationUrl": "/files/lessons/trend-range-context.pptx",
+        "notes": "Objective checklist for structure shift and continuation behavior.",
+        "notesAr": "قائمة تحقق موضوعية لتحول الهيكل واستمرارية الحركة.",
+        "resources": [
+          {
+            "id": "l1-r1",
+            "label": "Session Context Worksheet",
+            "labelAr": "ورقة عمل سياق الجلسة",
+            "url": "/files/lessons/trend-range-context.pdf",
+            "type": "worksheet"
+          },
+          {
+            "id": "l1-r2",
+            "label": "Slide Deck",
+            "labelAr": "عرض الشرائح",
+            "url": "/files/lessons/trend-range-context.pptx",
+            "type": "slide"
+          }
+        ],
+        "videoId": ""
+      },
+      "quiz": [
+        {
+          "id": "q1",
+          "question": "What validates a bullish continuation context?",
+          "questionAr": "ما الذي يؤكد سياق الاستمرارية الصاعدة؟",
+          "options": [
+            "Lower highs",
+            "Higher highs and defended pullbacks",
+            "Random volatility",
+            "Single candle"
+          ],
+          "optionsAr": [
+            "قمم أدنى",
+            "قمم أعلى وتصحيحات مدعومة",
+            "تذبذب عشوائي",
+            "شمعة واحدة"
+          ],
+          "correctIndex": 1,
+          "explanation": "Continuation requires repeated higher highs with pullbacks that hold structure and fail to break demand.",
+          "explanationAr": "الاستمرارية تتطلب قممًا أعلى متكررة مع تصحيحات تحافظ على الهيكل وتفشل في كسر مناطق الطلب.",
+          "type": "multiple-choice"
+        }
+      ],
+      "category": "beginner",
+      "status": "published",
+      "difficulty": "medium",
+      "xpReward": 100,
+      "lessonNumber": 1,
+      "estimatedDurationMinutes": 24,
+      "instructor": "",
+      "thumbnail": "",
+      "updatedAt": "2026-07-17T15:00:53.942Z",
+      "quizSettings": {
+        "passingScore": 70,
+        "randomizedOrder": false,
+        "instantFeedback": true
+      }
+    },
+    "id": "v-1784300504663-ruvss7",
+    "timestamp": "2026-07-17T15:01:44.663Z"
+  },
+  {
+    "lessonId": "l-1784300453943",
+    "action": "duplicated",
+    "role": "editor",
+    "snapshot": {
+      "id": "l-1784300453943",
+      "courseId": "c1",
+      "module": "Module 1 - Context Mapping",
+      "moduleAr": "الوحدة 1 - رسم سياق السوق",
+      "slug": "trend-and-range-context-copy",
+      "title": "Trend & Range Context (Copy)",
+      "titleAr": "سياق الاتجاه والتذبذب (نسخة)",
+      "description": "Learn how to classify market conditions and avoid context-blind entries.",
+      "descriptionAr": "تعلّم كيفية تصنيف حالات السوق وتجنّب الدخول بدون سياق.",
+      "summary": "This lesson builds a repeatable model for identifying trend continuation versus range expansion before execution.",
+      "summaryAr": "يبني هذا الدرس نموذجًا متكررًا للتمييز بين استمرارية الاتجاه وتوسع النطاق قبل التنفيذ.",
+      "objectives": [
+        "Define market state before searching entries",
+        "Separate pullback opportunities from consolidation traps",
+        "Use a context checklist for session planning"
+      ],
+      "objectivesAr": [
+        "تحديد حالة السوق قبل البحث عن الدخول",
+        "التمييز بين فرص التصحيح وفخاخ التذبذب",
+        "استخدام قائمة تحقق سياقية لتخطيط الجلسة"
+      ],
+      "takeaways": [
+        "Context is a mandatory filter, not an optional step",
+        "Breakout signals require structure confirmation",
+        "Bias is valid only when highs/lows behavior aligns"
+      ],
+      "takeawaysAr": [
+        "السياق فلتر أساسي وليس خطوة اختيارية",
+        "إشارات الاختراق تحتاج لتأكيد هيكلي",
+        "الانحياز صالح فقط عند توافق سلوك القمم والقيعان"
+      ],
+      "keywords": [
+        "market structure",
+        "trend",
+        "range",
+        "bias",
+        "context"
+      ],
+      "keywordsAr": [
+        "هيكل السوق",
+        "اتجاه",
+        "تذبذب",
+        "انحياز",
+        "سياق"
+      ],
+      "durationMinutes": 24,
+      "order": 4,
+      "tags": [
+        "Structure",
+        "Trend",
+        "Bias"
+      ],
+      "tagsAr": [
+        "هيكل السوق",
+        "اتجاه",
+        "انحياز"
+      ],
+      "assets": {
+        "videoProvider": "youtube",
+        "videoUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "videoChapters": [
+          {
+            "id": "l1-c1",
+            "title": "Market State Classification",
+            "titleAr": "تصنيف حالة السوق",
+            "timeSeconds": 0
+          },
+          {
+            "id": "l1-c2",
+            "title": "Trend Continuation Checklist",
+            "titleAr": "قائمة تحقق استمرارية الاتجاه",
+            "timeSeconds": 450
+          },
+          {
+            "id": "l1-c3",
+            "title": "Range Traps and Invalidations",
+            "titleAr": "فخاخ التذبذب ومستويات الإلغاء",
+            "timeSeconds": 980
+          }
+        ],
+        "pdfProvider": "google-drive",
+        "pdfFileId": "",
+        "pdfUrl": "/files/lessons/trend-range-context.pdf",
+        "presentationUrl": "/files/lessons/trend-range-context.pptx",
+        "notes": "Objective checklist for structure shift and continuation behavior.",
+        "notesAr": "قائمة تحقق موضوعية لتحول الهيكل واستمرارية الحركة.",
+        "resources": [
+          {
+            "id": "l1-r1",
+            "label": "Session Context Worksheet",
+            "labelAr": "ورقة عمل سياق الجلسة",
+            "url": "/files/lessons/trend-range-context.pdf",
+            "type": "worksheet"
+          },
+          {
+            "id": "l1-r2",
+            "label": "Slide Deck",
+            "labelAr": "عرض الشرائح",
+            "url": "/files/lessons/trend-range-context.pptx",
+            "type": "slide"
+          }
+        ],
+        "videoId": ""
+      },
+      "quiz": [
+        {
+          "id": "q1",
+          "question": "What validates a bullish continuation context?",
+          "questionAr": "ما الذي يؤكد سياق الاستمرارية الصاعدة؟",
+          "options": [
+            "Lower highs",
+            "Higher highs and defended pullbacks",
+            "Random volatility",
+            "Single candle"
+          ],
+          "optionsAr": [
+            "قمم أدنى",
+            "قمم أعلى وتصحيحات مدعومة",
+            "تذبذب عشوائي",
+            "شمعة واحدة"
+          ],
+          "correctIndex": 1,
+          "explanation": "Continuation requires repeated higher highs with pullbacks that hold structure and fail to break demand.",
+          "explanationAr": "الاستمرارية تتطلب قممًا أعلى متكررة مع تصحيحات تحافظ على الهيكل وتفشل في كسر مناطق الطلب.",
+          "type": "multiple-choice"
+        }
+      ],
+      "category": "beginner",
+      "status": "draft",
+      "difficulty": "medium",
+      "xpReward": 100,
+      "lessonNumber": 4,
+      "estimatedDurationMinutes": 24,
+      "instructor": "",
+      "thumbnail": "",
+      "updatedAt": "2026-07-17T15:00:53.943Z",
+      "quizSettings": {
+        "passingScore": 70,
+        "randomizedOrder": false,
+        "instantFeedback": true
+      }
+    },
+    "id": "v-1784300453949-7spz4z",
+    "timestamp": "2026-07-17T15:00:53.949Z"
+  }
+]
