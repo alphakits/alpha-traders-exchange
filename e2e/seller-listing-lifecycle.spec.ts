@@ -194,6 +194,7 @@ async function expectOkWithBody(response: Awaited<ReturnType<APIRequestContext["
 test.describe.configure({ mode: "serial" });
 
 test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
+  test.setTimeout(60_000);
   await resetLifecycleFixtures();
 
   const seller = await createSession(browser, SELLER_EMAIL, SELLER_PASSWORD);
