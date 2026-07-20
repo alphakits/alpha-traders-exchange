@@ -89,6 +89,7 @@ Set this in the **Production** environment so metadata, canonical URLs, `robots.
 
 Optional environment variables:
 
+- `NEXT_PUBLIC_FOUNDER_VIDEO_URL` — **Required in production.** The Supabase Storage public URL for the founder introduction video. Vercel does not pull Git LFS objects, so the video must be uploaded to Supabase Storage separately.
 - `AUTH_COOKIE_SECURE=true`
 - `ADMIN_ACCESS_KEY`
 - `ALPHA_EXCHANGE_LARGE_TRADE_THRESHOLD`
@@ -96,6 +97,23 @@ Optional environment variables:
 - `ALPHA_EXCHANGE_STALE_TRADE_TIMEOUT_MINUTES`
 - `SUPABASE_ADMIN_MEDIA_BUCKET=admin-media`
 - `SUPABASE_DB_SSL=true` (default behavior; only set `false` for local trusted Postgres)
+
+#### Founder video — Supabase Storage upload (one-time setup)
+
+The founder introduction video is stored in Git via Git LFS but Vercel does not fetch LFS objects during deployment. The video must be hosted on Supabase Storage:
+
+1. Open Supabase Dashboard → Storage → **admin-media** bucket (already public)
+2. Create folder `founder/` inside the bucket
+3. Upload `public/files/founder/alpha-traders-founder-introduction.mp4` into that folder
+4. The public URL will be:
+   ```
+   https://<project-ref>.supabase.co/storage/v1/object/public/admin-media/founder/alpha-traders-founder-introduction.mp4
+   ```
+5. In Vercel → Settings → Environment Variables, add:
+   ```
+   NEXT_PUBLIC_FOUNDER_VIDEO_URL = https://<project-ref>.supabase.co/storage/v1/object/public/admin-media/founder/alpha-traders-founder-introduction.mp4
+   ```
+6. Redeploy for the change to take effect.
 
 Never set in production:
 

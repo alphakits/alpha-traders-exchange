@@ -9,7 +9,14 @@ import { courseSource } from "@/data/course-source";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
-const VIDEO_URL = "/files/founder/alpha-traders-founder-introduction.mp4";
+// In production the video is hosted on Supabase Storage because Git LFS objects
+// are not fetched by Vercel during deployment.
+// Set NEXT_PUBLIC_FOUNDER_VIDEO_URL in Vercel to the Supabase Storage public URL:
+//   https://<project-ref>.supabase.co/storage/v1/object/public/admin-media/founder/alpha-traders-founder-introduction.mp4
+// In local development the file is served from /public/files/founder/.
+const VIDEO_URL =
+  process.env.NEXT_PUBLIC_FOUNDER_VIDEO_URL ||
+  "/files/founder/alpha-traders-founder-introduction.mp4";
 
 const highlights = [
   { titleAr: "من أنا؟", title: "Who am I?", icon: Crown },

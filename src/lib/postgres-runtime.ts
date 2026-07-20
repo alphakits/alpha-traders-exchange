@@ -38,7 +38,7 @@ export function getRuntimePostgresPool() {
   warnIfDirectSupabaseUrl(connectionString);
 
   if (!globalThis.__alphaTradersRuntimeDbPool) {
-    globalThis.__alphaTradersRuntimeDbPool = new Pool({
+    const pool = new Pool({
       connectionString,
       ssl: process.env.SUPABASE_DB_SSL === "false" ? undefined : { rejectUnauthorized: false },
       // Keep the pool small for serverless environments (Vercel Functions).
@@ -47,6 +47,23 @@ export function getRuntimePostgresPool() {
       idleTimeoutMillis: 10_000,
       connectionTimeoutMillis: 5_000,
     });
+
+    // Surface misconfigured connection strings early in production logs.
+    pool.on("error", (err) => {
+      if (err.message.includes("ENOTFOUND") && /db\.[a-z0-9]+\.supabase\.co/.test(connectionString)) {
+        console.error(
+          "[postgres-runtime] FATAL: getaddrinfo ENOTFOUND — SUPABASE_DB_URL is using the " +
+            "Supabase DIRECT host (db.<ref>.supabase.co) which Vercel cannot resolve. " +
+            "Update SUPABASE_DB_URL to the Transaction Mode POOLER URL:\n" +
+            "  postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres\n" +
+            "Get this URL: Supabase Dashboard → Project Settings → Database → Connection Pooling tab.",
+        );
+      } else {
+        console.error("[postgres-runtime] Pool error:", err.message);
+      }
+    });
+
+    globalThis.__alphaTradersRuntimeDbPool = pool;
   }
 
   return globalThis.__alphaTradersRuntimeDbPool;
