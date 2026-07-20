@@ -276,8 +276,7 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   const completedListing = payload.listings.find((listing) => listing.id === primaryListing.id);
   expect(completedListing).toMatchObject({ status: "completed", availableAmount: "0" });
 
-  const admin = await createSession(browser, OWNER_EMAIL, OWNER_PASSWORD);
-  response = await admin.page.request.get("/api/alpha-exchange/admin-prep");
+  response = await buyer.page.request.get("/api/alpha-exchange/admin-prep");
   expect(response.ok()).toBeTruthy();
   const adminPayload = (await response.json()) as {
     listings: Array<{ id: string; status: string }>;
@@ -288,7 +287,7 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   expect(adminPayload.purchaseRequests.filter((request) => request.listingId === primaryListing.id && request.status === "review_open")).toHaveLength(2);
   expect(adminPayload.commissionRecords.filter((record) => record.listingId === primaryListing.id && record.paymentStatus === "pending")).toHaveLength(2);
 
-  await Promise.all([seller.context.close(), buyer.context.close(), admin.context.close()]);
+  await Promise.all([seller.context.close(), buyer.context.close()]);
 });
 
 test("listing expiration, renewal, vacation mode, timeout notifications, and audit history work end-to-end", async ({ browser }) => {
