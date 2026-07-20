@@ -794,12 +794,13 @@ export class AlphaExchangeRepository {
   async ensureReady() {
     if (!this.initPromise) {
       this.initPromise = (async () => {
-        if (this.usesMemoryFallback || !this.pool) {
+        const pool = this.pool;
+        if (this.usesMemoryFallback || !pool) {
           ensureMemorySeed();
           return;
         }
-        await runSchema(this.pool);
-        const usersCount = await this.pool.query<{ count: string }>("select count(*)::text as count from alpha_exchange.users");
+        await runSchema(pool);
+        const usersCount = await pool.query<{ count: string }>("select count(*)::text as count from alpha_exchange.users");
         const shouldSeed = usersCount.rows[0]?.count === "0" && process.env.NODE_ENV !== "production";
         if (shouldSeed) {
           await this.saveSnapshot(DEFAULT_DB, { skipReadyCheck: true });
@@ -811,22 +812,24 @@ export class AlphaExchangeRepository {
 
   async healthCheck() {
     await this.ensureReady();
-    if (this.usesMemoryFallback || !this.pool) {
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
       return "ok" as const;
     }
-    await this.pool.query("select 1");
+    await pool.query("select 1");
     return "ok" as const;
   }
 
   async loadSnapshot(): Promise<SnapshotWithVersion> {
     await this.ensureReady();
-    if (this.usesMemoryFallback || !this.pool) {
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
       ensureMemorySeed();
       return attachVersion(cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion), getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion));
     }
     const [meta, ...results] = await Promise.all([
-      this.pool.query<{ version: string }>("select version::text as version from alpha_exchange.runtime_meta where singleton = true"),
-      ...tables.map((table) => this.pool.query(table.selectSql)),
+      pool.query<{ version: string }>("select version::text as version from alpha_exchange.runtime_meta where singleton = true"),
+      ...tables.map((table) => pool.query(table.selectSql)),
     ]);
 
     const snapshot: AlphaExchangeDb = {
@@ -858,7 +861,8 @@ export class AlphaExchangeRepository {
     db: AlphaExchangeDb,
     options?: { evidenceOverrides?: EvidenceWriteMap; skipReadyCheck?: boolean },
   ) {
-    if (this.usesMemoryFallback || !this.pool) {
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
       ensureMemorySeed();
       const next = attachVersion(cloneSnapshot(db), getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion) + 1);
       const previousEvidence = globalThis.__alphaExchangeMemoryEvidenceContent as Map<string, Buffer | null>;
@@ -877,10 +881,10 @@ export class AlphaExchangeRepository {
     if (!options?.skipReadyCheck) {
       await this.ensureReady();
     } else {
-      await runSchema(this.pool);
+      await runSchema(pool);
     }
 
-    const client = await this.pool.connect();
+    const client = await pool.connect();
     try {
       await client.query("begin");
       try {
@@ -916,11 +920,12 @@ export class AlphaExchangeRepository {
 
   async readEvidenceContent(evidenceId: string) {
     await this.ensureReady();
-    if (this.usesMemoryFallback || !this.pool) {
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
       ensureMemorySeed();
       return globalThis.__alphaExchangeMemoryEvidenceContent?.get(evidenceId) ?? null;
     }
-    const result = await this.pool.query<{ content: Buffer | null }>(
+    const result = await pool.query<{ content: Buffer | null }>(
       "select content from alpha_exchange.evidence where id = $1",
       [evidenceId],
     );
