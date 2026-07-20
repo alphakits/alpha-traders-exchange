@@ -1,0 +1,369 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: seller-listing-lifecycle.spec.ts >> seller listing lifecycle is enforced end-to-end
+- Location: e2e\seller-listing-lifecycle.spec.ts:196:5
+
+# Error details
+
+```
+Test timeout of 30000ms exceeded.
+```
+
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic:
+    - img
+    - generic:
+      - generic:
+        - img:
+          - generic: ₿
+      - generic:
+        - img
+      - generic:
+        - img
+      - generic:
+        - img
+      - generic:
+        - img:
+          - generic: ₿
+      - generic:
+        - img
+      - generic:
+        - img
+      - generic:
+        - img
+      - generic:
+        - img
+      - generic:
+        - img
+      - generic:
+        - img
+      - generic:
+        - img
+      - generic:
+        - img
+      - generic:
+        - img
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e5]:
+        - link "Alpha Traders logo 𝔸𝕝𝕡𝕙𝕒 𝕋𝕣𝕒𝕕𝕖𝕣𝕤" [ref=e6] [cursor=pointer]:
+          - /url: /en
+          - img "Alpha Traders logo" [ref=e7]
+          - generic [ref=e8]: 𝔸𝕝𝕡𝕙𝕒 𝕋𝕣𝕒𝕕𝕖𝕣𝕤
+        - navigation [ref=e9]:
+          - link "Home" [ref=e10] [cursor=pointer]:
+            - /url: /en
+            - text: Home
+          - link "Academy" [ref=e11] [cursor=pointer]:
+            - /url: /en/academy
+            - text: Academy
+          - link "Community" [ref=e12] [cursor=pointer]:
+            - /url: /en/community
+            - text: Community
+          - link "Contact" [ref=e13] [cursor=pointer]:
+            - /url: /en/contact
+            - text: Contact
+          - link "⇄ Alpha Exchange" [ref=e14] [cursor=pointer]:
+            - /url: /en/usdt-exchange
+            - text: ⇄ Alpha Exchange
+        - generic [ref=e15]:
+          - button "التبديل إلى العربية" [ref=e16]:
+            - img [ref=e17]
+            - text: AR
+          - generic [ref=e21]: test123
+          - link "Profile" [ref=e22] [cursor=pointer]:
+            - /url: /en/profile
+            - button "Profile" [ref=e23]
+          - button "Notifications" [ref=e25]:
+            - img [ref=e26]
+          - button "Sign out" [ref=e30]
+    - main [ref=e31]:
+      - generic [ref=e32]:
+        - generic [ref=e34]:
+          - paragraph [ref=e35]:
+            - img [ref=e36]
+            - text: Alpha Exchange
+          - heading "Alpha Exchange" [level=1] [ref=e40]
+          - paragraph [ref=e41]: A premium marketplace connecting buyers and sellers looking to exchange USDT. Alpha Traders coordinates every transaction through a transparent, professional, and community-driven process while charging a simple 1% service fee.
+          - generic [ref=e42]:
+            - link "Start a Trade" [ref=e43] [cursor=pointer]:
+              - /url: "#marketplace"
+              - button "Start a Trade" [ref=e44]
+            - link "Learn How It Works" [ref=e45] [cursor=pointer]:
+              - /url: "#how-it-works"
+              - button "Learn How It Works" [ref=e46]
+        - generic [ref=e48]:
+          - heading "Approved Sellers Only" [level=3] [ref=e49]
+          - paragraph [ref=e50]: Only sellers approved by Alpha Traders are allowed to publish listings. Every seller application is reviewed manually before approval.
+        - generic [ref=e51]:
+          - heading "Trust & Security" [level=2] [ref=e52]
+          - generic [ref=e53]:
+            - generic [ref=e54]:
+              - generic [ref=e56]:
+                - img [ref=e58]
+                - heading "Approved Sellers" [level=3] [ref=e61]
+              - paragraph [ref=e63]: Only manually approved sellers can publish listings.
+            - generic [ref=e64]:
+              - generic [ref=e66]:
+                - img [ref=e68]
+                - heading "Transparent 1% Commission" [level=3] [ref=e71]
+              - paragraph [ref=e73]: Alpha Traders charges a simple, transparent 1% commission on completed transactions.
+            - generic [ref=e74]:
+              - generic [ref=e76]:
+                - img [ref=e78]
+                - heading "Privacy" [level=3] [ref=e82]
+              - paragraph [ref=e84]: User information is handled securely.
+            - generic [ref=e85]:
+              - generic [ref=e87]:
+                - img [ref=e89]
+                - heading "Support" [level=3] [ref=e91]
+              - paragraph [ref=e93]: Direct WhatsApp support during the trading process.
+        - generic [ref=e94]:
+          - heading "How It Works" [level=2] [ref=e95]
+          - generic [ref=e96]:
+            - generic [ref=e97]:
+              - generic [ref=e98]:
+                - generic [ref=e99]: "1"
+                - generic [ref=e100]:
+                  - heading "Buyer submits trade request" [level=3] [ref=e101]
+                  - paragraph [ref=e102]: The request is recorded as a permanent timeline event immediately.
+              - generic [ref=e104]: ↓
+            - generic [ref=e105]:
+              - generic [ref=e106]:
+                - generic [ref=e107]: "2"
+                - generic [ref=e108]:
+                  - heading "Seller accepts request and creates trade" [level=3] [ref=e109]
+                  - paragraph [ref=e110]: Accepting creates a Trade ID and locks in trade details.
+              - generic [ref=e112]: ↓
+            - generic [ref=e113]:
+              - generic [ref=e114]:
+                - generic [ref=e115]: "3"
+                - generic [ref=e116]:
+                  - heading "Buyer marks Payment Sent" [level=3] [ref=e117]
+                  - paragraph [ref=e118]: Timeline updates to payment-sent stage for delivery handoff.
+              - generic [ref=e120]: ↓
+            - generic [ref=e121]:
+              - generic [ref=e122]:
+                - generic [ref=e123]: "4"
+                - generic [ref=e124]:
+                  - heading "Seller marks USDT Sent" [level=3] [ref=e125]
+                  - paragraph [ref=e126]: USDT-sent step is logged and waits for buyer confirmation.
+              - generic [ref=e128]: ↓
+            - generic [ref=e130]:
+              - generic [ref=e131]: "5"
+              - generic [ref=e132]:
+                - heading "Buyer confirms completion" [level=3] [ref=e133]
+                - paragraph [ref=e134]: Trade auto-locks and review window opens after completion.
+        - generic [ref=e135]:
+          - heading "Live Marketplace" [level=2] [ref=e136]
+          - generic [ref=e139]:
+            - combobox [ref=e140]:
+              - 'option "Currency: All" [selected]'
+            - combobox [ref=e141]:
+              - 'option "Payment: All" [selected]'
+            - combobox [ref=e142]:
+              - 'option "Network: All" [selected]'
+              - option "TRC20"
+              - option "ERC20"
+              - option "BEP20"
+              - option "SOL"
+            - combobox [ref=e143]:
+              - 'option "Sort: Best Trust Score" [selected]'
+              - 'option "Sort: Lowest Price"'
+              - 'option "Sort: Highest Available USDT"'
+              - 'option "Sort: Most Completed Trades"'
+              - 'option "Sort: Highest Rating"'
+              - 'option "Sort: Fastest Response Time"'
+              - 'option "Sort: Newest Listing"'
+            - textbox "Min Amount" [ref=e144]
+            - textbox "Max Amount" [ref=e145]
+            - textbox "Min Price" [ref=e146]
+            - textbox "Max Price" [ref=e147]
+            - textbox "Min Trust Score" [ref=e148]
+            - button "Show Online Sellers Only" [ref=e149]
+        - generic [ref=e179]:
+          - heading "Why Alpha Exchange" [level=2] [ref=e180]
+          - generic [ref=e181]:
+            - generic [ref=e182]:
+              - generic [ref=e184]:
+                - img [ref=e186]
+                - heading "Trusted Community" [level=3] [ref=e189]
+              - paragraph [ref=e191]: A serious community built on clear, professional trade coordination.
+            - generic [ref=e192]:
+              - generic [ref=e194]:
+                - img [ref=e196]
+                - heading "Transparent 1% Service Fee" [level=3] [ref=e199]
+              - paragraph [ref=e201]: A simple, transparent 1% fee for each facilitated marketplace transaction.
+            - generic [ref=e202]:
+              - generic [ref=e204]:
+                - img [ref=e206]
+                - heading "Professional Coordination" [level=3] [ref=e212]
+              - paragraph [ref=e214]: Alpha Traders coordinates each side through a clear transaction flow.
+            - generic [ref=e215]:
+              - generic [ref=e217]:
+                - img [ref=e219]
+                - heading "Fast Communication" [level=3] [ref=e222]
+              - paragraph [ref=e224]: Direct and fast communication to keep transaction flow efficient.
+            - generic [ref=e225]:
+              - generic [ref=e227]:
+                - img [ref=e229]
+                - heading "Multiple USDT Networks" [level=3] [ref=e234]
+              - paragraph [ref=e236]: Support for common USDT networks based on buyer and seller preferences.
+            - generic [ref=e237]:
+              - generic [ref=e239]:
+                - img [ref=e241]
+                - heading "Premium Customer Experience" [level=3] [ref=e244]
+              - paragraph [ref=e246]: A premium, confidence-first experience with clear process visibility.
+        - generic [ref=e247]:
+          - generic [ref=e248]:
+            - generic [ref=e249]:
+              - heading "Become an Approved Seller" [level=3] [ref=e250]
+              - paragraph [ref=e251]: Seller access is granted only after manual review and approval.
+            - generic [ref=e252]:
+              - generic [ref=e253]:
+                - generic [ref=e254]:
+                  - generic [ref=e255]: Application
+                  - generic [ref=e256]: ↓
+                  - generic [ref=e257]: Review
+                  - generic [ref=e258]: ↓
+                  - generic [ref=e259]: Approval
+                - paragraph [ref=e260]: "Current Status: Pending Review"
+              - generic [ref=e261]:
+                - textbox "Full Name" [ref=e262]
+                - textbox "Email" [ref=e263]
+                - textbox "WhatsApp Number" [ref=e264]
+                - combobox [ref=e265]:
+                  - option "TRC20" [selected]
+                  - option "ERC20"
+                  - option "BEP20"
+                  - option "SOL"
+                - textbox "Expected Monthly Trading Volume" [ref=e266]
+                - textbox "Additional Notes" [ref=e267]
+                - button "Apply for Approval" [ref=e268]
+          - generic [ref=e269]:
+            - generic [ref=e270]:
+              - heading "Find an Approved Seller" [level=3] [ref=e271]
+              - paragraph [ref=e272]: Tell us how much USDT you need and Alpha Traders will help connect you with an available Approved Seller.
+            - generic [ref=e274]:
+              - spinbutton [ref=e275]
+              - combobox [ref=e276]:
+                - option "TRC20" [selected]
+                - option "ERC20"
+                - option "BEP20"
+                - option "SOL"
+              - textbox "WhatsApp Number" [ref=e277]
+              - textbox "Additional Notes" [ref=e278]
+              - button "Find Available Sellers" [ref=e279]
+        - generic [ref=e280]:
+          - generic [ref=e281]:
+            - heading "After Login" [level=3] [ref=e283]
+            - generic [ref=e284]:
+              - paragraph [ref=e285]: • Profile
+              - paragraph [ref=e286]: • My Requests
+              - paragraph [ref=e287]: • Settings
+              - paragraph [ref=e288]: "My Requests: 0 | My Listings: 0"
+          - generic [ref=e289]:
+            - heading "Session" [level=3] [ref=e291]
+            - generic [ref=e292]:
+              - paragraph [ref=e293]: Not logged in
+              - generic [ref=e296]:
+                - img [ref=e297]
+                - generic [ref=e300]: Member
+              - generic [ref=e301]:
+                - link "Login" [ref=e302] [cursor=pointer]:
+                  - /url: /en/login
+                  - button "Login" [ref=e303]
+                - link "Register" [ref=e304] [cursor=pointer]:
+                  - /url: /en/register
+                  - button "Register" [ref=e305]
+        - generic [ref=e306]:
+          - generic [ref=e308]:
+            - img [ref=e310]
+            - paragraph [ref=e315]: 900+
+            - paragraph [ref=e316]: Community Members
+          - generic [ref=e318]:
+            - img [ref=e320]
+            - paragraph [ref=e324]: Growing
+            - paragraph [ref=e325]: Trading Community
+          - generic [ref=e327]:
+            - img [ref=e329]
+            - paragraph [ref=e332]: Professional
+            - paragraph [ref=e333]: Support
+          - generic [ref=e335]:
+            - img [ref=e337]
+            - paragraph [ref=e340]: Transparent
+            - paragraph [ref=e341]: Process
+        - generic [ref=e342]:
+          - heading "FAQ" [level=2] [ref=e343]
+          - generic [ref=e344]:
+            - group [ref=e345]:
+              - generic "How does Alpha Exchange work?" [ref=e346] [cursor=pointer]:
+                - text: How does Alpha Exchange work?
+                - img [ref=e347]
+            - group [ref=e350]:
+              - generic "How is the 1% service fee calculated?" [ref=e351] [cursor=pointer]:
+                - text: How is the 1% service fee calculated?
+                - img [ref=e352]
+            - group [ref=e355]:
+              - generic "Which USDT networks are supported?" [ref=e356] [cursor=pointer]:
+                - text: Which USDT networks are supported?
+                - img [ref=e357]
+            - group [ref=e360]:
+              - generic "How do I create a listing?" [ref=e361] [cursor=pointer]:
+                - text: How do I create a listing?
+                - img [ref=e362]
+            - group [ref=e365]:
+              - generic "How long does a transaction usually take?" [ref=e366] [cursor=pointer]:
+                - text: How long does a transaction usually take?
+                - img [ref=e367]
+        - generic [ref=e372]:
+          - heading "Ready to Exchange USDT?" [level=3] [ref=e373]
+          - paragraph [ref=e374]: Join the Alpha Traders community and experience a professional marketplace connecting buyers and sellers through Alpha Exchange.
+          - generic [ref=e375]:
+            - link "Start Trading" [ref=e376] [cursor=pointer]:
+              - /url: "#marketplace"
+              - button "Start Trading" [ref=e377]
+            - link "Contact on WhatsApp" [ref=e378] [cursor=pointer]:
+              - /url: https://wa.me/972525967649
+              - button "Contact on WhatsApp" [ref=e379]:
+                - img [ref=e380]
+                - text: Contact on WhatsApp
+    - contentinfo [ref=e382]:
+      - generic [ref=e383]:
+        - generic [ref=e384]:
+          - generic [ref=e385]:
+            - img "Alpha Traders logo" [ref=e386]
+            - heading "𝔸𝕝𝕡𝕙𝕒 𝕋𝕣𝕒𝕕𝕖𝕣𝕤" [level=3] [ref=e387]
+          - paragraph [ref=e388]: Free premium Arabic trading education with structured, disciplined learning.
+        - generic [ref=e389]:
+          - link "Academy" [ref=e390] [cursor=pointer]:
+            - /url: /en/academy
+          - link "Lessons" [ref=e391] [cursor=pointer]:
+            - /url: /en/lessons/trend-and-range-context
+          - link "⇄ Alpha Exchange" [ref=e392] [cursor=pointer]:
+            - /url: /en/usdt-exchange
+        - generic [ref=e393]:
+          - paragraph [ref=e394]: 2026 © All rights reserved to 𝔸𝕝𝕡𝕙𝕒 𝕋𝕣𝕒𝕕𝕖𝕣𝕤
+          - paragraph [ref=e395]: Built for disciplined learning, not market noise.
+          - 'link "WhatsApp: Available now" [ref=e397] [cursor=pointer]':
+            - /url: https://wa.me/972525967649
+            - img [ref=e398]
+            - text: "WhatsApp: Available now"
+          - 'link "Instagram: @mark.jozen" [ref=e401] [cursor=pointer]':
+            - /url: https://www.instagram.com/mark.jozen/
+            - img [ref=e402]
+            - text: "Instagram: @mark.jozen"
+          - 'link "TikTok: @Mark.Jozen" [ref=e406] [cursor=pointer]':
+            - /url: https://www.tiktok.com/@mark.jozen
+            - img [ref=e407]
+            - text: "TikTok: @Mark.Jozen"
+```
