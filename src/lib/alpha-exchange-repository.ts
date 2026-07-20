@@ -334,7 +334,7 @@ function getConnectionString() {
   return process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? "";
 }
 
-const tables: Array<RepoTable<unknown>> = [
+const tables = [
   {
     name: "users",
     selectSql: "select payload from alpha_exchange.users order by sort_index asc",
@@ -734,7 +734,7 @@ const tables: Array<RepoTable<unknown>> = [
       }
     },
   },
-];
+] as Array<RepoTable<unknown>>;
 
 function attachVersion<T extends AlphaExchangeDb>(db: T, version: number): SnapshotWithVersion {
   Object.defineProperty(db, "__runtimeVersion", {
