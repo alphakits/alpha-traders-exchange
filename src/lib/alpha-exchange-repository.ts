@@ -1,5 +1,6 @@
 import { Pool, type PoolClient } from "pg";
 import alphaExchangeSeed from "../../data/alpha-exchange-db.json";
+import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import type {
   AlphaExchangeDb,
   AlphaExchangeNotification,
@@ -328,10 +329,6 @@ function fromPayloadRows<T>(rows: Array<{ payload: T }>) {
 
 function cloneSnapshot(db: AlphaExchangeDb) {
   return structuredClone(db);
-}
-
-function getConnectionString() {
-  return process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? "";
 }
 
 const tables = [
@@ -759,19 +756,6 @@ async function runSchema(target: Queryable) {
   );
 }
 
-function createDbPool() {
-  const connectionString = getConnectionString();
-  if (!connectionString) {
-    return null;
-  }
-
-  return new Pool({
-    connectionString,
-    ssl: process.env.SUPABASE_DB_SSL === "false" ? undefined : { rejectUnauthorized: false },
-    max: 10,
-  });
-}
-
 function ensureMemorySeed() {
   if (!globalThis.__alphaExchangeMemorySnapshot) {
     globalThis.__alphaExchangeMemorySnapshot = attachVersion(cloneSnapshot(DEFAULT_DB), 0);
@@ -935,7 +919,7 @@ export class AlphaExchangeRepository {
 
 export async function getAlphaExchangeRepository() {
   if (!globalThis.__alphaExchangeRepositoryPromise) {
-    globalThis.__alphaExchangeRepositoryPromise = Promise.resolve(new AlphaExchangeRepository(createDbPool()));
+    globalThis.__alphaExchangeRepositoryPromise = Promise.resolve(new AlphaExchangeRepository(getRuntimePostgresPool()));
   }
   return globalThis.__alphaExchangeRepositoryPromise;
 }

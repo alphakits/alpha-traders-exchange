@@ -18,6 +18,8 @@ export type MediaItem = {
   provider: MediaProvider;
   name: string;
   url: string;
+  storageBucket?: string;
+  storageKey?: string;
   mimeType?: string;
   size?: number;
   createdAt: string;
