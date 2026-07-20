@@ -63,8 +63,25 @@ Set these in Vercel for every environment that should build successfully:
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `SUPABASE_DB_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_DB_URL` — **must be the Supabase connection pooler URL, not the direct host URL.**
+
+> **CRITICAL — `SUPABASE_DB_URL` must use the connection pooler.**  
+> Vercel serverless functions cannot resolve `db.<ref>.supabase.co` (direct host).  
+> Using the direct host causes `getaddrinfo ENOTFOUND db.<ref>.supabase.co` at login.  
+>
+> **Correct format (Transaction Mode pooler, port 6543):**  
+> ```
+> postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
+> ```
+>
+> **How to get this URL:**  
+> Supabase Dashboard → Project Settings → Database → **Connection Pooling** tab → Transaction mode → copy URI  
+>
+> **Wrong (direct host — do not use on Vercel):**  
+> ```
+> postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres
+> ```
 
 Set this in the **Production** environment so metadata, canonical URLs, `robots.txt`, and `sitemap.xml` use the custom domain instead of a preview hostname:
 
