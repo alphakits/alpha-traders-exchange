@@ -1,15 +1,13 @@
 import { NextResponse } from "next/server";
-import { promises as fs } from "fs";
-import path from "path";
+import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 
 const startTime = Date.now();
 
 export async function GET() {
-  const dbPath = path.join(process.cwd(), "data", "alpha-exchange-db.json");
-
   let dbStatus: "ok" | "error" = "ok";
   try {
-    await fs.access(dbPath);
+    const repository = await getAlphaExchangeRepository();
+    await repository.healthCheck();
   } catch {
     dbStatus = "error";
   }

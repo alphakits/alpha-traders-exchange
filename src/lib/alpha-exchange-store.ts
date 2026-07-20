@@ -1,9 +1,9 @@
-import { promises as fs } from "fs";
 import path from "path";
 import { createHash, randomUUID } from "crypto";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { calculateSellerTrustSnapshot, rankTrustSnapshots } from "@/lib/trust-engine";
 import { runEnvValidation } from "@/lib/env-validation";
+import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import type {
   AlphaExchangeActivityLogEntry,
   BetaAnnouncement,
@@ -46,8 +46,6 @@ import type {
   UserRole,
 } from "@/types/alpha-exchange";
 
-const dbPath = path.join(process.cwd(), "data", "alpha-exchange-db.json");
-const evidenceRootPath = path.join(process.cwd(), "data", "alpha-exchange-evidence");
 const supportedEvidenceMimeTypes = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
 
 // Validate environment variables on first module load
@@ -843,46 +841,6 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
   };
 }
 
-async function ensureDbFile() {
-  try {
-    await fs.access(dbPath);
-  } catch {
-    await fs.mkdir(path.dirname(dbPath), { recursive: true });
-    await fs.writeFile(dbPath, `${JSON.stringify(defaultDb, null, 2)}\n`, "utf8");
-  }
-}
-
-function waitFor(ms: number) {
-  return new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-function isRetryableDbReplaceError(error: unknown) {
-  if (!error || typeof error !== "object" || !("code" in error)) return false;
-  const code = String((error as { code?: string }).code ?? "");
-  return code === "EPERM" || code === "EBUSY" || code === "ENOTEMPTY";
-}
-
-async function replaceDbFile(tempPath: string) {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    try {
-      await fs.rename(tempPath, dbPath);
-      return;
-    } catch (error) {
-      lastError = error;
-      if (!isRetryableDbReplaceError(error) || attempt === 7) {
-        await fs.rm(tempPath, { force: true }).catch(() => undefined);
-        throw error;
-      }
-      await waitFor(25 * (attempt + 1));
-    }
-  }
-  await fs.rm(tempPath, { force: true }).catch(() => undefined);
-  throw lastError instanceof Error ? lastError : new Error("Failed to replace Alpha Exchange database.");
-}
-
 async function readDb(): Promise<AlphaExchangeDb> {
   const now = Date.now();
   if (dbCache && now - dbCache.updatedAt <= DB_CACHE_TTL_MS) {
@@ -890,36 +848,16 @@ async function readDb(): Promise<AlphaExchangeDb> {
   }
   if (!dbReadInFlight) {
     dbReadInFlight = (async () => {
-      let lastError: unknown;
-      for (let attempt = 0; attempt < 4; attempt += 1) {
-        try {
-          await ensureDbFile();
-          const raw = await fs.readFile(dbPath, "utf8");
-          const json = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
-          const parsed = JSON.parse(json) as AlphaExchangeDb;
-          const normalized = normalizeDb(parsed);
-          const changed = await applyMarketplaceReliabilityRules(normalized);
-          if (changed) {
-            const payload = `${JSON.stringify(normalized, null, 2)}\n`;
-            const tempPath = `${dbPath}.${process.pid}.${Date.now()}.tmp`;
-            await fs.mkdir(path.dirname(dbPath), { recursive: true });
-            await fs.writeFile(tempPath, payload, "utf8");
-            await replaceDbFile(tempPath);
-          }
-          dbCache = { value: normalized, updatedAt: Date.now() };
-          return normalized;
-        } catch (error) {
-          lastError = error;
-          if (!(error instanceof SyntaxError) || attempt === 3) {
-            break;
-          }
-          await waitFor(30 * (attempt + 1));
-        }
+      const repository = await getAlphaExchangeRepository();
+      const parsed = await repository.loadSnapshot();
+      const normalized = normalizeDb(parsed);
+      const changed = await applyMarketplaceReliabilityRules(normalized);
+      if (changed) {
+        await writeDb(normalized);
+        return normalized;
       }
-      if (dbCache) {
-        return dbCache.value;
-      }
-      throw lastError instanceof Error ? lastError : new Error("Failed to read Alpha Exchange database.");
+      dbCache = { value: normalized, updatedAt: Date.now() };
+      return normalized;
     })().finally(() => {
       dbReadInFlight = null;
     });
@@ -928,14 +866,11 @@ async function readDb(): Promise<AlphaExchangeDb> {
   return structuredClone(normalized);
 }
 
-async function writeDb(db: AlphaExchangeDb) {
+async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<string, Buffer> }) {
   const normalized = normalizeDb(db);
-  const payload = `${JSON.stringify(normalized, null, 2)}\n`;
   const writeTask = dbWriteInFlight.then(async () => {
-    const tempPath = `${dbPath}.${process.pid}.${Date.now()}.tmp`;
-    await fs.mkdir(path.dirname(dbPath), { recursive: true });
-    await fs.writeFile(tempPath, payload, "utf8");
-    await replaceDbFile(tempPath);
+    const repository = await getAlphaExchangeRepository();
+    await repository.saveSnapshot(normalized, { evidenceOverrides: options?.evidenceOverrides });
   });
   dbWriteInFlight = writeTask.catch(() => undefined);
   await writeTask;
@@ -1251,10 +1186,6 @@ function enrichRequestWithEvidence(db: AlphaExchangeDb, request: PurchaseRequest
     buyerEvidence,
     sellerEvidence,
   };
-}
-
-function ensureEvidenceDirectory(purchaseRequestId: string) {
-  return fs.mkdir(path.join(evidenceRootPath, purchaseRequestId), { recursive: true });
 }
 
 function getTradeEvidenceFile(db: AlphaExchangeDb, purchaseRequestId: string, side: TradeEvidenceSide) {
@@ -2777,22 +2708,16 @@ export async function uploadTradeEvidence(input: {
     throw new Error("Invalid evidence file payload.");
   }
 
-  await ensureEvidenceDirectory(request.id);
   const extension = extensionForEvidenceMimeType(mimeType);
   const evidenceId = `evidence-${randomUUID()}`;
   const baseName = path
     .basename(String(input.fileName ?? "").trim() || `${input.side}-evidence.${extension}`)
     .replace(/[^a-zA-Z0-9._-]/g, "-");
   const storageFileName = `${input.side}-${evidenceId}.${extension}`;
-  const storagePath = path.join(evidenceRootPath, request.id, storageFileName);
+  const storagePath = `db://alpha-exchange-evidence/${request.id}/${storageFileName}`;
 
   const existingIndex = db.tradeEvidenceFiles.findIndex((item) => item.purchaseRequestId === request.id && item.side === input.side);
   const existing = existingIndex >= 0 ? db.tradeEvidenceFiles[existingIndex] : undefined;
-  if (existing?.storagePath) {
-    await fs.unlink(existing.storagePath).catch(() => undefined);
-  }
-
-  await fs.writeFile(storagePath, raw);
 
   const evidence: TradeEvidenceFile = {
     id: evidenceId,
@@ -2839,7 +2764,7 @@ export async function uploadTradeEvidence(input: {
     details: `${input.side === "buyer" ? "Payment" : "USDT"} evidence uploaded for trade ${request.tradeId ?? request.id}.`,
   });
 
-  await writeDb(db);
+  await writeDb(db, { evidenceOverrides: new Map([[evidenceId, raw]]) });
   return enrichRequestWithEvidence(db, db.purchaseRequests[requestIndex]);
 }
 
@@ -2886,7 +2811,11 @@ export async function downloadTradeEvidenceContent(input: {
   });
   await writeDb(db);
 
-  const buffer = await fs.readFile(evidence.storagePath);
+  const repository = await getAlphaExchangeRepository();
+  const buffer = await repository.readEvidenceContent(evidence.id);
+  if (!buffer?.length) {
+    throw new Error("Evidence content not found.");
+  }
   return { evidence, request, buffer };
 }
 
