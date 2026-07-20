@@ -2244,6 +2244,12 @@
       "userId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
       "createdAt": "2026-07-20T10:30:07.942Z",
       "expiresAt": "2026-08-03T10:30:07.942Z"
+    },
+    {
+      "token": "8aec7e91fbbb9f9828eb5f2bc95932322b8e240a2a692a6567d39fea4bec282a",
+      "userId": "user-guest-test123",
+      "createdAt": "2026-07-20T10:30:51.228Z",
+      "expiresAt": "2026-08-03T10:30:51.228Z"
     }
   ],
   "passwordResetTokens": [],
