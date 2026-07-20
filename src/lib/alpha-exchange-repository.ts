@@ -325,7 +325,7 @@ function fromPayloadRows<T>(rows: Array<{ payload: T }>) {
   return rows.map((row) => row.payload);
 }
 
-const tables: Array<RepoTable<any>> = [
+const tables: Array<RepoTable<unknown>> = [
   {
     name: "users",
     selectSql: "select payload from alpha_exchange.users order by sort_index asc",
