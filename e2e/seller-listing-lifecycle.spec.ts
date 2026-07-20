@@ -1,26 +1,33 @@
-import { promises as fs } from "fs";
-import path from "path";
 import { test, expect, type APIRequestContext, type Browser, type Page } from "@playwright/test";
+import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
 const OWNER_EMAIL = "jozenmark834@yahoo.com";
 const OWNER_PASSWORD = "Roflxd123!";
 const SELLER_EMAIL = "test123@guest.local";
 const SELLER_PASSWORD = "test123";
-const DB_PATH = path.join(process.cwd(), "data", "alpha-exchange-db.json");
 const TEST_EVIDENCE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9Wl8cAAAAASUVORK5CYII=";
+const TEST_SUPPORT_HEADERS = {
+  "x-alpha-test-support": "enabled",
+};
 
-async function readRuntimeDb() {
-  return JSON.parse(await fs.readFile(DB_PATH, "utf8")) as Record<string, unknown>;
+async function readRuntimeDb(request: APIRequestContext) {
+  const response = await request.get("/api/testing/alpha-exchange-state", { headers: TEST_SUPPORT_HEADERS });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as Record<string, unknown>;
 }
 
-async function writeRuntimeDb(db: Record<string, unknown>) {
-  await fs.writeFile(DB_PATH, `${JSON.stringify(db, null, 2)}\n`, "utf8");
+async function writeRuntimeDb(request: APIRequestContext, db: Record<string, unknown>) {
+  const response = await request.put("/api/testing/alpha-exchange-state", {
+    headers: TEST_SUPPORT_HEADERS,
+    data: db as AlphaExchangeDb,
+  });
+  expect(response.ok()).toBeTruthy();
 }
 
-async function updateRuntimeDb(mutator: (db: Record<string, unknown>) => void) {
-  const db = await readRuntimeDb();
+async function updateRuntimeDb(request: APIRequestContext, mutator: (db: Record<string, unknown>) => void) {
+  const db = await readRuntimeDb(request);
   mutator(db);
-  await writeRuntimeDb(db);
+  await writeRuntimeDb(request, db);
 }
 
 async function waitForPersistence() {
@@ -54,7 +61,8 @@ async function createSession(browser: Browser, email: string, password: string) 
 }
 
 async function resetLifecycleFixtures() {
-  const db = await readRuntimeDb();
+  const api = await request.newContext({ baseURL: "http://localhost:3000" });
+  const db = await readRuntimeDb(api);
   const users = Array.isArray(db.users) ? (db.users as Array<Record<string, unknown>>) : [];
   const seller = users.find((user) => String(user.email ?? "").toLowerCase() === SELLER_EMAIL);
   const owner = users.find((user) => String(user.email ?? "").toLowerCase() === OWNER_EMAIL);
@@ -107,7 +115,8 @@ async function resetLifecycleFixtures() {
     };
   });
 
-  await writeRuntimeDb(db);
+  await writeRuntimeDb(api, db);
+  await api.dispose();
   await waitForPersistence();
 }
 
@@ -160,7 +169,9 @@ async function createListing(request: APIRequestContext, input: { availableAmoun
 }
 
 async function getDbNotificationsForEmail(email: string) {
-  const db = await readRuntimeDb();
+  const api = await request.newContext({ baseURL: "http://localhost:3000" });
+  const db = await readRuntimeDb(api);
+  await api.dispose();
   const users = Array.isArray(db.users) ? (db.users as Array<Record<string, unknown>>) : [];
   const user = users.find((entry) => String(entry.email ?? "").toLowerCase() === email.toLowerCase());
   if (!user) throw new Error(`Notification user ${email} not found.`);
@@ -298,7 +309,7 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
   const owner = await createSession(browser, OWNER_EMAIL, OWNER_PASSWORD);
 
   const created = await createListing(seller.page.request, { availableAmount: "901", price: "3.71", minimumTrade: "100", maximumTrade: "901" });
-  await updateRuntimeDb((db) => {
+  await updateRuntimeDb(owner.page.request, (db) => {
     const listings = Array.isArray(db.marketplaceListings) ? (db.marketplaceListings as Array<Record<string, unknown>>) : [];
     const listing = listings.find((item) => String(item.id) === created.listing.id);
     if (!listing) throw new Error("Listing fixture not found.");
