@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { motion, useScroll, useTransform } from "framer-motion";
 import { BookOpen, Compass, Crown, Gem, Target, TrendingUp } from "lucide-react";
 import { useLocale } from "next-intl";
@@ -8,7 +9,7 @@ import { courseSource } from "@/data/course-source";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
-const VIDEO_URL = "https://drive.google.com/file/d/1rvQ0ytjHaaP2Umv7HGnU3YZzVtCK5KnD/preview";
+const VIDEO_URL = "/files/founder/alpha-traders-founder-introduction.mp4";
 
 const highlights = [
   { titleAr: "من أنا؟", title: "Who am I?", icon: Crown },
@@ -31,6 +32,24 @@ export function FounderPage() {
   const isAr = locale === "ar";
   const { scrollYProgress } = useScroll();
   const timelineProgress = useTransform(scrollYProgress, [0.2, 0.8], [0, 1]);
+  const videoSectionRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const focusFounderVideo = () => {
+      if (window.location.hash !== "#founder-video" || !videoSectionRef.current) {
+        return;
+      }
+
+      window.requestAnimationFrame(() => {
+        videoSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        window.setTimeout(() => videoSectionRef.current?.focus(), 350);
+      });
+    };
+
+    focusFounderVideo();
+    window.addEventListener("hashchange", focusFounderVideo);
+    return () => window.removeEventListener("hashchange", focusFounderVideo);
+  }, []);
 
   return (
     <div className="section-container page-shell space-y-14">
@@ -51,18 +70,23 @@ export function FounderPage() {
         </motion.div>
       </section>
 
-      <section className="space-y-4">
+      <section id="founder-video" ref={videoSectionRef} tabIndex={-1} className="scroll-mt-24 space-y-4 outline-none">
         <Card className="mx-auto max-w-5xl overflow-hidden">
           <CardContent className="p-0">
             <div className="aspect-video w-full">
-              <iframe
+              <video
                 src={VIDEO_URL}
                 title="Founder introduction video"
-                className="h-full w-full"
-                loading="lazy"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
-                allowFullScreen
-              />
+                className="h-full w-full bg-black"
+                controls
+                preload="metadata"
+                playsInline
+              >
+                <track kind="captions" />
+                {isAr
+                  ? "متصفحك لا يدعم تشغيل الفيديو."
+                  : "Your browser does not support the founder introduction video."}
+              </video>
             </div>
           </CardContent>
         </Card>

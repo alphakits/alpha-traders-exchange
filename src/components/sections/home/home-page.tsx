@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { motion, useScroll, useTransform } from "framer-motion";
-import { ArrowDown, ArrowLeft, ArrowRight, Brain, CheckCircle2, Coins, PlayCircle, ShieldCheck, Target } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, Brain, CheckCircle2, Coins, Play, PlayCircle, ShieldCheck, Target } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { courseSource } from "@/data/course-source";
@@ -115,11 +115,15 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                     {isRtl ? <ArrowLeft className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
                   </Button>
                 </Link>
-                <Link href="/founder">
-                  <Button variant="secondary" className="gap-2 bg-black/30">
-                    <PlayCircle className="h-4 w-4" />
-                    {t("watchIntro")}
-                  </Button>
+                <Link
+                  href="/founder#founder-video"
+                  aria-label={isRtl ? "شاهد فيديو مؤسس Alpha Traders" : "Watch the Alpha Traders founder video"}
+                  className="group inline-flex min-h-12 items-center gap-3 rounded-full bg-gradient-to-b from-[#FF3B30] via-[#E53935] to-[#C62828] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_12px_28px_rgba(198,40,40,0.34)] transition-all duration-300 hover:-translate-y-0.5 hover:from-[#FF5247] hover:via-[#F0443E] hover:to-[#D32F2F] hover:shadow-[0_18px_34px_rgba(229,57,53,0.42)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/85 focus-visible:ring-offset-2 focus-visible:ring-offset-black md:min-h-[48px] md:px-6 md:text-base"
+                >
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#D32F2F] shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_6px_14px_rgba(0,0,0,0.26)]">
+                    <Play className="ms-0.5 h-4.5 w-4.5 fill-white text-white" aria-hidden="true" />
+                  </span>
+                  <span>{t("watchIntro")}</span>
                 </Link>
                 <Link
                   href="/usdt-exchange"
