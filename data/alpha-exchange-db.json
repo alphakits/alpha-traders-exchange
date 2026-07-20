@@ -2240,16 +2240,16 @@
   ],
   "authSessions": [
     {
-      "token": "00f9dd23895d0065edda0508d6f4b79f163273a1db50d6694f40a2a963f38b01",
-      "userId": "user-guest-test123",
-      "createdAt": "2026-07-20T10:30:55.764Z",
-      "expiresAt": "2026-08-03T10:30:55.764Z"
-    },
-    {
       "token": "0d8e25faea1797992d5e70e42f80b44c3eac22dbb20423b64d7a8531a23548bb",
       "userId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
       "createdAt": "2026-07-20T10:31:05.305Z",
       "expiresAt": "2026-08-03T10:31:05.305Z"
+    },
+    {
+      "token": "2e74728bb77b52c271e7e4b63bceab2fc668d638f2fedcdd7a6f953e6f9e6e44",
+      "userId": "user-guest-test123",
+      "createdAt": "2026-07-20T10:31:16.810Z",
+      "expiresAt": "2026-08-03T10:31:16.810Z"
     }
   ],
   "passwordResetTokens": [],
