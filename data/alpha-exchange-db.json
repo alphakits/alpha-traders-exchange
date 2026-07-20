@@ -58,7 +58,7 @@
       "country": "",
       "city": "",
       "coverBannerUrl": "",
-      "lastActiveAt": "2026-07-20T11:41:36.149Z",
+      "lastActiveAt": "2026-07-20T11:43:22.721Z",
       "isFeaturedSeller": false,
       "isProfileHidden": false,
       "notificationPreferences": {
@@ -88,72 +88,10 @@
       "updatedAt": "2026-07-20T00:48:35.105Z"
     }
   ],
-  "marketplaceListings": [
-    {
-      "id": "listing-35478bff-610c-4e00-b9e4-6f48f4c1d520",
-      "sellerId": "user-guest-test123",
-      "sellerDisplayName": "test123",
-      "photos": [],
-      "originalAmount": "901",
-      "availableAmount": "901",
-      "price": "3.71",
-      "currency": "ILS",
-      "network": "TRC20",
-      "paymentMethods": [
-        "Bank transfer"
-      ],
-      "paymentMethod": "Bank transfer",
-      "minimumTrade": "100",
-      "maximumTrade": "901",
-      "expiresAt": "2026-07-21T11:41:33.366Z",
-      "notes": "",
-      "sellerDescription": "",
-      "responseTime": "5 min",
-      "status": "active",
-      "createdAt": "2026-07-20T11:41:27.620Z",
-      "updatedAt": "2026-07-20T11:41:33.366Z",
-      "lastRenewedAt": "2026-07-20T11:41:33.366Z"
-    }
-  ],
+  "marketplaceListings": [],
   "purchaseRequests": [],
   "commissionRecords": [],
   "auditLogs": [
-    {
-      "id": "audit-2466466b-d5f4-41f8-a78c-a761a27b56b2",
-      "action": "listing_renewed",
-      "actorUserId": "user-guest-test123",
-      "targetUserId": "user-guest-test123",
-      "listingId": "listing-35478bff-610c-4e00-b9e4-6f48f4c1d520",
-      "details": "Renewed listing listing-35478bff-610c-4e00-b9e4-6f48f4c1d520.",
-      "oldValue": {
-        "status": "expired",
-        "expiresAt": "2026-07-20T11:36:27.657Z"
-      },
-      "newValue": {
-        "status": "active",
-        "expiresAt": "2026-07-21T11:41:33.366Z",
-        "lastRenewedAt": "2026-07-20T11:41:33.366Z"
-      },
-      "createdAt": "2026-07-20T11:41:33.366Z"
-    },
-    {
-      "id": "audit-f2036d3a-749f-43aa-a85e-c426fa3f6934",
-      "action": "listing_expired",
-      "actorUserId": "system:marketplace",
-      "targetUserId": "user-guest-test123",
-      "listingId": "listing-35478bff-610c-4e00-b9e4-6f48f4c1d520",
-      "details": "Listing listing-35478bff-610c-4e00-b9e4-6f48f4c1d520 expired.",
-      "oldValue": {
-        "status": "active",
-        "expiresAt": "2026-07-20T11:36:27.657Z"
-      },
-      "newValue": {
-        "status": "expired",
-        "expiredAt": "2026-07-20T11:41:28.193Z"
-      },
-      "reason": "Listing expiration time reached.",
-      "createdAt": "2026-07-20T11:41:28.193Z"
-    },
     {
       "id": "audit-6115fea1-b67c-4441-a90d-c8a2d56cb170",
       "action": "trust_score_updated",
@@ -161,15 +99,6 @@
       "targetUserId": "user-guest-test123",
       "details": "Trust score 64.1 -> 34.5 (Listing created)",
       "createdAt": "2026-07-20T11:41:27.621Z"
-    },
-    {
-      "id": "audit-1b4d98b9-7249-49a6-9da1-2ad0ed180a40",
-      "action": "listing_created",
-      "actorUserId": "user-guest-test123",
-      "targetUserId": "user-guest-test123",
-      "listingId": "listing-35478bff-610c-4e00-b9e4-6f48f4c1d520",
-      "details": "Created listing listing-35478bff-610c-4e00-b9e4-6f48f4c1d520 with 901 USDT available.",
-      "createdAt": "2026-07-20T11:41:27.620Z"
     },
     {
       "id": "audit-44903b80-a55b-42c2-bb58-15c3e6aed072",
@@ -2861,78 +2790,15 @@
       "expiresAt": "2026-08-03T11:43:05.488Z"
     },
     {
-      "token": "c03433446ef736c0b475aa7916777f08ea6d4c03c68d4dd7b6ea93e6f2197a7b",
+      "token": "30cfa81af8d2dc908efd5502a245c52e6b235bc4cec5d9e23233658c70333d1b",
       "userId": "user-guest-test123",
-      "createdAt": "2026-07-20T11:43:11.053Z",
-      "expiresAt": "2026-08-03T11:43:11.053Z"
+      "createdAt": "2026-07-20T11:43:25.969Z",
+      "expiresAt": "2026-08-03T11:43:25.969Z"
     }
   ],
   "passwordResetTokens": [],
-  "notifications": [
-    {
-      "id": "notif-8d198fab-0d8b-4af6-b473-0579c0bf6472",
-      "userId": "user-guest-test123",
-      "category": "listing",
-      "title": "Listing renewed",
-      "message": "Listing listing-35478bff-610c-4e00-b9e4-6f48f4c1d520 has been renewed and is live again.",
-      "isRead": false,
-      "relatedListingId": "listing-35478bff-610c-4e00-b9e4-6f48f4c1d520",
-      "relatedHref": "/usdt-exchange",
-      "createdAt": "2026-07-20T11:41:33.366Z"
-    },
-    {
-      "id": "notif-077c6ed4-8176-4374-b063-cc1f5052dfca",
-      "userId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
-      "category": "listing",
-      "title": "Listing expired",
-      "message": "test123's listing listing-35478bff-610c-4e00-b9e4-6f48f4c1d520 expired.",
-      "isRead": false,
-      "relatedListingId": "listing-35478bff-610c-4e00-b9e4-6f48f4c1d520",
-      "relatedHref": "/admin/alpha-exchange",
-      "createdAt": "2026-07-20T11:41:28.194Z"
-    },
-    {
-      "id": "notif-df79f20c-5cbe-4da0-bf6b-4009238916cb",
-      "userId": "user-guest-test123",
-      "category": "listing",
-      "title": "Listing expired",
-      "message": "Listing listing-35478bff-610c-4e00-b9e4-6f48f4c1d520 expired and is no longer visible to buyers.",
-      "isRead": false,
-      "relatedListingId": "listing-35478bff-610c-4e00-b9e4-6f48f4c1d520",
-      "relatedHref": "/usdt-exchange",
-      "createdAt": "2026-07-20T11:41:28.194Z"
-    },
-    {
-      "id": "notif-56b01e50-d519-4580-ab8b-0b1b69b7ebb6",
-      "userId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
-      "category": "trust",
-      "title": "Sharp trust score drop",
-      "message": "Seller user-guest-test123 dropped from 64.1 to 34.5.",
-      "isRead": false,
-      "createdAt": "2026-07-20T11:41:27.621Z"
-    },
-    {
-      "id": "notif-7354d4aa-f88e-47a9-a728-29583729eb1f",
-      "userId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
-      "category": "listing",
-      "title": "New listing published",
-      "message": "test123 published listing listing-35478bff-610c-4e00-b9e4-6f48f4c1d520.",
-      "isRead": false,
-      "relatedListingId": "listing-35478bff-610c-4e00-b9e4-6f48f4c1d520",
-      "relatedHref": "/admin/alpha-exchange",
-      "createdAt": "2026-07-20T11:41:27.620Z"
-    }
-  ],
-  "activityLog": [
-    {
-      "id": "activity-86400910-cb71-4a8b-90f6-4a132f243f1c",
-      "userId": "user-guest-test123",
-      "category": "listing",
-      "title": "Listing published",
-      "details": "Listing listing-35478bff-610c-4e00-b9e4-6f48f4c1d520 is now live.",
-      "createdAt": "2026-07-20T11:41:27.621Z"
-    }
-  ],
+  "notifications": [],
+  "activityLog": [],
   "disputes": [],
   "sellerReports": [],
   "trustSnapshots": [
