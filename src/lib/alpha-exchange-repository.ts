@@ -1,5 +1,4 @@
 import { Pool, type PoolClient } from "pg";
-import { newDb } from "pg-mem";
 import alphaExchangeSeed from "../../data/alpha-exchange-db.json";
 import type {
   AlphaExchangeDb,
@@ -311,6 +310,8 @@ type SaveContext = {
 
 declare global {
   var __alphaExchangeRepositoryPromise: Promise<AlphaExchangeRepository> | undefined;
+  var __alphaExchangeMemorySnapshot: SnapshotWithVersion | undefined;
+  var __alphaExchangeMemoryEvidenceContent: Map<string, Buffer | null> | undefined;
 }
 
 function toTimestamp(value: string | undefined) {
@@ -323,6 +324,14 @@ function json<T>(value: T) {
 
 function fromPayloadRows<T>(rows: Array<{ payload: T }>) {
   return rows.map((row) => row.payload);
+}
+
+function cloneSnapshot(db: AlphaExchangeDb) {
+  return structuredClone(db);
+}
+
+function getConnectionString() {
+  return process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? "";
 }
 
 const tables: Array<RepoTable<unknown>> = [
@@ -751,31 +760,44 @@ async function runSchema(target: Queryable) {
 }
 
 function createDbPool() {
-  const connectionString = process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? "";
-  if (connectionString) {
-    return new Pool({
-      connectionString,
-      ssl: process.env.SUPABASE_DB_SSL === "false" ? undefined : { rejectUnauthorized: false },
-      max: 10,
-    });
+  const connectionString = getConnectionString();
+  if (!connectionString) {
+    return null;
   }
 
-  const db = newDb({ autoCreateForeignKeyIndices: true });
-  const adapter = db.adapters.createPg();
-  return new adapter.Pool();
+  return new Pool({
+    connectionString,
+    ssl: process.env.SUPABASE_DB_SSL === "false" ? undefined : { rejectUnauthorized: false },
+    max: 10,
+  });
+}
+
+function ensureMemorySeed() {
+  if (!globalThis.__alphaExchangeMemorySnapshot) {
+    globalThis.__alphaExchangeMemorySnapshot = attachVersion(cloneSnapshot(DEFAULT_DB), 0);
+  }
+  if (!globalThis.__alphaExchangeMemoryEvidenceContent) {
+    globalThis.__alphaExchangeMemoryEvidenceContent = new Map();
+  }
 }
 
 export class AlphaExchangeRepository {
-  private readonly pool: Pool;
+  private readonly pool: Pool | null;
+  private readonly usesMemoryFallback: boolean;
   private initPromise: Promise<void> | null = null;
 
-  constructor(pool: Pool) {
+  constructor(pool: Pool | null) {
     this.pool = pool;
+    this.usesMemoryFallback = pool === null;
   }
 
   async ensureReady() {
     if (!this.initPromise) {
       this.initPromise = (async () => {
+        if (this.usesMemoryFallback || !this.pool) {
+          ensureMemorySeed();
+          return;
+        }
         await runSchema(this.pool);
         const usersCount = await this.pool.query<{ count: string }>("select count(*)::text as count from alpha_exchange.users");
         const shouldSeed = usersCount.rows[0]?.count === "0" && process.env.NODE_ENV !== "production";
@@ -789,12 +811,19 @@ export class AlphaExchangeRepository {
 
   async healthCheck() {
     await this.ensureReady();
+    if (this.usesMemoryFallback || !this.pool) {
+      return "ok" as const;
+    }
     await this.pool.query("select 1");
     return "ok" as const;
   }
 
   async loadSnapshot(): Promise<SnapshotWithVersion> {
     await this.ensureReady();
+    if (this.usesMemoryFallback || !this.pool) {
+      ensureMemorySeed();
+      return attachVersion(cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion), getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion));
+    }
     const [meta, ...results] = await Promise.all([
       this.pool.query<{ version: string }>("select version::text as version from alpha_exchange.runtime_meta where singleton = true"),
       ...tables.map((table) => this.pool.query(table.selectSql)),
@@ -829,6 +858,22 @@ export class AlphaExchangeRepository {
     db: AlphaExchangeDb,
     options?: { evidenceOverrides?: EvidenceWriteMap; skipReadyCheck?: boolean },
   ) {
+    if (this.usesMemoryFallback || !this.pool) {
+      ensureMemorySeed();
+      const next = attachVersion(cloneSnapshot(db), getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion) + 1);
+      const previousEvidence = globalThis.__alphaExchangeMemoryEvidenceContent as Map<string, Buffer | null>;
+      const nextEvidence = new Map<string, Buffer | null>();
+      for (const evidence of db.tradeEvidenceFiles) {
+        nextEvidence.set(
+          evidence.id,
+          options?.evidenceOverrides?.get(evidence.id) ?? previousEvidence.get(evidence.id) ?? null,
+        );
+      }
+      globalThis.__alphaExchangeMemorySnapshot = next;
+      globalThis.__alphaExchangeMemoryEvidenceContent = nextEvidence;
+      return;
+    }
+
     if (!options?.skipReadyCheck) {
       await this.ensureReady();
     } else {
@@ -871,6 +916,10 @@ export class AlphaExchangeRepository {
 
   async readEvidenceContent(evidenceId: string) {
     await this.ensureReady();
+    if (this.usesMemoryFallback || !this.pool) {
+      ensureMemorySeed();
+      return globalThis.__alphaExchangeMemoryEvidenceContent?.get(evidenceId) ?? null;
+    }
     const result = await this.pool.query<{ content: Buffer | null }>(
       "select content from alpha_exchange.evidence where id = $1",
       [evidenceId],
@@ -881,7 +930,7 @@ export class AlphaExchangeRepository {
 
 export async function getAlphaExchangeRepository() {
   if (!globalThis.__alphaExchangeRepositoryPromise) {
-    globalThis.__alphaExchangeRepositoryPromise = Promise.resolve(new AlphaExchangeRepository(createDbPool() as Pool));
+    globalThis.__alphaExchangeRepositoryPromise = Promise.resolve(new AlphaExchangeRepository(createDbPool()));
   }
   return globalThis.__alphaExchangeRepositoryPromise;
 }
