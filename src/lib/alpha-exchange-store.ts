@@ -858,6 +858,31 @@ function waitFor(ms: number) {
   });
 }
 
+function isRetryableDbReplaceError(error: unknown) {
+  if (!error || typeof error !== "object" || !("code" in error)) return false;
+  const code = String((error as { code?: string }).code ?? "");
+  return code === "EPERM" || code === "EBUSY" || code === "ENOTEMPTY";
+}
+
+async function replaceDbFile(tempPath: string) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      await fs.rename(tempPath, dbPath);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableDbReplaceError(error) || attempt === 7) {
+        await fs.rm(tempPath, { force: true }).catch(() => undefined);
+        throw error;
+      }
+      await waitFor(25 * (attempt + 1));
+    }
+  }
+  await fs.rm(tempPath, { force: true }).catch(() => undefined);
+  throw lastError instanceof Error ? lastError : new Error("Failed to replace Alpha Exchange database.");
+}
+
 async function readDb(): Promise<AlphaExchangeDb> {
   const now = Date.now();
   if (dbCache && now - dbCache.updatedAt <= DB_CACHE_TTL_MS) {
@@ -879,12 +904,7 @@ async function readDb(): Promise<AlphaExchangeDb> {
             const tempPath = `${dbPath}.${process.pid}.${Date.now()}.tmp`;
             await fs.mkdir(path.dirname(dbPath), { recursive: true });
             await fs.writeFile(tempPath, payload, "utf8");
-            try {
-              await fs.rename(tempPath, dbPath);
-            } catch (error) {
-              await fs.rm(tempPath, { force: true }).catch(() => undefined);
-              throw error;
-            }
+            await replaceDbFile(tempPath);
           }
           dbCache = { value: normalized, updatedAt: Date.now() };
           return normalized;
@@ -915,12 +935,7 @@ async function writeDb(db: AlphaExchangeDb) {
     const tempPath = `${dbPath}.${process.pid}.${Date.now()}.tmp`;
     await fs.mkdir(path.dirname(dbPath), { recursive: true });
     await fs.writeFile(tempPath, payload, "utf8");
-    try {
-      await fs.rename(tempPath, dbPath);
-    } catch (error) {
-      await fs.rm(tempPath, { force: true }).catch(() => undefined);
-      throw error;
-    }
+    await replaceDbFile(tempPath);
   });
   dbWriteInFlight = writeTask.catch(() => undefined);
   await writeTask;
