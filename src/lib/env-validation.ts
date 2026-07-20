@@ -10,11 +10,14 @@ type EnvVar = {
 };
 
 const ENV_VARS: EnvVar[] = [
-  { key: "AUTH_COOKIE_SECRET", required: false, description: "Secret for cookie signing (optional — defaults to random)" },
+  { key: "NEXT_PUBLIC_SUPABASE_URL", required: true, description: "Supabase project URL used by the browser and server clients" },
+  { key: "NEXT_PUBLIC_SUPABASE_ANON_KEY", required: true, description: "Supabase anon key used by the browser and server clients" },
+  { key: "NEXT_PUBLIC_SITE_URL", required: false, description: "Canonical production site URL, e.g. https://alphatraders.academy" },
   { key: "AUTH_COOKIE_SECURE", required: false, description: "Force cookie secure flag on/off" },
   { key: "ADMIN_ACCESS_KEY", required: false, description: "Extra key required for admin API endpoints" },
   { key: "ALPHA_EXCHANGE_LARGE_TRADE_THRESHOLD", required: false, description: "Min USDT amount considered a large trade" },
   { key: "ALPHA_EXCHANGE_EVIDENCE_MAX_SIZE_MB", required: false, description: "Max evidence upload size in MB" },
+  { key: "ALPHA_EXCHANGE_STALE_TRADE_TIMEOUT_MINUTES", required: false, description: "Auto-cancel threshold for stale trades in minutes" },
   { key: "ALPHA_EXCHANGE_EXPOSE_RESET_TOKEN", required: false, description: "Dev-only: expose reset token in API response (never set in production)" },
 ];
 
@@ -39,6 +42,12 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
   }
 
   if (isProduction) {
+    if (!process.env.NEXT_PUBLIC_SITE_URL) {
+      warnings.push(
+        "NEXT_PUBLIC_SITE_URL is not set. Production metadata and sitemap will fall back to Vercel-provided hostnames instead of the custom domain.",
+      );
+    }
+
     for (const forbidden of PRODUCTION_FORBIDDEN) {
       if (process.env[forbidden]) {
         errors.push(

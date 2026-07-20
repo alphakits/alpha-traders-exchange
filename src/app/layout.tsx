@@ -1,9 +1,10 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import { GlobalBlockchainBackground } from "@/components/layout/global-blockchain-background";
+import { getSiteUrlObject } from "@/lib/site-url";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://alphatraders.academy"),
+  metadataBase: getSiteUrlObject(),
   title: {
     default: "Alpha Traders",
     template: "%s | Alpha Traders"

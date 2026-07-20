@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import type { AppLocale } from "@/i18n/routing";
+import { getSiteUrl } from "@/lib/site-url";
 
-const siteUrl = "https://alphatraders.academy";
+const siteUrl = getSiteUrl();
 
 export function buildPageMetadata({
   locale,

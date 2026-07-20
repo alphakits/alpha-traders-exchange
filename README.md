@@ -49,6 +49,70 @@ npm run start
 
 `npm run build` now refuses to run if a repo-local `next dev` process is active, preventing shared `.next` corruption.
 
+## Vercel deployment
+
+### Runtime compatibility
+
+- The Next.js app itself is compatible with Vercel's Next.js runtime.
+- `next.config.ts` is production-safe for Vercel: default `.next` output, app-wide security headers, local image optimization, and no custom `distDir`.
+- Static images under `public/` and the founder MP4 under `public/files/founder/` are Vercel-compatible and will be served over HTTPS through Vercel's CDN.
+
+### Required environment variables
+
+Set these in Vercel for every environment that should build successfully:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+
+Set this in the **Production** environment so metadata, canonical URLs, `robots.txt`, and `sitemap.xml` use the custom domain instead of a preview hostname:
+
+- `NEXT_PUBLIC_SITE_URL=https://alphatraders.academy`
+
+Optional environment variables:
+
+- `AUTH_COOKIE_SECURE=true`
+- `ADMIN_ACCESS_KEY`
+- `ALPHA_EXCHANGE_LARGE_TRADE_THRESHOLD`
+- `ALPHA_EXCHANGE_EVIDENCE_MAX_SIZE_MB`
+- `ALPHA_EXCHANGE_STALE_TRADE_TIMEOUT_MINUTES`
+
+Never set in production:
+
+- `ALPHA_EXCHANGE_EXPOSE_RESET_TOKEN`
+
+### Vercel project settings
+
+- Framework preset: **Next.js**
+- Install command: `npm install`
+- Build command: `npm run build`
+- Output directory: **leave empty** (Vercel auto-detects Next.js output)
+- Node.js version: **20** (`.nvmrc` is included)
+
+### Custom domain DNS
+
+For `alphatraders.academy` on Vercel:
+
+1. Apex/root domain `alphatraders.academy` → `A 76.76.21.21`
+2. `www.alphatraders.academy` → `CNAME cname.vercel-dns.com`
+
+After adding the domain in Vercel, wait for DNS verification and automatic SSL issuance before going live.
+
+### Current deployment blocker
+
+The marketplace/auth runtime currently writes live data to local files:
+
+- `data/alpha-exchange-db.json`
+- `data/alpha-exchange-evidence/`
+
+Vercel functions do **not** provide persistent writable application storage. That means authentication sessions, listings, purchase requests, notifications, audit logs, commissions, and uploaded evidence will not persist correctly after deployment.
+
+Before public Vercel deployment, move that writable runtime state to persistent external services such as:
+
+- a real database for marketplace/auth state
+- object storage for uploaded trade evidence
+
+Without that migration, the app can build on Vercel but the production workflows are not safe to launch there.
+
 ## Quality checks
 
 ```bash

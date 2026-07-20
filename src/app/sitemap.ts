@@ -1,7 +1,8 @@
 import type { MetadataRoute } from "next";
 import { courses, lessons } from "@/lib/content";
+import { getSiteUrl } from "@/lib/site-url";
 
-const base = "https://alphatraders.academy";
+const base = getSiteUrl();
 const locales = ["ar", "en"] as const;
 
 export default function sitemap(): MetadataRoute.Sitemap {
