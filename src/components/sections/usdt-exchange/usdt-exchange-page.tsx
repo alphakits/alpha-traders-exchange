@@ -368,6 +368,21 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     }
   }, []);
 
+  const refreshMarketplaceListings = useCallback(async () => {
+    try {
+      const listingsRes = await fetch("/api/alpha-exchange/listings", { cache: "no-store" });
+      if (!listingsRes.ok) {
+        setWorkspaceError(safeErrorMessage("workspace"));
+        return;
+      }
+      const listingsJson = (await listingsRes.json()) as { listings: MarketplaceListing[] };
+      setListings(listingsJson.listings ?? []);
+      setWorkspaceError(null);
+    } catch {
+      setWorkspaceError(safeErrorMessage("workspace"));
+    }
+  }, []);
+
   const refreshNotifications = useCallback(async (options?: { category?: "all" | NotificationCategory; query?: string; unreadOnly?: boolean }) => {
     if (!sessionUser) return;
     const requestId = notificationsRequestIdRef.current + 1;
@@ -940,7 +955,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       return;
     }
     setSellerWorkspaceMessage(nextStatus === "paused" ? "Listing paused." : "Listing resumed.");
-    await refreshSellerWorkspace();
+    await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
   }
 
   async function handleSellerListingDelete(listingId: string) {
@@ -951,7 +966,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       return;
     }
     setSellerWorkspaceMessage("Listing closed.");
-    await refreshSellerWorkspace();
+    await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
   }
 
   async function handleSellerListingRenew(listingId: string, expirationHours = "24") {
@@ -966,7 +981,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       return;
     }
     setSellerWorkspaceMessage("Listing renewed and visible to buyers again.");
-    await refreshSellerWorkspace();
+    await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
   }
 
   async function handleSellerListingDuplicate(listing: MarketplaceListing) {
@@ -994,7 +1009,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       return;
     }
     setSellerWorkspaceMessage("Listing duplicated.");
-    await refreshSellerWorkspace();
+    await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
   }
 
   async function handleSellerListingCreateSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1042,7 +1057,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       photos: "",
     }));
     setSellerWorkspaceMessage("Listing is now live.");
-    await refreshSellerWorkspace();
+    await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
   }
 
   async function handleSellerListingEditSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1075,7 +1090,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     }
     setEditingListingId(null);
     setSellerWorkspaceMessage("Listing updated.");
-    await refreshSellerWorkspace();
+    await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
   }
 
   async function fileToDataUrl(file: File) {
@@ -1158,7 +1173,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     if (nextStatus === "accepted") setSellerWorkspaceMessage("Request accepted and trade created.");
     else if (nextStatus === "usdt_sent") setSellerWorkspaceMessage("USDT sent marked.");
     else setSellerWorkspaceMessage("Request declined.");
-    await refreshSellerWorkspace();
+    await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
   }
 
   async function handleBuyerTradeStatus(requestId: string, nextStatus: "payment_sent" | "completed" | "cancelled") {
@@ -1179,7 +1194,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           ? "Trade completed. Review window is open."
           : "Request cancelled.",
     );
-    await refreshSellerWorkspace();
+    await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
   }
 
   async function handleSubmitBuyerReview(request: PurchaseRequest) {
@@ -1297,6 +1312,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         : prev,
     );
     setSellerWorkspaceMessage("Seller profile updated.");
+    await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
   }
 
   async function handleSellerPasswordSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1565,7 +1581,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
         <Card className="mt-5 border-white/10 bg-[#0B0B0B]/90">
           <CardContent className="p-4">
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <select value={currencyFilter} onChange={(event) => setCurrencyFilter(event.target.value)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
                 <option value="all">{isAr ? "Currency: الكل" : "Currency: All"}</option>
                 {Array.from(new Set(listings.map((listing) => listing.currency))).sort().map((currency) => (
@@ -1599,7 +1615,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               <Input placeholder={isAr ? "Min Price" : "Min Price"} value={minPriceFilter} onChange={(event) => setMinPriceFilter(event.target.value)} />
               <Input placeholder={isAr ? "Max Price" : "Max Price"} value={maxPriceFilter} onChange={(event) => setMaxPriceFilter(event.target.value)} />
               <Input placeholder={isAr ? "Min Trust Score" : "Min Trust Score"} value={trustScoreFilter} onChange={(event) => setTrustScoreFilter(event.target.value)} />
-              <Button type="button" variant={onlineOnlyFilter ? "default" : "secondary"} onClick={() => setOnlineOnlyFilter((prev) => !prev)}>
+              <Button type="button" className="w-full" variant={onlineOnlyFilter ? "default" : "secondary"} onClick={() => setOnlineOnlyFilter((prev) => !prev)}>
                 {onlineOnlyFilter ? "Online Sellers Only" : "Show Online Sellers Only"}
               </Button>
             </div>
@@ -1622,8 +1638,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             : filteredListings.map((listing) => (
                 <Card key={listing.id} className="group border-white/10 bg-[#0B0B0B]/90 transition duration-300 hover:-translate-y-1 hover:border-[#C9A227]/30 hover:shadow-[0_22px_60px_rgba(0,0,0,0.35)]">
                   <CardHeader>
-                    <div className={`flex items-center justify-between ${isAr ? "flex-row-reverse" : ""}`}>
-                      <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
+                    <div className={`flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between ${isAr ? "sm:flex-row-reverse" : ""}`}>
+                      <div className={`flex items-start gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                         {listing.sellerProfile?.profilePhotoUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
@@ -1682,7 +1698,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         </span>
                       ))}
                     </div>
-                    <Button className="mt-3 transition-transform group-hover:scale-[1.02]" onClick={() => openListingModal(listing)} aria-label={`Open seller profile for ${safeText(listing.sellerDisplayName, "seller")}`}>
+                    <Button className="mt-3 w-full transition-transform group-hover:scale-[1.02] sm:w-auto" onClick={() => openListingModal(listing)} aria-label={`Open seller profile for ${safeText(listing.sellerDisplayName, "seller")}`}>
                       {isAr ? "ملف البائع" : "View Seller Profile"}
                     </Button>
                   </CardContent>
@@ -1935,7 +1951,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <Store className="mx-auto h-5 w-5 text-[#C9A227]" />
                   <p className="mt-2 text-sm font-medium text-white">{isAr ? "لا توجد عروض بعد" : "No Listings Yet"}</p>
                   <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "أنشئ أول عرض لتظهر للمشترين المعتمدين." : "Create your first listing to start receiving buyer requests."}</p>
-                  <Button type="button" size="sm" className="mt-3" onClick={openCreateListingFlow}>
+                  <Button type="button" size="sm" className="mt-3 w-full sm:w-auto" onClick={openCreateListingFlow}>
                     {isAr ? "إنشاء عرض" : "Create Listing"}
                   </Button>
                 </div>
@@ -1958,7 +1974,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     </div>
                     {isLockedListing ? <p className="mt-2 text-xs text-[#FDE68A]">This listing is locked by an active trade. Editing, pausing, and closing are unavailable until the trade finishes.</p> : null}
                     {listing.status === "expired" ? <p className="mt-2 text-xs text-[#FDE68A]">This listing expired and is hidden from buyers until you renew it.</p> : null}
-                    <div className="mt-3 flex flex-wrap gap-2">
+                    <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                       <Button
                         type="button"
                         size="sm"

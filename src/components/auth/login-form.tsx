@@ -54,6 +54,8 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
     try {
       const response = await fetch("/api/auth/login", {
         method: "POST",
+        cache: "no-store",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
@@ -70,11 +72,11 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
       // Ensure the freshly set httpOnly session cookie is visible to subsequent
       // requests before navigating to a protected route.
       let sessionReady = false;
-      for (let attempt = 0; attempt < 5; attempt += 1) {
+      for (let attempt = 0; attempt < 10; attempt += 1) {
         const meResponse = await fetch("/api/auth/me", {
           method: "GET",
           cache: "no-store",
-          credentials: "same-origin",
+          credentials: "include",
           headers: { "Cache-Control": "no-store" },
         });
         if (meResponse.ok) {
@@ -84,7 +86,7 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
             break;
           }
         }
-        await new Promise((resolve) => setTimeout(resolve, 150));
+        await new Promise((resolve) => setTimeout(resolve, 200));
       }
       if (!sessionReady) {
         setErrorMessage(
@@ -95,7 +97,7 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
         return;
       }
       const target = redirectTo ? resolveLoginRedirectTarget(redirectTo) : defaultRedirectByRole(payload?.user);
-      window.location.assign(toLocaleHref(target));
+      window.location.replace(toLocaleHref(target));
     } catch {
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
     } finally {
