@@ -160,6 +160,11 @@ npm run lint
    Stop `next dev`, run `npm run clean`, then run either `npm run dev` or `npm run build` (not both concurrently).
 6. **`ERR_CONNECTION_REFUSED` on `http://localhost:3000`**  
    No dev server is currently listening on port 3000. Start it with `npm run dev` and keep that terminal running.
+7. **`getaddrinfo ENOTFOUND db.<ref>.supabase.co` on Vercel**  
+   `SUPABASE_DB_URL` is pointing at the Supabase **direct host**, which Vercel cannot resolve.  
+   Replace it with the **Transaction Mode pooler URL** (port 6543):  
+   `postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres`  
+   Get this URL: Supabase Dashboard → Project Settings → Database → **Connection Pooling** tab → Transaction mode → copy URI.
 
 ## Recommendation on custom `distDir`
 
