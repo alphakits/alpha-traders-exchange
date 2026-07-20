@@ -98,6 +98,7 @@ export default async function CommunityPage() {
                     alt={isAr ? item.altAr : item.alt}
                     fill
                     sizes="(max-width: 768px) 100vw, 40vw"
+                    priority={item.src === "/images/course-materials/webp/image32.webp"}
                     className="object-cover transition duration-500 group-hover:scale-[1.04]"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/20 to-transparent" />
@@ -208,6 +209,7 @@ export default async function CommunityPage() {
                     alt={isAr ? item.altAr : item.alt}
                     fill
                     sizes="(max-width: 768px) 100vw, 40vw"
+                    priority={item.src === "/images/course-materials/webp/image32.webp"}
                     className="object-cover transition duration-500 group-hover:scale-[1.04]"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/20 to-transparent" />

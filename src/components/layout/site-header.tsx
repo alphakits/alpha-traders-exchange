@@ -45,6 +45,7 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
             width={42}
             height={42}
             priority
+            style={{ width: 42, height: 42 }}
             className="rounded-full border border-[#C9A227]/45 bg-black/35 p-0.5 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)]"
           />
           <span className="gold-gradient inline-block bg-clip-text pb-px text-[1.02rem] leading-[1.15] text-transparent">

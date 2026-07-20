@@ -193,8 +193,8 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
         </ul>
 
         <form className="mt-6 grid gap-3" onSubmit={handleLoginSubmit} data-hydrated={hydrated ? "true" : "false"}>
-          <Input placeholder={isAr ? "البريد الإلكتروني" : "Email"} type="email" autoComplete="email" required value={form.email} onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))} />
-          <Input placeholder={isAr ? "كلمة المرور" : "Password"} type="password" autoComplete="current-password" required value={form.password} onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))} />
+          <Input aria-label={isAr ? "البريد الإلكتروني" : "Email"} placeholder={isAr ? "البريد الإلكتروني" : "Email"} type="email" autoComplete="email" required value={form.email} onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))} />
+          <Input aria-label={isAr ? "كلمة المرور" : "Password"} placeholder={isAr ? "كلمة المرور" : "Password"} type="password" autoComplete="current-password" required value={form.password} onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))} />
           <div className={`flex items-center justify-between text-sm ${isAr ? "flex-row-reverse" : ""}`}>
             <label className={`inline-flex items-center gap-2 text-[#D1D5DB] ${isAr ? "flex-row-reverse" : ""}`}>
               <input type="checkbox" checked={form.rememberMe} onChange={(event) => setForm((prev) => ({ ...prev, rememberMe: event.target.checked }))} className="h-4 w-4 rounded border-white/30 bg-transparent accent-[#C9A227]" />
@@ -210,13 +210,13 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
         {resetMode ? (
           <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
             <form className="grid gap-2" onSubmit={handleResetRequest}>
-              <Input placeholder={isAr ? "البريد لإرسال رمز الاستعادة" : "Email for reset token"} type="email" autoComplete="email" required value={resetRequestEmail} onChange={(event) => setResetRequestEmail(event.target.value)} />
+              <Input aria-label={isAr ? "البريد لإرسال رمز الاستعادة" : "Email for reset token"} placeholder={isAr ? "البريد لإرسال رمز الاستعادة" : "Email for reset token"} type="email" autoComplete="email" required value={resetRequestEmail} onChange={(event) => setResetRequestEmail(event.target.value)} />
               <Button type="submit" variant="secondary" disabled={isResetRequestSubmitting}>{isResetRequestSubmitting ? (isAr ? "جاري الإرسال..." : "Sending...") : (isAr ? "إرسال رمز الاستعادة" : "Request Reset Token")}</Button>
             </form>
             <form className="grid gap-2" onSubmit={handleResetConfirm}>
-              <Input placeholder={isAr ? "رمز الاستعادة" : "Reset Token"} required value={resetToken} onChange={(event) => setResetToken(event.target.value)} />
-              <Input placeholder={isAr ? "كلمة المرور الجديدة" : "New Password"} type="password" autoComplete="new-password" required value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} />
-              <Input placeholder={isAr ? "تأكيد كلمة المرور" : "Confirm Password"} type="password" autoComplete="new-password" required value={resetConfirm} onChange={(event) => setResetConfirm(event.target.value)} />
+              <Input aria-label={isAr ? "رمز الاستعادة" : "Reset Token"} placeholder={isAr ? "رمز الاستعادة" : "Reset Token"} required value={resetToken} onChange={(event) => setResetToken(event.target.value)} />
+              <Input aria-label={isAr ? "كلمة المرور الجديدة" : "New Password"} placeholder={isAr ? "كلمة المرور الجديدة" : "New Password"} type="password" autoComplete="new-password" required value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} />
+              <Input aria-label={isAr ? "تأكيد كلمة المرور" : "Confirm Password"} placeholder={isAr ? "تأكيد كلمة المرور" : "Confirm Password"} type="password" autoComplete="new-password" required value={resetConfirm} onChange={(event) => setResetConfirm(event.target.value)} />
               <Button type="submit" variant="secondary" disabled={isResetConfirmSubmitting}>{isResetConfirmSubmitting ? (isAr ? "جاري التحديث..." : "Updating...") : (isAr ? "تحديث كلمة المرور" : "Reset Password")}</Button>
             </form>
           </div>

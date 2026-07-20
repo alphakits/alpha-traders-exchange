@@ -22,6 +22,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
               alt="Alpha Traders logo"
               width={38}
               height={38}
+              style={{ width: 38, height: 38 }}
               className="rounded-full border border-[#C9A227]/45 bg-black/35 p-0.5 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)]"
             />
             <h3 className="text-lg font-semibold tracking-wide">{t("brand")}</h3>

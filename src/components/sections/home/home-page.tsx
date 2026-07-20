@@ -92,6 +92,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                   alt="Alpha Traders logo"
                   width={28}
                   height={28}
+                  style={{ width: 28, height: 28 }}
                   className="rounded-md object-contain shadow-[0_4px_12px_rgba(0,0,0,0.35)]"
                   priority
                 />
