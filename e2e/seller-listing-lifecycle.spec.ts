@@ -383,7 +383,7 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
   const timedRequest = await createRequest(owner.page.request, created.listing.id, "100");
   response = await seller.page.request.patch(`/api/alpha-exchange/purchase-requests/${timedRequest.purchase.id}`, { data: { status: "accepted" } });
   expect(response.ok()).toBeTruthy();
-  await updateRuntimeDb((db) => {
+  await updateRuntimeDb(owner.page.request, (db) => {
     const requests = Array.isArray(db.purchaseRequests) ? (db.purchaseRequests as Array<Record<string, unknown>>) : [];
     const request = requests.find((item) => String(item.id) === timedRequest.purchase.id);
     if (!request) throw new Error("Timed request fixture missing.");
@@ -425,7 +425,7 @@ test("admin dashboard listing overrides update state, notifications, and audit h
   const seller = await createSession(browser, SELLER_EMAIL, SELLER_PASSWORD);
 
   const renewCandidate = await createListing(seller.page.request, { availableAmount: "111", price: "3.11" });
-  await updateRuntimeDb((db) => {
+  await updateRuntimeDb(seller.page.request, (db) => {
     const listings = Array.isArray(db.marketplaceListings) ? (db.marketplaceListings as Array<Record<string, unknown>>) : [];
     const listing = listings.find((item) => String(item.id) === renewCandidate.listing.id);
     if (!listing) throw new Error("Renew candidate missing.");
