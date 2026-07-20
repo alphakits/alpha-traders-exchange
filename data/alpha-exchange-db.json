@@ -51,14 +51,14 @@
       "role": "approved_seller",
       "sellerStatus": "approved_seller",
       "createdAt": "2026-07-19T09:17:31.000Z",
-      "updatedAt": "2026-07-20T11:33:07.576Z",
+      "updatedAt": "2026-07-20T11:41:36.149Z",
       "tradingExperience": "",
       "workingHours": "",
       "preferredPaymentMethods": [],
       "country": "",
       "city": "",
       "coverBannerUrl": "",
-      "lastActiveAt": "2026-07-20T11:41:18.553Z",
+      "lastActiveAt": "2026-07-20T11:41:36.149Z",
       "isFeaturedSeller": false,
       "isProfileHidden": false,
       "notificationPreferences": {
@@ -2973,7 +2973,7 @@
         "repeatBuyers": 0,
         "averageTradeSize": 0
       },
-      "updatedAt": "2026-07-20T11:41:27.621Z"
+      "updatedAt": "2026-07-20T11:41:36.150Z"
     }
   ],
   "trustScoreHistory": [
