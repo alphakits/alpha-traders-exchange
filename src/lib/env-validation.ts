@@ -75,8 +75,10 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
 }
 
 /**
- * Validates environment at startup and logs results.
- * Call this from a shared module that is imported during server initialisation.
+ * Validates environment variables and logs results.
+ * Throws in production runtime if required vars are missing.
+ * Does NOT throw during `next build` (NEXT_PHASE=phase-production-build) so local
+ * builds can proceed without a full set of production credentials.
  */
 export function runEnvValidation(): void {
   const { warnings, errors } = validateEnv();
@@ -85,11 +87,16 @@ export function runEnvValidation(): void {
     console.warn("[env-validation]", warning);
   }
 
+  // Skip throwing during the Next.js build phase — env vars may not be present
+  // locally. On Vercel the build environment has all vars set, so this guard
+  // only relaxes local development builds.
+  const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+
   if (errors.length > 0) {
     for (const error of errors) {
       console.error("[env-validation] FATAL:", error);
     }
-    if (process.env.NODE_ENV === "production") {
+    if (process.env.NODE_ENV === "production" && !isBuildPhase) {
       throw new Error(
         `Environment validation failed with ${errors.length} error(s). See logs above.`,
       );
