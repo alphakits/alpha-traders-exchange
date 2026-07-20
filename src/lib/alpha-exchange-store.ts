@@ -35,6 +35,7 @@ import type {
   SellerPublicProfile,
   PremiumSellerProfileData,
   SellerReputationSnapshot,
+  SellerAvailabilityStatus,
   SellerStatus,
   SellerOnlineStatus,
   TradeDisputeCase,
@@ -75,6 +76,12 @@ const defaultDb: AlphaExchangeDb = {
 };
 
 const DB_CACHE_TTL_MS = 250;
+const MAX_ACTIVE_LISTINGS_PER_SELLER = 2;
+const COMMISSION_GRACE_PERIOD_DAYS = 7;
+const DEFAULT_LISTING_EXPIRATION_HOURS = 24;
+const ALLOWED_LISTING_EXPIRATION_HOURS = [1, 6, 12, 24] as const;
+const DEFAULT_STALE_TRADE_TIMEOUT_MINUTES = 20;
+const SYSTEM_ACTOR_USER_ID = "system:marketplace";
 let dbCache: { value: AlphaExchangeDb; updatedAt: number } | null = null;
 let dbReadInFlight: Promise<AlphaExchangeDb> | null = null;
 let dbWriteInFlight: Promise<void> = Promise.resolve();
@@ -111,6 +118,26 @@ function getMaxEvidenceSizeBytes() {
   return Math.round(raw * 1024 * 1024);
 }
 
+function getListingExpirationHours(value?: number | string) {
+  const parsed = Number(value ?? DEFAULT_LISTING_EXPIRATION_HOURS);
+  if (!ALLOWED_LISTING_EXPIRATION_HOURS.includes(parsed as (typeof ALLOWED_LISTING_EXPIRATION_HOURS)[number])) {
+    return DEFAULT_LISTING_EXPIRATION_HOURS;
+  }
+  return parsed;
+}
+
+function getListingExpirationIso(base: string, hours?: number | string) {
+  const baseMs = new Date(base).getTime();
+  const safeBaseMs = Number.isNaN(baseMs) || baseMs <= 0 ? Date.now() : baseMs;
+  return new Date(safeBaseMs + getListingExpirationHours(hours) * 60 * 60 * 1000).toISOString();
+}
+
+function getStaleTradeTimeoutMinutes() {
+  const raw = Number(process.env.ALPHA_EXCHANGE_STALE_TRADE_TIMEOUT_MINUTES ?? DEFAULT_STALE_TRADE_TIMEOUT_MINUTES);
+  if (Number.isNaN(raw) || raw <= 0) return DEFAULT_STALE_TRADE_TIMEOUT_MINUTES;
+  return raw;
+}
+
 function extensionForEvidenceMimeType(mimeType: string) {
   if (mimeType === "image/png") return "png";
   if (mimeType === "image/jpeg") return "jpg";
@@ -120,6 +147,91 @@ function extensionForEvidenceMimeType(mimeType: string) {
 
 function toNumber(value: string | number | null | undefined) {
   return Number(String(value ?? "").replace(/[^\d.]/g, "")) || 0;
+}
+
+function addDaysIso(value: string, days: number) {
+  const start = new Date(value).getTime();
+  if (!start || Number.isNaN(start)) return nowIso();
+  return new Date(start + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function normalizeListingStatus(value: string): ListingStatus {
+  if (value === "draft" || value === "active" || value === "paused" || value === "matched" || value === "in_trade" || value === "expired" || value === "completed" || value === "cancelled" || value === "closed") {
+    return value;
+  }
+  if (value === "available") return "active";
+  if (value === "sold") return "completed";
+  if (value === "rejected") return "cancelled";
+  return "draft";
+}
+
+function normalizeSellerAvailabilityStatus(value: string | undefined): SellerAvailabilityStatus {
+  if (value === "away" || value === "vacation") return value;
+  return "available";
+}
+
+function normalizeCommissionPaymentStatus(value: string | undefined, dueAt?: string) {
+  if (value === "paid") return "paid" as const;
+  const dueMs = dueAt ? new Date(dueAt).getTime() : 0;
+  if (dueMs && !Number.isNaN(dueMs) && dueMs < Date.now()) return "overdue" as const;
+  return "pending" as const;
+}
+
+function isListingOpen(status: ListingStatus) {
+  return status === "active" || status === "paused" || status === "matched" || status === "in_trade";
+}
+
+function isListingLocked(status: ListingStatus) {
+  return status === "matched" || status === "in_trade";
+}
+
+function canListingReceiveRequests(listing: MarketplaceListing) {
+  return listing.status === "active" && toNumber(listing.availableAmount) > 0;
+}
+
+function isSellerUnavailableForNewBuyers(availabilityStatus: SellerAvailabilityStatus) {
+  return availabilityStatus === "vacation";
+}
+
+function getSellerOpenTradeCount(db: AlphaExchangeDb, sellerId: string) {
+  return db.purchaseRequests.filter((request) => request.sellerId === sellerId && (request.status === "accepted" || request.status === "payment_sent" || request.status === "usdt_sent")).length;
+}
+
+function getSellerPendingCommissionCount(db: AlphaExchangeDb, sellerId: string) {
+  return db.commissionRecords.filter((record) => record.sellerId === sellerId && normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid").length;
+}
+
+function getSellerOpenListingCount(db: AlphaExchangeDb, sellerId: string) {
+  return db.marketplaceListings.filter((listing) => listing.sellerId === sellerId && isListingOpen(listing.status)).length;
+}
+
+function getSellerListingBlockReason(db: AlphaExchangeDb, sellerId: string) {
+  const pendingCommissionCount = getSellerPendingCommissionCount(db, sellerId);
+  if (pendingCommissionCount > 0) {
+    return "You have commission payments pending. Clear them before creating a new listing.";
+  }
+  const openListingCount = getSellerOpenListingCount(db, sellerId);
+  if (openListingCount >= MAX_ACTIVE_LISTINGS_PER_SELLER) {
+    return "You already have 2 active listings. Close one before creating another.";
+  }
+  return null;
+}
+
+function getListingByIdOrThrow(db: AlphaExchangeDb, listingId: string) {
+  const listing = db.marketplaceListings.find((item) => item.id === listingId);
+  if (!listing) throw new Error("Listing not found.");
+  return listing;
+}
+
+function appendListingStateAudit(db: AlphaExchangeDb, input: {
+  actorUserId: string;
+  listingId: string;
+  targetUserId: string;
+  action: AuditAction;
+  details: string;
+  purchaseRequestId?: string;
+}) {
+  return appendAuditLog(db, input);
 }
 
 function levelRank(level: SellerLevel) {
@@ -149,6 +261,7 @@ function buildSellerPublicProfile(user: AlphaExchangeUser): SellerPublicProfile 
     isFeaturedSeller: user.isFeaturedSeller === true,
     isProfileHidden: user.isProfileHidden === true,
     onlineStatus: user.onlineStatus,
+    availabilityStatus: user.availabilityStatus,
     lastActiveAt: user.lastActiveAt,
   };
 }
@@ -443,10 +556,6 @@ function isValidTradeTimelineType(value: string): value is TradeTimelineEventTyp
   );
 }
 
-function isValidListingStatus(value: string): value is ListingStatus {
-  return value === "pending_approval" || value === "changes_requested" || value === "rejected" || value === "available" || value === "paused" || value === "sold";
-}
-
 function isValidInviteStatus(value: string): value is "active" | "expired" | "disabled" {
   return value === "active" || value === "expired" || value === "disabled";
 }
@@ -503,6 +612,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         city: typeof (user as { city?: string }).city === "string" ? (user as { city: string }).city.trim() : "",
         coverBannerUrl: typeof (user as { coverBannerUrl?: string }).coverBannerUrl === "string" ? (user as { coverBannerUrl: string }).coverBannerUrl.trim() : "",
         onlineStatus: (user as { onlineStatus?: string }).onlineStatus === "online" ? "online" : "offline",
+        availabilityStatus: normalizeSellerAvailabilityStatus((user as { availabilityStatus?: string }).availabilityStatus),
         lastActiveAt: typeof (user as { lastActiveAt?: string }).lastActiveAt === "string" ? (user as { lastActiveAt: string }).lastActiveAt : (typeof user.updatedAt === "string" ? user.updatedAt : undefined),
         isFeaturedSeller: (user as { isFeaturedSeller?: boolean }).isFeaturedSeller === true,
         isProfileHidden: (user as { isProfileHidden?: boolean }).isProfileHidden === true,
@@ -571,6 +681,8 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       paymentSentAt: typeof (request as { paymentSentAt?: string }).paymentSentAt === "string" ? (request as { paymentSentAt: string }).paymentSentAt : undefined,
       usdtSentAt: typeof (request as { usdtSentAt?: string }).usdtSentAt === "string" ? (request as { usdtSentAt: string }).usdtSentAt : undefined,
       completedAt: typeof (request as { completedAt?: string }).completedAt === "string" ? (request as { completedAt: string }).completedAt : undefined,
+      timedOutAt: typeof (request as { timedOutAt?: string }).timedOutAt === "string" ? (request as { timedOutAt: string }).timedOutAt : undefined,
+      timeoutReason: typeof (request as { timeoutReason?: string }).timeoutReason === "string" ? (request as { timeoutReason: string }).timeoutReason : undefined,
       lockedAt: typeof (request as { lockedAt?: string }).lockedAt === "string" ? (request as { lockedAt: string }).lockedAt : undefined,
       reviewUnlockedAt:
         typeof (request as { reviewUnlockedAt?: string }).reviewUnlockedAt === "string" ? (request as { reviewUnlockedAt: string }).reviewUnlockedAt : undefined,
@@ -594,8 +706,28 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
             }
           : undefined,
     })),
-    commissionRecords: db.commissionRecords ?? [],
-    auditLogs: db.auditLogs ?? [],
+    commissionRecords: (db.commissionRecords ?? []).map((record) => {
+      const createdAt = typeof (record as { createdAt?: string }).createdAt === "string" ? (record as { createdAt: string }).createdAt : nowIso();
+      const dueAt = typeof (record as { dueAt?: string }).dueAt === "string" ? (record as { dueAt: string }).dueAt : addDaysIso(createdAt, COMMISSION_GRACE_PERIOD_DAYS);
+      return {
+        ...record,
+        paymentStatus: normalizeCommissionPaymentStatus((record as { paymentStatus?: string }).paymentStatus, dueAt),
+        dueAt,
+        paidAt: typeof (record as { paidAt?: string }).paidAt === "string" ? (record as { paidAt: string }).paidAt : undefined,
+        overdueNotifiedAt:
+          typeof (record as { overdueNotifiedAt?: string }).overdueNotifiedAt === "string"
+            ? (record as { overdueNotifiedAt: string }).overdueNotifiedAt
+            : undefined,
+        createdAt,
+        updatedAt: typeof (record as { updatedAt?: string }).updatedAt === "string" ? (record as { updatedAt: string }).updatedAt : createdAt,
+      };
+    }),
+    auditLogs: (db.auditLogs ?? []).map((entry) => ({
+      ...entry,
+      reason: typeof (entry as { reason?: string }).reason === "string" ? (entry as { reason: string }).reason : undefined,
+      oldValue: (entry as { oldValue?: unknown }).oldValue,
+      newValue: (entry as { newValue?: unknown }).newValue,
+    })),
     authSessions: db.authSessions ?? [],
     passwordResetTokens: db.passwordResetTokens ?? [],
     notifications: (db.notifications ?? []).filter((item) => item && typeof item.userId === "string"),
@@ -647,6 +779,10 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       photos: Array.isArray((listing as { photos?: string[] }).photos)
         ? (listing as { photos: string[] }).photos.map((photo) => String(photo).trim()).filter(Boolean).slice(0, 6)
         : [],
+      originalAmount:
+        typeof (listing as { originalAmount?: string }).originalAmount === "string" && (listing as { originalAmount: string }).originalAmount.trim()
+          ? (listing as { originalAmount: string }).originalAmount.trim()
+          : (typeof (listing as { availableAmount?: string }).availableAmount === "string" ? (listing as { availableAmount: string }).availableAmount.trim() : "0"),
       currency: typeof (listing as { currency?: string }).currency === "string" && (listing as { currency: string }).currency.trim()
         ? (listing as { currency: string }).currency.trim()
         : "ILS",
@@ -675,9 +811,6 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       notes: typeof (listing as { notes?: string }).notes === "string"
         ? (listing as { notes: string }).notes.trim()
         : "",
-      expiresAt: typeof (listing as { expiresAt?: string }).expiresAt === "string"
-        ? (listing as { expiresAt: string }).expiresAt
-        : undefined,
       ownerReviewReason: typeof (listing as { ownerReviewReason?: string }).ownerReviewReason === "string"
         ? (listing as { ownerReviewReason: string }).ownerReviewReason.trim()
         : undefined,
@@ -687,7 +820,21 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       ownerReviewedBy: typeof (listing as { ownerReviewedBy?: string }).ownerReviewedBy === "string"
         ? (listing as { ownerReviewedBy: string }).ownerReviewedBy
         : undefined,
-      status: isValidListingStatus(String((listing as { status?: string }).status ?? "")) ? (listing as { status: ListingStatus }).status : "available",
+      expiresAt: typeof (listing as { expiresAt?: string }).expiresAt === "string"
+        ? (listing as { expiresAt: string }).expiresAt
+        : getListingExpirationIso(typeof (listing as { createdAt?: string }).createdAt === "string" ? (listing as { createdAt: string }).createdAt : nowIso()),
+      expiredAt: typeof (listing as { expiredAt?: string }).expiredAt === "string" ? (listing as { expiredAt: string }).expiredAt : undefined,
+      lastRenewedAt: typeof (listing as { lastRenewedAt?: string }).lastRenewedAt === "string" ? (listing as { lastRenewedAt: string }).lastRenewedAt : undefined,
+      activeTradeRequestId:
+        typeof (listing as { activeTradeRequestId?: string }).activeTradeRequestId === "string"
+          ? (listing as { activeTradeRequestId: string }).activeTradeRequestId
+          : undefined,
+      lockedAt: typeof (listing as { lockedAt?: string }).lockedAt === "string" ? (listing as { lockedAt: string }).lockedAt : undefined,
+      completedAt: typeof (listing as { completedAt?: string }).completedAt === "string" ? (listing as { completedAt: string }).completedAt : undefined,
+      cancelledAt: typeof (listing as { cancelledAt?: string }).cancelledAt === "string" ? (listing as { cancelledAt: string }).cancelledAt : undefined,
+      closedAt: typeof (listing as { closedAt?: string }).closedAt === "string" ? (listing as { closedAt: string }).closedAt : undefined,
+      blockingReason: typeof (listing as { blockingReason?: string }).blockingReason === "string" ? (listing as { blockingReason: string }).blockingReason : undefined,
+      status: normalizeListingStatus(String((listing as { status?: string }).status ?? "")),
       network:
         typeof (listing as { network?: string }).network === "string" && isSupportedNetwork((listing as { network: string }).network)
           ? ((listing as { network: SupportedNetwork }).network)
@@ -726,6 +873,19 @@ async function readDb(): Promise<AlphaExchangeDb> {
           const json = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
           const parsed = JSON.parse(json) as AlphaExchangeDb;
           const normalized = normalizeDb(parsed);
+          const changed = await applyMarketplaceReliabilityRules(normalized);
+          if (changed) {
+            const payload = `${JSON.stringify(normalized, null, 2)}\n`;
+            const tempPath = `${dbPath}.${process.pid}.${Date.now()}.tmp`;
+            await fs.mkdir(path.dirname(dbPath), { recursive: true });
+            await fs.writeFile(tempPath, payload, "utf8");
+            try {
+              await fs.rename(tempPath, dbPath);
+            } catch (error) {
+              await fs.rm(tempPath, { force: true }).catch(() => undefined);
+              throw error;
+            }
+          }
           dbCache = { value: normalized, updatedAt: Date.now() };
           return normalized;
         } catch (error) {
@@ -775,6 +935,9 @@ async function appendAuditLog(db: AlphaExchangeDb, input: {
   listingId?: string;
   purchaseRequestId?: string;
   details?: string;
+  oldValue?: unknown;
+  newValue?: unknown;
+  reason?: string;
 }) {
   const entry: AuditLogEntry = {
     id: `audit-${randomUUID()}`,
@@ -784,6 +947,9 @@ async function appendAuditLog(db: AlphaExchangeDb, input: {
     listingId: input.listingId,
     purchaseRequestId: input.purchaseRequestId,
     details: input.details,
+    oldValue: input.oldValue,
+    newValue: input.newValue,
+    reason: input.reason,
     createdAt: nowIso(),
   };
   db.auditLogs.unshift(entry);
@@ -836,6 +1002,208 @@ function pushActivityLog(
     createdAt: nowIso(),
   };
   db.activityLog.unshift(entry);
+}
+
+function listingShouldExpire(listing: MarketplaceListing, nowMs: number) {
+  if (listing.status !== "active" && listing.status !== "paused") return false;
+  if (!listing.expiresAt) return false;
+  const expiresMs = new Date(listing.expiresAt).getTime();
+  if (!expiresMs || Number.isNaN(expiresMs)) return false;
+  return expiresMs <= nowMs;
+}
+
+function listingExpirationDeferredByTrade(listing: MarketplaceListing) {
+  return isListingLocked(listing.status) || Boolean(listing.activeTradeRequestId);
+}
+
+async function expireListing(db: AlphaExchangeDb, listing: MarketplaceListing, actorUserId: string, reason: string) {
+  const previousStatus = listing.status;
+  const now = nowIso();
+  listing.status = "expired";
+  listing.expiredAt = now;
+  listing.updatedAt = now;
+  listing.activeTradeRequestId = undefined;
+  listing.lockedAt = undefined;
+
+  await appendAuditLog(db, {
+    action: "listing_expired",
+    actorUserId,
+    targetUserId: listing.sellerId,
+    listingId: listing.id,
+    details: `Listing ${listing.id} expired.`,
+    oldValue: { status: previousStatus, expiresAt: listing.expiresAt },
+    newValue: { status: "expired", expiredAt: now },
+    reason,
+  });
+  pushNotification(db, {
+    userId: listing.sellerId,
+    category: "listing",
+    title: "Listing expired",
+    message: `Listing ${listing.id} expired and is no longer visible to buyers.`,
+    relatedListingId: listing.id,
+    relatedHref: "/usdt-exchange",
+  });
+  const owner = getOwnerUser(db);
+  if (owner) {
+    pushNotification(db, {
+      userId: owner.id,
+      category: "listing",
+      title: "Listing expired",
+      message: `${listing.sellerDisplayName}'s listing ${listing.id} expired.`,
+      relatedListingId: listing.id,
+      relatedHref: "/admin/alpha-exchange",
+    });
+  }
+}
+
+function unlockListingAfterCancelledTrade(db: AlphaExchangeDb, listing: MarketplaceListing, actorUserId: string, request: PurchaseRequest, reason: string) {
+  const now = nowIso();
+  const hadExpiredClock = Boolean(listing.expiresAt) && new Date(listing.expiresAt!).getTime() <= Date.now();
+  const nextStatus: ListingStatus = hadExpiredClock ? "expired" : "active";
+  listing.activeTradeRequestId = undefined;
+  listing.lockedAt = undefined;
+  listing.updatedAt = now;
+  listing.status = nextStatus;
+  if (nextStatus === "expired") {
+    listing.expiredAt = now;
+  }
+  void appendAuditLog(db, {
+    action: nextStatus === "expired" ? "listing_expired" : "listing_reopened",
+    actorUserId,
+    targetUserId: listing.sellerId,
+    listingId: listing.id,
+    purchaseRequestId: request.id,
+    details: nextStatus === "expired" ? `Listing ${listing.id} expired after trade unlock.` : `Listing ${listing.id} reopened after trade cancellation.`,
+    oldValue: { status: request.status, activeTradeRequestId: listing.activeTradeRequestId },
+    newValue: { status: nextStatus },
+    reason,
+  });
+}
+
+async function markCommissionOverdue(db: AlphaExchangeDb, record: CommissionRecord, actorUserId: string) {
+  const now = nowIso();
+  record.paymentStatus = "overdue";
+  record.overdueNotifiedAt = record.overdueNotifiedAt ?? now;
+  record.updatedAt = now;
+  await appendAuditLog(db, {
+    action: "commission_overdue",
+    actorUserId,
+    targetUserId: record.sellerId,
+    listingId: record.listingId,
+    purchaseRequestId: record.purchaseRequestId,
+    details: `Commission ${record.id} is overdue.`,
+    oldValue: { paymentStatus: "pending", dueAt: record.dueAt },
+    newValue: { paymentStatus: "overdue", overdueNotifiedAt: record.overdueNotifiedAt },
+  });
+  pushNotification(db, {
+    userId: record.sellerId,
+    category: "trade",
+    title: "Commission overdue",
+    message: `Commission for trade ${record.purchaseRequestId} is overdue and requires payment.`,
+    relatedTradeId: record.purchaseRequestId,
+    relatedListingId: record.listingId,
+    relatedHref: "/usdt-exchange",
+  });
+  const owner = getOwnerUser(db);
+  if (owner) {
+    pushNotification(db, {
+      userId: owner.id,
+      category: "trade",
+      title: "Commission overdue",
+      message: `Commission for trade ${record.purchaseRequestId} is now overdue.`,
+      relatedTradeId: record.purchaseRequestId,
+      relatedListingId: record.listingId,
+      relatedHref: "/admin/alpha-exchange",
+    });
+  }
+}
+
+async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
+  let changed = false;
+  const nowMs = Date.now();
+  const timeoutWindowMs = getStaleTradeTimeoutMinutes() * 60 * 1000;
+
+  for (const record of db.commissionRecords) {
+    if (record.paymentStatus === "paid" || !record.dueAt) continue;
+    const dueMs = new Date(record.dueAt).getTime();
+    if (!dueMs || Number.isNaN(dueMs) || dueMs > nowMs || record.overdueNotifiedAt) continue;
+    changed = true;
+    await markCommissionOverdue(db, record, SYSTEM_ACTOR_USER_ID);
+  }
+
+  for (const request of db.purchaseRequests) {
+    if (request.status !== "accepted" || request.paymentSentAt || request.usdtSentAt || request.completedAt) continue;
+    const startedAtMs = new Date(request.tradeCreatedAt ?? request.updatedAt ?? request.createdAt).getTime();
+    if (!startedAtMs || Number.isNaN(startedAtMs) || startedAtMs + timeoutWindowMs > nowMs) continue;
+    const listing = db.marketplaceListings.find((item) => item.id === request.listingId);
+    changed = true;
+    const now = nowIso();
+    request.status = "cancelled";
+    request.timedOutAt = now;
+    request.timeoutReason = "Buyer inactivity timeout.";
+    request.updatedAt = now;
+    request.timeline = [...(request.timeline ?? [])];
+    request.timeline.push({
+      id: `timeline-timeout-${randomUUID()}`,
+      type: "request_cancelled",
+      actorUserId: SYSTEM_ACTOR_USER_ID,
+      actorRole: "admin",
+      message: "Trade timed out due to buyer inactivity",
+      createdAt: now,
+    });
+    if (listing && listing.activeTradeRequestId === request.id && !request.usdtSentAt) {
+      unlockListingAfterCancelledTrade(db, listing, SYSTEM_ACTOR_USER_ID, request, request.timeoutReason);
+    }
+    await appendAuditLog(db, {
+      action: "trade_timed_out",
+      actorUserId: SYSTEM_ACTOR_USER_ID,
+      targetUserId: request.buyerId,
+      listingId: request.listingId,
+      purchaseRequestId: request.id,
+      details: `Trade ${request.tradeId ?? request.id} timed out.`,
+      oldValue: { status: "accepted" },
+      newValue: { status: "cancelled", timedOutAt: now },
+      reason: request.timeoutReason,
+    });
+    pushNotification(db, {
+      userId: request.buyerId,
+      category: "trade",
+      title: "Trade timed out",
+      message: `Trade ${request.tradeId ?? request.id} timed out because there was no buyer activity.`,
+      relatedTradeId: request.tradeId ?? request.id,
+      relatedListingId: request.listingId,
+      relatedHref: "/usdt-exchange",
+    });
+    pushNotification(db, {
+      userId: request.sellerId,
+      category: "trade",
+      title: "Trade timed out",
+      message: `Trade ${request.tradeId ?? request.id} timed out after buyer inactivity.`,
+      relatedTradeId: request.tradeId ?? request.id,
+      relatedListingId: request.listingId,
+      relatedHref: "/usdt-exchange",
+    });
+    const owner = getOwnerUser(db);
+    if (owner) {
+      pushNotification(db, {
+        userId: owner.id,
+        category: "trade",
+        title: "Trade timed out",
+        message: `Trade ${request.tradeId ?? request.id} timed out and was cancelled automatically.`,
+        relatedTradeId: request.tradeId ?? request.id,
+        relatedListingId: request.listingId,
+        relatedHref: "/admin/alpha-exchange",
+      });
+    }
+  }
+
+  for (const listing of db.marketplaceListings) {
+    if (!listingShouldExpire(listing, nowMs) || listingExpirationDeferredByTrade(listing)) continue;
+    changed = true;
+    await expireListing(db, listing, SYSTEM_ACTOR_USER_ID, "Listing expiration time reached.");
+  }
+
+  return changed;
 }
 
 function resolveActorRole(db: AlphaExchangeDb, actorUserId: string): UserRole {
@@ -1081,6 +1449,7 @@ export async function createUser(input: {
     city: "",
     coverBannerUrl: "",
     onlineStatus: "offline",
+    availabilityStatus: "available",
     lastActiveAt: timestamp,
     isFeaturedSeller: false,
     isProfileHidden: false,
@@ -1508,10 +1877,11 @@ export async function getMarketplaceListings(status?: string) {
   const rawListings =
     !status || status === "all"
       ? db.marketplaceListings.filter((listing) => {
-          if (listing.status !== "available") return false;
+          if (!canListingReceiveRequests(listing)) return false;
           if (hiddenSellerIds.has(listing.sellerId)) return false;
           const seller = sellerById.get(listing.sellerId);
           if (!seller || seller.sellerStatus !== "approved_seller") return false;
+          if (isSellerUnavailableForNewBuyers(seller.availabilityStatus)) return false;
           if (toNumber(listing.availableAmount) <= 0) return false;
           if (listing.expiresAt) {
             const expiresMs = new Date(listing.expiresAt).getTime();
@@ -1574,7 +1944,7 @@ export async function getMarketplaceListingsForAdmin(dbInput?: AlphaExchangeDb) 
 
 export async function getPendingMarketplaceListingsForOwner(dbInput?: AlphaExchangeDb) {
   const db = dbInput ?? await readDb();
-  const pending = db.marketplaceListings.filter((listing) => listing.status === "pending_approval");
+  const pending = db.marketplaceListings.filter((listing) => listing.status === "draft");
   return enrichListingsWithSellerData(db, pending);
 }
 
@@ -1599,18 +1969,23 @@ export async function createMarketplaceListing(input: {
   minimumTrade?: string;
   maximumTrade?: string;
   expiresAt?: string;
+  expirationHours?: number | string;
   notes?: string;
   sellerDescription?: string;
   responseTime: string;
   actorUserId: string;
 }) {
   const db = await readDb();
+  const blockReason = getSellerListingBlockReason(db, input.sellerId);
+  if (blockReason) throw new Error(blockReason);
   const now = nowIso();
+  const expiresAt = input.expiresAt?.trim() || getListingExpirationIso(now, input.expirationHours);
   const listing: MarketplaceListing = {
     id: `listing-${randomUUID()}`,
     sellerId: input.sellerId,
     sellerDisplayName: input.sellerDisplayName,
     photos: (input.photos ?? []).map((photo) => String(photo).trim()).filter(Boolean).slice(0, 6),
+    originalAmount: input.availableAmount.trim(),
     availableAmount: input.availableAmount.trim(),
     price: input.price.trim(),
     currency: input.currency?.trim() || "ILS",
@@ -1619,41 +1994,41 @@ export async function createMarketplaceListing(input: {
     paymentMethod: "",
     minimumTrade: input.minimumTrade?.trim() || "0",
     maximumTrade: input.maximumTrade?.trim() || input.availableAmount.trim(),
-    expiresAt: input.expiresAt?.trim() || undefined,
+    expiresAt,
     notes: input.notes?.trim() || "",
     sellerDescription: input.sellerDescription?.trim() || "",
     responseTime: input.responseTime.trim() || "5 min",
-    status: "pending_approval",
+    status: "active",
     createdAt: now,
     updatedAt: now,
   };
   listing.paymentMethod = listing.paymentMethods[0] ?? "Bank transfer";
   db.marketplaceListings.push(listing);
   await appendAuditLog(db, {
-    action: "listing_submitted_for_approval",
+    action: "listing_created",
     actorUserId: input.actorUserId,
     targetUserId: input.sellerId,
     listingId: listing.id,
-    details: `Submitted listing ${listing.id} for owner approval`,
+    details: `Created listing ${listing.id} with ${listing.availableAmount} USDT available.`,
   });
   const owner = getOwnerUser(db);
   if (owner) {
     pushNotification(db, {
       userId: owner.id,
       category: "listing",
-      title: "New listing awaiting approval",
-      message: `${input.sellerDisplayName} submitted listing ${listing.id} for approval.`,
+      title: "New listing published",
+      message: `${input.sellerDisplayName} published listing ${listing.id}.`,
       relatedListingId: listing.id,
-      relatedHref: "/admin/alpha-exchange/pending-listings",
+      relatedHref: "/admin/alpha-exchange",
     });
   }
   pushActivityLog(db, {
     userId: input.sellerId,
     category: "listing",
-    title: "Listing submitted",
-    details: `Listing ${listing.id} is pending owner approval.`,
+    title: "Listing published",
+    details: `Listing ${listing.id} is now live.`,
   });
-  await recalculateTrustEngine(db, { reason: "Listing submitted for approval", triggeredBy: input.actorUserId });
+  await recalculateTrustEngine(db, { reason: "Listing created", triggeredBy: input.actorUserId });
   await writeDb(db);
   return listing;
 }
@@ -1672,6 +2047,7 @@ export async function updateMarketplaceListingForSeller(input: {
   minimumTrade?: string;
   maximumTrade?: string;
   expiresAt?: string;
+  expirationHours?: number | string;
   notes?: string;
   sellerDescription?: string;
   responseTime?: string;
@@ -1682,17 +2058,16 @@ export async function updateMarketplaceListingForSeller(input: {
   if (index === -1) throw new Error("Listing not found.");
   const current = db.marketplaceListings[index];
   if (current.sellerId !== input.sellerId) throw new Error("You can edit only your own listings.");
-
-  const nextStatusFromInput = input.status ?? current.status;
-  if (input.status && (current.status === "pending_approval" || current.status === "changes_requested" || current.status === "rejected")) {
-    throw new Error("Listing status cannot be changed until owner review is complete.");
+  if (isListingLocked(current.status)) {
+    throw new Error("This listing is locked by an active trade and cannot be edited right now.");
   }
-  if ((current.status === "rejected" || current.status === "changes_requested") && input.status === undefined) {
-    // Any seller edit after owner feedback resubmits the listing for owner approval.
-    input.status = "pending_approval";
-  } else if (nextStatusFromInput === "available" && current.status !== "paused") {
-    throw new Error("Listings can only go live after owner approval.");
+  if (current.status === "completed" || current.status === "cancelled" || current.status === "closed") {
+    throw new Error("This listing is no longer editable.");
   }
+  if (input.status && input.status !== "active" && input.status !== "paused") {
+    throw new Error("Sellers can only switch listings between active and paused.");
+  }
+  const updatedAt = nowIso();
 
   const next: MarketplaceListing = {
     ...current,
@@ -1707,12 +2082,14 @@ export async function updateMarketplaceListingForSeller(input: {
     paymentMethod: input.paymentMethod?.trim() || current.paymentMethod,
     minimumTrade: input.minimumTrade?.trim() || current.minimumTrade,
     maximumTrade: input.maximumTrade?.trim() || current.maximumTrade,
-    expiresAt: input.expiresAt?.trim() || current.expiresAt,
+    expiresAt: input.expiresAt?.trim() || (input.expirationHours !== undefined ? getListingExpirationIso(updatedAt, input.expirationHours) : current.expiresAt),
+    expiredAt: input.status === "active" ? undefined : current.expiredAt,
+    lastRenewedAt: input.status === "active" && current.status === "expired" ? updatedAt : current.lastRenewedAt,
     notes: input.notes?.trim() ?? current.notes,
     sellerDescription: input.sellerDescription?.trim() ?? current.sellerDescription,
     responseTime: input.responseTime?.trim() || current.responseTime,
     status: input.status || current.status,
-    updatedAt: nowIso(),
+    updatedAt,
   };
   next.paymentMethod = next.paymentMethods[0] ?? next.paymentMethod;
   if (!next.minimumTrade || toNumber(next.minimumTrade) < 0) {
@@ -1723,22 +2100,253 @@ export async function updateMarketplaceListingForSeller(input: {
   if (!next.maximumTrade || maxTradeNumber <= 0 || (availableAmountNumber > 0 && maxTradeNumber > availableAmountNumber)) {
     next.maximumTrade = next.availableAmount;
   }
-  if (next.status === "pending_approval") {
-    next.ownerReviewReason = undefined;
-    next.ownerReviewedAt = undefined;
-    next.ownerReviewedBy = undefined;
-  }
   db.marketplaceListings[index] = next;
   await appendAuditLog(db, {
-    action: "listing_edited",
+    action: input.status === "paused" ? "listing_paused" : input.status === "active" && current.status === "paused" ? "listing_resumed" : "listing_edited",
     actorUserId: input.actorUserId,
     targetUserId: input.sellerId,
     listingId: next.id,
-    details: `Edited listing ${next.id}`,
+    details:
+      input.status === "paused"
+        ? `Paused listing ${next.id}`
+        : input.status === "active" && current.status === "paused"
+          ? `Resumed listing ${next.id}`
+          : `Edited listing ${next.id}`,
   });
   await recalculateTrustEngine(db, { reason: "Seller listing updated", triggeredBy: input.actorUserId });
   await writeDb(db);
   return next;
+}
+
+export async function renewMarketplaceListing(input: {
+  listingId: string;
+  actorUserId: string;
+  sellerId?: string;
+  expirationHours?: number | string;
+  reason?: string;
+}) {
+  const db = await readDb();
+  const index = db.marketplaceListings.findIndex((listing) => listing.id === input.listingId);
+  if (index === -1) throw new Error("Listing not found.");
+  const listing = db.marketplaceListings[index];
+  if (input.sellerId && listing.sellerId !== input.sellerId) throw new Error("You can renew only your own listings.");
+  if (isListingLocked(listing.status)) throw new Error("This listing is locked by an active trade and cannot be renewed.");
+  if (listing.status === "completed" || listing.status === "cancelled" || listing.status === "closed") {
+    throw new Error("This listing can no longer be renewed.");
+  }
+  const now = nowIso();
+  const previousStatus = listing.status;
+  const previousExpiresAt = listing.expiresAt;
+  listing.status = "active";
+  listing.expiresAt = getListingExpirationIso(now, input.expirationHours);
+  listing.expiredAt = undefined;
+  listing.lastRenewedAt = now;
+  listing.updatedAt = now;
+  listing.activeTradeRequestId = undefined;
+  listing.lockedAt = undefined;
+
+  await appendAuditLog(db, {
+    action: "listing_renewed",
+    actorUserId: input.actorUserId,
+    targetUserId: listing.sellerId,
+    listingId: listing.id,
+    details: `Renewed listing ${listing.id}.`,
+    oldValue: { status: previousStatus, expiresAt: previousExpiresAt },
+    newValue: { status: listing.status, expiresAt: listing.expiresAt, lastRenewedAt: listing.lastRenewedAt },
+    reason: input.reason,
+  });
+  pushNotification(db, {
+    userId: listing.sellerId,
+    category: "listing",
+    title: "Listing renewed",
+    message: `Listing ${listing.id} has been renewed and is live again.`,
+    relatedListingId: listing.id,
+    relatedHref: "/usdt-exchange",
+  });
+  await writeDb(db);
+  return listing;
+}
+
+export async function updateSellerAvailabilityStatus(input: {
+  sellerId: string;
+  actorUserId: string;
+  availabilityStatus: SellerAvailabilityStatus;
+  reason?: string;
+}) {
+  const db = await readDb();
+  const index = db.users.findIndex((user) => user.id === input.sellerId);
+  if (index === -1) throw new Error("Seller not found.");
+  const seller = db.users[index];
+  const previousStatus = seller.availabilityStatus;
+  if (previousStatus === input.availabilityStatus) return seller;
+  db.users[index] = {
+    ...seller,
+    availabilityStatus: input.availabilityStatus,
+    lastActiveAt: nowIso(),
+    updatedAt: nowIso(),
+  };
+  await appendAuditLog(db, {
+    action: input.availabilityStatus === "vacation" ? "seller_vacation_enabled" : "seller_vacation_disabled",
+    actorUserId: input.actorUserId,
+    targetUserId: input.sellerId,
+    details: `Seller availability updated to ${input.availabilityStatus}.`,
+    oldValue: { availabilityStatus: previousStatus },
+    newValue: { availabilityStatus: input.availabilityStatus },
+    reason: input.reason,
+  });
+  pushNotification(db, {
+    userId: input.sellerId,
+    category: "account",
+    title: input.availabilityStatus === "vacation" ? "Vacation enabled" : input.availabilityStatus === "away" ? "Availability updated" : "Vacation disabled",
+    message:
+      input.availabilityStatus === "vacation"
+        ? "Your listings are now hidden from buyers until you switch back to Available or Away."
+        : input.availabilityStatus === "away"
+          ? "Your seller availability is now set to Away."
+          : "Your listings are visible to buyers again.",
+    relatedHref: "/usdt-exchange",
+  });
+  const owner = getOwnerUser(db);
+  if (owner && input.availabilityStatus === "vacation") {
+    pushNotification(db, {
+      userId: owner.id,
+      category: "account",
+      title: "Seller entered Vacation Mode",
+      message: `${seller.fullName} is now in Vacation Mode.`,
+      relatedHref: "/admin/alpha-exchange",
+    });
+  }
+  await writeDb(db);
+  return db.users[index];
+}
+
+export async function adminOverrideMarketplaceListing(input: {
+  listingId: string;
+  adminUserId: string;
+  action: "renew" | "extend" | "close" | "force_close";
+  expirationHours?: number | string;
+  reason?: string;
+}) {
+  const db = await readDb();
+  const index = db.marketplaceListings.findIndex((listing) => listing.id === input.listingId);
+  if (index === -1) throw new Error("Listing not found.");
+  const listing = db.marketplaceListings[index];
+  const now = nowIso();
+  const before = {
+    status: listing.status,
+    expiresAt: listing.expiresAt,
+    expiredAt: listing.expiredAt,
+    closedAt: listing.closedAt,
+  };
+  const activeRequest = listing.activeTradeRequestId
+    ? db.purchaseRequests.find((request) => request.id === listing.activeTradeRequestId)
+    : undefined;
+
+  if (input.action === "renew") {
+    if (isListingLocked(listing.status)) throw new Error("Locked listings cannot be renewed.");
+    listing.status = "active";
+    listing.expiresAt = getListingExpirationIso(now, input.expirationHours);
+    listing.expiredAt = undefined;
+    listing.lastRenewedAt = now;
+  } else if (input.action === "extend") {
+    listing.expiresAt = getListingExpirationIso(listing.expiresAt ?? now, input.expirationHours);
+  } else if (input.action === "close" || input.action === "force_close") {
+    if (input.action === "close" && isListingLocked(listing.status)) throw new Error("Locked listings require force close.");
+    listing.status = "closed";
+    listing.closedAt = now;
+    listing.activeTradeRequestId = undefined;
+    listing.lockedAt = undefined;
+    if (activeRequest && (input.action === "force_close" || !isListingLocked(before.status))) {
+      activeRequest.status = "cancelled";
+      activeRequest.updatedAt = now;
+      activeRequest.timeoutReason = undefined;
+      activeRequest.timedOutAt = undefined;
+      appendTradeTimelineEntry(activeRequest, {
+        type: "request_cancelled",
+        actorUserId: input.adminUserId,
+        actorRole: "admin",
+        message: input.action === "force_close" ? "Admin force-closed the listing and cancelled the trade" : "Admin closed the listing and cancelled the trade",
+        createdAt: now,
+      });
+      pushNotification(db, {
+        userId: activeRequest.buyerId,
+        category: "trade",
+        title: "Trade cancelled",
+        message: `Trade ${activeRequest.tradeId ?? activeRequest.id} was cancelled by an admin listing action.`,
+        relatedTradeId: activeRequest.tradeId ?? activeRequest.id,
+        relatedListingId: listing.id,
+        relatedHref: "/usdt-exchange",
+      });
+      pushNotification(db, {
+        userId: activeRequest.sellerId,
+        category: "trade",
+        title: "Trade cancelled",
+        message: `Trade ${activeRequest.tradeId ?? activeRequest.id} was cancelled by an admin listing action.`,
+        relatedTradeId: activeRequest.tradeId ?? activeRequest.id,
+        relatedListingId: listing.id,
+        relatedHref: "/usdt-exchange",
+      });
+    }
+  }
+  listing.updatedAt = now;
+
+  await appendAuditLog(db, {
+    action: input.action === "extend" ? "listing_expiration_extended" : input.action === "renew" ? "listing_renewed" : "admin_override",
+    actorUserId: input.adminUserId,
+    targetUserId: listing.sellerId,
+    listingId: listing.id,
+    details: `Admin ${input.action.replace("_", " ")} on listing ${listing.id}.`,
+    oldValue: before,
+    newValue: {
+      status: listing.status,
+      expiresAt: listing.expiresAt,
+      expiredAt: listing.expiredAt,
+      closedAt: listing.closedAt,
+    },
+    reason: input.reason,
+  });
+  if (input.action === "renew") {
+    pushNotification(db, {
+      userId: listing.sellerId,
+      category: "listing",
+      title: "Listing renewed",
+      message: `An admin renewed listing ${listing.id}.`,
+      relatedListingId: listing.id,
+      relatedHref: "/usdt-exchange",
+    });
+  }
+  if (input.action === "extend") {
+    pushNotification(db, {
+      userId: listing.sellerId,
+      category: "listing",
+      title: "Listing expiration extended",
+      message: `An admin extended the expiration for listing ${listing.id}.`,
+      relatedListingId: listing.id,
+      relatedHref: "/usdt-exchange",
+    });
+  }
+  if (input.action === "close" || input.action === "force_close") {
+    pushNotification(db, {
+      userId: listing.sellerId,
+      category: "listing",
+      title: input.action === "force_close" ? "Listing force closed" : "Listing closed",
+      message: `An admin ${input.action === "force_close" ? "force-closed" : "closed"} listing ${listing.id}.`,
+      relatedListingId: listing.id,
+      relatedHref: "/usdt-exchange",
+    });
+  }
+  if (input.action === "force_close") {
+    pushNotification(db, {
+      userId: input.adminUserId,
+      category: "listing",
+      title: "Listing force closed",
+      message: `Listing ${listing.id} was force-closed successfully.`,
+      relatedListingId: listing.id,
+      relatedHref: "/admin/alpha-exchange",
+    });
+  }
+  await writeDb(db);
+  return listing;
 }
 
 export async function reviewMarketplaceListingByOwner(input: {
@@ -1757,7 +2365,7 @@ export async function reviewMarketplaceListingByOwner(input: {
   }
   const now = nowIso();
   const nextStatus: ListingStatus =
-    input.decision === "approve" ? "available" : input.decision === "reject" ? "rejected" : "changes_requested";
+    input.decision === "approve" ? "active" : input.decision === "reject" ? "cancelled" : "draft";
 
   db.marketplaceListings[index] = {
     ...current,
@@ -1771,30 +2379,30 @@ export async function reviewMarketplaceListingByOwner(input: {
   await appendAuditLog(db, {
     action:
       input.decision === "approve"
-        ? "listing_approved"
+        ? "listing_resumed"
         : input.decision === "reject"
-          ? "listing_rejected"
-          : "listing_changes_requested",
+          ? "listing_cancelled"
+          : "listing_edited",
     actorUserId: input.ownerUserId,
     targetUserId: current.sellerId,
     listingId: current.id,
     details:
       input.decision === "approve"
-        ? `Owner approved listing ${current.id}`
+        ? `Owner activated listing ${current.id}`
         : input.decision === "reject"
-          ? `Owner rejected listing ${current.id}: ${trimmedReason}`
-          : `Owner requested listing changes for ${current.id}: ${trimmedReason}`,
+          ? `Owner cancelled listing ${current.id}: ${trimmedReason}`
+          : `Owner returned listing ${current.id} to draft: ${trimmedReason}`,
   });
   pushNotification(db, {
     userId: current.sellerId,
     category: "listing",
     title:
-      input.decision === "approve" ? "Listing approved" : input.decision === "reject" ? "Listing rejected" : "Listing changes requested",
+      input.decision === "approve" ? "Listing activated" : input.decision === "reject" ? "Listing cancelled" : "Listing returned to draft",
     message:
       input.decision === "approve"
         ? `Listing ${current.id} is now live.`
         : input.decision === "reject"
-          ? `Listing ${current.id} was rejected. ${trimmedReason}`
+          ? `Listing ${current.id} was cancelled. ${trimmedReason}`
           : `Owner requested changes for listing ${current.id}. ${trimmedReason}`,
     relatedListingId: current.id,
     relatedHref: "/usdt-exchange",
@@ -1803,12 +2411,12 @@ export async function reviewMarketplaceListingByOwner(input: {
     userId: current.sellerId,
     category: "listing",
     title:
-      input.decision === "approve" ? "Listing approved" : input.decision === "reject" ? "Listing rejected" : "Listing changes requested",
+      input.decision === "approve" ? "Listing activated" : input.decision === "reject" ? "Listing cancelled" : "Listing returned to draft",
     details: input.decision === "approve" ? `Listing ${current.id} approved.` : trimmedReason || "Owner decision recorded.",
   });
   await recalculateTrustEngine(db, {
     reason:
-      input.decision === "approve" ? "Listing approved" : input.decision === "reject" ? "Listing rejected" : "Listing changes requested",
+      input.decision === "approve" ? "Listing activated" : input.decision === "reject" ? "Listing cancelled" : "Listing returned to draft",
     triggeredBy: input.ownerUserId,
   });
   await writeDb(db);
@@ -1824,13 +2432,23 @@ export async function deleteMarketplaceListingForSeller(input: {
   const listing = db.marketplaceListings.find((item) => item.id === input.listingId);
   if (!listing) throw new Error("Listing not found.");
   if (listing.sellerId !== input.sellerId) throw new Error("You can remove only your own listings.");
-  db.marketplaceListings = db.marketplaceListings.filter((item) => item.id !== input.listingId);
+  if (isListingLocked(listing.status)) {
+    throw new Error("This listing is locked by an active trade and cannot be closed.");
+  }
+  if (listing.status === "completed" || listing.status === "cancelled" || listing.status === "closed") {
+    throw new Error("This listing is already closed.");
+  }
+  listing.status = "closed";
+  listing.closedAt = nowIso();
+  listing.updatedAt = listing.closedAt;
+  listing.activeTradeRequestId = undefined;
+  listing.lockedAt = undefined;
   await appendAuditLog(db, {
-    action: "listing_removed",
+    action: "listing_closed",
     actorUserId: input.actorUserId,
     targetUserId: input.sellerId,
     listingId: input.listingId,
-    details: `Removed listing ${input.listingId}`,
+    details: `Closed listing ${input.listingId}`,
   });
   await recalculateTrustEngine(db, { reason: "Listing removed", triggeredBy: input.actorUserId });
   await writeDb(db);
@@ -1845,9 +2463,23 @@ export async function getMyMarketplaceListings(sellerId: string, status?: string
   return enrichListingsWithSellerData(db, rawListings);
 }
 
+export async function getSellerListingWorkspaceSummary(sellerId: string) {
+  const db = await readDb();
+  const blockedReason = getSellerListingBlockReason(db, sellerId);
+  return {
+    activeListingLimit: MAX_ACTIVE_LISTINGS_PER_SELLER,
+    openListingCount: getSellerOpenListingCount(db, sellerId),
+    openTradeCount: getSellerOpenTradeCount(db, sellerId),
+    pendingCommissionCount: getSellerPendingCommissionCount(db, sellerId),
+    canCreateListing: blockedReason === null,
+    blockedReason,
+  };
+}
+
 export async function createPurchaseRequest(input: {
   buyerId: string;
   listingId: string;
+  usdtAmount: string;
   buyerName: string;
   buyerWhatsapp: string;
   buyerNotes: string;
@@ -1857,11 +2489,44 @@ export async function createPurchaseRequest(input: {
   const now = nowIso();
   const listing = db.marketplaceListings.find((item) => item.id === input.listingId);
   if (!listing) throw new Error("Listing not found.");
-  if (listing.status !== "available") throw new Error("Listing is not available.");
+  if (!canListingReceiveRequests(listing)) {
+    pushNotification(db, {
+      userId: input.buyerId,
+      category: "listing",
+      title: "Listing unavailable",
+      message: `Listing ${input.listingId} is not available for a new buyer right now.`,
+      relatedListingId: input.listingId,
+      relatedHref: "/usdt-exchange",
+    });
+    await writeDb(db);
+    throw new Error("Listing is not available for a new buyer right now.");
+  }
   if (listing.sellerId === input.buyerId) throw new Error("You cannot submit a purchase request to your own listing.");
+  const seller = db.users.find((user) => user.id === listing.sellerId);
+  if (!seller || isSellerUnavailableForNewBuyers(seller.availabilityStatus)) {
+    pushNotification(db, {
+      userId: input.buyerId,
+      category: "listing",
+      title: "Listing unavailable",
+      message: `The seller is currently unavailable for listing ${input.listingId}.`,
+      relatedListingId: input.listingId,
+      relatedHref: "/usdt-exchange",
+    });
+    await writeDb(db);
+    throw new Error("Seller is currently unavailable for new buyer matches.");
+  }
+  const requestedUsdtAmount = String(input.usdtAmount ?? "").trim();
+  const requestedAmount = toNumber(requestedUsdtAmount);
+  const minimumTrade = Math.max(0, toNumber(listing.minimumTrade));
+  const maximumTrade = toNumber(listing.maximumTrade) || toNumber(listing.availableAmount);
+  const remainingAmount = toNumber(listing.availableAmount);
+  if (!requestedUsdtAmount || requestedAmount <= 0) throw new Error("Trade amount must be greater than zero.");
+  if (requestedAmount < minimumTrade) throw new Error(`Minimum trade for this listing is ${listing.minimumTrade} USDT.`);
+  if (requestedAmount > maximumTrade) throw new Error(`Maximum trade for this listing is ${listing.maximumTrade} USDT.`);
+  if (requestedAmount > remainingAmount) throw new Error("Requested amount exceeds the remaining listing quantity.");
   const sellerId = listing.sellerId;
-  const usdtAmount = listing.availableAmount;
-  const fiatAmount = (toNumber(listing.availableAmount) * toNumber(listing.price)).toFixed(2);
+  const usdtAmount = requestedUsdtAmount;
+  const fiatAmount = (requestedAmount * toNumber(listing.price)).toFixed(2);
   const request: PurchaseRequest = {
     id: `purchase-${randomUUID()}`,
     buyerId: input.buyerId,
@@ -2011,8 +2676,8 @@ export async function getAccountProfileData(userId: string): Promise<{
       sellerLevel: reputation.level,
       trustScore: reputation.trustScore,
       completedTrades: sellerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length,
-      activeListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "available").length,
-      pendingListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "pending_approval").length,
+      activeListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "active").length,
+      pendingListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "draft").length,
       averageRating: reputation.rating,
     };
     return { profile, stats };
@@ -2353,6 +3018,7 @@ export async function updatePurchaseRequestStatus(input: {
   }
 
   const currentStatus = request.status;
+  const listing = getListingByIdOrThrow(db, request.listingId);
   const allowedByStatus: Record<PurchaseRequestStatus, PurchaseRequestStatus[]> = {
     pending: ["accepted", "declined", "cancelled"],
     accepted: ["payment_sent", "cancelled"],
@@ -2377,10 +3043,58 @@ export async function updatePurchaseRequestStatus(input: {
   };
 
   if (input.nextStatus === "accepted") {
+    if (listing.sellerId !== input.actorUserId && !isAdmin) {
+      throw new Error("Only the seller can accept this trade.");
+    }
+    if (listing.activeTradeRequestId && listing.activeTradeRequestId !== request.id) {
+      throw new Error("This listing already has another buyer in progress.");
+    }
+    if (listing.status !== "active" && !(listing.activeTradeRequestId === request.id && isListingLocked(listing.status))) {
+      throw new Error("This listing is not open for matching.");
+    }
     next.status = "accepted";
     next.tradeId = next.tradeId ?? `trade-${randomUUID()}`;
     next.tradeCreatedAt = now;
+    listing.status = "matched";
+    listing.activeTradeRequestId = request.id;
+    listing.lockedAt = now;
+    listing.updatedAt = now;
     appendTradeTimelineEntry(next, { type: "request_accepted", actorUserId: input.actorUserId, actorRole, message: "Seller accepted request", createdAt: now });
+    for (let siblingIndex = 0; siblingIndex < db.purchaseRequests.length; siblingIndex += 1) {
+      const sibling = db.purchaseRequests[siblingIndex];
+      if (sibling.id === request.id || sibling.listingId !== request.listingId || sibling.status !== "pending") continue;
+      const declinedSibling: PurchaseRequest = {
+        ...sibling,
+        status: "declined",
+        updatedAt: now,
+        timeline: [...(sibling.timeline ?? [])],
+      };
+      appendTradeTimelineEntry(declinedSibling, {
+        type: "request_declined",
+        actorUserId: input.actorUserId,
+        actorRole,
+        message: "Seller matched another buyer for this listing",
+        createdAt: now,
+      });
+      db.purchaseRequests[siblingIndex] = declinedSibling;
+      pushNotification(db, {
+        userId: sibling.buyerId,
+        category: "trade",
+        title: "Listing unavailable",
+        message: `Request ${sibling.id} was declined because the listing matched another buyer.`,
+        relatedTradeId: sibling.tradeId,
+        relatedListingId: sibling.listingId,
+        relatedHref: "/usdt-exchange",
+      });
+    }
+    await appendListingStateAudit(db, {
+      action: "listing_matched",
+      actorUserId: input.actorUserId,
+      targetUserId: request.sellerId,
+      listingId: request.listingId,
+      purchaseRequestId: request.id,
+      details: `Listing ${listing.id} matched with buyer ${request.buyerId}.`,
+    });
     pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
@@ -2396,8 +3110,8 @@ export async function updatePurchaseRequestStatus(input: {
     pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
-      title: "Trade request declined",
-      message: `Your request ${request.id} was declined.`,
+      title: "Trade cancelled",
+      message: `Your request ${request.id} was declined by the seller.`,
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: "/usdt-exchange",
@@ -2405,17 +3119,24 @@ export async function updatePurchaseRequestStatus(input: {
   } else if (input.nextStatus === "cancelled") {
     next.status = "cancelled";
     appendTradeTimelineEntry(next, { type: "request_cancelled", actorUserId: input.actorUserId, actorRole, message: "Buyer cancelled request", createdAt: now });
+    if (listing.activeTradeRequestId === request.id) {
+      unlockListingAfterCancelledTrade(db, listing, input.actorUserId, request, "Buyer cancelled the trade.");
+    }
   } else if (input.nextStatus === "payment_sent") {
     const buyerEvidence = getTradeEvidenceFile(db, request.id, "buyer");
     if (!buyerEvidence) throw new Error("Buyer evidence is required before marking payment sent.");
     next.status = "payment_sent";
     next.buyerEvidence = buyerEvidence;
     next.paymentSentAt = now;
+    if (listing.activeTradeRequestId === request.id) {
+      listing.status = "in_trade";
+      listing.updatedAt = now;
+    }
     appendTradeTimelineEntry(next, { type: "payment_sent", actorUserId: input.actorUserId, actorRole, message: "Buyer marked payment sent", createdAt: now });
     pushNotification(db, {
       userId: request.sellerId,
       category: "trade",
-      title: "Buyer marked payment sent",
+      title: "Buyer paid",
       message: `Buyer marked payment sent for trade ${next.tradeId ?? request.id}.`,
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
@@ -2446,10 +3167,38 @@ export async function updatePurchaseRequestStatus(input: {
     next.status = "review_open";
     appendTradeTimelineEntry(next, { type: "review_unlocked", actorUserId: input.actorUserId, actorRole, message: "Review window unlocked", createdAt: now });
 
-    const listing = db.marketplaceListings.find((item) => item.id === request.listingId);
-    if (listing) {
-      listing.status = "sold";
-      listing.updatedAt = now;
+    const remainingAmount = Math.max(0, toNumber(listing.availableAmount) - toNumber(next.usdtAmount));
+    listing.availableAmount = remainingAmount.toFixed(2).replace(/\.00$/, "");
+    listing.activeTradeRequestId = undefined;
+    listing.lockedAt = undefined;
+    listing.updatedAt = now;
+    if (remainingAmount > 0) {
+      const expiresMs = listing.expiresAt ? new Date(listing.expiresAt).getTime() : 0;
+      const shouldExpire = Boolean(expiresMs && !Number.isNaN(expiresMs) && expiresMs <= Date.now());
+      listing.status = shouldExpire ? "expired" : "active";
+      listing.expiredAt = shouldExpire ? now : undefined;
+      await appendListingStateAudit(db, {
+        action: shouldExpire ? "listing_expired" : "listing_reopened",
+        actorUserId: input.actorUserId,
+        targetUserId: request.sellerId,
+        listingId: request.listingId,
+        purchaseRequestId: request.id,
+        details: shouldExpire
+          ? `Listing ${listing.id} expired after trade completion with ${listing.availableAmount} USDT remaining.`
+          : `Listing ${listing.id} reopened with ${listing.availableAmount} USDT remaining.`,
+      });
+    } else {
+      listing.availableAmount = "0";
+      listing.status = "completed";
+      listing.completedAt = now;
+      await appendListingStateAudit(db, {
+        action: "listing_completed",
+        actorUserId: input.actorUserId,
+        targetUserId: request.sellerId,
+        listingId: request.listingId,
+        purchaseRequestId: request.id,
+        details: `Listing ${listing.id} completed after selling out.`,
+      });
     }
     const hasCommission = db.commissionRecords.some((record) => record.purchaseRequestId === request.id);
     if (!hasCommission) {
@@ -2464,9 +3213,22 @@ export async function updatePurchaseRequestStatus(input: {
         rate: 0.01,
         grossAmount: normalizedGross,
         commissionAmount,
+        paymentStatus: "pending",
+        dueAt: addDaysIso(now, COMMISSION_GRACE_PERIOD_DAYS),
+        paidAt: undefined,
+        overdueNotifiedAt: undefined,
         createdAt: now,
+        updatedAt: now,
       };
       db.commissionRecords.push(commission);
+      await appendAuditLog(db, {
+        action: "commission_recorded",
+        actorUserId: input.actorUserId,
+        targetUserId: request.sellerId,
+        listingId: request.listingId,
+        purchaseRequestId: request.id,
+        details: `Commission recorded for trade ${next.tradeId ?? request.id}.`,
+      });
     }
     await appendAuditLog(db, {
       action: "purchase_completed",
@@ -2556,6 +3318,46 @@ export async function getPurchaseRequestsForAdmin(dbInput?: AlphaExchangeDb) {
 export async function getCommissionRecordsForAdmin(dbInput?: AlphaExchangeDb) {
   const db = dbInput ?? await readDb();
   return db.commissionRecords;
+}
+
+export async function updateCommissionPaymentStatus(input: {
+  commissionId: string;
+  actorUserId: string;
+  paymentStatus: "pending" | "paid" | "overdue";
+}) {
+  const db = await readDb();
+  const index = db.commissionRecords.findIndex((record) => record.id === input.commissionId);
+  if (index === -1) throw new Error("Commission record not found.");
+  const now = nowIso();
+  const current = db.commissionRecords[index];
+  db.commissionRecords[index] = {
+    ...current,
+    paymentStatus: input.paymentStatus,
+    paidAt: input.paymentStatus === "paid" ? now : undefined,
+    overdueNotifiedAt: input.paymentStatus === "overdue" ? current.overdueNotifiedAt ?? now : undefined,
+    updatedAt: now,
+  };
+  await appendAuditLog(db, {
+    action: input.paymentStatus === "paid" ? "commission_paid" : input.paymentStatus === "overdue" ? "commission_overdue" : "commission_recorded",
+    actorUserId: input.actorUserId,
+    targetUserId: current.sellerId,
+    listingId: current.listingId,
+    purchaseRequestId: current.purchaseRequestId,
+    details: `Commission ${current.id} marked ${input.paymentStatus}.`,
+  });
+  if (input.paymentStatus === "paid") {
+    pushNotification(db, {
+      userId: current.sellerId,
+      category: "trade",
+      title: "Commission marked paid",
+      message: `Commission for trade ${current.purchaseRequestId} has been marked paid.`,
+      relatedTradeId: current.purchaseRequestId,
+      relatedListingId: current.listingId,
+      relatedHref: "/usdt-exchange",
+    });
+  }
+  await writeDb(db);
+  return db.commissionRecords[index];
 }
 
 export async function getAuditLogsForAdmin(dbInput?: AlphaExchangeDb) {
@@ -2951,7 +3753,7 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
       createdAt: completionStamp(request),
     })),
     ...db.marketplaceListings
-      .filter((listing) => listing.status === "available" && listing.ownerReviewedAt)
+      .filter((listing) => listing.status === "active" && listing.ownerReviewedAt)
       .map((listing) => ({
         id: `listing-${listing.id}`,
         type: "listing_approved" as const,
@@ -2999,9 +3801,9 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
       newBuyers: db.users.filter((user) => user.role === "buyer" && isToday(user.createdAt)).length,
       newSellers: db.sellerApplications.filter((application) => application.status === "approved" && isToday(application.updatedAt)).length,
       newListings: db.marketplaceListings.filter((listing) => isToday(listing.createdAt)).length,
-      listingsApproved: db.marketplaceListings.filter((listing) => listing.status === "available" && isToday(listing.ownerReviewedAt)).length,
-      listingsRejected: db.marketplaceListings.filter((listing) => listing.status === "rejected" && isToday(listing.ownerReviewedAt)).length,
-      pendingListings: db.marketplaceListings.filter((listing) => listing.status === "pending_approval").length,
+      listingsApproved: db.marketplaceListings.filter((listing) => listing.status === "active" && isToday(listing.ownerReviewedAt)).length,
+      listingsRejected: db.marketplaceListings.filter((listing) => listing.status === "cancelled" && isToday(listing.ownerReviewedAt)).length,
+      pendingListings: db.marketplaceListings.filter((listing) => listing.status === "draft").length,
       pendingSellerApplications: db.sellerApplications.filter((application) => application.status === "pending").length,
       openDisputes: db.disputes.filter((dispute) => dispute.status === "open").length,
       resolvedDisputes: db.disputes.filter((dispute) => dispute.status === "resolved" && isToday(dispute.updatedAt)).length,
@@ -3039,8 +3841,8 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
       averageTrustScore: Number(averageTrustScore.toFixed(2)),
       activeSellers: activeSellerSet.size,
       activeBuyers: activeBuyerSet.size,
-      listingsSold: db.marketplaceListings.filter((listing) => listing.status === "sold").length,
-      listingsWaitingApproval: db.marketplaceListings.filter((listing) => listing.status === "pending_approval").length,
+      listingsSold: db.marketplaceListings.filter((listing) => listing.status === "completed").length,
+      listingsWaitingApproval: db.marketplaceListings.filter((listing) => listing.status === "draft").length,
     },
     financialOverview: {
       estimatedCommissionToday: Number(todayCommission.toFixed(2)),
@@ -3270,7 +4072,7 @@ export async function getAlphaExchangeSummaryForAdmin(dbInput?: AlphaExchangeDb)
     usersCount: db.users.length,
     approvedSellersCount: db.users.filter((user) => user.sellerStatus === "approved_seller").length,
     pendingApplicationsCount: db.sellerApplications.filter((item) => item.status === "pending").length,
-    pendingListingsCount: db.marketplaceListings.filter((item) => item.status === "pending_approval").length,
+    pendingListingsCount: db.marketplaceListings.filter((item) => item.status === "draft").length,
     rejectedApplicationsCount: db.sellerApplications.filter((item) => item.status === "rejected").length,
     suspendedSellersCount: db.users.filter((user) => user.sellerStatus === "suspended").length,
     listingsCount: db.marketplaceListings.length,
@@ -3379,6 +4181,8 @@ export async function getAdminPrepDashboardData() {
     getOwnerBusinessDashboardForAdmin(db),
     getOwnerPrivateBetaDashboardData(db),
   ]);
+  const notifications = [...db.notifications].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250);
+  const activityLog = [...db.activityLog].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250);
 
   return {
     summary,
@@ -3388,6 +4192,8 @@ export async function getAdminPrepDashboardData() {
     purchaseRequests,
     commissionRecords,
     auditLogs,
+    notifications,
+    activityLog,
     trustEngine,
     ownerBusiness,
     privateBeta,

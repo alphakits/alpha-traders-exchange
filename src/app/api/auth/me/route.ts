@@ -32,6 +32,7 @@ export async function GET() {
       country: user.country ?? "",
       city: user.city ?? "",
       onlineStatus: user.onlineStatus,
+      availabilityStatus: user.availabilityStatus,
       lastActiveAt: user.lastActiveAt ?? user.updatedAt,
       isFeaturedSeller: user.isFeaturedSeller === true,
       isProfileHidden: user.isProfileHidden === true,

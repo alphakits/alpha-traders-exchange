@@ -1,6 +1,7 @@
 export type UserRole = "buyer" | "approved_seller" | "admin";
 export type SellerStatus = "buyer" | "pending_seller_approval" | "approved_seller" | "rejected" | "suspended";
 export type SellerOnlineStatus = "online" | "offline";
+export type SellerAvailabilityStatus = "available" | "away" | "vacation";
 export type SellerLevel = "bronze" | "silver" | "gold" | "diamond" | "elite";
 export type SellerBadge = "elite_seller" | "top_rated" | "fast_responder" | "trusted_seller" | "most_active" | "platinum_seller" | "trades_1000_plus";
 export type SupportedNetwork = "TRC20" | "ERC20" | "BEP20" | "SOL";
@@ -22,6 +23,7 @@ export interface AlphaExchangeUser {
   city?: string;
   coverBannerUrl?: string;
   onlineStatus: SellerOnlineStatus;
+  availabilityStatus: SellerAvailabilityStatus;
   lastActiveAt?: string;
   isFeaturedSeller?: boolean;
   isProfileHidden?: boolean;
@@ -57,7 +59,7 @@ export interface SellerApplication {
   updatedAt: string;
 }
 
-export type ListingStatus = "pending_approval" | "changes_requested" | "rejected" | "available" | "paused" | "sold";
+export type ListingStatus = "draft" | "active" | "paused" | "matched" | "in_trade" | "expired" | "completed" | "cancelled" | "closed";
 
 export interface SellerPublicProfile {
   sellerId: string;
@@ -77,6 +79,7 @@ export interface SellerPublicProfile {
   isFeaturedSeller?: boolean;
   isProfileHidden?: boolean;
   onlineStatus: SellerOnlineStatus;
+  availabilityStatus: SellerAvailabilityStatus;
   lastActiveAt?: string;
 }
 
@@ -165,6 +168,7 @@ export interface MarketplaceListing {
   sellerId: string;
   sellerDisplayName: string;
   photos: string[];
+  originalAmount: string;
   availableAmount: string;
   price: string;
   currency: string;
@@ -174,13 +178,21 @@ export interface MarketplaceListing {
   minimumTrade: string;
   maximumTrade: string;
   expiresAt?: string;
+  expiredAt?: string;
+  lastRenewedAt?: string;
   notes?: string;
   sellerDescription: string;
   responseTime: string;
   status: ListingStatus;
+  activeTradeRequestId?: string;
+  lockedAt?: string;
   ownerReviewReason?: string;
   ownerReviewedAt?: string;
   ownerReviewedBy?: string;
+  completedAt?: string;
+  cancelledAt?: string;
+  closedAt?: string;
+  blockingReason?: string;
   createdAt: string;
   updatedAt: string;
   sellerProfile?: SellerPublicProfile;
@@ -365,6 +377,8 @@ export interface PurchaseRequest {
   paymentSentAt?: string;
   usdtSentAt?: string;
   completedAt?: string;
+  timedOutAt?: string;
+  timeoutReason?: string;
   lockedAt?: string;
   reviewUnlockedAt?: string;
   buyerEvidence?: TradeEvidenceFile;
@@ -376,6 +390,8 @@ export interface PurchaseRequest {
   updatedAt: string;
 }
 
+export type CommissionPaymentStatus = "pending" | "paid" | "overdue";
+
 export interface CommissionRecord {
   id: string;
   purchaseRequestId: string;
@@ -385,7 +401,12 @@ export interface CommissionRecord {
   rate: number;
   grossAmount: number;
   commissionAmount: number;
+  paymentStatus: CommissionPaymentStatus;
+  dueAt?: string;
+  paidAt?: string;
+  overdueNotifiedAt?: string;
   createdAt: string;
+  updatedAt: string;
 }
 
 export type AuditAction =
@@ -397,14 +418,27 @@ export type AuditAction =
   | "seller_hidden"
   | "seller_unhidden"
   | "listing_created"
-  | "listing_submitted_for_approval"
-  | "listing_approved"
-  | "listing_rejected"
-  | "listing_changes_requested"
+  | "listing_expired"
+  | "listing_renewed"
+  | "listing_expiration_extended"
   | "listing_edited"
+  | "listing_paused"
+  | "listing_resumed"
+  | "listing_matched"
+  | "listing_reopened"
+  | "listing_completed"
+  | "listing_cancelled"
+  | "listing_closed"
   | "listing_removed"
   | "purchase_request_submitted"
   | "purchase_completed"
+  | "commission_recorded"
+  | "commission_paid"
+  | "commission_overdue"
+  | "seller_vacation_enabled"
+  | "seller_vacation_disabled"
+  | "trade_timed_out"
+  | "admin_override"
   | "trade_review_submitted"
   | "trade_review_responded"
   | "trust_score_updated"
@@ -428,6 +462,9 @@ export interface AuditLogEntry {
   listingId?: string;
   purchaseRequestId?: string;
   details?: string;
+  oldValue?: unknown;
+  newValue?: unknown;
+  reason?: string;
   createdAt: string;
 }
 

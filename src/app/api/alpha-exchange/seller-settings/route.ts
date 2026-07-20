@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hashPassword, verifyPassword } from "@/lib/auth";
 import { requireApiUser } from "@/lib/api-auth";
-import { updateUserPassword, updateUserSellerSettings } from "@/lib/alpha-exchange-store";
+import { updateSellerAvailabilityStatus, updateUserPassword, updateUserSellerSettings } from "@/lib/alpha-exchange-store";
 import { checkRateLimit } from "@/lib/rate-limit";
-import type { SupportedNetwork } from "@/types/alpha-exchange";
+import type { SellerAvailabilityStatus, SupportedNetwork } from "@/types/alpha-exchange";
 
 export async function GET() {
   const { user, unauthorized } = await requireApiUser();
@@ -24,6 +24,7 @@ export async function GET() {
       country: user.country ?? "",
       city: user.city ?? "",
       onlineStatus: user.onlineStatus,
+      availabilityStatus: user.availabilityStatus,
     },
   });
 }
@@ -49,6 +50,9 @@ export async function PATCH(request: NextRequest) {
     const country = body.country !== undefined ? String(body.country).slice(0, 100) : undefined;
     const city = body.city !== undefined ? String(body.city).slice(0, 100) : undefined;
     const onlineStatus = body.onlineStatus === "online" || body.onlineStatus === "offline" ? body.onlineStatus : undefined;
+    const availabilityStatus = body.availabilityStatus === "available" || body.availabilityStatus === "away" || body.availabilityStatus === "vacation"
+      ? body.availabilityStatus as SellerAvailabilityStatus
+      : undefined;
     const preferredNetworksInput = Array.isArray(body.preferredNetworks) ? body.preferredNetworks.map((value: unknown) => String(value)) : undefined;
     const preferredPaymentMethods = Array.isArray(body.preferredPaymentMethods) ? body.preferredPaymentMethods.map((value: unknown) => String(value).trim()).filter(Boolean).slice(0, 8) : undefined;
     const languagesInput = Array.isArray(body.languages) ? body.languages.map((value: unknown) => String(value).trim()).filter(Boolean) : undefined;
@@ -90,6 +94,10 @@ export async function PATCH(request: NextRequest) {
       onlineStatus,
     });
 
+    const sellerWithAvailability = availabilityStatus
+      ? await updateSellerAvailabilityStatus({ sellerId: user.id, actorUserId: user.id, availabilityStatus })
+      : updatedUser;
+
     if (passwordHash) {
       await updateUserPassword(user.id, passwordHash);
     }
@@ -106,9 +114,10 @@ export async function PATCH(request: NextRequest) {
         tradingExperience: updatedUser.tradingExperience ?? "",
         workingHours: updatedUser.workingHours ?? "",
         preferredPaymentMethods: updatedUser.preferredPaymentMethods ?? [],
-        country: updatedUser.country ?? "",
-        city: updatedUser.city ?? "",
-        onlineStatus: updatedUser.onlineStatus,
+        country: sellerWithAvailability.country ?? "",
+        city: sellerWithAvailability.city ?? "",
+        onlineStatus: sellerWithAvailability.onlineStatus,
+        availabilityStatus: sellerWithAvailability.availabilityStatus,
       },
     });
   } catch (error) {

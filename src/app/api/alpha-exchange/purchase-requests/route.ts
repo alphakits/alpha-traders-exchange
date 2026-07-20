@@ -39,10 +39,15 @@ export async function POST(request: NextRequest) {
     }
 
     const buyerNotes = String(body.buyerNotes ?? "").slice(0, 2000);
+    const usdtAmount = String(body.usdtAmount ?? "").trim();
+    if (!usdtAmount) {
+      return NextResponse.json({ error: "Trade amount is required." }, { status: 400 });
+    }
 
     const purchase = await createPurchaseRequest({
       buyerId: user.id,
       listingId,
+      usdtAmount,
       buyerName,
       buyerWhatsapp,
       buyerNotes,

@@ -41,10 +41,10 @@ export async function POST(request: NextRequest) {
           .map((method) => method.trim())
           .filter(Boolean)
           .slice(0, 8);
-    const paymentMethod = paymentMethods[0] ?? "";
     const minimumTrade = String(body.minimumTrade ?? "0").trim();
     const maximumTrade = String(body.maximumTrade ?? availableAmount).trim();
     const expiresAt = String(body.expiresAt ?? "").trim();
+    const expirationHours = body.expirationHours !== undefined ? Number(body.expirationHours) : undefined;
     const notes = String(body.notes ?? "").trim().slice(0, 2000);
     const sellerDescription = String(body.sellerDescription ?? "").trim().slice(0, 2000);
     const photos = Array.isArray(body.photos) ? body.photos.map((photo: unknown) => String(photo).trim()).filter(Boolean).slice(0, 6) : [];
@@ -86,11 +86,11 @@ export async function POST(request: NextRequest) {
       price,
       currency,
       network,
-      paymentMethod,
       paymentMethods,
       minimumTrade,
       maximumTrade,
       expiresAt: expiresAt || undefined,
+      expirationHours,
       notes,
       sellerDescription,
       responseTime,

@@ -58,8 +58,8 @@ export function calculateSellerTrustSnapshot(input: {
   marketplacePosition?: number;
 }): SellerReputationSnapshot {
   const now = Date.now();
-  const completedRequests = input.requests.filter((request) => request.status === "completed");
-  const acceptedOrCompleted = input.requests.filter((request) => request.status === "accepted" || request.status === "completed");
+  const completedRequests = input.requests.filter((request) => request.status === "review_open" || Boolean(request.completedAt));
+  const acceptedOrCompleted = input.requests.filter((request) => request.status === "accepted" || request.status === "review_open" || Boolean(request.completedAt));
   const cancelled = input.requests.filter((request) => request.status === "cancelled");
   const pending = input.requests.filter((request) => request.status === "pending");
   const requestsCount = input.requests.length;
@@ -69,7 +69,7 @@ export function calculateSellerTrustSnapshot(input: {
     (acc, request) => {
       const listing = input.listings.find((item) => item.id === request.listingId);
       if (!listing) return acc;
-      const amount = toNumber(listing.availableAmount);
+      const amount = toNumber(request.usdtAmount);
       const price = toNumber(listing.price);
       acc.totalUsdtVolume += amount;
       acc.revenueGenerated += amount * price;
@@ -104,7 +104,7 @@ export function calculateSellerTrustSnapshot(input: {
   );
   const recentActivityScore = clamp(
     input.requests.filter((request) => now - new Date(request.updatedAt).getTime() <= 1000 * 60 * 60 * 24 * 30).length * 4 +
-      input.listings.filter((listing) => listing.status === "available").length * 8 +
+    input.listings.filter((listing) => listing.status === "active" || listing.status === "matched" || listing.status === "in_trade").length * 8 +
       pending.length * 2,
     0,
     100,

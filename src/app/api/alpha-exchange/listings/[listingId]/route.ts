@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { canPublishListings, deleteMarketplaceListingForSeller, updateMarketplaceListingForSeller } from "@/lib/alpha-exchange-store";
+import { canPublishListings, deleteMarketplaceListingForSeller, renewMarketplaceListing, updateMarketplaceListingForSeller } from "@/lib/alpha-exchange-store";
 import { requireApiUser } from "@/lib/api-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
@@ -12,8 +12,8 @@ function isValidNetwork(value: unknown): value is SupportedNetwork {
   return value === "TRC20" || value === "ERC20" || value === "BEP20" || value === "SOL";
 }
 
-function isValidListingStatus(value: unknown): value is "available" | "paused" {
-  return value === "available" || value === "paused";
+function isValidListingStatus(value: unknown): value is "active" | "paused" {
+  return value === "active" || value === "paused";
 }
 
 type RouteContext = {
@@ -34,6 +34,16 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     const { listingId } = await context.params;
     const body = await request.json();
+    const action = body.action !== undefined ? String(body.action).trim() : "";
+    if (action === "renew") {
+      const listing = await renewMarketplaceListing({
+        listingId,
+        actorUserId: user.id,
+        sellerId: user.id,
+        expirationHours: body.expirationHours,
+      });
+      return NextResponse.json({ listing });
+    }
     const availableAmount = body.availableAmount !== undefined ? String(body.availableAmount).trim() : undefined;
     const price = body.price !== undefined ? String(body.price).trim() : undefined;
     const responseTime = body.responseTime !== undefined ? String(body.responseTime).trim() : undefined;
@@ -45,6 +55,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const minimumTrade = body.minimumTrade !== undefined ? String(body.minimumTrade).trim() : undefined;
     const maximumTrade = body.maximumTrade !== undefined ? String(body.maximumTrade).trim() : undefined;
     const expiresAt = body.expiresAt !== undefined ? String(body.expiresAt).trim() : undefined;
+    const expirationHours = body.expirationHours !== undefined ? Number(body.expirationHours) : undefined;
     const notes = body.notes !== undefined ? String(body.notes).trim() : undefined;
     const sellerDescription = body.sellerDescription !== undefined ? String(body.sellerDescription).trim() : undefined;
     const photos = Array.isArray(body.photos) ? body.photos.map((photo: unknown) => String(photo).trim()).filter(Boolean).slice(0, 6) : undefined;
@@ -96,6 +107,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       minimumTrade,
       maximumTrade,
       expiresAt,
+      expirationHours,
       notes,
       sellerDescription,
       responseTime,

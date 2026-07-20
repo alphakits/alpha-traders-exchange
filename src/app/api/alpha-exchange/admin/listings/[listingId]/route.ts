@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  adminOverrideMarketplaceListing,
   deleteMarketplaceListingForSeller,
   getMarketplaceListingById,
   reviewMarketplaceListingByOwner,
@@ -23,16 +24,26 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     const body = await request.json();
     const action = String(body.action ?? "").trim();
-    if (action !== "approve" && action !== "reject" && action !== "request_changes") {
-      return NextResponse.json({ error: "Invalid owner action." }, { status: 400 });
+    if (action === "approve" || action === "reject" || action === "request_changes") {
+      const listing = await reviewMarketplaceListingByOwner({
+        listingId,
+        ownerUserId: user.id,
+        decision: action,
+        reason: body.reason ? String(body.reason) : undefined,
+      });
+      return NextResponse.json({ listing });
     }
-    const listing = await reviewMarketplaceListingByOwner({
-      listingId,
-      ownerUserId: user.id,
-      decision: action,
-      reason: body.reason ? String(body.reason) : undefined,
-    });
-    return NextResponse.json({ listing });
+    if (action === "renew" || action === "extend" || action === "close" || action === "force_close") {
+      const listing = await adminOverrideMarketplaceListing({
+        listingId,
+        adminUserId: user.id,
+        action,
+        expirationHours: body.expirationHours,
+        reason: body.reason ? String(body.reason) : undefined,
+      });
+      return NextResponse.json({ listing });
+    }
+    return NextResponse.json({ error: "Invalid owner action." }, { status: 400 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update listing." }, { status: 400 });
   }

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { RoleBadge } from "@/components/ui/role-badge";
-import type { AuditLogEntry, BetaAnnouncement, BetaAnnouncementType, BetaFeedbackCategory, CommissionRecord, MarketplaceListing, OwnerBusinessDashboardMetrics, OwnerPrivateBetaDashboardData, PurchaseRequest, SellerApplication, SupportedNetwork } from "@/types/alpha-exchange";
+import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, AuditLogEntry, BetaAnnouncement, BetaAnnouncementType, BetaFeedbackCategory, CommissionRecord, MarketplaceListing, OwnerBusinessDashboardMetrics, OwnerPrivateBetaDashboardData, PurchaseRequest, SellerApplication, SellerAvailabilityStatus, SupportedNetwork } from "@/types/alpha-exchange";
 
 type AdminSummary = {
   usersCount: number;
@@ -28,6 +28,7 @@ type AdminSeller = {
   whatsappNumber: string;
   role: "buyer" | "approved_seller" | "admin";
   sellerStatus: "buyer" | "pending_seller_approval" | "approved_seller" | "rejected" | "suspended";
+  availabilityStatus?: SellerAvailabilityStatus;
   createdAt: string;
   updatedAt: string;
 };
@@ -40,6 +41,8 @@ type AdminPayload = {
   purchaseRequests: PurchaseRequest[];
   commissionRecords: CommissionRecord[];
   auditLogs: AuditLogEntry[];
+  notifications: AlphaExchangeNotification[];
+  activityLog: AlphaExchangeActivityLogEntry[];
   ownerBusiness: OwnerBusinessDashboardMetrics;
   trustEngine: {
     highestTrustSellers: Array<{ sellerId: string; sellerName: string; trustScore: number; level: string; summary: string }>;
@@ -151,7 +154,7 @@ export function AlphaExchangeAdminDashboard() {
   const [selectedSeller, setSelectedSeller] = useState<AdminSeller | null>(null);
 
   const [listingsQuery, setListingsQuery] = useState("");
-  const [listingsStatus, setListingsStatus] = useState<"all" | "pending_approval" | "changes_requested" | "rejected" | "available" | "paused" | "sold">("all");
+  const [listingsStatus, setListingsStatus] = useState<"all" | MarketplaceListing["status"]>("all");
   const [listingsNetwork, setListingsNetwork] = useState<"all" | SupportedNetwork>("all");
   const [listingsSort, setListingsSort] = useState<"newest" | "price-asc" | "price-desc" | "amount-desc">("newest");
   const [listingsPage, setListingsPage] = useState(1);
@@ -170,6 +173,8 @@ export function AlphaExchangeAdminDashboard() {
   const [auditAction, setAuditAction] = useState<"all" | AuditLogEntry["action"]>("all");
   const [auditSort, setAuditSort] = useState<"newest" | "oldest">("newest");
   const [auditPage, setAuditPage] = useState(1);
+  const [notificationQuery, setNotificationQuery] = useState("");
+  const [notificationPage, setNotificationPage] = useState(1);
   const [inviteMaxUses, setInviteMaxUses] = useState("10");
   const [inviteExpiresAt, setInviteExpiresAt] = useState("");
   const [betaFeedbackStatusFilter, setBetaFeedbackStatusFilter] = useState<"all" | "new" | "in_review" | "resolved">("all");
@@ -339,6 +344,27 @@ export function AlphaExchangeAdminDashboard() {
     return paginate(sorted, auditPage);
   }, [auditAction, auditPage, auditQuery, auditSort, data?.auditLogs, sellersById]);
 
+  const notificationRows = useMemo(() => {
+    const items = (data?.notifications ?? []).filter((entry) => {
+      const query = notificationQuery.trim().toLowerCase();
+      if (!query) return true;
+      const seller = sellersById.get(entry.userId);
+      const haystack = `${entry.title} ${entry.message} ${entry.category} ${seller?.fullName ?? entry.userId} ${entry.relatedTradeId ?? ""} ${entry.relatedListingId ?? ""}`.toLowerCase();
+      return haystack.includes(query);
+    });
+    return paginate(items, notificationPage);
+  }, [data?.notifications, notificationPage, notificationQuery, sellersById]);
+
+  const expirationHistory = useMemo(
+    () => (data?.auditLogs ?? []).filter((entry) => entry.action === "listing_expired" || entry.action === "listing_renewed" || entry.action === "listing_expiration_extended" || entry.action === "admin_override"),
+    [data?.auditLogs],
+  );
+
+  const timeoutHistory = useMemo(
+    () => (data?.purchaseRequests ?? []).filter((request) => Boolean(request.timedOutAt)),
+    [data?.purchaseRequests],
+  );
+
   const betaFeedbackRows = useMemo(() => {
     const items = (data?.privateBeta.feedback ?? []).filter((entry) => (betaFeedbackStatusFilter === "all" ? true : entry.status === betaFeedbackStatusFilter));
     return items.slice(0, 20);
@@ -359,6 +385,28 @@ export function AlphaExchangeAdminDashboard() {
     } catch (actionError) {
       pushToast(actionError instanceof Error ? actionError.message : safeAdminError("action"));
     }
+  }
+
+  async function handleSellerAvailabilityStatus(sellerId: string, availabilityStatus: SellerAvailabilityStatus, successMessage: string, reason?: string) {
+    await runAction(
+      fetch(`/api/alpha-exchange/admin/sellers/${sellerId}/profile-state`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ availabilityStatus, reason }),
+      }),
+      successMessage,
+    );
+  }
+
+  async function handleAdminListingAction(listingId: string, action: "renew" | "extend" | "close" | "force_close", successMessage: string, expirationHours?: number, reason?: string) {
+    await runAction(
+      fetch(`/api/alpha-exchange/admin/listings/${listingId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action, expirationHours, reason }),
+      }),
+      successMessage,
+    );
   }
 
   async function handleCreateInvite() {
@@ -434,7 +482,7 @@ export function AlphaExchangeAdminDashboard() {
         const seller = sellersById.get(record.sellerId);
         const buyerName = request?.buyerName ?? record.buyerId;
         const sellerName = seller?.fullName ?? record.sellerId;
-        return [record.purchaseRequestId, buyerName, sellerName, record.grossAmount.toFixed(2), record.commissionAmount.toFixed(2), record.createdAt].join(",");
+        return [record.purchaseRequestId, buyerName, sellerName, record.grossAmount.toFixed(2), record.commissionAmount.toFixed(2), record.paymentStatus, record.createdAt].join(",");
       }),
     ];
     const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -881,9 +929,10 @@ export function AlphaExchangeAdminDashboard() {
                             </thead>
                             <tbody>
                               {sellersRows.rows.map((seller) => {
-                                const activeListings = (data.listings ?? []).filter((listing) => listing.sellerId === seller.id && listing.status === "available").length;
-                                const completedTrades = (data.purchaseRequests ?? []).filter((request) => request.sellerId === seller.id && request.status === "completed").length;
+                                const activeListings = (data.listings ?? []).filter((listing) => listing.sellerId === seller.id && (listing.status === "active" || listing.status === "matched" || listing.status === "in_trade")).length;
+                                const completedTrades = (data.purchaseRequests ?? []).filter((request) => request.sellerId === seller.id && (request.status === "review_open" || Boolean(request.completedAt))).length;
                                 const isSuspended = seller.sellerStatus === "suspended";
+                                const isOnVacation = seller.availabilityStatus === "vacation";
                                 return (
                                   <tr key={seller.id} className="border-t border-white/10">
                                     <td className="px-4 py-3">
@@ -900,11 +949,16 @@ export function AlphaExchangeAdminDashboard() {
                                       {isSuspended ? (
                                         <span className="rounded-full border border-red-500/35 bg-red-500/10 px-2.5 py-1 text-xs text-red-300">Suspended</span>
                                       ) : (
-                                        <RoleBadge variant="approved_seller" />
+                                        <div className="flex flex-wrap gap-2">
+                                          <RoleBadge variant="approved_seller" />
+                                          <span className={`rounded-full px-2.5 py-1 text-xs ${isOnVacation ? "border border-amber-500/35 bg-amber-500/10 text-amber-300" : "border border-emerald-500/35 bg-emerald-500/10 text-emerald-300"}`}>
+                                            {isOnVacation ? "Vacation" : seller.availabilityStatus ?? "available"}
+                                          </span>
+                                        </div>
                                       )}
                                     </td>
                                     <td className="px-4 py-3">
-                                      <div className="flex items-center gap-2">
+                                      <div className="flex flex-wrap items-center gap-2">
                                         {!isSuspended ? (
                                           <Button type="button" size="sm" variant="secondary" onClick={() => runAction(fetch(`/api/alpha-exchange/admin/sellers/${seller.id}/suspend`, { method: "POST" }), "Seller suspended.")}>
                                             Suspend
@@ -912,6 +966,15 @@ export function AlphaExchangeAdminDashboard() {
                                         ) : (
                                           <Button type="button" size="sm" onClick={() => runAction(fetch(`/api/alpha-exchange/admin/sellers/${seller.id}/reactivate`, { method: "POST" }), "Seller reactivated.")}>
                                             Reactivate
+                                          </Button>
+                                        )}
+                                        {isOnVacation ? (
+                                          <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerAvailabilityStatus(seller.id, "available", "Vacation Mode ended.")}>
+                                            End Vacation
+                                          </Button>
+                                        ) : (
+                                          <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerAvailabilityStatus(seller.id, "vacation", "Vacation Mode enabled.")}>
+                                            Enable Vacation
                                           </Button>
                                         )}
                                         <Button type="button" size="sm" variant="secondary" onClick={() => setSelectedSeller(seller)}>
@@ -945,12 +1008,15 @@ export function AlphaExchangeAdminDashboard() {
                           </div>
                           <select value={listingsStatus} onChange={(event) => setListingsStatus(event.target.value as typeof listingsStatus)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white">
                             <option value="all">Status: All</option>
-                            <option value="pending_approval">Pending Approval</option>
-                            <option value="changes_requested">Changes Requested</option>
-                            <option value="rejected">Rejected</option>
-                            <option value="available">Available</option>
+                            <option value="draft">Draft</option>
+                            <option value="active">Active</option>
                             <option value="paused">Paused</option>
-                            <option value="sold">Sold</option>
+                            <option value="matched">Matched</option>
+                            <option value="in_trade">In Trade</option>
+                            <option value="expired">Expired</option>
+                            <option value="completed">Completed</option>
+                            <option value="cancelled">Cancelled</option>
+                            <option value="closed">Closed</option>
                           </select>
                           <select value={listingsNetwork} onChange={(event) => setListingsNetwork(event.target.value as typeof listingsNetwork)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white">
                             <option value="all">Network: All</option>
@@ -968,7 +1034,7 @@ export function AlphaExchangeAdminDashboard() {
                         </div>
 
                         <div className="mt-5 overflow-x-auto rounded-xl border border-white/10">
-                          <table className="w-full min-w-[980px] text-sm">
+                          <table className="w-full min-w-[1240px] text-sm">
                             <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
                               <tr>
                                 <th className="px-4 py-3">Seller</th>
@@ -976,6 +1042,7 @@ export function AlphaExchangeAdminDashboard() {
                                 <th className="px-4 py-3">Price</th>
                                 <th className="px-4 py-3">Network</th>
                                 <th className="px-4 py-3">Status</th>
+                                <th className="px-4 py-3">Expiration</th>
                                 <th className="px-4 py-3">Created</th>
                                 <th className="px-4 py-3">Actions</th>
                               </tr>
@@ -988,14 +1055,19 @@ export function AlphaExchangeAdminDashboard() {
                                   <td className="px-4 py-3 text-[#D1D5DB]">{listing.price}</td>
                                   <td className="px-4 py-3 text-[#D1D5DB]">{listing.network}</td>
                                   <td className="px-4 py-3">
-                                    <span className={`rounded-full px-2.5 py-1 text-xs ${listing.status === "available" ? "border border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : listing.status === "pending_approval" ? "border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 text-[#93C5FD]" : listing.status === "changes_requested" ? "border border-amber-500/35 bg-amber-500/10 text-amber-300" : listing.status === "rejected" ? "border border-red-500/35 bg-red-500/10 text-red-300" : listing.status === "paused" ? "border border-[#C9A227]/35 bg-[#C9A227]/10 text-[#C9A227]" : "border border-white/20 bg-white/5 text-white/75"}`}>
+                                    <span className={`rounded-full px-2.5 py-1 text-xs ${listing.status === "active" ? "border border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : listing.status === "draft" ? "border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 text-[#93C5FD]" : listing.status === "matched" || listing.status === "in_trade" ? "border border-amber-500/35 bg-amber-500/10 text-amber-300" : listing.status === "completed" ? "border border-violet-500/35 bg-violet-500/10 text-violet-300" : listing.status === "cancelled" ? "border border-red-500/35 bg-red-500/10 text-red-300" : listing.status === "paused" ? "border border-[#C9A227]/35 bg-[#C9A227]/10 text-[#C9A227]" : "border border-white/20 bg-white/5 text-white/75"}`}>
                                       {listing.status}
                                     </span>
                                   </td>
+                                  <td className="px-4 py-3 text-xs text-[#D1D5DB]">
+                                    <p>{listing.expiresAt ? formatDate(listing.expiresAt) : "—"}</p>
+                                    {listing.lastRenewedAt ? <p className="text-[11px] text-[#9CA3AF]">Renewed {formatDate(listing.lastRenewedAt)}</p> : null}
+                                    {listing.expiredAt ? <p className="text-[11px] text-amber-300">Expired {formatDate(listing.expiredAt)}</p> : null}
+                                  </td>
                                   <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(listing.createdAt)}</td>
                                   <td className="px-4 py-3">
-                                    <div className="flex items-center gap-2">
-                                      {listing.status === "pending_approval" ? (
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      {listing.status === "draft" ? (
                                         <>
                                           <Button type="button" size="sm" onClick={() => runAction(fetch(`/api/alpha-exchange/admin/listings/${listing.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "approve" }) }), "Listing approved.")}>
                                             Approve
@@ -1040,6 +1112,44 @@ export function AlphaExchangeAdminDashboard() {
                                           </Button>
                                         </>
                                       ) : null}
+                                      {(listing.status === "expired" || listing.status === "paused") ? (
+                                        <Button type="button" size="sm" variant="secondary" onClick={() => handleAdminListingAction(listing.id, "renew", "Listing renewed by admin.", 24)}>
+                                          Renew
+                                        </Button>
+                                      ) : null}
+                                      {listing.status !== "completed" && listing.status !== "cancelled" && listing.status !== "closed" ? (
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="secondary"
+                                          onClick={() => {
+                                            const hours = window.prompt("Extend expiration by hours (1, 6, 12, 24)", "24");
+                                            if (!hours) return;
+                                            void handleAdminListingAction(listing.id, "extend", "Listing expiration extended.", Number(hours));
+                                          }}
+                                        >
+                                          Extend Expiration
+                                        </Button>
+                                      ) : null}
+                                      {listing.status !== "closed" && listing.status !== "completed" && listing.status !== "cancelled" ? (
+                                        <Button type="button" size="sm" variant="secondary" onClick={() => handleAdminListingAction(listing.id, "close", "Listing closed by admin.")}>
+                                          Close
+                                        </Button>
+                                      ) : null}
+                                      {(listing.status === "matched" || listing.status === "in_trade") ? (
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="secondary"
+                                          onClick={() => {
+                                            const reason = window.prompt("Force-close reason", "Admin override");
+                                            if (!reason) return;
+                                            void handleAdminListingAction(listing.id, "force_close", "Listing force closed.", undefined, reason);
+                                          }}
+                                        >
+                                          Force Close
+                                        </Button>
+                                      ) : null}
                                       <Button type="button" size="sm" variant="secondary" onClick={() => runAction(fetch(`/api/alpha-exchange/admin/listings/${listing.id}`, { method: "DELETE" }), "Listing deleted.")}>
                                         Delete
                                       </Button>
@@ -1047,12 +1157,25 @@ export function AlphaExchangeAdminDashboard() {
                                   </td>
                                 </tr>
                               ))}
-                              {listingsRows.rows.length === 0 ? renderEmptyTableRow("No marketplace listings match your filters.", 7) : null}
+                              {listingsRows.rows.length === 0 ? renderEmptyTableRow("No marketplace listings match your filters.", 8) : null}
                             </tbody>
                           </table>
                         </div>
 
                         <p className="mt-3 text-xs text-[#9CA3AF]">Owner-only Pending Listings page: /admin/alpha-exchange/pending-listings</p>
+                        <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4">
+                          <p className="text-sm font-medium text-white">Expiration History</p>
+                          <div className="mt-3 space-y-2 text-xs text-[#D1D5DB]">
+                            {expirationHistory.slice(0, 10).map((entry) => (
+                              <div key={entry.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                                <p className="text-white">{entry.action}</p>
+                                <p>{entry.details ?? "—"}</p>
+                                <p className="text-[#9CA3AF]">{formatDate(entry.createdAt)}</p>
+                              </div>
+                            ))}
+                            {expirationHistory.length === 0 ? <p className="text-[#9CA3AF]">No expiration events recorded yet.</p> : null}
+                          </div>
+                        </div>
 
                         {renderPagination(listingsRows.safePage, listingsRows.totalPages, setListingsPage)}
                       </CardContent>
@@ -1138,6 +1261,19 @@ export function AlphaExchangeAdminDashboard() {
                           </table>
                         </div>
                         {renderPagination(requestsRows.safePage, requestsRows.totalPages, setRequestsPage)}
+                        <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4">
+                          <p className="text-sm font-medium text-white">Timeout History</p>
+                          <div className="mt-3 space-y-2 text-xs text-[#D1D5DB]">
+                            {timeoutHistory.slice(0, 10).map((request) => (
+                              <div key={request.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                                <p className="text-white">{request.tradeId ?? request.id}</p>
+                                <p>{request.timeoutReason ?? "Trade timed out."}</p>
+                                <p className="text-[#9CA3AF]">{request.timedOutAt ? formatDate(request.timedOutAt) : "—"}</p>
+                              </div>
+                            ))}
+                            {timeoutHistory.length === 0 ? <p className="text-[#9CA3AF]">No timeout events recorded yet.</p> : null}
+                          </div>
+                        </div>
                       </CardContent>
                     </Card>
                   ) : null}
@@ -1177,7 +1313,9 @@ export function AlphaExchangeAdminDashboard() {
                                 <th className="px-4 py-3">Seller</th>
                                 <th className="px-4 py-3">Trade Value</th>
                                 <th className="px-4 py-3">1% Commission</th>
+                                <th className="px-4 py-3">Payment Status</th>
                                 <th className="px-4 py-3">Date</th>
+                                <th className="px-4 py-3">Actions</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1191,11 +1329,30 @@ export function AlphaExchangeAdminDashboard() {
                                     <td className="px-4 py-3 text-[#D1D5DB]">{seller?.fullName ?? record.sellerId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{formatCurrency(record.grossAmount)}</td>
                                     <td className="px-4 py-3 text-[#C9A227]">{formatCurrency(record.commissionAmount)}</td>
+                                    <td className="px-4 py-3">
+                                      <span className={`rounded-full px-2.5 py-1 text-xs ${record.paymentStatus === "paid" ? "border border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : record.paymentStatus === "overdue" ? "border border-red-500/35 bg-red-500/10 text-red-300" : "border border-amber-500/35 bg-amber-500/10 text-amber-300"}`}>
+                                        {record.paymentStatus}
+                                      </span>
+                                    </td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(record.createdAt)}</td>
+                                    <td className="px-4 py-3">
+                                      {record.paymentStatus !== "paid" ? (
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="secondary"
+                                          onClick={() => runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "paid" }) }), "Commission marked paid.")}
+                                        >
+                                          Mark Paid
+                                        </Button>
+                                      ) : (
+                                        <span className="text-xs text-[#9CA3AF]">Settled</span>
+                                      )}
+                                    </td>
                                   </tr>
                                 );
                               })}
-                              {commissionsRows.rows.length === 0 ? renderEmptyTableRow("No commission records match your filters.", 6) : null}
+                              {commissionsRows.rows.length === 0 ? renderEmptyTableRow("No commission records match your filters.", 8) : null}
                             </tbody>
                           </table>
                         </div>
@@ -1223,10 +1380,20 @@ export function AlphaExchangeAdminDashboard() {
                             <option value="seller_suspended">seller_suspended</option>
                             <option value="seller_reactivated">seller_reactivated</option>
                             <option value="listing_created">listing_created</option>
+                            <option value="listing_expired">listing_expired</option>
+                            <option value="listing_renewed">listing_renewed</option>
+                            <option value="listing_expiration_extended">listing_expiration_extended</option>
                             <option value="listing_edited">listing_edited</option>
+                            <option value="listing_closed">listing_closed</option>
+                            <option value="admin_override">admin_override</option>
                             <option value="listing_removed">listing_removed</option>
                             <option value="purchase_request_submitted">purchase_request_submitted</option>
                             <option value="purchase_completed">purchase_completed</option>
+                            <option value="trade_timed_out">trade_timed_out</option>
+                            <option value="seller_vacation_enabled">seller_vacation_enabled</option>
+                            <option value="seller_vacation_disabled">seller_vacation_disabled</option>
+                            <option value="commission_overdue">commission_overdue</option>
+                            <option value="commission_paid">commission_paid</option>
                             <option value="trade_review_submitted">trade_review_submitted</option>
                             <option value="trade_review_responded">trade_review_responded</option>
                             <option value="trust_score_updated">trust_score_updated</option>
@@ -1238,14 +1405,15 @@ export function AlphaExchangeAdminDashboard() {
                         </div>
 
                         <div className="mt-5 overflow-x-auto rounded-xl border border-white/10">
-                          <table className="w-full min-w-[980px] text-sm">
+                          <table className="w-full min-w-[1180px] text-sm">
                             <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
                               <tr>
                                 <th className="px-4 py-3">Timestamp</th>
                                 <th className="px-4 py-3">User</th>
                                 <th className="px-4 py-3">Action</th>
                                 <th className="px-4 py-3">Resource</th>
-                                <th className="px-4 py-3">Status</th>
+                                <th className="px-4 py-3">Reason</th>
+                                <th className="px-4 py-3">Details</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1257,17 +1425,48 @@ export function AlphaExchangeAdminDashboard() {
                                     <td className="px-4 py-3 text-white">{actor?.fullName ?? entry.actorUserId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{entry.action}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{entry.listingId ?? entry.purchaseRequestId ?? entry.targetUserId ?? "system"}</td>
-                                    <td className="px-4 py-3">
-                                      <span className="rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-300">success</span>
-                                    </td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{entry.reason ?? "—"}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{entry.details ?? "—"}</td>
                                   </tr>
                                 );
                               })}
-                              {auditRows.rows.length === 0 ? renderEmptyTableRow("No audit logs match your filters.", 5) : null}
+                              {auditRows.rows.length === 0 ? renderEmptyTableRow("No audit logs match your filters.", 6) : null}
                             </tbody>
                           </table>
                         </div>
                         {renderPagination(auditRows.safePage, auditRows.totalPages, setAuditPage)}
+                        <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <p className="text-sm font-medium text-white">Notification History</p>
+                            <Input className="max-w-sm" placeholder="Search notifications..." value={notificationQuery} onChange={(event) => setNotificationQuery(event.target.value)} />
+                          </div>
+                          <div className="mt-4 overflow-x-auto rounded-xl border border-white/10">
+                            <table className="w-full min-w-[980px] text-sm">
+                              <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
+                                <tr>
+                                  <th className="px-4 py-3">Timestamp</th>
+                                  <th className="px-4 py-3">Recipient</th>
+                                  <th className="px-4 py-3">Category</th>
+                                  <th className="px-4 py-3">Title</th>
+                                  <th className="px-4 py-3">Message</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {notificationRows.rows.map((entry) => (
+                                  <tr key={entry.id} className="border-t border-white/10">
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(entry.createdAt)}</td>
+                                    <td className="px-4 py-3 text-white">{sellersById.get(entry.userId)?.fullName ?? entry.userId}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{entry.category}</td>
+                                    <td className="px-4 py-3 text-white">{entry.title}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{entry.message}</td>
+                                  </tr>
+                                ))}
+                                {notificationRows.rows.length === 0 ? renderEmptyTableRow("No notifications match your search.", 5) : null}
+                              </tbody>
+                            </table>
+                          </div>
+                          <div className="mt-3">{renderPagination(notificationRows.safePage, notificationRows.totalPages, setNotificationPage)}</div>
+                        </div>
                       </CardContent>
                     </Card>
                   ) : null}
@@ -1471,6 +1670,18 @@ export function AlphaExchangeAdminDashboard() {
                 <p>WhatsApp: <span className="text-white">{selectedSeller.whatsappNumber}</span></p>
                 <p>Member Since: <span className="text-white">{formatDate(selectedSeller.createdAt)}</span></p>
                 <p>Status: <span className="text-white">{selectedSeller.sellerStatus}</span></p>
+                <p>Availability: <span className="text-white">{selectedSeller.availabilityStatus ?? "available"}</span></p>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {selectedSeller.availabilityStatus === "vacation" ? (
+                  <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerAvailabilityStatus(selectedSeller.id, "available", "Vacation Mode ended.")}>
+                    End Vacation
+                  </Button>
+                ) : (
+                  <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerAvailabilityStatus(selectedSeller.id, "vacation", "Vacation Mode enabled.")}>
+                    Enable Vacation
+                  </Button>
+                )}
               </div>
             </motion.div>
           </motion.div>
@@ -1501,6 +1712,8 @@ export function AlphaExchangeAdminDashboard() {
                 <p>Payment Method: <span className="text-white">{selectedRequest.paymentMethod}</span></p>
                 <p>Submitted: <span className="text-white">{formatDate(selectedRequest.createdAt)}</span></p>
                 {selectedRequest.completedAt ? <p>Completed: <span className="text-white">{formatDate(selectedRequest.completedAt)}</span></p> : null}
+                {selectedRequest.timedOutAt ? <p>Timed Out: <span className="text-white">{formatDate(selectedRequest.timedOutAt)}</span></p> : null}
+                {selectedRequest.timeoutReason ? <p>Timeout Reason: <span className="text-white">{selectedRequest.timeoutReason}</span></p> : null}
                 {selectedRequest.reviewUnlockedAt ? <p>Review Unlocked: <span className="text-white">{formatDate(selectedRequest.reviewUnlockedAt)}</span></p> : null}
                 <p>Notes: <span className="text-white">{selectedRequest.buyerNotes || "—"}</span></p>
                 <p>

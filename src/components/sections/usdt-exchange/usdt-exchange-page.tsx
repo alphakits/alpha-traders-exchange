@@ -10,11 +10,17 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
-import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, BetaAnnouncement, BetaFeedbackCategory, BetaFeedbackEntry, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
+import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, BetaAnnouncement, BetaFeedbackCategory, BetaFeedbackEntry, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerAvailabilityStatus, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
 const WHATSAPP_URL = "https://wa.me/972525967649";
 const MAX_EVIDENCE_SIZE_BYTES = 8 * 1024 * 1024;
 const ALLOWED_EVIDENCE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
+const LISTING_EXPIRATION_OPTIONS = [
+  { value: "1", label: "1 hour" },
+  { value: "6", label: "6 hours" },
+  { value: "12", label: "12 hours" },
+  { value: "24", label: "24 hours" },
+] as const;
 
 type Locale = "ar" | "en";
 
@@ -36,6 +42,7 @@ type SessionUser = {
   country?: string;
   city?: string;
   onlineStatus: "online" | "offline";
+  availabilityStatus: SellerAvailabilityStatus;
   lastActiveAt?: string;
   isFeaturedSeller?: boolean;
   isProfileHidden?: boolean;
@@ -54,6 +61,15 @@ type FeatureCard = {
 type TimelineStep = {
   title: string;
   body: string;
+};
+
+type SellerListingWorkspaceSummary = {
+  activeListingLimit: number;
+  openListingCount: number;
+  openTradeCount: number;
+  pendingCommissionCount: number;
+  canCreateListing: boolean;
+  blockedReason: string | null;
 };
 
 type TradeMilestone = {
@@ -127,6 +143,11 @@ function tradeStatusLabel(status: PurchaseRequest["status"]) {
   if (status === "usdt_sent") return "USDT Sent";
   if (status === "review_open") return "Review Open";
   return status[0].toUpperCase() + status.slice(1);
+}
+
+function listingStatusLabel(status: MarketplaceListing["status"]) {
+  if (status === "in_trade") return "In Trade";
+  return status.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function formatRelativeMinutesLabel(value?: string) {
@@ -234,6 +255,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [sellerApplication, setSellerApplication] = useState<SellerApplication | null>(null);
   const [myRequests, setMyRequests] = useState<PurchaseRequest[]>([]);
   const [myListings, setMyListings] = useState<MarketplaceListing[]>([]);
+  const [listingWorkspaceSummary, setListingWorkspaceSummary] = useState<SellerListingWorkspaceSummary | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [sellerWorkspaceMessage, setSellerWorkspaceMessage] = useState<string | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
@@ -246,7 +268,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     paymentMethods: "Bank transfer",
     minimumTrade: "0",
     maximumTrade: "",
-    expiresAt: "",
+    expirationHours: "24",
     notes: "",
   });
   const [listingCreateForm, setListingCreateForm] = useState({
@@ -257,7 +279,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     paymentMethods: "Bank transfer",
     minimumTrade: "0",
     maximumTrade: "",
-    expiresAt: "",
+    expirationHours: "24",
     notes: "",
     sellerDescription: "",
     responseTime: "5 min",
@@ -277,6 +299,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     country: "Israel",
     city: "",
     onlineStatus: "online" as "online" | "offline",
+    availabilityStatus: "available" as SellerAvailabilityStatus,
     currentPassword: "",
     newPassword: "",
   });
@@ -312,8 +335,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [betaFeedbackCategory, setBetaFeedbackCategory] = useState<BetaFeedbackCategory>("suggestion");
   const [betaFeedbackMessage, setBetaFeedbackMessage] = useState("");
   const notificationsRequestIdRef = useRef(0);
+  const createListingFormRef = useRef<HTMLDivElement | null>(null);
 
-  const [buyerInfo, setBuyerInfo] = useState({ name: "", whatsapp: "", notes: "" });
+  const [buyerInfo, setBuyerInfo] = useState({ amount: "", name: "", whatsapp: "", notes: "" });
   const [sellerForm, setSellerForm] = useState({
     fullName: "",
     email: "",
@@ -334,8 +358,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         setMyRequests(requestsJson.requests ?? []);
       }
       if (myListingsRes.ok) {
-        const myListingsJson = (await myListingsRes.json()) as { listings: MarketplaceListing[] };
+        const myListingsJson = (await myListingsRes.json()) as { listings: MarketplaceListing[]; summary?: SellerListingWorkspaceSummary | null };
         setMyListings(myListingsJson.listings ?? []);
+        setListingWorkspaceSummary(myListingsJson.summary ?? null);
       }
       setWorkspaceError(null);
     } catch {
@@ -511,6 +536,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             country: user.country || "Israel",
             city: user.city || "",
             onlineStatus: user.onlineStatus || "online",
+            availabilityStatus: user.availabilityStatus || "available",
             currentPassword: "",
             newPassword: "",
           });
@@ -745,6 +771,18 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     void fetchSellerProfileData(listing.sellerId);
     setPurchaseSubmitted(false);
     setStatusMessage(null);
+    setBuyerInfo((prev) => ({
+      ...prev,
+      amount: listing.minimumTrade && toNumber(listing.minimumTrade) > 0 ? listing.minimumTrade : listing.availableAmount,
+    }));
+  }
+
+  function openCreateListingFlow() {
+    if (listingWorkspaceSummary?.blockedReason) {
+      setSellerWorkspaceMessage(listingWorkspaceSummary.blockedReason);
+      return;
+    }
+    createListingFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function handleSellerApplicationSubmit(event: FormEvent<HTMLFormElement>) {
@@ -779,11 +817,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   async function handlePurchaseSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedListing) return;
+    const fallbackMessage = safeErrorMessage("purchase");
     const response = await fetch("/api/alpha-exchange/purchase-requests", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         listingId: selectedListing.id,
+        usdtAmount: buyerInfo.amount,
         buyerName: buyerInfo.name,
         buyerWhatsapp: buyerInfo.whatsapp,
         buyerNotes: buyerInfo.notes,
@@ -791,7 +831,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     });
     const data = (await response.json()) as { error?: string; purchase?: PurchaseRequest };
     if (!response.ok) {
-      setStatusMessage(safeErrorMessage("purchase"));
+      setStatusMessage(data.error ?? fallbackMessage);
       return;
     }
     if (data.purchase) {
@@ -801,7 +841,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     }
   }
 
-  const selectedAmount = selectedListing ? toNumber(selectedListing.availableAmount) : 0;
+  const selectedAmount = toNumber(buyerInfo.amount || selectedListing?.minimumTrade || selectedListing?.availableAmount);
   const selectedPrice = selectedListing ? toNumber(selectedListing.price) : 0;
   const commission = selectedAmount * selectedPrice * 0.01;
   const estimatedTotal = selectedAmount * selectedPrice + commission;
@@ -843,7 +883,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     const completedByListing = completedSellerRequests.map((request) => {
       const listing = myListingsById.get(request.listingId);
       return {
-        amount: toNumber(listing?.availableAmount ?? "0"),
+        amount: toNumber(request.usdtAmount),
         price: toNumber(listing?.price ?? "0"),
       };
     });
@@ -868,7 +908,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     const estimatedCommissionPaid = grossSales * 0.01;
     const selfReputation = myListings.find((listing) => Boolean(listing.sellerReputation))?.sellerReputation ?? null;
     return {
-      activeListings: myListings.filter((listing) => listing.status === "available").length,
+      activeListings: myListings.filter((listing) => listing.status === "active" || listing.status === "matched" || listing.status === "in_trade").length,
       pendingRequests: pendingSellerRequests.length,
       completedTrades: completedSellerRequests.length,
       totalUsdtSold,
@@ -888,15 +928,15 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     };
   }, [completedSellerRequests, myListings, myListingsById, pendingSellerRequests.length, sellerRequests]);
 
-  async function handleSellerListingStatus(listing: MarketplaceListing, nextStatus: "available" | "paused") {
+  async function handleSellerListingStatus(listing: MarketplaceListing, nextStatus: "active" | "paused") {
     const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: nextStatus }),
     });
-    await response.json();
+    const payload = (await response.json()) as { error?: string };
     if (!response.ok) {
-      setSellerWorkspaceMessage(safeErrorMessage("listing"));
+      setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
       return;
     }
     setSellerWorkspaceMessage(nextStatus === "paused" ? "Listing paused." : "Listing resumed.");
@@ -905,12 +945,27 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   async function handleSellerListingDelete(listingId: string) {
     const response = await fetch(`/api/alpha-exchange/listings/${listingId}`, { method: "DELETE" });
-    await response.json();
+    const payload = (await response.json()) as { error?: string };
     if (!response.ok) {
-      setSellerWorkspaceMessage(safeErrorMessage("listing"));
+      setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
       return;
     }
-    setSellerWorkspaceMessage("Listing deleted.");
+    setSellerWorkspaceMessage("Listing closed.");
+    await refreshSellerWorkspace();
+  }
+
+  async function handleSellerListingRenew(listingId: string, expirationHours = "24") {
+    const response = await fetch(`/api/alpha-exchange/listings/${listingId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "renew", expirationHours }),
+    });
+    const payload = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
+      return;
+    }
+    setSellerWorkspaceMessage("Listing renewed and visible to buyers again.");
     await refreshSellerWorkspace();
   }
 
@@ -927,15 +982,15 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         paymentMethods: listing.paymentMethods ?? [listing.paymentMethod ?? ""],
         minimumTrade: listing.minimumTrade ?? "0",
         maximumTrade: listing.maximumTrade ?? listing.availableAmount,
-        expiresAt: listing.expiresAt ?? "",
+        expirationHours: "24",
         notes: listing.notes ?? "",
         sellerDescription: listing.sellerDescription ?? "",
         responseTime: listing.responseTime,
       }),
     });
-    await response.json();
+    const payload = (await response.json()) as { error?: string };
     if (!response.ok) {
-      setSellerWorkspaceMessage(safeErrorMessage("listing"));
+      setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
       return;
     }
     setSellerWorkspaceMessage("Listing duplicated.");
@@ -959,7 +1014,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           .slice(0, 8),
         minimumTrade: listingCreateForm.minimumTrade,
         maximumTrade: listingCreateForm.maximumTrade || listingCreateForm.availableAmount,
-        expiresAt: listingCreateForm.expiresAt,
+        expirationHours: listingCreateForm.expirationHours,
         notes: listingCreateForm.notes,
         sellerDescription: listingCreateForm.sellerDescription,
         responseTime: listingCreateForm.responseTime,
@@ -970,9 +1025,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           .slice(0, 6),
       }),
     });
-    await response.json();
+    const payload = (await response.json()) as { error?: string };
     if (!response.ok) {
-      setSellerWorkspaceMessage(safeErrorMessage("listing"));
+      setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
       return;
     }
     setListingCreateForm((prev) => ({
@@ -981,12 +1036,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       price: "",
       minimumTrade: "0",
       maximumTrade: "",
-      expiresAt: "",
+      expirationHours: "24",
       notes: "",
       sellerDescription: "",
       photos: "",
     }));
-    setSellerWorkspaceMessage("Listing submitted for owner approval.");
+    setSellerWorkspaceMessage("Listing is now live.");
     await refreshSellerWorkspace();
   }
 
@@ -1008,13 +1063,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           .slice(0, 8),
         minimumTrade: listingEditForm.minimumTrade,
         maximumTrade: listingEditForm.maximumTrade || listingEditForm.availableAmount,
-        expiresAt: listingEditForm.expiresAt,
+        expirationHours: listingEditForm.expirationHours,
         notes: listingEditForm.notes,
+        status: myListings.find((listing) => listing.id === editingListingId)?.status === "expired" ? "active" : undefined,
       }),
     });
-    await response.json();
+    const payload = (await response.json()) as { error?: string };
     if (!response.ok) {
-      setSellerWorkspaceMessage(safeErrorMessage("listing"));
+      setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
       return;
     }
     setEditingListingId(null);
@@ -1193,6 +1249,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         country: sellerSettings.country,
         city: sellerSettings.city,
         onlineStatus: sellerSettings.onlineStatus,
+        availabilityStatus: sellerSettings.availabilityStatus,
       }),
     });
     const payload = (await response.json()) as {
@@ -1211,6 +1268,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         country: string;
         city: string;
         onlineStatus: "online" | "offline";
+        availabilityStatus: SellerAvailabilityStatus;
       };
     };
     if (!response.ok || !payload.profile) {
@@ -1234,6 +1292,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             country: payload.profile!.country,
             city: payload.profile!.city,
             onlineStatus: payload.profile!.onlineStatus,
+            availabilityStatus: payload.profile!.availabilityStatus,
           }
         : prev,
     );
@@ -1813,38 +1872,57 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             )) : null}
           </div>
 
-          <Card className="border-white/10 bg-[#0B0B0B]/90">
-            <CardHeader>
-              <CardTitle>{isAr ? "إنشاء عرض جديد" : "Create Listing"}</CardTitle>
-              <CardDescription>
-                {isAr ? "يتم إرسال العرض للمراجعة أولًا قبل نشره في السوق." : "Listings are submitted to owner review before publishing live."}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form className="grid gap-3 md:grid-cols-2" onSubmit={handleSellerListingCreateSubmit}>
-                <Input placeholder="Available Amount" value={listingCreateForm.availableAmount} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, availableAmount: event.target.value }))} />
-                <Input placeholder="Price" value={listingCreateForm.price} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, price: event.target.value }))} />
-                <Input placeholder="Currency (e.g. ILS)" value={listingCreateForm.currency} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, currency: event.target.value }))} />
-                <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={listingCreateForm.network} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
-                  <option value="TRC20">TRC20</option>
-                  <option value="ERC20">ERC20</option>
-                  <option value="BEP20">BEP20</option>
-                  <option value="SOL">SOL</option>
-                </select>
-                <Input placeholder="Payment Methods (comma separated)" value={listingCreateForm.paymentMethods} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, paymentMethods: event.target.value }))} />
-                <Input placeholder="Minimum Trade" value={listingCreateForm.minimumTrade} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, minimumTrade: event.target.value }))} />
-                <Input placeholder="Maximum Trade" value={listingCreateForm.maximumTrade} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, maximumTrade: event.target.value }))} />
-                <Input placeholder="Expiry (YYYY-MM-DDTHH:mm)" value={listingCreateForm.expiresAt} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, expiresAt: event.target.value }))} />
-                <Input placeholder="Response Time (e.g. 5 min)" value={listingCreateForm.responseTime} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, responseTime: event.target.value }))} />
-                <Input className="md:col-span-2" placeholder="Photo URLs (comma separated)" value={listingCreateForm.photos} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, photos: event.target.value }))} />
-                <Textarea className="md:col-span-2" placeholder="Optional Notes" value={listingCreateForm.notes} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, notes: event.target.value }))} />
-                <Textarea className="md:col-span-2" placeholder="Seller Description" value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
-                <div className="md:col-span-2">
-                  <Button type="submit">Submit Listing</Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
+          <div ref={createListingFormRef}>
+            <Card className="border-white/10 bg-[#0B0B0B]/90">
+              <CardHeader>
+                <CardTitle>{isAr ? "إنشاء عرض جديد" : "Create Listing"}</CardTitle>
+                <CardDescription>
+                  {isAr ? "أنشئ عرضًا مباشرًا مع حد أقصى عرضين نشطين في نفس الوقت." : "Create a live listing with a maximum of 2 open listings at the same time."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {listingWorkspaceSummary ? (
+                  <div className={`rounded-2xl border p-3 text-sm ${listingWorkspaceSummary.canCreateListing ? "border-[#6CAEFF]/20 bg-[#6CAEFF]/8 text-[#D1D5DB]" : "border-[#C9A227]/25 bg-[#C9A227]/10 text-[#FDE68A]"}`}>
+                    <p>
+                      Open listing slots: <span className="text-white">{listingWorkspaceSummary.openListingCount}/{listingWorkspaceSummary.activeListingLimit}</span>
+                    </p>
+                    <p>
+                      Trades in progress: <span className="text-white">{listingWorkspaceSummary.openTradeCount}</span>
+                      {" • "}
+                      Pending commissions: <span className="text-white">{listingWorkspaceSummary.pendingCommissionCount}</span>
+                    </p>
+                    {listingWorkspaceSummary.blockedReason ? <p className="mt-1 text-[#FDE68A]">{listingWorkspaceSummary.blockedReason}</p> : null}
+                  </div>
+                ) : null}
+                <form className="grid gap-3 md:grid-cols-2" onSubmit={handleSellerListingCreateSubmit}>
+                  <Input placeholder="Available Amount" value={listingCreateForm.availableAmount} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, availableAmount: event.target.value }))} />
+                  <Input placeholder="Price" value={listingCreateForm.price} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, price: event.target.value }))} />
+                  <Input placeholder="Currency (e.g. ILS)" value={listingCreateForm.currency} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, currency: event.target.value }))} />
+                  <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={listingCreateForm.network} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
+                    <option value="TRC20">TRC20</option>
+                    <option value="ERC20">ERC20</option>
+                    <option value="BEP20">BEP20</option>
+                    <option value="SOL">SOL</option>
+                  </select>
+                  <Input placeholder="Payment Methods (comma separated)" value={listingCreateForm.paymentMethods} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, paymentMethods: event.target.value }))} />
+                  <Input placeholder="Minimum Trade" value={listingCreateForm.minimumTrade} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, minimumTrade: event.target.value }))} />
+                  <Input placeholder="Maximum Trade" value={listingCreateForm.maximumTrade} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, maximumTrade: event.target.value }))} />
+                  <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={listingCreateForm.expirationHours} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, expirationHours: event.target.value }))}>
+                    {LISTING_EXPIRATION_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>Expires in {option.label}</option>
+                    ))}
+                  </select>
+                  <Input placeholder="Response Time (e.g. 5 min)" value={listingCreateForm.responseTime} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, responseTime: event.target.value }))} />
+                  <Input className="md:col-span-2" placeholder="Photo URLs (comma separated)" value={listingCreateForm.photos} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, photos: event.target.value }))} />
+                  <Textarea className="md:col-span-2" placeholder="Optional Notes" value={listingCreateForm.notes} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, notes: event.target.value }))} />
+                  <Textarea className="md:col-span-2" placeholder="Seller Description" value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
+                  <div className="md:col-span-2">
+                    <Button type="submit">Create Live Listing</Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          </div>
 
           <Card className="border-white/10 bg-[#0B0B0B]/90">
             <CardHeader>
@@ -1857,7 +1935,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <Store className="mx-auto h-5 w-5 text-[#C9A227]" />
                   <p className="mt-2 text-sm font-medium text-white">{isAr ? "لا توجد عروض بعد" : "No Listings Yet"}</p>
                   <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "أنشئ أول عرض لتظهر للمشترين المعتمدين." : "Create your first listing to start receiving buyer requests."}</p>
-                  <Button type="button" size="sm" className="mt-3" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+                  <Button type="button" size="sm" className="mt-3" onClick={openCreateListingFlow}>
                     {isAr ? "إنشاء عرض" : "Create Listing"}
                   </Button>
                 </div>
@@ -1865,22 +1943,27 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               {myListings.map((listing) => {
                 const requestsCount = sellerRequests.filter((request) => request.listingId === listing.id).length;
                 const views = 120 + String(listing.id ?? "").split("").reduce((acc, char) => acc + char.charCodeAt(0), 0) % 900;
+                const isLockedListing = listing.status === "matched" || listing.status === "in_trade";
                 return (
                   <div key={listing.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <div className="grid gap-2 text-sm md:grid-cols-4">
-                      <p>Status: <span className="text-white">{safeText(listing.status)}</span></p>
+                      <p>Status: <span className="text-white">{listingStatusLabel(listing.status)}</span></p>
                       <p>Available Amount: <span className="text-white">{safeText(listing.availableAmount)}</span></p>
+                      <p>Original Amount: <span className="text-white">{safeText(listing.originalAmount)}</span></p>
                       <p>Price: <span className="text-white">{safeText(listing.price)}</span></p>
                       <p>Network: <span className="text-white">{safeText(listing.network)}</span></p>
                       <p>Views: <span className="text-white">{views}</span></p>
                       <p>Purchase Requests: <span className="text-white">{requestsCount}</span></p>
                       <p>Created Date: <span className="text-white">{new Date(listing.createdAt).toLocaleDateString("en-IL")}</span></p>
                     </div>
+                    {isLockedListing ? <p className="mt-2 text-xs text-[#FDE68A]">This listing is locked by an active trade. Editing, pausing, and closing are unavailable until the trade finishes.</p> : null}
+                    {listing.status === "expired" ? <p className="mt-2 text-xs text-[#FDE68A]">This listing expired and is hidden from buyers until you renew it.</p> : null}
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Button
                         type="button"
                         size="sm"
                         variant="secondary"
+                        disabled={isLockedListing || listing.status === "completed" || listing.status === "closed" || listing.status === "cancelled"}
                         onClick={() => {
                           setEditingListingId(listing.id);
                           setListingEditForm({
@@ -1891,7 +1974,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                             paymentMethods: (listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod]).join(", "),
                             minimumTrade: listing.minimumTrade ?? "0",
                             maximumTrade: listing.maximumTrade ?? listing.availableAmount,
-                            expiresAt: listing.expiresAt ? new Date(listing.expiresAt).toISOString().slice(0, 16) : "",
+                            expirationHours: "24",
                             notes: listing.notes ?? "",
                           });
                         }}
@@ -1899,22 +1982,38 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         <Edit3 className="h-4 w-4" />
                         Edit
                       </Button>
-                      {listing.status === "paused" ? (
-                        <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingStatus(listing, "available")}>
+                      {listing.status === "expired" ? (
+                        <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingRenew(listing.id)}>
+                          <PlayCircle className="h-4 w-4" />
+                          Renew
+                        </Button>
+                      ) : listing.status === "paused" ? (
+                        <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingStatus(listing, "active")}>
                           <PlayCircle className="h-4 w-4" />
                           Resume
                         </Button>
-                      ) : listing.status === "available" ? (
+                      ) : listing.status === "active" ? (
                         <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingStatus(listing, "paused")}>
                           <PauseCircle className="h-4 w-4" />
                           Pause
                         </Button>
                       ) : null}
-                      <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingDelete(listing.id)}>
+                      <Button type="button" size="sm" variant="secondary" disabled={isLockedListing || listing.status === "completed" || listing.status === "closed" || listing.status === "cancelled"} onClick={() => handleSellerListingDelete(listing.id)}>
                         <Trash2 className="h-4 w-4" />
-                        Delete
+                        Close Listing
                       </Button>
-                      <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingDuplicate(listing)}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          if (listingWorkspaceSummary?.blockedReason) {
+                            setSellerWorkspaceMessage(listingWorkspaceSummary.blockedReason);
+                            return;
+                          }
+                          void handleSellerListingDuplicate(listing);
+                        }}
+                      >
                         <Copy className="h-4 w-4" />
                         Duplicate Listing
                       </Button>
@@ -1932,7 +2031,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         </select>
                         <Input value={listingEditForm.minimumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, minimumTrade: event.target.value }))} placeholder="Minimum Trade" />
                         <Input value={listingEditForm.maximumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, maximumTrade: event.target.value }))} placeholder="Maximum Trade" />
-                        <Input value={listingEditForm.expiresAt} onChange={(event) => setListingEditForm((prev) => ({ ...prev, expiresAt: event.target.value }))} placeholder="Expiry (YYYY-MM-DDTHH:mm)" />
+                        <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={listingEditForm.expirationHours} onChange={(event) => setListingEditForm((prev) => ({ ...prev, expirationHours: event.target.value }))}>
+                          {LISTING_EXPIRATION_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>Expires in {option.label}</option>
+                          ))}
+                        </select>
                         <Input className="md:col-span-2" value={listingEditForm.paymentMethods} onChange={(event) => setListingEditForm((prev) => ({ ...prev, paymentMethods: event.target.value }))} placeholder="Payment Methods (comma separated)" />
                         <Input className="md:col-span-2" value={listingEditForm.notes} onChange={(event) => setListingEditForm((prev) => ({ ...prev, notes: event.target.value }))} placeholder="Optional Notes" />
                         <div className="md:col-span-4 flex gap-2">
@@ -2171,6 +2274,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 <p>Current Listings: <span className="text-white">{sellerOverviewStats.activeListings}</span></p>
                 <p>Average Response Time: <span className="text-white">{sellerOverviewStats.averageResponseTime}</span></p>
                 <p>Status: <span className="text-white">{sessionUser?.onlineStatus === "online" ? "Online" : "Offline"}</span></p>
+                <p>Availability: <span className="text-white capitalize">{sessionUser?.availabilityStatus ?? "available"}</span></p>
                 <p>Last Active: <span className="text-white">{formatRelativeMinutesLabel(sessionUser?.lastActiveAt)}</span></p>
                 <p>Bio: <span className="text-white">{safeText(sessionUser?.bio, "Professional USDT seller on Alpha Exchange.")}</span></p>
                 <p>Trading Experience: <span className="text-white">{safeText(sessionUser?.tradingExperience, "Professional trading experience")}</span></p>
@@ -2227,6 +2331,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <option value="online">Status: Online</option>
                     <option value="offline">Status: Offline</option>
                   </select>
+                  <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={sellerSettings.availabilityStatus} onChange={(event) => setSellerSettings((prev) => ({ ...prev, availabilityStatus: event.target.value as SellerAvailabilityStatus }))}>
+                    <option value="available">Availability: Available</option>
+                    <option value="away">Availability: Away</option>
+                    <option value="vacation">Availability: Vacation Mode</option>
+                  </select>
+                  {sellerSettings.availabilityStatus === "vacation" ? (
+                    <p className="text-xs text-[#FDE68A]">Vacation Mode hides your active listings from buyers and blocks new matches until you switch back.</p>
+                  ) : null}
                   <Button type="submit" size="sm">Save Profile</Button>
                 </form>
                 <form className="grid gap-2" onSubmit={handleSellerPasswordSubmit}>
@@ -2733,7 +2845,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
                       <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Listing & Trade Quote</p>
                       <div className="mt-2 space-y-1 text-xs">
-                        <p>Available Amount: <span className="text-white">{selectedListing.availableAmount}</span></p>
+                        <p>Remaining Amount: <span className="text-white">{selectedListing.availableAmount}</span></p>
+                        <p>Minimum Trade: <span className="text-white">{selectedListing.minimumTrade}</span></p>
+                        <p>Maximum Trade: <span className="text-white">{selectedListing.maximumTrade}</span></p>
                         <p>Network: <span className="text-white">{selectedListing.network}</span></p>
                         <p>Price: <span className="text-white">{selectedListing.price}</span></p>
                         <p>Commission (1%): <span className="text-white">₪{commission.toFixed(2)}</span></p>
@@ -2839,9 +2953,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
                   <form className="grid gap-3" onSubmit={handlePurchaseSubmit}>
                     <div className="grid gap-3 md:grid-cols-3">
+                      <Input placeholder="Trade Amount (USDT)" value={buyerInfo.amount} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, amount: event.target.value }))} />
                       <Input placeholder="Name" value={buyerInfo.name} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, name: event.target.value }))} />
                       <Input placeholder="WhatsApp" value={buyerInfo.whatsapp} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, whatsapp: event.target.value }))} />
-                      <Textarea placeholder="Notes" value={buyerInfo.notes} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, notes: event.target.value }))} />
+                      <Textarea className="md:col-span-3" placeholder="Notes" value={buyerInfo.notes} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, notes: event.target.value }))} />
                     </div>
                     <div className="sticky bottom-0 z-10 rounded-xl border border-[#C9A227]/30 bg-[#0B0B0B]/95 p-3">
                       <Button type="submit" className="w-full">Start Trade</Button>
