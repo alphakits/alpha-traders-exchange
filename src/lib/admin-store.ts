@@ -1,23 +1,11 @@
-import { promises as fs } from "fs";
 import path from "path";
+import { randomUUID } from "crypto";
+import { getAdminContentRepository } from "@/lib/admin-content-repository";
+import { createSupabaseAdminClient, getAdminMediaBucket } from "@/lib/supabase-admin";
 import type { Lesson, LessonCategory, LessonStatus, QuizQuestion } from "@/types/academy";
 import type { AdminAnalytics, LessonVersion, MediaItem, MediaProvider, MediaType } from "@/types/admin";
 
-const repoRoot = process.cwd();
-const lessonsPath = path.join(repoRoot, "src", "data", "lessons.json");
-const versionsPath = path.join(repoRoot, "src", "data", "lesson-versions.json");
-const mediaPath = path.join(repoRoot, "src", "data", "media-library.json");
-const uploadDir = path.join(repoRoot, "public", "uploads", "admin");
-
 type LessonUpdate = Partial<Lesson> & Pick<Lesson, "id">;
-
-function safeParse<T>(raw: string, fallback: T): T {
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
 
 function slugify(value: string) {
   return value
@@ -72,65 +60,53 @@ function normalizeLesson(lesson: Lesson): Lesson {
   };
 }
 
-async function ensureDataFiles() {
-  await fs.mkdir(path.dirname(versionsPath), { recursive: true });
-  await fs.mkdir(uploadDir, { recursive: true });
-  const pairs = [
-    [versionsPath, "[]"],
-    [mediaPath, "[]"],
-  ] as const;
-  await Promise.all(
-    pairs.map(async ([filePath, fallback]) => {
-      try {
-        await fs.access(filePath);
-      } catch {
-        await fs.writeFile(filePath, fallback, "utf8");
-      }
-    }),
-  );
-}
-
-async function writeJson(filePath: string, value: unknown) {
-  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+function normalizeMediaItem(item: MediaItem): MediaItem {
+  return {
+    ...item,
+    usedByLessonIds: Array.isArray(item.usedByLessonIds) ? item.usedByLessonIds.filter(Boolean) : [],
+  };
 }
 
 export async function readLessons(): Promise<Lesson[]> {
-  const raw = await fs.readFile(lessonsPath, "utf8");
-  const parsed = safeParse<Lesson[]>(raw, []);
-  return parsed.map(normalizeLesson).sort((a, b) => a.order - b.order);
+  const repository = await getAdminContentRepository();
+  const lessons = await repository.loadLessons();
+  return lessons.map(normalizeLesson).sort((a, b) => a.order - b.order);
 }
 
 export async function writeLessons(lessons: Lesson[]) {
+  const repository = await getAdminContentRepository();
   const normalized = lessons.map(normalizeLesson).sort((a, b) => a.order - b.order);
-  await writeJson(lessonsPath, normalized);
+  await repository.saveLessons(normalized);
 }
 
 export async function readVersions() {
-  await ensureDataFiles();
-  const raw = await fs.readFile(versionsPath, "utf8");
-  const parsed = safeParse<LessonVersion[]>(raw, []);
-  return parsed.sort((a, b) => +new Date(b.timestamp) - +new Date(a.timestamp));
+  const repository = await getAdminContentRepository();
+  const versions = await repository.loadVersions();
+  return versions.sort((a, b) => +new Date(b.timestamp) - +new Date(a.timestamp));
 }
 
 export async function appendVersion(entry: Omit<LessonVersion, "id" | "timestamp">) {
-  const current = await readVersions();
+  const repository = await getAdminContentRepository();
+  const current = await repository.loadVersions();
   const next: LessonVersion = {
     ...entry,
     id: `v-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     timestamp: new Date().toISOString(),
   };
-  await writeJson(versionsPath, [next, ...current].slice(0, 500));
+  await repository.saveVersions([next, ...current].slice(0, 500));
 }
 
 export async function readMediaLibrary() {
-  await ensureDataFiles();
-  const raw = await fs.readFile(mediaPath, "utf8");
-  const parsed = safeParse<MediaItem[]>(raw, []);
-  return parsed.sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
+  const repository = await getAdminContentRepository();
+  const items = await repository.loadMedia();
+  return items
+    .map(normalizeMediaItem)
+    .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
 }
 
 export async function writeMediaLibrary(items: MediaItem[]) {
-  await writeJson(mediaPath, items);
+  const repository = await getAdminContentRepository();
+  await repository.saveMedia(items.map(normalizeMediaItem));
 }
 
 function ensureUniqueSlug(lessons: Lesson[], proposedSlug: string, exceptId?: string) {
@@ -339,6 +315,8 @@ export async function addMediaItem(input: {
   provider: MediaProvider;
   name: string;
   url: string;
+  storageBucket?: string;
+  storageKey?: string;
   mimeType?: string;
   size?: number;
   lessonId?: string;
@@ -350,6 +328,8 @@ export async function addMediaItem(input: {
     if (input.lessonId && !existing.usedByLessonIds.includes(input.lessonId)) {
       existing.usedByLessonIds.push(input.lessonId);
       existing.updatedAt = now;
+      existing.storageBucket = input.storageBucket ?? existing.storageBucket;
+      existing.storageKey = input.storageKey ?? existing.storageKey;
       await writeMediaLibrary(items);
     }
     return existing;
@@ -361,6 +341,8 @@ export async function addMediaItem(input: {
     provider: input.provider,
     name: input.name,
     url: input.url,
+    storageBucket: input.storageBucket,
+    storageKey: input.storageKey,
     mimeType: input.mimeType,
     size: input.size,
     createdAt: now,
@@ -373,6 +355,20 @@ export async function addMediaItem(input: {
 
 export async function removeMediaItem(mediaId: string) {
   const items = await readMediaLibrary();
+  const target = items.find((item) => item.id === mediaId);
+  if (!target) {
+    return;
+  }
+
+  if (target.storageKey) {
+    const client = createSupabaseAdminClient();
+    const bucket = target.storageBucket || getAdminMediaBucket();
+    const { error } = await client.storage.from(bucket).remove([target.storageKey]);
+    if (error) {
+      throw new Error(`Failed to remove media from storage: ${error.message}`);
+    }
+  }
+
   await writeMediaLibrary(items.filter((item) => item.id !== mediaId));
 }
 
@@ -387,12 +383,25 @@ export function inferMediaType(fileName: string): MediaType {
 export async function saveUploadedFile(file: File, fileName: string) {
   const arrayBuffer = await file.arrayBuffer();
   const bytes = Buffer.from(arrayBuffer);
-  const ext = path.extname(fileName);
+  const ext = path.extname(fileName).toLowerCase();
   const stem = slugify(path.basename(fileName, ext)) || "asset";
-  const safeName = `${stem}-${Date.now()}${ext}`;
-  const targetPath = path.join(uploadDir, safeName);
-  await fs.writeFile(targetPath, bytes);
-  return `/uploads/admin/${safeName}`;
+  const safeName = `${stem}-${Date.now()}-${randomUUID().slice(0, 8)}${ext}`;
+  const bucket = getAdminMediaBucket();
+  const storageKey = `academy/${new Date().getUTCFullYear()}/${safeName}`;
+  const client = createSupabaseAdminClient();
+  const { error } = await client.storage.from(bucket).upload(storageKey, bytes, {
+    contentType: file.type || "application/octet-stream",
+    upsert: false,
+  });
+  if (error) {
+    throw new Error(`Failed to upload media: ${error.message}`);
+  }
+  const { data } = client.storage.from(bucket).getPublicUrl(storageKey);
+  return {
+    publicUrl: data.publicUrl,
+    storageBucket: bucket,
+    storageKey,
+  };
 }
 
 export function validateUpload(fileName: string, size: number) {

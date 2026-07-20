@@ -327,7 +327,7 @@ export function LessonManagementDashboard() {
     const formData = new FormData();
     formData.set("file", file);
     formData.set("lessonId", lessonId);
-    formData.set("provider", "local");
+    formData.set("provider", "supabase");
     const response = await fetch("/api/admin/media", {
       method: "POST",
       headers: authHeaders(),

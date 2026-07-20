@@ -13,6 +13,8 @@ const ENV_VARS: EnvVar[] = [
   { key: "NEXT_PUBLIC_SUPABASE_URL", required: true, description: "Supabase project URL used by the browser and server clients" },
   { key: "NEXT_PUBLIC_SUPABASE_ANON_KEY", required: true, description: "Supabase anon key used by the browser and server clients" },
   { key: "SUPABASE_DB_URL", required: false, description: "PostgreSQL connection string used for Alpha Exchange runtime persistence" },
+  { key: "SUPABASE_SERVICE_ROLE_KEY", required: false, description: "Supabase service role key used for admin media uploads to object storage" },
+  { key: "SUPABASE_ADMIN_MEDIA_BUCKET", required: false, description: "Supabase Storage bucket for admin lesson/media uploads" },
   { key: "NEXT_PUBLIC_SITE_URL", required: false, description: "Canonical production site URL, e.g. https://alphatraders.academy" },
   { key: "AUTH_COOKIE_SECURE", required: false, description: "Force cookie secure flag on/off" },
   { key: "ADMIN_ACCESS_KEY", required: false, description: "Extra key required for admin API endpoints" },
@@ -46,6 +48,11 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
     if (!process.env.SUPABASE_DB_URL && !process.env.DATABASE_URL) {
       errors.push(
         "Missing required environment variable: SUPABASE_DB_URL (or DATABASE_URL) — PostgreSQL persistence is required in production.",
+      );
+    }
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      errors.push(
+        "Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY — admin media uploads require object storage credentials in production.",
       );
     }
 

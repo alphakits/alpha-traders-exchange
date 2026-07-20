@@ -23,14 +23,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No file uploaded." }, { status: 400 });
     }
     validateUpload(file.name, file.size);
-    const publicUrl = await saveUploadedFile(file, file.name);
-    const provider = ((formData.get("provider") as string) || "local") as MediaProvider;
+    const upload = await saveUploadedFile(file, file.name);
+    const provider = (((formData.get("provider") as string) || "supabase") === "local" ? "supabase" : ((formData.get("provider") as string) || "supabase")) as MediaProvider;
     const lessonId = (formData.get("lessonId") as string) || undefined;
     const media = await addMediaItem({
       type: inferMediaType(file.name),
       provider,
       name: path.basename(file.name),
-      url: publicUrl,
+      url: upload.publicUrl,
+      storageBucket: upload.storageBucket,
+      storageKey: upload.storageKey,
       mimeType: file.type,
       size: file.size,
       lessonId,

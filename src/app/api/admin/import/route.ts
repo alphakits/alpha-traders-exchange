@@ -37,26 +37,26 @@ export async function POST(request: NextRequest) {
     const createdLessons: Lesson[] = [];
     for (const file of files) {
       validateUpload(file.name, file.size);
-      const mediaUrl = await saveUploadedFile(file, file.name);
+      const upload = await saveUploadedFile(file, file.name);
       const mediaType = inferMediaType(file.name);
       const base = guessLessonFromFileName(file.name);
       const lesson = await createLesson(
         {
           ...base,
           assets: {
-            videoProvider: mediaType === "video" ? "self-hosted" : "self-hosted",
+            videoProvider: mediaType === "video" ? "supabase" : "self-hosted",
             videoId: "",
-            videoUrl: mediaType === "video" ? mediaUrl : "",
+            videoUrl: mediaType === "video" ? upload.publicUrl : "",
             videoChapters: [],
-            pdfProvider: "google-drive",
+            pdfProvider: mediaType === "pdf" ? "supabase" : "google-drive",
             pdfFileId: "",
-            pdfUrl: mediaType === "pdf" ? mediaUrl : "",
+            pdfUrl: mediaType === "pdf" ? upload.publicUrl : "",
             presentationUrl: "",
             notes: "",
             notesAr: "",
             resources: [],
           },
-          thumbnail: mediaType === "image" ? mediaUrl : "",
+          thumbnail: mediaType === "image" ? upload.publicUrl : "",
           status: "draft",
         },
         identity.role,
@@ -64,9 +64,11 @@ export async function POST(request: NextRequest) {
 
       await addMediaItem({
         type: mediaType,
-        provider: "local",
+        provider: "supabase",
         name: file.name,
-        url: mediaUrl,
+        url: upload.publicUrl,
+        storageBucket: upload.storageBucket,
+        storageKey: upload.storageKey,
         mimeType: file.type,
         size: file.size,
         lessonId: lesson.id,

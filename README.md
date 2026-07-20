@@ -64,6 +64,7 @@ Set these in Vercel for every environment that should build successfully:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `SUPABASE_DB_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
 
 Set this in the **Production** environment so metadata, canonical URLs, `robots.txt`, and `sitemap.xml` use the custom domain instead of a preview hostname:
 
@@ -76,6 +77,7 @@ Optional environment variables:
 - `ALPHA_EXCHANGE_LARGE_TRADE_THRESHOLD`
 - `ALPHA_EXCHANGE_EVIDENCE_MAX_SIZE_MB`
 - `ALPHA_EXCHANGE_STALE_TRADE_TIMEOUT_MINUTES`
+- `SUPABASE_ADMIN_MEDIA_BUCKET=admin-media`
 - `SUPABASE_DB_SSL=true` (default behavior; only set `false` for local trusted Postgres)
 
 Never set in production:
@@ -99,20 +101,27 @@ For `alphatraders.academy` on Vercel:
 
 After adding the domain in Vercel, wait for DNS verification and automatic SSL issuance before going live.
 
-### Marketplace runtime persistence
+### Marketplace and admin CMS persistence
 
 Marketplace/auth runtime persistence now uses PostgreSQL through `SUPABASE_DB_URL` instead of:
 
 - `data/alpha-exchange-db.json`
 - `data/alpha-exchange-evidence/`
 
-Apply `supabase/migrations/20260720160000_alpha_exchange_runtime.sql` before starting the app in any persistent environment. The runtime repository automatically creates the same schema for local/test fallback, but production should rely on the explicit migration.
+Admin lesson/media/version persistence now also uses PostgreSQL plus Supabase Storage instead of:
 
-Evidence uploads are stored in PostgreSQL `bytea` rows in `alpha_exchange.evidence`, so Vercel no longer depends on writable local storage for trade evidence.
+- `src/data/lessons.json`
+- `src/data/lesson-versions.json`
+- `src/data/media-library.json`
+- `public/uploads/admin/`
 
-### Remaining deployment note
+Apply these migrations before starting the app in any persistent environment:
 
-The separate admin lesson/media store still writes to repository-local JSON and upload folders. Marketplace/auth flows are now Vercel-safe, but admin CMS-style content editing should also be moved to persistent external storage before relying on those write paths in production.
+- `supabase/migrations/20260720160000_alpha_exchange_runtime.sql`
+- `supabase/migrations/20260720193000_admin_cms_storage.sql`
+
+Trade evidence uploads are stored in PostgreSQL `bytea` rows in `alpha_exchange.evidence`.
+Admin lesson/media uploads are stored in the Supabase Storage bucket `admin-media` by default, with metadata stored in `admin_cms.media_items`.
 
 ## Quality checks
 
