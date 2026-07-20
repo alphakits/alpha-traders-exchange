@@ -27,7 +27,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     if (mode === "buyer_review") {
       const rating = Number(body.rating ?? 0);
-      const comment = String(body.comment ?? "");
+      if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+        return NextResponse.json({ error: "Rating must be a whole number between 1 and 5." }, { status: 400 });
+      }
+      const comment = String(body.comment ?? "").slice(0, 2000);
       const updated = await submitBuyerTradeReview({
         requestId,
         buyerUserId: user.id,
@@ -38,7 +41,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     if (mode === "seller_response") {
-      const message = String(body.message ?? "");
+      const message = String(body.message ?? "").slice(0, 2000);
       const updated = await submitSellerReviewResponse({
         requestId,
         sellerUserId: user.id,

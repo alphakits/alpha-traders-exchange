@@ -38,7 +38,7 @@
       "id": "user-guest-test123",
       "fullName": "test123",
       "email": "test123@guest.local",
-      "passwordHash": "d7aec14fcf45d919e3e2d16b09e708a0:0d30e27646e8d35c922f345613a2c1625b36e5593722d2d19fa90fb3f031c40e93b8d8697c177421bc301c53b0af3c37389f8360c39a9c4c12eb160754a7fd03",
+      "passwordHash": "05444e5c4e125c45e6998e76c3e40aad:95075fc0b63d1c3399300b367009f44bff1ab84af57e9f19658971f3e23e9dfb800d2ddb93da57c2947899b02ce251b825e602d9455cfb5eb2e5449ed2aa95b6",
       "whatsappNumber": "0000000000",
       "preferredNetworks": [],
       "profilePhotoUrl": "",
@@ -108,16 +108,10 @@
   ],
   "authSessions": [
     {
-      "token": "e50c0ad77f3f30f13fd05291572528e54020342c2d2df30f169ba3ee8b156f98",
+      "token": "3badaed0e2b5d665b376def3b67564855dc325c4f58e39fac6f7831a29c83b6c",
       "userId": "user-guest-test123",
-      "createdAt": "2026-07-19T21:10:27.348Z",
-      "expiresAt": "2026-08-02T21:10:27.348Z"
-    },
-    {
-      "token": "6c33ef66ba9d50986adfac085812a97b1406ef23f29cf78cf409c95aafdb66a7",
-      "userId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
-      "createdAt": "2026-07-19T21:18:06.965Z",
-      "expiresAt": "2026-08-02T21:18:06.965Z"
+      "createdAt": "2026-07-19T23:25:47.559Z",
+      "expiresAt": "2026-08-02T23:25:47.559Z"
     }
   ],
   "passwordResetTokens": [],

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/api-auth";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { getAccountProfileData, updateAccountProfileData } from "@/lib/alpha-exchange-store";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 type RoleBadgeVariant = "member" | "buyer" | "approved_seller" | "moderator" | "administrator" | "owner";
 
@@ -50,15 +51,19 @@ export async function GET() {
 export async function PATCH(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const rate = checkRateLimit({ headers: request.headers, key: "auth:profile-update", maxRequests: 20, windowMs: 60_000 });
+  if (!rate.allowed) {
+    return NextResponse.json({ error: "Too many profile update requests. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
+  }
 
   try {
     const body = await request.json();
-    const fullName = body.fullName !== undefined ? String(body.fullName).trim() : undefined;
-    const profilePhotoUrl = body.profilePhotoUrl !== undefined ? String(body.profilePhotoUrl).trim() : undefined;
-    const bio = body.bio !== undefined ? String(body.bio) : undefined;
-    const country = body.country !== undefined ? String(body.country).trim() : undefined;
-    const language = body.language !== undefined ? String(body.language).trim() : undefined;
-    const whatsappNumber = body.whatsappNumber !== undefined ? String(body.whatsappNumber).trim() : undefined;
+    const fullName = body.fullName !== undefined ? String(body.fullName).trim().slice(0, 100) : undefined;
+    const profilePhotoUrl = body.profilePhotoUrl !== undefined ? String(body.profilePhotoUrl).trim().slice(0, 500) : undefined;
+    const bio = body.bio !== undefined ? String(body.bio).slice(0, 2000) : undefined;
+    const country = body.country !== undefined ? String(body.country).trim().slice(0, 100) : undefined;
+    const language = body.language !== undefined ? String(body.language).trim().slice(0, 20) : undefined;
+    const whatsappNumber = body.whatsappNumber !== undefined ? String(body.whatsappNumber).trim().slice(0, 30) : undefined;
 
     if (fullName !== undefined && !fullName) {
       return NextResponse.json({ error: "Full name is required." }, { status: 400 });

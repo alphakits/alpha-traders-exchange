@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const sellerId = String(body.sellerId ?? "").trim();
-    const reason = String(body.reason ?? "").trim();
+    const reason = String(body.reason ?? "").trim().slice(0, 2000);
     const purchaseRequestId = body.purchaseRequestId ? String(body.purchaseRequestId) : undefined;
     if (!sellerId) {
       return NextResponse.json({ error: "sellerId is required." }, { status: 400 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,8 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
   const [isLoginSubmitting, setIsLoginSubmitting] = useState(false);
   const [isResetRequestSubmitting, setIsResetRequestSubmitting] = useState(false);
   const [isResetConfirmSubmitting, setIsResetConfirmSubmitting] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => { setHydrated(true); }, []);
   const defaultRedirectByRole = (user: { role?: string; sellerStatus?: string } | null | undefined) => {
     if (user?.role === "admin") return "/admin/alpha-exchange";
     if (user?.role !== "admin" && user?.sellerStatus === "approved_seller") return "/dashboard/seller";
@@ -63,6 +65,33 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
       }
       if (!response.ok) {
         setErrorMessage(payload?.error ?? "Login failed.");
+        return;
+      }
+      // Ensure the freshly set httpOnly session cookie is visible to subsequent
+      // requests before navigating to a protected route.
+      let sessionReady = false;
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const meResponse = await fetch("/api/auth/me", {
+          method: "GET",
+          cache: "no-store",
+          credentials: "same-origin",
+          headers: { "Cache-Control": "no-store" },
+        });
+        if (meResponse.ok) {
+          const mePayload = (await meResponse.json()) as { user?: { id?: string } | null };
+          if (mePayload?.user?.id) {
+            sessionReady = true;
+            break;
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+      if (!sessionReady) {
+        setErrorMessage(
+          isAr
+            ? "تم تسجيل الدخول ولكن تعذر تأكيد الجلسة. حاول مرة أخرى."
+            : "Logged in, but we couldn't confirm your session. Please try again.",
+        );
         return;
       }
       const target = redirectTo ? resolveLoginRedirectTarget(redirectTo) : defaultRedirectByRole(payload?.user);
@@ -161,7 +190,7 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
           )}
         </ul>
 
-        <form className="mt-6 grid gap-3" onSubmit={handleLoginSubmit}>
+        <form className="mt-6 grid gap-3" onSubmit={handleLoginSubmit} data-hydrated={hydrated ? "true" : "false"}>
           <Input placeholder={isAr ? "البريد الإلكتروني" : "Email"} type="email" autoComplete="email" required value={form.email} onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))} />
           <Input placeholder={isAr ? "كلمة المرور" : "Password"} type="password" autoComplete="current-password" required value={form.password} onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))} />
           <div className={`flex items-center justify-between text-sm ${isAr ? "flex-row-reverse" : ""}`}>

@@ -38,12 +38,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Buyer WhatsApp is required." }, { status: 400 });
     }
 
+    const buyerNotes = String(body.buyerNotes ?? "").slice(0, 2000);
+
     const purchase = await createPurchaseRequest({
       buyerId: user.id,
       listingId,
       buyerName,
       buyerWhatsapp,
-      buyerNotes: String(body.buyerNotes ?? ""),
+      buyerNotes,
       actorUserId: user.id,
     });
 

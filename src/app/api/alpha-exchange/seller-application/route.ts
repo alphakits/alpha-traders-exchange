@@ -115,6 +115,6 @@ export async function POST(request: NextRequest) {
         );
       }
     }
-    throw error;
+    return NextResponse.json({ error: "An unexpected error occurred. Please try again." }, { status: 500 });
   }
 }

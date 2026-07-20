@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canPublishListings, createMarketplaceListing, getMarketplaceListings } from "@/lib/alpha-exchange-store";
 import { requireApiUser } from "@/lib/api-auth";
+import { checkRateLimit } from "@/lib/rate-limit";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
 
 function toNumber(value: unknown) {
@@ -22,13 +23,17 @@ export async function POST(request: NextRequest) {
   if (!canPublishListings(user)) {
     return NextResponse.json({ error: "You must be approved by Alpha Traders before publishing listings." }, { status: 403 });
   }
+  const rate = checkRateLimit({ headers: request.headers, key: "exchange:create-listing", maxRequests: 10, windowMs: 60_000 });
+  if (!rate.allowed) {
+    return NextResponse.json({ error: "Too many listing requests. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
+  }
 
   try {
     const body = await request.json();
     const availableAmount = String(body.availableAmount ?? "").trim();
     const price = String(body.price ?? "").trim();
-    const responseTime = String(body.responseTime ?? "").trim() || "5 min";
-    const currency = String(body.currency ?? "ILS").trim() || "ILS";
+    const responseTime = String(body.responseTime ?? "").trim().slice(0, 100) || "5 min";
+    const currency = String(body.currency ?? "ILS").trim().slice(0, 10) || "ILS";
     const paymentMethods = Array.isArray(body.paymentMethods)
       ? body.paymentMethods.map((method: unknown) => String(method).trim()).filter(Boolean).slice(0, 8)
       : String(body.paymentMethod ?? "")
@@ -40,8 +45,8 @@ export async function POST(request: NextRequest) {
     const minimumTrade = String(body.minimumTrade ?? "0").trim();
     const maximumTrade = String(body.maximumTrade ?? availableAmount).trim();
     const expiresAt = String(body.expiresAt ?? "").trim();
-    const notes = String(body.notes ?? "").trim();
-    const sellerDescription = String(body.sellerDescription ?? "").trim();
+    const notes = String(body.notes ?? "").trim().slice(0, 2000);
+    const sellerDescription = String(body.sellerDescription ?? "").trim().slice(0, 2000);
     const photos = Array.isArray(body.photos) ? body.photos.map((photo: unknown) => String(photo).trim()).filter(Boolean).slice(0, 6) : [];
     const network = body.network;
 

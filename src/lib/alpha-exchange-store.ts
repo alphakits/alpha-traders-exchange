@@ -3,6 +3,7 @@ import path from "path";
 import { createHash, randomUUID } from "crypto";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { calculateSellerTrustSnapshot, rankTrustSnapshots } from "@/lib/trust-engine";
+import { runEnvValidation } from "@/lib/env-validation";
 import type {
   AlphaExchangeActivityLogEntry,
   BetaAnnouncement,
@@ -44,9 +45,12 @@ import type {
   UserRole,
 } from "@/types/alpha-exchange";
 
-const dbPath = path.join(process.cwd(), "src", "data", "alpha-exchange-db.json");
-const evidenceRootPath = path.join(process.cwd(), "src", "data", "alpha-exchange-evidence");
+const dbPath = path.join(process.cwd(), "data", "alpha-exchange-db.json");
+const evidenceRootPath = path.join(process.cwd(), "data", "alpha-exchange-evidence");
 const supportedEvidenceMimeTypes = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
+
+// Validate environment variables on first module load
+runEnvValidation();
 
 const defaultDb: AlphaExchangeDb = {
   users: [],
@@ -269,16 +273,6 @@ function enrichListingsWithSellerData(db: AlphaExchangeDb, listings: Marketplace
       sellerReputation: snapshots.get(seller.id) ?? computeSellerReputationSnapshot(db, seller.id),
     };
   });
-}
-
-export async function getSellerReputationByUserId(userId: string) {
-  const db = await readDb();
-  const user = db.users.find((item) => item.id === userId);
-  if (!user) return null;
-  return {
-    profile: buildSellerPublicProfile(user),
-    reputation: computeSellerReputationSnapshot(db, userId),
-  };
 }
 
 export async function getPremiumSellerProfile(input: {
@@ -3412,39 +3406,5 @@ export async function getOwnerPendingListingsDashboardData() {
     pendingListings,
     allListings,
     purchaseRequests,
-  };
-}
-
-export async function setUserRole(userId: string, role: UserRole) {
-  const db = await readDb();
-  const index = db.users.findIndex((item) => item.id === userId);
-  if (index === -1) throw new Error("User not found.");
-  const user = db.users[index];
-  if (isAlphaExchangeOwnerEmail(user.email)) {
-    db.users[index] = { ...user, role: "admin", updatedAt: nowIso() };
-    await recalculateTrustEngine(db, { reason: "User role updated", triggeredBy: userId });
-    await writeDb(db);
-    return;
-  }
-  if (role === "admin") {
-    throw new Error("Only the owner account can be assigned admin.");
-  }
-  const nextSellerStatus = role === "approved_seller" ? "approved_seller" : user.sellerStatus;
-  db.users[index] = { ...user, role, sellerStatus: nextSellerStatus, updatedAt: nowIso() };
-  await recalculateTrustEngine(db, { reason: "User role updated", triggeredBy: userId });
-  await writeDb(db);
-}
-
-export async function getUsersBySellerStatusForAdmin(status: SellerStatus) {
-  const db = await readDb();
-  return db.users.filter((user) => user.sellerStatus === status);
-}
-
-export function calculateEstimatedTotal(amount: string, price: string) {
-  const gross = toNumber(amount) * toNumber(price);
-  const commission = gross * 0.01;
-  return {
-    commission,
-    estimatedTotal: gross + commission,
   };
 }

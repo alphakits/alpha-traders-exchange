@@ -110,6 +110,7 @@ export function LessonInterface({
   useEffect(() => {
     if (notesDraft === progressState.notes) return;
     setNotesSyncState("saving");
+    let idleTimer: number;
     const timer = window.setTimeout(() => {
       void updateProgress("notes_updated", (current) => ({
         ...current,
@@ -117,9 +118,12 @@ export function LessonInterface({
         notesSavedAt: new Date().toISOString(),
       }));
       setNotesSyncState("saved");
-      window.setTimeout(() => setNotesSyncState("idle"), 1400);
+      idleTimer = window.setTimeout(() => setNotesSyncState("idle"), 1400);
     }, 500);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(idleTimer);
+    };
   }, [notesDraft, progressState.notes, updateProgress]);
 
   return (

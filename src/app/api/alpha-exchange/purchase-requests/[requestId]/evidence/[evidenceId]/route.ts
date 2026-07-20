@@ -29,13 +29,13 @@ export async function GET(request: NextRequest, context: RouteContext) {
     if (payload.request.id !== requestId) {
       return NextResponse.json({ error: "Evidence not found for this trade." }, { status: 404 });
     }
-    const safeFileName = payload.evidence.fileName.replace(/"/g, "");
+    const safeFileName = encodeURIComponent(payload.evidence.fileName.replace(/[^\w.\-]/g, "_"));
     return new NextResponse(payload.buffer, {
       status: 200,
       headers: {
         "Content-Type": payload.evidence.mimeType,
         "Content-Length": String(payload.buffer.byteLength),
-        "Content-Disposition": `inline; filename="${safeFileName}"`,
+        "Content-Disposition": `inline; filename*=UTF-8''${safeFileName}`,
         "Cache-Control": "private, no-store",
       },
     });

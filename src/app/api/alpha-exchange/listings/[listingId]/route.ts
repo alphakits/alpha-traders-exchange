@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canPublishListings, deleteMarketplaceListingForSeller, updateMarketplaceListingForSeller } from "@/lib/alpha-exchange-store";
 import { requireApiUser } from "@/lib/api-auth";
+import { checkRateLimit } from "@/lib/rate-limit";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
 
 function toNumber(value: unknown) {
@@ -24,6 +25,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   if (!user) return unauthorized;
   if (!canPublishListings(user)) {
     return NextResponse.json({ error: "You must be approved by Alpha Traders before publishing listings." }, { status: 403 });
+  }
+  const rate = checkRateLimit({ headers: request.headers, key: "exchange:update-listing", maxRequests: 30, windowMs: 60_000 });
+  if (!rate.allowed) {
+    return NextResponse.json({ error: "Too many update requests. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
   }
 
   try {

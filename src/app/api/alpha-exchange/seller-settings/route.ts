@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { hashPassword, verifyPassword } from "@/lib/auth";
 import { requireApiUser } from "@/lib/api-auth";
 import { updateUserPassword, updateUserSellerSettings } from "@/lib/alpha-exchange-store";
+import { checkRateLimit } from "@/lib/rate-limit";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
 
 export async function GET() {
@@ -30,19 +31,23 @@ export async function GET() {
 export async function PATCH(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const rate = checkRateLimit({ headers: request.headers, key: "exchange:seller-settings", maxRequests: 20, windowMs: 60_000 });
+  if (!rate.allowed) {
+    return NextResponse.json({ error: "Too many settings update requests. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
+  }
 
   try {
     const body = await request.json();
 
-    const fullName = body.fullName ? String(body.fullName) : undefined;
-    const whatsappNumber = body.whatsappNumber ? String(body.whatsappNumber) : undefined;
-    const profilePhotoUrl = body.profilePhotoUrl !== undefined ? String(body.profilePhotoUrl) : undefined;
-    const coverBannerUrl = body.coverBannerUrl !== undefined ? String(body.coverBannerUrl) : undefined;
-    const bio = body.bio !== undefined ? String(body.bio) : undefined;
-    const tradingExperience = body.tradingExperience !== undefined ? String(body.tradingExperience) : undefined;
-    const workingHours = body.workingHours !== undefined ? String(body.workingHours) : undefined;
-    const country = body.country !== undefined ? String(body.country) : undefined;
-    const city = body.city !== undefined ? String(body.city) : undefined;
+    const fullName = body.fullName ? String(body.fullName).slice(0, 100) : undefined;
+    const whatsappNumber = body.whatsappNumber ? String(body.whatsappNumber).slice(0, 30) : undefined;
+    const profilePhotoUrl = body.profilePhotoUrl !== undefined ? String(body.profilePhotoUrl).slice(0, 500) : undefined;
+    const coverBannerUrl = body.coverBannerUrl !== undefined ? String(body.coverBannerUrl).slice(0, 500) : undefined;
+    const bio = body.bio !== undefined ? String(body.bio).slice(0, 2000) : undefined;
+    const tradingExperience = body.tradingExperience !== undefined ? String(body.tradingExperience).slice(0, 1000) : undefined;
+    const workingHours = body.workingHours !== undefined ? String(body.workingHours).slice(0, 200) : undefined;
+    const country = body.country !== undefined ? String(body.country).slice(0, 100) : undefined;
+    const city = body.city !== undefined ? String(body.city).slice(0, 100) : undefined;
     const onlineStatus = body.onlineStatus === "online" || body.onlineStatus === "offline" ? body.onlineStatus : undefined;
     const preferredNetworksInput = Array.isArray(body.preferredNetworks) ? body.preferredNetworks.map((value: unknown) => String(value)) : undefined;
     const preferredPaymentMethods = Array.isArray(body.preferredPaymentMethods) ? body.preferredPaymentMethods.map((value: unknown) => String(value).trim()).filter(Boolean).slice(0, 8) : undefined;
@@ -50,6 +55,23 @@ export async function PATCH(request: NextRequest) {
     const preferredNetworks = preferredNetworksInput
       ? (preferredNetworksInput.filter((network: string) => network === "TRC20" || network === "ERC20" || network === "BEP20" || network === "SOL") as SupportedNetwork[])
       : undefined;
+
+    const currentPassword = body.currentPassword ? String(body.currentPassword) : "";
+    const newPassword = body.newPassword ? String(body.newPassword) : "";
+    let passwordHash: string | undefined;
+    if (currentPassword || newPassword) {
+      if (!currentPassword || !newPassword) {
+        return NextResponse.json({ error: "Both current and new password are required." }, { status: 400 });
+      }
+      const isValid = await verifyPassword(currentPassword, user.passwordHash);
+      if (!isValid) {
+        return NextResponse.json({ error: "Current password is incorrect." }, { status: 400 });
+      }
+      if (newPassword.length < 8) {
+        return NextResponse.json({ error: "New password must be at least 8 characters." }, { status: 400 });
+      }
+      passwordHash = await hashPassword(newPassword);
+    }
 
     const updatedUser = await updateUserSellerSettings({
       userId: user.id,
@@ -68,20 +90,7 @@ export async function PATCH(request: NextRequest) {
       onlineStatus,
     });
 
-    const currentPassword = body.currentPassword ? String(body.currentPassword) : "";
-    const newPassword = body.newPassword ? String(body.newPassword) : "";
-    if (currentPassword || newPassword) {
-      if (!currentPassword || !newPassword) {
-        return NextResponse.json({ error: "Both current and new password are required." }, { status: 400 });
-      }
-      const isValid = await verifyPassword(currentPassword, user.passwordHash);
-      if (!isValid) {
-        return NextResponse.json({ error: "Current password is incorrect." }, { status: 400 });
-      }
-      if (newPassword.length < 8) {
-        return NextResponse.json({ error: "New password must be at least 8 characters." }, { status: 400 });
-      }
-      const passwordHash = await hashPassword(newPassword);
+    if (passwordHash) {
       await updateUserPassword(user.id, passwordHash);
     }
 

@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     if (inviteCode.length > 64) {
       return NextResponse.json({ error: "Invite code is invalid." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
-    if (fullName.length > 100 || whatsappNumber.length > 30) {
+    if (fullName.length > 100 || whatsappNumber.length > 30 || email.length > 254) {
       return NextResponse.json({ error: "One or more fields exceed allowed length." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {

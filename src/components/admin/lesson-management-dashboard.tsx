@@ -53,6 +53,7 @@ export function LessonManagementDashboard() {
   const [toast, setToast] = useState<string>("");
   const [dragLessonId, setDragLessonId] = useState<string | null>(null);
   const autosaveRef = useRef<number | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedLesson = useMemo(() => lessons.find((lesson) => lesson.id === selectedLessonId) || null, [lessons, selectedLessonId]);
@@ -165,7 +166,8 @@ export function LessonManagementDashboard() {
     setSaving(false);
     setDirty(false);
     setToast(isAr ? "✓ تم الحفظ تلقائياً" : "✓ Saved");
-    window.setTimeout(() => setToast(""), 1600);
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToast(""), 1600);
   }, [authHeaders, isAr]);
 
   useEffect(() => {

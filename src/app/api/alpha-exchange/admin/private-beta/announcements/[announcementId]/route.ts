@@ -12,7 +12,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     const { announcementId } = await context.params;
     const body = await request.json();
-    const isActive = Boolean(body.isActive);
+    const isActive = body.isActive === true;
     const announcement = await updateBetaAnnouncementState({
       ownerUserId: user.id,
       announcementId,

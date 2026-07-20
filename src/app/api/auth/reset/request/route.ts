@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     const resetToken = `${randomUUID()}-${randomUUID()}`;
     await createPasswordResetToken(user.id, resetToken);
 
-    if (process.env.ALPHA_EXCHANGE_EXPOSE_RESET_TOKEN === "true") {
+    if (process.env.NODE_ENV !== "production" && process.env.ALPHA_EXCHANGE_EXPOSE_RESET_TOKEN === "true") {
       return NextResponse.json({ ok: true, resetToken });
     }
     return NextResponse.json({ ok: true });
