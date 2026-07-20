@@ -88,10 +88,139 @@
       "updatedAt": "2026-07-20T00:48:35.105Z"
     }
   ],
-  "marketplaceListings": [],
-  "purchaseRequests": [],
+  "marketplaceListings": [
+    {
+      "id": "listing-d15df89a-f7b1-4f09-b9f7-8439c0f62a55",
+      "sellerId": "user-guest-test123",
+      "sellerDisplayName": "test123",
+      "photos": [],
+      "originalAmount": "1000",
+      "availableAmount": "1000",
+      "price": "3.70",
+      "currency": "ILS",
+      "network": "TRC20",
+      "paymentMethods": [
+        "Bank transfer"
+      ],
+      "paymentMethod": "Bank transfer",
+      "minimumTrade": "100",
+      "maximumTrade": "1000",
+      "expiresAt": "2026-07-21T10:31:46.287Z",
+      "notes": "",
+      "sellerDescription": "",
+      "responseTime": "5 min",
+      "status": "active",
+      "createdAt": "2026-07-20T10:31:46.287Z",
+      "updatedAt": "2026-07-20T10:31:46.287Z"
+    },
+    {
+      "id": "listing-4920394a-961b-47b6-9810-b7781ec73b52",
+      "sellerId": "user-guest-test123",
+      "sellerDisplayName": "test123",
+      "photos": [],
+      "originalAmount": "500",
+      "availableAmount": "500",
+      "price": "3.65",
+      "currency": "ILS",
+      "network": "TRC20",
+      "paymentMethods": [
+        "Bank transfer"
+      ],
+      "paymentMethod": "Bank transfer",
+      "minimumTrade": "50",
+      "maximumTrade": "500",
+      "expiresAt": "2026-07-21T10:31:47.599Z",
+      "notes": "",
+      "sellerDescription": "",
+      "responseTime": "5 min",
+      "status": "active",
+      "createdAt": "2026-07-20T10:31:47.599Z",
+      "updatedAt": "2026-07-20T10:31:47.599Z"
+    }
+  ],
+  "purchaseRequests": [
+    {
+      "id": "purchase-8de4ff4c-f6aa-4a14-bd86-4b492fc796c6",
+      "buyerId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
+      "listingId": "listing-d15df89a-f7b1-4f09-b9f7-8439c0f62a55",
+      "sellerId": "user-guest-test123",
+      "buyerName": "Lifecycle Buyer",
+      "buyerWhatsapp": "+972500000000",
+      "buyerNotes": "Buying 300 USDT",
+      "usdtAmount": "300",
+      "fiatAmount": "1110.00",
+      "currency": "ILS",
+      "network": "TRC20",
+      "paymentMethod": "Bank transfer",
+      "timeline": [
+        {
+          "id": "timeline-purchase-b04a7bd3-45a2-4003-952d-56bc43c503fd-1",
+          "type": "request_submitted",
+          "actorUserId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
+          "actorRole": "admin",
+          "message": "Buyer submitted request",
+          "createdAt": "2026-07-20T10:31:55.008Z"
+        }
+      ],
+      "status": "pending",
+      "createdAt": "2026-07-20T10:31:55.008Z",
+      "updatedAt": "2026-07-20T10:31:55.008Z"
+    }
+  ],
   "commissionRecords": [],
   "auditLogs": [
+    {
+      "id": "audit-2b8dba3d-153d-438e-b973-f9bccf91bcb3",
+      "action": "trust_score_updated",
+      "actorUserId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
+      "targetUserId": "user-guest-test123",
+      "details": "Trust score 35.1 -> 35.6 (Purchase request submitted)",
+      "createdAt": "2026-07-20T10:31:55.009Z"
+    },
+    {
+      "id": "audit-aa639ae2-5925-4237-882f-e73e55d0df98",
+      "action": "purchase_request_submitted",
+      "actorUserId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
+      "targetUserId": "user-guest-test123",
+      "listingId": "listing-d15df89a-f7b1-4f09-b9f7-8439c0f62a55",
+      "purchaseRequestId": "purchase-8de4ff4c-f6aa-4a14-bd86-4b492fc796c6",
+      "details": "Submitted purchase request purchase-8de4ff4c-f6aa-4a14-bd86-4b492fc796c6",
+      "createdAt": "2026-07-20T10:31:55.009Z"
+    },
+    {
+      "id": "audit-ec368f76-99b8-4aa9-91d0-05490ef70a8d",
+      "action": "trust_score_updated",
+      "actorUserId": "user-guest-test123",
+      "targetUserId": "user-guest-test123",
+      "details": "Trust score 34.5 -> 35.1 (Listing created)",
+      "createdAt": "2026-07-20T10:31:47.599Z"
+    },
+    {
+      "id": "audit-37a4b53c-9927-4a28-a24e-47e3e8c98677",
+      "action": "listing_created",
+      "actorUserId": "user-guest-test123",
+      "targetUserId": "user-guest-test123",
+      "listingId": "listing-4920394a-961b-47b6-9810-b7781ec73b52",
+      "details": "Created listing listing-4920394a-961b-47b6-9810-b7781ec73b52 with 500 USDT available.",
+      "createdAt": "2026-07-20T10:31:47.599Z"
+    },
+    {
+      "id": "audit-b25bc3a6-a235-4b82-a79a-c4dbd5d21409",
+      "action": "trust_score_updated",
+      "actorUserId": "user-guest-test123",
+      "targetUserId": "user-guest-test123",
+      "details": "Trust score 28.2 -> 34.5 (Listing created)",
+      "createdAt": "2026-07-20T10:31:46.289Z"
+    },
+    {
+      "id": "audit-e45227bb-98a2-4275-bd51-dc00317d4729",
+      "action": "listing_created",
+      "actorUserId": "user-guest-test123",
+      "targetUserId": "user-guest-test123",
+      "listingId": "listing-d15df89a-f7b1-4f09-b9f7-8439c0f62a55",
+      "details": "Created listing listing-d15df89a-f7b1-4f09-b9f7-8439c0f62a55 with 1000 USDT available.",
+      "createdAt": "2026-07-20T10:31:46.287Z"
+    },
     {
       "id": "audit-1002f59e-c270-410e-9ded-f5f13fcf5b45",
       "action": "trust_score_updated",
@@ -1966,21 +2095,106 @@
   ],
   "authSessions": [
     {
-      "token": "0d8e25faea1797992d5e70e42f80b44c3eac22dbb20423b64d7a8531a23548bb",
-      "userId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
-      "createdAt": "2026-07-20T10:31:05.305Z",
-      "expiresAt": "2026-08-03T10:31:05.305Z"
-    },
-    {
       "token": "17cee9d97d65a95826a7526e211410c23ee5d4c288d96eb99e0db39ac1647d6b",
       "userId": "user-guest-test123",
       "createdAt": "2026-07-20T10:31:36.300Z",
       "expiresAt": "2026-08-03T10:31:36.300Z"
+    },
+    {
+      "token": "8753224967d7054369de783c6ce585d01beed50d84ac4875d5c9fdc4cab78b7f",
+      "userId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
+      "createdAt": "2026-07-20T10:31:51.884Z",
+      "expiresAt": "2026-08-03T10:31:51.884Z"
     }
   ],
   "passwordResetTokens": [],
-  "notifications": [],
-  "activityLog": [],
+  "notifications": [
+    {
+      "id": "notif-bccd4da9-d377-4f05-a035-cda99e98be43",
+      "userId": "user-guest-test123",
+      "category": "trade",
+      "title": "New trade request",
+      "message": "Lifecycle Buyer submitted a trade request.",
+      "isRead": false,
+      "relatedListingId": "listing-d15df89a-f7b1-4f09-b9f7-8439c0f62a55",
+      "relatedHref": "/usdt-exchange",
+      "createdAt": "2026-07-20T10:31:55.009Z"
+    },
+    {
+      "id": "notif-5b2a6ac8-368c-4d03-a193-2ae98a106ea2",
+      "userId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
+      "category": "listing",
+      "title": "New listing published",
+      "message": "test123 published listing listing-4920394a-961b-47b6-9810-b7781ec73b52.",
+      "isRead": false,
+      "relatedListingId": "listing-4920394a-961b-47b6-9810-b7781ec73b52",
+      "relatedHref": "/admin/alpha-exchange",
+      "createdAt": "2026-07-20T10:31:47.599Z"
+    },
+    {
+      "id": "notif-d48613dc-f381-4d2f-9724-d29314a22ab5",
+      "userId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
+      "category": "trust",
+      "title": "Flagged seller detected",
+      "message": "Seller user-guest-test123 is flagged for trust/risk signals.",
+      "isRead": false,
+      "createdAt": "2026-07-20T10:31:46.289Z"
+    },
+    {
+      "id": "notif-455b6b49-e12e-4cfb-87f3-7b4c64ad3344",
+      "userId": "user-guest-test123",
+      "category": "trust",
+      "title": "Trust score increased",
+      "message": "Your trust score increased from 28.2 to 34.5.",
+      "isRead": false,
+      "createdAt": "2026-07-20T10:31:46.289Z"
+    },
+    {
+      "id": "notif-3a54b0a9-2463-4154-8c7b-f0c05ef79fb0",
+      "userId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
+      "category": "listing",
+      "title": "New listing published",
+      "message": "test123 published listing listing-d15df89a-f7b1-4f09-b9f7-8439c0f62a55.",
+      "isRead": false,
+      "relatedListingId": "listing-d15df89a-f7b1-4f09-b9f7-8439c0f62a55",
+      "relatedHref": "/admin/alpha-exchange",
+      "createdAt": "2026-07-20T10:31:46.288Z"
+    }
+  ],
+  "activityLog": [
+    {
+      "id": "activity-a2c78c4a-4b73-46c4-94c8-7657457f7ae9",
+      "userId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
+      "category": "trade",
+      "title": "Trade request submitted",
+      "details": "Request purchase-8de4ff4c-f6aa-4a14-bd86-4b492fc796c6 was submitted.",
+      "createdAt": "2026-07-20T10:31:55.009Z"
+    },
+    {
+      "id": "activity-6919d190-63a7-4b6a-a694-89e9a3ffb130",
+      "userId": "user-guest-test123",
+      "category": "listing",
+      "title": "Listing published",
+      "details": "Listing listing-4920394a-961b-47b6-9810-b7781ec73b52 is now live.",
+      "createdAt": "2026-07-20T10:31:47.599Z"
+    },
+    {
+      "id": "activity-c4a4b9b7-678c-48bd-a7fe-9b8016c5e6e4",
+      "userId": "user-guest-test123",
+      "category": "trust",
+      "title": "Trust score increased",
+      "details": "Trust score improved to 34.5.",
+      "createdAt": "2026-07-20T10:31:46.289Z"
+    },
+    {
+      "id": "activity-c9b7dc77-6ecb-4fac-ab1c-32f6d7130a36",
+      "userId": "user-guest-test123",
+      "category": "listing",
+      "title": "Listing published",
+      "details": "Listing listing-d15df89a-f7b1-4f09-b9f7-8439c0f62a55 is now live.",
+      "createdAt": "2026-07-20T10:31:46.288Z"
+    }
+  ],
   "disputes": [],
   "sellerReports": [],
   "trustSnapshots": [
@@ -1988,10 +2202,10 @@
       "sellerId": "user-guest-test123",
       "snapshot": {
         "sellerId": "user-guest-test123",
-        "trustScore": 28.235666666666663,
-        "reliabilityScore": 0,
+        "trustScore": 35.595666666666666,
+        "reliabilityScore": 20,
         "responseScore": 60,
-        "activityScore": 10.066666666666666,
+        "activityScore": 11.066666666666666,
         "marketplacePosition": 1,
         "reputationSummary": "Growing Seller",
         "level": "bronze",
@@ -2001,30 +2215,57 @@
         "totalUsdtVolume": 0,
         "successRate": 0,
         "acceptanceRate": 0,
-        "cancellationRate": 100,
+        "cancellationRate": 0,
         "completionRate": 0,
         "responseTimeMinutes": 5,
         "customerSatisfaction": 86.25,
-        "recentActivityScore": 20,
+        "recentActivityScore": 22,
         "accountAgeDays": 1,
         "profileCompletion": 50,
         "verificationScore": 100,
         "disputesLost": 0,
         "marketplaceViolations": 0,
         "listingQualityScore": 40,
-        "profileViews": 280,
-        "listingViews": 772,
+        "profileViews": 286,
+        "listingViews": 622,
         "tradeRequests": 1,
-        "monthlyGrowthPercent": -0.8571428571428568,
+        "monthlyGrowthPercent": -0.14285714285714235,
         "estimatedCommissionPaid": 0,
         "revenueGenerated": 0,
         "repeatBuyers": 0,
         "averageTradeSize": 0
       },
-      "updatedAt": "2026-07-20T10:29:12.162Z"
+      "updatedAt": "2026-07-20T10:31:55.009Z"
     }
   ],
   "trustScoreHistory": [
+    {
+      "id": "trust-score-36807cae-8d99-40b9-b59a-db5e604ac812",
+      "sellerId": "user-guest-test123",
+      "oldScore": 35.11566666666666,
+      "newScore": 35.595666666666666,
+      "reason": "Purchase request submitted",
+      "triggeredBy": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
+      "createdAt": "2026-07-20T10:31:55.009Z"
+    },
+    {
+      "id": "trust-score-58ed0646-edcc-4fca-a08d-3f8a6fb63472",
+      "sellerId": "user-guest-test123",
+      "oldScore": 34.47566666666666,
+      "newScore": 35.11566666666666,
+      "reason": "Listing created",
+      "triggeredBy": "user-guest-test123",
+      "createdAt": "2026-07-20T10:31:47.599Z"
+    },
+    {
+      "id": "trust-score-6d255293-cf27-4f0c-a374-f93c68dca4de",
+      "sellerId": "user-guest-test123",
+      "oldScore": 28.235666666666663,
+      "newScore": 34.47566666666666,
+      "reason": "Listing created",
+      "triggeredBy": "user-guest-test123",
+      "createdAt": "2026-07-20T10:31:46.289Z"
+    },
     {
       "id": "trust-score-8afc7f3e-8e2b-4a52-81e4-14b4ec89c12a",
       "sellerId": "user-guest-test123",
