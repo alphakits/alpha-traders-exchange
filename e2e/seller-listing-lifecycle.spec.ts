@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext, type Browser, type Page } from "@playwright/test";
+import { request, test, expect, type APIRequestContext, type Browser, type Page } from "@playwright/test";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
 const OWNER_EMAIL = "jozenmark834@yahoo.com";
