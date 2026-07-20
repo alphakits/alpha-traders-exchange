@@ -2937,16 +2937,16 @@
   ],
   "authSessions": [
     {
-      "token": "a04164f75828d3cd686f9ac16516d374ea8edb577d6e3e8a3d46f90cc42accb2",
+      "token": "b02cb507950028d3bd546f3001370ac2f400e4fbc7514fe67d5d10cd280540c5",
       "userId": "user-guest-test123",
-      "createdAt": "2026-07-20T11:33:14.098Z",
-      "expiresAt": "2026-08-03T11:33:14.098Z"
+      "createdAt": "2026-07-20T11:37:21.644Z",
+      "expiresAt": "2026-08-03T11:37:21.644Z"
     },
     {
-      "token": "99518d0ab39e8675f5f15ad533da8e124b8ab614b08d1fbac3f57142876c1863",
+      "token": "e7d1974fd23a55d4e931932518fd2ccc53749f17aef227882f9ad4c22c26d7b7",
       "userId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
-      "createdAt": "2026-07-20T11:33:18.058Z",
-      "expiresAt": "2026-08-03T11:33:18.058Z"
+      "createdAt": "2026-07-20T11:37:42.044Z",
+      "expiresAt": "2026-08-03T11:37:42.044Z"
     }
   ],
   "passwordResetTokens": [],
