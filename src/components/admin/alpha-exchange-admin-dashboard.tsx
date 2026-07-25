@@ -1483,7 +1483,7 @@ export function AlphaExchangeAdminDashboard() {
                             <Input value={inviteMaxUses} onChange={(event) => setInviteMaxUses(event.target.value)} placeholder="Max uses" />
                             <Input type="datetime-local" value={inviteExpiresAt} onChange={(event) => setInviteExpiresAt(event.target.value)} />
                             <div className="md:col-span-2">
-                              <Button type="button" onClick={handleCreateInvite}>Generate Invite Code</Button>
+                              <Button type="button" onClick={handleCreateInvite}>Generate Access Code</Button>
                             </div>
                           </div>
                           <div className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-3">
