@@ -1,14 +1,10 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import { getSiteUrl } from "@/lib/site-url";
 
 function getMailConfig() {
-  const host = process.env.SMTP_HOST ?? "";
-  const port = Number(process.env.SMTP_PORT ?? "587");
-  const user = process.env.SMTP_USER ?? "";
-  const pass = process.env.SMTP_PASS ?? "";
-  const from = process.env.SMTP_FROM ?? "";
-  const secure = process.env.SMTP_SECURE === "true" || port === 465;
-  return { host, port, user, pass, from, secure };
+  const apiKey = process.env.RESEND_API_KEY ?? "";
+  const from = process.env.EMAIL_FROM ?? "";
+  return { apiKey, from };
 }
 
 function buildVerificationEmailHtml(input: { fullName: string; verifyUrl: string; expiresInHours: number }) {
@@ -54,17 +50,8 @@ export async function sendVerificationEmail(input: {
   expiresInHours?: number;
 }) {
   const config = getMailConfig();
-  console.info("[auth-email] SMTP debug", {
-    smtpHostExists: Boolean(config.host),
-    smtpHost: config.host || null,
-    smtpPort: config.port,
-    smtpUser: config.user || null,
-    smtpPassExists: Boolean(config.pass),
-    smtpPassLength: config.pass ? config.pass.length : 0,
-    smtpSecure: config.secure,
-  });
-  if (!config.host || !config.user || !config.pass || !config.from || Number.isNaN(config.port)) {
-    console.error("[auth-email] SMTP configuration is incomplete. Verification email was not sent.");
+  if (!config.apiKey || !config.from) {
+    console.error("[auth-email] Resend configuration is incomplete. Verification email was not sent.");
     return { sent: false as const };
   }
 
@@ -72,19 +59,10 @@ export async function sendVerificationEmail(input: {
   const expiresInHours = input.expiresInHours ?? 24;
   const baseUrl = getSiteUrl();
   const verifyUrl = `${baseUrl}/${locale}/verify-email?token=${encodeURIComponent(input.token)}`;
-  const transporter = nodemailer.createTransport({
-    host: config.host,
-    port: config.port,
-    secure: config.secure,
-    auth: {
-      user: config.user,
-      pass: config.pass,
-    },
-  });
-
-  await transporter.sendMail({
+  const resend = new Resend(config.apiKey);
+  const { error } = await resend.emails.send({
     from: config.from,
-    to: input.to,
+    to: [input.to],
     subject: "Verify your Alpha Traders account",
     text: `Verify your email to activate your account: ${verifyUrl}\nThis link expires in ${expiresInHours} hours.`,
     html: buildVerificationEmailHtml({
@@ -93,6 +71,9 @@ export async function sendVerificationEmail(input: {
       expiresInHours,
     }),
   });
+  if (error) {
+    throw new Error(`Resend email delivery failed: ${error.message}`);
+  }
 
   return { sent: true as const, verifyUrl };
 }
