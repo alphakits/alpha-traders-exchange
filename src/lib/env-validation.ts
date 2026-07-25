@@ -14,12 +14,8 @@ const ENV_VARS: EnvVar[] = [
   { key: "NEXT_PUBLIC_SUPABASE_ANON_KEY", required: true, description: "Supabase anon key used by the browser and server clients" },
   { key: "SUPABASE_DB_URL", required: false, description: "PostgreSQL connection string used for Alpha Exchange runtime persistence" },
   { key: "SUPABASE_SERVICE_ROLE_KEY", required: false, description: "Supabase service role key used for admin media uploads to object storage" },
-  { key: "SMTP_HOST", required: false, description: "SMTP host for transactional auth emails" },
-  { key: "SMTP_PORT", required: false, description: "SMTP port for transactional auth emails" },
-  { key: "SMTP_USER", required: false, description: "SMTP username for transactional auth emails" },
-  { key: "SMTP_PASS", required: false, description: "SMTP password for transactional auth emails" },
-  { key: "SMTP_FROM", required: false, description: "From email address for transactional auth emails" },
-  { key: "SMTP_SECURE", required: false, description: "Optional SMTP secure transport flag (true/false)" },
+  { key: "RESEND_API_KEY", required: false, description: "Resend API key for transactional auth emails" },
+  { key: "EMAIL_FROM", required: false, description: "From email address for transactional auth emails sent via Resend" },
   { key: "SUPABASE_ADMIN_MEDIA_BUCKET", required: false, description: "Supabase Storage bucket for admin lesson/media uploads" },
   { key: "NEXT_PUBLIC_SITE_URL", required: false, description: "Canonical production site URL, e.g. https://alphatraders.academy" },
   { key: "AUTH_COOKIE_SECURE", required: false, description: "Force cookie secure flag on/off" },
@@ -61,9 +57,9 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
         "Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY — admin media uploads require object storage credentials in production.",
       );
     }
-    if (!process.env.SMTP_HOST || !process.env.SMTP_PORT || !process.env.SMTP_USER || !process.env.SMTP_PASS || !process.env.SMTP_FROM) {
+    if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
       warnings.push(
-        "SMTP environment variables are incomplete: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM. Verification emails will not be delivered until SMTP is configured.",
+        "Resend environment variables are incomplete: RESEND_API_KEY and EMAIL_FROM. Verification emails will not be delivered until Resend is configured.",
       );
     }
 
