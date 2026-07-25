@@ -1456,7 +1456,7 @@ export async function createEmailVerificationTokenForEmail(email: string, durati
   };
   await writeDb(db);
   return {
-    skipped: null as const,
+    skipped: null,
     token,
     expiresAt,
     user: db.users[userIndex],
