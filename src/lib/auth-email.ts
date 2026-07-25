@@ -2,8 +2,8 @@ import { Resend } from "resend";
 import { getSiteUrl } from "@/lib/site-url";
 
 function getMailConfig() {
-  const apiKey = process.env.RESEND_API_KEY ?? "";
-  const from = process.env.EMAIL_FROM ?? "";
+  const apiKey = (process.env.RESEND_API_KEY ?? "").trim();
+  const from = (process.env.EMAIL_FROM ?? "").trim();
   return { apiKey, from };
 }
 
@@ -50,6 +50,12 @@ export async function sendVerificationEmail(input: {
   expiresInHours?: number;
 }) {
   const config = getMailConfig();
+  console.info("[auth-email] Resend debug", {
+    hasResendKey: Boolean(process.env.RESEND_API_KEY),
+    resendKeyLength: process.env.RESEND_API_KEY?.length ?? 0,
+    hasEmailFrom: Boolean(process.env.EMAIL_FROM),
+    emailFrom: process.env.EMAIL_FROM ?? null,
+  });
   if (!config.apiKey || !config.from) {
     console.error("[auth-email] Resend configuration is incomplete. Verification email was not sent.");
     return { sent: false as const };

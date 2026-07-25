@@ -47,6 +47,11 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
   }
 
   if (isProduction) {
+    const resendApiKey = process.env.RESEND_API_KEY ?? "";
+    const emailFrom = process.env.EMAIL_FROM ?? "";
+    const hasResendKey = resendApiKey.trim().length > 0;
+    const hasEmailFrom = emailFrom.trim().length > 0;
+
     if (!process.env.SUPABASE_DB_URL && !process.env.DATABASE_URL) {
       errors.push(
         "Missing required environment variable: SUPABASE_DB_URL (or DATABASE_URL) — PostgreSQL persistence is required in production.",
@@ -57,7 +62,13 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
         "Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY — admin media uploads require object storage credentials in production.",
       );
     }
-    if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
+    if (!hasResendKey || !hasEmailFrom) {
+      console.info("[env-validation] Resend debug", {
+        hasResendKey: Boolean(process.env.RESEND_API_KEY),
+        resendKeyLength: process.env.RESEND_API_KEY?.length ?? 0,
+        hasEmailFrom: Boolean(process.env.EMAIL_FROM),
+        emailFrom: process.env.EMAIL_FROM ?? null,
+      });
       warnings.push(
         "Resend environment variables are incomplete: RESEND_API_KEY and EMAIL_FROM. Verification emails will not be delivered until Resend is configured.",
       );
