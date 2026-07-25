@@ -1,13 +1,12 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { Link, useRouter } from "@/i18n/navigation";
+import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
   const isAr = locale === "ar";
-  const router = useRouter();
   const [form, setForm] = useState({
     fullName: "",
     email: "",
@@ -17,6 +16,7 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
     agreedToTerms: false,
   });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function readApiError(response: Response, fallback: string) {
@@ -30,6 +30,7 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setStatusMessage(null);
     setErrorMessage(null);
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -39,11 +40,25 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
+      const payload = (await response.json()) as { error?: string; message?: string };
       if (!response.ok) {
-        setErrorMessage(await readApiError(response, "Registration failed."));
+        setErrorMessage(payload.error ?? "Registration failed.");
         return;
       }
-      router.push("/usdt-exchange");
+      setStatusMessage(
+        payload.message ??
+          (isAr
+            ? "تم إنشاء الحساب. يرجى تأكيد بريدك الإلكتروني قبل تسجيل الدخول."
+            : "Your account has been created. Please verify your email before signing in."),
+      );
+      setForm({
+        fullName: "",
+        email: "",
+        password: "",
+        confirmPassword: "",
+        whatsappNumber: "",
+        agreedToTerms: false,
+      });
     } catch {
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
     } finally {
@@ -56,7 +71,7 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
       <div className="mx-auto w-full max-w-xl rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.4)] backdrop-blur-xl md:p-8">
         <h1 className="text-3xl font-semibold md:text-4xl">{isAr ? "إنشاء حساب" : "Register"}</h1>
         <p className="mt-2 text-sm text-[#9CA3AF]">
-          {isAr ? "يمكنك إنشاء حساب جديد الآن. كل حساب جديد يُنشأ كمشتري." : "You can now create a new account. Every new account is created as a Buyer."}
+          {isAr ? "أنشئ حساب Alpha Traders الخاص بك. تحقّق من بريدك الإلكتروني لتفعيل الحساب." : "Create your Alpha Traders account. Verify your email to activate your account."}
         </p>
 
         <form className="mt-6 grid gap-3" onSubmit={handleSubmit}>
@@ -78,6 +93,7 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
         </form>
 
         {errorMessage ? <p className="mt-3 text-sm text-rose-300" role="status" aria-live="polite">{errorMessage}</p> : null}
+        {statusMessage ? <p className="mt-3 text-sm text-emerald-300" role="status" aria-live="polite">{statusMessage}</p> : null}
 
         <p className="mt-5 text-sm text-[#9CA3AF]">
           {isAr ? "لديك حساب بالفعل؟" : "Already have an account?"}{" "}
