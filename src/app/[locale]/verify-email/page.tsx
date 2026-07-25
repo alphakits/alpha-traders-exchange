@@ -45,6 +45,14 @@ export default function VerifyEmailPage({ params }: { params: { locale: string }
     verify();
   }, [token, isAr, isVerifying, isVerified]);
 
+  useEffect(() => {
+    if (!isVerified) return;
+    const timer = window.setTimeout(() => {
+      window.location.assign(`/${params.locale}/login`);
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [isVerified, params.locale]);
+
   async function handleResend(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isResending) return;
