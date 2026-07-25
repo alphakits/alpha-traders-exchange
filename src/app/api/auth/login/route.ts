@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { findUserByEmail } from "@/lib/alpha-exchange-store";
-import { AUTH_COOKIE_NAME, createUserSession, verifyPassword } from "@/lib/auth";
+import { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, createUserSession, verifyPassword } from "@/lib/auth";
 import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
 import { checkRateLimit } from "@/lib/rate-limit";
 
@@ -37,11 +37,27 @@ export async function POST(request: NextRequest) {
     if (!valid) {
       return NextResponse.json({ error: "Invalid credentials." }, { status: 401, headers: AUTH_RESPONSE_HEADERS });
     }
+    if (user.emailVerified !== true) {
+      return NextResponse.json(
+        {
+          error: "Please verify your email before signing in. Check your inbox or request a new verification email.",
+          requiresEmailVerification: true,
+        },
+        { status: 403, headers: AUTH_RESPONSE_HEADERS },
+      );
+    }
 
     const { token, expiresAt } = await createUserSession(user.id);
     const secureCookies = shouldUseSecureAuthCookie(request);
     const cookieStore = await cookies();
     cookieStore.set(AUTH_COOKIE_NAME, token, {
+      httpOnly: true,
+      secure: secureCookies,
+      sameSite: "lax",
+      path: "/",
+      expires: new Date(expiresAt),
+    });
+    cookieStore.set(AUTH_VERIFIED_COOKIE_NAME, "1", {
       httpOnly: true,
       secure: secureCookies,
       sameSite: "lax",
