@@ -2,12 +2,14 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
+import { useLocale } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-export default function VerifyEmailPage({ params }: { params: { locale: string } }) {
-  const isAr = params.locale === "ar";
+export default function VerifyEmailPage() {
+  const locale = useLocale();
+  const isAr = locale === "ar";
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
   const [email, setEmail] = useState("");
@@ -48,10 +50,10 @@ export default function VerifyEmailPage({ params }: { params: { locale: string }
   useEffect(() => {
     if (!isVerified) return;
     const timer = window.setTimeout(() => {
-      window.location.assign(`/${params.locale}/login`);
+      window.location.assign(`/${locale}/login`);
     }, 1500);
     return () => window.clearTimeout(timer);
-  }, [isVerified, params.locale]);
+  }, [isVerified, locale]);
 
   async function handleResend(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
