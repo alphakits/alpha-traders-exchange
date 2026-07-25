@@ -30,6 +30,11 @@ export interface AlphaExchangeUser {
   notificationPreferences?: NotificationPreferences;
   role: UserRole;
   sellerStatus: SellerStatus;
+  emailVerified?: boolean;
+  emailVerifiedAt?: string;
+  emailVerificationTokenHash?: string;
+  emailVerificationTokenExpiresAt?: string;
+  emailVerificationSentAt?: string;
   isFoundingMember?: boolean;
   isFoundingSeller?: boolean;
   registeredViaInviteCodeId?: string;

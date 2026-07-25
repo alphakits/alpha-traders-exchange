@@ -5,6 +5,7 @@ import { createAuthSession, deleteSessionByToken, findUserById, getSessionByToke
 
 const scrypt = promisify(scryptCallback);
 export const AUTH_COOKIE_NAME = "alpha_exchange_session";
+export const AUTH_VERIFIED_COOKIE_NAME = "alpha_exchange_verified";
 
 export async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
@@ -50,6 +51,10 @@ export async function getCurrentSessionUser() {
   }
   const user = await findUserById(session.userId);
   if (!user) {
+    return null;
+  }
+  if (user.emailVerified !== true) {
+    await deleteSessionByToken(token);
     return null;
   }
   return user;

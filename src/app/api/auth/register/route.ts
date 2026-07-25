@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createUser } from "@/lib/alpha-exchange-store";
-import { AUTH_COOKIE_NAME, createUserSession, hashPassword } from "@/lib/auth";
-import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
+import { createEmailVerificationTokenForUser, createUser } from "@/lib/alpha-exchange-store";
+import { hashPassword } from "@/lib/auth";
+import { sendVerificationEmail } from "@/lib/auth-email";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
@@ -52,25 +51,21 @@ export async function POST(request: NextRequest) {
       passwordHash,
       whatsappNumber,
     });
-    const { token, expiresAt } = await createUserSession(user.id);
-    const secureCookies = shouldUseSecureAuthCookie(request);
-    const cookieStore = await cookies();
-    cookieStore.set(AUTH_COOKIE_NAME, token, {
-      httpOnly: true,
-      secure: secureCookies,
-      sameSite: "lax",
-      path: "/",
-      expires: new Date(expiresAt),
-    });
+    const verification = await createEmailVerificationTokenForUser(user.id);
+
+    try {
+      await sendVerificationEmail({
+        to: user.email,
+        fullName: user.fullName,
+        token: verification.token,
+      });
+    } catch (error) {
+      console.error("[auth/register] Failed to send verification email:", error);
+    }
 
     return NextResponse.json({
-      user: {
-        id: user.id,
-        fullName: user.fullName,
-        email: user.email,
-        role: user.role,
-        sellerStatus: user.sellerStatus,
-      },
+      ok: true,
+      message: "Your account has been created. Please verify your email before signing in.",
     }, { headers: AUTH_RESPONSE_HEADERS });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Registration failed." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });

@@ -1,5 +1,5 @@
 import path from "path";
-import { createHash, randomUUID } from "crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "crypto";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { calculateSellerTrustSnapshot, rankTrustSnapshots } from "@/lib/trust-engine";
 import { runEnvValidation } from "@/lib/env-validation";
@@ -79,6 +79,8 @@ const COMMISSION_GRACE_PERIOD_DAYS = 7;
 const DEFAULT_LISTING_EXPIRATION_HOURS = 24;
 const ALLOWED_LISTING_EXPIRATION_HOURS = [1, 6, 12, 24] as const;
 const DEFAULT_STALE_TRADE_TIMEOUT_MINUTES = 20;
+const EMAIL_VERIFICATION_TOKEN_BYTES = 32;
+const EMAIL_VERIFICATION_EXPIRY_HOURS = 24;
 const SYSTEM_ACTOR_USER_ID = "system:marketplace";
 let dbCache: { value: AlphaExchangeDb; updatedAt: number } | null = null;
 let dbReadInFlight: Promise<AlphaExchangeDb> | null = null;
@@ -615,6 +617,23 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         isFeaturedSeller: (user as { isFeaturedSeller?: boolean }).isFeaturedSeller === true,
         isProfileHidden: (user as { isProfileHidden?: boolean }).isProfileHidden === true,
         notificationPreferences: normalizeNotificationPreferences((user as { notificationPreferences?: NotificationPreferences }).notificationPreferences),
+        emailVerified: (user as { emailVerified?: boolean }).emailVerified !== false,
+        emailVerifiedAt:
+          typeof (user as { emailVerifiedAt?: string }).emailVerifiedAt === "string"
+            ? (user as { emailVerifiedAt: string }).emailVerifiedAt
+            : undefined,
+        emailVerificationTokenHash:
+          typeof (user as { emailVerificationTokenHash?: string }).emailVerificationTokenHash === "string"
+            ? (user as { emailVerificationTokenHash: string }).emailVerificationTokenHash
+            : undefined,
+        emailVerificationTokenExpiresAt:
+          typeof (user as { emailVerificationTokenExpiresAt?: string }).emailVerificationTokenExpiresAt === "string"
+            ? (user as { emailVerificationTokenExpiresAt: string }).emailVerificationTokenExpiresAt
+            : undefined,
+        emailVerificationSentAt:
+          typeof (user as { emailVerificationSentAt?: string }).emailVerificationSentAt === "string"
+            ? (user as { emailVerificationSentAt: string }).emailVerificationSentAt
+            : undefined,
         isFoundingMember: (user as { isFoundingMember?: boolean }).isFoundingMember === true,
         isFoundingSeller: (user as { isFoundingSeller?: boolean }).isFoundingSeller === true,
         registeredViaInviteCodeId:
@@ -1306,6 +1325,13 @@ export function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
+function constantTimeHexEquals(leftHex: string, rightHex: string) {
+  const left = Buffer.from(leftHex, "hex");
+  const right = Buffer.from(rightHex, "hex");
+  if (left.length !== right.length) return false;
+  return timingSafeEqual(left, right);
+}
+
 function isAdminEmail(email: string) {
   return isAlphaExchangeOwnerEmail(email);
 }
@@ -1359,6 +1385,11 @@ export async function createUser(input: {
     notificationPreferences: normalizeNotificationPreferences(),
     role,
     sellerStatus: "buyer",
+    emailVerified: false,
+    emailVerifiedAt: undefined,
+    emailVerificationTokenHash: undefined,
+    emailVerificationTokenExpiresAt: undefined,
+    emailVerificationSentAt: undefined,
     isFoundingMember: !isAdminEmail(email),
     isFoundingSeller: false,
     createdAt: timestamp,
@@ -1367,6 +1398,110 @@ export async function createUser(input: {
   db.users.push(user);
   await writeDb(db);
   return user;
+}
+
+export async function createEmailVerificationTokenForUser(userId: string, durationHours = EMAIL_VERIFICATION_EXPIRY_HOURS) {
+  const db = await readDb();
+  const userIndex = db.users.findIndex((user) => user.id === userId);
+  if (userIndex === -1) {
+    throw new Error("User not found.");
+  }
+
+  const token = randomBytes(EMAIL_VERIFICATION_TOKEN_BYTES).toString("hex");
+  const tokenHash = hashToken(token);
+  const expiresAt = new Date(Date.now() + durationHours * 60 * 60 * 1000).toISOString();
+  const sentAt = nowIso();
+
+  db.users[userIndex] = {
+    ...db.users[userIndex],
+    emailVerificationTokenHash: tokenHash,
+    emailVerificationTokenExpiresAt: expiresAt,
+    emailVerificationSentAt: sentAt,
+    updatedAt: sentAt,
+  };
+
+  await writeDb(db);
+  return {
+    token,
+    expiresAt,
+    user: db.users[userIndex],
+  };
+}
+
+export async function createEmailVerificationTokenForEmail(email: string, durationHours = EMAIL_VERIFICATION_EXPIRY_HOURS) {
+  const db = await readDb();
+  const normalizedEmail = normalizeEmail(email);
+  const userIndex = db.users.findIndex((user) => normalizeEmail(user.email) === normalizedEmail);
+  if (userIndex === -1) {
+    return null;
+  }
+
+  if (db.users[userIndex].emailVerified === true) {
+    return {
+      skipped: "already_verified" as const,
+      user: db.users[userIndex],
+    };
+  }
+
+  const token = randomBytes(EMAIL_VERIFICATION_TOKEN_BYTES).toString("hex");
+  const tokenHash = hashToken(token);
+  const expiresAt = new Date(Date.now() + durationHours * 60 * 60 * 1000).toISOString();
+  const sentAt = nowIso();
+  db.users[userIndex] = {
+    ...db.users[userIndex],
+    emailVerificationTokenHash: tokenHash,
+    emailVerificationTokenExpiresAt: expiresAt,
+    emailVerificationSentAt: sentAt,
+    updatedAt: sentAt,
+  };
+  await writeDb(db);
+  return {
+    skipped: null as const,
+    token,
+    expiresAt,
+    user: db.users[userIndex],
+  };
+}
+
+export async function consumeEmailVerificationToken(rawToken: string) {
+  const token = String(rawToken ?? "").trim();
+  if (!token) return { status: "invalid" as const };
+
+  const db = await readDb();
+  const candidateHash = hashToken(token);
+  const now = Date.now();
+
+  for (let index = 0; index < db.users.length; index += 1) {
+    const user = db.users[index];
+    if (!user.emailVerificationTokenHash) continue;
+    if (!constantTimeHexEquals(user.emailVerificationTokenHash, candidateHash)) continue;
+
+    const expiresAt = user.emailVerificationTokenExpiresAt ? new Date(user.emailVerificationTokenExpiresAt).getTime() : 0;
+    if (!expiresAt || Number.isNaN(expiresAt) || expiresAt <= now) {
+      db.users[index] = {
+        ...user,
+        emailVerificationTokenHash: undefined,
+        emailVerificationTokenExpiresAt: undefined,
+        updatedAt: nowIso(),
+      };
+      await writeDb(db);
+      return { status: "expired" as const };
+    }
+
+    const verifiedAt = nowIso();
+    db.users[index] = {
+      ...user,
+      emailVerified: true,
+      emailVerifiedAt: verifiedAt,
+      emailVerificationTokenHash: undefined,
+      emailVerificationTokenExpiresAt: undefined,
+      updatedAt: verifiedAt,
+    };
+    await writeDb(db);
+    return { status: "verified" as const, user: db.users[index] };
+  }
+
+  return { status: "invalid" as const };
 }
 
 export async function updateUserPassword(userId: string, passwordHash: string) {
