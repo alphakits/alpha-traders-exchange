@@ -419,7 +419,7 @@ export function AlphaExchangeAdminDashboard() {
           expiresAt: inviteExpiresAt || undefined,
         }),
       }),
-      "Invite code created.",
+      "Access code created.",
     );
   }
 
@@ -1476,7 +1476,7 @@ export function AlphaExchangeAdminDashboard() {
                       <Card className="border-white/10 bg-[#0B0B0B]/90">
                         <CardHeader>
                           <CardTitle>Private Beta Access</CardTitle>
-                          <CardDescription>Invite-only onboarding controls and invite history.</CardDescription>
+                          <CardDescription>Onboarding controls and registration history.</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
                           <div className="grid gap-3 md:grid-cols-4">
@@ -1523,7 +1523,7 @@ export function AlphaExchangeAdminDashboard() {
                                     </td>
                                   </tr>
                                 ))}
-                                {!data.privateBeta.inviteCodes.length ? renderEmptyTableRow("No invite codes yet.", 6) : null}
+                                {!data.privateBeta.inviteCodes.length ? renderEmptyTableRow("No onboarding codes yet.", 6) : null}
                               </tbody>
                             </table>
                           </div>
@@ -1589,7 +1589,7 @@ export function AlphaExchangeAdminDashboard() {
                         <Card className="border-white/10 bg-[#0B0B0B]/90">
                           <CardHeader>
                             <CardTitle>Beta Announcements</CardTitle>
-                            <CardDescription>Publish updates to private beta users only.</CardDescription>
+                            <CardDescription>Publish updates to users.</CardDescription>
                           </CardHeader>
                           <CardContent className="space-y-3">
                             <select value={announcementType} onChange={(event) => setAnnouncementType(event.target.value as BetaAnnouncementType)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white">
