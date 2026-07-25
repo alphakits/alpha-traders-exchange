@@ -54,6 +54,15 @@ export async function sendVerificationEmail(input: {
   expiresInHours?: number;
 }) {
   const config = getMailConfig();
+  console.info("[auth-email] SMTP debug", {
+    smtpHostExists: Boolean(config.host),
+    smtpHost: config.host || null,
+    smtpPort: config.port,
+    smtpUser: config.user || null,
+    smtpPassExists: Boolean(config.pass),
+    smtpPassLength: config.pass ? config.pass.length : 0,
+    smtpSecure: config.secure,
+  });
   if (!config.host || !config.user || !config.pass || !config.from || Number.isNaN(config.port)) {
     console.error("[auth-email] SMTP configuration is incomplete. Verification email was not sent.");
     return { sent: false as const };
