@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { AUTH_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
+import { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 
 export async function requireApiUser() {
@@ -9,6 +9,7 @@ export async function requireApiUser() {
     await clearUserSession(token);
     const unauthorized = NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     unauthorized.cookies.delete(AUTH_COOKIE_NAME);
+    unauthorized.cookies.delete(AUTH_VERIFIED_COOKIE_NAME);
     return {
       user: null,
       unauthorized,
