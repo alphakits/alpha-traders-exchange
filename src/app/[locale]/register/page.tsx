@@ -6,7 +6,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   return buildPageMetadata({
     locale: locale as "ar" | "en",
     title: locale === "ar" ? "إنشاء حساب" : "Register",
-    description: locale === "ar" ? "إنشاء حساب جديد في Alpha Exchange عبر كود دعوة للنسخة التجريبية الخاصة." : "Create a new Alpha Exchange account with a private beta invite code.",
+    description: locale === "ar" ? "أنشئ حساب Alpha Exchange جديد وابدأ كمشتري." : "Create a new Alpha Exchange account and start as a Buyer.",
     path: "/register",
   });
 }

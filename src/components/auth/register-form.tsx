@@ -14,7 +14,6 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
     password: "",
     confirmPassword: "",
     whatsappNumber: "",
-    inviteCode: "",
     agreedToTerms: false,
   });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -57,7 +56,7 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
       <div className="mx-auto w-full max-w-xl rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.4)] backdrop-blur-xl md:p-8">
         <h1 className="text-3xl font-semibold md:text-4xl">{isAr ? "إنشاء حساب" : "Register"}</h1>
         <p className="mt-2 text-sm text-[#9CA3AF]">
-          {isAr ? "التسجيل في النسخة التجريبية الخاصة يتم عبر كود دعوة فقط. كل حساب جديد يُنشأ كمشتري." : "Private beta registration is invite-only. Every new account is created as a Buyer."}
+          {isAr ? "يمكنك إنشاء حساب جديد الآن. كل حساب جديد يُنشأ كمشتري." : "You can now create a new account. Every new account is created as a Buyer."}
         </p>
 
         <form className="mt-6 grid gap-3" onSubmit={handleSubmit}>
@@ -66,7 +65,6 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
           <Input aria-label={isAr ? "كلمة المرور" : "Password"} placeholder={isAr ? "كلمة المرور" : "Password"} type="password" autoComplete="new-password" required value={form.password} onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))} />
           <Input aria-label={isAr ? "تأكيد كلمة المرور" : "Confirm Password"} placeholder={isAr ? "تأكيد كلمة المرور" : "Confirm Password"} type="password" autoComplete="new-password" required value={form.confirmPassword} onChange={(event) => setForm((prev) => ({ ...prev, confirmPassword: event.target.value }))} />
           <Input aria-label={isAr ? "رقم الواتساب" : "WhatsApp Number"} placeholder={isAr ? "رقم الواتساب" : "WhatsApp Number"} autoComplete="tel" required value={form.whatsappNumber} onChange={(event) => setForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} />
-          <Input aria-label={isAr ? "كود الدعوة" : "Invite Code"} placeholder={isAr ? "كود الدعوة" : "Invite Code"} required value={form.inviteCode} onChange={(event) => setForm((prev) => ({ ...prev, inviteCode: event.target.value.toUpperCase() }))} />
           <label className={`inline-flex items-start gap-2 text-sm text-[#D1D5DB] ${isAr ? "flex-row-reverse" : ""}`}>
             <input
               type="checkbox"

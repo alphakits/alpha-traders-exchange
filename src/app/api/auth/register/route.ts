@@ -24,17 +24,10 @@ export async function POST(request: NextRequest) {
     const password = String(body.password ?? "");
     const confirmPassword = String(body.confirmPassword ?? "");
     const whatsappNumber = String(body.whatsappNumber ?? "").trim();
-    const inviteCode = String(body.inviteCode ?? "").trim();
     const agreedToTerms = Boolean(body.agreedToTerms);
 
     if (!fullName || !email || !password || !confirmPassword || !whatsappNumber) {
       return NextResponse.json({ error: "All fields are required." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
-    }
-    if (!inviteCode) {
-      return NextResponse.json({ error: "Invite code is required for private beta registration." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
-    }
-    if (inviteCode.length > 64) {
-      return NextResponse.json({ error: "Invite code is invalid." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
     if (fullName.length > 100 || whatsappNumber.length > 30 || email.length > 254) {
       return NextResponse.json({ error: "One or more fields exceed allowed length." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
@@ -58,7 +51,6 @@ export async function POST(request: NextRequest) {
       email,
       passwordHash,
       whatsappNumber,
-      inviteCode,
     });
     const { token, expiresAt } = await createUserSession(user.id);
     const secureCookies = shouldUseSecureAuthCookie(request);

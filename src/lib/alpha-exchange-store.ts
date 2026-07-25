@@ -1314,10 +1314,6 @@ export function canPublishListings(user: Pick<AlphaExchangeUser, "role" | "selle
   return user.role !== "admin" && user.sellerStatus === "approved_seller";
 }
 
-export function isPrivateBetaInviteOnlyModeEnabled() {
-  return true;
-}
-
 function resolveInviteStatus(invite: PrivateBetaInviteCode) {
   if (invite.status === "disabled") return "disabled" as const;
   if (invite.expiresAt && new Date(invite.expiresAt).getTime() <= Date.now()) return "expired" as const;
@@ -1330,54 +1326,15 @@ export async function createUser(input: {
   email: string;
   passwordHash: string;
   whatsappNumber: string;
-  inviteCode: string;
 }) {
   const db = await readDb();
   const email = normalizeEmail(input.email);
   if (db.users.some((user) => normalizeEmail(user.email) === email)) {
     throw new Error("Email already registered.");
   }
-  if (!isAdminEmail(email)) {
-    if (!isPrivateBetaInviteOnlyModeEnabled()) {
-      throw new Error("Public registration is disabled.");
-    }
-    const inviteCode = String(input.inviteCode ?? "").trim().toUpperCase();
-    if (!inviteCode) {
-      throw new Error("A valid private beta invite code is required.");
-    }
-    const inviteIndex = db.privateBetaInvites.findIndex((invite) => invite.code === inviteCode);
-    if (inviteIndex === -1) {
-      throw new Error("Invite code is invalid.");
-    }
-    const invite = db.privateBetaInvites[inviteIndex];
-    const status = resolveInviteStatus(invite);
-    if (status !== "active") {
-      db.privateBetaInvites[inviteIndex] = {
-        ...invite,
-        status,
-        updatedAt: nowIso(),
-      };
-      await writeDb(db);
-      throw new Error(status === "disabled" ? "Invite code is disabled." : "Invite code has expired.");
-    }
-  }
 
   const timestamp = nowIso();
   const role: UserRole = isAdminEmail(email) ? "admin" : "buyer";
-  const normalizedInviteCode = String(input.inviteCode ?? "").trim().toUpperCase();
-  let usedInviteId: string | undefined;
-  if (!isAdminEmail(email)) {
-    const inviteIndex = db.privateBetaInvites.findIndex((invite) => invite.code === normalizedInviteCode);
-    const invite = db.privateBetaInvites[inviteIndex];
-    const updatedInvite: PrivateBetaInviteCode = {
-      ...invite,
-      usedCount: invite.usedCount + 1,
-      status: invite.usedCount + 1 >= invite.maxUses ? "expired" : invite.status,
-      updatedAt: timestamp,
-    };
-    db.privateBetaInvites[inviteIndex] = updatedInvite;
-    usedInviteId = updatedInvite.id;
-  }
   const user: AlphaExchangeUser = {
     id: `user-${randomUUID()}`,
     fullName: input.fullName.trim(),
@@ -1404,27 +1361,10 @@ export async function createUser(input: {
     sellerStatus: "buyer",
     isFoundingMember: !isAdminEmail(email),
     isFoundingSeller: false,
-    registeredViaInviteCodeId: usedInviteId,
     createdAt: timestamp,
     updatedAt: timestamp,
   };
   db.users.push(user);
-  if (usedInviteId) {
-    db.privateBetaInviteUses.unshift({
-      id: `invite-use-${randomUUID()}`,
-      inviteCodeId: usedInviteId,
-      code: normalizedInviteCode,
-      usedByUserId: user.id,
-      usedByEmail: user.email,
-      usedAt: timestamp,
-    });
-    pushActivityLog(db, {
-      userId: user.id,
-      category: "system",
-      title: "Joined Private Beta",
-      details: "Welcome to Alpha Exchange private beta as a Founding Member.",
-    });
-  }
   await writeDb(db);
   return user;
 }
