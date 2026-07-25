@@ -116,12 +116,21 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
     if (isResendVerificationSubmitting) return;
     setIsResendVerificationSubmitting(true);
     try {
+      console.info("[login-form] resend verification requested", {
+        endpoint: "/api/auth/verify-email/resend",
+        email: form.email,
+      });
       const response = await fetch("/api/auth/verify-email/resend", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: form.email }),
       });
       const payload = (await response.json()) as { error?: string; message?: string };
+      console.info("[login-form] resend verification response", {
+        status: response.status,
+        ok: response.ok,
+        payload,
+      });
       if (!response.ok) {
         setErrorMessage(payload.error ?? "Failed to resend verification email.");
         return;
@@ -132,7 +141,8 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
             ? "إذا كان الحساب موجودًا وغير موثق، تم إرسال رسالة تحقق جديدة."
             : "If the account exists and is unverified, a new verification email has been sent."),
       );
-    } catch {
+    } catch (error) {
+      console.error("[login-form] resend verification fetch failed", error);
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
     } finally {
       setIsResendVerificationSubmitting(false);
