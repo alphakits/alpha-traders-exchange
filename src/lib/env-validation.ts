@@ -62,8 +62,8 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
       );
     }
     if (!process.env.SMTP_HOST || !process.env.SMTP_PORT || !process.env.SMTP_USER || !process.env.SMTP_PASS || !process.env.SMTP_FROM) {
-      errors.push(
-        "Missing required SMTP environment variables: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM — email verification requires SMTP delivery in production.",
+      warnings.push(
+        "SMTP environment variables are incomplete: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM. Verification emails will not be delivered until SMTP is configured.",
       );
     }
 
