@@ -18,6 +18,8 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
   const [isLoginSubmitting, setIsLoginSubmitting] = useState(false);
   const [isResetRequestSubmitting, setIsResetRequestSubmitting] = useState(false);
   const [isResetConfirmSubmitting, setIsResetConfirmSubmitting] = useState(false);
+  const [isResendVerificationSubmitting, setIsResendVerificationSubmitting] = useState(false);
+  const [requiresEmailVerification, setRequiresEmailVerification] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => { setHydrated(true); }, []);
   const defaultRedirectByRole = (user: { role?: string; sellerStatus?: string } | null | undefined) => {
@@ -49,6 +51,7 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
     event.preventDefault();
     setStatusMessage(null);
     setErrorMessage(null);
+    setRequiresEmailVerification(false);
     if (isLoginSubmitting) return;
     setIsLoginSubmitting(true);
     try {
@@ -59,14 +62,15 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
-      let payload: { error?: string; user?: { role?: string; sellerStatus?: string } } | null = null;
+      let payload: { error?: string; user?: { role?: string; sellerStatus?: string }; requiresEmailVerification?: boolean } | null = null;
       try {
-        payload = (await response.json()) as { error?: string; user?: { role?: string; sellerStatus?: string } };
+        payload = (await response.json()) as { error?: string; user?: { role?: string; sellerStatus?: string }; requiresEmailVerification?: boolean };
       } catch {
         payload = null;
       }
       if (!response.ok) {
         setErrorMessage(payload?.error ?? "Login failed.");
+        setRequiresEmailVerification(payload?.requiresEmailVerification === true);
         return;
       }
       // Ensure the freshly set httpOnly session cookie is visible to subsequent
@@ -84,6 +88,35 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
           if (mePayload?.user?.id) {
             sessionReady = true;
             break;
+          }
+
+          async function handleResendVerification() {
+            setStatusMessage(null);
+            setErrorMessage(null);
+            if (isResendVerificationSubmitting) return;
+            setIsResendVerificationSubmitting(true);
+            try {
+              const response = await fetch("/api/auth/verify-email/resend", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email: form.email }),
+              });
+              const payload = (await response.json()) as { error?: string; message?: string };
+              if (!response.ok) {
+                setErrorMessage(payload.error ?? "Failed to resend verification email.");
+                return;
+              }
+              setStatusMessage(
+                payload.message ??
+                  (isAr
+                    ? "إذا كان الحساب موجودًا وغير موثق، تم إرسال رسالة تحقق جديدة."
+                    : "If the account exists and is unverified, a new verification email has been sent."),
+              );
+            } catch {
+              setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
+            } finally {
+              setIsResendVerificationSubmitting(false);
+            }
           }
         }
         await new Promise((resolve) => setTimeout(resolve, 200));
@@ -223,6 +256,19 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
         ) : null}
 
         {errorMessage ? <p className="mt-3 text-sm text-rose-300" role="status" aria-live="polite">{errorMessage}</p> : null}
+        {requiresEmailVerification ? (
+          <Button
+            type="button"
+            variant="secondary"
+            className="mt-3"
+            disabled={isResendVerificationSubmitting}
+            onClick={handleResendVerification}
+          >
+            {isResendVerificationSubmitting
+              ? (isAr ? "جارٍ الإرسال..." : "Sending...")
+              : (isAr ? "إعادة إرسال بريد التحقق" : "Resend verification email")}
+          </Button>
+        ) : null}
         {statusMessage ? <p className="mt-3 text-sm text-emerald-300" role="status" aria-live="polite">{statusMessage}</p> : null}
 
         <p className="mt-5 text-sm text-[#9CA3AF]">

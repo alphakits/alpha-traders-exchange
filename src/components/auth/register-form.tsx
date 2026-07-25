@@ -19,15 +19,6 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  async function readApiError(response: Response, fallback: string) {
-    try {
-      const payload = (await response.json()) as { error?: string };
-      return payload.error ?? fallback;
-    } catch {
-      return fallback;
-    }
-  }
-
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setStatusMessage(null);
