@@ -1,4 +1,4 @@
-const DEFAULT_SITE_URL = "https://alphatraders.academy";
+const DEFAULT_SITE_URL = "https://www.alphatraders.co.il";
 
 function normalizeSiteUrl(value: string) {
   const trimmed = value.trim();

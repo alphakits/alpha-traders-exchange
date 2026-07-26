@@ -14,10 +14,8 @@ const ENV_VARS: EnvVar[] = [
   { key: "NEXT_PUBLIC_SUPABASE_ANON_KEY", required: true, description: "Supabase anon key used by the browser and server clients" },
   { key: "SUPABASE_DB_URL", required: false, description: "PostgreSQL connection string used for Alpha Exchange runtime persistence" },
   { key: "SUPABASE_SERVICE_ROLE_KEY", required: false, description: "Supabase service role key used for admin media uploads to object storage" },
-  { key: "RESEND_API_KEY", required: false, description: "Resend API key for transactional auth emails" },
-  { key: "EMAIL_FROM", required: false, description: "From email address for transactional auth emails sent via Resend" },
   { key: "SUPABASE_ADMIN_MEDIA_BUCKET", required: false, description: "Supabase Storage bucket for admin lesson/media uploads" },
-  { key: "NEXT_PUBLIC_SITE_URL", required: false, description: "Canonical production site URL, e.g. https://alphatraders.academy" },
+  { key: "NEXT_PUBLIC_SITE_URL", required: false, description: "Canonical production site URL, e.g. https://www.alphatraders.co.il" },
   { key: "AUTH_COOKIE_SECURE", required: false, description: "Force cookie secure flag on/off" },
   { key: "ADMIN_ACCESS_KEY", required: false, description: "Extra key required for admin API endpoints" },
   { key: "ALPHA_EXCHANGE_LARGE_TRADE_THRESHOLD", required: false, description: "Min USDT amount considered a large trade" },
@@ -47,11 +45,6 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
   }
 
   if (isProduction) {
-    const resendApiKey = process.env.RESEND_API_KEY ?? "";
-    const emailFrom = process.env.EMAIL_FROM ?? "";
-    const hasResendKey = resendApiKey.trim().length > 0;
-    const hasEmailFrom = emailFrom.trim().length > 0;
-
     if (!process.env.SUPABASE_DB_URL && !process.env.DATABASE_URL) {
       errors.push(
         "Missing required environment variable: SUPABASE_DB_URL (or DATABASE_URL) — PostgreSQL persistence is required in production.",
@@ -62,18 +55,6 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
         "Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY — admin media uploads require object storage credentials in production.",
       );
     }
-    if (!hasResendKey || !hasEmailFrom) {
-      console.info("[env-validation] Resend debug", {
-        hasResendKey: Boolean(process.env.RESEND_API_KEY),
-        resendKeyLength: process.env.RESEND_API_KEY?.length ?? 0,
-        hasEmailFrom: Boolean(process.env.EMAIL_FROM),
-        emailFrom: process.env.EMAIL_FROM ?? null,
-      });
-      warnings.push(
-        "Resend environment variables are incomplete: RESEND_API_KEY and EMAIL_FROM. Verification emails will not be delivered until Resend is configured.",
-      );
-    }
-
     if (!process.env.NEXT_PUBLIC_SITE_URL) {
       warnings.push(
         "NEXT_PUBLIC_SITE_URL is not set. Production metadata and sitemap will fall back to Vercel-provided hostnames instead of the custom domain.",
