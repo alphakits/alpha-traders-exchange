@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createEmailVerificationTokenForUser, createUser } from "@/lib/alpha-exchange-store";
+import { upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 import { hashPassword } from "@/lib/auth";
-import { sendVerificationEmail } from "@/lib/auth-email";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -44,24 +44,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Passwords do not match." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
 
+    const locale = inferLocaleFromRequest(request);
     const passwordHash = await hashPassword(password);
-    const user = await createUser({
+    const supabase = createSupabaseAuthClient();
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: getSupabaseEmailRedirectUrl(locale),
+        data: {
+          full_name: fullName,
+          whatsapp_number: whatsappNumber,
+        },
+      },
+    });
+    if (error) {
+      if (error.message.toLowerCase().includes("already registered")) {
+        return NextResponse.json({ error: "Email already registered." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+      }
+      return NextResponse.json({ error: error.message }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    }
+    if (!data.user) {
+      return NextResponse.json({ error: "Registration failed." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    }
+    if (Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      return NextResponse.json({ error: "Email already registered." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    }
+    await upsertUserProfileForAuth({
       fullName,
       email,
       passwordHash,
       whatsappNumber,
+      emailVerified: false,
     });
-    const verification = await createEmailVerificationTokenForUser(user.id);
-
-    try {
-      await sendVerificationEmail({
-        to: user.email,
-        fullName: user.fullName,
-        token: verification.token,
-      });
-    } catch (error) {
-      console.error("[auth/register] Failed to send verification email:", error);
-    }
 
     return NextResponse.json({
       ok: true,

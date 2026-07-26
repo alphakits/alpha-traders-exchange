@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { findUserByEmail } from "@/lib/alpha-exchange-store";
-import { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, createUserSession, verifyPassword } from "@/lib/auth";
+import { findUserByEmail, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
+import { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, createUserSession } from "@/lib/auth";
 import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { createSupabaseAuthClient } from "@/lib/supabase-auth-provider";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -28,16 +29,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid email format." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
 
-    const user = await findUserByEmail(email);
-    if (!user) {
+    const supabase = createSupabaseAuthClient();
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      if (error.message.toLowerCase().includes("email not confirmed")) {
+        return NextResponse.json(
+          {
+            error: "Please verify your email before signing in. Check your inbox or request a new verification email.",
+            requiresEmailVerification: true,
+          },
+          { status: 403, headers: AUTH_RESPONSE_HEADERS },
+        );
+      }
       return NextResponse.json({ error: "Invalid credentials." }, { status: 401, headers: AUTH_RESPONSE_HEADERS });
     }
-
-    const valid = await verifyPassword(password, user.passwordHash);
-    if (!valid) {
+    const supabaseUser = data.user;
+    if (!supabaseUser?.email) {
       return NextResponse.json({ error: "Invalid credentials." }, { status: 401, headers: AUTH_RESPONSE_HEADERS });
     }
-    if (user.emailVerified !== true) {
+    if (!supabaseUser.email_confirmed_at) {
       return NextResponse.json(
         {
           error: "Please verify your email before signing in. Check your inbox or request a new verification email.",
@@ -46,6 +56,14 @@ export async function POST(request: NextRequest) {
         { status: 403, headers: AUTH_RESPONSE_HEADERS },
       );
     }
+    const existingProfile = await findUserByEmail(supabaseUser.email);
+    const user = await upsertUserProfileForAuth({
+      fullName: String(supabaseUser.user_metadata?.full_name ?? supabaseUser.email.split("@")[0]),
+      email: supabaseUser.email,
+      passwordHash: existingProfile?.passwordHash ?? "",
+      whatsappNumber: String(supabaseUser.user_metadata?.whatsapp_number ?? ""),
+      emailVerified: true,
+    });
 
     const { token, expiresAt } = await createUserSession(user.id);
     const secureCookies = shouldUseSecureAuthCookie(request);

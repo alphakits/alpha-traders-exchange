@@ -1400,6 +1400,74 @@ export async function createUser(input: {
   return user;
 }
 
+export async function upsertUserProfileForAuth(input: {
+  fullName: string;
+  email: string;
+  passwordHash: string;
+  whatsappNumber: string;
+  emailVerified?: boolean;
+}) {
+  const db = await readDb();
+  const email = normalizeEmail(input.email);
+  const existingIndex = db.users.findIndex((user) => normalizeEmail(user.email) === email);
+  const timestamp = nowIso();
+  if (existingIndex !== -1) {
+    const existing = db.users[existingIndex];
+    db.users[existingIndex] = {
+      ...existing,
+      fullName: input.fullName.trim() || existing.fullName,
+      whatsappNumber: input.whatsappNumber.trim() || existing.whatsappNumber,
+      passwordHash: input.passwordHash || existing.passwordHash,
+      emailVerified: input.emailVerified === true ? true : existing.emailVerified === true,
+      emailVerifiedAt: input.emailVerified === true
+        ? (existing.emailVerifiedAt ?? timestamp)
+        : existing.emailVerifiedAt,
+      updatedAt: timestamp,
+    };
+    await writeDb(db);
+    return db.users[existingIndex];
+  }
+
+  const role: UserRole = isAdminEmail(email) ? "admin" : "buyer";
+  const user: AlphaExchangeUser = {
+    id: `user-${randomUUID()}`,
+    fullName: input.fullName.trim(),
+    email,
+    passwordHash: input.passwordHash,
+    whatsappNumber: input.whatsappNumber.trim(),
+    preferredNetworks: [],
+    profilePhotoUrl: "",
+    languages: ["English"],
+    bio: "",
+    tradingExperience: "",
+    workingHours: "",
+    preferredPaymentMethods: [],
+    country: "Israel",
+    city: "",
+    coverBannerUrl: "",
+    onlineStatus: "offline",
+    availabilityStatus: "available",
+    lastActiveAt: timestamp,
+    isFeaturedSeller: false,
+    isProfileHidden: false,
+    notificationPreferences: normalizeNotificationPreferences(),
+    role,
+    sellerStatus: "buyer",
+    emailVerified: input.emailVerified === true,
+    emailVerifiedAt: input.emailVerified === true ? timestamp : undefined,
+    emailVerificationTokenHash: undefined,
+    emailVerificationTokenExpiresAt: undefined,
+    emailVerificationSentAt: undefined,
+    isFoundingMember: !isAdminEmail(email),
+    isFoundingSeller: false,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  db.users.push(user);
+  await writeDb(db);
+  return user;
+}
+
 export async function createEmailVerificationTokenForUser(userId: string, durationHours = EMAIL_VERIFICATION_EXPIRY_HOURS) {
   const db = await readDb();
   const userIndex = db.users.findIndex((user) => user.id === userId);

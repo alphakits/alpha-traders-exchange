@@ -12,6 +12,8 @@ export default function VerifyEmailPage() {
   const isAr = locale === "ar";
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
+  const tokenHash = searchParams.get("token_hash") ?? "";
+  const tokenType = searchParams.get("type") ?? "signup";
   const [email, setEmail] = useState("");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -21,7 +23,7 @@ export default function VerifyEmailPage() {
 
   useEffect(() => {
     async function verify() {
-      if (!token || isVerifying || isVerified) return;
+      if ((!token && !tokenHash) || isVerifying || isVerified) return;
       setIsVerifying(true);
       setErrorMessage(null);
       setStatusMessage(null);
@@ -29,7 +31,7 @@ export default function VerifyEmailPage() {
         const response = await fetch("/api/auth/verify-email", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token }),
+          body: JSON.stringify({ token, tokenHash, type: tokenType }),
         });
         const payload = (await response.json()) as { error?: string; message?: string };
         if (!response.ok) {
@@ -45,7 +47,7 @@ export default function VerifyEmailPage() {
       }
     }
     verify();
-  }, [token, isAr, isVerifying, isVerified]);
+  }, [token, tokenHash, tokenType, isAr, isVerifying, isVerified]);
 
   useEffect(() => {
     if (!isVerified) return;
@@ -90,7 +92,7 @@ export default function VerifyEmailPage() {
             : "Verify your email to activate your Alpha Traders account."}
         </p>
 
-        {!token ? (
+        {!token && !tokenHash ? (
           <form className="mt-6 grid gap-3" onSubmit={handleResend}>
             <Input
               aria-label={isAr ? "البريد الإلكتروني" : "Email"}
