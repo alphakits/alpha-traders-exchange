@@ -6,7 +6,8 @@ import { getTranslations } from "next-intl/server";
 import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
 import { AUTH_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
-import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { LocaleSwitcher } from "./locale-switcher";
 
@@ -80,8 +81,8 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
               <span className="max-w-[140px] truncate">{sessionUser.fullName}</span>
             </div>
           ) : null}
-          <Link href={dashboardHref} locale={locale} className="hidden sm:inline-flex">
-            <Button size="sm">{dashboardLabel}</Button>
+          <Link href={dashboardHref} locale={locale} className={cn(buttonVariants({ size: "sm" }), "hidden sm:inline-flex")}>
+            {dashboardLabel}
           </Link>
           {sessionUser ? <NotificationBell locale={locale} /> : null}
           {sessionUser ? (

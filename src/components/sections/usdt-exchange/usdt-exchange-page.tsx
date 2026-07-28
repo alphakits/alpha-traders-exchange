@@ -1,15 +1,19 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, BadgePercent, BellRing, CheckCircle2, Clock3, Copy, Edit3, HandCoins, Layers3, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Users, WalletCards, X } from "lucide-react";
+import { AlertTriangle, BadgePercent, BellRing, CheckCircle2, ChevronDown, Clock3, Copy, Edit3, HandCoins, Layers3, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Users, WalletCards, X } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RoleBadge } from "@/components/ui/role-badge";
+import { ExchangeMarketStats } from "@/components/sections/usdt-exchange/exchange-market-stats";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
+import { hasRole } from "@/lib/roles";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, BetaAnnouncement, BetaFeedbackCategory, BetaFeedbackEntry, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerAvailabilityStatus, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
 const WHATSAPP_URL = "https://wa.me/972525967649";
@@ -29,6 +33,7 @@ type SessionUser = {
   fullName: string;
   email: string;
   role: UserRole;
+  roles?: UserRole[];
   sellerStatus: SellerStatus;
   whatsappNumber: string;
   preferredNetworks: SupportedNetwork[];
@@ -190,11 +195,17 @@ function betaFeedbackCategoryLabel(category: BetaFeedbackCategory) {
   return "Other";
 }
 
-function roleBadgeVariantFromSession(user: SessionUser) {
-  if (user.role === "admin" && isAlphaExchangeOwnerEmail(user.email)) return "owner" as const;
-  if (user.role === "admin") return "administrator" as const;
-  if (user.role === "approved_seller") return "approved_seller" as const;
-  return "buyer" as const;
+function roleBadgeVariantsFromSession(user: SessionUser) {
+  const badges: Array<"guest" | "student" | "buyer" | "pending_seller" | "approved_seller" | "administrator" | "owner"> = [];
+  const roles = user.roles ?? [];
+  if (roles.includes("owner") || (user.role === "admin" && isAlphaExchangeOwnerEmail(user.email))) badges.push("owner");
+  if (roles.includes("admin") || user.role === "admin") badges.push("administrator");
+  if (roles.includes("approved_seller") || user.sellerStatus === "approved_seller") badges.push("approved_seller");
+  if (roles.includes("pending_seller_approval") || user.sellerStatus === "pending_seller_approval") badges.push("pending_seller");
+  if (roles.includes("buyer") || user.role === "buyer") badges.push("buyer");
+  if (roles.includes("student") || user.role === "student") badges.push("student");
+  if (roles.includes("guest") || user.role === "guest" || badges.length === 0) badges.push("guest");
+  return Array.from(new Set(badges));
 }
 
 function tradeProgressRank(request: PurchaseRequest) {
@@ -712,6 +723,28 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     return sorted;
   }, [listings, networkFilter, currencyFilter, paymentMethodFilter, minAmountFilter, maxAmountFilter, minPriceFilter, maxPriceFilter, trustScoreFilter, onlineOnlyFilter, sortBy]);
 
+  const marketStats = useMemo(() => {
+    const uniqueSellers = new Set(listings.map((l) => l.sellerId ?? l.sellerDisplayName));
+    const onlineSellers = new Set(
+      listings
+        .filter((l) => l.sellerProfile?.onlineStatus === "online")
+        .map((l) => l.sellerId ?? l.sellerDisplayName)
+    );
+    const responseMins = listings
+      .map((l) => parseMinutes(l.responseTime))
+      .filter((v) => v > 0);
+    const avgMins =
+      responseMins.length > 0
+        ? Math.round(responseMins.reduce((sum, v) => sum + v, 0) / responseMins.length)
+        : null;
+    return {
+      activeSellers: uniqueSellers.size,
+      onlineNow: onlineSellers.size,
+      averageResponse: avgMins !== null ? `${avgMins} min` : undefined,
+      openListings: listings.length,
+    };
+  }, [listings]);
+
   function requireAuth() {
     if (!sessionUser) {
       router.push("/login");
@@ -863,8 +896,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   const buyerMenu = ["Profile", "My Requests", "Settings"];
   const sellerMenu = ["Profile", "My Listings", "Create Listing", "My Requests", "Settings"];
-  const isApprovedSeller = sessionUser?.role !== "admin" && sessionUser?.sellerStatus === "approved_seller";
-  const isOwnerViewer = sessionUser?.role === "admin" && isAlphaExchangeOwnerEmail(sessionUser.email);
+  const isApprovedSeller = Boolean(sessionUser && !hasRole(sessionUser, "admin") && hasRole(sessionUser, "approved_seller"));
+  const isOwnerViewer = Boolean(sessionUser && (hasRole(sessionUser, "owner") || (hasRole(sessionUser, "admin") && isAlphaExchangeOwnerEmail(sessionUser.email))));
   const menuItems = isApprovedSeller ? sellerMenu : buyerMenu;
 
   const sellerRequests = useMemo(() => myRequests.filter((request) => request.sellerId === sessionUser?.id), [myRequests, sessionUser?.id]);
@@ -1476,14 +1509,23 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               : "A premium marketplace connecting buyers and sellers looking to exchange USDT. Alpha Traders coordinates every transaction through a transparent, professional, and community-driven process while charging a simple 1% service fee."}
           </p>
           <div className={`mt-7 flex flex-wrap gap-3 ${isAr ? "md:justify-end" : ""}`}>
-            <a href="#marketplace">
-              <Button>{isAr ? "ابدأ صفقة" : "Start a Trade"}</Button>
+            <a href="#marketplace" className={buttonVariants()}>
+              {isAr ? "ابدأ صفقة" : "Start a Trade"}
             </a>
-            <a href="#how-it-works">
-              <Button variant="secondary">{isAr ? "تعرّف على آلية العمل" : "Learn How It Works"}</Button>
+            <a href="#how-it-works" className={buttonVariants({ variant: "secondary" })}>
+              {isAr ? "تعرّف على آلية العمل" : "Learn How It Works"}
             </a>
           </div>
         </div>
+      </div>
+
+      <div className="mt-6">
+        <ExchangeMarketStats
+          activeSellers={isLoadingListings ? undefined : marketStats.activeSellers}
+          onlineNow={isLoadingListings ? undefined : marketStats.onlineNow}
+          averageResponse={isLoadingListings ? undefined : marketStats.averageResponse}
+          openListings={isLoadingListings ? undefined : marketStats.openListings}
+        />
       </div>
 
       <Card className="mt-8 border-white/10 bg-[#0B0B0B]/90">
@@ -1498,6 +1540,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       </Card>
 
       <div className="mt-6">
+        <p className="mb-2 text-xs uppercase tracking-[0.2em] text-[#C9A227]">{isAr ? "الأمان أولاً" : "Security First"}</p>
         <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "مركز الثقة والأمان" : "Trust & Security"}</h2>
         <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {[
@@ -1524,7 +1567,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           ].map((item) => {
             const Icon = item.icon;
             return (
-              <Card key={item.title} className="border-white/10 bg-[#0B0B0B]/90">
+              <Card key={item.title} className="border-white/10 bg-[#0B0B0B]/90 transition duration-300 hover:-translate-y-1 hover:border-[#C9A227]/30 hover:shadow-[0_12px_36px_rgba(201,162,39,0.10)]">
                 <CardHeader>
                   <div className="inline-flex items-center gap-2">
                     <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 text-[#C9A227]">
@@ -1552,6 +1595,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       ) : null}
 
       <div id="how-it-works" className="mt-12">
+        <p className="mb-2 text-xs uppercase tracking-[0.2em] text-[#C9A227]">{isAr ? "خطوة بخطوة" : "Step by Step"}</p>
         <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "كيف يعمل Alpha Exchange" : "How It Works"}</h2>
         <div className="mt-6 space-y-3">
           {timelineSteps.map((step, index) => (
@@ -1577,6 +1621,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       </div>
 
       <div id="marketplace" className="mt-12">
+        <p className="mb-2 text-xs uppercase tracking-[0.2em] text-[#C9A227]">{isAr ? "متاح الآن" : "Available Now"}</p>
         <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "السوق المباشر" : "Live Marketplace"}</h2>
 
         <Card className="mt-5 border-white/10 bg-[#0B0B0B]/90">
@@ -1616,8 +1661,34 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               <Input placeholder={isAr ? "Max Price" : "Max Price"} value={maxPriceFilter} onChange={(event) => setMaxPriceFilter(event.target.value)} />
               <Input placeholder={isAr ? "Min Trust Score" : "Min Trust Score"} value={trustScoreFilter} onChange={(event) => setTrustScoreFilter(event.target.value)} />
               <Button type="button" className="w-full" variant={onlineOnlyFilter ? "default" : "secondary"} onClick={() => setOnlineOnlyFilter((prev) => !prev)}>
-                {onlineOnlyFilter ? "Online Sellers Only" : "Show Online Sellers Only"}
+                <span className={`mr-1.5 inline-block h-2 w-2 rounded-full ${onlineOnlyFilter ? "bg-[#22C55E]" : "bg-[#9CA3AF]"}`} />
+                {isAr ? (onlineOnlyFilter ? "المتاحون الآن فقط" : "إظهار المتاحين الآن") : (onlineOnlyFilter ? "Online Sellers Only" : "Show Online Sellers Only")}
               </Button>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  setCurrencyFilter("all");
+                  setPaymentMethodFilter("all");
+                  setNetworkFilter("all");
+                  setMinAmountFilter("");
+                  setMaxAmountFilter("");
+                  setMinPriceFilter("");
+                  setMaxPriceFilter("");
+                  setTrustScoreFilter("");
+                  setOnlineOnlyFilter(false);
+                  setSortBy("trust-desc");
+                }}
+              >
+                {isAr ? "إعادة تعيين الفلاتر" : "Reset Filters"}
+              </Button>
+              {filteredListings.length !== listings.length ? (
+                <p className="text-xs text-[#9CA3AF]">
+                  {isAr ? `${filteredListings.length} نتيجة` : `${filteredListings.length} of ${listings.length} listings`}
+                </p>
+              ) : null}
             </div>
           </CardContent>
         </Card>
@@ -1626,12 +1697,30 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           {isLoadingListings
             ? Array.from({ length: 4 }).map((_, index) => (
                 <Card key={`skeleton-${index}`} className="border-white/10 bg-[#0B0B0B]/90">
-                  <CardContent className="space-y-3 p-6">
-                    <div className="h-4 w-40 animate-pulse rounded bg-white/10" />
-                    <div className="h-10 w-full animate-pulse rounded-xl bg-white/10" />
-                    <div className="h-4 w-28 animate-pulse rounded bg-white/10" />
-                    <div className="h-4 w-32 animate-pulse rounded bg-white/10" />
-                    <div className="h-10 w-28 animate-pulse rounded-full bg-white/10" />
+                  <CardContent className="space-y-4 p-6">
+                    {/* avatar + name skeleton */}
+                    <div className="flex items-center gap-3">
+                      <div className="h-11 w-11 animate-pulse rounded-full bg-white/10" />
+                      <div className="space-y-1.5">
+                        <div className="h-4 w-28 animate-pulse rounded bg-white/10" />
+                        <div className="h-3 w-20 animate-pulse rounded bg-white/10" />
+                      </div>
+                    </div>
+                    {/* hero stats skeleton */}
+                    <div className="h-16 w-full animate-pulse rounded-xl bg-white/10" />
+                    {/* trust bar skeleton */}
+                    <div className="space-y-1.5">
+                      <div className="h-3 w-24 animate-pulse rounded bg-white/10" />
+                      <div className="h-1.5 w-full animate-pulse rounded-full bg-white/10" />
+                    </div>
+                    {/* info grid skeleton */}
+                    <div className="grid grid-cols-2 gap-2">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <div key={i} className="h-3 animate-pulse rounded bg-white/10" />
+                      ))}
+                    </div>
+                    {/* button skeleton */}
+                    <div className="h-11 w-full animate-pulse rounded-full bg-white/10" />
                   </CardContent>
                 </Card>
               ))
@@ -1641,10 +1730,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <div className={`flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between ${isAr ? "sm:flex-row-reverse" : ""}`}>
                       <div className={`flex items-start gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                         {listing.sellerProfile?.profilePhotoUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
+                          <Image
                             src={listing.sellerProfile.profilePhotoUrl}
                             alt={`${safeText(listing.sellerDisplayName, "Seller")} profile`}
+                            width={44}
+                            height={44}
+                            unoptimized
                             className="h-11 w-11 rounded-full border border-white/15 object-cover"
                           />
                         ) : (
@@ -1673,32 +1764,56 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <span className="rounded-full border border-[#22C55E]/25 bg-[#22C55E]/10 px-3 py-1 text-xs text-[#86EFAC]">{isAr ? "متاح" : "Available"}</span>
                     </div>
                   </CardHeader>
-                  <CardContent className="space-y-2">
-                    <p className="text-sm text-[#9CA3AF]">Trust Score: <span className="text-white">{(listing.sellerReputation?.trustScore ?? 0).toFixed(1)}</span></p>
-                    <p className="text-sm text-[#9CA3AF]">Completed Trades: <span className="text-white">{(listing.sellerReputation?.completedTrades ?? 0).toLocaleString("en-IL")}</span></p>
-                    <p className="text-sm text-[#9CA3AF]">Average Rating: <span className="text-white">{(listing.sellerReputation?.rating ?? 0).toFixed(2)}</span></p>
-                    <p className="text-sm text-[#9CA3AF]">Response Time: <span className="text-white">{safeText(listing.responseTime, "5 min")}</span></p>
-                    <p className="text-sm text-[#9CA3AF]">Last Active: <span className="text-white">{formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt)}</span></p>
-                    <p className="text-sm text-[#9CA3AF]">USDT Available: <span className="text-white">{safeText(listing.availableAmount)}</span></p>
-                    <p className="text-sm text-[#9CA3AF]">Price: <span className="text-white">{safeText(listing.price)} {listing.currency}</span></p>
-                    <p className="text-sm text-[#9CA3AF]">Payment Methods: <span className="text-white">{(listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod]).join(", ")}</span></p>
-                    <p className="text-sm text-[#9CA3AF]">Networks: <span className="text-white">{safeText(listing.network)}</span></p>
-                    <p className="text-sm text-[#9CA3AF]">Min/Max Trade: <span className="text-white">{safeText(listing.minimumTrade)} / {safeText(listing.maximumTrade)}</span></p>
-                    <p className="text-sm text-[#9CA3AF]">Updated: <span className="text-white">{new Date(listing.updatedAt).toLocaleString("en-IL")}</span></p>
-                    <div className="grid gap-1 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                      <p>⭐ {listing.sellerReputation?.rating.toFixed(2) ?? "4.50"} Rating</p>
-                      <p>{(listing.sellerReputation?.completedTrades ?? 0).toLocaleString("en-IL")} Successful Trades</p>
-                      <p>{Math.round(listing.sellerReputation?.successRate ?? 95)}% Success Rate</p>
-                      <p>Member Since {new Date(listing.sellerProfile?.memberSince ?? listing.createdAt).getFullYear()}</p>
+                  <CardContent className="space-y-4 pt-0">
+                    {/* Hero: Price + USDT Amount */}
+                    <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-black/20 p-3">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "السعر / USDT" : "Price / USDT"}</p>
+                        <p className="mt-0.5 text-lg font-semibold text-[#C9A227]">{safeText(listing.price)} <span className="text-sm font-normal text-[#9CA3AF]">{listing.currency}</span></p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "USDT متاح" : "USDT Available"}</p>
+                        <p className="mt-0.5 text-lg font-semibold text-white">{safeText(listing.availableAmount)}</p>
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {(listing.sellerReputation?.badges ?? []).slice(0, 2).map((badge) => (
-                        <span key={`${listing.id}-${badge}`} className="rounded-full border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-2 py-1 text-[11px] text-[#93C5FD]">
-                          {sellerBadgeLabel(badge)}
-                        </span>
-                      ))}
+
+                    {/* Trust Score visual bar */}
+                    <div>
+                      <div className={`flex items-center justify-between text-xs ${isAr ? "flex-row-reverse" : ""}`}>
+                        <span className="text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust Score"}</span>
+                        <span className="font-semibold text-white">{(listing.sellerReputation?.trustScore ?? 0).toFixed(1)}<span className="text-[#9CA3AF]">/10</span></span>
+                      </div>
+                      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/10">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-[#C9A227] to-[#E8C547] transition-all duration-500"
+                          style={{ width: `${Math.min((listing.sellerReputation?.trustScore ?? 0) * 10, 100)}%` }}
+                        />
+                      </div>
                     </div>
-                    <Button className="mt-3 w-full transition-transform group-hover:scale-[1.02] sm:w-auto" onClick={() => openListingModal(listing)} aria-label={`Open seller profile for ${safeText(listing.sellerDisplayName, "seller")}`}>
+
+                    {/* Compact info grid */}
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                      <p className="text-[#9CA3AF]">{isAr ? "صفقات مكتملة" : "Trades"}: <span className="text-white">{(listing.sellerReputation?.completedTrades ?? 0).toLocaleString("en-IL")}</span></p>
+                      <p className="text-[#9CA3AF]">{isAr ? "وقت الاستجابة" : "Response"}: <span className="text-white">{safeText(listing.responseTime, "5 min")}</span></p>
+                      <p className="text-[#9CA3AF]">{isAr ? "الدفع" : "Payment"}: <span className="truncate text-white">{(listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod]).slice(0, 2).join(", ")}</span></p>
+                      <p className="text-[#9CA3AF]">{isAr ? "الشبكة" : "Network"}: <span className="text-white">{safeText(listing.network)}</span></p>
+                      <p className="text-[#9CA3AF]">{isAr ? "حد التداول" : "Min/Max"}: <span className="text-white">{safeText(listing.minimumTrade, "—")} / {safeText(listing.maximumTrade, "—")}</span></p>
+                      <p className="text-[#9CA3AF]">{isAr ? "آخر نشاط" : "Last active"}: <span className="text-white">{formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt)}</span></p>
+                    </div>
+
+                    {/* Badges */}
+                    {(listing.sellerReputation?.badges ?? []).length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {(listing.sellerReputation?.badges ?? []).slice(0, 2).map((badge) => (
+                          <span key={`${listing.id}-${badge}`} className="rounded-full border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-2 py-0.5 text-[11px] text-[#93C5FD]">
+                            {sellerBadgeLabel(badge)}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {/* CTA */}
+                    <Button className="w-full transition-transform group-hover:scale-[1.01]" onClick={() => openListingModal(listing)} aria-label={`Open seller profile for ${safeText(listing.sellerDisplayName, "seller")}`}>
                       {isAr ? "ملف البائع" : "View Seller Profile"}
                     </Button>
                   </CardContent>
@@ -1708,15 +1823,18 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
         {!isLoadingListings && filteredListings.length === 0 ? (
           <Card className="mt-4 border-white/10 bg-[#0B0B0B]/90">
-            <CardContent className="p-6 text-center">
-              <p className="text-base font-medium text-white">
-                {isAr ? "لا توجد عروض USDT نشطة متاحة الآن." : "No active USDT listings are available right now."}
+            <CardContent className="p-8 text-center">
+              <div className="mx-auto mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10">
+                <Store className="h-6 w-6 text-[#C9A227]" />
+              </div>
+              <p className="text-base font-semibold text-white">
+                {isAr ? "لا توجد عروض USDT نشطة متاحة الآن." : "No active USDT listings right now"}
               </p>
               <p className="mt-2 text-sm text-[#9CA3AF]">
                 {isAr ? "يمكن للبائعين المعتمدين إنشاء عرض من لوحة البائع." : "Approved sellers can create a listing from their Seller Dashboard."}
               </p>
               {isApprovedSeller ? (
-                <Button type="button" className="mt-4" onClick={() => router.push("/dashboard/seller")}>
+                <Button type="button" className="mt-5" onClick={() => router.push("/dashboard/seller")}>
                   {isAr ? "إنشاء عرض" : "Create Listing"}
                 </Button>
               ) : null}
@@ -1726,12 +1844,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       </div>
 
       <div className="mt-12">
+        <p className="mb-2 text-xs uppercase tracking-[0.2em] text-[#C9A227]">{isAr ? "المزايا" : "Why Choose Us"}</p>
         <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "لماذا Alpha Exchange" : "Why Alpha Exchange"}</h2>
         <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {features.map((feature) => {
             const Icon = feature.icon;
             return (
-              <Card key={feature.title} className="h-full border-white/10 bg-[#0B0B0B]/90 transition hover:-translate-y-0.5">
+              <Card key={feature.title} className="h-full border-white/10 bg-[#0B0B0B]/90 transition duration-300 hover:-translate-y-1 hover:border-[#C9A227]/30 hover:shadow-[0_12px_36px_rgba(201,162,39,0.10)]">
                 <CardHeader>
                   <div className={`inline-flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                     <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 text-[#C9A227]">
@@ -2264,8 +2383,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               <CardContent className="space-y-2 text-sm text-[#D1D5DB]">
                 <div className="flex items-center gap-3">
                   {sessionUser?.profilePhotoUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={sessionUser.profilePhotoUrl} alt={`${sessionUser.fullName} profile`} className="h-13 w-13 rounded-full border border-white/15 object-cover" />
+                    <Image src={sessionUser.profilePhotoUrl} alt={`${sessionUser.fullName} profile`} width={52} height={52} unoptimized className="h-13 w-13 rounded-full border border-white/15 object-cover" />
                   ) : (
                     <div className="inline-flex h-13 w-13 items-center justify-center rounded-full border border-white/15 bg-white/[0.04] text-sm font-semibold text-[#D1D5DB]">
                       {safeText(sessionUser?.fullName, "Seller")
@@ -2432,22 +2550,22 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               <p className="text-[#D1D5DB]">
                 {sessionUser ? sessionUser.fullName : (isAr ? "غير مسجل الدخول" : "Not logged in")}
               </p>
-              {sessionUser ? <RoleBadge variant={roleBadgeVariantFromSession(sessionUser)} /> : <RoleBadge variant="member" />}
+              {sessionUser ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  {roleBadgeVariantsFromSession(sessionUser).map((badge) => (
+                    <RoleBadge key={badge} variant={badge} />
+                  ))}
+                </div>
+              ) : <RoleBadge variant="guest" />}
               <div className="flex flex-wrap gap-2">
                 {!sessionUser ? (
                   <>
-                    <Link href="/login">
-                      <Button variant="secondary">Login</Button>
-                    </Link>
-                    <Link href="/register">
-                      <Button variant="secondary">Register</Button>
-                    </Link>
+                    <Link href="/login" className={buttonVariants({ variant: "secondary" })}>Login</Link>
+                    <Link href="/register" className={buttonVariants({ variant: "secondary" })}>Register</Link>
                   </>
                 ) : (
                   <>
-                    <Link href="/profile">
-                      <Button variant="secondary">Profile</Button>
-                    </Link>
+                    <Link href="/profile" className={buttonVariants({ variant: "secondary" })}>Profile</Link>
                     <Button
                       variant="secondary"
                       onClick={async () => {
@@ -2711,13 +2829,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       </div>
 
       <div className="mt-12">
+        <p className="mb-2 text-xs uppercase tracking-[0.2em] text-[#C9A227]">{isAr ? "أسئلة شائعة" : "Frequently Asked"}</p>
         <h2 className="text-2xl font-semibold md:text-3xl">FAQ</h2>
         <div className="mt-5 space-y-3">
           {faqs.map((item) => (
-            <details key={item.q} className="group rounded-2xl border border-white/10 bg-[#0B0B0B]/85 p-5">
+            <details key={item.q} className="group rounded-2xl border border-white/10 bg-[#0B0B0B]/85 p-5 transition-colors hover:border-white/20">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-base font-medium text-white">
                 {item.q}
-                <CheckCircle2 className="h-4 w-4 text-[#C9A227] transition group-open:rotate-12" />
+                <ChevronDown className="h-4 w-4 flex-shrink-0 text-[#C9A227] transition-transform duration-200 group-open:rotate-180" />
               </summary>
               <p className="mt-3 text-sm leading-7 text-[#9CA3AF]">{item.a}</p>
             </details>
@@ -2736,14 +2855,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 : "Join the Alpha Traders community and experience a professional marketplace connecting buyers and sellers through Alpha Exchange."}
             </p>
             <div className={`mt-5 flex flex-wrap gap-3 ${isAr ? "md:justify-end" : ""}`}>
-              <a href="#marketplace">
-                <Button>{isAr ? "ابدأ التداول" : "Start Trading"}</Button>
+              <a href="#marketplace" className={buttonVariants()}>
+                {isAr ? "ابدأ التداول" : "Start Trading"}
               </a>
-              <a href={WHATSAPP_URL} target="_blank" rel="noreferrer">
-                <Button variant="secondary" className="gap-2">
-                  <MessageCircle className="h-4 w-4" />
-                  {isAr ? "تواصل عبر واتساب" : "Contact on WhatsApp"}
-                </Button>
+              <a href={WHATSAPP_URL} target="_blank" rel="noreferrer" className={cn(buttonVariants({ variant: "secondary" }), "gap-2")}>
+                <MessageCircle className="h-4 w-4" />
+                {isAr ? "تواصل عبر واتساب" : "Contact on WhatsApp"}
               </a>
             </div>
           </div>
@@ -2795,8 +2912,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <div className="grid gap-4 p-4 md:grid-cols-[auto_1fr]">
                         <div className="-mt-12">
                           {sellerProfileData?.profile.profilePhotoUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={sellerProfileData.profile.profilePhotoUrl} alt={`${sellerProfileData.profile.sellerName} profile`} className="h-20 w-20 rounded-full border-2 border-[#0B0B0B] object-cover" />
+                            <Image src={sellerProfileData.profile.profilePhotoUrl} alt={`${sellerProfileData.profile.sellerName} profile`} width={80} height={80} unoptimized className="h-20 w-20 rounded-full border-2 border-[#0B0B0B] object-cover" />
                           ) : (
                             <div className="inline-flex h-20 w-20 items-center justify-center rounded-full border-2 border-[#0B0B0B] bg-white/[0.06] text-xl font-semibold text-white">
                               {safeText(sellerProfileData?.profile.sellerName ?? selectedListing.sellerDisplayName, "Seller")

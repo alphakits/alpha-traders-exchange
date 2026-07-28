@@ -10,21 +10,20 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
   const [form, setForm] = useState({ email: "", password: "", rememberMe: true });
   const [resetMode, setResetMode] = useState(false);
   const [resetRequestEmail, setResetRequestEmail] = useState("");
-  const [resetToken, setResetToken] = useState("");
-  const [resetPassword, setResetPassword] = useState("");
-  const [resetConfirm, setResetConfirm] = useState("");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoginSubmitting, setIsLoginSubmitting] = useState(false);
   const [isResetRequestSubmitting, setIsResetRequestSubmitting] = useState(false);
-  const [isResetConfirmSubmitting, setIsResetConfirmSubmitting] = useState(false);
   const [isResendVerificationSubmitting, setIsResendVerificationSubmitting] = useState(false);
   const [requiresEmailVerification, setRequiresEmailVerification] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => { setHydrated(true); }, []);
-  const defaultRedirectByRole = (user: { role?: string; sellerStatus?: string } | null | undefined) => {
-    if (user?.role === "admin") return "/admin/alpha-exchange";
-    if (user?.role !== "admin" && user?.sellerStatus === "approved_seller") return "/dashboard/seller";
+  const defaultRedirectByRole = (user: { role?: string; roles?: string[]; sellerStatus?: string } | null | undefined) => {
+    const roles = user?.roles ?? [];
+    const isOwnerOrAdmin = roles.includes("owner") || roles.includes("admin") || user?.role === "owner" || user?.role === "admin";
+    if (isOwnerOrAdmin) return "/admin/alpha-exchange";
+    if ((roles.length === 1 && roles[0] === "guest") || (roles.length === 0 && user?.role === "guest")) return "/onboarding";
+    if (!isOwnerOrAdmin && user?.sellerStatus === "approved_seller") return "/dashboard/seller";
     return "/usdt-exchange";
   };
 
@@ -62,9 +61,9 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
-      let payload: { error?: string; user?: { role?: string; sellerStatus?: string }; requiresEmailVerification?: boolean } | null = null;
+      let payload: { error?: string; user?: { role?: string; roles?: string[]; sellerStatus?: string }; requiresEmailVerification?: boolean } | null = null;
       try {
-        payload = (await response.json()) as { error?: string; user?: { role?: string; sellerStatus?: string }; requiresEmailVerification?: boolean };
+        payload = (await response.json()) as { error?: string; user?: { role?: string; roles?: string[]; sellerStatus?: string }; requiresEmailVerification?: boolean };
       } catch {
         payload = null;
       }
@@ -116,21 +115,12 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
     if (isResendVerificationSubmitting) return;
     setIsResendVerificationSubmitting(true);
     try {
-      console.info("[login-form] resend verification requested", {
-        endpoint: "/api/auth/verify-email/resend",
-        email: form.email,
-      });
       const response = await fetch("/api/auth/verify-email/resend", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: form.email }),
       });
       const payload = (await response.json()) as { error?: string; message?: string };
-      console.info("[login-form] resend verification response", {
-        status: response.status,
-        ok: response.ok,
-        payload,
-      });
       if (!response.ok) {
         setErrorMessage(payload.error ?? "Failed to resend verification email.");
         return;
@@ -141,8 +131,7 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
             ? "إذا كان الحساب موجودًا وغير موثق، تم إرسال رسالة تحقق جديدة."
             : "If the account exists and is unverified, a new verification email has been sent."),
       );
-    } catch (error) {
-      console.error("[login-form] resend verification fetch failed", error);
+    } catch {
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
     } finally {
       setIsResendVerificationSubmitting(false);
@@ -161,49 +150,16 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: resetRequestEmail }),
       });
-      const data = (await response.json()) as { error?: string; resetToken?: string };
+      const data = (await response.json()) as { error?: string; message?: string };
       if (!response.ok) {
         setErrorMessage(data.error ?? "Failed to request reset.");
         return;
       }
-      if (data.resetToken) {
-        setStatusMessage((isAr ? "تم إنشاء رمز إعادة التعيين: " : "Reset token created: ") + data.resetToken);
-      } else {
-        setStatusMessage(isAr ? "إذا كان البريد مسجلاً فسيتم إنشاء رمز إعادة التعيين." : "If the email exists, a reset token has been generated.");
-      }
+      setStatusMessage(data.message ?? (isAr ? "إذا كان الحساب موجودًا، تم إرسال بريد إعادة تعيين كلمة المرور." : "If the account exists, a password reset email has been sent."));
     } catch {
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
     } finally {
       setIsResetRequestSubmitting(false);
-    }
-  }
-
-  async function handleResetConfirm(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setStatusMessage(null);
-    setErrorMessage(null);
-    if (isResetConfirmSubmitting) return;
-    setIsResetConfirmSubmitting(true);
-    try {
-      const response = await fetch("/api/auth/reset/confirm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          token: resetToken,
-          password: resetPassword,
-          confirmPassword: resetConfirm,
-        }),
-      });
-      const data = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        setErrorMessage(data.error ?? "Failed to reset password.");
-        return;
-      }
-      setStatusMessage(isAr ? "تم تحديث كلمة المرور بنجاح." : "Password updated successfully.");
-    } catch {
-      setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
-    } finally {
-      setIsResetConfirmSubmitting(false);
     }
   }
 
@@ -254,14 +210,8 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
         {resetMode ? (
           <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
             <form className="grid gap-2" onSubmit={handleResetRequest}>
-              <Input aria-label={isAr ? "البريد لإرسال رمز الاستعادة" : "Email for reset token"} placeholder={isAr ? "البريد لإرسال رمز الاستعادة" : "Email for reset token"} type="email" autoComplete="email" required value={resetRequestEmail} onChange={(event) => setResetRequestEmail(event.target.value)} />
-              <Button type="submit" variant="secondary" disabled={isResetRequestSubmitting}>{isResetRequestSubmitting ? (isAr ? "جاري الإرسال..." : "Sending...") : (isAr ? "إرسال رمز الاستعادة" : "Request Reset Token")}</Button>
-            </form>
-            <form className="grid gap-2" onSubmit={handleResetConfirm}>
-              <Input aria-label={isAr ? "رمز الاستعادة" : "Reset Token"} placeholder={isAr ? "رمز الاستعادة" : "Reset Token"} required value={resetToken} onChange={(event) => setResetToken(event.target.value)} />
-              <Input aria-label={isAr ? "كلمة المرور الجديدة" : "New Password"} placeholder={isAr ? "كلمة المرور الجديدة" : "New Password"} type="password" autoComplete="new-password" required value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} />
-              <Input aria-label={isAr ? "تأكيد كلمة المرور" : "Confirm Password"} placeholder={isAr ? "تأكيد كلمة المرور" : "Confirm Password"} type="password" autoComplete="new-password" required value={resetConfirm} onChange={(event) => setResetConfirm(event.target.value)} />
-              <Button type="submit" variant="secondary" disabled={isResetConfirmSubmitting}>{isResetConfirmSubmitting ? (isAr ? "جاري التحديث..." : "Updating...") : (isAr ? "تحديث كلمة المرور" : "Reset Password")}</Button>
+              <Input aria-label={isAr ? "البريد لإعادة تعيين كلمة المرور" : "Email for password reset"} placeholder={isAr ? "البريد لإعادة تعيين كلمة المرور" : "Email for password reset"} type="email" autoComplete="email" required value={resetRequestEmail} onChange={(event) => setResetRequestEmail(event.target.value)} />
+              <Button type="submit" variant="secondary" disabled={isResetRequestSubmitting}>{isResetRequestSubmitting ? (isAr ? "جاري الإرسال..." : "Sending...") : (isAr ? "إرسال رابط إعادة التعيين" : "Send Reset Link")}</Button>
             </form>
           </div>
         ) : null}

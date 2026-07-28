@@ -4,6 +4,7 @@ import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { calculateSellerTrustSnapshot, rankTrustSnapshots } from "@/lib/trust-engine";
 import { runEnvValidation } from "@/lib/env-validation";
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
+import { addRole, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
 import type {
   AlphaExchangeActivityLogEntry,
   BetaAnnouncement,
@@ -267,7 +268,7 @@ function buildSellerPublicProfile(user: AlphaExchangeUser): SellerPublicProfile 
 }
 
 function isTrustEligibleSeller(user: AlphaExchangeUser) {
-  return user.role === "approved_seller" || user.sellerStatus === "approved_seller" || user.sellerStatus === "suspended";
+  return hasRole(user, "approved_seller") || user.sellerStatus === "approved_seller" || user.sellerStatus === "suspended";
 }
 
 function computeTrustSnapshotMap(db: AlphaExchangeDb) {
@@ -399,7 +400,7 @@ export async function getPremiumSellerProfile(input: {
   const seller = db.users.find((user) => user.id === input.sellerId);
   if (!seller) return null;
   if (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended") return null;
-  const viewerIsOwner = input.viewerRole === "admin" && isAlphaExchangeOwnerEmail(input.viewerEmail ?? "");
+  const viewerIsOwner = input.viewerRole === "owner" || (input.viewerRole === "admin" && isAlphaExchangeOwnerEmail(input.viewerEmail ?? ""));
   if (seller.isProfileHidden === true && !viewerIsOwner) return null;
 
   const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === seller.id);
@@ -514,10 +515,6 @@ export async function getPremiumSellerProfile(input: {
   };
 }
 
-function isValidRole(value: string): value is UserRole {
-  return value === "buyer" || value === "approved_seller" || value === "admin";
-}
-
 function isValidSellerStatus(value: string): value is SellerStatus {
   return value === "buyer" || value === "pending_seller_approval" || value === "approved_seller" || value === "rejected" || value === "suspended";
 }
@@ -574,13 +571,8 @@ function isValidAnnouncementType(value: string): value is BetaAnnouncementType {
 
 function inferSellerStatus(role: UserRole): SellerStatus {
   if (role === "approved_seller") return "approved_seller";
+  if (role === "pending_seller_approval") return "pending_seller_approval";
   return "buyer";
-}
-
-function normalizeRoleForUser(email: string, role: UserRole): UserRole {
-  if (isAlphaExchangeOwnerEmail(email)) return "admin";
-  if (role === "admin") return "admin";
-  return role;
 }
 
 function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
@@ -589,12 +581,21 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
     ...db,
     users: (db.users ?? []).map((user) => {
       const email = normalizeEmail(typeof user.email === "string" ? user.email : "");
-      const role = isValidRole(user.role) ? user.role : "buyer";
-      const sellerStatus = isValidSellerStatus((user as { sellerStatus?: string }).sellerStatus ?? "") ? (user as { sellerStatus: SellerStatus }).sellerStatus : inferSellerStatus(role);
-      const normalizedRole = normalizeRoleForUser(email, role);
+      const fallbackRole = isUserRole(String(user.role ?? "")) ? (user.role as UserRole) : "guest";
+      const sellerStatus = isValidSellerStatus((user as { sellerStatus?: string }).sellerStatus ?? "") ? (user as { sellerStatus: SellerStatus }).sellerStatus : inferSellerStatus(fallbackRole);
+      const normalizedRoles = normalizeRolesForUser({
+        email,
+        role: fallbackRole,
+        roles: Array.isArray((user as { roles?: unknown[] }).roles)
+          ? (user as { roles: unknown[] }).roles.map((item) => String(item)).filter(isUserRole)
+          : undefined,
+        sellerStatus,
+      });
+      const normalizedRole = resolvePrimaryRole(normalizedRoles);
       return {
         ...user,
         email,
+        roles: normalizedRoles,
         role: normalizedRole,
         sellerStatus,
         preferredNetworks: Array.isArray((user as { preferredNetworks?: string[] }).preferredNetworks)
@@ -639,6 +640,46 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         registeredViaInviteCodeId:
           typeof (user as { registeredViaInviteCodeId?: string }).registeredViaInviteCodeId === "string"
             ? (user as { registeredViaInviteCodeId: string }).registeredViaInviteCodeId
+            : undefined,
+        verifiedPhone:
+          typeof (user as { verifiedPhone?: string }).verifiedPhone === "string"
+            ? (user as { verifiedPhone: string }).verifiedPhone
+            : undefined,
+        phoneVerifiedAt:
+          typeof (user as { phoneVerifiedAt?: string }).phoneVerifiedAt === "string"
+            ? (user as { phoneVerifiedAt: string }).phoneVerifiedAt
+            : undefined,
+        buyerVerificationStatus:
+          (user as { buyerVerificationStatus?: string }).buyerVerificationStatus === "verified"
+            ? "verified"
+            : (user as { buyerVerificationStatus?: string }).buyerVerificationStatus === "otp_sent"
+              ? "otp_sent"
+              : "not_started",
+        buyerVerificationAttempts: Math.max(0, Number((user as { buyerVerificationAttempts?: number }).buyerVerificationAttempts ?? 0)),
+        buyerVerificationWindowStartedAt:
+          typeof (user as { buyerVerificationWindowStartedAt?: string }).buyerVerificationWindowStartedAt === "string"
+            ? (user as { buyerVerificationWindowStartedAt: string }).buyerVerificationWindowStartedAt
+            : undefined,
+        buyerOtpSendsToday: Math.max(0, Number((user as { buyerOtpSendsToday?: number }).buyerOtpSendsToday ?? 0)),
+        buyerOtpSendsDate:
+          typeof (user as { buyerOtpSendsDate?: string }).buyerOtpSendsDate === "string"
+            ? (user as { buyerOtpSendsDate: string }).buyerOtpSendsDate
+            : undefined,
+        buyerOtpRequestedAt:
+          typeof (user as { buyerOtpRequestedAt?: string }).buyerOtpRequestedAt === "string"
+            ? (user as { buyerOtpRequestedAt: string }).buyerOtpRequestedAt
+            : undefined,
+        buyerFirstName:
+          typeof (user as { buyerFirstName?: string }).buyerFirstName === "string"
+            ? (user as { buyerFirstName: string }).buyerFirstName
+            : undefined,
+        buyerLastName:
+          typeof (user as { buyerLastName?: string }).buyerLastName === "string"
+            ? (user as { buyerLastName: string }).buyerLastName
+            : undefined,
+        buyerDisplayName:
+          typeof (user as { buyerDisplayName?: string }).buyerDisplayName === "string"
+            ? (user as { buyerDisplayName: string }).buyerDisplayName
             : undefined,
       };
     }),
@@ -925,7 +966,7 @@ async function appendAuditLog(db: AlphaExchangeDb, input: {
 }
 
 function getOwnerUser(db: AlphaExchangeDb) {
-  return db.users.find((user) => user.role === "admin" && isAlphaExchangeOwnerEmail(user.email)) ?? null;
+  return db.users.find((user) => hasRole(user, "owner")) ?? null;
 }
 
 function pushNotification(
@@ -1336,8 +1377,8 @@ function isAdminEmail(email: string) {
   return isAlphaExchangeOwnerEmail(email);
 }
 
-export function canPublishListings(user: Pick<AlphaExchangeUser, "role" | "sellerStatus">) {
-  return user.role !== "admin" && user.sellerStatus === "approved_seller";
+export function canPublishListings(user: Pick<AlphaExchangeUser, "role" | "roles" | "sellerStatus">) {
+  return !hasRole(user, "admin") && user.sellerStatus === "approved_seller";
 }
 
 function resolveInviteStatus(invite: PrivateBetaInviteCode) {
@@ -1360,7 +1401,12 @@ export async function createUser(input: {
   }
 
   const timestamp = nowIso();
-  const role: UserRole = isAdminEmail(email) ? "admin" : "buyer";
+  const roles = normalizeRolesForUser({
+    email,
+    roles: isAdminEmail(email) ? ["owner", "admin"] : ["guest"],
+    sellerStatus: "buyer",
+  });
+  const role = resolvePrimaryRole(roles);
   const user: AlphaExchangeUser = {
     id: `user-${randomUUID()}`,
     fullName: input.fullName.trim(),
@@ -1384,6 +1430,7 @@ export async function createUser(input: {
     isProfileHidden: false,
     notificationPreferences: normalizeNotificationPreferences(),
     role,
+    roles,
     sellerStatus: "buyer",
     emailVerified: false,
     emailVerifiedAt: undefined,
@@ -1403,7 +1450,7 @@ export async function createUser(input: {
 export async function upsertUserProfileForAuth(input: {
   fullName: string;
   email: string;
-  passwordHash: string;
+  passwordHash?: string;
   whatsappNumber: string;
   emailVerified?: boolean;
 }) {
@@ -1413,11 +1460,19 @@ export async function upsertUserProfileForAuth(input: {
   const timestamp = nowIso();
   if (existingIndex !== -1) {
     const existing = db.users[existingIndex];
+    const normalizedRoles = normalizeRolesForUser({
+      email,
+      role: existing.role,
+      roles: existing.roles,
+      sellerStatus: existing.sellerStatus,
+    });
     db.users[existingIndex] = {
       ...existing,
       fullName: input.fullName.trim() || existing.fullName,
       whatsappNumber: input.whatsappNumber.trim() || existing.whatsappNumber,
-      passwordHash: input.passwordHash || existing.passwordHash,
+      passwordHash: input.passwordHash ?? existing.passwordHash,
+      roles: normalizedRoles,
+      role: resolvePrimaryRole(normalizedRoles),
       emailVerified: input.emailVerified === true ? true : existing.emailVerified === true,
       emailVerifiedAt: input.emailVerified === true
         ? (existing.emailVerifiedAt ?? timestamp)
@@ -1428,12 +1483,17 @@ export async function upsertUserProfileForAuth(input: {
     return db.users[existingIndex];
   }
 
-  const role: UserRole = isAdminEmail(email) ? "admin" : "buyer";
+  const roles = normalizeRolesForUser({
+    email,
+    roles: isAdminEmail(email) ? ["owner", "admin"] : ["guest"],
+    sellerStatus: "buyer",
+  });
+  const role = resolvePrimaryRole(roles);
   const user: AlphaExchangeUser = {
     id: `user-${randomUUID()}`,
     fullName: input.fullName.trim(),
     email,
-    passwordHash: input.passwordHash,
+    passwordHash: input.passwordHash ?? "",
     whatsappNumber: input.whatsappNumber.trim(),
     preferredNetworks: [],
     profilePhotoUrl: "",
@@ -1452,6 +1512,7 @@ export async function upsertUserProfileForAuth(input: {
     isProfileHidden: false,
     notificationPreferences: normalizeNotificationPreferences(),
     role,
+    roles,
     sellerStatus: "buyer",
     emailVerified: input.emailVerified === true,
     emailVerifiedAt: input.emailVerified === true ? timestamp : undefined,
@@ -1466,6 +1527,113 @@ export async function upsertUserProfileForAuth(input: {
   db.users.push(user);
   await writeDb(db);
   return user;
+}
+
+export function normalizeIsraeliPhone(rawPhone: string) {
+  const normalized = String(rawPhone ?? "").replace(/\s+/g, "").replace(/-/g, "");
+  if (!normalized) return null;
+  if (/^05\d{8}$/.test(normalized)) return `+972${normalized.slice(1)}`;
+  if (/^\+9725\d{8}$/.test(normalized)) return normalized;
+  if (/^9725\d{8}$/.test(normalized)) return `+${normalized}`;
+  return null;
+}
+
+export async function grantStudentRole(userId: string) {
+  const db = await readDb();
+  const index = db.users.findIndex((user) => user.id === userId);
+  if (index === -1) throw new Error("User not found.");
+  const user = db.users[index];
+  const roles = addRole(removeRole(user.roles ?? [user.role], "guest"), "student");
+  db.users[index] = {
+    ...user,
+    roles,
+    role: resolvePrimaryRole(roles),
+    updatedAt: nowIso(),
+  };
+  await writeDb(db);
+  return db.users[index];
+}
+
+export async function beginBuyerVerification(input: {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  displayName?: string;
+  phone: string;
+}) {
+  const db = await readDb();
+  const index = db.users.findIndex((user) => user.id === input.userId);
+  if (index === -1) throw new Error("User not found.");
+  const user = db.users[index];
+  const normalizedPhone = normalizeIsraeliPhone(input.phone);
+  if (!normalizedPhone) {
+    throw new Error("This marketplace is currently available only for verified Israeli buyers.");
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const sendsDate = user.buyerOtpSendsDate ?? today;
+  const sendsToday = sendsDate === today ? Number(user.buyerOtpSendsToday ?? 0) : 0;
+  if (sendsToday >= 5) throw new Error("OTP send limit reached for today.");
+
+  const conflict = db.users.find((item) => item.id !== user.id && item.verifiedPhone === normalizedPhone);
+  if (conflict) throw new Error("This phone number is already linked to another buyer account.");
+
+  db.users[index] = {
+    ...user,
+    buyerFirstName: input.firstName.trim(),
+    buyerLastName: input.lastName.trim(),
+    buyerDisplayName: input.displayName?.trim() || undefined,
+    buyerVerificationStatus: "otp_sent",
+    buyerOtpRequestedAt: nowIso(),
+    buyerOtpSendsDate: today,
+    buyerOtpSendsToday: sendsToday + 1,
+    updatedAt: nowIso(),
+  };
+  await writeDb(db);
+  return { phone: normalizedPhone, user: db.users[index] };
+}
+
+export async function completeBuyerVerification(input: { userId: string; phone: string }) {
+  const db = await readDb();
+  const index = db.users.findIndex((user) => user.id === input.userId);
+  if (index === -1) throw new Error("User not found.");
+  const user = db.users[index];
+  const normalizedPhone = normalizeIsraeliPhone(input.phone);
+  if (!normalizedPhone) throw new Error("Invalid Israeli phone number.");
+  const conflict = db.users.find((item) => item.id !== user.id && item.verifiedPhone === normalizedPhone);
+  if (conflict) throw new Error("This phone number is already linked to another buyer account.");
+
+  const roles = addRole(removeRole(user.roles ?? [user.role], "guest"), "buyer");
+  db.users[index] = {
+    ...user,
+    roles,
+    role: resolvePrimaryRole(roles),
+    verifiedPhone: normalizedPhone,
+    phoneVerifiedAt: nowIso(),
+    buyerVerificationStatus: "verified",
+    buyerVerificationAttempts: Math.max(0, Number(user.buyerVerificationAttempts ?? 0)),
+    updatedAt: nowIso(),
+  };
+  await writeDb(db);
+  return db.users[index];
+}
+
+export async function recordBuyerVerificationAttempt(userId: string) {
+  const db = await readDb();
+  const index = db.users.findIndex((user) => user.id === userId);
+  if (index === -1) return;
+  const user = db.users[index];
+  const now = Date.now();
+  const windowStart = user.buyerVerificationWindowStartedAt ? new Date(user.buyerVerificationWindowStartedAt).getTime() : 0;
+  const withinWindow = Number.isFinite(windowStart) && windowStart > 0 && now - windowStart < 60 * 60 * 1000;
+  const attempts = withinWindow ? Number(user.buyerVerificationAttempts ?? 0) + 1 : 1;
+  db.users[index] = {
+    ...user,
+    buyerVerificationAttempts: attempts,
+    buyerVerificationWindowStartedAt: withinWindow ? user.buyerVerificationWindowStartedAt : nowIso(),
+    updatedAt: nowIso(),
+  };
+  await writeDb(db);
 }
 
 export async function createEmailVerificationTokenForUser(userId: string, durationHours = EMAIL_VERIFICATION_EXPIRY_HOURS) {
@@ -1733,7 +1901,8 @@ export async function createSellerApplication(input: {
   const user = db.users.find((item) => item.id === input.userId);
   if (!user) throw new Error("Account not found.");
   if (isAlphaExchangeOwnerEmail(user.email)) throw new Error("Owner accounts cannot submit seller applications.");
-  if (user.role === "admin") throw new Error("Administrator accounts cannot submit seller applications.");
+  if (hasRole(user, "admin")) throw new Error("Administrator accounts cannot submit seller applications.");
+  if (!hasRole(user, "buyer")) throw new Error("Buyer verification required before seller application.");
   if (user.sellerStatus === "approved_seller") throw new Error("You are already an approved seller.");
   if (user.sellerStatus === "suspended") throw new Error("Your account is suspended.");
   if (user.sellerStatus === "pending_seller_approval") throw new Error("Your seller application is already pending review.");
@@ -1764,10 +1933,12 @@ export async function createSellerApplication(input: {
 
   const userIndex = db.users.findIndex((user) => user.id === input.userId);
   if (userIndex >= 0) {
+    const nextRoles = addRole(removeRole(db.users[userIndex].roles ?? [db.users[userIndex].role], "guest"), "pending_seller_approval");
     db.users[userIndex] = {
       ...db.users[userIndex],
       sellerStatus: "pending_seller_approval",
-      role: db.users[userIndex].role === "admin" ? "admin" : "buyer",
+      roles: nextRoles,
+      role: resolvePrimaryRole(nextRoles),
       updatedAt: now,
     };
   }
@@ -1822,9 +1993,11 @@ export async function approveSellerApplicationByAdmin(applicationId: string, adm
 
   const userIndex = db.users.findIndex((user) => user.id === application.userId);
   if (userIndex === -1) throw new Error("Application user not found.");
+  const nextRoles = addRole(removeRole(db.users[userIndex].roles ?? [db.users[userIndex].role], "pending_seller_approval"), "approved_seller");
   db.users[userIndex] = {
     ...db.users[userIndex],
-    role: db.users[userIndex].role === "admin" ? "admin" : "approved_seller",
+    roles: nextRoles,
+    role: resolvePrimaryRole(nextRoles),
     sellerStatus: "approved_seller",
     isFoundingSeller: db.users[userIndex].isFoundingMember === true ? true : db.users[userIndex].isFoundingSeller === true,
     updatedAt: nowIso(),
@@ -1869,9 +2042,11 @@ export async function rejectSellerApplicationByAdmin(applicationId: string, admi
 
   const userIndex = db.users.findIndex((user) => user.id === application.userId);
   if (userIndex >= 0) {
+    const nextRoles = removeRole(db.users[userIndex].roles ?? [db.users[userIndex].role], "pending_seller_approval");
     db.users[userIndex] = {
       ...db.users[userIndex],
-      role: db.users[userIndex].role === "admin" ? "admin" : "buyer",
+      roles: nextRoles.length > 0 ? nextRoles : ["buyer"],
+      role: resolvePrimaryRole(nextRoles.length > 0 ? nextRoles : ["buyer"]),
       sellerStatus: "rejected",
       updatedAt: nowIso(),
     };
@@ -1907,6 +2082,7 @@ export async function suspendApprovedSellerByAdmin(userId: string, adminUserId: 
   const userIndex = db.users.findIndex((user) => user.id === userId);
   if (userIndex === -1) throw new Error("User not found.");
   const user = db.users[userIndex];
+  if (hasRole(user, "owner")) throw new Error("Owner account cannot be suspended.");
   db.users[userIndex] = {
     ...user,
     sellerStatus: "suspended",
@@ -1930,9 +2106,12 @@ export async function reactivateSellerByAdmin(userId: string, adminUserId: strin
   const userIndex = db.users.findIndex((user) => user.id === userId);
   if (userIndex === -1) throw new Error("User not found.");
   const user = db.users[userIndex];
+  if (hasRole(user, "owner")) throw new Error("Owner account cannot be modified.");
+  const nextRoles = addRole(removeRole(user.roles ?? [user.role], "pending_seller_approval"), "approved_seller");
   db.users[userIndex] = {
     ...user,
-    role: user.role === "admin" ? "admin" : "approved_seller",
+    roles: nextRoles,
+    role: resolvePrimaryRole(nextRoles),
     sellerStatus: "approved_seller",
     updatedAt: nowIso(),
   };
@@ -1993,6 +2172,7 @@ export async function updateSellerProfileStateByAdmin(input: {
   const index = db.users.findIndex((user) => user.id === input.sellerId);
   if (index === -1) throw new Error("Seller not found.");
   const seller = db.users[index];
+  if (hasRole(seller, "owner")) throw new Error("Owner account cannot be modified.");
   if (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended") {
     throw new Error("Seller profile state can be managed only for approved sellers.");
   }
@@ -2683,7 +2863,7 @@ export async function createPurchaseRequest(input: {
 
 export async function getMyPurchaseRequests(userId: string, role: UserRole) {
   const db = await readDb();
-  if (role === "admin") return db.purchaseRequests.map((request) => enrichRequestWithEvidence(db, request));
+  if (role === "admin" || role === "owner") return db.purchaseRequests.map((request) => enrichRequestWithEvidence(db, request));
   return db.purchaseRequests
     .filter((request) => request.buyerId === userId || request.sellerId === userId)
     .map((request) => enrichRequestWithEvidence(db, request));
@@ -2757,7 +2937,7 @@ export async function getAccountProfileData(userId: string): Promise<{
     whatsappNumber: user.whatsappNumber ?? "",
   };
 
-  if (user.role === "approved_seller" || user.sellerStatus === "approved_seller" || user.sellerStatus === "suspended") {
+  if (hasRole(user, "approved_seller") || user.sellerStatus === "approved_seller" || user.sellerStatus === "suspended") {
     const reputation = computeSellerReputationSnapshot(db, user.id);
     const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === user.id);
     const stats: SellerAccountStats = {
@@ -2806,7 +2986,7 @@ export async function updateAccountProfileData(input: {
 }
 
 function assertTradeParticipantOrAdmin(request: PurchaseRequest, userId: string, role: UserRole) {
-  if (role === "admin") return;
+  if (role === "admin" || role === "owner") return;
   if (request.buyerId === userId || request.sellerId === userId) return;
   throw new Error("You are not allowed to access trade evidence.");
 }
@@ -3885,7 +4065,7 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
       completedTrades: completedToday.length,
       tradeVolumeUsdt: Number(completedToday.reduce((sum, request) => sum + toNumber(request.usdtAmount), 0).toFixed(2)),
       estimatedCommission: Number(todayCommission.toFixed(2)),
-      newBuyers: db.users.filter((user) => user.role === "buyer" && isToday(user.createdAt)).length,
+      newBuyers: db.users.filter((user) => hasRole(user, "buyer") && isToday(user.createdAt)).length,
       newSellers: db.sellerApplications.filter((application) => application.status === "approved" && isToday(application.updatedAt)).length,
       newListings: db.marketplaceListings.filter((listing) => isToday(listing.createdAt)).length,
       listingsApproved: db.marketplaceListings.filter((listing) => listing.status === "active" && isToday(listing.ownerReviewedAt)).length,

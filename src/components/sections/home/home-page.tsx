@@ -6,10 +6,14 @@ import { motion, useScroll, useTransform } from "framer-motion";
 import { ArrowDown, ArrowLeft, ArrowRight, Brain, CheckCircle2, Coins, Play, PlayCircle, ShieldCheck, Target } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
+import { cn } from "@/lib/utils";
 import { courseSource } from "@/data/course-source";
 import { courses, lessons } from "@/lib/content";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { TrustBar } from "@/components/sections/home/trust-bar";
+import { HomepageStats } from "@/components/sections/home/homepage-stats";
+import { FounderPreview } from "@/components/sections/home/founder-preview";
 
 export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
   const t = useTranslations("home");
@@ -52,14 +56,14 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
             animate={{ opacity: 1 }}
             transition={{ duration: 0.8, ease: "easeOut" }}
             className="absolute inset-0"
-            style={isDesktop ? { y: parallaxY } : undefined}
+            style={isDesktop ? { y: parallaxY, willChange: "transform" } : undefined}
           >
             <Image
               src="/images/hero/hero-trading-office.png"
               alt="Alpha Traders cinematic workspace"
               fill
               priority
-              quality={100}
+              quality={85}
               sizes="(min-width: 1280px) 1280px, 100vw"
               className="object-cover object-[30%_center] md:object-center"
             />
@@ -94,7 +98,6 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                   height={28}
                   style={{ width: 28, height: 28 }}
                   className="rounded-md object-contain shadow-[0_4px_12px_rgba(0,0,0,0.35)]"
-                  priority
                 />
                 <span>{t("badge")}</span>
               </div>
@@ -110,12 +113,10 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                 transition={{ duration: 0.45, delay: 0.2, ease: "easeOut" }}
                 className={`mt-8 flex flex-wrap gap-3 ${isRtl ? "md:justify-end" : "md:justify-start"}`}
               >
-                <Link href="/academy">
-                  <Button className="gap-2">
+                <Link href="/academy" className={cn(buttonVariants(), "gap-2")}>
                     {t("startLearning")}
                     {isRtl ? <ArrowLeft className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
-                  </Button>
-                </Link>
+                  </Link>
                 <Link
                   href="/founder#founder-video"
                   aria-label={isRtl ? "شاهد فيديو مؤسس Alpha Traders" : "Watch the Alpha Traders founder video"}
@@ -138,6 +139,12 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
           </div>
         </div>
       </section>
+
+      <TrustBar />
+
+      <HomepageStats />
+
+      <FounderPreview />
 
       <section className="section-container">
         <Card className="overflow-hidden border-white/10 bg-[#0A0A0A]/92">
@@ -174,12 +181,10 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                         </span>
                       ))}
                     </div>
-                    <Link href={academyHref}>
-                      <Button className="gap-2">
+                    <Link href={academyHref} className={cn(buttonVariants(), "gap-2")}>
                         Start Learning
                         {isRtl ? <ArrowLeft className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
-                      </Button>
-                    </Link>
+                      </Link>
                   </CardContent>
                 </Card>
               </motion.div>
@@ -203,12 +208,13 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                         </span>
                       ))}
                     </div>
-                    <Link href={exchangeHref}>
-                      <Button className="group relative overflow-hidden border border-[#6CAEFF]/45 bg-gradient-to-r from-[#1B60ED]/85 via-[#2A7BFF]/80 to-[#3A9DFF]/75 font-semibold text-white shadow-[0_10px_26px_rgba(36,121,255,0.34)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(36,121,255,0.5)]">
+                    <Link
+                        href={exchangeHref}
+                        className={cn(buttonVariants(), "group relative overflow-hidden border border-[#6CAEFF]/45 bg-gradient-to-r from-[#1B60ED]/85 via-[#2A7BFF]/80 to-[#3A9DFF]/75 font-semibold text-white shadow-[0_10px_26px_rgba(36,121,255,0.34)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(36,121,255,0.5)]")}
+                      >
                         <span className="relative z-10">Enter Exchange</span>
                         <span className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 transition duration-700 group-hover:left-[120%] group-hover:opacity-100" />
-                      </Button>
-                    </Link>
+                      </Link>
                   </CardContent>
                 </Card>
               </motion.div>
@@ -330,8 +336,8 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
               ? "ابدأ رحلتك التعليمية خطوة بخطوة داخل Alpha Traders Academy"
               : "Start your learning journey step by step inside Alpha Traders Academy."}
           </p>
-          <Link href="/academy">
-            <Button>{locale === "ar" ? "ابدأ التعلم" : "Start Learning"}</Button>
+          <Link href="/academy" className={buttonVariants()}>
+            {locale === "ar" ? "ابدأ التعلم" : "Start Learning"}
           </Link>
         </div>
       </section>
@@ -387,7 +393,13 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
           </Link>
         </div>
         <div className="grid gap-4 md:grid-cols-3">
-          {latestLessons.map((lesson) => (
+          {latestLessons.length === 0 ? (
+            <Card className="col-span-full">
+              <CardContent className="py-6 text-sm text-[#9CA3AF]">
+                {locale === "ar" ? "لا توجد دروس متاحة حاليًا." : "No lessons available right now."}
+              </CardContent>
+            </Card>
+          ) : latestLessons.map((lesson) => (
             <Card key={lesson.id} className="h-full">
               <CardHeader>
                 <CardDescription>{lesson.durationMinutes} min</CardDescription>
@@ -410,7 +422,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
       </section>
 
       <section className="section-container grid gap-4 md:grid-cols-2">
-        {featuredLessons.map((lesson) => (
+        {featuredLessons.length === 0 ? null : featuredLessons.map((lesson) => (
           <Card key={lesson.id} className="h-full">
             <CardHeader>
               <CardDescription>{locale === "ar" ? "درس مميز" : "Featured Lesson"}</CardDescription>
@@ -447,8 +459,8 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
               </p>
             </div>
             <div className="flex justify-start md:justify-end">
-              <Link href={primaryCourse ? `/academy/${primaryCourse.slug}` : "/academy"}>
-                <Button>{locale === "ar" ? "ابدأ المسار" : "Open the Track"}</Button>
+              <Link href={primaryCourse ? `/academy/${primaryCourse.slug}` : "/academy"} className={buttonVariants()}>
+                {locale === "ar" ? "ابدأ المسار" : "Open the Track"}
               </Link>
             </div>
           </CardContent>
@@ -456,7 +468,13 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
       </section>
 
       <section className="section-container grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {courses.map((course) => (
+        {courses.length === 0 ? (
+          <Card className="col-span-full">
+            <CardContent className="py-6 text-sm text-[#9CA3AF]">
+              {locale === "ar" ? "لا توجد مسارات متاحة حاليًا. تحقق مرة أخرى قريبًا." : "No learning tracks available right now. Please check back soon."}
+            </CardContent>
+          </Card>
+        ) : courses.map((course) => (
           <Card key={course.id} className="h-full">
             <CardHeader>
               <CardDescription>{course.level.toUpperCase()}</CardDescription>

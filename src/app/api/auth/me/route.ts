@@ -20,6 +20,7 @@ export async function GET() {
       fullName: user.fullName,
       email: user.email,
       role: user.role,
+      roles: user.roles ?? [user.role],
       sellerStatus: user.sellerStatus,
       whatsappNumber: user.whatsappNumber,
       preferredNetworks: user.preferredNetworks,

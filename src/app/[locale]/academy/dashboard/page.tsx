@@ -1,4 +1,7 @@
 import { buildPageMetadata } from "@/lib/seo";
+import { redirect } from "next/navigation";
+import { getCurrentSessionUser } from "@/lib/auth";
+import { hasRole } from "@/lib/roles";
 import { StudentDashboard } from "@/components/dashboard/student-dashboard";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
@@ -11,6 +14,14 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   });
 }
 
-export default async function AcademyDashboardPage() {
+export default async function AcademyDashboardPage({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
+  const user = await getCurrentSessionUser();
+  if (!user) {
+    redirect(`/${locale}/login?redirectTo=/${locale}/academy/dashboard`);
+  }
+  if (!hasRole(user, "student") && !hasRole(user, "admin") && !hasRole(user, "owner")) {
+    redirect(`/${locale}/onboarding`);
+  }
   return <StudentDashboard />;
 }

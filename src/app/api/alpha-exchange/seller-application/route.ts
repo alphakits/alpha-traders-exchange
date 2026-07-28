@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSellerApplication, getSellerApplicationByUserId } from "@/lib/alpha-exchange-store";
 import { requireApiUser } from "@/lib/api-auth";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
+import { hasRole } from "@/lib/roles";
+import { logEvent } from "@/lib/structured-logging";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
 
 function isValidNetwork(value: string): value is SupportedNetwork {
@@ -15,6 +17,7 @@ const SELLER_APPLICATION_ERROR_STATUS: Record<string, number> = {
   "You are already an approved seller.": 400,
   "Your seller application is already pending review.": 400,
   "Your account is suspended.": 403,
+  "Buyer verification required before seller application.": 403,
   "Full name is required.": 400,
   "WhatsApp number is required.": 400,
   "At least one preferred network is required.": 400,
@@ -31,10 +34,16 @@ export async function POST(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
   if (isAlphaExchangeOwnerEmail(user.email)) {
+    logEvent("warn", { event: "seller_application_submit", actorUserId: user.id, actorRole: user.role, outcome: "denied", reason: "Owner cannot apply as seller" });
     return NextResponse.json({ error: "Owner accounts cannot submit seller applications." }, { status: 403 });
   }
-  if (user.role === "admin") {
+  if (hasRole(user, "admin")) {
+    logEvent("warn", { event: "seller_application_submit", actorUserId: user.id, actorRole: user.role, outcome: "denied", reason: "Admin cannot apply as seller" });
     return NextResponse.json({ error: "Administrator accounts cannot submit seller applications." }, { status: 403 });
+  }
+  if (!hasRole(user, "buyer")) {
+    logEvent("warn", { event: "seller_application_submit", actorUserId: user.id, actorRole: user.role, outcome: "denied", reason: "Buyer verification required" });
+    return NextResponse.json({ error: "Buyer verification required before seller application." }, { status: 403 });
   }
   if (user.sellerStatus === "approved_seller") {
     return NextResponse.json({ error: "You are already an approved seller." }, { status: 400 });
@@ -90,6 +99,13 @@ export async function POST(request: NextRequest) {
       expectedMonthlyTradingVolume: String(payload.expectedMonthlyTradingVolume ?? ""),
       additionalNotes: String(payload.additionalNotes ?? ""),
     });
+    logEvent("info", {
+      event: "seller_application_submit",
+      actorUserId: user.id,
+      actorRole: user.role,
+      resourceId: application.id,
+      outcome: "success",
+    });
     return NextResponse.json({ application }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown seller-application failure";
@@ -99,6 +115,13 @@ export async function POST(request: NextRequest) {
       message,
       stack: error instanceof Error ? error.stack : undefined,
       error,
+    });
+    logEvent("error", {
+      event: "seller_application_submit",
+      actorUserId: user.id,
+      actorRole: user.role,
+      outcome: "failed",
+      reason: message,
     });
     if (error instanceof Error) {
       if (Object.prototype.hasOwnProperty.call(SELLER_APPLICATION_ERROR_STATUS, error.message)) {

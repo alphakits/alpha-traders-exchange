@@ -26,7 +26,8 @@ type AdminSeller = {
   fullName: string;
   email: string;
   whatsappNumber: string;
-  role: "buyer" | "approved_seller" | "admin";
+  role: "guest" | "student" | "buyer" | "pending_seller_approval" | "approved_seller" | "admin" | "owner";
+  roles?: Array<"guest" | "student" | "buyer" | "pending_seller_approval" | "approved_seller" | "admin" | "owner">;
   sellerStatus: "buyer" | "pending_seller_approval" | "approved_seller" | "rejected" | "suspended";
   availabilityStatus?: SellerAvailabilityStatus;
   createdAt: string;
@@ -939,7 +940,23 @@ export function AlphaExchangeAdminDashboard() {
                                       <p className="font-medium text-white">{seller.fullName}</p>
                                       <p className="text-xs text-[#9CA3AF]">{seller.email}</p>
                                       <div className="mt-2">
-                                        <RoleBadge variant={seller.role === "admin" ? "administrator" : seller.role === "approved_seller" ? "approved_seller" : "buyer"} />
+                                        <div className="flex flex-wrap gap-2">
+                                          {Array.from(
+                                            new Set(
+                                              [
+                                                (seller.roles ?? []).includes("owner") ? "owner" : null,
+                                                (seller.roles ?? []).includes("admin") || seller.role === "admin" ? "administrator" : null,
+                                                seller.sellerStatus === "approved_seller" || (seller.roles ?? []).includes("approved_seller") ? "approved_seller" : null,
+                                                seller.sellerStatus === "pending_seller_approval" || (seller.roles ?? []).includes("pending_seller_approval") ? "pending_seller" : null,
+                                                (seller.roles ?? []).includes("buyer") || seller.role === "buyer" ? "buyer" : null,
+                                                (seller.roles ?? []).includes("student") ? "student" : null,
+                                                (seller.roles ?? []).includes("guest") ? "guest" : null,
+                                              ].filter(Boolean),
+                                            ),
+                                          ).map((badge) => (
+                                            <RoleBadge key={badge} variant={badge as "guest" | "student" | "buyer" | "pending_seller" | "approved_seller" | "administrator" | "owner"} />
+                                          ))}
+                                        </div>
                                       </div>
                                     </td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(seller.createdAt)}</td>

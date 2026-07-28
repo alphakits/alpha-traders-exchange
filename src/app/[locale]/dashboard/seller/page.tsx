@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
-import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
+import { hasRole } from "@/lib/roles";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
 
 export const dynamic = "force-dynamic";
@@ -24,11 +24,11 @@ export default async function SellerDashboardPage({ params }: { params: Promise<
     redirect(`/${locale}/login?redirectTo=/${locale}/dashboard/seller`);
   }
 
-  if (user.role === "admin" && isAlphaExchangeOwnerEmail(user.email)) {
+  if (hasRole(user, "owner") || hasRole(user, "admin")) {
     redirect(`/${locale}/admin/alpha-exchange`);
   }
 
-  if (user.role === "admin" || user.sellerStatus !== "approved_seller") {
+  if (!hasRole(user, "approved_seller")) {
     redirect(`/${locale}/dashboard`);
   }
 

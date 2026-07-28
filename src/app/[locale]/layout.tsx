@@ -10,12 +10,14 @@ import { SiteFooter } from "@/components/layout/site-footer";
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
+  display: "swap",
 });
 
 const plexArabic = IBM_Plex_Sans_Arabic({
   subsets: ["arabic", "latin"],
-  weight: ["300", "400", "500", "600", "700"],
+  weight: ["400", "600", "700"],
   variable: "--font-plex-arabic",
+  display: "swap",
 });
 
 export function generateStaticParams() {

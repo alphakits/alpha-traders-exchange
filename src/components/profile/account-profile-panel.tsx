@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { RoleBadge, type RoleBadgeVariant } from "@/components/ui/role-badge";
 import { Button } from "@/components/ui/button";
@@ -125,8 +126,7 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
               <div className="flex items-center gap-4">
                 <div className="h-16 w-16 overflow-hidden rounded-full border border-white/15 bg-black/30">
                   {payload.profile.profilePhotoUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={payload.profile.profilePhotoUrl} alt="Profile" className="h-full w-full object-cover" />
+                    <Image src={payload.profile.profilePhotoUrl} alt="Profile" width={64} height={64} unoptimized className="h-full w-full object-cover" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-xl text-[#9CA3AF]">
                       {payload.profile.fullName.charAt(0).toUpperCase()}

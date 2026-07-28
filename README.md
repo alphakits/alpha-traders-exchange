@@ -5,6 +5,54 @@
 - Node.js 20+
 - npm 10+
 
+## Authentication & roles
+
+Role hierarchy is multi-role and additive:
+
+- `guest` (default for every new account)
+- `student`
+- `buyer`
+- `pending_seller_approval`
+- `approved_seller`
+- `admin`
+- `owner`
+
+### Permission model
+
+- **Guest**: browse public marketplace/academy content and manage profile basics.
+- **Student**: academy premium access.
+- **Buyer**: marketplace purchase actions and seller contact.
+- **Approved seller**: listing management and seller workspace.
+- **Admin**: administrative exchange and moderation tools.
+- **Owner**: immutable superuser role (`jozenmark834@yahoo.com`) with automatic owner+admin restoration on login.
+
+All API authorization is server-side and derived from the authenticated session user. Client-supplied roles are ignored.
+
+### Buyer verification flow
+
+1. Guest chooses **Become a Buyer** in onboarding.
+2. User submits profile fields + Israeli phone.
+3. OTP is sent through provider abstraction (`src/lib/sms-provider.ts`).
+4. OTP verify grants `buyer` role only after successful provider verification.
+5. Duplicate verified phone usage is blocked.
+
+### Seller approval flow
+
+1. Only buyers can submit seller applications.
+2. Seller application enters `pending_seller_approval`.
+3. Admin review approves/rejects.
+4. Approved users receive `approved_seller` capabilities.
+
+### Owner protections
+
+- Owner cannot be suspended, reactivated, demoted, or profile-state mutated by admin APIs.
+- Owner role is re-applied on login by canonical owner email.
+
+### Security and observability
+
+- Structured server logs are emitted for permission denials, buyer OTP send/verify, and seller admin actions.
+- Sensitive values (passwords/tokens/OTP/secrets) are redacted from structured logs.
+
 ## First install
 
 ```bash
@@ -49,6 +97,19 @@ npm run start
 
 `npm run build` now refuses to run if a repo-local `next dev` process is active, preventing shared `.next` corruption.
 
+## Test workflow
+
+- Unit tests: `npm run test`
+- E2E tests: `npm run test:e2e`
+
+E2E credentialed login/seller lifecycle checks are opt-in and require seeded accounts:
+
+- `E2E_OWNER_EMAIL`, `E2E_OWNER_PASSWORD`
+- `E2E_BUYER_EMAIL`, `E2E_BUYER_PASSWORD`
+- `E2E_SELLER_EMAIL`, `E2E_SELLER_PASSWORD`
+
+Without these variables, credential-dependent E2E cases are skipped and public/auth-guard infrastructure checks still run.
+
 ## Vercel deployment
 
 ### Runtime compatibility
@@ -85,7 +146,7 @@ Set these in Vercel for every environment that should build successfully:
 
 Set this in the **Production** environment so metadata, canonical URLs, `robots.txt`, and `sitemap.xml` use the custom domain instead of a preview hostname:
 
-- `NEXT_PUBLIC_SITE_URL=https://alphatraders.academy`
+- `NEXT_PUBLIC_SITE_URL=https://www.alphatraders.co.il`
 
 Optional environment variables:
 
@@ -97,6 +158,17 @@ Optional environment variables:
 - `ALPHA_EXCHANGE_STALE_TRADE_TIMEOUT_MINUTES`
 - `SUPABASE_ADMIN_MEDIA_BUCKET=admin-media`
 - `SUPABASE_DB_SSL=true` (default behavior; only set `false` for local trusted Postgres)
+- `BUYER_OTP_EXPIRY_MINUTES=10`
+
+Rate limits are configurable per limiter key with environment overrides:
+
+- `RATE_LIMIT_<KEY>_MAX`
+- `RATE_LIMIT_<KEY>_WINDOW_MS`
+
+Example for buyer OTP verify key (`auth:buyer-otp-verify`):
+
+- `RATE_LIMIT_AUTH_BUYER_OTP_VERIFY_MAX=3`
+- `RATE_LIMIT_AUTH_BUYER_OTP_VERIFY_WINDOW_MS=3600000`
 
 #### Founder video — Supabase Storage upload (one-time setup)
 
@@ -129,10 +201,10 @@ Never set in production:
 
 ### Custom domain DNS
 
-For `alphatraders.academy` on Vercel:
+For `alphatraders.co.il` on Vercel:
 
-1. Apex/root domain `alphatraders.academy` → `A 76.76.21.21`
-2. `www.alphatraders.academy` → `CNAME cname.vercel-dns.com`
+1. Apex/root domain `alphatraders.co.il` → `A 76.76.21.21`
+2. `www.alphatraders.co.il` → `CNAME cname.vercel-dns.com`
 
 After adding the domain in Vercel, wait for DNS verification and automatic SSL issuance before going live.
 

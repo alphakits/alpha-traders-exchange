@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentSessionUser } from "@/lib/auth";
-import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { buildPageMetadata } from "@/lib/seo";
+import { hasRole } from "@/lib/roles";
 import { OwnerPendingListingsDashboard } from "@/components/admin/owner-pending-listings-dashboard";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +23,7 @@ export default async function PendingListingsPage({ params }: { params: Promise<
   if (!user) {
     redirect(`/${locale}/login?redirectTo=/${locale}/admin/alpha-exchange/pending-listings`);
   }
-  if (user.role !== "admin" || !isAlphaExchangeOwnerEmail(user.email)) {
+  if (!hasRole(user, "owner")) {
     redirect(`/${locale}/usdt-exchange`);
   }
 

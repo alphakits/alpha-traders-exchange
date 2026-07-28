@@ -1,7 +1,5 @@
 import { buildPageMetadata } from "@/lib/seo";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { ContactForm } from "@/components/sections/contact/contact-form";
 import { AtSign, MessageCircle, Music2 } from "lucide-react";
 
 const WHATSAPP_URL = "https://wa.me/972525967649";
@@ -57,12 +55,7 @@ export default async function ContactPage({ params }: { params: Promise<{ locale
           {isAr ? "تيك توك: @Mark.Jozen" : "TikTok: @Mark.Jozen"}
         </a>
       </div>
-      <form className="mt-8 grid max-w-3xl gap-4 rounded-2xl border border-white/10 p-5 md:p-6">
-        <Input placeholder={isAr ? "الاسم الكامل" : "Full name"} aria-label="name" />
-        <Input placeholder={isAr ? "البريد الإلكتروني" : "Email"} type="email" aria-label="email" />
-        <Textarea placeholder={isAr ? "رسالتك" : "Your message"} aria-label="message" />
-        <Button type="submit">{isAr ? "إرسال" : "Send Message"}</Button>
-      </form>
+      <ContactForm locale={locale as "ar" | "en"} />
     </section>
   );
 }

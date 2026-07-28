@@ -4,15 +4,15 @@
   "private": true,
   "scripts": {
     "clean": "node -e \"const fs=require('fs'); ['.next','.next-dev','.next-runtime','.next-runtime-build','.next-stale'].forEach((dir)=>{ if (fs.existsSync(dir)) fs.rmSync(dir,{recursive:true,force:true}); });\"",
-    "dev": "node scripts/ensure-single-dev.mjs && next dev",
+    "dev": "node scripts/ensure-single-dev.mjs && node ./node_modules/next/dist/bin/next dev",
     "dev:clean": "npm run clean && npm run dev",
-    "build": "node scripts/ensure-no-active-dev.mjs && next build",
-    "start": "next start",
-    "lint": "eslint",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:e2e": "playwright test",
-    "test:coverage": "vitest run --coverage"
+    "build": "node scripts/ensure-no-active-dev.mjs && node ./node_modules/next/dist/bin/next build",
+    "start": "node ./node_modules/next/dist/bin/next start",
+    "lint": "node ./node_modules/eslint/bin/eslint.js",
+    "test": "node ./node_modules/vitest/vitest.mjs run",
+    "test:watch": "node ./node_modules/vitest/vitest.mjs",
+    "test:e2e": "node ./node_modules/playwright/cli.js test",
+    "test:coverage": "node ./node_modules/vitest/vitest.mjs run --coverage"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",

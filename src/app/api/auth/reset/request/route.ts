@@ -1,7 +1,6 @@
-import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { createPasswordResetToken, findUserByEmail } from "@/lib/alpha-exchange-store";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 
 export async function POST(request: NextRequest) {
   const rate = checkRateLimit({
@@ -23,19 +22,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid email format." }, { status: 400 });
     }
 
-    const user = await findUserByEmail(email);
-    if (!user) {
-      return NextResponse.json({ ok: true });
+    const locale = inferLocaleFromRequest(request);
+    const supabase = createSupabaseAuthClient();
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: getSupabaseEmailRedirectUrl(locale),
+    });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
-
-    const resetToken = `${randomUUID()}-${randomUUID()}`;
-    await createPasswordResetToken(user.id, resetToken);
-
-    if (process.env.NODE_ENV !== "production" && process.env.ALPHA_EXCHANGE_EXPOSE_RESET_TOKEN === "true") {
-      return NextResponse.json({ ok: true, resetToken });
-    }
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({
+      ok: true,
+      message: "If the account exists, a password reset email has been sent.",
+    });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to create reset token." }, { status: 400 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to request password reset." }, { status: 400 });
   }
 }

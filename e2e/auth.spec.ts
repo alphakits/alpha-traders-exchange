@@ -11,10 +11,10 @@
 
 import { test, expect } from "@playwright/test";
 
-const OWNER_EMAIL = "jozenmark834@yahoo.com";
-const OWNER_PASSWORD = "Roflxd123!";
-const BUYER_EMAIL = "test123@guest.local";
-const BUYER_PASSWORD = "test123";
+const OWNER_EMAIL = process.env.E2E_OWNER_EMAIL ?? "";
+const OWNER_PASSWORD = process.env.E2E_OWNER_PASSWORD ?? "";
+const BUYER_EMAIL = process.env.E2E_BUYER_EMAIL ?? "";
+const BUYER_PASSWORD = process.env.E2E_BUYER_PASSWORD ?? "";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -88,11 +88,13 @@ test.describe("Guest access", () => {
 
 test.describe("Authentication", () => {
   test("owner can log in and is redirected away from login page", async ({ page }) => {
+    test.skip(!OWNER_EMAIL || !OWNER_PASSWORD, "Set E2E_OWNER_EMAIL and E2E_OWNER_PASSWORD to run credentialed login checks.");
     await login(page, OWNER_EMAIL, OWNER_PASSWORD);
     await expect(page).not.toHaveURL(/\/login/);
   });
 
   test("buyer can log in", async ({ page }) => {
+    test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     await login(page, BUYER_EMAIL, BUYER_PASSWORD);
     await expect(page).not.toHaveURL(/\/login/);
   });
@@ -110,6 +112,7 @@ test.describe("Authentication", () => {
   });
 
   test("session persists after page refresh", async ({ page }) => {
+    test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     await login(page, BUYER_EMAIL, BUYER_PASSWORD);
     const urlAfterLogin = page.url();
     await page.reload();
@@ -119,6 +122,7 @@ test.describe("Authentication", () => {
   });
 
   test("logout clears session and redirects to login", async ({ page }) => {
+    test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     await login(page, BUYER_EMAIL, BUYER_PASSWORD);
     await page.request.post("/api/auth/logout");
     // After logout, protected route redirects to login
@@ -133,6 +137,7 @@ test.describe("Authentication", () => {
 
 test.describe("Post-login redirect", () => {
   test("redirectTo preserved through login for /en/academy", async ({ page }) => {
+    test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     // Guest navigates to academy → gets sent to login with redirectTo
     await page.goto("/en/academy");
     const loginUrl = page.url();
@@ -149,6 +154,7 @@ test.describe("Post-login redirect", () => {
   });
 
   test("redirectTo preserved through login for /en/usdt-exchange", async ({ page }) => {
+    test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     await page.goto("/en/usdt-exchange");
     await page.waitForSelector('form[data-hydrated="true"]', { timeout: 15_000 });
     await page.getByPlaceholder("Email").fill(BUYER_EMAIL);
@@ -158,6 +164,7 @@ test.describe("Post-login redirect", () => {
   });
 
   test("already-logged-in user accessing login page is redirected away", async ({ page }) => {
+    test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     await login(page, BUYER_EMAIL, BUYER_PASSWORD);
     await page.goto("/en/login");
     // Should not stay on login — middleware or page should redirect
@@ -175,6 +182,7 @@ test.describe("Post-login redirect", () => {
 
 test.describe("Role-based access", () => {
   test("admin route /en/admin/alpha-exchange accessible to owner", async ({ page }) => {
+    test.skip(!OWNER_EMAIL || !OWNER_PASSWORD, "Set E2E_OWNER_EMAIL and E2E_OWNER_PASSWORD to run credentialed login checks.");
     await login(page, OWNER_EMAIL, OWNER_PASSWORD);
     await page.goto("/en/admin/alpha-exchange");
     // Should not be redirected to login or exchange
@@ -183,6 +191,7 @@ test.describe("Role-based access", () => {
   });
 
   test("admin route /en/admin/alpha-exchange inaccessible to buyer", async ({ page }) => {
+    test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     await login(page, BUYER_EMAIL, BUYER_PASSWORD);
     await page.goto("/en/admin/alpha-exchange");
     // Should be redirected away (to exchange or login)
@@ -190,6 +199,7 @@ test.describe("Role-based access", () => {
   });
 
   test("/api/auth/me returns user for authenticated session", async ({ page }) => {
+    test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     await login(page, BUYER_EMAIL, BUYER_PASSWORD);
     const resp = await page.request.get("/api/auth/me");
     expect(resp.status()).toBe(200);

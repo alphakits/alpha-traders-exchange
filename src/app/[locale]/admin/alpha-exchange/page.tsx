@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
-import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
+import { hasRole } from "@/lib/roles";
 import { AlphaExchangeAdminDashboard } from "@/components/admin/alpha-exchange-admin-dashboard";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +23,7 @@ export default async function AlphaExchangeAdminPage({ params }: { params: Promi
   if (!user) {
     redirect(`/${locale}/login?redirectTo=/${locale}/admin/alpha-exchange`);
   }
-  if (user.role !== "admin" || !isAlphaExchangeOwnerEmail(user.email)) {
+  if (!hasRole(user, "owner")) {
     redirect(`/${locale}/usdt-exchange`);
   }
 

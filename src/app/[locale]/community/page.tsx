@@ -98,7 +98,7 @@ export default async function CommunityPage() {
                     alt={isAr ? item.altAr : item.alt}
                     fill
                     sizes="(max-width: 768px) 100vw, 40vw"
-                    priority={item.src === "/images/course-materials/webp/image32.webp"}
+                    quality={75}
                     className="object-cover transition duration-500 group-hover:scale-[1.04]"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/20 to-transparent" />
@@ -174,10 +174,11 @@ export default async function CommunityPage() {
                     <div key={src} className="relative aspect-[9/16] overflow-hidden rounded-lg border border-white/10 bg-black/40">
                       <Image
                         src={src}
-                        alt="TikTok preview visual"
+                        alt=""
+                        aria-hidden={true}
                         fill
                         sizes="(max-width: 768px) 30vw, 220px"
-                        quality={100}
+                        quality={75}
                         className="object-cover blur-[1.6px] brightness-75 scale-110"
                       />
                       <Image
@@ -185,7 +186,7 @@ export default async function CommunityPage() {
                         alt="TikTok preview visual"
                         fill
                         sizes="(max-width: 768px) 30vw, 220px"
-                        quality={100}
+                        quality={75}
                         className="object-contain p-1.5"
                       />
                     </div>
@@ -209,7 +210,7 @@ export default async function CommunityPage() {
                     alt={isAr ? item.altAr : item.alt}
                     fill
                     sizes="(max-width: 768px) 100vw, 40vw"
-                    priority={item.src === "/images/course-materials/webp/image32.webp"}
+                    quality={75}
                     className="object-cover transition duration-500 group-hover:scale-[1.04]"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/20 to-transparent" />

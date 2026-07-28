@@ -1,4 +1,11 @@
-export type UserRole = "buyer" | "approved_seller" | "admin";
+export type UserRole =
+  | "guest"
+  | "student"
+  | "buyer"
+  | "pending_seller_approval"
+  | "approved_seller"
+  | "admin"
+  | "owner";
 export type SellerStatus = "buyer" | "pending_seller_approval" | "approved_seller" | "rejected" | "suspended";
 export type SellerOnlineStatus = "online" | "offline";
 export type SellerAvailabilityStatus = "available" | "away" | "vacation";
@@ -29,6 +36,7 @@ export interface AlphaExchangeUser {
   isProfileHidden?: boolean;
   notificationPreferences?: NotificationPreferences;
   role: UserRole;
+  roles?: UserRole[];
   sellerStatus: SellerStatus;
   emailVerified?: boolean;
   emailVerifiedAt?: string;
@@ -38,6 +46,17 @@ export interface AlphaExchangeUser {
   isFoundingMember?: boolean;
   isFoundingSeller?: boolean;
   registeredViaInviteCodeId?: string;
+  verifiedPhone?: string;
+  phoneVerifiedAt?: string;
+  buyerVerificationStatus?: "not_started" | "otp_sent" | "verified";
+  buyerVerificationAttempts?: number;
+  buyerVerificationWindowStartedAt?: string;
+  buyerOtpSendsToday?: number;
+  buyerOtpSendsDate?: string;
+  buyerOtpRequestedAt?: string;
+  buyerFirstName?: string;
+  buyerLastName?: string;
+  buyerDisplayName?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { suspendApprovedSellerByAdmin } from "@/lib/alpha-exchange-store";
 import { requireApiAdmin } from "@/lib/api-auth";
+import { logEvent } from "@/lib/structured-logging";
 
 type RouteContext = {
   params: Promise<{ userId: string }>;
@@ -13,8 +14,12 @@ export async function POST(_: Request, context: RouteContext) {
   try {
     const { userId } = await context.params;
     const seller = await suspendApprovedSellerByAdmin(userId, user.id);
+    logEvent("info", { event: "seller_suspend", actorUserId: user.id, actorRole: user.role, targetUserId: userId, outcome: "success" });
     return NextResponse.json({ seller });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to suspend seller." }, { status: 400 });
+    const message = error instanceof Error ? error.message : "Failed to suspend seller.";
+    logEvent("error", { event: "seller_suspend", actorUserId: user.id, actorRole: user.role, outcome: "failed", reason: message });
+    const status = message === "Owner account cannot be suspended." ? 403 : 400;
+    return NextResponse.json({ error: message }, { status });
   }
 }

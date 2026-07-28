@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { consumeEmailVerificationToken } from "@/lib/alpha-exchange-store";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { createSupabaseAuthClient } from "@/lib/supabase-auth-provider";
 
@@ -21,43 +20,23 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const token = String(body?.token ?? "").trim();
     const tokenHash = String(body?.tokenHash ?? body?.token_hash ?? "").trim();
-    const tokenType = String(body?.type ?? "signup").trim().toLowerCase();
-
-    if (tokenHash) {
-      const supabase = createSupabaseAuthClient();
-      const { error } = await supabase.auth.verifyOtp({
-        token_hash: tokenHash,
-        type: tokenType === "signup" ? "signup" : "signup",
-      });
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
-      }
-      return NextResponse.json(
-        { ok: true, message: "Email verified successfully. You can now sign in." },
-        { headers: AUTH_RESPONSE_HEADERS },
-      );
-    }
-
-    if (!token || token.length < 32 || token.length > 256) {
+    if (!tokenHash) {
       return NextResponse.json({ error: "Invalid verification link." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
-
-    const result = await consumeEmailVerificationToken(token);
-    if (result.status === "verified") {
-      return NextResponse.json(
-        { ok: true, message: "Email verified successfully. You can now sign in." },
-        { headers: AUTH_RESPONSE_HEADERS },
-      );
+    const tokenType = String(body?.type ?? "signup").trim().toLowerCase();
+    const supabase = createSupabaseAuthClient();
+    const { error } = await supabase.auth.verifyOtp({
+      token_hash: tokenHash,
+      type: tokenType === "signup" ? "signup" : "signup",
+    });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
-    if (result.status === "expired") {
-      return NextResponse.json(
-        { error: "This verification link has expired. Please request a new verification email." },
-        { status: 400, headers: AUTH_RESPONSE_HEADERS },
-      );
-    }
-    return NextResponse.json({ error: "Invalid verification link." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    return NextResponse.json(
+      { ok: true, message: "Email verified successfully. You can now sign in." },
+      { headers: AUTH_RESPONSE_HEADERS },
+    );
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Verification failed." },

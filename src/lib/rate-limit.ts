@@ -13,6 +13,25 @@ function getClientIp(headers: Headers) {
   return headers.get("x-real-ip") || "unknown";
 }
 
+function envKeyForRateLimit(baseKey: string, field: "MAX" | "WINDOW_MS") {
+  const normalized = baseKey
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toUpperCase();
+  return `RATE_LIMIT_${normalized}_${field}`;
+}
+
+function resolveRateLimitConfig(input: { key: string; maxRequests: number; windowMs: number }) {
+  const maxEnv = process.env[envKeyForRateLimit(input.key, "MAX")];
+  const windowEnv = process.env[envKeyForRateLimit(input.key, "WINDOW_MS")];
+  const maxRequests = Number(maxEnv ?? input.maxRequests);
+  const windowMs = Number(windowEnv ?? input.windowMs);
+  return {
+    maxRequests: Number.isFinite(maxRequests) && maxRequests > 0 ? maxRequests : input.maxRequests,
+    windowMs: Number.isFinite(windowMs) && windowMs > 0 ? windowMs : input.windowMs,
+  };
+}
+
 export function checkRateLimit(input: {
   headers: Headers;
   key: string;
@@ -20,15 +39,16 @@ export function checkRateLimit(input: {
   windowMs: number;
 }) {
   const ip = getClientIp(input.headers);
+  const config = resolveRateLimitConfig(input);
   const now = Date.now();
   const bucketKey = `${input.key}:${ip}`;
   const existing = buckets.get(bucketKey);
-  if (!existing || now - existing.windowStart > input.windowMs) {
+  if (!existing || now - existing.windowStart > config.windowMs) {
     buckets.set(bucketKey, { count: 1, windowStart: now });
     return { allowed: true, retryAfterSeconds: 0 };
   }
-  if (existing.count >= input.maxRequests) {
-    const retryAfterSeconds = Math.max(1, Math.ceil((input.windowMs - (now - existing.windowStart)) / 1000));
+  if (existing.count >= config.maxRequests) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((config.windowMs - (now - existing.windowStart)) / 1000));
     return { allowed: false, retryAfterSeconds };
   }
   existing.count += 1;

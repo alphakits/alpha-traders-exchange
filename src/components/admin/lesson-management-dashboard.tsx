@@ -6,7 +6,7 @@ import { AlertCircle, CheckCircle2, Download, FileUp, GripVertical, Loader2, Plu
 import { useLocale } from "next-intl";
 import type { Lesson, LessonCategory, LessonStatus, QuizQuestion, UserRole, VideoProvider } from "@/types/academy";
 import type { AdminAnalytics, LessonVersion, MediaItem } from "@/types/admin";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -805,14 +805,14 @@ export function LessonManagementDashboard() {
               <CardTitle className="text-lg">{isAr ? "التصدير والنسخ الاحتياطي" : "Export & Backup"}</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2">
-              <a href="/api/admin/export?format=json" target="_blank" rel="noreferrer">
-                <Button size="sm" variant="secondary"><Download className="h-4 w-4" />JSON</Button>
+              <a href="/api/admin/export?format=json" target="_blank" rel="noreferrer" className={buttonVariants({ size: "sm", variant: "secondary" })}>
+                <Download className="h-4 w-4" />JSON
               </a>
-              <a href="/api/admin/export?format=csv" target="_blank" rel="noreferrer">
-                <Button size="sm" variant="secondary"><Download className="h-4 w-4" />CSV</Button>
+              <a href="/api/admin/export?format=csv" target="_blank" rel="noreferrer" className={buttonVariants({ size: "sm", variant: "secondary" })}>
+                <Download className="h-4 w-4" />CSV
               </a>
-              <a href="/api/admin/export?format=backup" target="_blank" rel="noreferrer">
-                <Button size="sm"><Download className="h-4 w-4" />Backup</Button>
+              <a href="/api/admin/export?format=backup" target="_blank" rel="noreferrer" className={buttonVariants({ size: "sm" })}>
+                <Download className="h-4 w-4" />Backup
               </a>
             </CardContent>
           </Card>

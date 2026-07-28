@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { hashPassword, verifyPassword } from "@/lib/auth";
-import { requireApiUser } from "@/lib/api-auth";
-import { updateSellerAvailabilityStatus, updateUserPassword, updateUserSellerSettings } from "@/lib/alpha-exchange-store";
+import { requireApiSellerWorkspaceActor } from "@/lib/api-auth";
+import { updateSellerAvailabilityStatus, updateUserSellerSettings } from "@/lib/alpha-exchange-store";
 import { checkRateLimit } from "@/lib/rate-limit";
 import type { SellerAvailabilityStatus, SupportedNetwork } from "@/types/alpha-exchange";
 
 export async function GET() {
-  const { user, unauthorized } = await requireApiUser();
+  const { user, unauthorized } = await requireApiSellerWorkspaceActor();
   if (!user) return unauthorized;
 
   return NextResponse.json({
@@ -30,7 +29,7 @@ export async function GET() {
 }
 
 export async function PATCH(request: NextRequest) {
-  const { user, unauthorized } = await requireApiUser();
+  const { user, unauthorized } = await requireApiSellerWorkspaceActor();
   if (!user) return unauthorized;
   const rate = checkRateLimit({ headers: request.headers, key: "exchange:seller-settings", maxRequests: 20, windowMs: 60_000 });
   if (!rate.allowed) {
@@ -62,19 +61,15 @@ export async function PATCH(request: NextRequest) {
 
     const currentPassword = body.currentPassword ? String(body.currentPassword) : "";
     const newPassword = body.newPassword ? String(body.newPassword) : "";
-    let passwordHash: string | undefined;
+    let requestedPasswordChange = false;
     if (currentPassword || newPassword) {
       if (!currentPassword || !newPassword) {
         return NextResponse.json({ error: "Both current and new password are required." }, { status: 400 });
       }
-      const isValid = await verifyPassword(currentPassword, user.passwordHash);
-      if (!isValid) {
-        return NextResponse.json({ error: "Current password is incorrect." }, { status: 400 });
-      }
       if (newPassword.length < 8) {
         return NextResponse.json({ error: "New password must be at least 8 characters." }, { status: 400 });
       }
-      passwordHash = await hashPassword(newPassword);
+      requestedPasswordChange = true;
     }
 
     const updatedUser = await updateUserSellerSettings({
@@ -98,8 +93,8 @@ export async function PATCH(request: NextRequest) {
       ? await updateSellerAvailabilityStatus({ sellerId: user.id, actorUserId: user.id, availabilityStatus })
       : updatedUser;
 
-    if (passwordHash) {
-      await updateUserPassword(user.id, passwordHash);
+    if (requestedPasswordChange) {
+      return NextResponse.json({ error: "Use the password reset flow from login to change your password." }, { status: 400 });
     }
 
     return NextResponse.json({

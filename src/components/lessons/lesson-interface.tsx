@@ -17,7 +17,8 @@ import {
   markLessonAsCurrent,
   updateLessonProgress,
 } from "@/lib/learning-progress";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { VideoPlayer } from "./video-player";
@@ -138,17 +139,13 @@ export function LessonInterface({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {previousSlug ? (
-              <Link href={`/lessons/${previousSlug}`}>
-                <Button variant="secondary" size="sm">
-                  {isAr ? "السابق" : "Previous"}
-                </Button>
+              <Link href={`/lessons/${previousSlug}`} className={buttonVariants({ variant: "secondary", size: "sm" })}>
+                {isAr ? "السابق" : "Previous"}
               </Link>
             ) : null}
             {nextSlug ? (
-              <Link href={`/lessons/${nextSlug}`}>
-                <Button variant="secondary" size="sm">
-                  {isAr ? "التالي" : "Next"}
-                </Button>
+              <Link href={`/lessons/${nextSlug}`} className={buttonVariants({ variant: "secondary", size: "sm" })}>
+                {isAr ? "التالي" : "Next"}
               </Link>
             ) : null}
             <Button
@@ -427,17 +424,15 @@ export function LessonInterface({
             </CardHeader>
             <CardContent className="grid gap-2 sm:grid-cols-2">
               {previousSlug ? (
-                <Link href={`/lessons/${previousSlug}`}>
-                  <Button variant="secondary" className="w-full justify-start">
-                    {isAr ? "الدرس السابق" : "Previous Lesson"}
-                  </Button>
+                <Link href={`/lessons/${previousSlug}`} className={cn(buttonVariants({ variant: "secondary" }), "w-full justify-start")}>
+                  {isAr ? "الدرس السابق" : "Previous Lesson"}
                 </Link>
               ) : (
                 <div className="rounded-full border border-white/10 px-4 py-3 text-sm text-[#6B7280]">{isAr ? "هذا أول درس" : "This is the first lesson"}</div>
               )}
               {nextSlug ? (
-                <Link href={`/lessons/${nextSlug}`}>
-                  <Button className="w-full justify-start">{isAr ? "الدرس التالي" : "Next Lesson"}</Button>
+                <Link href={`/lessons/${nextSlug}`} className={cn(buttonVariants(), "w-full justify-start")}>
+                  {isAr ? "الدرس التالي" : "Next Lesson"}
                 </Link>
               ) : (
                 <div className="rounded-full border border-white/10 px-4 py-3 text-sm text-[#6B7280]">{isAr ? "هذا آخر درس" : "This is the final lesson"}</div>
@@ -586,8 +581,8 @@ export function LessonInterface({
               </div>
               <div className="mt-5 flex justify-center gap-2">
                 {nextSlug ? (
-                  <Link href={`/lessons/${nextSlug}`}>
-                    <Button>{isAr ? "متابعة التعلم" : "Continue Learning"}</Button>
+                  <Link href={`/lessons/${nextSlug}`} className={buttonVariants()}>
+                    {isAr ? "متابعة التعلم" : "Continue Learning"}
                   </Link>
                 ) : null}
                 <Button variant="secondary" onClick={() => setShowCelebration(false)}>

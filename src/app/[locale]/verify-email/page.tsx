@@ -117,8 +117,8 @@ export default function VerifyEmailPage() {
           </div>
         )}
 
-        {errorMessage ? <p className="mt-4 text-sm text-rose-300">{errorMessage}</p> : null}
-        {statusMessage ? <p className="mt-4 text-sm text-emerald-300">{statusMessage}</p> : null}
+        {errorMessage ? <p className="mt-4 text-sm text-rose-300" role="status" aria-live="polite">{errorMessage}</p> : null}
+        {statusMessage ? <p className="mt-4 text-sm text-emerald-300" role="status" aria-live="polite">{statusMessage}</p> : null}
 
         <p className="mt-6 text-sm text-[#9CA3AF]">
           <Link href="/login" className="text-[#C9A227] hover:underline">

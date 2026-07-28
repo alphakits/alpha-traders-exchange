@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { findUserByEmail, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
+import { upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 import { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, createUserSession } from "@/lib/auth";
 import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -56,11 +56,9 @@ export async function POST(request: NextRequest) {
         { status: 403, headers: AUTH_RESPONSE_HEADERS },
       );
     }
-    const existingProfile = await findUserByEmail(supabaseUser.email);
     const user = await upsertUserProfileForAuth({
       fullName: String(supabaseUser.user_metadata?.full_name ?? supabaseUser.email.split("@")[0]),
       email: supabaseUser.email,
-      passwordHash: existingProfile?.passwordHash ?? "",
       whatsappNumber: String(supabaseUser.user_metadata?.whatsapp_number ?? ""),
       emailVerified: true,
     });
@@ -88,6 +86,7 @@ export async function POST(request: NextRequest) {
         fullName: user.fullName,
         email: user.email,
         role: user.role,
+        roles: user.roles ?? [user.role],
         sellerStatus: user.sellerStatus,
       },
     }, { headers: AUTH_RESPONSE_HEADERS });

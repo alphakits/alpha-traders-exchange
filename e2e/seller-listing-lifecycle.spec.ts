@@ -1,10 +1,10 @@
 import { request, test, expect, type APIRequestContext, type Browser, type Page } from "@playwright/test";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
-const OWNER_EMAIL = "jozenmark834@yahoo.com";
-const OWNER_PASSWORD = "Roflxd123!";
-const SELLER_EMAIL = "test123@guest.local";
-const SELLER_PASSWORD = "test123";
+const OWNER_EMAIL = (process.env.E2E_OWNER_EMAIL ?? "").toLowerCase();
+const OWNER_PASSWORD = process.env.E2E_OWNER_PASSWORD ?? "";
+const SELLER_EMAIL = (process.env.E2E_SELLER_EMAIL ?? "").toLowerCase();
+const SELLER_PASSWORD = process.env.E2E_SELLER_PASSWORD ?? "";
 const TEST_EVIDENCE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9Wl8cAAAAASUVORK5CYII=";
 const TEST_SUPPORT_HEADERS = {
   "x-alpha-test-support": "enabled",
@@ -61,13 +61,17 @@ async function createSession(browser: Browser, email: string, password: string) 
 }
 
 async function resetLifecycleFixtures() {
+  if (!OWNER_EMAIL || !OWNER_PASSWORD || !SELLER_EMAIL || !SELLER_PASSWORD) {
+    return false;
+  }
   const api = await request.newContext({ baseURL: "http://localhost:3000" });
   const db = await readRuntimeDb(api);
   const users = Array.isArray(db.users) ? (db.users as Array<Record<string, unknown>>) : [];
   const seller = users.find((user) => String(user.email ?? "").toLowerCase() === SELLER_EMAIL);
   const owner = users.find((user) => String(user.email ?? "").toLowerCase() === OWNER_EMAIL);
   if (!seller || !owner) {
-    throw new Error("Required test accounts are missing from the runtime database.");
+    await api.dispose();
+    return false;
   }
 
   const sellerId = String(seller.id);
@@ -118,6 +122,7 @@ async function resetLifecycleFixtures() {
   await writeRuntimeDb(api, db);
   await api.dispose();
   await waitForPersistence();
+  return true;
 }
 
 async function uploadEvidence(request: APIRequestContext, requestId: string, side: "buyer" | "seller") {
@@ -206,7 +211,8 @@ test.describe.configure({ mode: "serial" });
 
 test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   test.setTimeout(60_000);
-  await resetLifecycleFixtures();
+  const hasFixtures = await resetLifecycleFixtures();
+  test.skip(!hasFixtures, "Set E2E owner/seller credentials and seed matching runtime accounts to run lifecycle tests.");
 
   const seller = await createSession(browser, SELLER_EMAIL, SELLER_PASSWORD);
   await seller.page.goto("/en/usdt-exchange");
@@ -303,7 +309,8 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
 
 test("listing expiration, renewal, vacation mode, timeout notifications, and audit history work end-to-end", async ({ browser }) => {
   test.setTimeout(60_000);
-  await resetLifecycleFixtures();
+  const hasFixtures = await resetLifecycleFixtures();
+  test.skip(!hasFixtures, "Set E2E owner/seller credentials and seed matching runtime accounts to run lifecycle tests.");
 
   const seller = await createSession(browser, SELLER_EMAIL, SELLER_PASSWORD);
   const owner = await createSession(browser, OWNER_EMAIL, OWNER_PASSWORD);
@@ -420,7 +427,8 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
 
 test("admin dashboard listing overrides update state, notifications, and audit history", async ({ browser, page }) => {
   test.setTimeout(60_000);
-  await resetLifecycleFixtures();
+  const hasFixtures = await resetLifecycleFixtures();
+  test.skip(!hasFixtures, "Set E2E owner/seller credentials and seed matching runtime accounts to run lifecycle tests.");
 
   const seller = await createSession(browser, SELLER_EMAIL, SELLER_PASSWORD);
 

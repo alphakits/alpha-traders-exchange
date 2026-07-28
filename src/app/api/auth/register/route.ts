@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
-import { hashPassword } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 
@@ -45,7 +44,6 @@ export async function POST(request: NextRequest) {
     }
 
     const locale = inferLocaleFromRequest(request);
-    const passwordHash = await hashPassword(password);
     const supabase = createSupabaseAuthClient();
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -73,7 +71,6 @@ export async function POST(request: NextRequest) {
     await upsertUserProfileForAuth({
       fullName,
       email,
-      passwordHash,
       whatsappNumber,
       emailVerified: false,
     });

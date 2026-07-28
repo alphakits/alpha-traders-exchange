@@ -1,7 +1,7 @@
 import { Bolt, Crown, ShieldCheck, Sparkles, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type RoleBadgeVariant = "member" | "buyer" | "approved_seller" | "moderator" | "administrator" | "owner";
+export type RoleBadgeVariant = "guest" | "student" | "buyer" | "pending_seller" | "approved_seller" | "moderator" | "administrator" | "owner";
 
 type RoleBadgeProps = {
   variant: RoleBadgeVariant;
@@ -12,15 +12,25 @@ const badgeMeta: Record<
   RoleBadgeVariant,
   { label: string; icon: typeof UserRound; className: string; iconClassName?: string; emblem?: string }
 > = {
-  member: {
-    label: "Member",
+  guest: {
+    label: "Guest",
     icon: UserRound,
     className: "role-badge--member",
+  },
+  student: {
+    label: "Student",
+    icon: UserRound,
+    className: "role-badge--buyer",
   },
   buyer: {
     label: "Buyer",
     icon: UserRound,
     className: "role-badge--buyer",
+  },
+  pending_seller: {
+    label: "Pending Seller",
+    icon: ShieldCheck,
+    className: "role-badge--moderator",
   },
   approved_seller: {
     label: "Approved Seller",

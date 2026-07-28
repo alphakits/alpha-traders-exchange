@@ -7,6 +7,7 @@ vi.mock("@/lib/auth", () => ({
   getCurrentSessionToken: vi.fn().mockResolvedValue(null),
   clearUserSession: vi.fn().mockResolvedValue(undefined),
   AUTH_COOKIE_NAME: "alpha_exchange_session",
+  AUTH_VERIFIED_COOKIE_NAME: "alpha_exchange_verified",
 }));
 
 import { requireApiUser, requireApiAdmin } from "@/lib/api-auth";
@@ -52,13 +53,13 @@ describe("requireApiAdmin", () => {
     expect(unauthorized?.status).toBe(403);
   });
 
-  it("returns 403 when role is admin but email is not owner", async () => {
+  it("returns user when role is admin regardless of owner email", async () => {
     mockGetCurrentSessionUser.mockResolvedValue(
       makeUser({ role: "admin", email: "notowner@example.com" }) as never
     );
     const { user, unauthorized } = await requireApiAdmin();
-    expect(user).toBeNull();
-    expect(unauthorized?.status).toBe(403);
+    expect(user).toEqual(makeUser({ role: "admin", email: "notowner@example.com" }));
+    expect(unauthorized).toBeNull();
   });
 
   it("returns user when role is admin AND email matches owner", async () => {

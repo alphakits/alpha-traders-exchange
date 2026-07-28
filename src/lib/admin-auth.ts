@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import type { UserRole } from "@/types/academy";
 import { getCurrentSessionUser } from "@/lib/auth";
+import { hasRole } from "@/lib/roles";
 
 type AdminIdentity = {
   role: UserRole;
@@ -15,7 +16,7 @@ export async function resolveAdminIdentity(request: NextRequest): Promise<AdminI
   }
 
   const user = await getCurrentSessionUser();
-  if (!user || user.role !== "admin") {
+  if (!user || (!hasRole(user, "admin") && !hasRole(user, "owner"))) {
     throw new Error("Unauthorized admin access.");
   }
 

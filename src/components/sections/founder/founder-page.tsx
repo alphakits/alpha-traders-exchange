@@ -6,7 +6,7 @@ import { BookOpen, Compass, Crown, Gem, Target, TrendingUp } from "lucide-react"
 import { useLocale } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { courseSource } from "@/data/course-source";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 // In production the video is hosted on Supabase Storage because Git LFS objects
@@ -179,11 +179,11 @@ export function FounderPage() {
       <section className="rounded-3xl border border-white/10 bg-[#090909] p-8 text-center md:p-12">
         <h3 className="text-3xl font-semibold md:text-4xl">{isAr ? "هل أنت مستعد لبدء رحلتك؟" : "Ready to Start?"}</h3>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-          <Link href="/academy">
-            <Button>{isAr ? "ابدأ التعلم" : "Start Learning"}</Button>
+          <Link href="/academy" className={buttonVariants()}>
+            {isAr ? "ابدأ التعلم" : "Start Learning"}
           </Link>
-          <Link href="/">
-            <Button variant="secondary">{isAr ? "العودة للرئيسية" : "Back to Home"}</Button>
+          <Link href="/" className={buttonVariants({ variant: "secondary" })}>
+            {isAr ? "العودة للرئيسية" : "Back to Home"}
           </Link>
         </div>
       </section>

@@ -1,15 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/api-auth";
-import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { getAccountProfileData, updateAccountProfileData } from "@/lib/alpha-exchange-store";
 import { checkRateLimit } from "@/lib/rate-limit";
 
-type RoleBadgeVariant = "member" | "buyer" | "approved_seller" | "moderator" | "administrator" | "owner";
+type RoleBadgeVariant = "guest" | "student" | "buyer" | "pending_seller" | "approved_seller" | "administrator" | "owner";
 
-function toRoleBadgeVariant(user: { role: string; email: string; sellerStatus: string }): RoleBadgeVariant {
-  if (user.role === "admin" && isAlphaExchangeOwnerEmail(user.email)) return "owner";
-  if (user.role === "admin") return "administrator";
-  if (user.role === "approved_seller" || user.sellerStatus === "approved_seller") return "approved_seller";
+function toRoleBadgeVariant(user: { role: string; roles?: string[]; sellerStatus: string }): RoleBadgeVariant {
+  const roles = user.roles ?? [];
+  if (roles.includes("owner") || user.role === "owner") return "owner";
+  if (roles.includes("admin") || user.role === "admin") return "administrator";
+  if (roles.includes("approved_seller") || user.role === "approved_seller" || user.sellerStatus === "approved_seller") return "approved_seller";
+  if (roles.includes("pending_seller_approval") || user.sellerStatus === "pending_seller_approval") return "pending_seller";
+  if (roles.includes("buyer") || user.role === "buyer") return "buyer";
+  if (roles.includes("student") || user.role === "student") return "student";
+  if (roles.includes("guest") || user.role === "guest") return "guest";
   return "buyer";
 }
 
@@ -24,13 +28,15 @@ function accountStatuses(user: { sellerStatus: string }) {
   return statuses;
 }
 
-function roleLabelFor(variant: RoleBadgeVariant): "Member" | "Buyer" | "Approved Seller" | "Moderator" | "Administrator" | "Owner" {
+function roleLabelFor(variant: RoleBadgeVariant): "Guest" | "Student" | "Buyer" | "Pending Seller" | "Approved Seller" | "Administrator" | "Owner" {
   if (variant === "owner") return "Owner";
   if (variant === "administrator") return "Administrator";
-  if (variant === "moderator") return "Moderator";
+  if (variant === "pending_seller") return "Pending Seller";
   if (variant === "approved_seller") return "Approved Seller";
+  if (variant === "student") return "Student";
+  if (variant === "guest") return "Guest";
   if (variant === "buyer") return "Buyer";
-  return "Member";
+  return "Guest";
 }
 
 export async function GET() {
@@ -40,7 +46,10 @@ export async function GET() {
   const payload = await getAccountProfileData(user.id);
   const roleBadge = toRoleBadgeVariant(user);
   return NextResponse.json({
-    profile: payload.profile,
+    profile: {
+      ...payload.profile,
+      roles: user.roles ?? [user.role],
+    },
     stats: payload.stats,
     roleBadge,
     roleLabel: roleLabelFor(roleBadge),
@@ -82,7 +91,10 @@ export async function PATCH(request: NextRequest) {
     const payload = await getAccountProfileData(user.id);
     const roleBadge = toRoleBadgeVariant(user);
     return NextResponse.json({
-      profile: payload.profile,
+      profile: {
+        ...payload.profile,
+        roles: user.roles ?? [user.role],
+      },
       stats: payload.stats,
       roleBadge,
       roleLabel: roleLabelFor(roleBadge),
