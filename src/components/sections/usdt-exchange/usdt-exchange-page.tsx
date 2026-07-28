@@ -1693,148 +1693,246 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           </CardContent>
         </Card>
 
-        <div className="mt-5 grid gap-4 md:grid-cols-2">
+        <div className="mt-5 grid gap-5 md:grid-cols-2">
           {isLoadingListings
             ? Array.from({ length: 4 }).map((_, index) => (
-                <Card key={`skeleton-${index}`} className="border-white/10 bg-[#0B0B0B]/90">
-                  <CardContent className="space-y-4 p-6">
-                    {/* avatar + name skeleton */}
-                    <div className="flex items-center gap-3">
-                      <div className="h-11 w-11 animate-pulse rounded-full bg-white/10" />
-                      <div className="space-y-1.5">
-                        <div className="h-4 w-28 animate-pulse rounded bg-white/10" />
+                <Card key={`skeleton-${index}`} className="overflow-hidden border-white/10 bg-[#0B0B0B]/95">
+                  <CardContent className="space-y-4 p-5">
+                    <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
+                      <div className="h-14 w-14 animate-pulse rounded-full bg-white/10" />
+                      <div className="space-y-2">
+                        <div className="h-4 w-32 animate-pulse rounded bg-white/10" />
                         <div className="h-3 w-20 animate-pulse rounded bg-white/10" />
                       </div>
+                      <div className="ms-auto h-6 w-16 animate-pulse rounded-full bg-white/10" />
                     </div>
-                    {/* hero stats skeleton */}
-                    <div className="h-16 w-full animate-pulse rounded-xl bg-white/10" />
-                    {/* trust bar skeleton */}
-                    <div className="space-y-1.5">
-                      <div className="h-3 w-24 animate-pulse rounded bg-white/10" />
-                      <div className="h-1.5 w-full animate-pulse rounded-full bg-white/10" />
+                    <div className="h-20 w-full animate-pulse rounded-2xl bg-white/10" />
+                    <div className="space-y-2">
+                      <div className={`flex justify-between ${isAr ? "flex-row-reverse" : ""}`}>
+                        <div className="h-3 w-24 animate-pulse rounded bg-white/10" />
+                        <div className="h-3 w-12 animate-pulse rounded bg-white/10" />
+                      </div>
+                      <div className="h-2 w-full animate-pulse rounded-full bg-white/10" />
                     </div>
-                    {/* info grid skeleton */}
-                    <div className="grid grid-cols-2 gap-2">
-                      {Array.from({ length: 4 }).map((_, i) => (
-                        <div key={i} className="h-3 animate-pulse rounded bg-white/10" />
+                    <div className={`flex gap-2 ${isAr ? "flex-row-reverse" : ""}`}>
+                      {[0, 1, 2].map((i) => (
+                        <div key={i} className="h-8 w-24 animate-pulse rounded-lg bg-white/10" />
                       ))}
                     </div>
-                    {/* button skeleton */}
                     <div className="h-11 w-full animate-pulse rounded-full bg-white/10" />
                   </CardContent>
                 </Card>
               ))
-            : filteredListings.map((listing) => (
-                <Card key={listing.id} className="group border-white/10 bg-[#0B0B0B]/90 transition duration-300 hover:-translate-y-1 hover:border-[#C9A227]/30 hover:shadow-[0_22px_60px_rgba(0,0,0,0.35)]">
-                  <CardHeader>
-                    <div className={`flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between ${isAr ? "sm:flex-row-reverse" : ""}`}>
-                      <div className={`flex items-start gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
-                        {listing.sellerProfile?.profilePhotoUrl ? (
-                          <Image
-                            src={listing.sellerProfile.profilePhotoUrl}
-                            alt={`${safeText(listing.sellerDisplayName, "Seller")} profile`}
-                            width={44}
-                            height={44}
-                            unoptimized
-                            className="h-11 w-11 rounded-full border border-white/15 object-cover"
-                          />
-                        ) : (
-                          <div className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-white/[0.04] text-sm font-semibold text-[#D1D5DB]">
-                            {safeText(listing.sellerDisplayName, "Seller")
-                              .split(" ")
-                              .map((part) => part[0])
-                              .join("")
-                              .slice(0, 2)}
+            : filteredListings.map((listing) => {
+                const trustScore = listing.sellerReputation?.trustScore ?? 0;
+                const successRate = listing.sellerReputation?.successRate ?? 0;
+                const completedTrades = listing.sellerReputation?.completedTrades ?? 0;
+                const isOnline = listing.sellerProfile?.onlineStatus === "online";
+                const trustTier =
+                  trustScore >= 9 ? (isAr ? "ممتاز" : "Excellent")
+                  : trustScore >= 7 ? (isAr ? "جيد" : "Good")
+                  : trustScore >= 5 ? (isAr ? "متوسط" : "Fair")
+                  : (isAr ? "مبتدئ" : "New");
+                const trustTierColor =
+                  trustScore >= 9 ? "text-[#4ADE80]"
+                  : trustScore >= 7 ? "text-[#C9A227]"
+                  : trustScore >= 5 ? "text-[#FB923C]"
+                  : "text-[#9CA3AF]";
+
+                return (
+                  <Card
+                    key={listing.id}
+                    className="group relative overflow-hidden border-white/10 bg-[#0B0B0B]/95 transition-all duration-300 hover:-translate-y-1 hover:border-[#C9A227]/35 hover:shadow-[0_20px_60px_rgba(0,0,0,0.45),0_0_0_1px_rgba(201,162,39,0.08)]"
+                  >
+                    {/* Top gold accent bar — appears on hover */}
+                    <div
+                      className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#C9A227]/70 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+                      aria-hidden="true"
+                    />
+
+                    <CardHeader className="pb-3 pt-5">
+                      <div className={`flex items-start justify-between gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
+                        {/* Avatar + seller info */}
+                        <div className={`flex items-start gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
+                          {/* Avatar with online ring + status dot */}
+                          <div className="relative flex-shrink-0">
+                            {listing.sellerProfile?.profilePhotoUrl ? (
+                              <Image
+                                src={listing.sellerProfile.profilePhotoUrl}
+                                alt={`${safeText(listing.sellerDisplayName, "Seller")} profile`}
+                                width={56}
+                                height={56}
+                                unoptimized
+                                className={`h-14 w-14 rounded-full object-cover ring-2 transition-all duration-300 ${isOnline ? "ring-[#22C55E]/45 group-hover:ring-[#22C55E]/70" : "ring-white/10"}`}
+                              />
+                            ) : (
+                              <div className={`inline-flex h-14 w-14 items-center justify-center rounded-full text-base font-bold text-[#D1D5DB] ring-2 transition-all duration-300 ${isOnline ? "bg-[#C9A227]/8 ring-[#22C55E]/45" : "bg-white/[0.04] ring-white/10"}`}>
+                                {safeText(listing.sellerDisplayName, "S")
+                                  .split(" ")
+                                  .map((p) => p[0])
+                                  .join("")
+                                  .slice(0, 2)}
+                              </div>
+                            )}
+                            {/* Online indicator dot */}
+                            <span
+                              className={`absolute bottom-0.5 end-0.5 h-3 w-3 rounded-full border-2 border-[#0B0B0B] ${isOnline ? "bg-[#22C55E]" : "bg-[#6B7280]"}`}
+                              title={isOnline ? (isAr ? "متاح الآن" : "Online now") : (isAr ? "غير متاح" : "Offline")}
+                            />
                           </div>
-                        )}
-                        <div>
-                          <CardTitle className="text-lg">{safeText(listing.sellerDisplayName, "Seller")}</CardTitle>
-                          <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">
-                            {sellerLevelLabel(listing.sellerReputation?.level)} Seller
-                            {listing.sellerProfile?.onlineStatus === "online" ? " • Online" : " • Offline"}
-                          </p>
-                          <div className="mt-1 flex flex-wrap gap-2">
-                            <RoleBadge variant="approved_seller" />
-                            {listing.sellerProfile?.isFoundingSeller ? (
-                              <span className="rounded-full border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 px-2 py-0.5 text-[11px] text-[#93C5FD]">Founding Seller</span>
-                            ) : null}
+                          {/* Name + level + badges */}
+                          <div>
+                            <CardTitle className={`text-lg leading-tight ${isAr ? "text-right" : ""}`}>
+                              {safeText(listing.sellerDisplayName, "Seller")}
+                            </CardTitle>
+                            <p className={`mt-0.5 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF] ${isAr ? "text-right" : ""}`}>
+                              {sellerLevelLabel(listing.sellerReputation?.level)} Seller
+                            </p>
+                            <div className={`mt-1.5 flex flex-wrap gap-1.5 ${isAr ? "flex-row-reverse" : ""}`}>
+                              <RoleBadge variant="approved_seller" />
+                              {listing.sellerProfile?.isFoundingSeller ? (
+                                <span className="rounded-full border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 px-2 py-0.5 text-[11px] text-[#93C5FD]">
+                                  {isAr ? "مؤسس" : "Founding"}
+                                </span>
+                              ) : null}
+                            </div>
                           </div>
                         </div>
+
+                        {/* Online / Offline status pill */}
+                        <span
+                          className={`mt-0.5 flex-shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium ${isOnline ? "border-[#22C55E]/30 bg-[#22C55E]/10 text-[#86EFAC]" : "border-white/12 bg-white/[0.04] text-[#9CA3AF]"}`}
+                        >
+                          {isOnline ? (isAr ? "متاح" : "Online") : (isAr ? "غير متاح" : "Offline")}
+                        </span>
                       </div>
-                      <span className="rounded-full border border-[#22C55E]/25 bg-[#22C55E]/10 px-3 py-1 text-xs text-[#86EFAC]">{isAr ? "متاح" : "Available"}</span>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4 pt-0">
-                    {/* Hero: Price + USDT Amount */}
-                    <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-black/20 p-3">
+                    </CardHeader>
+
+                    <CardContent className="space-y-4 pb-5 pt-0">
+                      {/* ── Price + USDT hero panel ── */}
+                      <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-black/40 to-[#C9A227]/[0.04]">
+                        <div className={`border-e border-white/10 p-3.5 ${isAr ? "text-right" : ""}`}>
+                          <p className="text-[10px] uppercase tracking-[0.16em] text-[#9CA3AF]">
+                            {isAr ? "السعر / USDT" : "Price / USDT"}
+                          </p>
+                          <p className="mt-1 text-2xl font-bold leading-none text-[#C9A227]">
+                            {safeText(listing.price)}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-[#9CA3AF]">{safeText(listing.currency, "ILS")}</p>
+                        </div>
+                        <div className={`p-3.5 ${isAr ? "text-right" : ""}`}>
+                          <p className="text-[10px] uppercase tracking-[0.16em] text-[#9CA3AF]">
+                            {isAr ? "USDT متاح" : "Available"}
+                          </p>
+                          <p className="mt-1 text-2xl font-bold leading-none text-white">
+                            {safeText(listing.availableAmount)}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-[#9CA3AF]">USDT</p>
+                        </div>
+                      </div>
+
+                      {/* ── Trust score bar ── */}
                       <div>
-                        <p className="text-[10px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "السعر / USDT" : "Price / USDT"}</p>
-                        <p className="mt-0.5 text-lg font-semibold text-[#C9A227]">{safeText(listing.price)} <span className="text-sm font-normal text-[#9CA3AF]">{listing.currency}</span></p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "USDT متاح" : "USDT Available"}</p>
-                        <p className="mt-0.5 text-lg font-semibold text-white">{safeText(listing.availableAmount)}</p>
-                      </div>
-                    </div>
-
-                    {/* Trust Score visual bar */}
-                    <div>
-                      <div className={`flex items-center justify-between text-xs ${isAr ? "flex-row-reverse" : ""}`}>
-                        <span className="text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust Score"}</span>
-                        <span className="font-semibold text-white">{(listing.sellerReputation?.trustScore ?? 0).toFixed(1)}<span className="text-[#9CA3AF]">/10</span></span>
-                      </div>
-                      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/10">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-[#C9A227] to-[#E8C547] transition-all duration-500"
-                          style={{ width: `${Math.min((listing.sellerReputation?.trustScore ?? 0) * 10, 100)}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Compact info grid */}
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
-                      <p className="text-[#9CA3AF]">{isAr ? "صفقات مكتملة" : "Trades"}: <span className="text-white">{(listing.sellerReputation?.completedTrades ?? 0).toLocaleString("en-IL")}</span></p>
-                      <p className="text-[#9CA3AF]">{isAr ? "وقت الاستجابة" : "Response"}: <span className="text-white">{safeText(listing.responseTime, "5 min")}</span></p>
-                      <p className="text-[#9CA3AF]">{isAr ? "الدفع" : "Payment"}: <span className="truncate text-white">{(listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod]).slice(0, 2).join(", ")}</span></p>
-                      <p className="text-[#9CA3AF]">{isAr ? "الشبكة" : "Network"}: <span className="text-white">{safeText(listing.network)}</span></p>
-                      <p className="text-[#9CA3AF]">{isAr ? "حد التداول" : "Min/Max"}: <span className="text-white">{safeText(listing.minimumTrade, "—")} / {safeText(listing.maximumTrade, "—")}</span></p>
-                      <p className="text-[#9CA3AF]">{isAr ? "آخر نشاط" : "Last active"}: <span className="text-white">{formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt)}</span></p>
-                    </div>
-
-                    {/* Badges */}
-                    {(listing.sellerReputation?.badges ?? []).length > 0 ? (
-                      <div className="flex flex-wrap gap-1.5">
-                        {(listing.sellerReputation?.badges ?? []).slice(0, 2).map((badge) => (
-                          <span key={`${listing.id}-${badge}`} className="rounded-full border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-2 py-0.5 text-[11px] text-[#93C5FD]">
-                            {sellerBadgeLabel(badge)}
+                        <div className={`mb-1.5 flex items-center justify-between text-xs ${isAr ? "flex-row-reverse" : ""}`}>
+                          <span className="text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust Score"}</span>
+                          <span className={`flex items-center gap-1.5 ${isAr ? "flex-row-reverse" : ""}`}>
+                            <span className={`text-[11px] font-medium ${trustTierColor}`}>{trustTier}</span>
+                            <span className="font-semibold text-white">{trustScore.toFixed(1)}</span>
+                            <span className="text-[#9CA3AF]">/10</span>
                           </span>
-                        ))}
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-white/8">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-[#B8942A] via-[#C9A227] to-[#E8C547] shadow-[0_0_8px_rgba(201,162,39,0.35)] transition-all duration-700"
+                            style={{ width: `${Math.min(trustScore * 10, 100)}%` }}
+                          />
+                        </div>
                       </div>
-                    ) : null}
 
-                    {/* CTA */}
-                    <Button className="w-full transition-transform group-hover:scale-[1.01]" onClick={() => openListingModal(listing)} aria-label={`Open seller profile for ${safeText(listing.sellerDisplayName, "seller")}`}>
-                      {isAr ? "ملف البائع" : "View Seller Profile"}
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
+                      {/* ── Metric chips: response time, trades, success rate, network ── */}
+                      <div className={`flex flex-wrap gap-2 ${isAr ? "flex-row-reverse" : ""}`}>
+                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-xs text-white">
+                          <Clock3 className="h-3.5 w-3.5 flex-shrink-0 text-[#C9A227]" aria-hidden="true" />
+                          {safeText(listing.responseTime, "—")}
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-xs text-white">
+                          <Trophy className="h-3.5 w-3.5 flex-shrink-0 text-[#C9A227]" aria-hidden="true" />
+                          {completedTrades.toLocaleString("en-IL")} {isAr ? "صفقة" : "trades"}
+                        </span>
+                        {successRate > 0 ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#22C55E]/20 bg-[#22C55E]/[0.06] px-2.5 py-1.5 text-xs text-[#86EFAC]">
+                            <ShieldCheck className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+                            {successRate.toFixed(0)}%
+                          </span>
+                        ) : null}
+                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-xs text-[#9CA3AF]">
+                          <Network className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+                          {safeText(listing.network)}
+                        </span>
+                      </div>
+
+                      {/* ── Payment + range + last active ── */}
+                      <div className={`space-y-1 text-xs text-[#9CA3AF] ${isAr ? "text-right" : ""}`}>
+                        <p>
+                          <span className="text-white/45">{isAr ? "الدفع: " : "Payment: "}</span>
+                          {(listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod])
+                            .slice(0, 3)
+                            .join(" • ")}
+                        </p>
+                        <p>
+                          <span className="text-white/45">{isAr ? "الحد: " : "Range: "}</span>
+                          {safeText(listing.minimumTrade, "—")} – {safeText(listing.maximumTrade, "—")} USDT
+                          <span className="mx-2 text-white/20">·</span>
+                          {formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt)}
+                        </p>
+                      </div>
+
+                      {/* ── Seller achievement badges ── */}
+                      {(listing.sellerReputation?.badges ?? []).length > 0 ? (
+                        <div className={`flex flex-wrap gap-1.5 ${isAr ? "flex-row-reverse" : ""}`}>
+                          {(listing.sellerReputation?.badges ?? []).slice(0, 3).map((badge) => (
+                            <span
+                              key={`${listing.id}-${badge}`}
+                              className="rounded-full border border-[#C9A227]/20 bg-[#C9A227]/[0.06] px-2.5 py-0.5 text-[11px] text-[#C9A227]"
+                            >
+                              {sellerBadgeLabel(badge)}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {/* ── CTA ── */}
+                      <Button
+                        className="w-full gap-2 transition-all group-hover:scale-[1.01] group-hover:shadow-[0_8px_24px_rgba(201,162,39,0.22)]"
+                        onClick={() => openListingModal(listing)}
+                        aria-label={`${isAr ? "عرض ملف البائع" : "View seller profile for"} ${safeText(listing.sellerDisplayName, "seller")}`}
+                      >
+                        <MessageCircle className="h-4 w-4" aria-hidden="true" />
+                        {isAr ? "ملف البائع" : "View Seller Profile"}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                );
+              })}
         </div>
 
         {!isLoadingListings && filteredListings.length === 0 ? (
           <Card className="mt-4 border-white/10 bg-[#0B0B0B]/90">
-            <CardContent className="p-8 text-center">
-              <div className="mx-auto mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10">
-                <Store className="h-6 w-6 text-[#C9A227]" />
+            <CardContent className="p-10 text-center">
+              <div className="mx-auto mb-4 inline-flex h-16 w-16 items-center justify-center rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10">
+                <Store className="h-7 w-7 text-[#C9A227]" />
               </div>
-              <p className="text-base font-semibold text-white">
+              <p className="text-lg font-semibold text-white">
                 {isAr ? "لا توجد عروض USDT نشطة متاحة الآن." : "No active USDT listings right now"}
               </p>
-              <p className="mt-2 text-sm text-[#9CA3AF]">
-                {isAr ? "يمكن للبائعين المعتمدين إنشاء عرض من لوحة البائع." : "Approved sellers can create a listing from their Seller Dashboard."}
+              <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[#9CA3AF]">
+                {isAr
+                  ? "يمكن للبائعين المعتمدين إنشاء عرض من لوحة البائع."
+                  : "Approved sellers can create a listing from their Seller Dashboard. Check back soon."}
               </p>
               {isApprovedSeller ? (
-                <Button type="button" className="mt-5" onClick={() => router.push("/dashboard/seller")}>
+                <Button type="button" className="mt-6 gap-2" onClick={() => router.push("/dashboard/seller")}>
+                  <Sparkles className="h-4 w-4" aria-hidden="true" />
                   {isAr ? "إنشاء عرض" : "Create Listing"}
                 </Button>
               ) : null}
