@@ -164,6 +164,24 @@ export interface SellerPublicProfile {
   lastActiveAt?: string;
 }
 
+export interface SellerReviewRecord {
+  id: string;
+  tradeId: string;
+  buyerId: string;
+  sellerId: string;
+  rating: number;
+  comment: string;
+  sellerReply?: string;
+  createdAt: string;
+  updatedAt: string;
+  editedAt?: string;
+  hidden: boolean;
+  hiddenReason?: string;
+  verifiedTrade: boolean;
+  tradeAmount: string;
+  network: string;
+}
+
 export interface SellerProfileReviewEntry {
   id: string;
   tradeId: string;
@@ -622,6 +640,7 @@ export interface AlphaExchangeDb {
   privateBetaInviteUses: PrivateBetaInviteUse[];
   betaFeedback: BetaFeedbackEntry[];
   betaAnnouncements: BetaAnnouncement[];
+  sellerReviews: SellerReviewRecord[];
 }
 
 export interface OwnerBusinessDashboardMetrics {

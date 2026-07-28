@@ -3,6 +3,7 @@ import { Link } from "@/i18n/navigation";
 import { BadgeCheck, Network, ShieldCheck, Star, TrendingUp, WalletCards } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { buildSellerReviewStats, getVisibleSellerReviews } from "@/lib/reviews";
 import type { PremiumSellerProfileData, SellerBadge, SellerLevel } from "@/types/alpha-exchange";
 
 function formatSellerLevelLabel(level?: SellerLevel) {
@@ -81,10 +82,12 @@ export function PremiumSellerProfilePage({ locale, data }: PremiumSellerProfileP
     return null;
   }
 
+  const visibleReviews = getVisibleSellerReviews(profile.latestReviews as never[]);
+  const reviewStats = buildSellerReviewStats(visibleReviews as never[]);
   const stats = [
     { label: isAr ? "صفقات مكتملة" : "Completed trades", value: profile.completedTrades.toString() },
     { label: isAr ? "حجم التداول" : "Trade volume", value: `${profile.tradeVolume?.toLocaleString("en-IL") ?? profile.lifetimeCompletedVolumeUsdt.toLocaleString("en-IL")} USDT` },
-    { label: isAr ? "التقييم المتوسط" : "Average rating", value: `${profile.averageRating.toFixed(2)}★` },
+    { label: isAr ? "التقييم المتوسط" : "Average rating", value: `${reviewStats.averageRating.toFixed(2)}★` },
     { label: isAr ? "المشترون المتكرّرون" : "Repeat buyers", value: `${profile.repeatBuyersPercent.toFixed(1)}%` },
     { label: isAr ? "معدل الإكمال" : "Completion rate", value: `${profile.completionRate.toFixed(1)}%` },
     { label: isAr ? "متوسط سرعة الرد" : "Avg response", value: `${profile.responseTimeMinutes.toFixed(0)} min` },
@@ -248,27 +251,29 @@ export function PremiumSellerProfilePage({ locale, data }: PremiumSellerProfileP
                 </div>
                 <div>
                   <p className="text-sm text-[#D1D5DB]">{isAr ? "متوسط التقييم" : "Average rating"}</p>
-                  <p className="text-xl font-semibold text-white">{profile.averageRating.toFixed(2)}★</p>
+                  <p className="text-xl font-semibold text-white">{reviewStats.averageRating.toFixed(2)}★</p>
+                  <p className="text-xs text-[#9CA3AF]">{reviewStats.reviewCount} {isAr ? "تقييم" : "reviews"}</p>
                 </div>
               </div>
-              {profile.latestReviews.length ? profile.latestReviews.slice(0, 4).map((review) => (
+              {visibleReviews.length ? visibleReviews.slice(0, 4).map((review) => (
                 <div key={review.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
                   <div className={`flex items-center justify-between ${isAr ? "flex-row-reverse" : ""}`}>
                     <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#C9A227]/20 text-sm font-semibold text-[#FDE68A]">{review.buyerName.slice(0, 2).toUpperCase()}</div>
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#C9A227]/20 text-sm font-semibold text-[#FDE68A]">{seller.sellerName.slice(0, 2).toUpperCase()}</div>
                       <div>
-                        <p className="font-medium text-white">{review.buyerName}</p>
+                        <p className="font-medium text-white">{seller.sellerName}</p>
                         <p className="text-xs text-[#9CA3AF]">{new Date(review.createdAt).toLocaleDateString(locale === "ar" ? "ar-EG" : "en-IL")}</p>
                       </div>
                     </div>
-                    <div className="text-sm text-[#FDE68A]">{review.rating.toFixed(1)}★</div>
+                    <div className="text-sm text-[#FDE68A]">{Array.from({ length: review.rating }).map((_, index) => <span key={`${review.id}-${index}`}>★</span>)}</div>
                   </div>
                   <p className={`mt-3 text-sm leading-7 text-[#D1D5DB] ${isAr ? "text-right" : ""}`}>{review.comment}</p>
                   <div className={`mt-3 flex flex-wrap items-center gap-3 text-xs text-[#9CA3AF] ${isAr ? "flex-row-reverse" : ""}`}>
-                    <span>{isAr ? "المبلغ" : "Trade amount"}: {profile.tradeVolume?.toLocaleString("en-IL") ?? profile.lifetimeCompletedVolumeUsdt.toLocaleString("en-IL")} USDT</span>
+                    <span>{isAr ? "المبلغ" : "Trade amount"}: {review.tradeAmount} USDT</span>
                     <span>{isAr ? "التاريخ" : "Trade date"}: {new Date(review.createdAt).toLocaleDateString(locale === "ar" ? "ar-EG" : "en-IL")}</span>
+                    <span>{review.network}</span>
                   </div>
-                  {review.sellerResponse ? <div className="mt-3 rounded-xl border border-[#22C55E]/20 bg-[#22C55E]/10 p-3 text-sm text-[#86EFAC]">{review.sellerResponse.message}</div> : null}
+                  {review.sellerReply ? <div className="mt-3 rounded-xl border border-[#22C55E]/20 bg-[#22C55E]/10 p-3 text-sm text-[#86EFAC]">{review.sellerReply}</div> : null}
                 </div>
               )) : <p className="text-sm text-[#9CA3AF]">{isAr ? "لا توجد مراجعات بعد." : "No reviews yet."}</p>}
             </CardContent>

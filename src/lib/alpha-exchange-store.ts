@@ -50,6 +50,7 @@ import type {
   OwnerPrivateBetaDashboardData,
   OnboardingSelection,
   UserRole,
+  SellerReviewRecord,
 } from "@/types/alpha-exchange";
 
 const supportedEvidenceMimeTypes = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
@@ -77,6 +78,7 @@ const defaultDb: AlphaExchangeDb = {
   privateBetaInviteUses: [],
   betaFeedback: [],
   betaAnnouncements: [],
+  sellerReviews: [],
 };
 
 const DB_CACHE_TTL_MS = 1000;
@@ -1118,6 +1120,24 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       isActive: (item as { isActive?: boolean }).isActive !== false,
       title: String((item as { title?: string }).title ?? "").trim(),
       message: String((item as { message?: string }).message ?? "").trim(),
+    })),
+    sellerReviews: (db.sellerReviews ?? []).map((review) => ({
+      ...review,
+      id: String((review as { id?: string }).id ?? `review-${randomUUID()}`),
+      tradeId: String((review as { tradeId?: string }).tradeId ?? ""),
+      buyerId: String((review as { buyerId?: string }).buyerId ?? ""),
+      sellerId: String((review as { sellerId?: string }).sellerId ?? ""),
+      rating: Math.max(1, Math.min(5, Math.round(Number((review as { rating?: number }).rating ?? 0)))) ,
+      comment: String((review as { comment?: string }).comment ?? "").trim(),
+      sellerReply: typeof (review as { sellerReply?: string }).sellerReply === "string" ? (review as { sellerReply: string }).sellerReply.trim() : undefined,
+      createdAt: String((review as { createdAt?: string }).createdAt ?? nowIso()),
+      updatedAt: String((review as { updatedAt?: string }).updatedAt ?? (review as { createdAt?: string }).createdAt ?? nowIso()),
+      editedAt: typeof (review as { editedAt?: string }).editedAt === "string" ? (review as { editedAt: string }).editedAt : undefined,
+      hidden: (review as { hidden?: boolean }).hidden === true,
+      hiddenReason: typeof (review as { hiddenReason?: string }).hiddenReason === "string" ? (review as { hiddenReason: string }).hiddenReason.trim() : undefined,
+      verifiedTrade: (review as { verifiedTrade?: boolean }).verifiedTrade !== false,
+      tradeAmount: String((review as { tradeAmount?: string }).tradeAmount ?? "0"),
+      network: String((review as { network?: string }).network ?? "TRC20"),
     })),
     marketplaceListings: (db.marketplaceListings ?? []).map((listing) => ({
       ...listing,
@@ -3627,6 +3647,25 @@ export async function downloadTradeEvidenceContent(input: {
   return { evidence, request, buffer };
 }
 
+function buildSellerReviewFromTrade(request: PurchaseRequest, input: { buyerUserId: string; rating: number; comment: string; sellerReviewId?: string; createdAt?: string }) {
+  return {
+    id: input.sellerReviewId ?? `review-${request.id}`,
+    tradeId: request.tradeId ?? request.id,
+    buyerId: request.buyerId,
+    sellerId: request.sellerId,
+    rating: Math.max(1, Math.min(5, Math.round(input.rating))),
+    comment: String(input.comment ?? "").trim(),
+    sellerReply: undefined,
+    createdAt: input.createdAt ?? nowIso(),
+    updatedAt: input.createdAt ?? nowIso(),
+    hidden: false,
+    hiddenReason: undefined,
+    verifiedTrade: true,
+    tradeAmount: request.usdtAmount,
+    network: request.network,
+  } satisfies SellerReviewRecord;
+}
+
 export async function submitBuyerTradeReview(input: {
   requestId: string;
   buyerUserId: string;
@@ -3641,23 +3680,15 @@ export async function submitBuyerTradeReview(input: {
   if (!request.completedAt && request.status !== "review_open" && request.status !== "locked" && request.status !== "completed") {
     throw new Error("Review unlocks only after trade completion.");
   }
-  if (request.buyerReview) throw new Error("Buyer review already submitted.");
+  if (db.sellerReviews.some((review) => review.tradeId === (request.tradeId ?? request.id))) throw new Error("Buyer review already submitted.");
 
   const rating = Math.max(1, Math.min(5, Math.round(input.rating)));
   const comment = String(input.comment ?? "").trim();
   if (!comment) throw new Error("Review comment is required.");
   if (comment.length > 500) throw new Error("Review comment is too long.");
 
-  db.purchaseRequests[requestIndex] = {
-    ...request,
-    buyerReview: {
-      reviewerUserId: input.buyerUserId,
-      rating,
-      comment,
-      createdAt: nowIso(),
-    },
-    updatedAt: nowIso(),
-  };
+  const review = buildSellerReviewFromTrade(request, { buyerUserId: input.buyerUserId, rating, comment });
+  db.sellerReviews.unshift(review);
 
   await appendAuditLog(db, {
     action: "trade_review_submitted",
@@ -3685,7 +3716,7 @@ export async function submitBuyerTradeReview(input: {
 
   await recalculateTrustEngine(db, { reason: "Verified trade review submitted", triggeredBy: input.buyerUserId });
   await writeDb(db);
-  return db.purchaseRequests[requestIndex];
+  return review;
 }
 
 export async function submitSellerReviewResponse(input: {
@@ -3694,25 +3725,23 @@ export async function submitSellerReviewResponse(input: {
   message: string;
 }) {
   const db = await readDb();
-  const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.requestId);
-  if (requestIndex === -1) throw new Error("Trade not found.");
-  const request = db.purchaseRequests[requestIndex];
+  const request = db.purchaseRequests.find((item) => item.id === input.requestId);
+  if (!request) throw new Error("Trade not found.");
+  const review = db.sellerReviews.find((item) => item.tradeId === (request.tradeId ?? request.id));
+  if (!review) throw new Error("Seller response is available only after buyer review.");
   if (request.sellerId !== input.sellerUserId) throw new Error("Only the seller can respond.");
-  if (!request.buyerReview) throw new Error("Seller response is available only after buyer review.");
-  if (request.sellerResponse) throw new Error("Seller response already submitted.");
+  if (review.hidden) throw new Error("Cannot reply to a hidden review.");
+  if (review.sellerReply) throw new Error("Seller response already submitted.");
   const message = String(input.message ?? "").trim();
   if (!message) throw new Error("Response message is required.");
   if (message.length > 500) throw new Error("Response message is too long.");
 
-  db.purchaseRequests[requestIndex] = {
-    ...request,
-    sellerResponse: {
-      responderUserId: input.sellerUserId,
-      message,
-      createdAt: nowIso(),
-    },
+  const updatedReview = {
+    ...review,
+    sellerReply: message,
     updatedAt: nowIso(),
   };
+  db.sellerReviews = db.sellerReviews.map((item) => (item.id === review.id ? updatedReview : item));
 
   await appendAuditLog(db, {
     action: "trade_review_responded",
@@ -3740,7 +3769,41 @@ export async function submitSellerReviewResponse(input: {
 
   await recalculateTrustEngine(db, { reason: "Seller review response submitted", triggeredBy: input.sellerUserId });
   await writeDb(db);
-  return db.purchaseRequests[requestIndex];
+  return updatedReview;
+}
+
+export async function getSellerReviews(input: {
+  sellerId: string;
+  actorUserId?: string;
+  actorRole?: UserRole;
+}) {
+  const db = await readDb();
+  const reviews = db.sellerReviews.filter((review) => review.sellerId === input.sellerId);
+  const canViewHidden = input.actorRole === "admin" || input.actorUserId === input.sellerId;
+  return canViewHidden ? reviews : reviews.filter((review) => !review.hidden);
+}
+
+export async function moderateSellerReview(input: {
+  reviewId: string;
+  actorUserId: string;
+  actorRole: UserRole;
+  hidden: boolean;
+  hiddenReason?: string;
+}) {
+  const db = await readDb();
+  if (input.actorRole !== "admin") throw new Error("Only admins can moderate reviews.");
+  const review = db.sellerReviews.find((item) => item.id === input.reviewId);
+  if (!review) throw new Error("Review not found.");
+  const nextReview = {
+    ...review,
+    hidden: input.hidden,
+    hiddenReason: input.hidden ? input.hiddenReason?.trim() || "moderated" : undefined,
+    updatedAt: nowIso(),
+  };
+  db.sellerReviews = db.sellerReviews.map((item) => (item.id === review.id ? nextReview : item));
+  await recalculateTrustEngine(db, { reason: "Seller review moderated", triggeredBy: input.actorUserId });
+  await writeDb(db);
+  return nextReview;
 }
 
 export async function updatePurchaseRequestStatus(input: {

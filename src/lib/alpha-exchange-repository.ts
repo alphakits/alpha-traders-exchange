@@ -842,6 +842,7 @@ export class AlphaExchangeRepository {
         privateBetaInviteUses: fromPayloadRows(results[19].rows),
         betaFeedback: fromPayloadRows(results[20].rows),
         betaAnnouncements: fromPayloadRows(results[21].rows),
+        sellerReviews: [],
       };
 
       return attachVersion(snapshot, Number(meta.rows[0]?.version ?? "0"));
