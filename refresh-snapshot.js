@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const fs = require('fs');
 const { getAlphaExchangeRepository } = require('./src/lib/alpha-exchange-repository');
 (async () => {

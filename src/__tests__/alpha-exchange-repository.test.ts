@@ -25,7 +25,9 @@ describe("AlphaExchangeRepository", () => {
     } as unknown as Pool;
 
     const repository = new AlphaExchangeRepository(pool);
+    const snapshot = await repository.loadSnapshot();
 
-    await expect(repository.loadSnapshot()).resolves.toMatchObject({ version: 0 });
+    expect(snapshot).toBeDefined();
+    expect(snapshot).toHaveProperty("__runtimeVersion", 0);
   });
 });

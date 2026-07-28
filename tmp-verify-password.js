@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const crypto = require('crypto');
 const fs = require('fs');
 const db = JSON.parse(fs.readFileSync('data/alpha-exchange-db.json', 'utf8'));

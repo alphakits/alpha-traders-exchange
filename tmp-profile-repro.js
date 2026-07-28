@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const http = require('http');
 const https = require('https');
 const base = 'http://127.0.0.1:3001';

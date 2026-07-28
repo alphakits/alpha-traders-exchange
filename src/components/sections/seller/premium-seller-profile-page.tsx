@@ -1,25 +1,27 @@
-"use client";
-
 import Image from "next/image";
-import { motion } from "framer-motion";
 import { Link } from "@/i18n/navigation";
 import { BadgeCheck, Network, ShieldCheck, Star, TrendingUp, WalletCards } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatSellerBadgeLabel, formatSellerLevelLabel } from "@/lib/alpha-exchange-seller-profile";
 import type { PremiumSellerProfileData, SellerBadge, SellerLevel } from "@/types/alpha-exchange";
 
-function formatRelativeMinutesLabel(value?: string) {
-  if (!value) return "—";
-  const ms = new Date(value).getTime();
-  if (!Number.isFinite(ms)) return "—";
-  const deltaMinutes = Math.max(0, Math.round((Date.now() - ms) / 60000));
-  if (deltaMinutes < 1) return "Just now";
-  if (deltaMinutes < 60) return `${deltaMinutes} min ago`;
-  const hours = Math.round(deltaMinutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return `${days}d ago`;
+function formatSellerLevelLabel(level?: SellerLevel) {
+  if (level === "legendary") return "Alpha Legendary Seller";
+  if (level === "diamond") return "Alpha Diamond Seller";
+  if (level === "platinum") return "Alpha Platinum Seller";
+  if (level === "gold") return "Alpha Gold Seller";
+  if (level === "silver") return "Alpha Silver Seller";
+  return "Alpha Bronze Seller";
+}
+
+function formatSellerBadgeLabel(badge: string) {
+  if (badge === "elite_seller") return "Elite Seller";
+  if (badge === "top_rated") return "Top Rated";
+  if (badge === "fast_responder") return "Fast Responder";
+  if (badge === "trusted_seller") return "Trusted Seller";
+  if (badge === "most_active") return "Most Active";
+  if (badge === "platinum_seller") return "Platinum Seller";
+  return "1000+ Trades";
 }
 
 function sellerRankTheme(level?: SellerLevel) {
@@ -185,7 +187,7 @@ export function PremiumSellerProfilePage({ locale, data }: PremiumSellerProfileP
                     <span className="text-white">{profile.progressToNextRankPercent.toFixed(0)}%</span>
                   </div>
                   <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                    <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(100, profile.progressToNextRankPercent)}%` }} className="h-full rounded-full bg-gradient-to-r from-[#C9A227] via-[#FDE68A] to-[#C9A227]" />
+                    <div className="h-full rounded-full bg-gradient-to-r from-[#C9A227] via-[#FDE68A] to-[#C9A227]" style={{ width: `${Math.min(100, profile.progressToNextRankPercent)}%` }} />
                   </div>
                 </div>
                 <div className={`mt-4 grid gap-3 text-sm ${isAr ? "text-right" : ""}`}>

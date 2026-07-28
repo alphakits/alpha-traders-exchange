@@ -875,19 +875,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     }
   }
 
-  function openListingModal(listing: MarketplaceListing) {
-    if (!requireAuth()) return;
-    setSelectedListing(listing);
-    setSellerProfileData(null);
-    void fetchSellerProfileData(listing.sellerId);
-    setPurchaseSubmitted(false);
-    setStatusMessage(null);
-    setBuyerInfo((prev) => ({
-      ...prev,
-      amount: listing.minimumTrade && toNumber(listing.minimumTrade) > 0 ? listing.minimumTrade : listing.availableAmount,
-    }));
-  }
-
   async function handleSellerApplicationSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!requireAuth()) return;
