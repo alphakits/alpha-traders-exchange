@@ -73,9 +73,19 @@ export function GuestOnboarding({ locale }: Props) {
     }
   }
 
-  function skip() {
+  async function skip() {
     setLoading("skip");
-    router.replace("/usdt-exchange");
+    setError(null);
+    setStatus(null);
+    try {
+      const res = await fetch("/api/auth/onboarding/guest", { method: "POST" });
+      const payload = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(payload.error ?? "Failed to continue as guest.");
+      router.replace("/usdt-exchange");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to continue as guest.");
+      setLoading(null);
+    }
   }
 
   return (
@@ -83,14 +93,14 @@ export function GuestOnboarding({ locale }: Props) {
       <div className="mx-auto w-full max-w-4xl rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.4)] backdrop-blur-xl md:p-8">
         <h1 className="text-3xl font-semibold md:text-4xl">{isAr ? "مرحبًا بك في Alpha Traders" : "Welcome to Alpha Traders"}</h1>
         <p className="mt-2 text-sm text-[#9CA3AF]">
-          {isAr ? "اختر كيف تريد استخدام حسابك." : "Choose how you would like to use your account."}
+          {isAr ? "اختر كيف تريد البدء في المنصة." : "Choose how you want to get started."}
         </p>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-2">
+        <div className="mt-6 grid gap-4 md:grid-cols-3">
           <div className="rounded-2xl border border-[#C9A227]/30 bg-black/30 p-4">
             <h2 className="text-xl font-semibold">{isAr ? "💵 كن مشتريًا" : "💵 Become a Buyer"}</h2>
             <p className="mt-2 text-sm text-[#D1D5DB]">
-              {isAr ? "اشترِ USDT بأمان من بائعين إسرائيليين موثقين." : "Buy USDT safely from verified Israeli sellers."}
+              {isAr ? "اشترِ USDT من بائعين موثوقين في Alpha Traders." : "Buy USDT from verified Alpha Traders sellers."}
             </p>
             <div className="mt-3 grid gap-2">
               <Input aria-label={isAr ? "الاسم الأول" : "First Name"} placeholder={isAr ? "الاسم الأول" : "First Name"} value={buyer.firstName} onChange={(event) => setBuyer((prev) => ({ ...prev, firstName: event.target.value }))} />
@@ -110,17 +120,23 @@ export function GuestOnboarding({ locale }: Props) {
           <div className="rounded-2xl border border-[#C9A227]/30 bg-black/30 p-4">
             <h2 className="text-xl font-semibold">{isAr ? "🎓 انضم إلى الأكاديمية" : "🎓 Join Alpha Academy"}</h2>
             <p className="mt-2 text-sm text-[#D1D5DB]">
-              {isAr ? "الوصول إلى المحتوى التعليمي والدورات المستقبلية." : "Access Alpha Academy educational content and future premium courses."}
+              {isAr ? "الوصول إلى الفيديوهات وملفات PDF والاختبارات وتتبع التقدم." : "Access videos, PDFs, quizzes, progress tracking and trading education."}
             </p>
             <Button type="button" className="mt-4" onClick={becomeStudent} disabled={loading !== null}>
               {loading === "student" ? (isAr ? "جارٍ التفعيل..." : "Activating...") : (isAr ? "تفعيل دور الطالب" : "Become a Student")}
             </Button>
           </div>
-        </div>
 
-        <Button type="button" variant="secondary" className="mt-6" onClick={skip} disabled={loading !== null}>
-          {isAr ? "تخطي الآن (الاستمرار كضيف)" : "Skip for now (continue as Guest)"}
-        </Button>
+          <div className="rounded-2xl border border-[#C9A227]/30 bg-black/30 p-4">
+            <h2 className="text-xl font-semibold">{isAr ? "🧭 المتابعة كضيف" : "🧭 Continue as Guest"}</h2>
+            <p className="mt-2 text-sm text-[#D1D5DB]">
+              {isAr ? "استكشف المنصة الآن واختر دورك لاحقًا من الملف الشخصي." : "Explore the platform now and choose your role later from Profile."}
+            </p>
+            <Button type="button" variant="secondary" className="mt-4" onClick={() => void skip()} disabled={loading !== null}>
+              {loading === "skip" ? (isAr ? "جاري المتابعة..." : "Continuing...") : (isAr ? "المتابعة كضيف" : "Continue as Guest")}
+            </Button>
+          </div>
+        </div>
         {error ? <p className="mt-3 text-sm text-rose-300" role="status" aria-live="polite">{error}</p> : null}
         {status ? <p className="mt-3 text-sm text-emerald-300" role="status" aria-live="polite">{status}</p> : null}
       </div>

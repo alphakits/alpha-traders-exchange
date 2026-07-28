@@ -49,6 +49,8 @@ export async function GET() {
     profile: {
       ...payload.profile,
       roles: user.roles ?? [user.role],
+      onboardingSelection: user.onboardingSelection,
+      onboardingCompletedAt: user.onboardingCompletedAt,
     },
     stats: payload.stats,
     roleBadge,
@@ -94,6 +96,8 @@ export async function PATCH(request: NextRequest) {
       profile: {
         ...payload.profile,
         roles: user.roles ?? [user.role],
+        onboardingSelection: user.onboardingSelection,
+        onboardingCompletedAt: user.onboardingCompletedAt,
       },
       stats: payload.stats,
       roleBadge,

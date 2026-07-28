@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Link } from "@/i18n/navigation";
 import { RoleBadge, type RoleBadgeVariant } from "@/components/ui/role-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +16,10 @@ type AccountProfilePayload = {
     fullName: string;
     username: string;
     email: string;
+    role: string;
+    roles?: string[];
+    onboardingSelection?: "guest" | "student" | "buyer";
+    onboardingCompletedAt?: string;
     memberSince: string;
     lastLogin: string;
     onlineStatus: "online" | "offline";
@@ -40,7 +45,7 @@ type AccountProfilePayload = {
         reviewsGiven: number;
       };
   roleBadge: RoleBadgeVariant;
-  roleLabel: "Member" | "Buyer" | "Approved Seller" | "Moderator" | "Administrator" | "Owner";
+      roleLabel: "Guest" | "Student" | "Buyer" | "Pending Seller" | "Approved Seller" | "Administrator" | "Owner";
   accountStatuses: string[];
 };
 
@@ -100,6 +105,34 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
     }
     setPayload(data);
     setMessage(isAr ? "تم حفظ الملف الشخصي." : "Profile saved.");
+  }
+
+  async function activateStudentRole() {
+    const response = await fetch("/api/auth/onboarding/student", { method: "POST" });
+    const data = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      setMessage(data.error ?? (isAr ? "تعذر تفعيل دور الطالب." : "Failed to activate student role."));
+      return;
+    }
+    const refreshed = await fetch("/api/auth/profile", { cache: "no-store" });
+    if (refreshed.ok) {
+      setPayload((await refreshed.json()) as AccountProfilePayload);
+    }
+    setMessage(isAr ? "تم تفعيل دور الطالب." : "Student role activated.");
+  }
+
+  async function continueAsGuest() {
+    const response = await fetch("/api/auth/onboarding/guest", { method: "POST" });
+    const data = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      setMessage(data.error ?? (isAr ? "تعذر تحديث تفضيل الدور." : "Failed to update role preference."));
+      return;
+    }
+    const refreshed = await fetch("/api/auth/profile", { cache: "no-store" });
+    if (refreshed.ok) {
+      setPayload((await refreshed.json()) as AccountProfilePayload);
+    }
+    setMessage(isAr ? "تم تحديث الاختيار إلى ضيف." : "Role selection updated to Guest.");
   }
 
   if (loading) {
@@ -200,6 +233,22 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
           <CardTitle>{isAr ? "إدارة الملف الشخصي" : "Manage Profile"}</CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="mb-4 rounded-2xl border border-[#C9A227]/25 bg-black/30 p-4">
+            <p className="text-sm text-[#D1D5DB]">
+              {isAr ? "إدارة مسار حسابك:" : "Manage your account path:"}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button type="button" variant="secondary" onClick={() => void activateStudentRole()}>
+                {isAr ? "تفعيل دور الطالب" : "Join Alpha Academy"}
+              </Button>
+              <Link href="/onboarding?mode=manage" className="inline-flex h-10 items-center justify-center rounded-md border border-white/20 px-4 text-sm hover:border-[#C9A227] hover:text-[#C9A227]">
+                {isAr ? "اختيار دور المشتري" : "Become a Buyer"}
+              </Link>
+              <Button type="button" variant="secondary" onClick={() => void continueAsGuest()}>
+                {isAr ? "المتابعة كضيف" : "Continue as Guest"}
+              </Button>
+            </div>
+          </div>
           <form className="grid gap-3 md:grid-cols-2" onSubmit={handleSave}>
             <Input value={form.profilePhotoUrl} onChange={(event) => setForm((prev) => ({ ...prev, profilePhotoUrl: event.target.value }))} placeholder="Profile photo URL" />
             <Input value={form.fullName} onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))} placeholder="Full name" />

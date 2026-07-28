@@ -85,7 +85,13 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({
       ok: true,
-      user: { id: updated.id, role: updated.role, roles: updated.roles ?? [updated.role] },
+      user: {
+        id: updated.id,
+        role: updated.role,
+        roles: updated.roles ?? [updated.role],
+        onboardingSelection: updated.onboardingSelection,
+        onboardingCompletedAt: updated.onboardingCompletedAt,
+      },
     });
   } catch (error) {
     logEvent("error", {

@@ -110,6 +110,8 @@ export async function POST(request: NextRequest) {
         role: user.role,
         roles: user.roles ?? [user.role],
         sellerStatus: user.sellerStatus,
+        onboardingSelection: user.onboardingSelection,
+        onboardingCompletedAt: user.onboardingCompletedAt,
       },
     }, { headers: AUTH_RESPONSE_HEADERS });
   } catch (error) {

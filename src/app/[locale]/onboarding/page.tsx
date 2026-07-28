@@ -16,14 +16,29 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   });
 }
 
-export default async function OnboardingPage({ params }: { params: Promise<{ locale: string }> }) {
+export default async function OnboardingPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ locale: string }>;
+  searchParams: Promise<{ mode?: string | string[] }>;
+}) {
   const { locale } = await params;
+  const { mode } = await searchParams;
+  const manageMode = Array.isArray(mode) ? mode.includes("manage") : mode === "manage";
   const user = await getCurrentSessionUser();
   if (!user) {
     redirect(`/${locale}/login?redirectTo=/${locale}/onboarding`);
   }
-  if (!hasRole(user, "guest")) {
+  const hasSelectedRole = Boolean(user.onboardingSelection || user.onboardingCompletedAt);
+  const canManageRoles = !hasRole(user, "owner") && !hasRole(user, "admin");
+  const shouldShowOnboarding = !hasSelectedRole && hasRole(user, "guest");
+  if (!canManageRoles) {
     if (hasRole(user, "admin") || hasRole(user, "owner")) redirect(`/${locale}/admin/alpha-exchange`);
+    if (hasRole(user, "approved_seller")) redirect(`/${locale}/dashboard/seller`);
+    redirect(`/${locale}/usdt-exchange`);
+  }
+  if (!shouldShowOnboarding && !manageMode) {
     if (hasRole(user, "approved_seller")) redirect(`/${locale}/dashboard/seller`);
     redirect(`/${locale}/usdt-exchange`);
   }

@@ -41,6 +41,8 @@ export async function GET() {
       isFoundingMember: user.isFoundingMember === true,
       isFoundingSeller: user.isFoundingSeller === true,
       emailVerified: user.emailVerified === true,
+      onboardingSelection: user.onboardingSelection,
+      onboardingCompletedAt: user.onboardingCompletedAt,
       notificationPreferences: user.notificationPreferences ?? { inApp: true, email: false, sms: false },
       createdAt: user.createdAt,
     },

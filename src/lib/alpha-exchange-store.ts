@@ -44,6 +44,7 @@ import type {
   TradeEvidenceSide,
   TradeTimelineEventType,
   OwnerPrivateBetaDashboardData,
+  OnboardingSelection,
   UserRole,
 } from "@/types/alpha-exchange";
 
@@ -575,6 +576,10 @@ function inferSellerStatus(role: UserRole): SellerStatus {
   return "buyer";
 }
 
+function isOnboardingSelection(value: string): value is OnboardingSelection {
+  return value === "guest" || value === "student" || value === "buyer";
+}
+
 function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
   return {
     ...defaultDb,
@@ -592,6 +597,21 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         sellerStatus,
       });
       const normalizedRole = resolvePrimaryRole(normalizedRoles);
+      const onboardingSelectionRaw = typeof (user as { onboardingSelection?: string }).onboardingSelection === "string"
+        ? (user as { onboardingSelection: string }).onboardingSelection
+        : undefined;
+      const onboardingSelection = isOnboardingSelection(String(onboardingSelectionRaw ?? ""))
+        ? (onboardingSelectionRaw as OnboardingSelection)
+        : normalizedRoles.includes("buyer")
+          ? "buyer"
+          : normalizedRoles.includes("student")
+            ? "student"
+            : undefined;
+      const onboardingCompletedAt = typeof (user as { onboardingCompletedAt?: string }).onboardingCompletedAt === "string"
+        ? (user as { onboardingCompletedAt: string }).onboardingCompletedAt
+        : onboardingSelection
+          ? (typeof user.updatedAt === "string" ? user.updatedAt : nowIso())
+          : undefined;
       return {
         ...user,
         email,
@@ -681,6 +701,8 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
           typeof (user as { buyerDisplayName?: string }).buyerDisplayName === "string"
             ? (user as { buyerDisplayName: string }).buyerDisplayName
             : undefined,
+        onboardingSelection,
+        onboardingCompletedAt,
       };
     }),
     sellerApplications: (db.sellerApplications ?? []).map((application) => ({
@@ -1437,6 +1459,8 @@ export async function createUser(input: {
     emailVerificationTokenHash: undefined,
     emailVerificationTokenExpiresAt: undefined,
     emailVerificationSentAt: undefined,
+    onboardingSelection: undefined,
+    onboardingCompletedAt: undefined,
     isFoundingMember: !isAdminEmail(email),
     isFoundingSeller: false,
     createdAt: timestamp,
@@ -1519,6 +1543,8 @@ export async function upsertUserProfileForAuth(input: {
     emailVerificationTokenHash: undefined,
     emailVerificationTokenExpiresAt: undefined,
     emailVerificationSentAt: undefined,
+    onboardingSelection: undefined,
+    onboardingCompletedAt: undefined,
     isFoundingMember: !isAdminEmail(email),
     isFoundingSeller: false,
     createdAt: timestamp,
@@ -1548,6 +1574,23 @@ export async function grantStudentRole(userId: string) {
     ...user,
     roles,
     role: resolvePrimaryRole(roles),
+    onboardingSelection: "student",
+    onboardingCompletedAt: nowIso(),
+    updatedAt: nowIso(),
+  };
+  await writeDb(db);
+  return db.users[index];
+}
+
+export async function selectGuestOnboarding(userId: string) {
+  const db = await readDb();
+  const index = db.users.findIndex((user) => user.id === userId);
+  if (index === -1) throw new Error("User not found.");
+  const user = db.users[index];
+  db.users[index] = {
+    ...user,
+    onboardingSelection: "guest",
+    onboardingCompletedAt: nowIso(),
     updatedAt: nowIso(),
   };
   await writeDb(db);
@@ -1612,6 +1655,8 @@ export async function completeBuyerVerification(input: { userId: string; phone: 
     phoneVerifiedAt: nowIso(),
     buyerVerificationStatus: "verified",
     buyerVerificationAttempts: Math.max(0, Number(user.buyerVerificationAttempts ?? 0)),
+    onboardingSelection: "buyer",
+    onboardingCompletedAt: nowIso(),
     updatedAt: nowIso(),
   };
   await writeDb(db);

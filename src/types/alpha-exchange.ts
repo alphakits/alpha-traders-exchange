@@ -6,6 +6,7 @@ export type UserRole =
   | "approved_seller"
   | "admin"
   | "owner";
+export type OnboardingSelection = "guest" | "student" | "buyer";
 export type SellerStatus = "buyer" | "pending_seller_approval" | "approved_seller" | "rejected" | "suspended";
 export type SellerOnlineStatus = "online" | "offline";
 export type SellerAvailabilityStatus = "available" | "away" | "vacation";
@@ -57,6 +58,8 @@ export interface AlphaExchangeUser {
   buyerFirstName?: string;
   buyerLastName?: string;
   buyerDisplayName?: string;
+  onboardingSelection?: OnboardingSelection;
+  onboardingCompletedAt?: string;
   createdAt: string;
   updatedAt: string;
 }

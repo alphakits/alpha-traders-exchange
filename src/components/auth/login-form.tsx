@@ -18,17 +18,26 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
   const [requiresEmailVerification, setRequiresEmailVerification] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => { setHydrated(true); }, []);
-  const defaultRedirectByRole = (user: { role?: string; roles?: string[]; sellerStatus?: string } | null | undefined) => {
+  const defaultRedirectByRole = (
+    user: { role?: string; roles?: string[]; sellerStatus?: string; onboardingSelection?: string; onboardingCompletedAt?: string } | null | undefined,
+  ) => {
     const roles = user?.roles ?? [];
     const isOwnerOrAdmin = roles.includes("owner") || roles.includes("admin") || user?.role === "owner" || user?.role === "admin";
     if (isOwnerOrAdmin) return "/admin/alpha-exchange";
-    if ((roles.length === 1 && roles[0] === "guest") || (roles.length === 0 && user?.role === "guest")) return "/onboarding";
+    const hasOnboardingChoice = Boolean(user?.onboardingSelection || user?.onboardingCompletedAt);
+    if (!hasOnboardingChoice && ((roles.length === 1 && roles[0] === "guest") || (roles.length === 0 && user?.role === "guest"))) return "/onboarding";
     if (!isOwnerOrAdmin && user?.sellerStatus === "approved_seller") return "/dashboard/seller";
     return "/usdt-exchange";
   };
 
-  function resolveLoginRedirectTarget(rawRedirect: string | undefined, user: { role?: string; roles?: string[]; sellerStatus?: string } | null | undefined) {
+  function resolveLoginRedirectTarget(
+    rawRedirect: string | undefined,
+    user: { role?: string; roles?: string[]; sellerStatus?: string; onboardingSelection?: string; onboardingCompletedAt?: string } | null | undefined,
+  ) {
     const fallback = defaultRedirectByRole(user);
+    const roles = user?.roles ?? [];
+    const needsOnboarding = !user?.onboardingSelection && !user?.onboardingCompletedAt && ((roles.length === 1 && roles[0] === "guest") || user?.role === "guest");
+    if (needsOnboarding) return "/onboarding";
     if (!rawRedirect) return fallback;
     if (!rawRedirect.startsWith("/") || rawRedirect.startsWith("//")) return fallback;
     if (rawRedirect === `/${locale}`) return "/";
@@ -61,9 +70,17 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
-      let payload: { error?: string; user?: { role?: string; roles?: string[]; sellerStatus?: string }; requiresEmailVerification?: boolean } | null = null;
+      let payload: {
+        error?: string;
+        user?: { role?: string; roles?: string[]; sellerStatus?: string; onboardingSelection?: string; onboardingCompletedAt?: string };
+        requiresEmailVerification?: boolean;
+      } | null = null;
       try {
-        payload = (await response.json()) as { error?: string; user?: { role?: string; roles?: string[]; sellerStatus?: string }; requiresEmailVerification?: boolean };
+        payload = (await response.json()) as {
+          error?: string;
+          user?: { role?: string; roles?: string[]; sellerStatus?: string; onboardingSelection?: string; onboardingCompletedAt?: string };
+          requiresEmailVerification?: boolean;
+        };
       } catch {
         payload = null;
       }
