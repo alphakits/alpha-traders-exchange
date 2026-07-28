@@ -21,8 +21,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
   const isRtl = locale === "ar";
   const academyHref = isAuthenticated ? "/academy" : `/login?redirectTo=${encodeURIComponent(`/${locale}/academy`)}`;
   const exchangeHref = isAuthenticated ? "/usdt-exchange" : `/login?redirectTo=${encodeURIComponent(`/${locale}/usdt-exchange`)}`;
-  const latestLessons = lessons.slice(0, 3);
-  const featuredLessons = lessons.slice(0, 2);
+  const latestLessons = lessons.slice(0, 2);
   const primaryCourse = courses[0];
   const primaryCourseValue = primaryCourse ? courseSource.courseBySlug[primaryCourse.slug as keyof typeof courseSource.courseBySlug] : null;
   const learningCards = courseSource.homepage.learnCards;
@@ -386,13 +385,10 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
       </section>
 
       <section className="section-container">
-        <div className="mb-6 flex items-center justify-between">
-          <h2 className="text-2xl font-semibold md:text-3xl">{locale === "ar" ? "أحدث الدروس" : "Latest Lessons"}</h2>
-          <Link href="/academy" className="text-sm text-[#C9A227] hover:underline">
-            {locale === "ar" ? "عرض جميع المسارات" : "View all tracks"}
-          </Link>
+        <div className="mb-6">
+          <h2 className="text-2xl font-semibold md:text-3xl">{locale === "ar" ? "دروس مميزة" : "Featured Lessons"}</h2>
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2">
           {latestLessons.length === 0 ? (
             <Card className="col-span-full">
               <CardContent className="py-6 text-sm text-[#9CA3AF]">
@@ -419,35 +415,20 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
             </Card>
           ))}
         </div>
-      </section>
-
-      <section className="section-container grid gap-4 md:grid-cols-2">
-        {featuredLessons.length === 0 ? null : featuredLessons.map((lesson) => (
-          <Card key={lesson.id} className="h-full">
-            <CardHeader>
-              <CardDescription>{locale === "ar" ? "درس مميز" : "Featured Lesson"}</CardDescription>
-              <CardTitle>
-                <span className={`inline-flex items-center gap-2 ${isRtl ? "flex-row-reverse" : ""}`}>
-                  {getLessonIcon(lesson.slug)}
-                  <span>{locale === "ar" ? lesson.titleAr : lesson.title}</span>
-                </span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-[#9CA3AF]">{locale === "ar" ? lesson.summaryAr : lesson.summary}</p>
-              <Link href={`/lessons/${lesson.slug}`} className="mt-3 inline-flex text-sm text-[#C9A227] hover:underline">
-                {locale === "ar" ? "عرض الدرس" : "View lesson"}
-              </Link>
-            </CardContent>
-          </Card>
-        ))}
+        <div className="mt-6 flex justify-center">
+          <Link href="/academy" className={buttonVariants({ variant: "secondary" })}>
+            {locale === "ar" ? "استكشف جميع الدروس" : "Explore All Lessons"}
+          </Link>
+        </div>
       </section>
 
       <section className="section-container">
-        <Card className="p-2">
-          <CardContent className="grid gap-6 p-6 md:grid-cols-2 md:items-center">
-            <div>
-              <h3 className="text-2xl font-semibold">{locale === "ar" ? "ابدأ بالمسار الحقيقي" : "Start With the Real Course Path"}</h3>
+        <Card className="overflow-hidden border-white/10 bg-[#090909] p-2">
+          <CardContent className="relative grid gap-6 p-6 md:grid-cols-2 md:items-center">
+            <div className="pointer-events-none absolute inset-0 opacity-25 [background:radial-gradient(circle_at_15%_25%,#C9A227_0,transparent_45%)]" />
+            <div className="relative">
+              <p className="text-xs uppercase tracking-[0.2em] text-[#C9A227]">{locale === "ar" ? "الخطوة التالية" : "Next Step"}</p>
+              <h3 className="mt-2 text-2xl font-semibold md:text-3xl">{locale === "ar" ? "اختر مسارك داخل Alpha Traders" : "Choose Your Path Inside Alpha Traders"}</h3>
               <p className="mt-3 text-sm text-[#9CA3AF]">
                 {primaryCourseValue
                   ? locale === "ar"
@@ -458,9 +439,22 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                     : "The learning path follows the real order of the course."}
               </p>
             </div>
-            <div className="flex justify-start md:justify-end">
+            <div className={`relative flex flex-wrap gap-3 ${isRtl ? "md:justify-start" : "md:justify-end"}`}>
               <Link href={primaryCourse ? `/academy/${primaryCourse.slug}` : "/academy"} className={buttonVariants()}>
-                {locale === "ar" ? "ابدأ المسار" : "Open the Track"}
+                {locale === "ar" ? "ابدأ التعلم" : "Start Learning"}
+              </Link>
+              <Link
+                href={exchangeHref}
+                className={cn(
+                  buttonVariants(),
+                  "group relative overflow-hidden border border-[#6CAEFF]/45 bg-gradient-to-r from-[#1B60ED]/85 via-[#2A7BFF]/80 to-[#3A9DFF]/75 font-semibold text-white shadow-[0_10px_26px_rgba(36,121,255,0.34)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(36,121,255,0.5)]"
+                )}
+              >
+                <span className="relative z-10">{locale === "ar" ? "ادخل إلى Alpha Exchange" : "Enter Alpha Exchange"}</span>
+                <span className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 transition duration-700 group-hover:left-[120%] group-hover:opacity-100" />
+              </Link>
+              <Link href="/contact" className={buttonVariants({ variant: "secondary" })}>
+                {locale === "ar" ? "تواصل معنا" : "Contact Us"}
               </Link>
             </div>
           </CardContent>

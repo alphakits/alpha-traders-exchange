@@ -5,8 +5,8 @@ import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
 
 const WHATSAPP_URL = "https://wa.me/972525967649";
-const INSTAGRAM_URL = "https://www.instagram.com/mark.jozen/";
-const TIKTOK_URL = "https://www.tiktok.com/@mark.jozen";
+const INSTAGRAM_URL = "https://www.instagram.com/mark_jozen/";
+const TIKTOK_URL = "https://www.tiktok.com/@mark_jozen";
 
 export async function SiteFooter({ locale }: { locale: AppLocale }) {
   const t = await getTranslations({ locale });
@@ -37,7 +37,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
           <Link href="/academy" locale={locale} className="block hover:text-white">
             {t("nav.academy")}
           </Link>
-          <Link href="/lessons/trend-and-range-context" locale={locale} className="block hover:text-white">
+          <Link href="/lessons" locale={locale} className="block hover:text-white">
             {t("nav.lessons")}
           </Link>
           <Link href="/usdt-exchange" locale={locale} className="block hover:text-white">
@@ -66,7 +66,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
               className="inline-flex items-center gap-2 text-sm text-[#C9A227] hover:underline"
             >
               <AtSign className="h-4 w-4" />
-              {isAr ? "إنستغرام: @mark.jozen" : "Instagram: @mark.jozen"}
+              {isAr ? "إنستغرام: @mark_jozen" : "Instagram: @mark_jozen"}
             </a>
           </div>
           <div>
@@ -77,7 +77,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
               className="inline-flex items-center gap-2 text-sm text-[#C9A227] hover:underline"
             >
               <Music2 className="h-4 w-4" />
-              {isAr ? "تيك توك: @Mark.Jozen" : "TikTok: @Mark.Jozen"}
+              {isAr ? "تيك توك: @mark_jozen" : "TikTok: @mark_jozen"}
             </a>
           </div>
         </div>

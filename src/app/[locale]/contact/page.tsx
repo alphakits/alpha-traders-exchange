@@ -3,8 +3,8 @@ import { ContactForm } from "@/components/sections/contact/contact-form";
 import { AtSign, MessageCircle, Music2 } from "lucide-react";
 
 const WHATSAPP_URL = "https://wa.me/972525967649";
-const INSTAGRAM_URL = "https://www.instagram.com/mark.jozen/";
-const TIKTOK_URL = "https://www.tiktok.com/@mark.jozen";
+const INSTAGRAM_URL = "https://www.instagram.com/mark_jozen/";
+const TIKTOK_URL = "https://www.tiktok.com/@mark_jozen";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -52,7 +52,7 @@ export default async function ContactPage({ params }: { params: Promise<{ locale
           className="inline-flex h-11 items-center justify-center gap-2 rounded-full border border-white/20 bg-transparent px-5 text-sm font-medium text-white transition hover:-translate-y-0.5 hover:border-[#C9A227] hover:text-[#C9A227]"
         >
           <Music2 className="h-4 w-4" />
-          {isAr ? "تيك توك: @Mark.Jozen" : "TikTok: @Mark.Jozen"}
+          {isAr ? "تيك توك: @mark_jozen" : "TikTok: @mark_jozen"}
         </a>
       </div>
       <ContactForm locale={locale as "ar" | "en"} />
