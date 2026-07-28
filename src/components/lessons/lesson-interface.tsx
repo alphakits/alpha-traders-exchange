@@ -31,6 +31,7 @@ const SECTION_IDS = {
   overview: "lesson-overview",
   video: "lesson-video",
   summary: "lesson-summary",
+  takeaways: "lesson-takeaways",
   objectives: "lesson-objectives",
   workbook: "lesson-workbook",
   notes: "lesson-notes",
@@ -284,6 +285,20 @@ export function LessonInterface({
             </CardHeader>
             <CardContent>
               <p className="text-sm leading-7 text-[#9CA3AF]">{isAr ? lesson.summaryAr : lesson.summary}</p>
+            </CardContent>
+          </Card>
+
+          <Card id={SECTION_IDS.takeaways}>
+            <CardHeader>
+              <CardTitle>{isAr ? "أهم النقاط" : "Key Takeaways"}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {(isAr ? lesson.takeawaysAr : lesson.takeaways).map((takeaway, index) => (
+                <div key={`${takeaway}-${index}`} className="flex items-start gap-2 rounded-xl border border-white/10 p-3 text-sm text-[#D1D5DB]">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#C9A227]" />
+                  <span>{takeaway}</span>
+                </div>
+              ))}
             </CardContent>
           </Card>
 

@@ -101,7 +101,7 @@ export function PdfViewer({
         </Button>
         <Button variant="secondary" size="sm" onClick={handleOpenInNewTab} disabled={!hasDocument}>
           <ExternalLink className="h-4 w-4" />
-          {isAr ? "فتح في تبويب جديد" : "Open in New Tab"}
+          {isAr ? "القراءة أونلاين" : "Read Online"}
         </Button>
         <Button size="sm" onClick={handleDownload} disabled={!hasDocument}>
           <Download className="h-4 w-4" />
