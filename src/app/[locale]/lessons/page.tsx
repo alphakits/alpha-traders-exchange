@@ -2,7 +2,6 @@ import { getLocale } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
-import { hasRole } from "@/lib/roles";
 import { LessonsBrowser } from "@/components/lessons/lessons-browser";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
@@ -21,9 +20,6 @@ export default async function LessonsPage({ params }: { params: Promise<{ locale
   const user = await getCurrentSessionUser();
   if (!user) {
     redirect(`/${locale}/login?redirectTo=/${locale}/lessons`);
-  }
-  if (!hasRole(user, "student") && !hasRole(user, "admin") && !hasRole(user, "owner")) {
-    redirect(`/${locale}/onboarding`);
   }
   return <LessonsBrowser />;
 }

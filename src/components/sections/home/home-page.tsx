@@ -19,7 +19,6 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
   const t = useTranslations("home");
   const locale = useLocale();
   const isRtl = locale === "ar";
-  const academyHref = isAuthenticated ? "/academy" : `/login?redirectTo=${encodeURIComponent(`/${locale}/academy`)}`;
   const exchangeHref = isAuthenticated ? "/usdt-exchange" : `/login?redirectTo=${encodeURIComponent(`/${locale}/usdt-exchange`)}`;
   const latestLessons = lessons.slice(0, 2);
   const primaryCourse = courses[0];
@@ -180,7 +179,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                         </span>
                       ))}
                     </div>
-                    <Link href={academyHref} className={cn(buttonVariants(), "gap-2")}>
+                    <Link href="/academy" className={cn(buttonVariants(), "gap-2")}>
                         Start Learning
                         {isRtl ? <ArrowLeft className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
                       </Link>

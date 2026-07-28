@@ -4,7 +4,6 @@ import { courseSource } from "@/data/course-source";
 import { courses, getLessonsByCourse } from "@/lib/content";
 import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
-import { hasRole } from "@/lib/roles";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Link } from "@/i18n/navigation";
 import { AcademyRoadmap } from "@/components/academy/academy-roadmap";
@@ -25,9 +24,6 @@ export default async function AcademyPage({ params }: { params: Promise<{ locale
   const user = await getCurrentSessionUser();
   if (!user) {
     redirect(`/${locale}/login?redirectTo=/${locale}/academy`);
-  }
-  if (!hasRole(user, "student") && !hasRole(user, "admin") && !hasRole(user, "owner")) {
-    redirect(`/${locale}/onboarding`);
   }
   const isAr = locale === "ar";
 

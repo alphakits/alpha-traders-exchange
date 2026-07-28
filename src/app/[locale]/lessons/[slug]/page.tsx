@@ -3,7 +3,6 @@ import { notFound, redirect } from "next/navigation";
 import { getLessonBySlug, getNextLesson, getPreviousLesson } from "@/lib/content";
 import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
-import { hasRole } from "@/lib/roles";
 import { LessonInterface } from "@/components/lessons/lesson-interface";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string; slug: string }> }) {
@@ -24,9 +23,6 @@ export default async function LessonPage({ params }: { params: Promise<{ locale:
   const user = await getCurrentSessionUser();
   if (!user) {
     redirect(`/${locale}/login?redirectTo=/${locale}/lessons/${slug}`);
-  }
-  if (!hasRole(user, "student") && !hasRole(user, "admin") && !hasRole(user, "owner")) {
-    redirect(`/${locale}/onboarding`);
   }
   const lesson = getLessonBySlug(slug);
   if (!lesson) notFound();

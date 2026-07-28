@@ -17,7 +17,6 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
   const sessionUser = await getCurrentSessionUser();
   const dashboardHref = sessionUser ? "/profile" : "/login";
   const dashboardLabel = sessionUser ? t("profile") : t("signIn");
-  const academyNavHref = sessionUser ? "/academy" : `/login?redirectTo=${encodeURIComponent(`/${locale}/academy`)}`;
 
   async function logoutAction() {
     "use server";
@@ -30,7 +29,7 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
 
   const nav = [
     { href: "/", label: t("home") },
-    { href: academyNavHref, label: t("academy") },
+    { href: "/academy", label: t("academy") },
     { href: "/community", label: t("community") },
     { href: "/contact", label: t("contact") },
     { href: "/usdt-exchange", label: t("alphaExchange"), cta: true },
