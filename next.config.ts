@@ -39,12 +39,7 @@ const nextConfig: NextConfig = {
     minimumCacheTTL: 31536000,
   },
   experimental: {
-    optimizePackageImports: [
-      "lucide-react",
-      "@radix-ui/react-icons",
-      "framer-motion",
-      "next-intl",
-    ],
+    // Disabled to avoid intermittent missing-vendor-chunk errors in development.
   },
   async headers() {
     return [

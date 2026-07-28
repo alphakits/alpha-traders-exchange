@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { canPublishListings, deleteMarketplaceListingForSeller, renewMarketplaceListing, updateMarketplaceListingForSeller } from "@/lib/alpha-exchange-store";
 import { requireApiUser } from "@/lib/api-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
 
 function toNumber(value: unknown) {
@@ -67,6 +68,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
     if (price !== undefined && (!price || toNumber(price) <= 0)) {
       return NextResponse.json({ error: "Price must be greater than zero." }, { status: 400 });
+    }
+    const marketRate = await fetchUsdIlsMarketRate();
+    const priceValidationError = getListingPriceValidationError({ price: price ?? "", currency: currency ?? "ILS", marketRate });
+    if (priceValidationError) {
+      return NextResponse.json({ error: priceValidationError }, { status: 400 });
     }
     if (network !== undefined && !isValidNetwork(network)) {
       return NextResponse.json({ error: "Invalid network." }, { status: 400 });

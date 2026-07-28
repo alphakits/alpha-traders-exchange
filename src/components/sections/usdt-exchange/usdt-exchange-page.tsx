@@ -16,6 +16,7 @@ import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { getSellerPrestigeProgress, getSellerPublicVolumeLabel } from "@/lib/seller-prestige";
 import { hasRole } from "@/lib/roles";
 import { createDefaultSellerListingDraft, persistSellerListingDraft, readSellerListingDraft } from "@/lib/seller-listing-draft";
+import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, BetaAnnouncement, BetaFeedbackCategory, BetaFeedbackEntry, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerAvailabilityStatus, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
 const WHATSAPP_URL = "https://wa.me/972525967649";
@@ -109,6 +110,10 @@ function safeText(value: unknown, fallback = "—") {
   return fallback;
 }
 
+function slugifySellerRoute(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
 function safeErrorMessage(context: "application" | "purchase" | "listing" | "request" | "settings" | "password" | "workspace" | "review" | "evidence") {
   const map = {
     application: "We could not submit your application right now. Please try again.",
@@ -175,6 +180,10 @@ function sellerLevelLabel(level?: SellerLevel) {
   if (level === "gold") return "Alpha Gold Seller";
   if (level === "silver") return "Alpha Silver Seller";
   return "Alpha Bronze Seller";
+}
+
+function sellerLevelDisplayName(level?: SellerLevel) {
+  return sellerLevelLabel(level).replace(/ Seller$/i, "");
 }
 
 function sellerRankTheme(level?: SellerLevel) {
@@ -306,6 +315,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     notes: "",
   });
   const [listingCreateForm, setListingCreateForm] = useState(() => readSellerListingDraft(null, createDefaultSellerListingDraft()));
+  const [marketRate, setMarketRate] = useState<number | null>(null);
   const [sellerSettings, setSellerSettings] = useState({
     fullName: "",
     whatsappNumber: "",
@@ -385,6 +395,17 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     if (!sessionUser?.email) return;
     persistSellerListingDraft(sessionUser.email, listingCreateForm);
   }, [listingCreateForm, sessionUser?.email]);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const rate = await fetchUsdIlsMarketRate();
+      if (active) setMarketRate(rate);
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
   const previousPrestigeRankRef = useRef<SellerLevel | null>(null);
 
   const [buyerInfo, setBuyerInfo] = useState({ amount: "", name: "", whatsapp: "", notes: "" });
@@ -961,6 +982,15 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   );
   const myListingsById = useMemo(() => new Map(myListings.map((listing) => [listing.id, listing])), [myListings]);
 
+  const createListingPriceValidationError = useMemo(() => {
+    return getListingPriceValidationError({ price: listingCreateForm.price, currency: listingCreateForm.currency, marketRate });
+  }, [listingCreateForm.price, listingCreateForm.currency, marketRate]);
+
+  const editListingPriceValidationError = useMemo(() => {
+    if (!editingListingId) return null;
+    return getListingPriceValidationError({ price: listingEditForm.price, currency: listingEditForm.currency, marketRate });
+  }, [editingListingId, listingEditForm.price, listingEditForm.currency, marketRate]);
+
   const sellerOverviewStats = useMemo(() => {
     const completedByListing = completedSellerRequests.map((request) => {
       const listing = myListingsById.get(request.listingId);
@@ -1100,6 +1130,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   }
 
   async function handleSellerListingDuplicate(listing: MarketplaceListing) {
+    const duplicatePriceValidationError = getListingPriceValidationError({ price: listing.price, currency: listing.currency ?? "ILS", marketRate });
+    if (duplicatePriceValidationError) {
+      setSellerWorkspaceMessage(duplicatePriceValidationError);
+      return;
+    }
+
     const response = await fetch("/api/alpha-exchange/listings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1130,6 +1166,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   async function handleSellerListingCreateSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isCreatingListing) return;
+
+    const createPriceValidationError = getListingPriceValidationError({ price: listingCreateForm.price, currency: listingCreateForm.currency, marketRate });
+    if (createPriceValidationError) {
+      setSellerWorkspaceMessage(createPriceValidationError);
+      return;
+    }
+
     setIsCreatingListing(true);
     setSellerWorkspaceMessage(null);
     try {
@@ -1179,6 +1222,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   async function handleSellerListingEditSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editingListingId) return;
+
+    const editPriceValidationError = getListingPriceValidationError({ price: listingEditForm.price, currency: listingEditForm.currency, marketRate });
+    if (editPriceValidationError) {
+      setSellerWorkspaceMessage(editPriceValidationError);
+      return;
+    }
+
     const response = await fetch(`/api/alpha-exchange/listings/${editingListingId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -1999,7 +2049,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       {/* ── CTA ── */}
                       <Button
                         className="w-full gap-2 transition-all group-hover:scale-[1.01] group-hover:shadow-[0_8px_24px_rgba(201,162,39,0.22)]"
-                        onClick={() => openListingModal(listing)}
+                        onClick={() => router.push(`/exchange/seller/${slugifySellerRoute(listing.sellerDisplayName)}`)}
                         aria-label={`${isAr ? "عرض ملف البائع" : "View seller profile for"} ${safeText(listing.sellerDisplayName, "seller")}`}
                       >
                         <MessageCircle className="h-4 w-4" aria-hidden="true" />
@@ -2234,8 +2284,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <p className="font-medium text-white">Auto-expiration</p>
                     <p className="mt-1">All new listings are set to expire automatically after 24 hours. No manual expiration step is needed.</p>
                   </div>
+                  <div className="md:col-span-2 rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10 p-3 text-sm text-[#FDE68A]">
+                    <p className="font-medium text-white">Live price guard</p>
+                    <p className="mt-1">USD/ILS market rate: <span className="font-semibold text-white">₪{(marketRate ?? 39.2).toFixed(2)}</span> • max allowed ILS price: <span className="font-semibold text-white">₪{((marketRate ?? 39.2) + 0.35).toFixed(2)}</span></p>
+                    {createListingPriceValidationError ? <p className="mt-2 text-xs text-[#FDE68A]">{createListingPriceValidationError}</p> : null}
+                  </div>
                   <div className="md:col-span-2">
-                    <Button type="submit" disabled={isCreatingListing || Boolean(listingWorkspaceSummary && !listingWorkspaceSummary.canCreateListing)}>
+                    <Button type="submit" disabled={isCreatingListing || Boolean(listingWorkspaceSummary && !listingWorkspaceSummary.canCreateListing) || Boolean(createListingPriceValidationError)}>
                       {isCreatingListing ? "Creating listing..." : "Create Live Listing"}
                     </Button>
                   </div>
@@ -2327,8 +2382,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         <Input value={listingEditForm.minimumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, minimumTrade: event.target.value }))} placeholder="Minimum Trade" />
                         <Input value={listingEditForm.maximumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, maximumTrade: event.target.value }))} placeholder="Maximum Trade" />
                         <Input className="md:col-span-2" value={listingEditForm.paymentMethods} onChange={(event) => setListingEditForm((prev) => ({ ...prev, paymentMethods: event.target.value }))} placeholder="Payment Methods (comma separated)" />
+                        {editListingPriceValidationError ? (
+                          <div className="md:col-span-4 rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10 p-3 text-xs text-[#FDE68A]">
+                            {editListingPriceValidationError}
+                          </div>
+                        ) : null}
                         <div className="md:col-span-4 flex gap-2">
-                          <Button type="submit" size="sm">Save</Button>
+                          <Button type="submit" size="sm" disabled={Boolean(editListingPriceValidationError)}>Save</Button>
                           <Button type="button" size="sm" variant="secondary" onClick={() => setEditingListingId(null)}>Cancel</Button>
                         </div>
                       </form>
@@ -2555,8 +2615,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 <p>Member Since: <span className="text-white">{sessionUser?.createdAt ? new Date(sessionUser.createdAt).toLocaleDateString("en-IL") : "—"}</span></p>
                 <p>Languages: <span className="text-white">{sessionUser?.languages?.join(", ") || "English"}</span></p>
                 <p>Preferred Networks: <span className="text-white">{sessionUser?.preferredNetworks?.join(", ") || "TRC20"}</span></p>
-                <div className="rounded-xl border border-[#C9A227]/20 bg-[#C9A227]/[0.06] p-3">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Prestige</p>
+                <div className="rounded-2xl border border-[#C9A227]/20 bg-gradient-to-br from-[#C9A227]/10 via-black/20 to-[#6CAEFF]/10 p-3">
+                  <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">
+                    <Sparkles className="h-3.5 w-3.5 text-[#C9A227]" />
+                    Premium Prestige
+                  </div>
                   <button
                     type="button"
                     onClick={() => {
@@ -2585,12 +2648,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         canViewExactValues: true,
                       });
                     }}
-                    className="mt-1 text-left text-sm text-white transition hover:text-[#E8C547]"
+                    className="mt-2 text-left text-sm font-semibold text-white transition hover:text-[#E8C547]"
                   >
-                    Current Rank: <span className={cn("font-semibold capitalize", sellerRankTheme(sellerOverviewStats.currentPrestigeRank))}>{sellerLevelLabel(sellerOverviewStats.currentPrestigeRank)}</span>
+                    Current Rank: <span className={cn("font-semibold capitalize", sellerRankTheme(sellerOverviewStats.currentPrestigeRank))}>{sellerLevelDisplayName(sellerOverviewStats.currentPrestigeRank)}</span>
                   </button>
-                  <p className="text-xs text-[#D1D5DB]">
-                    Next Rank: {sellerOverviewStats.nextPrestigeRank ? sellerLevelLabel(sellerOverviewStats.nextPrestigeRank) : "Top tier reached"}
+                  <p className="mt-1 text-xs text-[#D1D5DB]">
+                    Next Rank: {sellerOverviewStats.nextPrestigeRank ? sellerLevelDisplayName(sellerOverviewStats.nextPrestigeRank) : "Top tier reached"}
                     {sellerOverviewStats.nextPrestigeRank ? ` • ${sellerOverviewStats.remainingVolumeToNextRank.toLocaleString("en-IL")} USDT remaining` : ""}
                   </p>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">

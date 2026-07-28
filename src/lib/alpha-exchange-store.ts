@@ -387,6 +387,21 @@ function buildSellerPublicProfile(user: AlphaExchangeUser): SellerPublicProfile 
   };
 }
 
+function deriveSellerRouteUsername(input: { fullName?: string; email?: string; id?: string }) {
+  const base = (input.fullName || input.email || input.id || "seller")
+    .toString()
+    .trim()
+    .toLowerCase();
+
+  const normalized = base
+    .normalize("NFKD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+
+  return normalized || "seller";
+}
+
 function isTrustEligibleSeller(user: AlphaExchangeUser) {
   return hasRole(user, "approved_seller") || user.sellerStatus === "approved_seller" || user.sellerStatus === "suspended";
 }
@@ -553,6 +568,47 @@ function enrichListingsWithSellerData(db: AlphaExchangeDb, listings: Marketplace
       sellerReputation: snapshots.get(seller.id) ?? computeSellerReputationSnapshot(db, seller.id),
     };
   });
+}
+
+export async function getSellerProfileRouteData(input: {
+  username: string;
+  viewerUserId?: string;
+  viewerRole?: UserRole;
+  viewerEmail?: string;
+}) {
+  const db = await readDb();
+  const normalizedUsername = input.username.trim().toLowerCase();
+  const seller = db.users.find((user) => deriveSellerRouteUsername({ fullName: user.fullName, email: user.email, id: user.id }) === normalizedUsername);
+  if (!seller || (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended")) {
+    return null;
+  }
+
+  const profile = await getPremiumSellerProfile({
+    sellerId: seller.id,
+    viewerUserId: input.viewerUserId,
+    viewerRole: input.viewerRole,
+    viewerEmail: input.viewerEmail,
+  });
+
+  const listings = await getMarketplaceListings("active");
+  const sellerListings = listings.filter((listing) => listing.sellerId === seller.id).slice(0, 6);
+  const similarSellers = listings
+    .filter((listing) => listing.sellerId !== seller.id)
+    .slice(0, 4)
+    .map((listing) => ({
+      sellerId: listing.sellerId,
+      sellerName: listing.sellerDisplayName,
+      sellerLevel: listing.sellerReputation?.level ?? "bronze",
+      trustScore: listing.sellerReputation?.trustScore ?? 0,
+      profilePhotoUrl: listing.sellerProfile?.profilePhotoUrl ?? "",
+      publicVolumeRange: listing.sellerReputation?.publicVolumeRange ?? "0+",
+    }));
+
+  return {
+    profile,
+    sellerListings,
+    similarSellers,
+  };
 }
 
 export async function getPremiumSellerProfile(input: {

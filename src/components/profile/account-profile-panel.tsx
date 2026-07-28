@@ -174,8 +174,23 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
                   )}
                 </div>
                 <div className="space-y-2">
-                  <p className="text-base font-medium text-white">{payload.profile.fullName}</p>
-                  <RoleBadge variant={payload.roleBadge} />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-base font-medium text-white">{payload.profile.fullName}</p>
+                    {payload.stats.kind === "seller" ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#FDE68A]">
+                        <span className="h-1.5 w-1.5 rounded-full bg-[#FDE68A]" />
+                        Verified Seller
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <RoleBadge variant={payload.roleBadge} />
+                    {payload.stats.kind === "seller" ? (
+                      <span className="rounded-full border border-[#6CAEFF]/25 bg-[#6CAEFF]/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-[#93C5FD]">
+                        {payload.stats.sellerLevel}
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             </div>
