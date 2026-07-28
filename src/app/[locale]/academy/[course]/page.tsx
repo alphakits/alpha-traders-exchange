@@ -1,7 +1,9 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { courseSource } from "@/data/course-source";
 import { getCourseBySlug, getLessonsByCourse } from "@/lib/content";
 import { buildCourseSchema, buildPageMetadata } from "@/lib/seo";
+import { getCurrentSessionUser } from "@/lib/auth";
+import { hasRole } from "@/lib/roles";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Link } from "@/i18n/navigation";
 
@@ -19,6 +21,13 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 
 export default async function CoursePage({ params }: { params: Promise<{ locale: string; course: string }> }) {
   const { locale, course: slug } = await params;
+  const user = await getCurrentSessionUser();
+  if (!user) {
+    redirect(`/${locale}/login?redirectTo=/${locale}/academy/${slug}`);
+  }
+  if (!hasRole(user, "student") && !hasRole(user, "admin") && !hasRole(user, "owner")) {
+    redirect(`/${locale}/onboarding`);
+  }
   const isAr = locale === "ar";
   const course = getCourseBySlug(slug);
   if (!course) notFound();

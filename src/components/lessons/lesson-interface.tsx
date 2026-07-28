@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -9,6 +9,7 @@ import { Link } from "@/i18n/navigation";
 import type { Lesson } from "@/types/academy";
 import { lessonNarratives } from "@/data/course-source";
 import { getLessonsByCourse } from "@/lib/content";
+import { resolveLessonPdfSource } from "@/lib/lesson-pdf";
 import {
   addStudyMinutes,
   getCourseProgressPercent,
@@ -56,6 +57,7 @@ export function LessonInterface({
   const [notesDraft, setNotesDraft] = useState(progressState.notes);
   const [notesSyncState, setNotesSyncState] = useState<SyncState>("idle");
   const [showCelebration, setShowCelebration] = useState(false);
+  const [selfHostedVideoErrored, setSelfHostedVideoErrored] = useState(false);
 
   const courseLessons = useMemo(() => getLessonsByCourse(lesson.courseId), [lesson.courseId]);
   const courseProgress = getCourseProgressPercent(
@@ -63,13 +65,19 @@ export function LessonInterface({
     courseLessons.map((entry) => entry.id),
   );
 
+  // Determine which completion checks are applicable for this lesson
+  const hasQuiz = lesson.quiz.length > 0;
+  const hasPdf = Boolean(resolveLessonPdfSource(lesson.assets).embedUrl?.trim());
+
   const completionChecks = {
     video: progressState.videoWatched,
-    pdf: progressState.pdfOpened,
-    quiz: isQuizPassed(progressState.quizScore),
+    pdf: hasPdf ? progressState.pdfOpened : true,
+    quiz: hasQuiz ? isQuizPassed(progressState.quizScore) : true,
   };
   const completionEligible = completionChecks.video && completionChecks.pdf && completionChecks.quiz;
-  const completionPercent = Math.round((Number(completionChecks.video) + Number(completionChecks.pdf) + Number(completionChecks.quiz)) * (100 / 3));
+
+  const activeCheckValues = [completionChecks.video, completionChecks.pdf, ...(hasQuiz ? [completionChecks.quiz] : [])];
+  const completionPercent = Math.round((activeCheckValues.filter(Boolean).length / activeCheckValues.length) * 100);
   const shouldShowResume = progressState.videoPositionSeconds > 0 || progressState.pdfReadProgress > 0 || progressState.notes.length > 0;
   const isEmbeddedFallbackProvider = lesson.assets.videoProvider !== "self-hosted";
   const lessonDuration = lesson.estimatedDurationMinutes || lesson.durationMinutes;
@@ -237,6 +245,7 @@ export function LessonInterface({
                       videoPositionSeconds: seconds,
                     }));
                   }}
+                  onVideoError={() => setSelfHostedVideoErrored(true)}
                 />
               </div>
               {lesson.assets.videoChapters.length ? (
@@ -251,7 +260,7 @@ export function LessonInterface({
                   ))}
                 </div>
               ) : null}
-              {isEmbeddedFallbackProvider ? (
+              {(isEmbeddedFallbackProvider || selfHostedVideoErrored) && !progressState.videoWatched ? (
                 <Button
                   variant="secondary"
                   size="sm"
@@ -483,18 +492,22 @@ export function LessonInterface({
                   <PlayCircle className="h-4 w-4 text-[#C9A227]" />
                   {completionChecks.video ? (isAr ? "تمت مشاهدة الفيديو" : "Video completed") : isAr ? "الفيديو غير مكتمل" : "Video pending"}
                 </div>
-                <div className="flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-[#C9A227]" />
-                  {completionChecks.pdf ? (isAr ? "تم فتح الملف" : "Workbook opened") : isAr ? "ملف العمل غير مكتمل" : "Workbook pending"}
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-[#C9A227]" />
-                  {completionChecks.quiz
-                    ? `${isAr ? "تم الاختبار" : "Quiz passed"} ${progressState.quizScore ?? 0}%`
-                    : isAr
-                      ? "الاختبار غير مكتمل"
-                      : "Quiz pending"}
-                </div>
+                {hasPdf ? (
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-[#C9A227]" />
+                    {completionChecks.pdf ? (isAr ? "تم فتح الملف" : "Workbook opened") : isAr ? "ملف العمل غير مكتمل" : "Workbook pending"}
+                  </div>
+                ) : null}
+                {hasQuiz ? (
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-[#C9A227]" />
+                    {completionChecks.quiz
+                      ? `${isAr ? "تم الاختبار" : "Quiz passed"} ${progressState.quizScore ?? 0}%`
+                      : isAr
+                        ? "الاختبار غير مكتمل"
+                        : "Quiz pending"}
+                  </div>
+                ) : null}
                 <div className="flex items-center gap-2">
                   <Clock3 className="h-4 w-4 text-[#C9A227]" />
                   {isAr ? "المدة" : "Duration"}: {lessonDuration} {isAr ? "دقيقة" : "minutes"}

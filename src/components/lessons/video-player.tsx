@@ -53,6 +53,7 @@ export function VideoPlayer({
   onVideoPlay,
   onVideoComplete,
   onVideoTimeUpdate,
+  onVideoError,
 }: {
   asset: LessonAsset;
   title: string;
@@ -60,6 +61,7 @@ export function VideoPlayer({
   onVideoPlay: () => void;
   onVideoComplete: () => void;
   onVideoTimeUpdate?: (seconds: number) => void;
+  onVideoError?: () => void;
 }) {
   const locale = useLocale();
   const isAr = locale === "ar";
@@ -152,6 +154,7 @@ export function VideoPlayer({
           onError={() => {
             setHasError(true);
             setIsLoading(false);
+            onVideoError?.();
           }}
           onEnded={() => {
             setHasError(false);
