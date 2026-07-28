@@ -5,6 +5,16 @@ import { createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromR
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
+function isDuplicateRegistrationError(message: string) {
+  const normalized = message.toLowerCase();
+  return normalized.includes("already registered") || normalized.includes("already exists");
+}
+
+function isAuthRateLimitError(message: string) {
+  const normalized = message.toLowerCase();
+  return normalized.includes("rate limit") || normalized.includes("too many requests");
+}
+
 export async function POST(request: NextRequest) {
   const rate = checkRateLimit({
     headers: request.headers,
@@ -18,7 +28,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const fullName = String(body.fullName ?? "").trim();
-    const email = String(body.email ?? "").trim();
+    const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
     const confirmPassword = String(body.confirmPassword ?? "");
     const whatsappNumber = String(body.whatsappNumber ?? "").trim();
@@ -57,8 +67,11 @@ export async function POST(request: NextRequest) {
       },
     });
     if (error) {
-      if (error.message.toLowerCase().includes("already registered")) {
-        return NextResponse.json({ error: "Email already registered." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+      if (isDuplicateRegistrationError(error.message)) {
+        return NextResponse.json({ error: "Email already registered." }, { status: 409, headers: AUTH_RESPONSE_HEADERS });
+      }
+      if (isAuthRateLimitError(error.message)) {
+        return NextResponse.json({ error: "Registration is temporarily rate-limited. Please try again in a few minutes." }, { status: 429, headers: AUTH_RESPONSE_HEADERS });
       }
       return NextResponse.json({ error: error.message }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
@@ -66,7 +79,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Registration failed." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
     if (Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-      return NextResponse.json({ error: "Email already registered." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+      return NextResponse.json({ error: "Email already registered." }, { status: 409, headers: AUTH_RESPONSE_HEADERS });
     }
     await upsertUserProfileForAuth({
       fullName,
