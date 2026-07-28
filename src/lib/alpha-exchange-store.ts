@@ -2,6 +2,8 @@ import path from "path";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "crypto";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { calculateSellerTrustSnapshot, rankTrustSnapshots } from "@/lib/trust-engine";
+import { getSellerPrestigeProgress, getSellerPublicVolumeLabel, resolveSellerPrestigeRank, sellerPrestigeRankWeight } from "@/lib/seller-prestige";
+import { evaluateSellerAchievements } from "@/lib/seller-achievements";
 import { runEnvValidation } from "@/lib/env-validation";
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import { addRole, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
@@ -39,6 +41,8 @@ import type {
   SellerAvailabilityStatus,
   SellerStatus,
   SellerOnlineStatus,
+  SellerPromotionHistoryEntry,
+  SellerAchievement,
   TradeDisputeCase,
   TradeEvidenceFile,
   TradeEvidenceSide,
@@ -237,11 +241,126 @@ function appendListingStateAudit(db: AlphaExchangeDb, input: {
 }
 
 function levelRank(level: SellerLevel) {
-  if (level === "elite") return 5;
-  if (level === "diamond") return 4;
-  if (level === "gold") return 3;
-  if (level === "silver") return 2;
-  return 1;
+  return sellerPrestigeRankWeight(level);
+}
+
+function summarizePromotionBenefits(rank: SellerLevel) {
+  if (rank === "silver") return "Higher marketplace visibility and stronger buyer trust.";
+  if (rank === "gold") return "Priority placement and stronger trust signaling on seller cards.";
+  if (rank === "platinum") return "Premium placement and increased visibility with serious buyers.";
+  if (rank === "diamond") return "Top-tier visibility and premium reputation with buyers.";
+  if (rank === "legendary") return "Legendary recognition across Alpha Exchange and maximum buyer trust.";
+  return "Starter prestige level unlocked.";
+}
+
+function getSellerApprovedAt(db: AlphaExchangeDb, sellerId: string) {
+  const approvalEntry = db.auditLogs
+    .filter((entry) => entry.targetUserId === sellerId && entry.action === "seller_approved")
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
+  return approvalEntry?.createdAt;
+}
+
+function buildSellerAchievements(db: AlphaExchangeDb, seller: AlphaExchangeUser): SellerAchievement[] {
+  const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === seller.id);
+  const qualifyingTrades = sellerRequests.filter((request) => {
+    if (request.status === "cancelled" || request.status === "declined") return false;
+    const hasCommissionRecord = db.commissionRecords.some((record) => record.purchaseRequestId === request.id);
+    const hasDispute = db.disputes.some((dispute) => dispute.purchaseRequestId === request.id);
+    return Boolean(request.completedAt) && Boolean(request.usdtSentAt) && hasCommissionRecord && !hasDispute;
+  });
+
+  const reviews = sellerRequests.filter((request) => Boolean(request.buyerReview)).length;
+  const responseTimes = qualifyingTrades
+    .map((request) => {
+      const submittedAt = new Date(request.createdAt).getTime();
+      const acceptedAt = new Date(request.tradeCreatedAt ?? request.updatedAt).getTime();
+      if (!submittedAt || !acceptedAt || acceptedAt < submittedAt) return 0;
+      return (acceptedAt - submittedAt) / 60000;
+    })
+    .filter((value) => value > 0);
+  const responseTimeMinutes = responseTimes.length ? responseTimes.reduce((sum, value) => sum + value, 0) / responseTimes.length : 0;
+  const completionRate = sellerRequests.length ? (qualifyingTrades.length / sellerRequests.length) * 100 : 0;
+  const completedTradeMonths = Array.from(new Set(qualifyingTrades.filter((request) => request.completedAt).map((request) => new Date(request.completedAt!).toISOString().slice(0, 7))));
+  const currentAchievements = evaluateSellerAchievements({
+    sellerId: seller.id,
+    sellerName: seller.fullName,
+    rank: seller.sellerPrestigeRank ?? "bronze",
+    lifetimeVolumeUsdt: Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? 0)),
+    completedTrades: qualifyingTrades.length,
+    reviewCount: reviews,
+    averageRating: sellerRequests.filter((request) => request.buyerReview).reduce((sum, request) => sum + (request.buyerReview?.rating ?? 0), 0) / Math.max(1, reviews),
+    responseTimeMinutes,
+    completionRate,
+    approvedAt: getSellerApprovedAt(db, seller.id) ?? seller.createdAt,
+    createdAt: seller.createdAt,
+    tradeRequests: sellerRequests.length,
+    completedTradeMonths,
+    hasCommissionRecords: db.commissionRecords.some((record) => record.sellerId === seller.id),
+    hasDispute: db.disputes.some((dispute) => dispute.sellerId === seller.id),
+    sellerStatus: seller.sellerStatus,
+  });
+
+  const persistent = [...(seller.sellerAchievements ?? [])];
+  const mergedByKey = new Map<string, SellerAchievement>();
+  for (const achievement of persistent) mergedByKey.set(achievement.key, achievement);
+  for (const achievement of currentAchievements) {
+    if (!mergedByKey.has(achievement.key)) {
+      mergedByKey.set(achievement.key, achievement);
+    }
+  }
+  return Array.from(mergedByKey.values()).sort((left, right) => left.title.localeCompare(right.title));
+}
+
+function buildHallOfFameEntry(db: AlphaExchangeDb, seller: AlphaExchangeUser) {
+  const achievements = buildSellerAchievements(db, seller);
+  return {
+    sellerId: seller.id,
+    sellerName: seller.fullName,
+    rank: seller.sellerPrestigeRank ?? "bronze",
+    prestigeVolumeUsdt: Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? 0)),
+    achievements,
+    promotedAt: seller.updatedAt,
+    publicVolumeRange: getSellerPublicVolumeLabel(seller.sellerPrestigeRank ?? "bronze"),
+  };
+}
+
+function normalizePromotionHistoryEntry(raw: unknown): SellerPromotionHistoryEntry | null {
+  if (!raw || typeof raw !== "object") return null;
+  const entry = raw as Record<string, unknown>;
+  const rank = String(entry.rank ?? "");
+  if (!isValidSellerLevel(rank)) return null;
+  const previousRankRaw = String(entry.previousRank ?? "");
+  const previousRank = isValidSellerLevel(previousRankRaw) ? previousRankRaw : undefined;
+  const promotedAt = typeof entry.promotedAt === "string" ? entry.promotedAt : nowIso();
+  const lifetimeCompletedVolumeUsdt = Math.max(0, Number(entry.lifetimeCompletedVolumeUsdt ?? 0));
+  const source = entry.source === "admin_override" ? "admin_override" : "automatic";
+  return {
+    id: typeof entry.id === "string" ? entry.id : `promotion-${randomUUID()}`,
+    rank,
+    previousRank,
+    promotedAt,
+    lifetimeCompletedVolumeUsdt,
+    source,
+    triggerTradeId: typeof entry.triggerTradeId === "string" ? entry.triggerTradeId : undefined,
+    reason: typeof entry.reason === "string" ? entry.reason : undefined,
+    actorUserId: typeof entry.actorUserId === "string" ? entry.actorUserId : undefined,
+  };
+}
+
+function isValidSellerLevel(value: string): value is SellerLevel {
+  return value === "bronze" || value === "silver" || value === "gold" || value === "platinum" || value === "diamond" || value === "legendary";
+}
+
+function buildPrestigeFieldsForSnapshot(input: { volumeUsdt: number; rank: SellerLevel; isOverridden: boolean }) {
+  const progress = getSellerPrestigeProgress(input.volumeUsdt, input.rank);
+  return {
+    publicVolumeRange: getSellerPublicVolumeLabel(input.rank),
+    nextRank: progress.nextRank,
+    remainingVolumeToNextRank: progress.remainingUsdt,
+    prestigeProgressPercent: progress.progressPercent,
+    lifetimeCompletedVolumeUsdt: input.volumeUsdt,
+    isRankOverridden: input.isOverridden,
+  };
 }
 
 function buildSellerPublicProfile(user: AlphaExchangeUser): SellerPublicProfile {
@@ -296,14 +415,27 @@ function computeTrustSnapshotMap(db: AlphaExchangeDb) {
   }
   const base = db.users
     .filter((user) => isTrustEligibleSeller(user))
-    .map((seller) =>
-      calculateSellerTrustSnapshot({
+    .map((seller) => {
+      const snapshot = calculateSellerTrustSnapshot({
         seller,
         listings: listingsBySeller.get(seller.id) ?? [],
         requests: requestsBySeller.get(seller.id) ?? [],
         commissions: commissionsBySeller.get(seller.id) ?? [],
-      }),
-    );
+      });
+      const derivedRank = resolveSellerPrestigeRank(snapshot.totalUsdtVolume);
+      const effectiveRank = seller.sellerRankOverride?.rank ?? seller.sellerPrestigeRank ?? derivedRank;
+      snapshot.level = effectiveRank;
+      snapshot.lifetimeCompletedVolumeUsdt = snapshot.totalUsdtVolume;
+      Object.assign(
+        snapshot,
+        buildPrestigeFieldsForSnapshot({
+          volumeUsdt: snapshot.totalUsdtVolume,
+          rank: effectiveRank,
+          isOverridden: Boolean(seller.sellerRankOverride),
+        }),
+      );
+      return snapshot;
+    });
   const ranked = rankTrustSnapshots(base);
   return new Map(ranked.map((snapshot) => [snapshot.sellerId, snapshot]));
 }
@@ -349,23 +481,56 @@ function computeSellerReputationSnapshot(db: AlphaExchangeDb, sellerId: string):
       revenueGenerated: 0,
       repeatBuyers: 0,
       averageTradeSize: 0,
+      publicVolumeRange: "0+",
+      nextRank: "silver",
+      remainingVolumeToNextRank: 15000,
+      prestigeProgressPercent: 0,
+      lifetimeCompletedVolumeUsdt: 0,
+      isRankOverridden: false,
     };
   }
-  return calculateSellerTrustSnapshot({
+  const snapshot = calculateSellerTrustSnapshot({
     seller,
     listings: db.marketplaceListings.filter((listing) => listing.sellerId === seller.id),
     requests: db.purchaseRequests.filter((request) => request.sellerId === seller.id),
     commissions: db.commissionRecords.filter((record) => record.sellerId === seller.id),
     marketplacePosition: 0,
   });
+  const derivedRank = resolveSellerPrestigeRank(snapshot.totalUsdtVolume);
+  const effectiveRank = seller.sellerRankOverride?.rank ?? seller.sellerPrestigeRank ?? derivedRank;
+  snapshot.level = effectiveRank;
+  snapshot.lifetimeCompletedVolumeUsdt = snapshot.totalUsdtVolume;
+  Object.assign(
+    snapshot,
+    buildPrestigeFieldsForSnapshot({
+      volumeUsdt: snapshot.totalUsdtVolume,
+      rank: effectiveRank,
+      isOverridden: Boolean(seller.sellerRankOverride),
+    }),
+  );
+  return snapshot;
 }
 
 function qualitySortListings(db: AlphaExchangeDb, listings: MarketplaceListing[]) {
   const snapshots = computeTrustSnapshotMap(db);
+  const score = (reputation: SellerReputationSnapshot) => {
+    const responseSpeedScore = Math.max(0, 100 - Math.min(60, reputation.responseTimeMinutes) * 1.5);
+    const normalizedTrades = Math.min(100, reputation.completedTrades / 8);
+    return (
+      reputation.completionRate * 0.3
+      + reputation.rating * 20 * 0.2
+      + responseSpeedScore * 0.15
+      + reputation.recentActivityScore * 0.15
+      + normalizedTrades * 0.1
+      + levelRank(reputation.level) * (100 / 6) * 0.1
+    );
+  };
   return [...listings].sort((left, right) => {
     const leftRep = snapshots.get(left.sellerId) ?? computeSellerReputationSnapshot(db, left.sellerId);
     const rightRep = snapshots.get(right.sellerId) ?? computeSellerReputationSnapshot(db, right.sellerId);
 
+    const scoreDiff = score(rightRep) - score(leftRep);
+    if (Math.abs(scoreDiff) > 0.01) return scoreDiff;
     if (rightRep.trustScore !== leftRep.trustScore) return rightRep.trustScore - leftRep.trustScore;
     if (levelRank(rightRep.level) !== levelRank(leftRep.level)) return levelRank(rightRep.level) - levelRank(leftRep.level);
     if (rightRep.rating !== leftRep.rating) return rightRep.rating - leftRep.rating;
@@ -402,6 +567,8 @@ export async function getPremiumSellerProfile(input: {
   if (!seller) return null;
   if (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended") return null;
   const viewerIsOwner = input.viewerRole === "owner" || (input.viewerRole === "admin" && isAlphaExchangeOwnerEmail(input.viewerEmail ?? ""));
+  const viewerIsSellerOwner = input.viewerUserId === seller.id;
+  const canSeeExactSellerStats = viewerIsOwner || viewerIsSellerOwner;
   if (seller.isProfileHidden === true && !viewerIsOwner) return null;
 
   const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === seller.id);
@@ -479,6 +646,11 @@ export async function getPremiumSellerProfile(input: {
     .slice(0, 12);
 
   const profile = buildSellerPublicProfile(seller);
+  const lifetimeCompletedVolumeUsdt = Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? trustSnapshot.totalUsdtVolume));
+  const sellerAchievements = seller.sellerAchievements ?? [];
+  const hallOfFameEligible = (seller.sellerPrestigeRank ?? trustSnapshot.level) === "legendary";
+  const currentRank = seller.sellerPrestigeRank ?? trustSnapshot.level;
+  const prestigeProgress = getSellerPrestigeProgress(lifetimeCompletedVolumeUsdt, currentRank);
   const ownerTools = viewerIsOwner
     ? {
         auditHistory: db.auditLogs
@@ -499,10 +671,18 @@ export async function getPremiumSellerProfile(input: {
   return {
     sellerId: seller.id,
     profile,
-    sellerLevel: trustSnapshot.level,
+    sellerLevel: currentRank,
+    nextRank: prestigeProgress.nextRank,
+    progressToNextRankPercent: Number(prestigeProgress.progressPercent.toFixed(2)),
+    amountToNextRankUsdt: Number(prestigeProgress.remainingUsdt.toFixed(2)),
+    publicVolumeRange: getSellerPublicVolumeLabel(currentRank),
+    lifetimeCompletedVolumeUsdt: Number(lifetimeCompletedVolumeUsdt.toFixed(2)),
     trustScore: Number(trustSnapshot.trustScore.toFixed(1)),
     completedTrades: completedTrades.length,
-    tradeVolume: Number(trustSnapshot.totalUsdtVolume.toFixed(2)),
+    tradeVolume: canSeeExactSellerStats ? Number(trustSnapshot.totalUsdtVolume.toFixed(2)) : undefined,
+    exactTradeVolume: canSeeExactSellerStats ? Number(trustSnapshot.totalUsdtVolume.toFixed(2)) : undefined,
+    commissionPaid: Number(trustSnapshot.estimatedCommissionPaid.toFixed(2)),
+    averageTradeSize: Number(trustSnapshot.averageTradeSize.toFixed(2)),
     averageRating: Number(trustSnapshot.rating.toFixed(2)),
     responseTimeMinutes: Number(responseTimeMinutes.toFixed(2)),
     completionRate: Number(completionRate.toFixed(2)),
@@ -510,6 +690,11 @@ export async function getPremiumSellerProfile(input: {
     totalReviews: reviews.length,
     yearsOnPlatform: Number(yearsOnPlatform.toFixed(2)),
     badges: trustSnapshot.badges ?? [],
+    promotionHistory: [...(seller.sellerPromotionHistory ?? [])].sort((left, right) => new Date(right.promotedAt).getTime() - new Date(left.promotedAt).getTime()).slice(0, 20),
+    achievements: sellerAchievements,
+    prestigeVolumeUsdt: Number(lifetimeCompletedVolumeUsdt.toFixed(2)),
+    prestigeVolumePublicLabel: getSellerPublicVolumeLabel(currentRank),
+    hallOfFameEligible,
     latestReviews: reviews.slice(0, 12),
     recentActivity,
     ownerTools,
@@ -612,6 +797,25 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         : onboardingSelection
           ? (typeof user.updatedAt === "string" ? user.updatedAt : nowIso())
           : undefined;
+      const lifetimeCompletedVolumeUsdt = Math.max(0, Number((user as { lifetimeCompletedVolumeUsdt?: number }).lifetimeCompletedVolumeUsdt ?? 0));
+      const sellerPrestigeRankRaw = String((user as { sellerPrestigeRank?: string }).sellerPrestigeRank ?? "");
+      const sellerPrestigeRank = isValidSellerLevel(sellerPrestigeRankRaw) ? sellerPrestigeRankRaw : resolveSellerPrestigeRank(lifetimeCompletedVolumeUsdt);
+      const sellerRankOverrideRaw = (user as { sellerRankOverride?: { rank?: string; reason?: string; setAt?: string; setByUserId?: string } }).sellerRankOverride;
+      const sellerRankOverride =
+        sellerRankOverrideRaw && isValidSellerLevel(String(sellerRankOverrideRaw.rank ?? ""))
+          ? {
+              rank: String(sellerRankOverrideRaw.rank) as SellerLevel,
+              reason: String(sellerRankOverrideRaw.reason ?? "").trim(),
+              setAt: typeof sellerRankOverrideRaw.setAt === "string" ? sellerRankOverrideRaw.setAt : nowIso(),
+              setByUserId: typeof sellerRankOverrideRaw.setByUserId === "string" ? sellerRankOverrideRaw.setByUserId : SYSTEM_ACTOR_USER_ID,
+            }
+          : undefined;
+      const sellerPromotionHistory = Array.isArray((user as { sellerPromotionHistory?: unknown[] }).sellerPromotionHistory)
+        ? (user as { sellerPromotionHistory: unknown[] }).sellerPromotionHistory.map(normalizePromotionHistoryEntry).filter((entry): entry is SellerPromotionHistoryEntry => Boolean(entry)).slice(0, 200)
+        : [];
+      const sellerAchievementsRaw = Array.isArray((user as { sellerAchievements?: unknown[] }).sellerAchievements)
+        ? (user as { sellerAchievements: unknown[] }).sellerAchievements.filter((entry) => entry && typeof entry === "object")
+        : [];
       return {
         ...user,
         email,
@@ -703,6 +907,11 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
             : undefined,
         onboardingSelection,
         onboardingCompletedAt,
+        lifetimeCompletedVolumeUsdt,
+        sellerPrestigeRank,
+        sellerRankOverride,
+        sellerPromotionHistory,
+        sellerAchievements: sellerAchievementsRaw.map((entry) => entry as SellerAchievement),
       };
     }),
     sellerApplications: (db.sellerApplications ?? []).map((application) => ({
@@ -1277,17 +1486,31 @@ function getTradeEvidenceFile(db: AlphaExchangeDb, purchaseRequestId: string, si
 async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: string; triggeredBy: string }) {
   const previous = new Map(db.trustSnapshots.map((entry) => [entry.sellerId, entry.snapshot]));
   const owner = getOwnerUser(db);
+  const eligibleSellers = db.users.filter((user) => isTrustEligibleSeller(user));
+  const sellerById = new Map(eligibleSellers.map((seller) => [seller.id, seller]));
   const computed = rankTrustSnapshots(
-    db.users
-      .filter((user) => isTrustEligibleSeller(user))
-      .map((seller) =>
-        calculateSellerTrustSnapshot({
+    eligibleSellers
+      .map((seller) => {
+        const snapshot = calculateSellerTrustSnapshot({
           seller,
           listings: db.marketplaceListings.filter((listing) => listing.sellerId === seller.id),
           requests: db.purchaseRequests.filter((request) => request.sellerId === seller.id),
           commissions: db.commissionRecords.filter((record) => record.sellerId === seller.id),
-        }),
-      ),
+        });
+        const derivedRank = resolveSellerPrestigeRank(snapshot.totalUsdtVolume);
+        const effectiveRank = seller.sellerRankOverride?.rank ?? seller.sellerPrestigeRank ?? derivedRank;
+        snapshot.level = effectiveRank;
+        snapshot.lifetimeCompletedVolumeUsdt = snapshot.totalUsdtVolume;
+        Object.assign(
+          snapshot,
+          buildPrestigeFieldsForSnapshot({
+            volumeUsdt: snapshot.totalUsdtVolume,
+            rank: effectiveRank,
+            isOverridden: Boolean(seller.sellerRankOverride),
+          }),
+        );
+        return snapshot;
+      }),
   );
 
   const now = nowIso();
@@ -1298,6 +1521,20 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
   }));
 
   for (const snapshot of computed) {
+    const sellerIndex = db.users.findIndex((user) => user.id === snapshot.sellerId);
+    const seller = sellerIndex !== -1 ? db.users[sellerIndex] : sellerById.get(snapshot.sellerId);
+    const previousRank = seller?.sellerPrestigeRank ?? previous.get(snapshot.sellerId)?.level ?? resolveSellerPrestigeRank(snapshot.totalUsdtVolume);
+    const hasOverride = Boolean(seller?.sellerRankOverride);
+    if (seller && sellerIndex !== -1) {
+      const nextAchievements = buildSellerAchievements(db, { ...seller, lifetimeCompletedVolumeUsdt: snapshot.totalUsdtVolume, sellerPrestigeRank: snapshot.level });
+      db.users[sellerIndex] = {
+        ...seller,
+        lifetimeCompletedVolumeUsdt: snapshot.totalUsdtVolume,
+        sellerPrestigeRank: snapshot.level,
+        sellerAchievements: nextAchievements,
+      };
+    }
+
     const previousSnapshot = previous.get(snapshot.sellerId);
     const oldScore = Number(previousSnapshot?.trustScore ?? 0);
     const newScore = Number(snapshot.trustScore);
@@ -1344,14 +1581,52 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
       pushNotification(db, {
         userId: snapshot.sellerId,
         category: "trust",
-        title: "Seller level changed",
-        message: `Your seller level changed from ${previousSnapshot!.level} to ${snapshot.level}.`,
+        title: "Prestige rank updated",
+        message: `Your prestige rank changed from ${previousSnapshot!.level} to ${snapshot.level}.`,
       });
       pushActivityLog(db, {
         userId: snapshot.sellerId,
         category: "trust",
-        title: "Seller level changed",
-        details: `Level is now ${snapshot.level}.`,
+        title: "Prestige rank updated",
+        details: `Prestige rank is now ${snapshot.level}.`,
+      });
+    }
+
+    const promotedAutomatically = !hasOverride && levelRank(snapshot.level) > levelRank(previousRank);
+    if (promotedAutomatically && seller && sellerIndex !== -1) {
+      const entry: SellerPromotionHistoryEntry = {
+        id: `promotion-${randomUUID()}`,
+        rank: snapshot.level,
+        previousRank,
+        promotedAt: now,
+        lifetimeCompletedVolumeUsdt: snapshot.totalUsdtVolume,
+        source: "automatic",
+      };
+      const history = [entry, ...(seller.sellerPromotionHistory ?? [])].slice(0, 200);
+      db.users[sellerIndex] = {
+        ...db.users[sellerIndex],
+        sellerPromotionHistory: history,
+      };
+      await appendAuditLog(db, {
+        action: "seller_prestige_promoted",
+        actorUserId: input.triggeredBy,
+        targetUserId: snapshot.sellerId,
+        details: `Seller promoted from ${previousRank} to ${snapshot.level}.`,
+        oldValue: { rank: previousRank, lifetimeCompletedVolumeUsdt: seller.lifetimeCompletedVolumeUsdt ?? 0 },
+        newValue: { rank: snapshot.level, lifetimeCompletedVolumeUsdt: snapshot.totalUsdtVolume },
+        reason: input.reason,
+      });
+      pushNotification(db, {
+        userId: snapshot.sellerId,
+        category: "trust",
+        title: "Congratulations! New prestige rank unlocked",
+        message: `You reached ${snapshot.level} seller. ${summarizePromotionBenefits(snapshot.level)}`,
+      });
+      pushActivityLog(db, {
+        userId: snapshot.sellerId,
+        category: "trust",
+        title: "Prestige promotion unlocked",
+        details: `Promoted to ${snapshot.level} seller.`,
       });
     }
 
@@ -1461,6 +1736,10 @@ export async function createUser(input: {
     emailVerificationSentAt: undefined,
     onboardingSelection: undefined,
     onboardingCompletedAt: undefined,
+    lifetimeCompletedVolumeUsdt: 0,
+    sellerPrestigeRank: "bronze",
+    sellerRankOverride: undefined,
+    sellerPromotionHistory: [],
     isFoundingMember: !isAdminEmail(email),
     isFoundingSeller: false,
     createdAt: timestamp,
@@ -1545,6 +1824,10 @@ export async function upsertUserProfileForAuth(input: {
     emailVerificationSentAt: undefined,
     onboardingSelection: undefined,
     onboardingCompletedAt: undefined,
+    lifetimeCompletedVolumeUsdt: 0,
+    sellerPrestigeRank: "bronze",
+    sellerRankOverride: undefined,
+    sellerPromotionHistory: [],
     isFoundingMember: !isAdminEmail(email),
     isFoundingSeller: false,
     createdAt: timestamp,
@@ -2176,6 +2459,91 @@ export async function reactivateSellerByAdmin(userId: string, adminUserId: strin
 export async function getApprovedSellersForAdmin(dbInput?: AlphaExchangeDb) {
   const db = dbInput ?? await readDb();
   return db.users.filter((user) => user.sellerStatus === "approved_seller" || user.sellerStatus === "suspended");
+}
+
+export async function getHallOfFameEntries() {
+  const db = await readDb();
+  return db.users
+    .filter((user) => (user.sellerPrestigeRank ?? "bronze") === "legendary")
+    .map((user) => buildHallOfFameEntry(db, user))
+    .sort((left, right) => new Date(right.promotedAt).getTime() - new Date(left.promotedAt).getTime());
+}
+
+export async function overrideSellerPrestigeByAdmin(input: {
+  sellerId: string;
+  adminUserId: string;
+  rank: SellerLevel;
+  reason: string;
+  clearOverride?: boolean;
+}) {
+  const db = await readDb();
+  const sellerIndex = db.users.findIndex((user) => user.id === input.sellerId);
+  if (sellerIndex === -1) throw new Error("Seller not found.");
+  const seller = db.users[sellerIndex];
+  if (!isTrustEligibleSeller(seller)) throw new Error("Prestige can be changed only for approved sellers.");
+  if (hasRole(seller, "owner")) throw new Error("Owner account cannot be modified.");
+
+  const now = nowIso();
+  const previousRank = seller.sellerPrestigeRank ?? "bronze";
+  const previousOverride = seller.sellerRankOverride;
+  const reason = input.reason.trim();
+  if (!input.clearOverride && !reason) throw new Error("Override reason is required.");
+
+  const nextRank = input.clearOverride
+    ? resolveSellerPrestigeRank(Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? 0)))
+    : input.rank;
+  const historyEntry: SellerPromotionHistoryEntry = {
+    id: `promotion-${randomUUID()}`,
+    rank: nextRank,
+    previousRank,
+    promotedAt: now,
+    lifetimeCompletedVolumeUsdt: Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? 0)),
+    source: "admin_override",
+    reason: reason || "Admin override cleared",
+    actorUserId: input.adminUserId,
+  };
+  db.users[sellerIndex] = {
+    ...seller,
+    sellerPrestigeRank: nextRank,
+    sellerRankOverride: input.clearOverride
+      ? undefined
+      : {
+          rank: input.rank,
+          reason,
+          setAt: now,
+          setByUserId: input.adminUserId,
+        },
+    sellerPromotionHistory: [historyEntry, ...(seller.sellerPromotionHistory ?? [])].slice(0, 200),
+    updatedAt: now,
+  };
+  await appendAuditLog(db, {
+    action: "seller_prestige_overridden",
+    actorUserId: input.adminUserId,
+    targetUserId: input.sellerId,
+    details: input.clearOverride
+      ? `Cleared prestige override. Rank recalculated to ${nextRank}.`
+      : `Set seller prestige rank to ${input.rank}.`,
+    oldValue: {
+      rank: previousRank,
+      override: previousOverride,
+    },
+    newValue: {
+      rank: nextRank,
+      override: input.clearOverride ? null : { rank: input.rank, reason },
+    },
+    reason: reason || "Admin override cleared",
+  });
+  pushNotification(db, {
+    userId: input.sellerId,
+    category: "trust",
+    title: input.clearOverride ? "Prestige override removed" : "Prestige rank updated by admin",
+    message: input.clearOverride
+      ? `Your prestige rank is now ${nextRank} based on completed volume.`
+      : `Your prestige rank was set to ${input.rank} by Alpha Traders admin.`,
+  });
+  await recalculateTrustEngine(db, { reason: "Admin prestige override", triggeredBy: input.adminUserId });
+  await writeDb(db);
+  return db.users[sellerIndex];
 }
 
 export async function getMarketplaceListings(status?: string) {
@@ -2934,6 +3302,13 @@ export interface AccountProfileSummary {
 export interface SellerAccountStats {
   kind: "seller";
   sellerLevel: SellerLevel;
+  nextLevel?: SellerLevel;
+  progressToNextLevelPercent: number;
+  amountToNextLevelUsdt: number;
+  lifetimeCompletedVolumeUsdt: number;
+  commissionPaid: number;
+  averageTradeSize: number;
+  promotionHistory: SellerPromotionHistoryEntry[];
   trustScore: number;
   completedTrades: number;
   activeListings: number;
@@ -2985,9 +3360,18 @@ export async function getAccountProfileData(userId: string): Promise<{
   if (hasRole(user, "approved_seller") || user.sellerStatus === "approved_seller" || user.sellerStatus === "suspended") {
     const reputation = computeSellerReputationSnapshot(db, user.id);
     const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === user.id);
+    const sellerLevel = user.sellerPrestigeRank ?? reputation.level;
+    const prestigeProgress = getSellerPrestigeProgress(reputation.totalUsdtVolume, sellerLevel);
     const stats: SellerAccountStats = {
       kind: "seller",
-      sellerLevel: reputation.level,
+      sellerLevel,
+      nextLevel: prestigeProgress.nextRank,
+      progressToNextLevelPercent: Number(prestigeProgress.progressPercent.toFixed(2)),
+      amountToNextLevelUsdt: Number(prestigeProgress.remainingUsdt.toFixed(2)),
+      lifetimeCompletedVolumeUsdt: Number(reputation.totalUsdtVolume.toFixed(2)),
+      commissionPaid: Number(reputation.estimatedCommissionPaid.toFixed(2)),
+      averageTradeSize: Number(reputation.averageTradeSize.toFixed(2)),
+      promotionHistory: [...(user.sellerPromotionHistory ?? [])].slice(0, 10),
       trustScore: reputation.trustScore,
       completedTrades: sellerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length,
       activeListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "active").length,

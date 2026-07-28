@@ -10,9 +10,58 @@ export type OnboardingSelection = "guest" | "student" | "buyer";
 export type SellerStatus = "buyer" | "pending_seller_approval" | "approved_seller" | "rejected" | "suspended";
 export type SellerOnlineStatus = "online" | "offline";
 export type SellerAvailabilityStatus = "available" | "away" | "vacation";
-export type SellerLevel = "bronze" | "silver" | "gold" | "diamond" | "elite";
+export type SellerLevel = "bronze" | "silver" | "gold" | "platinum" | "diamond" | "legendary";
 export type SellerBadge = "elite_seller" | "top_rated" | "fast_responder" | "trusted_seller" | "most_active" | "platinum_seller" | "trades_1000_plus";
 export type SupportedNetwork = "TRC20" | "ERC20" | "BEP20" | "SOL";
+
+export interface SellerRankOverride {
+  rank: SellerLevel;
+  reason: string;
+  setAt: string;
+  setByUserId: string;
+}
+
+export interface SellerPromotionHistoryEntry {
+  id: string;
+  rank: SellerLevel;
+  previousRank?: SellerLevel;
+  promotedAt: string;
+  lifetimeCompletedVolumeUsdt: number;
+  source: "automatic" | "admin_override";
+  triggerTradeId?: string;
+  reason?: string;
+  actorUserId?: string;
+}
+
+export type SellerAchievementKey =
+  | "first_trade"
+  | "trades_100"
+  | "fast_responder"
+  | "customer_favorite"
+  | "volume_500k"
+  | "perfect_month"
+  | "rising_star"
+  | "trusted_veteran";
+
+export interface SellerAchievement {
+  id: string;
+  key: SellerAchievementKey;
+  title: string;
+  description: string;
+  earnedAt: string;
+  source: "automatic";
+  metadata?: Record<string, string | number | boolean | undefined>;
+}
+
+export interface SellerHallOfFameEntry {
+  sellerId: string;
+  sellerName: string;
+  rank: SellerLevel;
+  prestigeVolumeUsdt: number;
+  achievements: SellerAchievement[];
+  promotedAt: string;
+  publicVolumeRange: string;
+}
 
 export interface AlphaExchangeUser {
   id: string;
@@ -60,6 +109,11 @@ export interface AlphaExchangeUser {
   buyerDisplayName?: string;
   onboardingSelection?: OnboardingSelection;
   onboardingCompletedAt?: string;
+  lifetimeCompletedVolumeUsdt?: number;
+  sellerPrestigeRank?: SellerLevel;
+  sellerRankOverride?: SellerRankOverride;
+  sellerPromotionHistory?: SellerPromotionHistoryEntry[];
+  sellerAchievements?: SellerAchievement[];
   createdAt: string;
   updatedAt: string;
 }
@@ -139,9 +193,17 @@ export interface PremiumSellerProfileData {
   sellerId: string;
   profile: SellerPublicProfile;
   sellerLevel: SellerLevel;
+  nextRank?: SellerLevel;
+  progressToNextRankPercent: number;
+  amountToNextRankUsdt: number;
+  publicVolumeRange: string;
+  lifetimeCompletedVolumeUsdt: number;
   trustScore: number;
   completedTrades: number;
-  tradeVolume: number;
+  tradeVolume?: number;
+  exactTradeVolume?: number;
+  commissionPaid: number;
+  averageTradeSize: number;
   averageRating: number;
   responseTimeMinutes: number;
   completionRate: number;
@@ -149,6 +211,11 @@ export interface PremiumSellerProfileData {
   totalReviews: number;
   yearsOnPlatform: number;
   badges: SellerBadge[];
+  promotionHistory: SellerPromotionHistoryEntry[];
+  achievements: SellerAchievement[];
+  prestigeVolumeUsdt: number;
+  prestigeVolumePublicLabel: string;
+  hallOfFameEligible: boolean;
   latestReviews: SellerProfileReviewEntry[];
   recentActivity: SellerProfileActivityEntry[];
   ownerTools?: SellerOwnerToolData;
@@ -188,6 +255,13 @@ export interface SellerReputationSnapshot {
   revenueGenerated: number;
   repeatBuyers: number;
   averageTradeSize: number;
+  publicVolumeRange?: string;
+  nextRank?: SellerLevel;
+  remainingVolumeToNextRank?: number;
+  prestigeProgressPercent?: number;
+  lifetimeCompletedVolumeUsdt?: number;
+  prestigeVolumeUsdt?: number;
+  isRankOverridden?: boolean;
 }
 
 export interface MarketplaceListing {
@@ -479,7 +553,9 @@ export type AuditAction =
   | "trade_evidence_replaced"
   | "trade_evidence_viewed_by_owner"
   | "trade_evidence_viewed_by_moderator"
-  | "trade_evidence_downloaded";
+  | "trade_evidence_downloaded"
+  | "seller_prestige_promoted"
+  | "seller_prestige_overridden";
 
 export interface AuditLogEntry {
   id: string;

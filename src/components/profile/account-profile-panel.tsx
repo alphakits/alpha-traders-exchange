@@ -32,11 +32,18 @@ type AccountProfilePayload = {
     | {
         kind: "seller";
         sellerLevel: string;
-        trustScore: number;
-        completedTrades: number;
-        activeListings: number;
-        pendingListings: number;
-        averageRating: number;
+      nextLevel?: string;
+      progressToNextLevelPercent: number;
+      amountToNextLevelUsdt: number;
+      lifetimeCompletedVolumeUsdt: number;
+      commissionPaid: number;
+      averageTradeSize: number;
+      promotionHistory: Array<{ id: string; rank: string; promotedAt: string }>;
+      trustScore: number;
+      completedTrades: number;
+      activeListings: number;
+      pendingListings: number;
+      averageRating: number;
       }
     | {
         kind: "buyer";
@@ -211,11 +218,29 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
             {payload.stats.kind === "seller" ? (
               <>
                 <p>Seller Level: <span className="text-white">{payload.stats.sellerLevel}</span></p>
+                <p>Next Level: <span className="text-white">{payload.stats.nextLevel ?? "Top tier reached"}</span></p>
+                <p>Progress to Next Level: <span className="text-white">{payload.stats.progressToNextLevelPercent.toFixed(1)}%</span></p>
+                <p>Remaining to Next Level: <span className="text-white">{payload.stats.amountToNextLevelUsdt.toLocaleString("en-IL")} USDT</span></p>
+                <p>Lifetime Volume: <span className="text-white">{payload.stats.lifetimeCompletedVolumeUsdt.toLocaleString("en-IL")} USDT</span></p>
+                <p>Commission Paid: <span className="text-white">₪{payload.stats.commissionPaid.toFixed(2)}</span></p>
+                <p>Average Trade Size: <span className="text-white">₪{payload.stats.averageTradeSize.toFixed(2)}</span></p>
                 <p>Trust Score: <span className="text-white">{payload.stats.trustScore.toFixed(1)}</span></p>
                 <p>Completed Trades: <span className="text-white">{payload.stats.completedTrades}</span></p>
                 <p>Active Listings: <span className="text-white">{payload.stats.activeListings}</span></p>
                 <p>Pending Listings: <span className="text-white">{payload.stats.pendingListings}</span></p>
                 <p>Average Rating: <span className="text-white">{payload.stats.averageRating.toFixed(1)}</span></p>
+                {payload.stats.promotionHistory.length ? (
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                    <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Promotion History</p>
+                    <div className="mt-2 space-y-1 text-xs">
+                      {payload.stats.promotionHistory.slice(0, 4).map((entry) => (
+                        <p key={entry.id}>
+                          <span className="text-white capitalize">{entry.rank}</span> • {new Date(entry.promotedAt).toLocaleDateString("en-IL")}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </>
             ) : (
               <>

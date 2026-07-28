@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { RoleBadge } from "@/components/ui/role-badge";
-import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, AuditLogEntry, BetaAnnouncement, BetaAnnouncementType, BetaFeedbackCategory, CommissionRecord, MarketplaceListing, OwnerBusinessDashboardMetrics, OwnerPrivateBetaDashboardData, PurchaseRequest, SellerApplication, SellerAvailabilityStatus, SupportedNetwork } from "@/types/alpha-exchange";
+import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, AuditLogEntry, BetaAnnouncement, BetaAnnouncementType, BetaFeedbackCategory, CommissionRecord, MarketplaceListing, OwnerBusinessDashboardMetrics, OwnerPrivateBetaDashboardData, PurchaseRequest, SellerApplication, SellerAvailabilityStatus, SellerLevel, SupportedNetwork } from "@/types/alpha-exchange";
 
 type AdminSummary = {
   usersCount: number;
@@ -30,6 +30,10 @@ type AdminSeller = {
   roles?: Array<"guest" | "student" | "buyer" | "pending_seller_approval" | "approved_seller" | "admin" | "owner">;
   sellerStatus: "buyer" | "pending_seller_approval" | "approved_seller" | "rejected" | "suspended";
   availabilityStatus?: SellerAvailabilityStatus;
+  lifetimeCompletedVolumeUsdt?: number;
+  sellerPrestigeRank?: SellerLevel;
+  sellerRankOverride?: { rank: SellerLevel; reason: string; setAt: string; setByUserId: string };
+  sellerPromotionHistory?: Array<{ id: string; rank: SellerLevel; promotedAt: string; reason?: string }>;
   createdAt: string;
   updatedAt: string;
 };
@@ -107,6 +111,19 @@ function formatUsdt(value: number) {
 
 function formatPercent(value: number) {
   return `${value.toLocaleString("en-IL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+}
+
+function sellerLevelLabel(level?: SellerLevel) {
+  if (level === "legendary") return "Legendary";
+  if (level === "diamond") return "Diamond";
+  if (level === "platinum") return "Platinum";
+  if (level === "gold") return "Gold";
+  if (level === "silver") return "Silver";
+  return "Bronze";
+}
+
+function isSellerLevel(value: string): value is SellerLevel {
+  return value === "bronze" || value === "silver" || value === "gold" || value === "platinum" || value === "diamond" || value === "legendary";
 }
 
 function feedbackCategoryLabel(value: BetaFeedbackCategory) {
@@ -396,6 +413,17 @@ export function AlphaExchangeAdminDashboard() {
         body: JSON.stringify({ availabilityStatus, reason }),
       }),
       successMessage,
+    );
+  }
+
+  async function handleSellerPrestigeOverride(sellerId: string, rank: SellerLevel, reason: string, clearOverride = false) {
+    await runAction(
+      fetch(`/api/alpha-exchange/admin/sellers/${sellerId}/prestige`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ rank, reason, clearOverride }),
+      }),
+      clearOverride ? "Prestige override cleared." : `Seller prestige set to ${sellerLevelLabel(rank)}.`,
     );
   }
 
@@ -922,6 +950,8 @@ export function AlphaExchangeAdminDashboard() {
                               <tr>
                                 <th className="px-4 py-3">Seller</th>
                                 <th className="px-4 py-3">Member Since</th>
+                                <th className="px-4 py-3">Prestige Rank</th>
+                                <th className="px-4 py-3">Lifetime Volume</th>
                                 <th className="px-4 py-3">Active Listings</th>
                                 <th className="px-4 py-3">Completed Trades</th>
                                 <th className="px-4 py-3">Current Status</th>
@@ -960,6 +990,11 @@ export function AlphaExchangeAdminDashboard() {
                                       </div>
                                     </td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(seller.createdAt)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">
+                                      <span className="font-medium capitalize text-white">{sellerLevelLabel(seller.sellerPrestigeRank)}</span>
+                                      {seller.sellerRankOverride ? <p className="text-[11px] text-[#FDE68A]">Override active</p> : null}
+                                    </td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatUsdt(Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? 0)))}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{activeListings}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{completedTrades}</td>
                                     <td className="px-4 py-3">
@@ -997,12 +1032,45 @@ export function AlphaExchangeAdminDashboard() {
                                         <Button type="button" size="sm" variant="secondary" onClick={() => setSelectedSeller(seller)}>
                                           View Profile
                                         </Button>
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="secondary"
+                                          onClick={() => {
+                                            const nextRank = window.prompt("Set rank (bronze, silver, gold, platinum, diamond, legendary)", seller.sellerPrestigeRank ?? "bronze");
+                                            if (!nextRank) return;
+                                            const rankInput = nextRank.trim().toLowerCase();
+                                            if (!isSellerLevel(rankInput)) {
+                                              pushToast("Invalid prestige rank.");
+                                              return;
+                                            }
+                                            const reason = window.prompt("Override reason", "Manual admin override");
+                                            if (!reason) return;
+                                            void handleSellerPrestigeOverride(seller.id, rankInput, reason, false);
+                                          }}
+                                        >
+                                          Override Rank
+                                        </Button>
+                                        {seller.sellerRankOverride ? (
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="secondary"
+                                            onClick={() => {
+                                              const reason = window.prompt("Reason for clearing override", "Return to automatic progression");
+                                              if (!reason) return;
+                                              void handleSellerPrestigeOverride(seller.id, seller.sellerPrestigeRank ?? "bronze", reason, true);
+                                            }}
+                                          >
+                                            Clear Override
+                                          </Button>
+                                        ) : null}
                                       </div>
                                     </td>
                                   </tr>
                                 );
                               })}
-                              {sellersRows.rows.length === 0 ? renderEmptyTableRow("No approved sellers match your filters.", 6) : null}
+                              {sellersRows.rows.length === 0 ? renderEmptyTableRow("No approved sellers match your filters.", 8) : null}
                             </tbody>
                           </table>
                         </div>
@@ -1414,6 +1482,8 @@ export function AlphaExchangeAdminDashboard() {
                             <option value="trade_review_submitted">trade_review_submitted</option>
                             <option value="trade_review_responded">trade_review_responded</option>
                             <option value="trust_score_updated">trust_score_updated</option>
+                            <option value="seller_prestige_promoted">seller_prestige_promoted</option>
+                            <option value="seller_prestige_overridden">seller_prestige_overridden</option>
                           </select>
                           <select value={auditSort} onChange={(event) => setAuditSort(event.target.value as typeof auditSort)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white">
                             <option value="newest">Sort: Newest</option>
@@ -1688,6 +1758,11 @@ export function AlphaExchangeAdminDashboard() {
                 <p>Member Since: <span className="text-white">{formatDate(selectedSeller.createdAt)}</span></p>
                 <p>Status: <span className="text-white">{selectedSeller.sellerStatus}</span></p>
                 <p>Availability: <span className="text-white">{selectedSeller.availabilityStatus ?? "available"}</span></p>
+                <p>Prestige Rank: <span className="text-white capitalize">{sellerLevelLabel(selectedSeller.sellerPrestigeRank)}</span></p>
+                <p>Lifetime Completed Volume: <span className="text-white">{formatUsdt(Math.max(0, Number(selectedSeller.lifetimeCompletedVolumeUsdt ?? 0)))}</span></p>
+                {selectedSeller.sellerRankOverride ? (
+                  <p>Override: <span className="text-white capitalize">{selectedSeller.sellerRankOverride.rank}</span> • {selectedSeller.sellerRankOverride.reason}</p>
+                ) : null}
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 {selectedSeller.availabilityStatus === "vacation" ? (
@@ -1699,6 +1774,39 @@ export function AlphaExchangeAdminDashboard() {
                     Enable Vacation
                   </Button>
                 )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    const nextRank = window.prompt("Set rank (bronze, silver, gold, platinum, diamond, legendary)", selectedSeller.sellerPrestigeRank ?? "bronze");
+                    if (!nextRank) return;
+                    const rankInput = nextRank.trim().toLowerCase();
+                    if (!isSellerLevel(rankInput)) {
+                      pushToast("Invalid prestige rank.");
+                      return;
+                    }
+                    const reason = window.prompt("Override reason", "Manual admin override");
+                    if (!reason) return;
+                    void handleSellerPrestigeOverride(selectedSeller.id, rankInput, reason, false);
+                  }}
+                >
+                  Override Rank
+                </Button>
+                {selectedSeller.sellerRankOverride ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      const reason = window.prompt("Reason for clearing override", "Return to automatic progression");
+                      if (!reason) return;
+                      void handleSellerPrestigeOverride(selectedSeller.id, selectedSeller.sellerPrestigeRank ?? "bronze", reason, true);
+                    }}
+                  >
+                    Clear Override
+                  </Button>
+                ) : null}
               </div>
             </motion.div>
           </motion.div>

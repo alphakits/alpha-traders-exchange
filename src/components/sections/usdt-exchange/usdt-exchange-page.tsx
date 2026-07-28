@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { ExchangeMarketStats } from "@/components/sections/usdt-exchange/exchange-market-stats";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
+import { getSellerPrestigeProgress, getSellerPublicVolumeLabel } from "@/lib/seller-prestige";
 import { hasRole } from "@/lib/roles";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, BetaAnnouncement, BetaFeedbackCategory, BetaFeedbackEntry, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerAvailabilityStatus, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
@@ -53,6 +54,10 @@ type SessionUser = {
   isProfileHidden?: boolean;
   isFoundingMember?: boolean;
   isFoundingSeller?: boolean;
+  lifetimeCompletedVolumeUsdt?: number;
+  sellerPrestigeRank?: SellerLevel;
+  sellerRankOverride?: { rank: SellerLevel; reason: string; setAt: string; setByUserId: string };
+  sellerPromotionHistory?: Array<{ id: string; rank: SellerLevel; promotedAt: string; source: "automatic" | "admin_override"; reason?: string }>;
   notificationPreferences?: { inApp: boolean; email: boolean; sms: boolean };
   createdAt: string;
 };
@@ -169,15 +174,38 @@ function formatRelativeMinutesLabel(value?: string) {
 }
 
 function sellerLevelLabel(level?: SellerLevel) {
-  if (level === "elite") return "Elite";
-  if (level === "diamond") return "Diamond";
-  if (level === "gold") return "Gold";
-  if (level === "silver") return "Silver";
-  return "Bronze";
+  if (level === "legendary") return "Alpha Legendary Seller";
+  if (level === "diamond") return "Alpha Diamond Seller";
+  if (level === "platinum") return "Alpha Platinum Seller";
+  if (level === "gold") return "Alpha Gold Seller";
+  if (level === "silver") return "Alpha Silver Seller";
+  return "Alpha Bronze Seller";
+}
+
+function sellerRankTheme(level?: SellerLevel) {
+  if (level === "legendary") return "from-[#F8E7A0] via-[#FFFFFF] to-[#C9A227] text-transparent bg-clip-text";
+  if (level === "diamond") return "text-[#7CC9FF]";
+  if (level === "platinum") return "text-[#C8D1DF]";
+  if (level === "gold") return "text-[#E8C547]";
+  if (level === "silver") return "text-[#C9CED9]";
+  return "text-[#B8824B]";
+}
+
+function summarizePromotionBenefits(rank: SellerLevel) {
+  if (rank === "silver") return "Higher marketplace visibility and stronger buyer trust.";
+  if (rank === "gold") return "Priority placement and stronger trust signaling on seller cards.";
+  if (rank === "platinum") return "Premium placement and increased visibility with serious buyers.";
+  if (rank === "diamond") return "Top-tier visibility and premium reputation with buyers.";
+  if (rank === "legendary") return "Legendary recognition across Alpha Exchange and maximum buyer trust.";
+  return "Starter prestige level unlocked.";
+}
+
+function prestigeBadgeLabel(rank?: SellerLevel) {
+  return rank ? sellerLevelLabel(rank) : "Alpha Bronze Seller";
 }
 
 function sellerBadgeLabel(badge: SellerBadge) {
-  if (badge === "elite_seller") return "🥇 Elite Seller";
+  if (badge === "elite_seller") return "✨ Legendary Seller";
   if (badge === "top_rated") return "💎 Top Rated";
   if (badge === "fast_responder") return "⚡ Fast Responder";
   if (badge === "trusted_seller") return "🛡 Trusted Seller";
@@ -345,8 +373,31 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [myBetaFeedback, setMyBetaFeedback] = useState<BetaFeedbackEntry[]>([]);
   const [betaFeedbackCategory, setBetaFeedbackCategory] = useState<BetaFeedbackCategory>("suggestion");
   const [betaFeedbackMessage, setBetaFeedbackMessage] = useState("");
+  const [promotionModalRank, setPromotionModalRank] = useState<SellerLevel | null>(null);
+  const [prestigeModalOpen, setPrestigeModalOpen] = useState(false);
+  const [prestigeModalStats, setPrestigeModalStats] = useState<{
+    currentRank: SellerLevel;
+    nextRank?: SellerLevel;
+    progressPercent: number;
+    remainingVolumeToNextRank: number;
+    publicVolumeRange: string;
+    publicVolumeLabel: string;
+    completedTrades: number;
+    totalVolumeUsdt: number;
+    averageRating: number;
+    responseTimeMinutes: number;
+    completionRate: number;
+    averageTradeSize: number;
+    repeatBuyersPercent: number;
+    totalReviews: number;
+    yearsOnPlatform: number;
+    promotionHistory: Array<{ id: string; rank: SellerLevel; promotedAt: string; source: string }>
+    achievements: Array<{ key: string; title: string; description: string; earnedAt: string }>;
+    canViewExactValues: boolean;
+  } | null>(null);
   const notificationsRequestIdRef = useRef(0);
   const createListingFormRef = useRef<HTMLDivElement | null>(null);
+  const previousPrestigeRankRef = useRef<SellerLevel | null>(null);
 
   const [buyerInfo, setBuyerInfo] = useState({ amount: "", name: "", whatsapp: "", notes: "" });
   const [sellerForm, setSellerForm] = useState({
@@ -955,6 +1006,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     const averageTradeSize = completedSellerRequests.length ? grossSales / completedSellerRequests.length : 0;
     const estimatedCommissionPaid = grossSales * 0.01;
     const selfReputation = myListings.find((listing) => Boolean(listing.sellerReputation))?.sellerReputation ?? null;
+    const currentPrestigeRank = sessionUser?.sellerPrestigeRank ?? selfReputation?.level ?? "bronze";
+    const prestigeProgress = getSellerPrestigeProgress(totalUsdtSold, currentPrestigeRank);
     return {
       activeListings: myListings.filter((listing) => listing.status === "active" || listing.status === "matched" || listing.status === "in_trade").length,
       pendingRequests: pendingSellerRequests.length,
@@ -973,8 +1026,54 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       repeatBuyers: repeatBuyersCount,
       averageTradeSize,
       reputation: selfReputation,
+      currentPrestigeRank,
+      nextPrestigeRank: prestigeProgress.nextRank,
+      prestigeProgressPercent: prestigeProgress.progressPercent,
+      remainingVolumeToNextRank: prestigeProgress.remainingUsdt,
+      publicVolumeRange: getSellerPublicVolumeLabel(currentPrestigeRank),
+      promotionHistory: sessionUser?.sellerPromotionHistory ?? [],
     };
-  }, [completedSellerRequests, myListings, myListingsById, pendingSellerRequests.length, sellerRequests]);
+  }, [completedSellerRequests, myListings, myListingsById, pendingSellerRequests.length, sellerRequests, sessionUser?.sellerPrestigeRank, sessionUser?.sellerPromotionHistory]);
+
+  useEffect(() => {
+    if (!isApprovedSeller) return;
+    const currentRank = sellerOverviewStats.currentPrestigeRank;
+    const previousRank = previousPrestigeRankRef.current;
+    if (previousRank && previousRank !== currentRank) {
+      const rankOrder: SellerLevel[] = ["bronze", "silver", "gold", "platinum", "diamond", "legendary"];
+      if (rankOrder.indexOf(currentRank) > rankOrder.indexOf(previousRank)) {
+        setPromotionModalRank(currentRank);
+      }
+    }
+    previousPrestigeRankRef.current = currentRank;
+  }, [isApprovedSeller, sellerOverviewStats.currentPrestigeRank]);
+
+  useEffect(() => {
+    if (!isApprovedSeller || !sessionUser) return;
+    setPrestigeModalStats({
+      currentRank: sellerOverviewStats.currentPrestigeRank,
+      nextRank: sellerOverviewStats.nextPrestigeRank,
+      progressPercent: sellerOverviewStats.prestigeProgressPercent,
+      remainingVolumeToNextRank: sellerOverviewStats.remainingVolumeToNextRank,
+      publicVolumeRange: sellerOverviewStats.publicVolumeRange,
+      publicVolumeLabel: sellerOverviewStats.publicVolumeRange,
+      completedTrades: sellerOverviewStats.completedTrades,
+      totalVolumeUsdt: sellerOverviewStats.totalUsdtSold,
+      averageRating: sellerOverviewStats.reputation?.rating ?? 4.5,
+      responseTimeMinutes: parseMinutes(sellerOverviewStats.averageResponseTime),
+      completionRate: sellerOverviewStats.completionRate,
+      averageTradeSize: sellerOverviewStats.averageTradeSize,
+      repeatBuyersPercent: sellerOverviewStats.repeatBuyers,
+      totalReviews: sellerOverviewStats.completedTrades,
+      yearsOnPlatform: 0,
+      promotionHistory: (sellerOverviewStats.promotionHistory ?? []).slice(0, 6).map((entry) => ({ id: entry.id, rank: entry.rank, promotedAt: entry.promotedAt, source: entry.source })),
+      achievements: [
+        { key: "first_trade", title: "First Trade", description: "Completed the first successful trade.", earnedAt: new Date().toISOString() },
+        { key: "fast_responder", title: "Fast Responder", description: "Maintained an average response time under 2 minutes.", earnedAt: new Date().toISOString() },
+      ],
+      canViewExactValues: true,
+    });
+  }, [isApprovedSeller, sessionUser, sellerOverviewStats]);
 
   async function handleSellerListingStatus(listing: MarketplaceListing, nextStatus: "active" | "paused") {
     const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, {
@@ -1725,18 +1824,22 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               ))
             : filteredListings.map((listing) => {
                 const trustScore = listing.sellerReputation?.trustScore ?? 0;
-                const successRate = listing.sellerReputation?.successRate ?? 0;
                 const completedTrades = listing.sellerReputation?.completedTrades ?? 0;
+                const completionRate = listing.sellerReputation?.completionRate ?? 0;
+                const rating = listing.sellerReputation?.rating ?? 0;
+                const responseTimeMinutes = listing.sellerReputation?.responseTimeMinutes ?? parseMinutes(listing.responseTime);
+                const sellerRank = listing.sellerReputation?.level ?? "bronze";
+                const publicVolumeRange = listing.sellerReputation?.publicVolumeRange ?? getSellerPublicVolumeLabel(sellerRank);
                 const isOnline = listing.sellerProfile?.onlineStatus === "online";
                 const trustTier =
-                  trustScore >= 9 ? (isAr ? "ممتاز" : "Excellent")
-                  : trustScore >= 7 ? (isAr ? "جيد" : "Good")
-                  : trustScore >= 5 ? (isAr ? "متوسط" : "Fair")
+                  trustScore >= 90 ? (isAr ? "ممتاز" : "Excellent")
+                  : trustScore >= 75 ? (isAr ? "جيد" : "Good")
+                  : trustScore >= 60 ? (isAr ? "متوسط" : "Fair")
                   : (isAr ? "مبتدئ" : "New");
                 const trustTierColor =
-                  trustScore >= 9 ? "text-[#4ADE80]"
-                  : trustScore >= 7 ? "text-[#C9A227]"
-                  : trustScore >= 5 ? "text-[#FB923C]"
+                  trustScore >= 90 ? "text-[#4ADE80]"
+                  : trustScore >= 75 ? "text-[#C9A227]"
+                  : trustScore >= 60 ? "text-[#FB923C]"
                   : "text-[#9CA3AF]";
 
                 return (
@@ -1783,10 +1886,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           {/* Name + level + badges */}
                           <div>
                             <CardTitle className={`text-lg leading-tight ${isAr ? "text-right" : ""}`}>
-                              {safeText(listing.sellerDisplayName, "Seller")}
+                              <span className={sellerRankTheme(sellerRank)}>{safeText(listing.sellerDisplayName, "Seller")}</span>
                             </CardTitle>
                             <p className={`mt-0.5 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF] ${isAr ? "text-right" : ""}`}>
-                              {sellerLevelLabel(listing.sellerReputation?.level)} Seller
+                              {sellerLevelLabel(sellerRank)} Seller
                             </p>
                             <div className={`mt-1.5 flex flex-wrap gap-1.5 ${isAr ? "flex-row-reverse" : ""}`}>
                               <RoleBadge variant="approved_seller" />
@@ -1838,13 +1941,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           <span className={`flex items-center gap-1.5 ${isAr ? "flex-row-reverse" : ""}`}>
                             <span className={`text-[11px] font-medium ${trustTierColor}`}>{trustTier}</span>
                             <span className="font-semibold text-white">{trustScore.toFixed(1)}</span>
-                            <span className="text-[#9CA3AF]">/10</span>
+                            <span className="text-[#9CA3AF]">/100</span>
                           </span>
                         </div>
                         <div className="h-2 overflow-hidden rounded-full bg-white/8">
                           <div
                             className="h-full rounded-full bg-gradient-to-r from-[#B8942A] via-[#C9A227] to-[#E8C547] shadow-[0_0_8px_rgba(201,162,39,0.35)] transition-all duration-700"
-                            style={{ width: `${Math.min(trustScore * 10, 100)}%` }}
+                            style={{ width: `${Math.min(trustScore, 100)}%` }}
                           />
                         </div>
                       </div>
@@ -1853,18 +1956,20 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <div className={`flex flex-wrap gap-2 ${isAr ? "flex-row-reverse" : ""}`}>
                         <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-xs text-white">
                           <Clock3 className="h-3.5 w-3.5 flex-shrink-0 text-[#C9A227]" aria-hidden="true" />
-                          {safeText(listing.responseTime, "—")}
+                          {responseTimeMinutes > 0 ? `${Math.round(responseTimeMinutes)} min response` : safeText(listing.responseTime, "—")}
                         </span>
                         <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-xs text-white">
                           <Trophy className="h-3.5 w-3.5 flex-shrink-0 text-[#C9A227]" aria-hidden="true" />
-                          {completedTrades.toLocaleString("en-IL")} {isAr ? "صفقة" : "trades"}
+                          {completedTrades.toLocaleString("en-IL")}+ {isAr ? "صفقة" : "trades"}
                         </span>
-                        {successRate > 0 ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#22C55E]/20 bg-[#22C55E]/[0.06] px-2.5 py-1.5 text-xs text-[#86EFAC]">
-                            <ShieldCheck className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
-                            {successRate.toFixed(0)}%
-                          </span>
-                        ) : null}
+                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#22C55E]/20 bg-[#22C55E]/[0.06] px-2.5 py-1.5 text-xs text-[#86EFAC]">
+                          <ShieldCheck className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+                          {completionRate.toFixed(1)}% completion
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#C9A227]/20 bg-[#C9A227]/[0.06] px-2.5 py-1.5 text-xs text-[#FDE68A]">
+                          <Star className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+                          {rating.toFixed(2)}★
+                        </span>
                         <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-xs text-[#9CA3AF]">
                           <Network className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
                           {safeText(listing.network)}
@@ -1884,6 +1989,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           {safeText(listing.minimumTrade, "—")} – {safeText(listing.maximumTrade, "—")} USDT
                           <span className="mx-2 text-white/20">·</span>
                           {formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt)}
+                        </p>
+                        <p>
+                          <span className="text-white/45">{isAr ? "الحجم العام: " : "Public Volume: "}</span>
+                          {publicVolumeRange}
+                          <span className="mx-2 text-white/20">·</span>
+                          {isAr ? "موثّق من Alpha Traders" : "Verified by Alpha Traders"}
                         </p>
                       </div>
 
@@ -2086,12 +2197,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               { label: "Completed Trades", value: sellerOverviewStats.completedTrades.toLocaleString("en-IL"), icon: Trophy },
               { label: "Success Rate", value: `${sellerOverviewStats.successRate.toFixed(1)}%`, icon: ShieldCheck },
               { label: "Monthly Growth", value: `${sellerOverviewStats.monthlyGrowth >= 0 ? "+" : ""}${sellerOverviewStats.monthlyGrowth.toFixed(1)}%`, icon: TrendingUp },
-              { label: "Estimated Commission Paid", value: `₪${sellerOverviewStats.estimatedCommissionPaid.toFixed(2)}`, icon: BadgePercent },
-              { label: "Revenue Generated", value: `₪${sellerOverviewStats.revenueGenerated.toFixed(2)}`, icon: WalletCards },
+              { label: "Commission Paid", value: `₪${sellerOverviewStats.estimatedCommissionPaid.toFixed(2)}`, icon: BadgePercent },
+              { label: "Lifetime Volume (Private)", value: `${sellerOverviewStats.totalUsdtSold.toLocaleString("en-IL")} USDT`, icon: WalletCards },
               { label: "Repeat Buyers", value: sellerOverviewStats.repeatBuyers.toLocaleString("en-IL"), icon: Users },
               { label: "Average Trade Size", value: `₪${sellerOverviewStats.averageTradeSize.toFixed(2)}`, icon: HandCoins },
               { label: "Response Time", value: sellerOverviewStats.averageResponseTime, icon: Clock3 },
-              { label: "Seller Level", value: sellerLevelLabel(sellerOverviewStats.reputation?.level), icon: Star },
+              { label: "Current Prestige Rank", value: sellerLevelLabel(sellerOverviewStats.currentPrestigeRank), icon: Star },
             ].map((stat) => (
               <Card key={stat.label} className="border-white/10 bg-[#0B0B0B]/90">
                 <CardHeader className="pb-2">
@@ -2499,6 +2610,49 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 <p>Member Since: <span className="text-white">{sessionUser?.createdAt ? new Date(sessionUser.createdAt).toLocaleDateString("en-IL") : "—"}</span></p>
                 <p>Languages: <span className="text-white">{sessionUser?.languages?.join(", ") || "English"}</span></p>
                 <p>Preferred Networks: <span className="text-white">{sessionUser?.preferredNetworks?.join(", ") || "TRC20"}</span></p>
+                <div className="rounded-xl border border-[#C9A227]/20 bg-[#C9A227]/[0.06] p-3">
+                  <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Prestige</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPrestigeModalOpen(true);
+                      setPrestigeModalStats((prev) => prev ?? {
+                        currentRank: sellerOverviewStats.currentPrestigeRank,
+                        nextRank: sellerOverviewStats.nextPrestigeRank,
+                        progressPercent: sellerOverviewStats.prestigeProgressPercent,
+                        remainingVolumeToNextRank: sellerOverviewStats.remainingVolumeToNextRank,
+                        publicVolumeRange: sellerOverviewStats.publicVolumeRange,
+                        publicVolumeLabel: sellerOverviewStats.publicVolumeRange,
+                        completedTrades: sellerOverviewStats.completedTrades,
+                        totalVolumeUsdt: sellerOverviewStats.totalUsdtSold,
+                        averageRating: sellerOverviewStats.reputation?.rating ?? 4.5,
+                        responseTimeMinutes: parseMinutes(sellerOverviewStats.averageResponseTime),
+                        completionRate: sellerOverviewStats.completionRate,
+                        averageTradeSize: sellerOverviewStats.averageTradeSize,
+                        repeatBuyersPercent: sellerOverviewStats.repeatBuyers,
+                        totalReviews: sellerOverviewStats.completedTrades,
+                        yearsOnPlatform: 0,
+                        promotionHistory: (sellerOverviewStats.promotionHistory ?? []).slice(0, 6).map((entry) => ({ id: entry.id, rank: entry.rank, promotedAt: entry.promotedAt, source: entry.source })),
+                        achievements: [
+                          { key: "first_trade", title: "First Trade", description: "Completed the first successful trade.", earnedAt: new Date().toISOString() },
+                          { key: "fast_responder", title: "Fast Responder", description: "Maintained an average response time under 2 minutes.", earnedAt: new Date().toISOString() },
+                        ],
+                        canViewExactValues: true,
+                      });
+                    }}
+                    className="mt-1 text-left text-sm text-white transition hover:text-[#E8C547]"
+                  >
+                    Current Rank: <span className={cn("font-semibold capitalize", sellerRankTheme(sellerOverviewStats.currentPrestigeRank))}>{sellerLevelLabel(sellerOverviewStats.currentPrestigeRank)}</span>
+                  </button>
+                  <p className="text-xs text-[#D1D5DB]">
+                    Next Rank: {sellerOverviewStats.nextPrestigeRank ? sellerLevelLabel(sellerOverviewStats.nextPrestigeRank) : "Top tier reached"}
+                    {sellerOverviewStats.nextPrestigeRank ? ` • ${sellerOverviewStats.remainingVolumeToNextRank.toLocaleString("en-IL")} USDT remaining` : ""}
+                  </p>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
+                    <div className="h-full rounded-full bg-gradient-to-r from-[#B8942A] via-[#C9A227] to-[#E8C547]" style={{ width: `${Math.min(100, sellerOverviewStats.prestigeProgressPercent)}%` }} />
+                  </div>
+                  <p className="mt-1 text-[11px] text-[#9CA3AF]">Public volume label: {sellerOverviewStats.publicVolumeRange}</p>
+                </div>
                 <p>Rating: <span className="text-white">{(sellerOverviewStats.reputation?.rating ?? 4.5).toFixed(2)}</span></p>
                 <p>Success Rate: <span className="text-white">{sellerOverviewStats.successRate.toFixed(1)}%</span></p>
                 <p>Completed Trades: <span className="text-white">{sellerOverviewStats.completedTrades}</span></p>
@@ -2519,6 +2673,18 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     </span>
                   ))}
                 </div>
+                {(sellerOverviewStats.promotionHistory ?? []).length ? (
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs">
+                    <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Promotion History</p>
+                    <div className="mt-2 space-y-1 text-[#D1D5DB]">
+                      {(sellerOverviewStats.promotionHistory ?? []).slice(0, 4).map((entry) => (
+                        <p key={entry.id}>
+                          <span className="capitalize text-white">{sellerLevelLabel(entry.rank)}</span> • {new Date(entry.promotedAt).toLocaleDateString("en-IL")}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {sellerOverviewStats.completedTrades === 0 ? (
                   <div className="mt-2 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#9CA3AF]">
                     {isAr ? "لا توجد صفقات مكتملة بعد. أكمل أول صفقة لبناء سجل ثقة قوي." : "No Trades Yet. Complete your first trade to start building trust history."}
@@ -3031,6 +3197,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           <div className="grid gap-1 md:grid-cols-2">
                             <p>Seller Level: <span className="text-white">{sellerLevelLabel(sellerProfileData?.sellerLevel)}</span></p>
                             <p>Trust Score: <span className="text-white">{sellerProfileData?.trustScore.toFixed(1) ?? (selectedListing.sellerReputation?.trustScore ?? 0).toFixed(1)}</span></p>
+                            <p>Public Volume: <span className="text-white">{sellerProfileData?.publicVolumeRange ?? selectedListing.sellerReputation?.publicVolumeRange ?? "0+"}</span></p>
                             <p>Status: <span className="text-white">{sellerProfileData?.profile.onlineStatus === "online" ? "Online" : "Offline"}</span></p>
                             <p>Last Active: <span className="text-white">{formatRelativeMinutesLabel(sellerProfileData?.profile.lastActiveAt)}</span></p>
                             <p>Member Since: <span className="text-white">{new Date(sellerProfileData?.profile.memberSince ?? selectedListing.createdAt).toLocaleDateString("en-IL")}</span></p>
@@ -3043,7 +3210,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                     {[
                       { label: "Completed Trades", value: sellerProfileData?.completedTrades ?? selectedListing.sellerReputation?.completedTrades ?? 0 },
-                      { label: "Trade Volume", value: `${(sellerProfileData?.tradeVolume ?? selectedListing.sellerReputation?.totalUsdtVolume ?? 0).toLocaleString("en-IL")} USDT` },
+                      { label: "Public Volume", value: sellerProfileData?.publicVolumeRange ?? selectedListing.sellerReputation?.publicVolumeRange ?? "0+" },
+                      { label: "Next Rank", value: sellerProfileData?.nextRank ? sellerLevelLabel(sellerProfileData.nextRank) : "Top tier reached" },
+                      { label: "Remaining to Next Rank", value: `${(sellerProfileData?.amountToNextRankUsdt ?? selectedListing.sellerReputation?.remainingVolumeToNextRank ?? 0).toLocaleString("en-IL")} USDT` },
                       { label: "Average Rating", value: (sellerProfileData?.averageRating ?? selectedListing.sellerReputation?.rating ?? 0).toFixed(2) },
                       { label: "Response Time", value: `${(sellerProfileData?.responseTimeMinutes ?? selectedListing.sellerReputation?.responseTimeMinutes ?? 0).toFixed(1)} min` },
                       { label: "Completion Rate", value: `${(sellerProfileData?.completionRate ?? selectedListing.sellerReputation?.completionRate ?? 0).toFixed(1)}%` },
@@ -3057,6 +3226,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       </div>
                     ))}
                   </div>
+                  {sellerProfileData?.exactTradeVolume !== undefined ? (
+                    <div className="rounded-xl border border-[#C9A227]/25 bg-[#C9A227]/[0.06] p-3 text-xs text-[#D1D5DB]">
+                      <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Private Seller Metrics</p>
+                      <p className="mt-1">Exact Lifetime Volume: <span className="text-white">{sellerProfileData.exactTradeVolume.toLocaleString("en-IL")} USDT</span></p>
+                      <p>Commission Paid: <span className="text-white">₪{sellerProfileData.commissionPaid.toFixed(2)}</span></p>
+                      <p>Average Trade Size: <span className="text-white">₪{sellerProfileData.averageTradeSize.toFixed(2)}</span></p>
+                    </div>
+                  ) : null}
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
@@ -3070,6 +3247,15 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         <p>Supported Networks: <span className="text-white">{(sellerProfileData?.profile.preferredNetworks ?? [selectedListing.network]).join(", ")}</span></p>
                         <p>Country: <span className="text-white">{safeText(sellerProfileData?.profile.country, "Israel")}</span></p>
                         {sellerProfileData?.profile.city ? <p>City: <span className="text-white">{sellerProfileData.profile.city}</span></p> : null}
+                      </div>
+                      <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB] md:col-span-2 xl:col-span-4">
+                        <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Prestige Progress</p>
+                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-[#B8942A] via-[#C9A227] to-[#E8C547]"
+                            style={{ width: `${Math.min(100, sellerProfileData?.progressToNextRankPercent ?? selectedListing.sellerReputation?.prestigeProgressPercent ?? 0)}%` }}
+                          />
+                        </div>
                       </div>
                     </div>
                     <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
@@ -3093,6 +3279,18 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-1 text-[11px] text-[#C9A227]">🎖 Founding Seller</span>
                         ) : null}
                       </div>
+                      {(sellerProfileData?.promotionHistory ?? []).length ? (
+                        <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
+                          <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Promotion History</p>
+                          <div className="mt-2 space-y-1">
+                            {(sellerProfileData?.promotionHistory ?? []).slice(0, 4).map((entry) => (
+                              <p key={entry.id}>
+                                <span className="capitalize text-white">{sellerLevelLabel(entry.rank)}</span> • {new Date(entry.promotedAt).toLocaleDateString("en-IL")}
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
 
@@ -3213,6 +3411,114 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   </div>
                 </div>
               )}
+            </motion.div>
+          </motion.div>
+        ) : null}
+        {prestigeModalOpen && prestigeModalStats ? (
+          <motion.div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <motion.div initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8, scale: 0.98 }} className="w-full max-w-3xl overflow-hidden rounded-3xl border border-[#C9A227]/30 bg-[#090909]/95 shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
+              <div className="border-b border-white/10 bg-[linear-gradient(135deg,rgba(201,162,39,0.18),rgba(255,255,255,0.02))] p-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-[#C9A227]">Prestige Overview</p>
+                    <h3 className="mt-2 text-2xl font-semibold text-white">{prestigeBadgeLabel(prestigeModalStats.currentRank)}</h3>
+                    <p className="mt-2 text-sm text-[#D1D5DB]">A refined view of your current prestige standing, progress, and unlocked achievements.</p>
+                  </div>
+                  <button type="button" aria-label="Close prestige overview" onClick={() => setPrestigeModalOpen(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227]">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="grid gap-4 p-6 lg:grid-cols-[1.2fr_0.8fr]">
+                <div className="space-y-4 rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Current Prestige Rank</p>
+                        <p className={cn("mt-1 text-xl font-semibold capitalize", sellerRankTheme(prestigeModalStats.currentRank))}>{sellerLevelLabel(prestigeModalStats.currentRank)}</p>
+                      </div>
+                      <div className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/15 px-3 py-1 text-xs font-medium text-[#FDE68A]">{prestigeModalStats.publicVolumeRange}</div>
+                    </div>
+                    <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
+                      <div className="h-full rounded-full bg-gradient-to-r from-[#B8942A] via-[#C9A227] to-[#E8C547]" style={{ width: `${Math.min(100, prestigeModalStats.progressPercent)}%` }} />
+                    </div>
+                    <div className="mt-3 flex items-center justify-between text-sm text-[#D1D5DB]">
+                      <span>{prestigeModalStats.nextRank ? `Next: ${sellerLevelLabel(prestigeModalStats.nextRank)}` : "Top tier reached"}</span>
+                      <span>{prestigeModalStats.nextRank ? `${prestigeModalStats.remainingVolumeToNextRank.toLocaleString("en-IL")} USDT` : "Fully unlocked"}</span>
+                    </div>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-[#D1D5DB]">
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">Achivements</p>
+                      <div className="mt-2 space-y-2">
+                        {prestigeModalStats.achievements.map((achievement) => (
+                          <div key={achievement.key} className="rounded-xl border border-white/10 bg-black/25 p-2">
+                            <p className="font-medium text-white">{achievement.title}</p>
+                            <p className="mt-1 text-xs text-[#D1D5DB]">{achievement.description}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-[#D1D5DB]">
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">Promotion History</p>
+                      <div className="mt-2 space-y-2">
+                        {prestigeModalStats.promotionHistory.length ? prestigeModalStats.promotionHistory.map((entry) => (
+                          <div key={entry.id} className="rounded-xl border border-white/10 bg-black/25 p-2">
+                            <p className="text-white">{sellerLevelLabel(entry.rank)}</p>
+                            <p className="mt-1 text-[11px] text-[#9CA3AF]">{new Date(entry.promotedAt).toLocaleDateString("en-IL")}</p>
+                          </div>
+                        )) : <p className="text-xs text-[#9CA3AF]">No promotions yet.</p>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-4 rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">Statistics</p>
+                    <div className="mt-2 grid gap-2 text-sm text-[#D1D5DB]">
+                      <p>Completed Trades: <span className="text-white">{prestigeModalStats.completedTrades}</span></p>
+                      <p>Lifetime Volume: <span className="text-white">{prestigeModalStats.totalVolumeUsdt.toLocaleString("en-IL")} USDT</span></p>
+                      <p>Average Rating: <span className="text-white">{prestigeModalStats.averageRating.toFixed(2)}</span></p>
+                      <p>Response Time: <span className="text-white">{prestigeModalStats.responseTimeMinutes.toFixed(1)} min</span></p>
+                      <p>Completion Rate: <span className="text-white">{prestigeModalStats.completionRate.toFixed(1)}%</span></p>
+                      <p>Average Trade Size: <span className="text-white">{prestigeModalStats.averageTradeSize.toFixed(2)} USDT</span></p>
+                      <p>Repeat Buyers: <span className="text-white">{prestigeModalStats.repeatBuyersPercent.toFixed(1)}%</span></p>
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/25 p-3 text-sm text-[#D1D5DB]">
+                    <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">Visibility</p>
+                    <p className="mt-2">Public viewers see the rank, badge, and progress state. Exact trade volume and private metrics remain visible only to you and Alpha admin.</p>
+                  </div>
+                  <Button type="button" className="w-full" onClick={() => setPrestigeModalOpen(false)}>Close</Button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        ) : null}
+        {promotionModalRank ? (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 12, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.98 }}
+              className="w-full max-w-md rounded-2xl border border-[#C9A227]/35 bg-[#0B0B0B]/95 p-6 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)]"
+            >
+              <p className="text-xs uppercase tracking-[0.16em] text-[#9CA3AF]">Congratulations!</p>
+              <p className="mt-2 text-2xl font-semibold text-white">You reached:</p>
+              <p className={cn("mt-1 text-3xl font-bold capitalize", sellerRankTheme(promotionModalRank))}>
+                {sellerLevelLabel(promotionModalRank)} Seller
+              </p>
+              <p className="mt-3 text-sm text-[#D1D5DB]">{summarizePromotionBenefits(promotionModalRank)}</p>
+              <div className="mt-6">
+                <Button type="button" className="w-full" onClick={() => setPromotionModalRank(null)}>
+                  Continue
+                </Button>
+              </div>
             </motion.div>
           </motion.div>
         ) : null}

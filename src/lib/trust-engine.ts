@@ -1,4 +1,5 @@
 import type { AlphaExchangeUser, CommissionRecord, MarketplaceListing, PurchaseRequest, SellerBadge, SellerLevel, SellerReputationSnapshot } from "@/types/alpha-exchange";
+import { getSellerPrestigeProgress, getSellerPublicVolumeLabel, resolveSellerPrestigeRank } from "@/lib/seller-prestige";
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -15,11 +16,7 @@ function parseMinutes(value: string | number | null | undefined) {
 }
 
 function deriveSellerLevel(input: { completedTrades: number; totalUsdtVolume: number; trustScore: number }) {
-  if (input.completedTrades >= 1000 || input.totalUsdtVolume >= 2_000_000 || input.trustScore >= 95) return "elite" satisfies SellerLevel;
-  if (input.completedTrades >= 350 || input.totalUsdtVolume >= 650_000 || input.trustScore >= 88) return "diamond" satisfies SellerLevel;
-  if (input.completedTrades >= 120 || input.totalUsdtVolume >= 180_000 || input.trustScore >= 78) return "gold" satisfies SellerLevel;
-  if (input.completedTrades >= 35 || input.totalUsdtVolume >= 45_000 || input.trustScore >= 65) return "silver" satisfies SellerLevel;
-  return "bronze" satisfies SellerLevel;
+  return resolveSellerPrestigeRank(input.totalUsdtVolume);
 }
 
 function deriveSellerBadges(input: {
@@ -32,8 +29,8 @@ function deriveSellerBadges(input: {
   recentActivityScore: number;
 }) {
   const badges: SellerBadge[] = [];
-  if (input.level === "elite") badges.push("elite_seller");
-  if (input.level === "diamond" || input.level === "elite") badges.push("platinum_seller");
+  if (input.level === "legendary") badges.push("elite_seller");
+  if (input.level === "platinum" || input.level === "diamond" || input.level === "legendary") badges.push("platinum_seller");
   if (input.rating >= 4.9) badges.push("top_rated");
   if (input.responseTimeMinutes <= 2) badges.push("fast_responder");
   if (input.trustScore >= 85 && input.completionRate >= 95) badges.push("trusted_seller");
@@ -44,7 +41,7 @@ function deriveSellerBadges(input: {
 
 function reputationSummaryFromScore(score: number, level: SellerLevel) {
   if (score >= 95) return "Excellent";
-  if (score >= 88) return level === "diamond" || level === "elite" ? "Diamond Seller" : "Top Rated Seller";
+  if (score >= 88) return level === "diamond" || level === "legendary" ? "Diamond Seller" : "Top Rated Seller";
   if (score >= 75) return "Trusted Professional";
   if (score >= 60) return "Reliable Seller";
   return "Growing Seller";
@@ -142,6 +139,7 @@ export function calculateSellerTrustSnapshot(input: {
   const averageTradeSize = completedTrades ? volumeByCompleted.revenueGenerated / completedTrades : 0;
   const level = deriveSellerLevel({ completedTrades, totalUsdtVolume: volumeByCompleted.totalUsdtVolume, trustScore });
   const badges = deriveSellerBadges({ level, rating, responseTimeMinutes, trustScore, completionRate, completedTrades, recentActivityScore });
+  const prestigeProgress = getSellerPrestigeProgress(volumeByCompleted.totalUsdtVolume, level);
 
   return {
     sellerId: input.seller.id,
@@ -177,6 +175,12 @@ export function calculateSellerTrustSnapshot(input: {
     revenueGenerated: volumeByCompleted.revenueGenerated,
     repeatBuyers,
     averageTradeSize,
+    publicVolumeRange: getSellerPublicVolumeLabel(level),
+    nextRank: prestigeProgress.nextRank,
+    remainingVolumeToNextRank: prestigeProgress.remainingUsdt,
+    prestigeProgressPercent: prestigeProgress.progressPercent,
+    lifetimeCompletedVolumeUsdt: volumeByCompleted.totalUsdtVolume,
+    isRankOverridden: false,
   };
 }
 
