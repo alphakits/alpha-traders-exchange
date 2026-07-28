@@ -1,8 +1,8 @@
-"use client";
+﻿"use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, useScroll, useTransform } from "framer-motion";
-import { BookOpen, Compass, Crown, Gem, Target, TrendingUp } from "lucide-react";
+import { BookOpen, Compass, Crown, Gem, Loader2, PlayCircle, Target, TrendingUp } from "lucide-react";
 import { useLocale } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { courseSource } from "@/data/course-source";
@@ -40,6 +40,8 @@ export function FounderPage() {
   const { scrollYProgress } = useScroll();
   const timelineProgress = useTransform(scrollYProgress, [0.2, 0.8], [0, 1]);
   const videoSectionRef = useRef<HTMLElement | null>(null);
+  const [videoLoading, setVideoLoading] = useState(true);
+  const [videoError, setVideoError] = useState(false);
 
   useEffect(() => {
     const focusFounderVideo = () => {
@@ -80,24 +82,66 @@ export function FounderPage() {
       <section id="founder-video" ref={videoSectionRef} tabIndex={-1} className="scroll-mt-24 space-y-4 outline-none">
         <Card className="mx-auto max-w-5xl overflow-hidden">
           <CardContent className="p-0">
-            <div className="aspect-video w-full">
+            <div className="relative aspect-video w-full bg-black">
+              {/* Loading overlay */}
+              {videoLoading && !videoError ? (
+                <div className="absolute inset-0 z-10 grid place-items-center bg-black/70" aria-hidden="true">
+                  <div className="flex items-center gap-2 text-sm text-[#9CA3AF]">
+                    <Loader2 className="h-5 w-5 animate-spin text-[#C9A227]" />
+                    <span>{isAr ? "جاري تحميل الفيديو..." : "Loading video..."}</span>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Error placeholder */}
+              {videoError ? (
+                <div className="absolute inset-0 z-20 grid place-items-center bg-[#090909] p-6 text-center">
+                  <div className="space-y-4">
+                    <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10">
+                      <PlayCircle className="h-7 w-7 text-[#C9A227]" aria-hidden="true" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-white">
+                        {isAr ? "تعذّر تحميل الفيديو" : "Video unavailable"}
+                      </p>
+                      <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[#9CA3AF]">
+                        {isAr
+                          ? "سيكون الفيديو متاحاً قريباً. يمكنك متابعة قصتي على وسائل التواصل الاجتماعي في الوقت الحالي."
+                          : "The video will be available soon. In the meantime, you can follow my story on social media."}
+                      </p>
+                    </div>
+                    <p className="text-xs text-[#6B7280]">
+                      {isAr ? "المدة: ٩:٠٢ دقيقة" : "Duration: 9:02"}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Video element — hidden when error state is showing */}
               <video
-                src={VIDEO_URL}
-                title="Founder introduction video"
-                className="h-full w-full bg-black"
+                aria-label={isAr ? "فيديو مقدمة مؤسس Alpha Traders" : "Alpha Traders founder introduction video"}
+                poster="/images/hero/hero-trading-office.png"
+                className={`h-full w-full bg-black object-contain ${videoError ? "invisible" : ""}`}
                 controls
+                controlsList="nodownload"
                 preload="metadata"
                 playsInline
+                onLoadedMetadata={() => setVideoLoading(false)}
+                onCanPlay={() => setVideoLoading(false)}
+                onPlaying={() => setVideoLoading(false)}
+                onWaiting={() => setVideoLoading(true)}
+                onError={() => {
+                  setVideoError(true);
+                  setVideoLoading(false);
+                }}
               >
-                <track kind="captions" />
-                {isAr
-                  ? "متصفحك لا يدعم تشغيل الفيديو."
-                  : "Your browser does not support the founder introduction video."}
+                <source src={VIDEO_URL} type="video/mp4" />
+                {isAr ? "متصفحك لا يدعم تشغيل الفيديو." : "Your browser does not support the founder introduction video."}
               </video>
             </div>
           </CardContent>
         </Card>
-        <p className="text-center text-sm text-[#C9A227]">9:02</p>
+        {!videoError ? <p className="text-center text-sm text-[#C9A227]">9:02</p> : null}
       </section>
 
       <section>
