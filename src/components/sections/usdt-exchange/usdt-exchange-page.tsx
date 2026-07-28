@@ -365,6 +365,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [notifications, setNotifications] = useState<AlphaExchangeNotification[]>([]);
   const [activityHistory, setActivityHistory] = useState<AlphaExchangeActivityLogEntry[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [isCreatingListing, setIsCreatingListing] = useState(false);
   const [notificationQuery, setNotificationQuery] = useState("");
   const [notificationCategory, setNotificationCategory] = useState<"all" | NotificationCategory>("all");
   const [notificationUnreadOnly, setNotificationUnreadOnly] = useState(false);
@@ -412,8 +413,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const refreshSellerWorkspace = useCallback(async () => {
     try {
       const [requestsRes, myListingsRes] = await Promise.all([
-        fetch("/api/alpha-exchange/purchase-requests", { cache: "no-store" }),
-        fetch("/api/alpha-exchange/my-listings", { cache: "no-store" }),
+        fetch("/api/alpha-exchange/purchase-requests", { cache: "no-store", next: { revalidate: 0 } }),
+        fetch("/api/alpha-exchange/my-listings", { cache: "no-store", next: { revalidate: 0 } }),
       ]);
       if (requestsRes.ok) {
         const requestsJson = (await requestsRes.json()) as { requests: PurchaseRequest[] };
@@ -432,7 +433,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   const refreshMarketplaceListings = useCallback(async () => {
     try {
-      const listingsRes = await fetch("/api/alpha-exchange/listings", { cache: "no-store" });
+      const listingsRes = await fetch("/api/alpha-exchange/listings", { cache: "no-store", next: { revalidate: 0 } });
       if (!listingsRes.ok) {
         setWorkspaceError(safeErrorMessage("workspace"));
         return;
@@ -458,7 +459,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       if (category !== "all") params.set("category", category);
       if (query.trim()) params.set("q", query.trim());
       if (unreadOnly) params.set("unreadOnly", "1");
-      const response = await fetch(`/api/alpha-exchange/notifications?${params.toString()}`, { cache: "no-store" });
+      const response = await fetch(`/api/alpha-exchange/notifications?${params.toString()}`, { cache: "no-store", next: { revalidate: 0 } });
       if (!response.ok) throw new Error("failed");
       const payload = (await response.json()) as { notifications: AlphaExchangeNotification[]; activity: AlphaExchangeActivityLogEntry[] };
       if (requestId !== notificationsRequestIdRef.current) return;
@@ -473,7 +474,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   const refreshNotificationPreferences = useCallback(async () => {
     try {
-      const response = await fetch("/api/alpha-exchange/notification-preferences", { cache: "no-store" });
+      const response = await fetch("/api/alpha-exchange/notification-preferences", { cache: "no-store", next: { revalidate: 0 } });
       if (!response.ok) return;
       const payload = (await response.json()) as { preferences: { inApp: boolean; email: boolean; sms: boolean } };
       if (payload.preferences) setNotificationPreferences(payload.preferences);
@@ -538,8 +539,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const refreshBetaChannels = useCallback(async () => {
     try {
       const [announcementsRes, feedbackRes] = await Promise.all([
-        fetch("/api/alpha-exchange/private-beta/announcements", { cache: "no-store" }),
-        fetch("/api/alpha-exchange/private-beta/feedback", { cache: "no-store" }),
+        fetch("/api/alpha-exchange/private-beta/announcements", { cache: "no-store", next: { revalidate: 0 } }),
+        fetch("/api/alpha-exchange/private-beta/feedback", { cache: "no-store", next: { revalidate: 0 } }),
       ]);
       if (announcementsRes.ok) {
         const announcementsJson = (await announcementsRes.json()) as { announcements: BetaAnnouncement[] };
@@ -581,8 +582,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     async function bootstrap() {
       try {
         const [meRes, listingsRes] = await Promise.all([
-          fetch("/api/auth/me", { cache: "no-store", signal: controller.signal }),
-          fetch("/api/alpha-exchange/listings", { cache: "no-store", signal: controller.signal }),
+          fetch("/api/auth/me", { cache: "no-store", next: { revalidate: 0 }, signal: controller.signal }),
+          fetch("/api/alpha-exchange/listings", { cache: "no-store", next: { revalidate: 0 }, signal: controller.signal }),
         ]);
         if (cancelled) return;
         const meJson = (await meRes.json()) as { user: SessionUser | null };
@@ -622,14 +623,17 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             name: user.fullName,
             whatsapp: user.whatsappNumber || prev.whatsapp,
           }));
+          const shouldLoadSellerWorkspace = user.sellerStatus === "approved_seller" || user.sellerStatus === "pending_seller_approval" || user.sellerStatus === "suspended";
           const [applicationRes] = await Promise.all([
-            fetch("/api/alpha-exchange/seller-application", { cache: "no-store", signal: controller.signal }),
-            refreshSellerWorkspace(),
+            shouldLoadSellerWorkspace
+              ? fetch("/api/alpha-exchange/seller-application", { cache: "no-store", next: { revalidate: 0 }, signal: controller.signal })
+              : Promise.resolve(null),
+            shouldLoadSellerWorkspace ? refreshSellerWorkspace() : Promise.resolve(undefined),
             refreshNotificationPreferences(),
             refreshBetaChannels(),
           ]);
           if (cancelled) return;
-          if (applicationRes.ok) {
+          if (applicationRes?.ok) {
             const applicationJson = (await applicationRes.json()) as { application: SellerApplication | null };
             if (cancelled) return;
             setSellerApplication(applicationJson.application);
@@ -807,7 +811,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   async function fetchSellerProfileData(sellerId: string) {
     setIsSellerProfileLoading(true);
     try {
-      const response = await fetch(`/api/alpha-exchange/sellers/${sellerId}/profile`, { cache: "no-store" });
+      const response = await fetch(`/api/alpha-exchange/sellers/${sellerId}/profile`, { cache: "no-store", next: { revalidate: 0 } });
       const payload = (await response.json()) as { profile?: PremiumSellerProfileData; error?: string };
       if (!response.ok || !payload.profile) {
         setSellerProfileData(null);
@@ -881,7 +885,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       setSellerWorkspaceMessage(listingWorkspaceSummary.blockedReason);
       return;
     }
-    createListingFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (createListingFormRef.current) {
+      createListingFormRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      createListingFormRef.current.focus({ preventScroll: true });
+    }
   }
 
   async function handleSellerApplicationSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1146,50 +1153,59 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   async function handleSellerListingCreateSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const response = await fetch("/api/alpha-exchange/listings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        availableAmount: listingCreateForm.availableAmount,
-        price: listingCreateForm.price,
-        currency: listingCreateForm.currency,
-        network: listingCreateForm.network,
-        paymentMethods: listingCreateForm.paymentMethods
-          .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean)
-          .slice(0, 8),
-        minimumTrade: listingCreateForm.minimumTrade,
-        maximumTrade: listingCreateForm.maximumTrade || listingCreateForm.availableAmount,
-        expirationHours: listingCreateForm.expirationHours,
-        notes: listingCreateForm.notes,
-        sellerDescription: listingCreateForm.sellerDescription,
-        responseTime: listingCreateForm.responseTime,
-        photos: listingCreateForm.photos
-          .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean)
-          .slice(0, 6),
-      }),
-    });
-    const payload = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
-      return;
+    if (isCreatingListing) return;
+    setIsCreatingListing(true);
+    setSellerWorkspaceMessage(null);
+    try {
+      const response = await fetch("/api/alpha-exchange/listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          availableAmount: listingCreateForm.availableAmount,
+          price: listingCreateForm.price,
+          currency: listingCreateForm.currency,
+          network: listingCreateForm.network,
+          paymentMethods: listingCreateForm.paymentMethods
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean)
+            .slice(0, 8),
+          minimumTrade: listingCreateForm.minimumTrade,
+          maximumTrade: listingCreateForm.maximumTrade || listingCreateForm.availableAmount,
+          expirationHours: listingCreateForm.expirationHours,
+          notes: listingCreateForm.notes,
+          sellerDescription: listingCreateForm.sellerDescription,
+          responseTime: listingCreateForm.responseTime,
+          photos: listingCreateForm.photos
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean)
+            .slice(0, 6),
+        }),
+      });
+      const payload = (await response.json()) as { error?: string; listing?: MarketplaceListing };
+      if (!response.ok) {
+        setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
+        return;
+      }
+      setListingCreateForm((prev) => ({
+        ...prev,
+        availableAmount: "",
+        price: "",
+        minimumTrade: "0",
+        maximumTrade: "",
+        expirationHours: "24",
+        notes: "",
+        sellerDescription: "",
+        photos: "",
+      }));
+      setSellerWorkspaceMessage(payload.listing ? "Listing is now live." : "Listing is now live.");
+      await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
+    } catch {
+      setSellerWorkspaceMessage(safeErrorMessage("listing"));
+    } finally {
+      setIsCreatingListing(false);
     }
-    setListingCreateForm((prev) => ({
-      ...prev,
-      availableAmount: "",
-      price: "",
-      minimumTrade: "0",
-      maximumTrade: "",
-      expirationHours: "24",
-      notes: "",
-      sellerDescription: "",
-      photos: "",
-    }));
-    setSellerWorkspaceMessage("Listing is now live.");
-    await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
   }
 
   async function handleSellerListingEditSubmit(event: FormEvent<HTMLFormElement>) {
@@ -2261,7 +2277,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <Textarea className="md:col-span-2" placeholder="Optional Notes" value={listingCreateForm.notes} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, notes: event.target.value }))} />
                   <Textarea className="md:col-span-2" placeholder="Seller Description" value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
                   <div className="md:col-span-2">
-                    <Button type="submit">Create Live Listing</Button>
+                    <Button type="submit" disabled={isCreatingListing}>
+                      {isCreatingListing ? "Creating listing..." : "Create Live Listing"}
+                    </Button>
                   </div>
                 </form>
               </CardContent>

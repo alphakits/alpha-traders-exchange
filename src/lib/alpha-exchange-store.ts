@@ -79,7 +79,7 @@ const defaultDb: AlphaExchangeDb = {
   betaAnnouncements: [],
 };
 
-const DB_CACHE_TTL_MS = 250;
+const DB_CACHE_TTL_MS = 1000;
 const MAX_ACTIVE_LISTINGS_PER_SELLER = 2;
 const COMMISSION_GRACE_PERIOD_DAYS = 7;
 const DEFAULT_LISTING_EXPIRATION_HOURS = 24;
