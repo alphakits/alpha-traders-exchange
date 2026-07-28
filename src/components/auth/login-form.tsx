@@ -27,8 +27,8 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
     return "/usdt-exchange";
   };
 
-  function resolveLoginRedirectTarget(rawRedirect?: string) {
-    const fallback = defaultRedirectByRole(undefined);
+  function resolveLoginRedirectTarget(rawRedirect: string | undefined, user: { role?: string; roles?: string[]; sellerStatus?: string } | null | undefined) {
+    const fallback = defaultRedirectByRole(user);
     if (!rawRedirect) return fallback;
     if (!rawRedirect.startsWith("/") || rawRedirect.startsWith("//")) return fallback;
     if (rawRedirect === `/${locale}`) return "/";
@@ -100,7 +100,7 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
         return;
       }
 
-      const target = redirectTo ? resolveLoginRedirectTarget(redirectTo) : defaultRedirectByRole(payload?.user);
+      const target = resolveLoginRedirectTarget(redirectTo, payload?.user);
       window.location.replace(toLocaleHref(target));
     } catch {
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");

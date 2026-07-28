@@ -22,9 +22,9 @@ export async function verifyPassword(password: string, storedHash: string) {
   return timingSafeEqual(derived, keyBuffer);
 }
 
-export async function createUserSession(userId: string) {
+export async function createUserSession(userId: string, durationDays = 14) {
   const token = `${randomUUID()}-${randomBytes(24).toString("hex")}`;
-  const session = await createAuthSession(userId, token);
+  const session = await createAuthSession(userId, token, durationDays);
   return {
     token,
     expiresAt: session.expiresAt,

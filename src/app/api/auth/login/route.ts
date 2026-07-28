@@ -8,7 +8,27 @@ import { createSupabaseAuthClient } from "@/lib/supabase-auth-provider";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
+function clearAuthCookies(cookieStore: Awaited<ReturnType<typeof cookies>>, secure: boolean) {
+  const expires = new Date(0);
+  cookieStore.set(AUTH_COOKIE_NAME, "", {
+    httpOnly: true,
+    secure,
+    sameSite: "lax",
+    path: "/",
+    expires,
+  });
+  cookieStore.set(AUTH_VERIFIED_COOKIE_NAME, "", {
+    httpOnly: true,
+    secure,
+    sameSite: "lax",
+    path: "/",
+    expires,
+  });
+}
+
 export async function POST(request: NextRequest) {
+  const secureCookies = shouldUseSecureAuthCookie(request);
+  const cookieStore = await cookies();
   const rate = checkRateLimit({
     headers: request.headers,
     key: "auth:login",
@@ -20,8 +40,9 @@ export async function POST(request: NextRequest) {
   }
   try {
     const body = await request.json();
-    const email = String(body.email ?? "").trim();
+    const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
+    const rememberMe = body.rememberMe !== false;
     if (!email || !password) {
       return NextResponse.json({ error: "Email and password are required." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
@@ -32,6 +53,7 @@ export async function POST(request: NextRequest) {
     const supabase = createSupabaseAuthClient();
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
+      clearAuthCookies(cookieStore, secureCookies);
       if (error.message.toLowerCase().includes("email not confirmed")) {
         return NextResponse.json(
           {
@@ -45,9 +67,11 @@ export async function POST(request: NextRequest) {
     }
     const supabaseUser = data.user;
     if (!supabaseUser?.email) {
+      clearAuthCookies(cookieStore, secureCookies);
       return NextResponse.json({ error: "Invalid credentials." }, { status: 401, headers: AUTH_RESPONSE_HEADERS });
     }
     if (!supabaseUser.email_confirmed_at) {
+      clearAuthCookies(cookieStore, secureCookies);
       return NextResponse.json(
         {
           error: "Please verify your email before signing in. Check your inbox or request a new verification email.",
@@ -63,22 +87,20 @@ export async function POST(request: NextRequest) {
       emailVerified: true,
     });
 
-    const { token, expiresAt } = await createUserSession(user.id);
-    const secureCookies = shouldUseSecureAuthCookie(request);
-    const cookieStore = await cookies();
+    const { token, expiresAt } = await createUserSession(user.id, rememberMe ? 14 : 1);
     cookieStore.set(AUTH_COOKIE_NAME, token, {
       httpOnly: true,
       secure: secureCookies,
       sameSite: "lax",
       path: "/",
-      expires: new Date(expiresAt),
+      expires: rememberMe ? new Date(expiresAt) : undefined,
     });
     cookieStore.set(AUTH_VERIFIED_COOKIE_NAME, "1", {
       httpOnly: true,
       secure: secureCookies,
       sameSite: "lax",
       path: "/",
-      expires: new Date(expiresAt),
+      expires: rememberMe ? new Date(expiresAt) : undefined,
     });
     return NextResponse.json({
       user: {
