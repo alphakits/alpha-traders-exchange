@@ -10,6 +10,7 @@ import type { Lesson } from "@/types/academy";
 import { lessonNarratives } from "@/data/course-source";
 import { getLessonsByCourse } from "@/lib/content";
 import { resolveLessonPdfSource } from "@/lib/lesson-pdf";
+import { resolveLessonResourceUrl } from "@/lib/lesson-video";
 import {
   addStudyMinutes,
   getCourseProgressPercent,
@@ -345,7 +346,7 @@ export function LessonInterface({
                   {lesson.assets.resources.map((resource) => (
                     <a
                       key={resource.id}
-                      href={resource.url}
+                      href={resolveLessonResourceUrl(resource.url)}
                       target="_blank"
                       rel="noreferrer"
                       className="premium-card flex items-center gap-2 rounded-xl p-3 text-sm hover:-translate-y-0.5"

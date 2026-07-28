@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { useLocale } from "next-intl";
 import type { LessonAsset } from "@/types/academy";
+import { resolveLessonVideoUrl } from "@/lib/lesson-video";
 
 function extractVideoId(url: string, provider: LessonAsset["videoProvider"]) {
   if (provider === "youtube") {
@@ -28,8 +29,8 @@ function extractVideoId(url: string, provider: LessonAsset["videoProvider"]) {
   return "";
 }
 
-function buildEmbedUrl(asset: LessonAsset) {
-  const id = asset.videoId || extractVideoId(asset.videoUrl, asset.videoProvider);
+function buildEmbedUrl(asset: LessonAsset, resolvedVideoUrl: string) {
+  const id = asset.videoId || extractVideoId(resolvedVideoUrl, asset.videoProvider);
 
   if (asset.videoProvider === "youtube" && id) {
     return `https://www.youtube.com/embed/${id}?rel=0&modestbranding=1`;
@@ -43,7 +44,7 @@ function buildEmbedUrl(asset: LessonAsset) {
   if (asset.videoProvider === "bunny-stream" && id) {
     return `https://iframe.mediadelivery.net/embed/${id}`;
   }
-  return asset.videoUrl;
+  return resolvedVideoUrl;
 }
 
 export function VideoPlayer({
@@ -65,12 +66,13 @@ export function VideoPlayer({
 }) {
   const locale = useLocale();
   const isAr = locale === "ar";
-  const embedUrl = useMemo(() => buildEmbedUrl(asset), [asset]);
+  const resolvedVideoUrl = useMemo(() => resolveLessonVideoUrl(asset.videoUrl), [asset.videoUrl]);
+  const embedUrl = useMemo(() => buildEmbedUrl(asset, resolvedVideoUrl), [asset, resolvedVideoUrl]);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const lastSyncedRef = useRef(0);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
-  const hasVideoSource = Boolean(asset.videoUrl?.trim());
+  const hasVideoSource = Boolean(resolvedVideoUrl.trim());
   const isSelfHosted = asset.videoProvider === "self-hosted" || asset.videoProvider === "supabase" || asset.videoProvider === "cloudflare-r2";
 
   useEffect(() => {
@@ -122,7 +124,7 @@ export function VideoPlayer({
               {isAr ? "تعذر تحميل الفيديو داخل الصفحة." : "This video could not be loaded inside the lesson."}
             </p>
             <a
-              href={asset.videoUrl}
+              href={resolvedVideoUrl}
               target="_blank"
               rel="noreferrer"
               className="inline-flex rounded-full border border-white/20 px-4 py-2 text-sm text-white hover:border-[#C9A227] hover:text-[#C9A227]"
@@ -169,7 +171,7 @@ export function VideoPlayer({
             onVideoTimeUpdate(seconds);
           }}
         >
-          <source src={asset.videoUrl} />
+          <source src={resolvedVideoUrl} />
         </video>
       ) : (
         <iframe

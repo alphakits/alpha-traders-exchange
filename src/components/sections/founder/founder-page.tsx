@@ -17,6 +17,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 const VIDEO_URL =
   process.env.NEXT_PUBLIC_FOUNDER_VIDEO_URL ||
   "/files/founder/alpha-traders-founder-introduction.mp4";
+const FOUNDER_POSTER_URL = "/images/hero/hero-trading-office.png";
 
 const highlights = [
   { titleAr: "من أنا؟", title: "Who am I?", icon: Crown },
@@ -42,6 +43,7 @@ export function FounderPage() {
   const videoSectionRef = useRef<HTMLElement | null>(null);
   const [videoLoading, setVideoLoading] = useState(true);
   const [videoError, setVideoError] = useState(false);
+  const [posterAvailable, setPosterAvailable] = useState<boolean | null>(null);
 
   useEffect(() => {
     const focusFounderVideo = () => {
@@ -58,6 +60,13 @@ export function FounderPage() {
     focusFounderVideo();
     window.addEventListener("hashchange", focusFounderVideo);
     return () => window.removeEventListener("hashchange", focusFounderVideo);
+  }, []);
+
+  useEffect(() => {
+    const image = new Image();
+    image.onload = () => setPosterAvailable(true);
+    image.onerror = () => setPosterAvailable(false);
+    image.src = FOUNDER_POSTER_URL;
   }, []);
 
   return (
@@ -93,6 +102,19 @@ export function FounderPage() {
                 </div>
               ) : null}
 
+              {posterAvailable === false && !videoError && !videoLoading ? (
+                <div className="absolute inset-0 z-[5] grid place-items-center bg-[#090909] p-6 text-center">
+                  <div className="space-y-3">
+                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10">
+                      <PlayCircle className="h-6 w-6 text-[#C9A227]" aria-hidden="true" />
+                    </div>
+                    <p className="text-sm text-[#D1D5DB]">
+                      {isAr ? "فيديو مقدمة المؤسس" : "Founder introduction video"}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+
               {/* Error placeholder */}
               {videoError ? (
                 <div className="absolute inset-0 z-20 grid place-items-center bg-[#090909] p-6 text-center">
@@ -120,7 +142,7 @@ export function FounderPage() {
               {/* Video element — hidden when error state is showing */}
               <video
                 aria-label={isAr ? "فيديو مقدمة مؤسس Alpha Traders" : "Alpha Traders founder introduction video"}
-                poster="/images/hero/hero-trading-office.png"
+                poster={posterAvailable ? FOUNDER_POSTER_URL : undefined}
                 className={`h-full w-full bg-black object-contain ${videoError ? "invisible" : ""}`}
                 controls
                 controlsList="nodownload"
