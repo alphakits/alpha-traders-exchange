@@ -13,8 +13,10 @@ import { LocaleSwitcher } from "./locale-switcher";
 
 export async function SiteHeader({ locale }: { locale: AppLocale }) {
   const t = await getTranslations({ locale, namespace: "nav" });
-  const brand = await getTranslations({ locale }).then((m) => m("brand"));
-  const sessionUser = await getCurrentSessionUser();
+  const brand = (await getTranslations({ locale }))("brand");
+  const cookieStore = await cookies();
+  const sessionToken = cookieStore.get(AUTH_COOKIE_NAME)?.value ?? null;
+  const sessionUser = sessionToken ? await getCurrentSessionUser() : null;
   const dashboardHref = sessionUser ? "/profile" : "/login";
   const dashboardLabel = sessionUser ? t("profile") : t("signIn");
 

@@ -183,8 +183,8 @@ function normalizeCommissionPaymentStatus(value: string | undefined, dueAt?: str
   return "pending" as const;
 }
 
-function isListingOpen(status: ListingStatus) {
-  return status === "active" || status === "paused" || status === "matched" || status === "in_trade";
+function isListingCountedAgainstCreateLimit(status: ListingStatus) {
+  return status === "active" || status === "matched" || status === "in_trade";
 }
 
 function isListingLocked(status: ListingStatus) {
@@ -208,7 +208,7 @@ function getSellerPendingCommissionCount(db: AlphaExchangeDb, sellerId: string) 
 }
 
 function getSellerOpenListingCount(db: AlphaExchangeDb, sellerId: string) {
-  return db.marketplaceListings.filter((listing) => listing.sellerId === sellerId && isListingOpen(listing.status)).length;
+  return db.marketplaceListings.filter((listing) => listing.sellerId === sellerId && isListingCountedAgainstCreateLimit(listing.status)).length;
 }
 
 function getSellerListingBlockReason(db: AlphaExchangeDb, sellerId: string) {

@@ -293,7 +293,7 @@ const TRUNCATE_SQL = `truncate table
   alpha_exchange.seller_profiles,
   alpha_exchange.users restart identity`;
 
-const DEFAULT_DB = alphaExchangeSeed as AlphaExchangeDb;
+const DEFAULT_DB = alphaExchangeSeed as unknown as AlphaExchangeDb;
 
 type SnapshotWithVersion = AlphaExchangeDb & { __runtimeVersion?: number };
 
@@ -783,11 +783,16 @@ export class AlphaExchangeRepository {
           ensureMemorySeed();
           return;
         }
-        await runSchema(pool);
-        const usersCount = await pool.query<{ count: string }>("select count(*)::text as count from alpha_exchange.users");
-        const shouldSeed = usersCount.rows[0]?.count === "0" && process.env.NODE_ENV !== "production";
-        if (shouldSeed) {
-          await this.saveSnapshot(DEFAULT_DB, { skipReadyCheck: true });
+        try {
+          await runSchema(pool);
+          const usersCount = await pool.query<{ count: string }>("select count(*)::text as count from alpha_exchange.users");
+          const shouldSeed = usersCount.rows[0]?.count === "0" && process.env.NODE_ENV !== "production";
+          if (shouldSeed) {
+            await this.saveSnapshot(DEFAULT_DB, { skipReadyCheck: true });
+          }
+        } catch (error) {
+          console.warn("[alpha-exchange-repository] Falling back to the in-memory snapshot because the database is unavailable:", error instanceof Error ? error.message : error);
+          ensureMemorySeed();
         }
       })();
     }
@@ -811,34 +816,41 @@ export class AlphaExchangeRepository {
       ensureMemorySeed();
       return attachVersion(cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion), getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion));
     }
-    const [meta, ...results] = await Promise.all([
-      pool.query<{ version: string }>("select version::text as version from alpha_exchange.runtime_meta where singleton = true"),
-      ...tables.map((table) => pool.query(table.selectSql)),
-    ]);
+    try {
+      const [meta, ...results] = await Promise.all([
+        pool.query<{ version: string }>("select version::text as version from alpha_exchange.runtime_meta where singleton = true"),
+        ...tables.map((table) => pool.query(table.selectSql)),
+      ]);
 
-    const snapshot: AlphaExchangeDb = {
-      users: fromPayloadRows(results[0].rows),
-      sellerApplications: fromPayloadRows(results[12].rows),
-      marketplaceListings: fromPayloadRows(results[3].rows),
-      purchaseRequests: fromPayloadRows(results[5].rows),
-      commissionRecords: fromPayloadRows(results[7].rows),
-      auditLogs: fromPayloadRows(results[8].rows),
-      authSessions: fromPayloadRows(results[10].rows),
-      passwordResetTokens: fromPayloadRows(results[11].rows),
-      notifications: fromPayloadRows(results[6].rows),
-      activityLog: fromPayloadRows(results[13].rows),
-      disputes: fromPayloadRows(results[14].rows),
-      sellerReports: fromPayloadRows(results[15].rows),
-      trustSnapshots: fromPayloadRows(results[16].rows),
-      trustScoreHistory: fromPayloadRows(results[17].rows),
-      tradeEvidenceFiles: fromPayloadRows(results[9].rows),
-      privateBetaInvites: fromPayloadRows(results[18].rows),
-      privateBetaInviteUses: fromPayloadRows(results[19].rows),
-      betaFeedback: fromPayloadRows(results[20].rows),
-      betaAnnouncements: fromPayloadRows(results[21].rows),
-    };
+      const snapshot: AlphaExchangeDb = {
+        users: fromPayloadRows(results[0].rows),
+        sellerApplications: fromPayloadRows(results[12].rows),
+        marketplaceListings: fromPayloadRows(results[3].rows),
+        purchaseRequests: fromPayloadRows(results[5].rows),
+        commissionRecords: fromPayloadRows(results[7].rows),
+        auditLogs: fromPayloadRows(results[8].rows),
+        authSessions: fromPayloadRows(results[10].rows),
+        passwordResetTokens: fromPayloadRows(results[11].rows),
+        notifications: fromPayloadRows(results[6].rows),
+        activityLog: fromPayloadRows(results[13].rows),
+        disputes: fromPayloadRows(results[14].rows),
+        sellerReports: fromPayloadRows(results[15].rows),
+        trustSnapshots: fromPayloadRows(results[16].rows),
+        trustScoreHistory: fromPayloadRows(results[17].rows),
+        tradeEvidenceFiles: fromPayloadRows(results[9].rows),
+        privateBetaInvites: fromPayloadRows(results[18].rows),
+        privateBetaInviteUses: fromPayloadRows(results[19].rows),
+        betaFeedback: fromPayloadRows(results[20].rows),
+        betaAnnouncements: fromPayloadRows(results[21].rows),
+      };
 
-    return attachVersion(snapshot, Number(meta.rows[0]?.version ?? "0"));
+      return attachVersion(snapshot, Number(meta.rows[0]?.version ?? "0"));
+    } catch (error) {
+      console.warn("[alpha-exchange-repository] Falling back to the in-memory snapshot because loading the database snapshot failed:", error instanceof Error ? error.message : error);
+      ensureMemorySeed();
+      return attachVersion(cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion), getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion));
+    }
+
   }
 
   async saveSnapshot(

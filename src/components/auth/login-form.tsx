@@ -89,26 +89,22 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
         setRequiresEmailVerification(payload?.requiresEmailVerification === true);
         return;
       }
-      // Ensure the freshly set httpOnly session cookie is visible to subsequent
-      // requests before navigating to a protected route.
-      let sessionReady = false;
-      for (let attempt = 0; attempt < 10; attempt += 1) {
-        const meResponse = await fetch("/api/auth/me", {
-          method: "GET",
-          cache: "no-store",
-          credentials: "include",
-          headers: { "Cache-Control": "no-store" },
-        });
-        if (meResponse.ok) {
-          const mePayload = (await meResponse.json()) as { user?: { id?: string } | null };
-          if (mePayload?.user?.id) {
-            sessionReady = true;
-            break;
-          }
-        }
-        await new Promise((resolve) => setTimeout(resolve, 200));
+      const meResponse = await fetch("/api/auth/me", {
+        method: "GET",
+        cache: "no-store",
+        credentials: "include",
+        headers: { "Cache-Control": "no-store" },
+      });
+      if (!meResponse.ok) {
+        setErrorMessage(
+          isAr
+            ? "تم تسجيل الدخول ولكن تعذر تأكيد الجلسة. حاول مرة أخرى."
+            : "Logged in, but we couldn't confirm your session. Please try again.",
+        );
+        return;
       }
-      if (!sessionReady) {
+      const mePayload = (await meResponse.json()) as { user?: { id?: string } | null };
+      if (!mePayload?.user?.id) {
         setErrorMessage(
           isAr
             ? "تم تسجيل الدخول ولكن تعذر تأكيد الجلسة. حاول مرة أخرى."

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
-import { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, createUserSession } from "@/lib/auth";
+import { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, authenticateLocalUser, createUserSession } from "@/lib/auth";
 import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { createSupabaseAuthClient } from "@/lib/supabase-auth-provider";
@@ -48,6 +48,44 @@ export async function POST(request: NextRequest) {
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json({ error: "Invalid email format." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    }
+
+    const localUser = await authenticateLocalUser(email, password);
+    if (localUser) {
+      const user = await upsertUserProfileForAuth({
+        fullName: localUser.fullName,
+        email: localUser.email,
+        whatsappNumber: localUser.whatsappNumber,
+        emailVerified: true,
+      });
+
+      const { token, expiresAt } = await createUserSession(user.id, rememberMe ? 14 : 1);
+      cookieStore.set(AUTH_COOKIE_NAME, token, {
+        httpOnly: true,
+        secure: secureCookies,
+        sameSite: "lax",
+        path: "/",
+        expires: rememberMe ? new Date(expiresAt) : undefined,
+      });
+      cookieStore.set(AUTH_VERIFIED_COOKIE_NAME, "1", {
+        httpOnly: true,
+        secure: secureCookies,
+        sameSite: "lax",
+        path: "/",
+        expires: rememberMe ? new Date(expiresAt) : undefined,
+      });
+      return NextResponse.json({
+        user: {
+          id: user.id,
+          fullName: user.fullName,
+          email: user.email,
+          role: user.role,
+          roles: user.roles ?? [user.role],
+          sellerStatus: user.sellerStatus,
+          onboardingSelection: user.onboardingSelection,
+          onboardingCompletedAt: user.onboardingCompletedAt,
+        },
+      }, { headers: AUTH_RESPONSE_HEADERS });
     }
 
     const supabase = createSupabaseAuthClient();

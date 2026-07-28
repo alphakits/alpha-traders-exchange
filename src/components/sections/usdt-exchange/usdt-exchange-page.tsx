@@ -15,17 +15,12 @@ import { ExchangeMarketStats } from "@/components/sections/usdt-exchange/exchang
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { getSellerPrestigeProgress, getSellerPublicVolumeLabel } from "@/lib/seller-prestige";
 import { hasRole } from "@/lib/roles";
+import { createDefaultSellerListingDraft, persistSellerListingDraft, readSellerListingDraft } from "@/lib/seller-listing-draft";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, BetaAnnouncement, BetaFeedbackCategory, BetaFeedbackEntry, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerAvailabilityStatus, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
 const WHATSAPP_URL = "https://wa.me/972525967649";
 const MAX_EVIDENCE_SIZE_BYTES = 8 * 1024 * 1024;
 const ALLOWED_EVIDENCE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
-const LISTING_EXPIRATION_OPTIONS = [
-  { value: "1", label: "1 hour" },
-  { value: "6", label: "6 hours" },
-  { value: "12", label: "12 hours" },
-  { value: "24", label: "24 hours" },
-] as const;
 
 type Locale = "ar" | "en";
 
@@ -310,20 +305,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     expirationHours: "24",
     notes: "",
   });
-  const [listingCreateForm, setListingCreateForm] = useState({
-    availableAmount: "",
-    price: "",
-    currency: "ILS",
-    network: "TRC20" as SupportedNetwork,
-    paymentMethods: "Bank transfer",
-    minimumTrade: "0",
-    maximumTrade: "",
-    expirationHours: "24",
-    notes: "",
-    sellerDescription: "",
-    responseTime: "5 min",
-    photos: "",
-  });
+  const [listingCreateForm, setListingCreateForm] = useState(() => readSellerListingDraft(null, createDefaultSellerListingDraft()));
   const [sellerSettings, setSellerSettings] = useState({
     fullName: "",
     whatsappNumber: "",
@@ -398,6 +380,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   } | null>(null);
   const notificationsRequestIdRef = useRef(0);
   const createListingFormRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!sessionUser?.email) return;
+    persistSellerListingDraft(sessionUser.email, listingCreateForm);
+  }, [listingCreateForm, sessionUser?.email]);
   const previousPrestigeRankRef = useRef<SellerLevel | null>(null);
 
   const [buyerInfo, setBuyerInfo] = useState({ amount: "", name: "", whatsapp: "", notes: "" });
@@ -880,17 +867,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     }));
   }
 
-  function openCreateListingFlow() {
-    if (listingWorkspaceSummary?.blockedReason) {
-      setSellerWorkspaceMessage(listingWorkspaceSummary.blockedReason);
-      return;
-    }
-    if (createListingFormRef.current) {
-      createListingFormRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-      createListingFormRef.current.focus({ preventScroll: true });
-    }
-  }
-
   async function handleSellerApplicationSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!requireAuth()) return;
@@ -1172,15 +1148,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             .slice(0, 8),
           minimumTrade: listingCreateForm.minimumTrade,
           maximumTrade: listingCreateForm.maximumTrade || listingCreateForm.availableAmount,
-          expirationHours: listingCreateForm.expirationHours,
-          notes: listingCreateForm.notes,
-          sellerDescription: listingCreateForm.sellerDescription,
-          responseTime: listingCreateForm.responseTime,
-          photos: listingCreateForm.photos
-            .split(",")
-            .map((value) => value.trim())
-            .filter(Boolean)
-            .slice(0, 6),
+          expirationHours: 24,
+          notes: "",
+          sellerDescription: "",
+          responseTime: "5 min",
+          photos: [],
         }),
       });
       const payload = (await response.json()) as { error?: string; listing?: MarketplaceListing };
@@ -1194,10 +1166,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         price: "",
         minimumTrade: "0",
         maximumTrade: "",
-        expirationHours: "24",
-        notes: "",
-        sellerDescription: "",
-        photos: "",
       }));
       setSellerWorkspaceMessage(payload.listing ? "Listing is now live." : "Listing is now live.");
       await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
@@ -2237,19 +2205,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               <CardHeader>
                 <CardTitle>{isAr ? "إنشاء عرض جديد" : "Create Listing"}</CardTitle>
                 <CardDescription>
-                  {isAr ? "أنشئ عرضًا مباشرًا مع حد أقصى عرضين نشطين في نفس الوقت." : "Create a live listing with a maximum of 2 open listings at the same time."}
+                  {isAr ? "أنشئ عرضًا سريعًا مع حد أقصى عرضين نشطين. ستنتهي كل عروضك تلقائيًا خلال 24 ساعة." : "Create a fast listing with a maximum of 2 active listings. Every listing expires automatically after 24 hours."}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 {listingWorkspaceSummary ? (
                   <div className={`rounded-2xl border p-3 text-sm ${listingWorkspaceSummary.canCreateListing ? "border-[#6CAEFF]/20 bg-[#6CAEFF]/8 text-[#D1D5DB]" : "border-[#C9A227]/25 bg-[#C9A227]/10 text-[#FDE68A]"}`}>
                     <p>
-                      Open listing slots: <span className="text-white">{listingWorkspaceSummary.openListingCount}/{listingWorkspaceSummary.activeListingLimit}</span>
-                    </p>
-                    <p>
-                      Trades in progress: <span className="text-white">{listingWorkspaceSummary.openTradeCount}</span>
-                      {" • "}
-                      Pending commissions: <span className="text-white">{listingWorkspaceSummary.pendingCommissionCount}</span>
+                      Active listings: <span className="text-white">{listingWorkspaceSummary.openListingCount}/{listingWorkspaceSummary.activeListingLimit}</span>
                     </p>
                     {listingWorkspaceSummary.blockedReason ? <p className="mt-1 text-[#FDE68A]">{listingWorkspaceSummary.blockedReason}</p> : null}
                   </div>
@@ -2267,17 +2230,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <Input placeholder="Payment Methods (comma separated)" value={listingCreateForm.paymentMethods} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, paymentMethods: event.target.value }))} />
                   <Input placeholder="Minimum Trade" value={listingCreateForm.minimumTrade} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, minimumTrade: event.target.value }))} />
                   <Input placeholder="Maximum Trade" value={listingCreateForm.maximumTrade} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, maximumTrade: event.target.value }))} />
-                  <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={listingCreateForm.expirationHours} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, expirationHours: event.target.value }))}>
-                    {LISTING_EXPIRATION_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>Expires in {option.label}</option>
-                    ))}
-                  </select>
-                  <Input placeholder="Response Time (e.g. 5 min)" value={listingCreateForm.responseTime} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, responseTime: event.target.value }))} />
-                  <Input className="md:col-span-2" placeholder="Photo URLs (comma separated)" value={listingCreateForm.photos} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, photos: event.target.value }))} />
-                  <Textarea className="md:col-span-2" placeholder="Optional Notes" value={listingCreateForm.notes} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, notes: event.target.value }))} />
-                  <Textarea className="md:col-span-2" placeholder="Seller Description" value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
+                  <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-[#D1D5DB]">
+                    <p className="font-medium text-white">Auto-expiration</p>
+                    <p className="mt-1">All new listings are set to expire automatically after 24 hours. No manual expiration step is needed.</p>
+                  </div>
                   <div className="md:col-span-2">
-                    <Button type="submit" disabled={isCreatingListing}>
+                    <Button type="submit" disabled={isCreatingListing || Boolean(listingWorkspaceSummary && !listingWorkspaceSummary.canCreateListing)}>
                       {isCreatingListing ? "Creating listing..." : "Create Live Listing"}
                     </Button>
                   </div>
@@ -2288,18 +2246,28 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
           <Card className="border-white/10 bg-[#0B0B0B]/90">
             <CardHeader>
-              <CardTitle>{isAr ? "قائمتي" : "My Listings"}</CardTitle>
-              <CardDescription>{isAr ? "إدارة جميع عروضك كبائع معتمد." : "Manage all of your approved seller listings."}</CardDescription>
+              <CardTitle>{isAr ? "عروضي النشطة" : "My Active Listings"}</CardTitle>
+              <CardDescription>{isAr ? "أدِر عروضك النشطة بسرعة من مكان واحد." : "Manage your active listings quickly from one place."}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
+              {listingWorkspaceSummary ? (
+                <div className="rounded-2xl border border-[#6CAEFF]/20 bg-[#6CAEFF]/10 p-4 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-white">{isAr ? "العروض النشطة" : "Active Listings"}</p>
+                      <p className="text-[#D1D5DB]">{listingWorkspaceSummary.openListingCount}/{listingWorkspaceSummary.activeListingLimit}</p>
+                    </div>
+                    <div className="rounded-full border border-white/10 bg-black/30 px-3 py-1 text-xs text-[#D1D5DB]">
+                      {listingWorkspaceSummary.canCreateListing ? (isAr ? "متاح إنشاء عرض جديد" : "You can create another listing") : (isAr ? "تم بلوغ الحد الأقصى" : "Limit reached")}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
               {!isLoadingListings && myListings.length === 0 ? (
                 <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center">
                   <Store className="mx-auto h-5 w-5 text-[#C9A227]" />
                   <p className="mt-2 text-sm font-medium text-white">{isAr ? "لا توجد عروض بعد" : "No Listings Yet"}</p>
                   <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "أنشئ أول عرض لتظهر للمشترين المعتمدين." : "Create your first listing to start receiving buyer requests."}</p>
-                  <Button type="button" size="sm" className="mt-3 w-full sm:w-auto" onClick={openCreateListingFlow}>
-                    {isAr ? "إنشاء عرض" : "Create Listing"}
-                  </Button>
                 </div>
               ) : null}
               {myListings.map((listing) => {
@@ -2308,77 +2276,42 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 const isLockedListing = listing.status === "matched" || listing.status === "in_trade";
                 return (
                   <div key={listing.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <div className="grid gap-2 text-sm md:grid-cols-4">
-                      <p>Status: <span className="text-white">{listingStatusLabel(listing.status)}</span></p>
-                      <p>Available Amount: <span className="text-white">{safeText(listing.availableAmount)}</span></p>
-                      <p>Original Amount: <span className="text-white">{safeText(listing.originalAmount)}</span></p>
-                      <p>Price: <span className="text-white">{safeText(listing.price)}</span></p>
-                      <p>Network: <span className="text-white">{safeText(listing.network)}</span></p>
-                      <p>Views: <span className="text-white">{views}</span></p>
-                      <p>Purchase Requests: <span className="text-white">{requestsCount}</span></p>
-                      <p>Created Date: <span className="text-white">{new Date(listing.createdAt).toLocaleDateString("en-IL")}</span></p>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-white">{safeText(listing.availableAmount)} USDT • {safeText(listing.price)} {safeText(listing.currency)}</p>
+                        <p className="mt-1 text-xs text-[#9CA3AF]">{listingStatusLabel(listing.status)} • {safeText(listing.network)} • {safeText(listing.paymentMethods?.[0] ?? listing.paymentMethod)}</p>
+                      </div>
+                      <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-[#D1D5DB]">{views} views</div>
                     </div>
-                    {isLockedListing ? <p className="mt-2 text-xs text-[#FDE68A]">This listing is locked by an active trade. Editing, pausing, and closing are unavailable until the trade finishes.</p> : null}
-                    {listing.status === "expired" ? <p className="mt-2 text-xs text-[#FDE68A]">This listing expired and is hidden from buyers until you renew it.</p> : null}
-                    <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        disabled={isLockedListing || listing.status === "completed" || listing.status === "closed" || listing.status === "cancelled"}
-                        onClick={() => {
-                          setEditingListingId(listing.id);
-                          setListingEditForm({
-                            availableAmount: listing.availableAmount,
-                            price: listing.price,
-                            currency: listing.currency,
-                            network: listing.network,
-                            paymentMethods: (listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod]).join(", "),
-                            minimumTrade: listing.minimumTrade ?? "0",
-                            maximumTrade: listing.maximumTrade ?? listing.availableAmount,
-                            expirationHours: "24",
-                            notes: listing.notes ?? "",
-                          });
-                        }}
-                      >
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button type="button" size="sm" variant="secondary" disabled={isLockedListing || listing.status === "completed" || listing.status === "closed" || listing.status === "cancelled"} onClick={() => { setEditingListingId(listing.id); setListingEditForm({ availableAmount: listing.availableAmount, price: listing.price, currency: listing.currency, network: listing.network, paymentMethods: (listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod]).join(", "), minimumTrade: listing.minimumTrade ?? "0", maximumTrade: listing.maximumTrade ?? listing.availableAmount, expirationHours: "24", notes: listing.notes ?? "", }); }}>
                         <Edit3 className="h-4 w-4" />
                         Edit
                       </Button>
-                      {listing.status === "expired" ? (
+                      <Button type="button" size="sm" variant="secondary" onClick={() => { if (listingWorkspaceSummary?.blockedReason) { setSellerWorkspaceMessage(listingWorkspaceSummary.blockedReason); return; } void handleSellerListingDuplicate(listing); }}>
+                        <Copy className="h-4 w-4" />
+                        Duplicate
+                      </Button>
+                      {listing.status === "active" ? (
+                        <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingStatus(listing, "paused")}> <PauseCircle className="h-4 w-4" /> Pause </Button>
+                      ) : listing.status === "paused" ? (
+                        <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingStatus(listing, "active")}> <PlayCircle className="h-4 w-4" /> Resume </Button>
+                      ) : null}
+                      {(listing.status === "expired" || listing.status === "paused" || listing.status === "active") ? (
                         <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingRenew(listing.id)}>
                           <PlayCircle className="h-4 w-4" />
                           Renew
                         </Button>
-                      ) : listing.status === "paused" ? (
-                        <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingStatus(listing, "active")}>
-                          <PlayCircle className="h-4 w-4" />
-                          Resume
-                        </Button>
-                      ) : listing.status === "active" ? (
-                        <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingStatus(listing, "paused")}>
-                          <PauseCircle className="h-4 w-4" />
-                          Pause
-                        </Button>
                       ) : null}
                       <Button type="button" size="sm" variant="secondary" disabled={isLockedListing || listing.status === "completed" || listing.status === "closed" || listing.status === "cancelled"} onClick={() => handleSellerListingDelete(listing.id)}>
                         <Trash2 className="h-4 w-4" />
-                        Close Listing
+                        Close
                       </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => {
-                          if (listingWorkspaceSummary?.blockedReason) {
-                            setSellerWorkspaceMessage(listingWorkspaceSummary.blockedReason);
-                            return;
-                          }
-                          void handleSellerListingDuplicate(listing);
-                        }}
-                      >
-                        <Copy className="h-4 w-4" />
-                        Duplicate Listing
-                      </Button>
+                    </div>
+                    <div className="mt-3 grid gap-2 text-xs text-[#9CA3AF] sm:grid-cols-3">
+                      <p>Requests: <span className="text-white">{requestsCount}</span></p>
+                      <p>Min: <span className="text-white">{safeText(listing.minimumTrade)}</span></p>
+                      <p>Max: <span className="text-white">{safeText(listing.maximumTrade)}</span></p>
                     </div>
                     {editingListingId === listing.id ? (
                       <form className="mt-3 grid gap-2 md:grid-cols-4" onSubmit={handleSellerListingEditSubmit}>
@@ -2393,13 +2326,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         </select>
                         <Input value={listingEditForm.minimumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, minimumTrade: event.target.value }))} placeholder="Minimum Trade" />
                         <Input value={listingEditForm.maximumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, maximumTrade: event.target.value }))} placeholder="Maximum Trade" />
-                        <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={listingEditForm.expirationHours} onChange={(event) => setListingEditForm((prev) => ({ ...prev, expirationHours: event.target.value }))}>
-                          {LISTING_EXPIRATION_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>Expires in {option.label}</option>
-                          ))}
-                        </select>
                         <Input className="md:col-span-2" value={listingEditForm.paymentMethods} onChange={(event) => setListingEditForm((prev) => ({ ...prev, paymentMethods: event.target.value }))} placeholder="Payment Methods (comma separated)" />
-                        <Input className="md:col-span-2" value={listingEditForm.notes} onChange={(event) => setListingEditForm((prev) => ({ ...prev, notes: event.target.value }))} placeholder="Optional Notes" />
                         <div className="md:col-span-4 flex gap-2">
                           <Button type="submit" size="sm">Save</Button>
                           <Button type="button" size="sm" variant="secondary" onClick={() => setEditingListingId(null)}>Cancel</Button>

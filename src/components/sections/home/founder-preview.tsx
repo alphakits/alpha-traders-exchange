@@ -69,7 +69,7 @@ export function FounderPreview() {
             alt={isRtl ? "مكتب Alpha Traders" : "Alpha Traders workspace"}
             fill
             sizes="(min-width: 768px) 46vw, 100vw"
-            quality={80}
+            quality={75}
             className="object-cover object-center transition-transform duration-700 group-hover:scale-[1.03]"
           />
           {/* Dark overlay for readability */}

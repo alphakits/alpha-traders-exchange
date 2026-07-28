@@ -6,7 +6,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   return buildPageMetadata({
     locale: locale as "ar" | "en",
     title: locale === "ar" ? "إعادة تعيين كلمة المرور" : "Reset Password",
-    description: locale === "ar" ? "حدّث كلمة المرور لحساب Alpha Traders بأمان." : "Securely update your Alpha Traders account password.",
+    description: locale === "ar" ? "أعد تعيين كلمة المرور لحساب Alpha Traders." : "Reset the password for your Alpha Traders account.",
     path: "/reset-password",
   });
 }
