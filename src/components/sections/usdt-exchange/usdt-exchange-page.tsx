@@ -390,6 +390,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   } | null>(null);
   const notificationsRequestIdRef = useRef(0);
   const createListingFormRef = useRef<HTMLDivElement | null>(null);
+  const realtimeEventSourceRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
     if (!sessionUser?.email) return;
@@ -665,6 +666,72 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     if (!showLegacyNotificationCenter || !sessionUser) return;
     void refreshNotifications();
   }, [notificationCategory, notificationQuery, notificationUnreadOnly, refreshNotifications, sessionUser, showLegacyNotificationCenter]);
+
+  useEffect(() => {
+    if (!sessionUser?.id) return;
+    if (realtimeEventSourceRef.current) {
+      realtimeEventSourceRef.current.close();
+      realtimeEventSourceRef.current = null;
+    }
+    const eventSource = new EventSource("/api/alpha-exchange/realtime");
+    realtimeEventSourceRef.current = eventSource;
+    eventSource.onmessage = (event) => {
+      try {
+        const parsed = JSON.parse(event.data) as { type?: string; payload?: unknown };
+        if (!parsed.type) return;
+        const nextEvent = parsed as { type: string; payload: unknown };
+        if (nextEvent.type === "listing.created") {
+          setListings((current) => current.some((item) => item.id === (nextEvent.payload as { listing: MarketplaceListing }).listing.id) ? current : [...current, (nextEvent.payload as { listing: MarketplaceListing }).listing]);
+        }
+        if (nextEvent.type === "listing.removed") {
+          setListings((current) => current.filter((item) => item.id !== (nextEvent.payload as { listingId: string }).listingId));
+        }
+        if (nextEvent.type === "listing.quantity_changed") {
+          setListings((current) => current.map((item) => (item.id === (nextEvent.payload as { listingId: string; availableAmount: string }).listingId ? { ...item, availableAmount: (nextEvent.payload as { listingId: string; availableAmount: string }).availableAmount, updatedAt: new Date().toISOString() } : item)));
+        }
+        if (nextEvent.type === "listing.status_changed") {
+          setListings((current) => current.map((item) => (item.id === (nextEvent.payload as { listingId: string; status: MarketplaceListing["status"] }).listingId ? { ...item, status: (nextEvent.payload as { listingId: string; status: MarketplaceListing["status"] }).status, updatedAt: new Date().toISOString() } : item)));
+        }
+        if (nextEvent.type === "trade.status_changed") {
+          setMyRequests((current) => current.map((request) => (request.id === (nextEvent.payload as { requestId: string; status: PurchaseRequest["status"]; timeline?: PurchaseRequest["timeline"] }).requestId ? {
+            ...request,
+            status: (nextEvent.payload as { requestId: string; status: PurchaseRequest["status"]; timeline?: PurchaseRequest["timeline"] }).status,
+            timeline: (nextEvent.payload as { requestId: string; status: PurchaseRequest["status"]; timeline?: PurchaseRequest["timeline"] }).timeline ?? request.timeline,
+            updatedAt: new Date().toISOString(),
+          } : request)));
+        }
+        if (nextEvent.type === "notification.created") {
+          setNotifications((current) => [((nextEvent.payload as { notification: AlphaExchangeNotification }).notification), ...current.filter((item) => item.id !== ((nextEvent.payload as { notification: AlphaExchangeNotification }).notification).id)]);
+        }
+        if (nextEvent.type === "seller.status_changed") {
+          setSellerProfileData((current) => current && current.profile.sellerId === (nextEvent.payload as { sellerId: string; onlineStatus: "online" | "offline" }).sellerId ? { ...current, profile: { ...current.profile, onlineStatus: (nextEvent.payload as { sellerId: string; onlineStatus: "online" | "offline" }).onlineStatus } } : current);
+        }
+        if (nextEvent.type === "reputation.updated" || nextEvent.type === "review.count_changed") {
+          setSellerProfileData((current) => {
+            if (!current || current.sellerId !== (nextEvent.payload as { sellerId: string }).sellerId) return current;
+            return {
+              ...current,
+              trustScore: nextEvent.type === "reputation.updated" && typeof (nextEvent.payload as { trustScore?: number }).trustScore === "number" ? (nextEvent.payload as { trustScore?: number }).trustScore! : current.trustScore,
+              totalReviews: nextEvent.type === "reputation.updated" && typeof (nextEvent.payload as { reviewCount?: number }).reviewCount === "number" ? (nextEvent.payload as { reviewCount?: number }).reviewCount! : nextEvent.type === "review.count_changed" ? (nextEvent.payload as { reviewCount: number }).reviewCount : current.totalReviews,
+            };
+          });
+        }
+      } catch {
+        // Ignore invalid realtime payloads.
+      }
+    };
+    eventSource.onerror = () => {
+      eventSource.close();
+      realtimeEventSourceRef.current = null;
+    };
+
+    return () => {
+      eventSource.close();
+      if (realtimeEventSourceRef.current === eventSource) {
+        realtimeEventSourceRef.current = null;
+      }
+    };
+  }, [sessionUser?.id]);
 
   const features: FeatureCard[] = [
     {

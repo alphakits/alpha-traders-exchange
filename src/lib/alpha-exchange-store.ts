@@ -7,6 +7,7 @@ import { evaluateSellerAchievements } from "@/lib/seller-achievements";
 import { runEnvValidation } from "@/lib/env-validation";
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import { addRole, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
+import { publishRealtimeEvent } from "@/lib/realtime";
 import type {
   AlphaExchangeActivityLogEntry,
   BetaAnnouncement,
@@ -1304,6 +1305,10 @@ function pushNotification(
     createdAt: nowIso(),
   };
   db.notifications.unshift(notification);
+  publishRealtimeEvent({
+    type: "notification.created",
+    payload: { notification },
+  });
 }
 
 function pushActivityLog(
@@ -1621,6 +1626,14 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
     const flagged = snapshot.trustScore < 55 || snapshot.marketplaceViolations > 0 || snapshot.disputesLost >= 3 || snapshot.cancellationRate >= 20;
 
     if (scoreChanged) {
+      publishRealtimeEvent({
+        type: "reputation.updated",
+        payload: {
+          sellerId: snapshot.sellerId,
+          trustScore: newScore,
+          reviewCount: db.sellerReviews.filter((review) => review.sellerId === snapshot.sellerId && !review.hidden).length,
+        },
+      });
       db.trustScoreHistory.unshift({
         id: `trust-score-${randomUUID()}`,
         sellerId: snapshot.sellerId,
@@ -2198,6 +2211,9 @@ export async function updateUserSellerSettings(input: {
     await recalculateTrustEngine(db, { reason: "Seller profile updated", triggeredBy: input.userId });
   }
   await writeDb(db);
+  if (input.onlineStatus && input.onlineStatus !== user.onlineStatus) {
+    publishRealtimeEvent({ type: "seller.status_changed", payload: { sellerId: input.userId, onlineStatus: input.onlineStatus } });
+  }
   return db.users[index];
 }
 
@@ -2788,6 +2804,7 @@ export async function createMarketplaceListing(input: {
   });
   await recalculateTrustEngine(db, { reason: "Listing created", triggeredBy: input.actorUserId });
   await writeDb(db);
+  publishRealtimeEvent({ type: "listing.created", payload: { listing } });
   return listing;
 }
 
@@ -2873,6 +2890,12 @@ export async function updateMarketplaceListingForSeller(input: {
   });
   await recalculateTrustEngine(db, { reason: "Seller listing updated", triggeredBy: input.actorUserId });
   await writeDb(db);
+  if (current.availableAmount !== next.availableAmount) {
+    publishRealtimeEvent({ type: "listing.quantity_changed", payload: { listingId: next.id, availableAmount: next.availableAmount } });
+  }
+  if (current.status !== next.status) {
+    publishRealtimeEvent({ type: "listing.status_changed", payload: { listingId: next.id, status: next.status } });
+  }
   return next;
 }
 
@@ -2922,6 +2945,7 @@ export async function renewMarketplaceListing(input: {
     relatedHref: "/usdt-exchange",
   });
   await writeDb(db);
+  publishRealtimeEvent({ type: "listing.status_changed", payload: { listingId: listing.id, status: listing.status } });
   return listing;
 }
 
@@ -2975,6 +2999,7 @@ export async function updateSellerAvailabilityStatus(input: {
     });
   }
   await writeDb(db);
+  publishRealtimeEvent({ type: "seller.status_changed", payload: { sellerId: input.sellerId, onlineStatus: db.users[index].onlineStatus } });
   return db.users[index];
 }
 
@@ -3210,6 +3235,7 @@ export async function deleteMarketplaceListingForSeller(input: {
   });
   await recalculateTrustEngine(db, { reason: "Listing removed", triggeredBy: input.actorUserId });
   await writeDb(db);
+  publishRealtimeEvent({ type: "listing.removed", payload: { listingId: input.listingId } });
 }
 
 export async function getMyMarketplaceListings(sellerId: string, status?: string) {
@@ -3716,6 +3742,7 @@ export async function submitBuyerTradeReview(input: {
 
   await recalculateTrustEngine(db, { reason: "Verified trade review submitted", triggeredBy: input.buyerUserId });
   await writeDb(db);
+  publishRealtimeEvent({ type: "review.count_changed", payload: { sellerId: request.sellerId, reviewCount: db.sellerReviews.filter((item) => item.sellerId === request.sellerId && !item.hidden).length } });
   return review;
 }
 
@@ -3803,6 +3830,7 @@ export async function moderateSellerReview(input: {
   db.sellerReviews = db.sellerReviews.map((item) => (item.id === review.id ? nextReview : item));
   await recalculateTrustEngine(db, { reason: "Seller review moderated", triggeredBy: input.actorUserId });
   await writeDb(db);
+  publishRealtimeEvent({ type: "review.count_changed", payload: { sellerId: review.sellerId, reviewCount: db.sellerReviews.filter((item) => item.sellerId === review.sellerId && !item.hidden).length } });
   return nextReview;
 }
 
