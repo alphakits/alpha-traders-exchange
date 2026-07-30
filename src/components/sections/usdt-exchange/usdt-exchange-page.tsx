@@ -17,6 +17,7 @@ import { getSellerPrestigeProgress, getSellerPublicVolumeLabel } from "@/lib/sel
 import { hasRole } from "@/lib/roles";
 import { createDefaultSellerListingDraft, persistSellerListingDraft, readSellerListingDraft } from "@/lib/seller-listing-draft";
 import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
+import { getIsraeliBankOption, getIsraeliBankOptions } from "@/lib/israeli-banks";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, BetaAnnouncement, BetaFeedbackCategory, BetaFeedbackEntry, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerAvailabilityStatus, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
 const WHATSAPP_URL = "https://wa.me/972525967649";
@@ -79,7 +80,7 @@ type SellerListingWorkspaceSummary = {
 };
 
 type TradeMilestone = {
-  key: "request_submitted" | "request_accepted" | "payment_sent" | "usdt_sent" | "trade_completed" | "review_unlocked";
+  key: "request_submitted" | "request_accepted" | "payment_sent" | "seller_confirmed_funds" | "usdt_release_started" | "usdt_sent" | "trade_completed" | "review_unlocked";
   titleEn: string;
   titleAr: string;
 };
@@ -87,7 +88,9 @@ type TradeMilestone = {
 const TRADE_MILESTONES: TradeMilestone[] = [
   { key: "request_submitted", titleEn: "Request submitted", titleAr: "تم إرسال الطلب" },
   { key: "request_accepted", titleEn: "Seller accepted", titleAr: "البائع قبل الطلب" },
-  { key: "payment_sent", titleEn: "Buyer payment sent", titleAr: "المشتري أكد الدفع" },
+  { key: "payment_sent", titleEn: "Bank transfer sent", titleAr: "تم إرسال التحويل البنكي" },
+  { key: "seller_confirmed_funds", titleEn: "Seller confirmed funds", titleAr: "البائع أكد استلام الأموال" },
+  { key: "usdt_release_started", titleEn: "USDT release pending", titleAr: "إصدار USDT معلق" },
   { key: "usdt_sent", titleEn: "Seller USDT sent", titleAr: "البائع أكد إرسال USDT" },
   { key: "trade_completed", titleEn: "Buyer completed trade", titleAr: "المشتري أكد إتمام الصفقة" },
   { key: "review_unlocked", titleEn: "Review unlocked", titleAr: "نافذة المراجعة مفتوحة" },
@@ -149,7 +152,9 @@ async function readApiErrorMessage(response: Response, fallback: string) {
 }
 
 function tradeStatusLabel(status: PurchaseRequest["status"]) {
-  if (status === "payment_sent") return "Payment Sent";
+  if (status === "payment_sent") return "Bank Transfer Sent";
+  if (status === "funds_received") return "Funds Received";
+  if (status === "usdt_release_pending") return "USDT Release Pending";
   if (status === "usdt_sent") return "USDT Sent";
   if (status === "review_open") return "Review Open";
   return status[0].toUpperCase() + status.slice(1);
@@ -246,9 +251,11 @@ function tradeProgressRank(request: PurchaseRequest) {
   if (request.status === "pending") return 0;
   if (request.status === "accepted") return 1;
   if (request.status === "payment_sent") return 2;
-  if (request.status === "usdt_sent") return 3;
-  if (request.status === "completed" || request.status === "locked") return 4;
-  if (request.status === "review_open") return 5;
+  if (request.status === "funds_received") return 3;
+  if (request.status === "usdt_release_pending") return 4;
+  if (request.status === "usdt_sent") return 5;
+  if (request.status === "completed" || request.status === "locked") return 6;
+  if (request.status === "review_open") return 7;
   if (request.status === "cancelled") return acceptedSeen ? 1 : 0;
   return 0;
 }
@@ -258,10 +265,16 @@ function nextTradeActionHint(request: PurchaseRequest, isAr: boolean) {
     return isAr ? "الإجراء التالي: البائع يقبل أو يرفض الطلب." : "Next action: seller accepts or declines the request.";
   }
   if (request.status === "accepted") {
-    return isAr ? "الإجراء التالي: المشتري يرفع إثبات الدفع ثم يؤكد Payment Sent." : "Next action: buyer uploads payment evidence and marks Payment Sent.";
+    return isAr ? "الإجراء التالي: المشتري يرفع إثبات التحويل البنكي ويؤكد الإرسال." : "Next action: buyer uploads bank transfer proof and marks the transfer as sent.";
   }
   if (request.status === "payment_sent") {
-    return isAr ? "الإجراء التالي: البائع يرفع إثبات التحويل ثم يؤكد USDT Sent." : "Next action: seller uploads transfer evidence and marks USDT Sent.";
+    return isAr ? "الإجراء التالي: البائع يؤكد استلام الأموال ثم يبدأ إصدار USDT." : "Next action: seller confirms funds received and starts the USDT release.";
+  }
+  if (request.status === "funds_received") {
+    return isAr ? "الإجراء التالي: البائع يبدأ إصدار USDT." : "Next action: seller moves the trade to USDT release pending.";
+  }
+  if (request.status === "usdt_release_pending") {
+    return isAr ? "الإجراء التالي: البائع يؤكد إرسال USDT." : "Next action: seller marks USDT sent.";
   }
   if (request.status === "usdt_sent") {
     return isAr ? "الإجراء التالي: المشتري يؤكد اكتمال الصفقة." : "Next action: buyer confirms trade completion.";
@@ -279,6 +292,44 @@ function tradeMilestoneTimestamp(request: PurchaseRequest, key: TradeMilestone["
   const timeline = request.timeline ?? [];
   const event = timeline.find((item) => item.type === key);
   return event?.createdAt;
+}
+
+function IsraeliBankSelector({
+  value,
+  onChange,
+  className,
+  placeholder,
+  descriptionClassName,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  className?: string;
+  placeholder?: string;
+  descriptionClassName?: string;
+}) {
+  const [query, setQuery] = useState("");
+  const filteredOptions = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    const options = getIsraeliBankOptions();
+    if (!normalizedQuery) return options;
+    return options.filter((bank) => `${bank.name} ${bank.description ?? ""}`.toLowerCase().includes(normalizedQuery));
+  }, [query]);
+
+  const selectedBank = getIsraeliBankOption(value);
+
+  return (
+    <div className="space-y-2">
+      <Input placeholder={placeholder ?? "Search bank"} value={query} onChange={(event) => setQuery(event.target.value)} />
+      <select className={className ?? "flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white"} value={value} onChange={(event) => onChange(event.target.value)}>
+        {filteredOptions.map((bank) => (
+          <option key={bank.code} value={bank.name}>
+            {bank.name}
+          </option>
+        ))}
+      </select>
+      <p className={descriptionClassName ?? "text-xs text-[#FDE68A]"}>{selectedBank.description ?? "Choose a receiving bank for the transfer."}</p>
+    </div>
+  );
 }
 
 export function UsdtExchangePage({ locale }: { locale: Locale }) {
@@ -309,6 +360,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     currency: "ILS",
     network: "TRC20" as SupportedNetwork,
     paymentMethods: "Bank transfer",
+    bankName: "Bank transfer",
     minimumTrade: "0",
     maximumTrade: "",
     expirationHours: "24",
@@ -337,6 +389,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   const [currencyFilter, setCurrencyFilter] = useState("all");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState("all");
+  const [bankFilter, setBankFilter] = useState("all");
   const [networkFilter, setNetworkFilter] = useState<"all" | SupportedNetwork>("all");
   const [minAmountFilter, setMinAmountFilter] = useState("");
   const [maxAmountFilter, setMaxAmountFilter] = useState("");
@@ -409,7 +462,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   }, []);
   const previousPrestigeRankRef = useRef<SellerLevel | null>(null);
 
-  const [buyerInfo, setBuyerInfo] = useState({ amount: "", name: "", whatsapp: "", notes: "" });
+  const [buyerInfo, setBuyerInfo] = useState({ amount: "", name: "", whatsapp: "", notes: "", bankName: "Bank transfer" });
   const [sellerForm, setSellerForm] = useState({
     fullName: "",
     email: "",
@@ -829,13 +882,15 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       const currencyPass = currencyFilter === "all" || listing.currency.toLowerCase() === currencyFilter.toLowerCase();
       const methods = listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod];
       const paymentMethodPass = paymentMethodFilter === "all" || methods.some((method) => method.toLowerCase() === paymentMethodFilter.toLowerCase());
+      const listingBank = getIsraeliBankOption(listing.bankName ?? listing.paymentMethod);
+      const bankPass = bankFilter === "all" || listingBank.code === bankFilter;
       const minAmountPass = !minAmount || amount >= minAmount;
       const maxAmountPass = !maxAmount || amount <= maxAmount;
       const minPricePass = !minPrice || price >= minPrice;
       const maxPricePass = !maxPrice || price <= maxPrice;
       const trustPass = !trustScoreThreshold || (listing.sellerReputation?.trustScore ?? 0) >= trustScoreThreshold;
       const onlinePass = !onlineOnlyFilter || listing.sellerProfile?.onlineStatus === "online";
-      return networkPass && currencyPass && paymentMethodPass && minAmountPass && maxAmountPass && minPricePass && maxPricePass && trustPass && onlinePass;
+      return networkPass && currencyPass && paymentMethodPass && bankPass && minAmountPass && maxAmountPass && minPricePass && maxPricePass && trustPass && onlinePass;
     });
 
     const sorted = [...filtered];
@@ -851,7 +906,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       sorted.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     }
     return sorted;
-  }, [listings, networkFilter, currencyFilter, paymentMethodFilter, minAmountFilter, maxAmountFilter, minPriceFilter, maxPriceFilter, trustScoreFilter, onlineOnlyFilter, sortBy]);
+  }, [listings, networkFilter, currencyFilter, paymentMethodFilter, bankFilter, minAmountFilter, maxAmountFilter, minPriceFilter, maxPriceFilter, trustScoreFilter, onlineOnlyFilter, sortBy]);
 
   const marketStats = useMemo(() => {
     const uniqueSellers = new Set(listings.map((l) => l.sellerId ?? l.sellerDisplayName));
@@ -984,6 +1039,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         buyerName: buyerInfo.name,
         buyerWhatsapp: buyerInfo.whatsapp,
         buyerNotes: buyerInfo.notes,
+        bankName: buyerInfo.bankName,
       }),
     });
     const data = (await response.json()) as { error?: string; purchase?: PurchaseRequest };
@@ -1011,6 +1067,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   const sellerRequests = useMemo(() => myRequests.filter((request) => request.sellerId === sessionUser?.id), [myRequests, sessionUser?.id]);
   const buyerRequests = useMemo(() => myRequests.filter((request) => request.buyerId === sessionUser?.id), [myRequests, sessionUser?.id]);
+  const sellerActiveListingsCount = myListings.filter((listing) => ["active", "paused", "expired"].includes(listing.status)).length;
+  const sellerPendingActionCount = sellerRequests.filter((request) => ["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending"].includes(request.status)).length;
+  const sellerBankReadyCount = sellerRequests.filter((request) => ["payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(request.status)).length;
   const filteredBuyerRequests = useMemo(() => {
     return buyerRequests.filter((request) => {
       if (buyerTradeStatus !== "all" && request.status !== buyerTradeStatus) return false;
@@ -1243,6 +1302,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             .map((value) => value.trim())
             .filter(Boolean)
             .slice(0, 8),
+          bankName: listingCreateForm.bankName,
           minimumTrade: listingCreateForm.minimumTrade,
           maximumTrade: listingCreateForm.maximumTrade || listingCreateForm.availableAmount,
           expirationHours: 24,
@@ -1296,6 +1356,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           .map((value) => value.trim())
           .filter(Boolean)
           .slice(0, 8),
+        bankName: listingEditForm.bankName,
         minimumTrade: listingEditForm.minimumTrade,
         maximumTrade: listingEditForm.maximumTrade || listingEditForm.availableAmount,
         expirationHours: listingEditForm.expirationHours,
@@ -1379,7 +1440,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     }
   }
 
-  async function handleSellerRequestAction(requestId: string, nextStatus: "accepted" | "declined" | "usdt_sent") {
+  async function handleSellerRequestAction(requestId: string, nextStatus: "accepted" | "declined" | "funds_received" | "usdt_release_pending" | "usdt_sent") {
     const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -1391,6 +1452,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       return;
     }
     if (nextStatus === "accepted") setSellerWorkspaceMessage("Request accepted and trade created.");
+    else if (nextStatus === "funds_received") setSellerWorkspaceMessage("Funds received confirmed.");
+    else if (nextStatus === "usdt_release_pending") setSellerWorkspaceMessage("USDT release process started.");
     else if (nextStatus === "usdt_sent") setSellerWorkspaceMessage("USDT sent marked.");
     else setSellerWorkspaceMessage("Request declined.");
     await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
@@ -1409,7 +1472,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     }
     setStatusMessage(
       nextStatus === "payment_sent"
-        ? "Payment sent confirmed."
+        ? "Bank transfer sent confirmed."
         : nextStatus === "completed"
           ? "Trade completed. Review window is open."
           : "Request cancelled.",
@@ -1844,6 +1907,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               </select>
               <Input placeholder={isAr ? "Min Amount" : "Min Amount"} value={minAmountFilter} onChange={(event) => setMinAmountFilter(event.target.value)} />
               <Input placeholder={isAr ? "Max Amount" : "Max Amount"} value={maxAmountFilter} onChange={(event) => setMaxAmountFilter(event.target.value)} />
+              <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={bankFilter} onChange={(event) => setBankFilter(event.target.value)}>
+                <option value="all">{isAr ? "كل البنوك" : "All Banks"}</option>
+                {getIsraeliBankOptions().map((bank) => (
+                  <option key={bank.code} value={bank.code}>
+                    {bank.name}
+                  </option>
+                ))}
+              </select>
               <Input placeholder={isAr ? "Min Price" : "Min Price"} value={minPriceFilter} onChange={(event) => setMinPriceFilter(event.target.value)} />
               <Input placeholder={isAr ? "Max Price" : "Max Price"} value={maxPriceFilter} onChange={(event) => setMaxPriceFilter(event.target.value)} />
               <Input placeholder={isAr ? "Min Trust Score" : "Min Trust Score"} value={trustScoreFilter} onChange={(event) => setTrustScoreFilter(event.target.value)} />
@@ -1859,6 +1930,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 onClick={() => {
                   setCurrencyFilter("all");
                   setPaymentMethodFilter("all");
+                  setBankFilter("all");
                   setNetworkFilter("all");
                   setMinAmountFilter("");
                   setMaxAmountFilter("");
@@ -2062,6 +2134,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           <Network className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
                           {safeText(listing.network)}
                         </span>
+                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#C9A227]/20 bg-[#C9A227]/[0.08] px-2.5 py-1.5 text-xs text-[#FDE68A]">
+                          <WalletCards className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+                          {getIsraeliBankOption(listing.bankName ?? listing.paymentMethod).name}
+                        </span>
                       </div>
 
                       {/* ── Payment + range + last active ── */}
@@ -2071,6 +2147,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           {(listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod])
                             .slice(0, 3)
                             .join(" • ")}
+                        </p>
+                        <p>
+                          <span className="text-white/45">{isAr ? "البنك: " : "Bank: "}</span>
+                          {getIsraeliBankOption(listing.bankName ?? listing.paymentMethod).name}
                         </p>
                         <p>
                           <span className="text-white/45">{isAr ? "الحد: " : "Range: "}</span>
@@ -2266,7 +2346,36 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
       {isApprovedSeller ? (
         <div className="mt-8 space-y-6">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="rounded-3xl border border-white/10 bg-[#0B0B0B]/95 p-4 shadow-[0_18px_45px_rgba(0,0,0,0.24)]">
+            <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.2em] text-[#C9A227]">Seller workspace</p>
+                <h2 className="mt-1 text-xl font-semibold text-white">Bank-transfer momentum, all in one place</h2>
+                <p className="mt-1 text-sm text-[#9CA3AF]">Keep your listings live, track incoming requests, and confirm the right bank step without losing momentum.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded-full border border-[#6CAEFF]/20 bg-[#6CAEFF]/10 px-3 py-1 text-xs text-[#93C5FD]">Open listings: {sellerActiveListingsCount}</span>
+                <span className="rounded-full border border-[#C9A227]/20 bg-[#C9A227]/10 px-3 py-1 text-xs text-[#FDE68A]">Pending actions: {sellerPendingActionCount}</span>
+                <span className="rounded-full border border-[#22C55E]/20 bg-[#22C55E]/10 px-3 py-1 text-xs text-[#86EFAC]">Bank-ready trades: {sellerBankReadyCount}</span>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">Live listings</p>
+                <p className="mt-2 text-2xl font-semibold text-white">{sellerActiveListingsCount}</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">Incoming requests</p>
+                <p className="mt-2 text-2xl font-semibold text-white">{sellerPendingActionCount}</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">Awaiting bank confirmation</p>
+                <p className="mt-2 text-2xl font-semibold text-white">{sellerBankReadyCount}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {isLoadingListings
               ? Array.from({ length: 6 }).map((_, index) => (
                   <Card key={`seller-stat-skeleton-${index}`} className="border-white/10 bg-[#0B0B0B]/90">
@@ -2332,6 +2441,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <option value="SOL">SOL</option>
                   </select>
                   <Input placeholder="Payment Methods (comma separated)" value={listingCreateForm.paymentMethods} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, paymentMethods: event.target.value }))} />
+                  <IsraeliBankSelector
+                    value={listingCreateForm.bankName}
+                    onChange={(value) => setListingCreateForm((prev) => ({ ...prev, bankName: value }))}
+                    className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white"
+                    placeholder="Search receiving bank"
+                    descriptionClassName="text-xs text-[#FDE68A]"
+                  />
                   <Input placeholder="Minimum Trade" value={listingCreateForm.minimumTrade} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, minimumTrade: event.target.value }))} />
                   <Input placeholder="Maximum Trade" value={listingCreateForm.maximumTrade} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, maximumTrade: event.target.value }))} />
                   <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-[#D1D5DB]">
@@ -2389,11 +2505,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <div>
                         <p className="text-sm font-medium text-white">{safeText(listing.availableAmount)} USDT • {safeText(listing.price)} {safeText(listing.currency)}</p>
                         <p className="mt-1 text-xs text-[#9CA3AF]">{listingStatusLabel(listing.status)} • {safeText(listing.network)} • {safeText(listing.paymentMethods?.[0] ?? listing.paymentMethod)}</p>
+                        <p className="mt-1 text-xs text-[#C9A227]">Receiving bank: {getIsraeliBankOption(listing.bankName ?? listing.paymentMethod).name}</p>
                       </div>
                       <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-[#D1D5DB]">{views} views</div>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Button type="button" size="sm" variant="secondary" disabled={isLockedListing || listing.status === "completed" || listing.status === "closed" || listing.status === "cancelled"} onClick={() => { setEditingListingId(listing.id); setListingEditForm({ availableAmount: listing.availableAmount, price: listing.price, currency: listing.currency, network: listing.network, paymentMethods: (listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod]).join(", "), minimumTrade: listing.minimumTrade ?? "0", maximumTrade: listing.maximumTrade ?? listing.availableAmount, expirationHours: "24", notes: listing.notes ?? "", }); }}>
+                      <Button type="button" size="sm" variant="secondary" disabled={isLockedListing || listing.status === "completed" || listing.status === "closed" || listing.status === "cancelled"} onClick={() => { setEditingListingId(listing.id); setListingEditForm({ availableAmount: listing.availableAmount, price: listing.price, currency: listing.currency, network: listing.network, paymentMethods: (listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod]).join(", "), bankName: listing.bankName ?? "Bank transfer", minimumTrade: listing.minimumTrade ?? "0", maximumTrade: listing.maximumTrade ?? listing.availableAmount, expirationHours: "24", notes: listing.notes ?? "", }); }}>
                         <Edit3 className="h-4 w-4" />
                         Edit
                       </Button>
@@ -2436,6 +2553,15 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         <Input value={listingEditForm.minimumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, minimumTrade: event.target.value }))} placeholder="Minimum Trade" />
                         <Input value={listingEditForm.maximumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, maximumTrade: event.target.value }))} placeholder="Maximum Trade" />
                         <Input className="md:col-span-2" value={listingEditForm.paymentMethods} onChange={(event) => setListingEditForm((prev) => ({ ...prev, paymentMethods: event.target.value }))} placeholder="Payment Methods (comma separated)" />
+                        <div className="md:col-span-2">
+                          <IsraeliBankSelector
+                            value={listingEditForm.bankName}
+                            onChange={(value) => setListingEditForm((prev) => ({ ...prev, bankName: value }))}
+                            className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white"
+                            placeholder="Search receiving bank"
+                            descriptionClassName="text-xs text-[#FDE68A]"
+                          />
+                        </div>
                         {editListingPriceValidationError ? (
                           <div className="md:col-span-4 rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10 p-3 text-xs text-[#FDE68A]">
                             {editListingPriceValidationError}
@@ -2465,7 +2591,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <option value="all">Status: All</option>
                   <option value="pending">Pending</option>
                   <option value="accepted">Accepted</option>
-                  <option value="payment_sent">Payment Sent</option>
+                  <option value="payment_sent">Bank Transfer Sent</option>
+                  <option value="funds_received">Funds Received</option>
+                  <option value="usdt_release_pending">USDT Release Pending</option>
                   <option value="usdt_sent">USDT Sent</option>
                   <option value="review_open">Review Open</option>
                   <option value="declined">Declined</option>
@@ -2499,7 +2627,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Button type="button" size="sm" disabled={request.status !== "pending"} onClick={() => handleSellerRequestAction(request.id, "accepted")}>Accept</Button>
                       <Button type="button" size="sm" variant="secondary" disabled={request.status !== "pending"} onClick={() => handleSellerRequestAction(request.id, "declined")}>Decline</Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "payment_sent" || !request.sellerEvidence} onClick={() => handleSellerRequestAction(request.id, "usdt_sent")}>
+                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "payment_sent"} onClick={() => handleSellerRequestAction(request.id, "funds_received")}>Confirm Funds Received</Button>
+                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "funds_received"} onClick={() => handleSellerRequestAction(request.id, "usdt_release_pending")}>Start USDT Release</Button>
+                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_release_pending" || !request.sellerEvidence} onClick={() => handleSellerRequestAction(request.id, "usdt_sent")}>
                         Mark USDT Sent
                       </Button>
                       <Button type="button" size="sm" variant="secondary" onClick={() => handleMessageBuyer(request)}>
@@ -2938,7 +3068,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <option value="all">Status: All</option>
                     <option value="pending">Pending</option>
                     <option value="accepted">Accepted</option>
-                    <option value="payment_sent">Payment Sent</option>
+                    <option value="payment_sent">Bank Transfer Sent</option>
+                    <option value="funds_received">Funds Received</option>
+                    <option value="usdt_release_pending">USDT Release Pending</option>
                     <option value="usdt_sent">USDT Sent</option>
                     <option value="review_open">Review Open</option>
                     <option value="declined">Declined</option>
@@ -2963,7 +3095,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Button type="button" size="sm" disabled={request.status !== "accepted" || !request.buyerEvidence} onClick={() => handleBuyerTradeStatus(request.id, "payment_sent")}>
-                        Mark Payment Sent
+                        Mark Bank Transfer Sent
                       </Button>
                       <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_sent"} onClick={() => handleBuyerTradeStatus(request.id, "completed")}>
                         Confirm Trade Completed
@@ -3446,6 +3578,27 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <Input placeholder="Trade Amount (USDT)" value={buyerInfo.amount} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, amount: event.target.value }))} />
                       <Input placeholder="Name" value={buyerInfo.name} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, name: event.target.value }))} />
                       <Input placeholder="WhatsApp" value={buyerInfo.whatsapp} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, whatsapp: event.target.value }))} />
+                      <div className="md:col-span-3 rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10 p-3 text-sm text-[#FDE68A]">
+                        <p className="font-medium text-white">Receiving bank</p>
+                        <p className="mt-1">Please confirm the bank account the seller will use. This is required before the request is submitted.</p>
+                        <div className="mt-3">
+                          <IsraeliBankSelector
+                            value={buyerInfo.bankName}
+                            onChange={(value) => setBuyerInfo((prev) => ({ ...prev, bankName: value }))}
+                            className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white"
+                            placeholder="Search receiving bank"
+                            descriptionClassName="mt-2 text-xs text-[#FDE68A]"
+                          />
+                        </div>
+                        <div className="mt-3 rounded-2xl border border-[#6CAEFF]/20 bg-[#6CAEFF]/10 p-3 text-sm text-[#D1D5DB]">
+                          <p className="font-medium text-white">{isAr ? "إرشادات التحويل" : "Transfer guidance"}</p>
+                          <p className="mt-1">
+                            {isAr
+                              ? "عادةً تصل الأموال خلال 1–2 يوم عمل. لا يُطلق USDT إلا بعد أن يؤكد البائع استلام الأموال في حسابه البنكي."
+                              : "Transfers usually arrive within 1–2 business days. USDT is only released after the seller confirms the funds were received in their bank account."}
+                          </p>
+                        </div>
+                      </div>
                       <Textarea className="md:col-span-3" placeholder="Notes" value={buyerInfo.notes} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, notes: event.target.value }))} />
                     </div>
                     <div className="sticky bottom-0 z-10 rounded-xl border border-[#C9A227]/30 bg-[#0B0B0B]/95 p-3">

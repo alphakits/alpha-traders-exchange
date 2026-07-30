@@ -47,6 +47,7 @@ export async function POST(request: NextRequest) {
     if (!usdtAmount) {
       return NextResponse.json({ error: "Trade amount is required." }, { status: 400 });
     }
+    const bankName = String(body.bankName ?? "").trim();
 
     const purchase = await createPurchaseRequest({
       buyerId: user.id,
@@ -55,6 +56,7 @@ export async function POST(request: NextRequest) {
       buyerName,
       buyerWhatsapp,
       buyerNotes,
+      bankName: bankName || undefined,
       actorUserId: user.id,
     });
 

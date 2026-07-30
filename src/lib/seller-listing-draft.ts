@@ -4,6 +4,7 @@ export type SellerListingDraft = {
   currency: string;
   network: "TRC20" | "ERC20" | "BEP20" | "SOL";
   paymentMethods: string;
+  bankName: string;
   minimumTrade: string;
   maximumTrade: string;
 };
@@ -15,6 +16,7 @@ export function createDefaultSellerListingDraft(): SellerListingDraft {
     currency: "ILS",
     network: "TRC20",
     paymentMethods: "Bank transfer",
+    bankName: "Bank transfer",
     minimumTrade: "0",
     maximumTrade: "",
   };
@@ -34,6 +36,7 @@ export function normalizeSellerListingDraft(input?: Partial<SellerListingDraft> 
     currency: typeof input?.currency === "string" && input.currency.trim() ? input.currency : fallback.currency,
     network,
     paymentMethods: typeof input?.paymentMethods === "string" ? input.paymentMethods : fallback.paymentMethods,
+    bankName: typeof input?.bankName === "string" ? input.bankName : fallback.bankName,
     minimumTrade: typeof input?.minimumTrade === "string" ? input.minimumTrade : fallback.minimumTrade,
     maximumTrade: typeof input?.maximumTrade === "string" ? input.maximumTrade : fallback.maximumTrade,
   };

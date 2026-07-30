@@ -1,4 +1,5 @@
 import { Pool, type PoolClient } from "pg";
+import { appendFileSync } from "fs";
 import alphaExchangeSeed from "../../data/alpha-exchange-db.json";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import type {
@@ -269,29 +270,30 @@ const SCHEMA_SQL = [
   "create index if not exists idx_alpha_exchange_trades_status on alpha_exchange.trades (status, created_at desc)",
 ];
 
-const TRUNCATE_SQL = `truncate table
-  alpha_exchange.beta_announcements,
-  alpha_exchange.beta_feedback,
-  alpha_exchange.private_beta_invite_uses,
-  alpha_exchange.private_beta_invites,
-  alpha_exchange.trust_score_history,
-  alpha_exchange.trust_snapshots,
-  alpha_exchange.seller_reports,
-  alpha_exchange.disputes,
-  alpha_exchange.activity_logs,
-  alpha_exchange.seller_applications,
-  alpha_exchange.password_reset_tokens,
-  alpha_exchange.sessions,
-  alpha_exchange.evidence,
-  alpha_exchange.audit_logs,
-  alpha_exchange.commissions,
-  alpha_exchange.notifications,
-  alpha_exchange.trades,
-  alpha_exchange.purchase_requests,
-  alpha_exchange.listings,
-  alpha_exchange.seller_settings,
-  alpha_exchange.seller_profiles,
-  alpha_exchange.users restart identity`;
+const TRUNCATE_SQL = `
+  delete from alpha_exchange.beta_announcements;
+  delete from alpha_exchange.beta_feedback;
+  delete from alpha_exchange.private_beta_invite_uses;
+  delete from alpha_exchange.private_beta_invites;
+  delete from alpha_exchange.trust_score_history;
+  delete from alpha_exchange.trust_snapshots;
+  delete from alpha_exchange.seller_reports;
+  delete from alpha_exchange.disputes;
+  delete from alpha_exchange.activity_logs;
+  delete from alpha_exchange.seller_applications;
+  delete from alpha_exchange.password_reset_tokens;
+  delete from alpha_exchange.sessions;
+  delete from alpha_exchange.evidence;
+  delete from alpha_exchange.audit_logs;
+  delete from alpha_exchange.commissions;
+  delete from alpha_exchange.notifications;
+  delete from alpha_exchange.trades;
+  delete from alpha_exchange.purchase_requests;
+  delete from alpha_exchange.listings;
+  delete from alpha_exchange.seller_settings;
+  delete from alpha_exchange.seller_profiles;
+  delete from alpha_exchange.users;
+`
 
 const DEFAULT_DB = alphaExchangeSeed as unknown as AlphaExchangeDb;
 
@@ -308,6 +310,46 @@ type SaveContext = {
   evidenceContentById: Map<string, Buffer | null>;
   evidenceOverrides?: EvidenceWriteMap;
 };
+
+const SNAPSHOT_TABLE_NAMES = new Set([
+  "users",
+  "seller_profiles",
+  "seller_settings",
+  "listings",
+  "trades",
+  "purchase_requests",
+  "notifications",
+  "commissions",
+  "audit_logs",
+  "evidence",
+  "password_reset_tokens",
+  "seller_applications",
+  "activity_logs",
+  "disputes",
+  "seller_reports",
+  "trust_snapshots",
+  "trust_score_history",
+  "private_beta_invites",
+  "private_beta_invite_uses",
+  "beta_feedback",
+  "beta_announcements",
+]);
+
+function shouldLogRepoVersionFlow() {
+  if (process.env.ALPHA_EXCHANGE_REPO_TRACE === "1") return true;
+  return process.env.NODE_ENV !== "production";
+}
+
+function logRepoVersionFlow(event: string, payload: Record<string, unknown>) {
+  if (!shouldLogRepoVersionFlow()) return;
+  const line = `[alpha-exchange-repo] ${new Date().toISOString()} ${event} ${JSON.stringify(payload)}`;
+  console.log(line);
+  try {
+    appendFileSync(`${process.cwd()}\\data\\alpha-exchange-repo-trace.log`, `${line}\n`);
+  } catch {
+    // Ignore log persistence failures; console output remains available.
+  }
+}
 
 declare global {
   var __alphaExchangeRepositoryPromise: Promise<AlphaExchangeRepository> | undefined;
@@ -736,7 +778,8 @@ const tables = [
 function attachVersion<T extends AlphaExchangeDb>(db: T, version: number): SnapshotWithVersion {
   Object.defineProperty(db, "__runtimeVersion", {
     value: version,
-    enumerable: false,
+    // Keep this enumerable so spread/clone operations in the store preserve version metadata.
+    enumerable: true,
     configurable: true,
     writable: true,
   });
@@ -745,6 +788,61 @@ function attachVersion<T extends AlphaExchangeDb>(db: T, version: number): Snaps
 
 function getVersion(db: AlphaExchangeDb) {
   return (db as SnapshotWithVersion).__runtimeVersion ?? 0;
+}
+
+function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchangeDb): AlphaExchangeDb {
+  const latestById = new Map<string, unknown>();
+  for (const item of latest.purchaseRequests) {
+    latestById.set(item.id, item);
+  }
+  const incomingById = new Map<string, unknown>();
+  for (const item of incoming.purchaseRequests) {
+    incomingById.set(item.id, item);
+  }
+  const mergedPurchaseRequests = [...incoming.purchaseRequests];
+  for (const request of latest.purchaseRequests) {
+    if (!incomingById.has(request.id)) {
+      mergedPurchaseRequests.push(request);
+    }
+  }
+  for (const request of incoming.purchaseRequests) {
+    const latestRequest = latestById.get(request.id) as PurchaseRequest | undefined;
+    if (!latestRequest) continue;
+    const latestUpdatedAt = new Date(latestRequest.updatedAt ?? latestRequest.createdAt ?? 0).getTime();
+    const incomingUpdatedAt = new Date(request.updatedAt ?? request.createdAt ?? 0).getTime();
+    if (incomingUpdatedAt > latestUpdatedAt) {
+      const index = mergedPurchaseRequests.findIndex((item) => item.id === request.id);
+      if (index >= 0) {
+        mergedPurchaseRequests[index] = request;
+      }
+    }
+  }
+  const getCollection = <T>(value: T[] | undefined, fallback: T[]) => Array.isArray(value) ? value : fallback;
+
+  return {
+    ...latest,
+    ...incoming,
+    users: getCollection(incoming.users, latest.users),
+    sellerApplications: getCollection(incoming.sellerApplications, latest.sellerApplications),
+    marketplaceListings: getCollection(incoming.marketplaceListings, latest.marketplaceListings),
+    purchaseRequests: mergedPurchaseRequests,
+    commissionRecords: getCollection(incoming.commissionRecords, latest.commissionRecords),
+    auditLogs: getCollection(incoming.auditLogs, latest.auditLogs),
+    authSessions: latest.authSessions,
+    passwordResetTokens: getCollection(incoming.passwordResetTokens, latest.passwordResetTokens),
+    notifications: getCollection(incoming.notifications, latest.notifications),
+    activityLog: getCollection(incoming.activityLog, latest.activityLog),
+    disputes: getCollection(incoming.disputes, latest.disputes),
+    sellerReports: getCollection(incoming.sellerReports, latest.sellerReports),
+    trustSnapshots: getCollection(incoming.trustSnapshots, latest.trustSnapshots),
+    trustScoreHistory: getCollection(incoming.trustScoreHistory, latest.trustScoreHistory),
+    tradeEvidenceFiles: getCollection(incoming.tradeEvidenceFiles, latest.tradeEvidenceFiles),
+    privateBetaInvites: getCollection(incoming.privateBetaInvites, latest.privateBetaInvites),
+    privateBetaInviteUses: getCollection(incoming.privateBetaInviteUses, latest.privateBetaInviteUses),
+    betaFeedback: getCollection(incoming.betaFeedback, latest.betaFeedback),
+    betaAnnouncements: getCollection(incoming.betaAnnouncements, latest.betaAnnouncements),
+    sellerReviews: getCollection(incoming.sellerReviews, latest.sellerReviews),
+  };
 }
 
 async function runSchema(target: Queryable) {
@@ -767,7 +865,7 @@ function ensureMemorySeed() {
 
 export class AlphaExchangeRepository {
   private readonly pool: Pool | null;
-  private readonly usesMemoryFallback: boolean;
+  private usesMemoryFallback: boolean;
   private initPromise: Promise<void> | null = null;
 
   constructor(pool: Pool | null) {
@@ -793,6 +891,7 @@ export class AlphaExchangeRepository {
         } catch (error) {
           console.warn("[alpha-exchange-repository] Falling back to the in-memory snapshot because the database is unavailable:", error instanceof Error ? error.message : error);
           ensureMemorySeed();
+          this.usesMemoryFallback = true;
         }
       })();
     }
@@ -814,7 +913,15 @@ export class AlphaExchangeRepository {
     const pool = this.pool;
     if (this.usesMemoryFallback || !pool) {
       ensureMemorySeed();
-      return attachVersion(cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion), getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion));
+      const snapshot = attachVersion(
+        cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
+        getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
+      );
+      logRepoVersionFlow("load:memory", {
+        version: getVersion(snapshot),
+        purchaseRequests: snapshot.purchaseRequests.length,
+      });
+      return snapshot;
     }
     try {
       const [meta, ...results] = await Promise.all([
@@ -845,11 +952,25 @@ export class AlphaExchangeRepository {
         sellerReviews: [],
       };
 
-      return attachVersion(snapshot, Number(meta.rows[0]?.version ?? "0"));
+      const version = Number(meta.rows[0]?.version ?? "0");
+      const withVersion = attachVersion(snapshot, version);
+      logRepoVersionFlow("load:db", {
+        version,
+        purchaseRequests: withVersion.purchaseRequests.length,
+      });
+      return withVersion;
     } catch (error) {
       console.warn("[alpha-exchange-repository] Falling back to the in-memory snapshot because loading the database snapshot failed:", error instanceof Error ? error.message : error);
       ensureMemorySeed();
-      return attachVersion(cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion), getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion));
+      const fallback = attachVersion(
+        cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
+        getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
+      );
+      logRepoVersionFlow("load:fallback-memory", {
+        version: getVersion(fallback),
+        purchaseRequests: fallback.purchaseRequests.length,
+      });
+      return fallback;
     }
 
   }
@@ -861,7 +982,41 @@ export class AlphaExchangeRepository {
     const pool = this.pool;
     if (this.usesMemoryFallback || !pool) {
       ensureMemorySeed();
-      const next = attachVersion(cloneSnapshot(db), getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion) + 1);
+      const loadedVersion = getVersion(db);
+      const previousVersion = getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion);
+      if (loadedVersion !== previousVersion) {
+        logRepoVersionFlow("save:memory:conflict", {
+          loadedVersion,
+          currentVersion: previousVersion,
+          incomingPurchaseRequests: db.purchaseRequests.length,
+          currentPurchaseRequests: (globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion).purchaseRequests.length,
+        });
+        const latestSnapshot = cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion);
+        latestSnapshot.authSessions = cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion).authSessions;
+        const nextSnapshot = cloneSnapshot(db);
+        const mergedSnapshot = mergeSnapshotWithLatest(latestSnapshot, nextSnapshot);
+        const next = attachVersion(mergedSnapshot, previousVersion + 1);
+        const previousEvidence = globalThis.__alphaExchangeMemoryEvidenceContent as Map<string, Buffer | null>;
+        const nextEvidence = new Map<string, Buffer | null>();
+        for (const evidence of mergedSnapshot.tradeEvidenceFiles) {
+          nextEvidence.set(
+            evidence.id,
+            options?.evidenceOverrides?.get(evidence.id) ?? previousEvidence.get(evidence.id) ?? null,
+          );
+        }
+        globalThis.__alphaExchangeMemorySnapshot = next;
+        globalThis.__alphaExchangeMemoryEvidenceContent = nextEvidence;
+        logRepoVersionFlow("save:memory:merged", {
+          loadedVersion,
+          previousVersion,
+          writtenVersion: getVersion(next),
+          purchaseRequests: next.purchaseRequests.length,
+        });
+        return;
+      }
+      const nextSnapshot = cloneSnapshot(db);
+      nextSnapshot.authSessions = cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion).authSessions;
+      const next = attachVersion(nextSnapshot, previousVersion + 1);
       const previousEvidence = globalThis.__alphaExchangeMemoryEvidenceContent as Map<string, Buffer | null>;
       const nextEvidence = new Map<string, Buffer | null>();
       for (const evidence of db.tradeEvidenceFiles) {
@@ -872,6 +1027,12 @@ export class AlphaExchangeRepository {
       }
       globalThis.__alphaExchangeMemorySnapshot = next;
       globalThis.__alphaExchangeMemoryEvidenceContent = nextEvidence;
+      logRepoVersionFlow("save:memory", {
+        loadedVersion,
+        previousVersion,
+        writtenVersion: getVersion(next),
+        purchaseRequests: next.purchaseRequests.length,
+      });
       return;
     }
 
@@ -882,6 +1043,7 @@ export class AlphaExchangeRepository {
     }
 
     const client = await pool.connect();
+    let shouldDestroyClient = false;
     try {
       await client.query("begin");
       try {
@@ -890,29 +1052,163 @@ export class AlphaExchangeRepository {
         // pg-mem does not implement advisory locks; local tests stay single-process.
       }
 
+      const loadedVersion = getVersion(db);
+      const currentMeta = await client.query<{ version: string }>(
+        "select version::text as version from alpha_exchange.runtime_meta where singleton = true",
+      );
+      const currentVersion = Number(currentMeta.rows[0]?.version ?? "0");
+      const currentRequestCount = await client.query<{ count: string }>(
+        "select count(*)::text as count from alpha_exchange.purchase_requests",
+      );
+      const currentRequests = Number(currentRequestCount.rows[0]?.count ?? "0");
+
+      logRepoVersionFlow("save:db:attempt", {
+        loadedVersion,
+        currentVersion,
+        incomingPurchaseRequests: db.purchaseRequests.length,
+        currentPurchaseRequests: currentRequests,
+      });
+
+      if (loadedVersion !== currentVersion) {
+        logRepoVersionFlow("save:db:stale-snapshot", {
+          loadedVersion,
+          currentVersion,
+          incomingPurchaseRequests: db.purchaseRequests.length,
+          currentPurchaseRequests: currentRequests,
+        });
+        const latestSnapshot = await this.loadSnapshot();
+        const mergedSnapshot = mergeSnapshotWithLatest(latestSnapshot, db);
+        const mergedVersion = getVersion(mergedSnapshot);
+        const nextVersion = currentVersion + 1;
+        const evidenceRows = await client.query<{ id: string; content: Buffer | null }>("select id, content from alpha_exchange.evidence");
+        const evidenceContentById = new Map(evidenceRows.rows.map((row) => [row.id, row.content]));
+        const persistedSnapshot = attachVersion(mergedSnapshot, nextVersion);
+        await client.query(TRUNCATE_SQL);
+        for (const table of tables.filter((entry) => SNAPSHOT_TABLE_NAMES.has(entry.name))) {
+          await table.insert(client, table.values(persistedSnapshot), {
+            evidenceContentById,
+            evidenceOverrides: options?.evidenceOverrides,
+          });
+        }
+        await client.query(
+          "update alpha_exchange.runtime_meta set version = $1, updated_at = now() where singleton = true",
+          [nextVersion],
+        );
+        logRepoVersionFlow("save:db:merged", {
+          loadedVersion,
+          currentVersion,
+          mergedVersion,
+          writtenVersion: nextVersion,
+          purchaseRequests: persistedSnapshot.purchaseRequests.length,
+        });
+        await client.query("commit");
+        return;
+      }
+
       const evidenceRows = await client.query<{ id: string; content: Buffer | null }>("select id, content from alpha_exchange.evidence");
       const evidenceContentById = new Map(evidenceRows.rows.map((row) => [row.id, row.content]));
 
       await client.query(TRUNCATE_SQL);
-      for (const table of tables) {
+      for (const table of tables.filter((entry) => SNAPSHOT_TABLE_NAMES.has(entry.name))) {
         await table.insert(client, table.values(db), {
           evidenceContentById,
           evidenceOverrides: options?.evidenceOverrides,
         });
       }
 
+      const writtenVersion = currentVersion + 1;
       await client.query(
         "update alpha_exchange.runtime_meta set version = $1, updated_at = now() where singleton = true",
-        [getVersion(db) + 1],
+        [writtenVersion],
       );
+
+      logRepoVersionFlow("save:db:commit", {
+        loadedVersion,
+        previousVersion: currentVersion,
+        writtenVersion,
+        purchaseRequests: db.purchaseRequests.length,
+      });
 
       await client.query("commit");
     } catch (error) {
-      await client.query("rollback");
+      shouldDestroyClient = true;
+      try {
+        await client.query("rollback");
+      } catch {
+        // The transaction may already be aborted; dispose this client so the next request gets a fresh connection.
+      }
       throw error;
     } finally {
-      client.release();
+      client.release(shouldDestroyClient ? true : undefined);
     }
+  }
+
+  async upsertAuthSession(session: AuthSession) {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      ensureMemorySeed();
+      const current = cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion);
+      current.authSessions = current.authSessions.filter((item) => item.userId !== session.userId && item.token !== session.token);
+      current.authSessions.push(session);
+      globalThis.__alphaExchangeMemorySnapshot = attachVersion(current, getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion));
+      return;
+    }
+
+    const client = await pool.connect();
+    let shouldDestroyClient = false;
+    try {
+      await client.query("begin");
+      await client.query("delete from alpha_exchange.sessions where user_id = $1", [session.userId]);
+      const nextSortIndex = await client.query<{ next_index: string }>("select coalesce(max(sort_index), -1) + 1 as next_index from alpha_exchange.sessions");
+      await client.query(
+        `insert into alpha_exchange.sessions
+          (token_hash, user_id, expires_at, created_at, sort_index, payload)
+         values ($1,$2,$3,$4,$5,$6::jsonb)`,
+        [session.token, session.userId, session.expiresAt, session.createdAt, Number(nextSortIndex.rows[0]?.next_index ?? "0"), json(session)],
+      );
+      await client.query("commit");
+    } catch (error) {
+      shouldDestroyClient = true;
+      try {
+        await client.query("rollback");
+      } catch {
+        // A previously-aborted transaction can leave the client in a broken state.
+        // Dispose it so the next request starts from a clean client.
+      }
+      throw error;
+    } finally {
+      client.release(shouldDestroyClient ? true : undefined);
+    }
+  }
+
+  async getAuthSession(tokenHash: string) {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      ensureMemorySeed();
+      return (globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion).authSessions.find((item) => item.token === tokenHash) ?? null;
+    }
+
+    const result = await pool.query<{ payload: AuthSession }>(
+      "select payload from alpha_exchange.sessions where token_hash = $1 limit 1",
+      [tokenHash],
+    );
+    return result.rows[0]?.payload ?? null;
+  }
+
+  async deleteAuthSession(tokenHash: string) {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      ensureMemorySeed();
+      const current = cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion);
+      current.authSessions = current.authSessions.filter((item) => item.token !== tokenHash);
+      globalThis.__alphaExchangeMemorySnapshot = attachVersion(current, getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion));
+      return;
+    }
+
+    await pool.query("delete from alpha_exchange.sessions where token_hash = $1", [tokenHash]);
   }
 
   async readEvidenceContent(evidenceId: string) {

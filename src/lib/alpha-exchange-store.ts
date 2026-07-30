@@ -1,6 +1,8 @@
+import { appendFileSync } from "fs";
 import path from "path";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "crypto";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
+import { createExchangeDisplayLookup, normalizeDisplayNumber, replaceExchangeEntityIds } from "@/lib/alpha-exchange-display";
 import { calculateSellerTrustSnapshot, rankTrustSnapshots } from "@/lib/trust-engine";
 import { getSellerPrestigeProgress, getSellerPublicVolumeLabel, resolveSellerPrestigeRank, sellerPrestigeRankWeight } from "@/lib/seller-prestige";
 import { evaluateSellerAchievements } from "@/lib/seller-achievements";
@@ -35,7 +37,11 @@ import type {
   SellerReport,
   SellerLevel,
   NotificationCategory,
+  NotificationCenterCategory,
+  NotificationPriorityLevel,
   NotificationPreferences,
+  NotificationState,
+  NotificationTradeSnapshot,
   SellerPublicProfile,
   PremiumSellerProfileData,
   SellerReputationSnapshot,
@@ -53,6 +59,63 @@ import type {
   UserRole,
   SellerReviewRecord,
 } from "@/types/alpha-exchange";
+
+const SELLER_EVIDENCE_TRACE_PATH = path.join(process.cwd(), "tmp", "seller-evidence-server.log");
+
+function writeSellerEvidenceTrace(label: string, payload: unknown) {
+  appendFileSync(SELLER_EVIDENCE_TRACE_PATH, `${JSON.stringify({ label, payload }, null, 2)}\n`, "utf8");
+}
+
+function getSortableDisplayTimestamp<T extends { createdAt?: string; updatedAt?: string }>(item: T) {
+  const createdAtMs = item.createdAt ? new Date(item.createdAt).getTime() : Number.NaN;
+  if (Number.isFinite(createdAtMs) && createdAtMs > 0) return createdAtMs;
+  const updatedAtMs = item.updatedAt ? new Date(item.updatedAt).getTime() : Number.NaN;
+  if (Number.isFinite(updatedAtMs) && updatedAtMs > 0) return updatedAtMs;
+  return 0;
+}
+
+function assignDisplayNumbers<T extends { displayNumber?: number; createdAt?: string; updatedAt?: string }>(items: T[]) {
+  const usedNumbers = new Set<number>();
+  let nextDisplayNumber = 1;
+  let changed = false;
+
+  for (const item of items) {
+    const displayNumber = normalizeDisplayNumber(item.displayNumber);
+    if (!displayNumber) continue;
+    usedNumbers.add(displayNumber);
+    if (displayNumber >= nextDisplayNumber) nextDisplayNumber = displayNumber + 1;
+  }
+
+  const missing = items
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => !normalizeDisplayNumber(item.displayNumber))
+    .sort((left, right) => {
+      const timestampDelta = getSortableDisplayTimestamp(left.item) - getSortableDisplayTimestamp(right.item);
+      if (timestampDelta !== 0) return timestampDelta;
+      return left.index - right.index;
+    });
+
+  for (const { item } of missing) {
+    while (usedNumbers.has(nextDisplayNumber)) nextDisplayNumber += 1;
+    item.displayNumber = nextDisplayNumber;
+    usedNumbers.add(nextDisplayNumber);
+    nextDisplayNumber += 1;
+    changed = true;
+  }
+
+  return changed;
+}
+
+function ensureDisplayNumbers(db: AlphaExchangeDb) {
+  return [
+    assignDisplayNumbers(db.sellerApplications),
+    assignDisplayNumbers(db.marketplaceListings),
+    assignDisplayNumbers(db.purchaseRequests),
+    assignDisplayNumbers(db.commissionRecords),
+    assignDisplayNumbers(db.disputes),
+    assignDisplayNumbers(db.sellerReports),
+  ].some(Boolean);
+}
 
 const supportedEvidenceMimeTypes = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
 
@@ -95,6 +158,17 @@ let dbCache: { value: AlphaExchangeDb; updatedAt: number } | null = null;
 let dbReadInFlight: Promise<AlphaExchangeDb> | null = null;
 let dbWriteInFlight: Promise<void> = Promise.resolve();
 
+function syncCachedAuthSessions(nextAuthSessions: AuthSession[]) {
+  if (!dbCache) return;
+  dbCache = {
+    value: {
+      ...dbCache.value,
+      authSessions: structuredClone(nextAuthSessions),
+    },
+    updatedAt: Date.now(),
+  };
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -112,6 +186,185 @@ function normalizeNotificationPreferences(input?: NotificationPreferences): Noti
     inApp: input?.inApp !== false,
     email: input?.email === true,
     sms: input?.sms === true,
+  };
+}
+
+function isNotificationCenterCategory(value: string): value is NotificationCenterCategory {
+  return value === "trades" || value === "listings" || value === "account" || value === "reviews" || value === "system" || value === "announcements";
+}
+
+function normalizeNotificationState(value: unknown, isRead: boolean): NotificationState {
+  if (value === "archived") return "archived";
+  if (value === "read") return "read";
+  if (value === "unread") return "unread";
+  return isRead ? "read" : "unread";
+}
+
+function resolveNotificationCenterCategory(notification: Pick<AlphaExchangeNotification, "category" | "title" | "message">): NotificationCenterCategory {
+  const text = `${notification.title} ${notification.message}`.toLowerCase();
+  if (notification.category === "trade") {
+    if (text.includes("review")) return "reviews";
+    return "trades";
+  }
+  if (notification.category === "trust") return "reviews";
+  if (notification.category === "listing") return "listings";
+  if (notification.category === "system") {
+    return text.includes("announcement") ? "announcements" : "system";
+  }
+  if (notification.category === "account" || notification.category === "application" || notification.category === "dispute" || notification.category === "report") {
+    return "account";
+  }
+  return "system";
+}
+
+function resolveNotificationPriority(notification: Pick<AlphaExchangeNotification, "title" | "message" | "category" | "centerCategory">): { priority: NotificationPriorityLevel; rank: number } {
+  const text = `${notification.title} ${notification.message}`.toLowerCase();
+  if (text.includes("buyer paid") || text.includes("marked payment sent") || text.includes("verify your payment")) {
+    return { priority: "critical", rank: 10 };
+  }
+  if (text.includes("usdt sent") || text.includes("confirmed your payment") || text.includes("waiting for usdt")) {
+    return { priority: "critical", rank: 20 };
+  }
+  if (text.includes("trade completed") || text.includes("review available") || text.includes("confirm trade completed")) {
+    return { priority: "high", rank: 30 };
+  }
+  if (text.includes("review")) {
+    return { priority: "high", rank: 40 };
+  }
+  if (text.includes("listing expired") || text.includes("listing unavailable")) {
+    return { priority: "normal", rank: 50 };
+  }
+  if (text.includes("seller approved") || text.includes("application approved")) {
+    return { priority: "normal", rank: 60 };
+  }
+  if ((notification.centerCategory ?? "system") === "announcements") {
+    return { priority: "low", rank: 70 };
+  }
+  return notification.category === "trade" ? { priority: "high", rank: 35 } : { priority: "normal", rank: 65 };
+}
+
+function resolveTradeRequiredAction(request: PurchaseRequest, recipientIsSeller: boolean) {
+  if (request.status === "pending") {
+    return recipientIsSeller ? "Accept or decline this request" : "Wait for seller response";
+  }
+  if (request.status === "accepted") {
+    return recipientIsSeller ? "Wait for buyer payment proof" : "Upload payment proof and mark Payment Sent";
+  }
+  if (request.status === "payment_sent") {
+    return recipientIsSeller ? "Verify payment, upload proof, then mark USDT Sent" : "Wait for seller USDT release";
+  }
+  if (request.status === "usdt_sent") {
+    return recipientIsSeller ? "Wait for buyer completion confirmation" : "Confirm trade completed";
+  }
+  if (request.status === "review_open" || request.status === "completed") {
+    return "Leave your trade review";
+  }
+  if (request.status === "declined" || request.status === "cancelled") {
+    return "Trade is closed";
+  }
+  return "Open trade details";
+}
+
+function resolveNotificationActionLabel(notification: Pick<AlphaExchangeNotification, "title" | "message" | "centerCategory" | "relatedTradeId" | "relatedRequestId">, request?: PurchaseRequest) {
+  const text = `${notification.title} ${notification.message}`.toLowerCase();
+  if (text.includes("verify") || text.includes("payment sent")) return "Verify Payment";
+  if (text.includes("confirm") && text.includes("completed")) return "Confirm Completion";
+  if (text.includes("review") || request?.status === "review_open" || request?.status === "completed") return "Leave Review";
+  if ((notification.centerCategory ?? "system") === "trades" || notification.relatedTradeId || notification.relatedRequestId) return "Continue Trade";
+  return "Open";
+}
+
+function resolveTradeContextForNotification(
+  db: AlphaExchangeDb,
+  input: { userId: string; relatedRequestId?: string; relatedTradeId?: string; relatedListingId?: string },
+) {
+  const directRequest = input.relatedRequestId ? db.purchaseRequests.find((request) => request.id === input.relatedRequestId) : undefined;
+  if (directRequest) return directRequest;
+
+  const byTrade = input.relatedTradeId
+    ? db.purchaseRequests.find((request) => request.id === input.relatedTradeId || request.tradeId === input.relatedTradeId)
+    : undefined;
+  if (byTrade) return byTrade;
+
+  if (!input.relatedListingId) return undefined;
+  const related = db.purchaseRequests
+    .filter((request) => request.listingId === input.relatedListingId && (request.buyerId === input.userId || request.sellerId === input.userId))
+    .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
+  return related[0];
+}
+
+function buildTradeSnapshotForNotification(db: AlphaExchangeDb, userId: string, request?: PurchaseRequest): NotificationTradeSnapshot | undefined {
+  if (!request) return undefined;
+  const recipientIsSeller = request.sellerId === userId;
+  const counterpartyId = recipientIsSeller ? request.buyerId : request.sellerId;
+  const counterparty = db.users.find((user) => user.id === counterpartyId);
+  const listing = db.marketplaceListings.find((item) => item.id === request.listingId);
+  return {
+    requestId: request.id,
+    requestDisplayNumber: request.displayNumber,
+    tradeId: request.tradeId,
+    tradeDisplayNumber: request.displayNumber,
+    listingDisplayNumber: listing?.displayNumber,
+    sellerId: request.sellerId,
+    buyerId: request.buyerId,
+    counterpartyName: counterparty?.fullName?.trim() || (recipientIsSeller ? "Buyer" : "Seller"),
+    counterpartyAvatarUrl: counterparty?.profilePhotoUrl?.trim() || undefined,
+    usdtAmount: request.usdtAmount,
+    fiatAmount: request.fiatAmount,
+    currency: request.currency,
+    currentStage: request.status,
+    requiredAction: resolveTradeRequiredAction(request, recipientIsSeller),
+  };
+}
+
+function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNotification): AlphaExchangeNotification {
+  const request = resolveTradeContextForNotification(db, {
+    userId: notification.userId,
+    relatedRequestId: notification.relatedRequestId,
+    relatedTradeId: notification.relatedTradeId,
+    relatedListingId: notification.relatedListingId,
+  });
+  const relatedRequestId = notification.relatedRequestId ?? request?.id;
+  const relatedTradeId = notification.relatedTradeId ?? request?.tradeId ?? request?.id;
+  const centerCategory = notification.centerCategory && isNotificationCenterCategory(notification.centerCategory)
+    ? notification.centerCategory
+    : resolveNotificationCenterCategory(notification);
+  const state = normalizeNotificationState(notification.state, notification.isRead);
+  const priority = notification.priority ?? resolveNotificationPriority({ ...notification, centerCategory }).priority;
+  const priorityRank = typeof notification.priorityRank === "number"
+    ? notification.priorityRank
+    : resolveNotificationPriority({ ...notification, centerCategory }).rank;
+  const relatedHref = request
+    ? requestDetailsHref(request.id)
+    : notification.relatedHref;
+  const actionHref = notification.actionHref?.trim() || relatedHref;
+  const listing = request ? db.marketplaceListings.find((item) => item.id === request.listingId) : undefined;
+  const displayLookup = createExchangeDisplayLookup({
+    listings: db.marketplaceListings,
+    requests: db.purchaseRequests,
+    commissions: db.commissionRecords,
+    disputes: db.disputes,
+    applications: db.sellerApplications,
+  });
+  return {
+    ...notification,
+    title: replaceExchangeEntityIds(notification.title, displayLookup),
+    message: replaceExchangeEntityIds(notification.message, displayLookup),
+    isRead: state !== "unread",
+    state,
+    centerCategory,
+    priority,
+    priorityRank,
+    relatedRequestId,
+    relatedRequestDisplayNumber: request?.displayNumber,
+    relatedTradeId,
+    relatedTradeDisplayNumber: request?.displayNumber,
+    relatedListingDisplayNumber: listing?.displayNumber,
+    relatedHref,
+    actionHref,
+    actionLabel: notification.actionLabel?.trim() || resolveNotificationActionLabel(notification, request),
+    tradeSnapshot: notification.tradeSnapshot ?? buildTradeSnapshotForNotification(db, notification.userId, request),
+    updatedAt: notification.updatedAt ?? notification.createdAt,
   };
 }
 
@@ -825,7 +1078,7 @@ function isOnboardingSelection(value: string): value is OnboardingSelection {
 }
 
 function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
-  return {
+  const normalized: AlphaExchangeDb = {
     ...defaultDb,
     ...db,
     users: (db.users ?? []).map((user) => {
@@ -975,10 +1228,12 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
     }),
     sellerApplications: (db.sellerApplications ?? []).map((application) => ({
       ...application,
+      displayNumber: normalizeDisplayNumber((application as { displayNumber?: unknown }).displayNumber),
       status: isValidSellerApplicationStatus(application.status) ? application.status : "pending",
     })),
     purchaseRequests: (db.purchaseRequests ?? []).map((request) => ({
       ...request,
+      displayNumber: normalizeDisplayNumber((request as { displayNumber?: unknown }).displayNumber),
       status: isValidPurchaseStatus(request.status) ? request.status : "pending",
       tradeId: typeof (request as { tradeId?: string }).tradeId === "string" ? (request as { tradeId: string }).tradeId : undefined,
       usdtAmount:
@@ -1059,6 +1314,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       const dueAt = typeof (record as { dueAt?: string }).dueAt === "string" ? (record as { dueAt: string }).dueAt : addDaysIso(createdAt, COMMISSION_GRACE_PERIOD_DAYS);
       return {
         ...record,
+        displayNumber: normalizeDisplayNumber((record as { displayNumber?: unknown }).displayNumber),
         paymentStatus: normalizeCommissionPaymentStatus((record as { paymentStatus?: string }).paymentStatus, dueAt),
         dueAt,
         paidAt: typeof (record as { paidAt?: string }).paidAt === "string" ? (record as { paidAt: string }).paidAt : undefined,
@@ -1078,16 +1334,41 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
     })),
     authSessions: db.authSessions ?? [],
     passwordResetTokens: db.passwordResetTokens ?? [],
-    notifications: (db.notifications ?? []).filter((item) => item && typeof item.userId === "string"),
+    notifications: (db.notifications ?? [])
+      .filter((item) => item && typeof item.userId === "string")
+      .map((item) => {
+        const entry = item as AlphaExchangeNotification;
+        const state = normalizeNotificationState(entry.state, entry.isRead);
+        return {
+          ...entry,
+          state,
+          isRead: state !== "unread",
+          centerCategory: entry.centerCategory && isNotificationCenterCategory(entry.centerCategory)
+            ? entry.centerCategory
+            : resolveNotificationCenterCategory(entry),
+          priority: entry.priority ?? resolveNotificationPriority({ ...entry, centerCategory: resolveNotificationCenterCategory(entry) }).priority,
+          priorityRank: typeof entry.priorityRank === "number"
+            ? entry.priorityRank
+            : resolveNotificationPriority({ ...entry, centerCategory: resolveNotificationCenterCategory(entry) }).rank,
+          updatedAt: entry.updatedAt ?? entry.createdAt,
+          archivedAt: typeof entry.archivedAt === "string" ? entry.archivedAt : undefined,
+        } satisfies AlphaExchangeNotification;
+      }),
     activityLog: (db.activityLog ?? []).filter((item) => item && typeof item.userId === "string"),
     disputes: (db.disputes ?? [])
       .filter((item) => item && typeof item.id === "string")
       .map((item) => ({
         ...item,
+        displayNumber: normalizeDisplayNumber((item as { displayNumber?: unknown }).displayNumber),
         buyerEvidenceId: typeof (item as { buyerEvidenceId?: string }).buyerEvidenceId === "string" ? (item as { buyerEvidenceId: string }).buyerEvidenceId : undefined,
         sellerEvidenceId: typeof (item as { sellerEvidenceId?: string }).sellerEvidenceId === "string" ? (item as { sellerEvidenceId: string }).sellerEvidenceId : undefined,
       })),
-    sellerReports: (db.sellerReports ?? []).filter((item) => item && typeof item.id === "string"),
+    sellerReports: (db.sellerReports ?? [])
+      .filter((item) => item && typeof item.id === "string")
+      .map((item) => ({
+        ...item,
+        displayNumber: normalizeDisplayNumber((item as { displayNumber?: unknown }).displayNumber),
+      })),
     trustSnapshots: (db.trustSnapshots ?? []).filter((entry) => entry && typeof entry.sellerId === "string" && entry.snapshot),
     trustScoreHistory: (db.trustScoreHistory ?? []).filter((entry) => entry && typeof entry.sellerId === "string"),
     tradeEvidenceFiles: (db.tradeEvidenceFiles ?? [])
@@ -1142,6 +1423,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
     })),
     marketplaceListings: (db.marketplaceListings ?? []).map((listing) => ({
       ...listing,
+      displayNumber: normalizeDisplayNumber((listing as { displayNumber?: unknown }).displayNumber),
       photos: Array.isArray((listing as { photos?: string[] }).photos)
         ? (listing as { photos: string[] }).photos.map((photo) => String(photo).trim()).filter(Boolean).slice(0, 6)
         : [],
@@ -1207,6 +1489,9 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
           : "TRC20",
     })),
   };
+
+  ensureDisplayNumbers(normalized);
+  return normalized;
 }
 
 async function readDb(): Promise<AlphaExchangeDb> {
@@ -1216,19 +1501,22 @@ async function readDb(): Promise<AlphaExchangeDb> {
   }
   if (!dbReadInFlight) {
     dbReadInFlight = (async () => {
-      const repository = await getAlphaExchangeRepository();
-      const parsed = await repository.loadSnapshot();
-      const normalized = normalizeDb(parsed);
-      const changed = await applyMarketplaceReliabilityRules(normalized);
-      if (changed) {
-        await writeDb(normalized);
+      try {
+        const repository = await getAlphaExchangeRepository();
+        const parsed = await repository.loadSnapshot();
+        const normalized = normalizeDb(parsed);
+        const numberingChanged = ensureDisplayNumbers(normalized);
+        const changed = await applyMarketplaceReliabilityRules(normalized);
+        if (changed || numberingChanged) {
+          await writeDb(normalized);
+          return normalized;
+        }
+        dbCache = { value: normalized, updatedAt: Date.now() };
         return normalized;
+      } finally {
+        dbReadInFlight = null;
       }
-      dbCache = { value: normalized, updatedAt: Date.now() };
-      return normalized;
-    })().finally(() => {
-      dbReadInFlight = null;
-    });
+    })();
   }
   const normalized = await dbReadInFlight;
   return structuredClone(normalized);
@@ -1236,14 +1524,18 @@ async function readDb(): Promise<AlphaExchangeDb> {
 
 async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<string, Buffer> }) {
   const normalized = normalizeDb(db);
+  ensureDisplayNumbers(normalized);
   const writeTask = dbWriteInFlight.then(async () => {
     const repository = await getAlphaExchangeRepository();
     await repository.saveSnapshot(normalized, { evidenceOverrides: options?.evidenceOverrides });
   });
   dbWriteInFlight = writeTask.catch(() => undefined);
-  await writeTask;
-  dbCache = { value: normalized, updatedAt: Date.now() };
-  dbReadInFlight = null;
+  try {
+    await writeTask;
+    dbCache = { value: normalized, updatedAt: Date.now() };
+  } finally {
+    dbReadInFlight = null;
+  }
 }
 
 async function appendAuditLog(db: AlphaExchangeDb, input: {
@@ -1257,6 +1549,14 @@ async function appendAuditLog(db: AlphaExchangeDb, input: {
   newValue?: unknown;
   reason?: string;
 }) {
+  ensureDisplayNumbers(db);
+  const displayLookup = createExchangeDisplayLookup({
+    listings: db.marketplaceListings,
+    requests: db.purchaseRequests,
+    commissions: db.commissionRecords,
+    disputes: db.disputes,
+    applications: db.sellerApplications,
+  });
   const entry: AuditLogEntry = {
     id: `audit-${randomUUID()}`,
     action: input.action,
@@ -1264,7 +1564,7 @@ async function appendAuditLog(db: AlphaExchangeDb, input: {
     targetUserId: input.targetUserId,
     listingId: input.listingId,
     purchaseRequestId: input.purchaseRequestId,
-    details: input.details,
+    details: input.details ? replaceExchangeEntityIds(input.details, displayLookup) : input.details,
     oldValue: input.oldValue,
     newValue: input.newValue,
     reason: input.reason,
@@ -1285,25 +1585,104 @@ function pushNotification(
     title: string;
     message: string;
     relatedTradeId?: string;
+    relatedRequestId?: string;
     relatedListingId?: string;
     relatedHref?: string;
+    actionLabel?: string;
+    actionHref?: string;
+    reason?: string;
+    priority?: NotificationPriorityLevel;
+    state?: NotificationState;
   },
 ) {
+  ensureDisplayNumbers(db);
   const user = db.users.find((item) => item.id === input.userId);
   if (!user) return;
-  if (user.notificationPreferences?.inApp === false) return;
-  const notification: AlphaExchangeNotification = {
-    id: `notif-${randomUUID()}`,
+  if (user.notificationPreferences?.inApp === false && input.category !== "trade") return;
+  const inferredRequest = resolveTradeContextForNotification(db, {
     userId: input.userId,
+    relatedRequestId: input.relatedRequestId,
+    relatedTradeId: input.relatedTradeId,
+    relatedListingId: input.relatedListingId,
+  });
+  const relatedRequestId = input.relatedRequestId ?? inferredRequest?.id;
+  const centerCategory = resolveNotificationCenterCategory({
     category: input.category,
     title: input.title,
     message: input.message,
-    isRead: false,
+  } as AlphaExchangeNotification);
+  const inferredPriority = resolveNotificationPriority({
+    title: input.title,
+    message: input.message,
+    category: input.category,
+    centerCategory,
+  } as AlphaExchangeNotification);
+  const createdAt = nowIso();
+  const relatedHref = input.relatedHref?.trim() || (relatedRequestId ? requestDetailsHref(relatedRequestId) : undefined);
+  const nextState = input.state ?? "unread";
+
+  const duplicate = db.notifications.find((item) => {
+    if (item.userId !== input.userId) return false;
+    if (item.category !== input.category) return false;
+    if (item.title !== input.title) return false;
+    if ((item.relatedRequestId ?? "") !== (relatedRequestId ?? "")) return false;
+    const ageMs = Date.now() - new Date(item.createdAt).getTime();
+    return Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 45_000;
+  });
+
+  if (duplicate) {
+    const duplicateIndex = db.notifications.findIndex((item) => item.id === duplicate.id);
+    if (duplicateIndex >= 0) {
+      const updated = enrichNotification(db, {
+        ...duplicate,
+        message: input.message,
+        state: nextState,
+        isRead: nextState !== "unread",
+        relatedTradeId: input.relatedTradeId ?? duplicate.relatedTradeId,
+        relatedRequestId: relatedRequestId ?? duplicate.relatedRequestId,
+        relatedListingId: input.relatedListingId ?? duplicate.relatedListingId,
+        relatedHref: relatedHref ?? duplicate.relatedHref,
+        centerCategory,
+        priority: input.priority ?? inferredPriority.priority,
+        priorityRank: inferredPriority.rank,
+        actionLabel: input.actionLabel ?? duplicate.actionLabel,
+        actionHref: input.actionHref ?? duplicate.actionHref ?? relatedHref,
+        reason: input.reason ?? duplicate.reason,
+        archivedAt: nextState === "archived" ? createdAt : undefined,
+        updatedAt: createdAt,
+      });
+      db.notifications[duplicateIndex] = updated;
+      publishRealtimeEvent({
+        type: "notification.updated",
+        payload: { notification: updated },
+      });
+      return;
+    }
+  }
+
+  const notification = enrichNotification(db, {
+    id: `notif-${randomUUID()}`,
+    userId: input.userId,
+    category: input.category,
+    centerCategory,
+    title: input.title,
+    message: input.message,
+    isRead: nextState !== "unread",
+    state: nextState,
+    priority: input.priority ?? inferredPriority.priority,
+    priorityRank: inferredPriority.rank,
+    actionLabel: input.actionLabel,
+    actionHref: input.actionHref ?? relatedHref,
+    reason: input.reason,
     relatedTradeId: input.relatedTradeId,
+    relatedRequestId,
     relatedListingId: input.relatedListingId,
-    relatedHref: input.relatedHref,
-    createdAt: nowIso(),
-  };
+    relatedHref,
+    tradeSnapshot: buildTradeSnapshotForNotification(db, input.userId, inferredRequest),
+    archivedAt: nextState === "archived" ? createdAt : undefined,
+    updatedAt: createdAt,
+    createdAt,
+  });
   db.notifications.unshift(notification);
   publishRealtimeEvent({
     type: "notification.created",
@@ -1311,16 +1690,28 @@ function pushNotification(
   });
 }
 
+function requestDetailsHref(requestId: string) {
+  return `/usdt-exchange?requestId=${encodeURIComponent(requestId)}`;
+}
+
 function pushActivityLog(
   db: AlphaExchangeDb,
   input: { userId: string; category: NotificationCategory; title: string; details: string },
 ) {
+  ensureDisplayNumbers(db);
+  const displayLookup = createExchangeDisplayLookup({
+    listings: db.marketplaceListings,
+    requests: db.purchaseRequests,
+    commissions: db.commissionRecords,
+    disputes: db.disputes,
+    applications: db.sellerApplications,
+  });
   const entry: AlphaExchangeActivityLogEntry = {
     id: `activity-${randomUUID()}`,
     userId: input.userId,
     category: input.category,
-    title: input.title,
-    details: input.details,
+    title: replaceExchangeEntityIds(input.title, displayLookup),
+    details: replaceExchangeEntityIds(input.details, displayLookup),
     createdAt: nowIso(),
   };
   db.activityLog.unshift(entry);
@@ -2229,7 +2620,6 @@ export async function findUserById(userId: string) {
 }
 
 export async function createAuthSession(userId: string, token: string, durationDays = 14) {
-  const db = await readDb();
   const createdAt = new Date();
   const expiresAt = new Date(createdAt);
   expiresAt.setDate(expiresAt.getDate() + durationDays);
@@ -2239,30 +2629,33 @@ export async function createAuthSession(userId: string, token: string, durationD
     createdAt: createdAt.toISOString(),
     expiresAt: expiresAt.toISOString(),
   };
-  db.authSessions = db.authSessions.filter((item) => item.userId !== userId);
-  db.authSessions.push(session);
-  await writeDb(db);
+  const repository = await getAlphaExchangeRepository();
+  await repository.upsertAuthSession(session);
+  const cachedSessions = dbCache?.value.authSessions ?? [];
+  syncCachedAuthSessions([...cachedSessions.filter((item) => item.userId !== userId && item.token !== session.token), session]);
   return session;
 }
 
 export async function getSessionByToken(token: string) {
-  const db = await readDb();
   const hashed = hashToken(token);
-  const session = db.authSessions.find((item) => item.token === hashed);
+  const repository = await getAlphaExchangeRepository();
+  const session = await repository.getAuthSession(hashed);
   if (!session) return null;
   if (new Date(session.expiresAt) < new Date()) {
-    db.authSessions = db.authSessions.filter((item) => item.token !== hashed);
-    await writeDb(db);
+    await repository.deleteAuthSession(hashed);
+    const cachedSessions = dbCache?.value.authSessions ?? [];
+    syncCachedAuthSessions(cachedSessions.filter((item) => item.token !== hashed));
     return null;
   }
   return session;
 }
 
 export async function deleteSessionByToken(token: string) {
-  const db = await readDb();
   const hashed = hashToken(token);
-  db.authSessions = db.authSessions.filter((item) => item.token !== hashed);
-  await writeDb(db);
+  const repository = await getAlphaExchangeRepository();
+  await repository.deleteAuthSession(hashed);
+  const cachedSessions = dbCache?.value.authSessions ?? [];
+  syncCachedAuthSessions(cachedSessions.filter((item) => item.token !== hashed));
 }
 
 export async function createPasswordResetToken(userId: string, rawToken: string, durationMinutes = 30) {
@@ -2740,6 +3133,7 @@ export async function createMarketplaceListing(input: {
   network: SupportedNetwork;
   paymentMethod?: string;
   paymentMethods?: string[];
+  bankName?: string;
   minimumTrade?: string;
   maximumTrade?: string;
   expiresAt?: string;
@@ -2766,6 +3160,7 @@ export async function createMarketplaceListing(input: {
     network: input.network,
     paymentMethods: (input.paymentMethods ?? [input.paymentMethod ?? "Bank transfer"]).map((method) => String(method).trim()).filter(Boolean).slice(0, 8),
     paymentMethod: "",
+    bankName: input.bankName?.trim() || undefined,
     minimumTrade: input.minimumTrade?.trim() || "0",
     maximumTrade: input.maximumTrade?.trim() || input.availableAmount.trim(),
     expiresAt,
@@ -2819,6 +3214,7 @@ export async function updateMarketplaceListingForSeller(input: {
   network?: SupportedNetwork;
   paymentMethod?: string;
   paymentMethods?: string[];
+  bankName?: string;
   minimumTrade?: string;
   maximumTrade?: string;
   expiresAt?: string;
@@ -2855,6 +3251,7 @@ export async function updateMarketplaceListingForSeller(input: {
       ? input.paymentMethods.map((method) => String(method).trim()).filter(Boolean).slice(0, 8)
       : (input.paymentMethod?.trim() ? [input.paymentMethod.trim()] : current.paymentMethods),
     paymentMethod: input.paymentMethod?.trim() || current.paymentMethod,
+    bankName: input.bankName !== undefined ? input.bankName.trim() || undefined : current.bankName,
     minimumTrade: input.minimumTrade?.trim() || current.minimumTrade,
     maximumTrade: input.maximumTrade?.trim() || current.maximumTrade,
     expiresAt: input.expiresAt?.trim() || (input.expirationHours !== undefined ? getListingExpirationIso(updatedAt, input.expirationHours) : current.expiresAt),
@@ -3267,6 +3664,7 @@ export async function createPurchaseRequest(input: {
   buyerName: string;
   buyerWhatsapp: string;
   buyerNotes: string;
+  bankName?: string;
   actorUserId: string;
 }) {
   const db = await readDb();
@@ -3325,6 +3723,7 @@ export async function createPurchaseRequest(input: {
     currency: listing.currency,
     network: listing.network,
     paymentMethod: listing.paymentMethod,
+    bankName: input.bankName?.trim() || listing.bankName,
     timeline: [
       {
         id: `timeline-purchase-${randomUUID()}-1`,
@@ -3363,7 +3762,7 @@ export async function createPurchaseRequest(input: {
     message: `${request.buyerName} submitted a trade request.`,
     relatedTradeId: request.tradeId,
     relatedListingId: request.listingId,
-    relatedHref: "/usdt-exchange",
+    relatedHref: requestDetailsHref(request.id),
   });
   pushActivityLog(db, {
     userId: input.buyerId,
@@ -3372,6 +3771,10 @@ export async function createPurchaseRequest(input: {
     details: `Request ${request.id} was submitted.`,
   });
   await recalculateTrustEngine(db, { reason: "Purchase request submitted", triggeredBy: input.actorUserId });
+  publishRealtimeEvent({
+    type: "trade.request_created",
+    payload: { request: enrichRequestWithEvidence(db, request) },
+  });
   await writeDb(db);
   return request;
 }
@@ -3533,8 +3936,39 @@ export async function uploadTradeEvidence(input: {
   contentBase64: string;
 }) {
   const db = await readDb();
+  const lookupId = String(input.purchaseRequestId ?? "");
+  const requestById = db.purchaseRequests.find((item) => item.id === lookupId) ?? null;
+  const requestByTradeId = db.purchaseRequests.find((item) => item.tradeId === lookupId) ?? null;
+  if (input.side === "seller") {
+    const matchedByTradeId = requestById?.tradeId
+      ? db.purchaseRequests.find((item) => item.tradeId === requestById.tradeId || item.id === requestById.tradeId) ?? null
+      : null;
+    writeSellerEvidenceTrace("store-lookup", {
+      purchaseRequestId: lookupId,
+      lookupIdentifier: lookupId,
+      startsWithTradePrefix: lookupId.startsWith("trade-"),
+      startsWithPurchasePrefix: lookupId.startsWith("purchase-"),
+      requestByIdFound: Boolean(requestById),
+      requestByTradeIdFound: Boolean(requestByTradeId),
+      requestById,
+      requestByTradeId,
+      referencedTradeId: requestById?.tradeId ?? null,
+      tradeObjectByReferencedTradeId: matchedByTradeId,
+      purchaseRequestCount: db.purchaseRequests.length,
+      latestPurchaseRequestIds: db.purchaseRequests.slice(0, 10).map((item) => item.id),
+    });
+  }
   const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.purchaseRequestId);
-  if (requestIndex === -1) throw new Error("Trade not found.");
+  if (requestIndex === -1) {
+    if (input.side === "seller") {
+      writeSellerEvidenceTrace("store-lookup-miss", {
+        reason: "No purchase request found by purchaseRequestId.",
+        purchaseRequestId: lookupId,
+        requestByTradeIdFound: Boolean(requestByTradeId),
+      });
+    }
+    throw new Error("Trade not found.");
+  }
   const request = db.purchaseRequests[requestIndex];
 
   assertTradeParticipantOrAdmin(request, input.actorUserId, input.actorRole);
@@ -3747,28 +4181,35 @@ export async function submitBuyerTradeReview(input: {
 }
 
 export async function submitSellerReviewResponse(input: {
-  requestId: string;
+  requestId?: string;
+  reviewId?: string;
   sellerUserId: string;
   message: string;
 }) {
   const db = await readDb();
-  const request = db.purchaseRequests.find((item) => item.id === input.requestId);
+  const review = input.reviewId
+    ? db.sellerReviews.find((item) => item.id === input.reviewId)
+    : undefined;
+  const request = review
+    ? db.purchaseRequests.find((item) => (item.tradeId ?? item.id) === review.tradeId)
+    : db.purchaseRequests.find((item) => item.id === input.requestId);
   if (!request) throw new Error("Trade not found.");
-  const review = db.sellerReviews.find((item) => item.tradeId === (request.tradeId ?? request.id));
-  if (!review) throw new Error("Seller response is available only after buyer review.");
+  const matchedReview = review ?? db.sellerReviews.find((item) => item.tradeId === (request.tradeId ?? request.id));
+  const reviewRecord = matchedReview;
+  if (!reviewRecord) throw new Error("Seller response is available only after buyer review.");
   if (request.sellerId !== input.sellerUserId) throw new Error("Only the seller can respond.");
-  if (review.hidden) throw new Error("Cannot reply to a hidden review.");
-  if (review.sellerReply) throw new Error("Seller response already submitted.");
+  if (reviewRecord.hidden) throw new Error("Cannot reply to a hidden review.");
+  if (reviewRecord.sellerReply) throw new Error("Seller response already submitted.");
   const message = String(input.message ?? "").trim();
   if (!message) throw new Error("Response message is required.");
   if (message.length > 500) throw new Error("Response message is too long.");
 
   const updatedReview = {
-    ...review,
+    ...reviewRecord,
     sellerReply: message,
     updatedAt: nowIso(),
   };
-  db.sellerReviews = db.sellerReviews.map((item) => (item.id === review.id ? updatedReview : item));
+  db.sellerReviews = db.sellerReviews.map((item) => (item.id === reviewRecord.id ? updatedReview : item));
 
   await appendAuditLog(db, {
     action: "trade_review_responded",
@@ -3853,8 +4294,8 @@ export async function updatePurchaseRequestStatus(input: {
     throw new Error("You are not allowed to update this request.");
   }
 
-  if (isSeller && !["accepted", "declined", "usdt_sent"].includes(input.nextStatus)) {
-    throw new Error("Seller can only set accepted, declined, or usdt_sent.");
+  if (isSeller && !["accepted", "declined", "funds_received", "usdt_release_pending", "usdt_sent"].includes(input.nextStatus)) {
+    throw new Error("Seller can only set accepted, declined, funds_received, usdt_release_pending, or usdt_sent.");
   }
   if (isBuyer && !["cancelled", "payment_sent", "completed"].includes(input.nextStatus)) {
     throw new Error("Buyer can only set cancelled, payment_sent, or completed.");
@@ -3865,7 +4306,9 @@ export async function updatePurchaseRequestStatus(input: {
   const allowedByStatus: Record<PurchaseRequestStatus, PurchaseRequestStatus[]> = {
     pending: ["accepted", "declined", "cancelled"],
     accepted: ["payment_sent", "cancelled"],
-    payment_sent: ["usdt_sent"],
+    payment_sent: ["funds_received"],
+    funds_received: ["usdt_release_pending"],
+    usdt_release_pending: ["usdt_sent"],
     usdt_sent: ["completed"],
     completed: ["locked"],
     locked: ["review_open"],
@@ -3927,7 +4370,7 @@ export async function updatePurchaseRequestStatus(input: {
         message: `Request ${sibling.id} was declined because the listing matched another buyer.`,
         relatedTradeId: sibling.tradeId,
         relatedListingId: sibling.listingId,
-        relatedHref: "/usdt-exchange",
+        relatedHref: requestDetailsHref(sibling.id),
       });
     }
     await appendListingStateAudit(db, {
@@ -3945,7 +4388,7 @@ export async function updatePurchaseRequestStatus(input: {
       message: `Your request ${request.id} was accepted.`,
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
-      relatedHref: "/usdt-exchange",
+      relatedHref: requestDetailsHref(request.id),
     });
   } else if (input.nextStatus === "declined") {
     next.status = "declined";
@@ -3957,7 +4400,7 @@ export async function updatePurchaseRequestStatus(input: {
       message: `Your request ${request.id} was declined by the seller.`,
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
-      relatedHref: "/usdt-exchange",
+      relatedHref: requestDetailsHref(request.id),
     });
   } else if (input.nextStatus === "cancelled") {
     next.status = "cancelled";
@@ -3983,7 +4426,34 @@ export async function updatePurchaseRequestStatus(input: {
       message: `Buyer marked payment sent for trade ${next.tradeId ?? request.id}.`,
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
-      relatedHref: "/usdt-exchange",
+      relatedHref: requestDetailsHref(request.id),
+    });
+  } else if (input.nextStatus === "funds_received") {
+    next.status = "funds_received";
+    next.fundsReceivedAt = now;
+    appendTradeTimelineEntry(next, { type: "seller_confirmed_funds", actorUserId: input.actorUserId, actorRole, message: "Seller confirmed funds received", createdAt: now });
+    pushNotification(db, {
+      userId: request.buyerId,
+      category: "trade",
+      title: "Seller confirmed funds received",
+      message: `Seller confirmed funds received for trade ${next.tradeId ?? request.id}.`,
+      relatedTradeId: next.tradeId,
+      relatedListingId: request.listingId,
+      relatedHref: requestDetailsHref(request.id),
+    });
+  } else if (input.nextStatus === "usdt_release_pending") {
+    next.status = "usdt_release_pending";
+    next.usdtReleaseStartedAt = now;
+    next.usdtReleaseDeadlineAt = addDaysIso(now, 1);
+    appendTradeTimelineEntry(next, { type: "usdt_release_started", actorUserId: input.actorUserId, actorRole, message: "Seller started USDT release", createdAt: now });
+    pushNotification(db, {
+      userId: request.buyerId,
+      category: "trade",
+      title: "USDT release pending",
+      message: `Seller started the USDT release process for trade ${next.tradeId ?? request.id}.`,
+      relatedTradeId: next.tradeId,
+      relatedListingId: request.listingId,
+      relatedHref: requestDetailsHref(request.id),
     });
   } else if (input.nextStatus === "usdt_sent") {
     const sellerEvidence = getTradeEvidenceFile(db, request.id, "seller");
@@ -3999,7 +4469,7 @@ export async function updatePurchaseRequestStatus(input: {
       message: `Seller marked USDT sent for trade ${next.tradeId ?? request.id}.`,
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
-      relatedHref: "/usdt-exchange",
+      relatedHref: requestDetailsHref(request.id),
     });
   } else if (input.nextStatus === "completed") {
     next.completedAt = now;
@@ -4088,7 +4558,7 @@ export async function updatePurchaseRequestStatus(input: {
       message: `Trade ${next.tradeId ?? request.id} is completed and locked.`,
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
-      relatedHref: "/usdt-exchange",
+      relatedHref: requestDetailsHref(request.id),
     });
     pushNotification(db, {
       userId: request.buyerId,
@@ -4097,7 +4567,7 @@ export async function updatePurchaseRequestStatus(input: {
       message: `You can now leave one review for trade ${next.tradeId ?? request.id}.`,
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
-      relatedHref: "/usdt-exchange",
+      relatedHref: requestDetailsHref(request.id),
     });
     pushNotification(db, {
       userId: request.sellerId,
@@ -4106,7 +4576,7 @@ export async function updatePurchaseRequestStatus(input: {
       message: `Trade ${next.tradeId ?? request.id} was completed by the buyer.`,
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
-      relatedHref: "/usdt-exchange",
+      relatedHref: requestDetailsHref(request.id),
     });
     const owner = getOwnerUser(db);
     const largeTradeThreshold = getLargeTradeThreshold();
@@ -4146,6 +4616,10 @@ export async function updatePurchaseRequestStatus(input: {
     next.status = input.nextStatus;
   }
   db.purchaseRequests[requestIndex] = next;
+  publishRealtimeEvent({
+    type: "trade.status_changed",
+    payload: { request: enrichRequestWithEvidence(db, next) },
+  });
 
   await recalculateTrustEngine(db, { reason: input.nextStatus === "completed" ? "Trade completed" : "Trade lifecycle updated", triggeredBy: input.actorUserId });
 
@@ -4705,6 +5179,8 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
 export async function getNotificationsForUser(input: {
   userId: string;
   category?: NotificationCategory;
+  centerCategory?: NotificationCenterCategory;
+  state?: NotificationState;
   unreadOnly?: boolean;
   query?: string;
   limit?: number;
@@ -4713,19 +5189,30 @@ export async function getNotificationsForUser(input: {
 }) {
   const db = await readDb();
   const category = input.category;
+  const centerCategory = input.centerCategory;
   const query = String(input.query ?? "").trim().toLowerCase();
-  const notifications = db.notifications.filter((notification) => {
+  const notifications = db.notifications.map((notification) => enrichNotification(db, notification)).filter((notification) => {
     if (notification.userId !== input.userId) return false;
     if (category && notification.category !== category) return false;
-    if (input.unreadOnly && notification.isRead) return false;
+    if (centerCategory && notification.centerCategory !== centerCategory) return false;
+    if (input.state && notification.state !== input.state) return false;
+    if (input.unreadOnly && notification.state !== "unread") return false;
     if (!query) return true;
-    const haystack = `${notification.title} ${notification.message} ${notification.relatedTradeId ?? ""} ${notification.relatedListingId ?? ""}`.toLowerCase();
+    const haystack = `${notification.title} ${notification.message} ${notification.relatedTradeId ?? ""} ${notification.relatedRequestId ?? ""} ${notification.relatedListingId ?? ""} ${notification.tradeSnapshot?.counterpartyName ?? ""}`.toLowerCase();
     return haystack.includes(query);
   });
-  const sortedNotifications = [...notifications].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+  const sortedNotifications = [...notifications].sort((left, right) => {
+    const leftRank = typeof left.priorityRank === "number" ? left.priorityRank : 99;
+    const rightRank = typeof right.priorityRank === "number" ? right.priorityRank : 99;
+    if (leftRank !== rightRank) return leftRank - rightRank;
+    const leftUnread = left.state === "unread" ? 0 : left.state === "read" ? 1 : 2;
+    const rightUnread = right.state === "unread" ? 0 : right.state === "read" ? 1 : 2;
+    if (leftUnread !== rightUnread) return leftUnread - rightUnread;
+    return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+  });
   const safeOffset = Math.max(0, Math.floor(input.offset ?? 0));
   const safeLimit = Math.max(1, Math.min(200, Math.floor(input.limit ?? 200)));
-  const unreadCount = sortedNotifications.filter((item) => !item.isRead).length;
+  const unreadCount = sortedNotifications.filter((item) => item.state === "unread").length;
   const activity = input.includeActivity === false ? [] : db.activityLog.filter((entry) => entry.userId === input.userId).slice(0, 120);
   return {
     notifications: sortedNotifications.slice(safeOffset, safeOffset + safeLimit),
@@ -4739,17 +5226,54 @@ export async function markNotificationReadState(input: { userId: string; notific
   const db = await readDb();
   const index = db.notifications.findIndex((item) => item.id === input.notificationId && item.userId === input.userId);
   if (index === -1) throw new Error("Notification not found.");
-  db.notifications[index] = {
+  const state: NotificationState = input.isRead ? "read" : "unread";
+  db.notifications[index] = enrichNotification(db, {
     ...db.notifications[index],
     isRead: input.isRead,
-  };
+    state,
+    archivedAt: undefined,
+    updatedAt: nowIso(),
+  });
+  publishRealtimeEvent({ type: "notification.updated", payload: { notification: db.notifications[index] } });
+  await writeDb(db);
+  return db.notifications[index];
+}
+
+export async function updateNotificationState(input: { userId: string; notificationId: string; state: NotificationState }) {
+  const db = await readDb();
+  const index = db.notifications.findIndex((item) => item.id === input.notificationId && item.userId === input.userId);
+  if (index === -1) throw new Error("Notification not found.");
+  const now = nowIso();
+  const state = normalizeNotificationState(input.state, db.notifications[index].isRead);
+  db.notifications[index] = enrichNotification(db, {
+    ...db.notifications[index],
+    state,
+    isRead: state !== "unread",
+    archivedAt: state === "archived" ? now : undefined,
+    updatedAt: now,
+  });
+  publishRealtimeEvent({ type: "notification.updated", payload: { notification: db.notifications[index] } });
   await writeDb(db);
   return db.notifications[index];
 }
 
 export async function markAllNotificationsRead(userId: string) {
   const db = await readDb();
-  db.notifications = db.notifications.map((item) => (item.userId === userId ? { ...item, isRead: true } : item));
+  const now = nowIso();
+  db.notifications = db.notifications.map((item) => {
+    if (item.userId !== userId || item.state === "archived") return item;
+    return enrichNotification(db, { ...item, isRead: true, state: "read", updatedAt: now });
+  });
+  await writeDb(db);
+}
+
+export async function archiveReadNotifications(userId: string) {
+  const db = await readDb();
+  const now = nowIso();
+  db.notifications = db.notifications.map((item) => {
+    if (item.userId !== userId || item.state === "archived" || item.state === "unread") return item;
+    return enrichNotification(db, { ...item, state: "archived", isRead: true, archivedAt: now, updatedAt: now });
+  });
   await writeDb(db);
 }
 

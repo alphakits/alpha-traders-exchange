@@ -6,8 +6,10 @@ export type RealtimeEvent =
   | { type: "listing.quantity_changed"; payload: { listingId: string; availableAmount: string } }
   | { type: "listing.status_changed"; payload: { listingId: string; status: MarketplaceListing["status"] } }
   | { type: "seller.status_changed"; payload: { sellerId: string; onlineStatus: SellerOnlineStatus } }
-  | { type: "trade.status_changed"; payload: { requestId: string; status: PurchaseRequest["status"]; timeline?: PurchaseRequest["timeline"] } }
+  | { type: "trade.status_changed"; payload: { requestId?: string; request?: PurchaseRequest; status?: PurchaseRequest["status"]; timeline?: PurchaseRequest["timeline"] } }
+  | { type: "trade.request_created"; payload: { request: PurchaseRequest } }
   | { type: "notification.created"; payload: { notification: AlphaExchangeNotification } }
+  | { type: "notification.updated"; payload: { notification: AlphaExchangeNotification } }
   | { type: "reputation.updated"; payload: { sellerId: string; trustScore?: number; reviewCount?: number } }
   | { type: "review.count_changed"; payload: { sellerId: string; reviewCount: number } };
 

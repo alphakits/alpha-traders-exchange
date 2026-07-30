@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
+import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
 const mockPool = { query: vi.fn(), connect: vi.fn(), on: vi.fn() } as unknown as Pool;
 
@@ -7,11 +8,27 @@ vi.mock("@/lib/postgres-runtime", () => ({
   getRuntimePostgresPool: () => mockPool,
 }));
 
-import { AlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
+vi.mock("@/lib/alpha-exchange-display", () => ({
+  createExchangeDisplayLookup: () => ({}),
+  normalizeDisplayNumber: (value: unknown) => (typeof value === "number" ? value : undefined),
+  replaceExchangeEntityIds: (value: string) => value,
+}));
+
+vi.mock("@/lib/alpha-exchange-repository", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/alpha-exchange-repository")>("@/lib/alpha-exchange-repository");
+  return {
+    ...actual,
+    getAlphaExchangeRepository: vi.fn(),
+  };
+});
+
+import { AlphaExchangeRepository, getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
+import { upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 
 describe("AlphaExchangeRepository", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getAlphaExchangeRepository).mockReset();
     globalThis.__alphaExchangeMemorySnapshot = undefined as never;
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
@@ -29,5 +46,149 @@ describe("AlphaExchangeRepository", () => {
 
     expect(snapshot).toBeDefined();
     expect(snapshot).toHaveProperty("__runtimeVersion", 0);
+  });
+
+  it("switches to the in-memory snapshot after initialization fails so later writes do not hit the database", async () => {
+    const pool = {
+      query: vi.fn().mockRejectedValue(new Error("database unavailable")),
+      connect: vi.fn(),
+      on: vi.fn(),
+    } as unknown as Pool;
+
+    const repository = new AlphaExchangeRepository(pool);
+    await expect(repository.loadSnapshot()).resolves.toBeDefined();
+
+    await expect(repository.saveSnapshot({
+      users: [],
+      sellerApplications: [],
+      marketplaceListings: [],
+      purchaseRequests: [],
+      commissionRecords: [],
+      auditLogs: [],
+      authSessions: [],
+      passwordResetTokens: [],
+      notifications: [],
+      activityLog: [],
+      disputes: [],
+      sellerReports: [],
+      trustSnapshots: [],
+      trustScoreHistory: [],
+      tradeEvidenceFiles: [],
+      privateBetaInvites: [],
+      privateBetaInviteUses: [],
+      betaFeedback: [],
+      betaAnnouncements: [],
+      sellerReviews: [],
+    })).resolves.toBeUndefined();
+
+    expect(globalThis.__alphaExchangeMemorySnapshot).toBeDefined();
+  });
+
+  it("coalesces stale snapshot writes by preserving the latest state instead of throwing", async () => {
+    const repository = new AlphaExchangeRepository(null);
+    const baseline = await repository.loadSnapshot();
+    const baselineSnapshot = baseline as AlphaExchangeDb & { __runtimeVersion?: number };
+    baselineSnapshot.__runtimeVersion = 2;
+    baselineSnapshot.purchaseRequests = [{ id: "request-1", status: "accepted", listingId: "listing-1", sellerId: "seller-1", buyerId: "buyer-1", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as never];
+    globalThis.__alphaExchangeMemorySnapshot = baselineSnapshot as never;
+
+    const staleDb = {
+      users: [],
+      sellerApplications: [],
+      marketplaceListings: [],
+      purchaseRequests: [{ id: "request-2", status: "pending", listingId: "listing-1", sellerId: "seller-1", buyerId: "buyer-1", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }],
+      commissionRecords: [],
+      auditLogs: [],
+      authSessions: [],
+      passwordResetTokens: [],
+      notifications: [],
+      activityLog: [],
+      disputes: [],
+      sellerReports: [],
+      trustSnapshots: [],
+      trustScoreHistory: [],
+      tradeEvidenceFiles: [],
+      privateBetaInvites: [],
+      privateBetaInviteUses: [],
+      betaFeedback: [],
+      betaAnnouncements: [],
+      __runtimeVersion: 1,
+    } as unknown as AlphaExchangeDb;
+
+    await expect(repository.saveSnapshot(staleDb)).resolves.toBeUndefined();
+    const savedSnapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb & { __runtimeVersion?: number };
+    expect(savedSnapshot.__runtimeVersion).toBe(3);
+    expect(savedSnapshot.purchaseRequests).toEqual(expect.arrayContaining([expect.objectContaining({ id: "request-1" }), expect.objectContaining({ id: "request-2" })]));
+  });
+
+  it("clears the in-flight store state after a failed save so the next write can proceed", async () => {
+    const repository = {
+      loadSnapshot: vi.fn().mockResolvedValue({
+        users: [],
+        sellerApplications: [],
+        marketplaceListings: [],
+        purchaseRequests: [],
+        commissionRecords: [],
+        auditLogs: [],
+        authSessions: [],
+        passwordResetTokens: [],
+        notifications: [],
+        activityLog: [],
+        disputes: [],
+        sellerReports: [],
+        trustSnapshots: [],
+        trustScoreHistory: [],
+        tradeEvidenceFiles: [],
+        privateBetaInvites: [],
+        privateBetaInviteUses: [],
+        betaFeedback: [],
+        betaAnnouncements: [],
+        sellerReviews: [],
+      }),
+      saveSnapshot: vi.fn()
+        .mockRejectedValueOnce(new Error("save failed"))
+        .mockResolvedValueOnce(undefined),
+    };
+    vi.mocked(getAlphaExchangeRepository).mockResolvedValue(repository as never);
+
+    await expect(upsertUserProfileForAuth({
+      fullName: "Test User",
+      email: "test@example.com",
+      whatsappNumber: "0501234567",
+    })).rejects.toThrow("save failed");
+
+    const createdUser = await upsertUserProfileForAuth({
+      fullName: "Test User",
+      email: "test@example.com",
+      whatsappNumber: "0501234567",
+    });
+
+    expect(createdUser.email).toBe("test@example.com");
+    expect(repository.saveSnapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it("destroys a broken transaction client so the next attempt can start cleanly", async () => {
+    const client = {
+      query: vi.fn()
+        .mockRejectedValueOnce(new Error("current transaction is aborted, commands ignored until end of transaction block"))
+        .mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    };
+    const pool = {
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      connect: vi.fn().mockResolvedValue(client),
+      on: vi.fn(),
+    } as unknown as Pool;
+
+    const repository = new AlphaExchangeRepository(pool);
+
+    await expect(repository.upsertAuthSession({
+      token: "session-token",
+      userId: "user-1",
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date().toISOString(),
+    })).rejects.toThrow("current transaction is aborted");
+
+    expect(client.release).toHaveBeenCalledWith(true);
   });
 });

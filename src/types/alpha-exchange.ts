@@ -124,6 +124,27 @@ export interface NotificationPreferences {
   sms: boolean;
 }
 
+export type NotificationCenterCategory = "trades" | "listings" | "account" | "reviews" | "system" | "announcements";
+export type NotificationPriorityLevel = "critical" | "high" | "normal" | "low";
+export type NotificationState = "read" | "unread" | "archived";
+
+export interface NotificationTradeSnapshot {
+  requestId: string;
+  requestDisplayNumber?: number;
+  tradeId?: string;
+  tradeDisplayNumber?: number;
+  listingDisplayNumber?: number;
+  sellerId: string;
+  buyerId: string;
+  counterpartyName: string;
+  counterpartyAvatarUrl?: string;
+  usdtAmount: string;
+  fiatAmount: string;
+  currency: string;
+  currentStage: string;
+  requiredAction: string;
+}
+
 export type SellerApplicationStatus = "pending" | "approved" | "rejected";
 
 export interface SellerApplication {
@@ -136,6 +157,7 @@ export interface SellerApplication {
   expectedMonthlyTradingVolume: string;
   additionalNotes: string;
   status: SellerApplicationStatus;
+  displayNumber?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -287,6 +309,7 @@ export interface MarketplaceListing {
   sellerId: string;
   sellerDisplayName: string;
   photos: string[];
+  displayNumber?: number;
   originalAmount: string;
   availableAmount: string;
   price: string;
@@ -294,6 +317,7 @@ export interface MarketplaceListing {
   network: SupportedNetwork;
   paymentMethod: string;
   paymentMethods: string[];
+  bankName?: string;
   minimumTrade: string;
   maximumTrade: string;
   expiresAt?: string;
@@ -322,6 +346,8 @@ export type PurchaseRequestStatus =
   | "pending"
   | "accepted"
   | "payment_sent"
+  | "funds_received"
+  | "usdt_release_pending"
   | "usdt_sent"
   | "completed"
   | "locked"
@@ -333,6 +359,8 @@ export type TradeTimelineEventType =
   | "request_submitted"
   | "request_accepted"
   | "payment_sent"
+  | "seller_confirmed_funds"
+  | "usdt_release_started"
   | "usdt_sent"
   | "trade_completed"
   | "trade_locked"
@@ -340,7 +368,8 @@ export type TradeTimelineEventType =
   | "buyer_evidence_uploaded"
   | "seller_evidence_uploaded"
   | "request_declined"
-  | "request_cancelled";
+  | "request_cancelled"
+  | "buyer_confirmed_receipt";
 
 export interface TradeTimelineEntry {
   id: string;
@@ -390,8 +419,22 @@ export interface AlphaExchangeNotification {
   message: string;
   isRead: boolean;
   relatedTradeId?: string;
+  relatedRequestId?: string;
   relatedListingId?: string;
+  relatedRequestDisplayNumber?: number;
+  relatedTradeDisplayNumber?: number;
+  relatedListingDisplayNumber?: number;
   relatedHref?: string;
+  actionHref?: string;
+  actionLabel?: string;
+  reason?: string;
+  centerCategory?: NotificationCenterCategory;
+  state?: NotificationState;
+  priority?: NotificationPriorityLevel;
+  priorityRank?: number;
+  tradeSnapshot?: NotificationTradeSnapshot;
+  archivedAt?: string;
+  updatedAt?: string;
   createdAt: string;
 }
 
@@ -406,6 +449,7 @@ export interface AlphaExchangeActivityLogEntry {
 
 export interface TradeDisputeCase {
   id: string;
+  displayNumber?: number;
   tradeId: string;
   purchaseRequestId: string;
   openedByUserId: string;
@@ -421,6 +465,7 @@ export interface TradeDisputeCase {
 
 export interface SellerReport {
   id: string;
+  displayNumber?: number;
   reporterUserId: string;
   sellerId: string;
   purchaseRequestId?: string;
@@ -480,6 +525,7 @@ export interface BetaAnnouncement {
 export interface PurchaseRequest {
   id: string;
   tradeId?: string;
+  displayNumber?: number;
   buyerId: string;
   listingId: string;
   sellerId: string;
@@ -491,9 +537,13 @@ export interface PurchaseRequest {
   currency: string;
   network: SupportedNetwork;
   paymentMethod: string;
+  bankName?: string;
   timeline: TradeTimelineEntry[];
   tradeCreatedAt?: string;
   paymentSentAt?: string;
+  fundsReceivedAt?: string;
+  usdtReleaseStartedAt?: string;
+  usdtReleaseDeadlineAt?: string;
   usdtSentAt?: string;
   completedAt?: string;
   timedOutAt?: string;
@@ -514,6 +564,7 @@ export type CommissionPaymentStatus = "pending" | "paid" | "overdue";
 export interface CommissionRecord {
   id: string;
   purchaseRequestId: string;
+  displayNumber?: number;
   listingId: string;
   sellerId: string;
   buyerId: string;

@@ -526,7 +526,7 @@ export function AlphaExchangeAdminDashboard() {
   function exportTradesCsv() {
     const rows = requestsRows.rows;
     const csvRows = [
-      ["Trade ID", "Request ID", "Buyer", "Seller", "USDT Amount", "Fiat Amount", "Currency", "Network", "Payment Method", "Status", "Submitted", "Completed"].join(","),
+      ["Trade ID", "Request ID", "Buyer", "Seller", "USDT Amount", "Fiat Amount", "Currency", "Network", "Payment Method", "Bank", "Status", "Submitted", "Completed"].join(","),
       ...rows.map((request) => {
         const seller = sellersById.get(request.sellerId);
         return [
@@ -539,6 +539,7 @@ export function AlphaExchangeAdminDashboard() {
           request.currency,
           request.network,
           `"${request.paymentMethod.replace(/"/g, '""')}"`,
+          `"${(request.bankName ?? "").replace(/"/g, '""')}"`,
           request.status,
           request.createdAt,
           request.completedAt ?? "",
@@ -1126,6 +1127,7 @@ export function AlphaExchangeAdminDashboard() {
                                 <th className="px-4 py-3">Amount</th>
                                 <th className="px-4 py-3">Price</th>
                                 <th className="px-4 py-3">Network</th>
+                                <th className="px-4 py-3">Bank</th>
                                 <th className="px-4 py-3">Status</th>
                                 <th className="px-4 py-3">Expiration</th>
                                 <th className="px-4 py-3">Created</th>
@@ -1139,6 +1141,7 @@ export function AlphaExchangeAdminDashboard() {
                                   <td className="px-4 py-3 text-[#D1D5DB]">{listing.availableAmount}</td>
                                   <td className="px-4 py-3 text-[#D1D5DB]">{listing.price}</td>
                                   <td className="px-4 py-3 text-[#D1D5DB]">{listing.network}</td>
+                                  <td className="px-4 py-3 text-[#D1D5DB]">{listing.bankName ?? "—"}</td>
                                   <td className="px-4 py-3">
                                     <span className={`rounded-full px-2.5 py-1 text-xs ${listing.status === "active" ? "border border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : listing.status === "draft" ? "border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 text-[#93C5FD]" : listing.status === "matched" || listing.status === "in_trade" ? "border border-amber-500/35 bg-amber-500/10 text-amber-300" : listing.status === "completed" ? "border border-violet-500/35 bg-violet-500/10 text-violet-300" : listing.status === "cancelled" ? "border border-red-500/35 bg-red-500/10 text-red-300" : listing.status === "paused" ? "border border-[#C9A227]/35 bg-[#C9A227]/10 text-[#C9A227]" : "border border-white/20 bg-white/5 text-white/75"}`}>
                                       {listing.status}
@@ -1242,7 +1245,7 @@ export function AlphaExchangeAdminDashboard() {
                                   </td>
                                 </tr>
                               ))}
-                              {listingsRows.rows.length === 0 ? renderEmptyTableRow("No marketplace listings match your filters.", 8) : null}
+                              {listingsRows.rows.length === 0 ? renderEmptyTableRow("No marketplace listings match your filters.", 9) : null}
                             </tbody>
                           </table>
                         </div>
@@ -1313,6 +1316,7 @@ export function AlphaExchangeAdminDashboard() {
                                 <th className="px-4 py-3">Seller</th>
                                 <th className="px-4 py-3">Amount</th>
                                 <th className="px-4 py-3">Listing</th>
+                                <th className="px-4 py-3">Bank</th>
                                 <th className="px-4 py-3">Current Status</th>
                                 <th className="px-4 py-3">Submitted</th>
                                 <th className="px-4 py-3">Actions</th>
@@ -1329,6 +1333,7 @@ export function AlphaExchangeAdminDashboard() {
                                     <td className="px-4 py-3 text-[#D1D5DB]">{seller?.fullName ?? request.sellerId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{request.usdtAmount ?? listing?.availableAmount ?? "—"}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{request.listingId}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{request.bankName ?? listing?.bankName ?? "—"}</td>
                                     <td className="px-4 py-3">
                                       <span className="rounded-full border border-white/20 bg-white/5 px-2.5 py-1 text-xs text-white/80">{request.status}</span>
                                     </td>
@@ -1341,7 +1346,7 @@ export function AlphaExchangeAdminDashboard() {
                                   </tr>
                                 );
                               })}
-                              {requestsRows.rows.length === 0 ? renderEmptyTableRow("No purchase requests match your filters.", 8) : null}
+                              {requestsRows.rows.length === 0 ? renderEmptyTableRow("No purchase requests match your filters.", 9) : null}
                             </tbody>
                           </table>
                         </div>
@@ -1835,6 +1840,7 @@ export function AlphaExchangeAdminDashboard() {
                 <p>Fiat Amount: <span className="text-white">{selectedRequest.fiatAmount} {selectedRequest.currency}</span></p>
                 <p>Network: <span className="text-white">{selectedRequest.network}</span></p>
                 <p>Payment Method: <span className="text-white">{selectedRequest.paymentMethod}</span></p>
+                <p>Receiving Bank: <span className="text-white">{selectedRequest.bankName ?? "—"}</span></p>
                 <p>Submitted: <span className="text-white">{formatDate(selectedRequest.createdAt)}</span></p>
                 {selectedRequest.completedAt ? <p>Completed: <span className="text-white">{formatDate(selectedRequest.completedAt)}</span></p> : null}
                 {selectedRequest.timedOutAt ? <p>Timed Out: <span className="text-white">{formatDate(selectedRequest.timedOutAt)}</span></p> : null}

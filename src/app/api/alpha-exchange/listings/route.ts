@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
           .map((method) => method.trim())
           .filter(Boolean)
           .slice(0, 8);
+    const bankName = String(body.bankName ?? "").trim();
     const minimumTrade = String(body.minimumTrade ?? "0").trim();
     const maximumTrade = String(body.maximumTrade ?? availableAmount).trim();
     const expiresAt = String(body.expiresAt ?? "").trim();
@@ -68,6 +69,9 @@ export async function POST(request: NextRequest) {
     if (!paymentMethods.length) {
       return NextResponse.json({ error: "At least one payment method is required." }, { status: 400 });
     }
+    if (!bankName) {
+      return NextResponse.json({ error: "Please choose a receiving bank before publishing the listing." }, { status: 400 });
+    }
     if (toNumber(minimumTrade) < 0) {
       return NextResponse.json({ error: "Minimum trade cannot be negative." }, { status: 400 });
     }
@@ -93,6 +97,7 @@ export async function POST(request: NextRequest) {
       currency,
       network,
       paymentMethods,
+      bankName: bankName || undefined,
       minimumTrade,
       maximumTrade,
       expiresAt: expiresAt || undefined,

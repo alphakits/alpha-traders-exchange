@@ -12,6 +12,7 @@ describe("seller listing draft helpers", () => {
       currency: "ILS",
       network: "TRC20",
       paymentMethods: "Bank transfer",
+      bankName: "Bank transfer",
       minimumTrade: "10",
       maximumTrade: "100",
     });

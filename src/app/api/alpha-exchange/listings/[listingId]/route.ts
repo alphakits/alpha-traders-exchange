@@ -53,6 +53,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const paymentMethods = Array.isArray(body.paymentMethods)
       ? body.paymentMethods.map((method: unknown) => String(method).trim()).filter(Boolean).slice(0, 8)
       : undefined;
+    const bankName = body.bankName !== undefined ? String(body.bankName).trim() : undefined;
     const minimumTrade = body.minimumTrade !== undefined ? String(body.minimumTrade).trim() : undefined;
     const maximumTrade = body.maximumTrade !== undefined ? String(body.maximumTrade).trim() : undefined;
     const expiresAt = body.expiresAt !== undefined ? String(body.expiresAt).trim() : undefined;
@@ -83,6 +84,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (paymentMethods && !paymentMethods.length) {
       return NextResponse.json({ error: "At least one payment method is required." }, { status: 400 });
     }
+    if (bankName !== undefined && !bankName) {
+      return NextResponse.json({ error: "Please choose a receiving bank before saving the listing." }, { status: 400 });
+    }
     if (minimumTrade !== undefined && toNumber(minimumTrade) < 0) {
       return NextResponse.json({ error: "Minimum trade cannot be negative." }, { status: 400 });
     }
@@ -110,6 +114,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       network,
       paymentMethod,
       paymentMethods,
+      bankName,
       minimumTrade,
       maximumTrade,
       expiresAt,

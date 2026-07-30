@@ -7,8 +7,8 @@ type RouteContext = {
   params: Promise<{ requestId: string }>;
 };
 
-function isValidRequestStatus(value: string): value is "pending" | "accepted" | "payment_sent" | "usdt_sent" | "completed" | "declined" | "cancelled" {
-  return value === "pending" || value === "accepted" || value === "payment_sent" || value === "usdt_sent" || value === "completed" || value === "declined" || value === "cancelled";
+function isValidRequestStatus(value: string): value is "pending" | "accepted" | "payment_sent" | "funds_received" | "usdt_release_pending" | "usdt_sent" | "completed" | "declined" | "cancelled" {
+  return value === "pending" || value === "accepted" || value === "payment_sent" || value === "funds_received" || value === "usdt_release_pending" || value === "usdt_sent" || value === "completed" || value === "declined" || value === "cancelled";
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
