@@ -84,6 +84,12 @@ export interface AlphaExchangeUser {
   lastActiveAt?: string;
   isFeaturedSeller?: boolean;
   isProfileHidden?: boolean;
+  showTradeStats?: boolean;
+  showLastActive?: boolean;
+  allowDirectMessages?: boolean;
+  allowProfileSearch?: boolean;
+  showPhonePublic?: boolean;
+  showEmailPublic?: boolean;
   notificationPreferences?: NotificationPreferences;
   role: UserRole;
   roles?: UserRole[];

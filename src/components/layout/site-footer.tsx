@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { MessageCircle, Music2, Mail, ExternalLink } from "lucide-react";
+import { ExternalLink, Mail, MessageCircle, Music2 } from "lucide-react";
 import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
 
@@ -15,146 +15,137 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
   const isAr = locale === "ar";
 
   return (
-    <footer className="border-t border-[#C9A227]/15 bg-[#050505]">
-      {/* Main footer body */}
-      <div className="section-container py-12 md:py-16">
-        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
+    <footer className="relative overflow-hidden border-t border-[#C9A227]/20 bg-[#030303]">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(201,162,39,0.14),_transparent_50%)]" />
 
-          {/* Brand column */}
-          <div className="sm:col-span-2 lg:col-span-1">
+      <div className="section-container relative py-12 md:py-16">
+        <div className="grid gap-8 lg:grid-cols-12 lg:gap-10">
+          <div className="lg:col-span-4">
             <Link href="/" locale={locale} className="inline-flex items-center gap-3">
               <Image
-                src="/images/brand/alpha-traders-logo.png"
+                src="/images/brand/alpha-traders-logo.webp"
                 alt="Alpha Traders"
-                width={36}
-                height={36}
-                className="rounded-full border border-[#C9A227]/40 bg-black/40 p-0.5 object-cover shadow-[0_0_12px_rgba(201,162,39,0.2)]"
+                width={40}
+                height={40}
+                className="rounded-full border border-[#C9A227]/45 bg-black/60 object-cover shadow-[0_0_20px_rgba(201,162,39,0.2)]"
               />
-              <span className="text-base font-semibold tracking-wide text-white">Alpha Traders</span>
+              <span className="text-lg font-semibold tracking-wide text-white">Alpha Traders</span>
             </Link>
-            <p className="mt-4 text-sm leading-relaxed text-[#6B7280]">
+            <p className="mt-4 max-w-md text-sm leading-relaxed text-[#B2BAC8]">
               {isAr
-                ? "منصة تداول عربية متكاملة — تعليم احترافي مجاني وسوق USDT موثوق."
-                : "The premium Arabic trading platform — free professional education and a trusted USDT marketplace."}
+                ? "منصة مالية عربية تجمع بين التعليم الاحترافي وسوق USDT موثوق بتجربة فاخرة."
+                : "A premium Arabic fintech platform combining professional trading education and a trusted USDT marketplace."}
             </p>
-            {/* Social icons */}
-            <div className="mt-5 flex items-center gap-3">
-              <a href={SOCIAL.whatsapp} target="_blank" rel="noreferrer"
+
+            <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#C9A227]">
+                {isAr ? "النشرة البريدية" : "Newsletter"}
+              </p>
+              <p className="mt-2 text-xs text-[#9CA3AF]">
+                {isAr
+                  ? "احصل على تحديثات السوق والدروس الجديدة مباشرة."
+                  : "Get market updates and new learning drops directly in your inbox."}
+              </p>
+              <a
+                href="mailto:support@alphatraders.co.il?subject=Newsletter%20Subscription"
+                className="mt-3 inline-flex h-10 items-center justify-center rounded-xl border border-[#C9A227]/35 bg-[#C9A227]/10 px-4 text-sm font-medium text-[#F4D87A] transition-all hover:-translate-y-0.5 hover:bg-[#C9A227]/20"
+              >
+                {isAr ? "اشترك بالبريد" : "Subscribe by Email"}
+              </a>
+            </div>
+
+            <div className="mt-5 flex items-center gap-2.5">
+              <a
+                href={SOCIAL.whatsapp}
+                target="_blank"
+                rel="noreferrer"
                 aria-label="WhatsApp"
-                className="group flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 transition-colors hover:border-[#25D366]/50 hover:bg-[#25D366]/10">
-                <MessageCircle className="h-4 w-4 text-[#9CA3AF] group-hover:text-[#25D366]" />
+                className="group flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 transition-all hover:-translate-y-0.5 hover:border-[#25D366]/50 hover:bg-[#25D366]/10"
+              >
+                <MessageCircle className="h-4 w-4 text-[#A0A8B6] group-hover:text-[#25D366]" />
               </a>
-              <a href={SOCIAL.instagram} target="_blank" rel="noreferrer"
+              <a
+                href={SOCIAL.instagram}
+                target="_blank"
+                rel="noreferrer"
                 aria-label="Instagram"
-                className="group flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 transition-colors hover:border-[#C9A227]/50 hover:bg-[#C9A227]/10">
-                <ExternalLink className="h-4 w-4 text-[#9CA3AF] group-hover:text-[#C9A227]" />
+                className="group flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 transition-all hover:-translate-y-0.5 hover:border-[#C9A227]/50 hover:bg-[#C9A227]/10"
+              >
+                <ExternalLink className="h-4 w-4 text-[#A0A8B6] group-hover:text-[#F4D87A]" />
               </a>
-              <a href={SOCIAL.tiktok} target="_blank" rel="noreferrer"
+              <a
+                href={SOCIAL.tiktok}
+                target="_blank"
+                rel="noreferrer"
                 aria-label="TikTok"
-                className="group flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 transition-colors hover:border-[#C9A227]/50 hover:bg-[#C9A227]/10">
-                <Music2 className="h-4 w-4 text-[#9CA3AF] group-hover:text-[#C9A227]" />
+                className="group flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 transition-all hover:-translate-y-0.5 hover:border-[#C9A227]/50 hover:bg-[#C9A227]/10"
+              >
+                <Music2 className="h-4 w-4 text-[#A0A8B6] group-hover:text-[#F4D87A]" />
               </a>
-              <a href={SOCIAL.email} aria-label="Email"
-                className="group flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 transition-colors hover:border-[#C9A227]/50 hover:bg-[#C9A227]/10">
-                <Mail className="h-4 w-4 text-[#9CA3AF] group-hover:text-[#C9A227]" />
+              <a
+                href={SOCIAL.email}
+                aria-label="Email"
+                className="group flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 transition-all hover:-translate-y-0.5 hover:border-[#C9A227]/50 hover:bg-[#C9A227]/10"
+              >
+                <Mail className="h-4 w-4 text-[#A0A8B6] group-hover:text-[#F4D87A]" />
               </a>
             </div>
           </div>
 
-          {/* Platform column */}
-          <div>
-            <h4 className="mb-4 text-xs font-semibold uppercase tracking-widest text-[#C9A227]">
-              {isAr ? "المنصة" : "Platform"}
-            </h4>
-            <ul className="space-y-2.5 text-sm">
-              <li>
-                <Link href="/academy" locale={locale} className="text-[#9CA3AF] transition-colors hover:text-white">
-                  {isAr ? "أكاديمية ألفا" : "Alpha Academy"}
-                </Link>
-              </li>
-              <li>
-                <Link href="/usdt-exchange" locale={locale} className="text-[#9CA3AF] transition-colors hover:text-white">
-                  {isAr ? "سوق USDT" : "USDT Exchange"}
-                </Link>
-              </li>
-              <li>
-                <Link href="/community" locale={locale} className="text-[#9CA3AF] transition-colors hover:text-white">
-                  {isAr ? "المجتمع" : "Community"}
-                </Link>
-              </li>
-              <li>
-                <Link href="/lessons" locale={locale} className="text-[#9CA3AF] transition-colors hover:text-white">
-                  {isAr ? "الدروس" : "Lessons"}
-                </Link>
-              </li>
-            </ul>
-          </div>
+          <div className="grid gap-8 sm:grid-cols-2 lg:col-span-8 lg:grid-cols-4">
+            <div>
+              <h4 className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-[#C9A227]">
+                {isAr ? "المنصة" : "Platform"}
+              </h4>
+              <ul className="space-y-2.5 text-sm">
+                <li><Link href="/academy" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "Alpha Academy" : "Alpha Academy"}</Link></li>
+                <li><Link href="/usdt-exchange" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "Alpha Exchange" : "Alpha Exchange"}</Link></li>
+                <li><Link href="/community" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "Community" : "Community"}</Link></li>
+                <li><Link href="/lessons" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "الدروس" : "Lessons"}</Link></li>
+              </ul>
+            </div>
 
-          {/* Company column */}
-          <div>
-            <h4 className="mb-4 text-xs font-semibold uppercase tracking-widest text-[#C9A227]">
-              {isAr ? "الشركة" : "Company"}
-            </h4>
-            <ul className="space-y-2.5 text-sm">
-              <li>
-                <Link href="/about-founder" locale={locale} className="text-[#9CA3AF] transition-colors hover:text-white">
-                  {isAr ? "عن المؤسس" : "About the Founder"}
-                </Link>
-              </li>
-              <li>
-                <Link href="/contact" locale={locale} className="text-[#9CA3AF] transition-colors hover:text-white">
-                  {isAr ? "تواصل معنا" : "Contact Us"}
-                </Link>
-              </li>
-              <li>
-                <a href={SOCIAL.whatsapp} target="_blank" rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 text-[#9CA3AF] transition-colors hover:text-[#25D366]">
-                  <MessageCircle className="h-3.5 w-3.5" />
-                  {isAr ? "واتساب المباشر" : "Direct WhatsApp"}
-                  <ExternalLink className="h-3 w-3 opacity-50" />
-                </a>
-              </li>
-            </ul>
-          </div>
+            <div>
+              <h4 className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-[#C9A227]">
+                {isAr ? "الشركة" : "Company"}
+              </h4>
+              <ul className="space-y-2.5 text-sm">
+                <li><Link href="/about-founder" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "عن المؤسس" : "About Founder"}</Link></li>
+                <li><Link href="/founder" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "قصة Alpha Traders" : "Founder Story"}</Link></li>
+                <li><Link href="/contact" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "تواصل معنا" : "Contact"}</Link></li>
+              </ul>
+            </div>
 
-          {/* Account / Legal column */}
-          <div>
-            <h4 className="mb-4 text-xs font-semibold uppercase tracking-widest text-[#C9A227]">
-              {isAr ? "الحساب" : "Account"}
-            </h4>
-            <ul className="space-y-2.5 text-sm">
-              <li>
-                <Link href="/login" locale={locale} className="text-[#9CA3AF] transition-colors hover:text-white">
-                  {isAr ? "تسجيل الدخول" : "Sign In"}
-                </Link>
-              </li>
-              <li>
-                <Link href="/register" locale={locale} className="text-[#9CA3AF] transition-colors hover:text-white">
-                  {isAr ? "إنشاء حساب" : "Create Account"}
-                </Link>
-              </li>
-              <li>
-                <Link href="/profile" locale={locale} className="text-[#9CA3AF] transition-colors hover:text-white">
-                  {isAr ? "الملف الشخصي" : "My Profile"}
-                </Link>
-              </li>
-            </ul>
+            <div>
+              <h4 className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-[#C9A227]">
+                {isAr ? "الحساب" : "Account"}
+              </h4>
+              <ul className="space-y-2.5 text-sm">
+                <li><Link href="/login" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "تسجيل الدخول" : "Sign In"}</Link></li>
+                <li><Link href="/register" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "إنشاء حساب" : "Create Account"}</Link></li>
+                <li><Link href="/profile" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "الملف الشخصي" : "Profile"}</Link></li>
+                <li><Link href="/settings" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "الإعدادات" : "Settings"}</Link></li>
+              </ul>
+            </div>
+
+            <div>
+              <h4 className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-[#C9A227]">
+                {isAr ? "قانوني" : "Legal"}
+              </h4>
+              <ul className="space-y-2.5 text-sm">
+                <li><Link href="/privacy-policy" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "سياسة الخصوصية" : "Privacy Policy"}</Link></li>
+                <li><Link href="/terms" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "الشروط والأحكام" : "Terms of Service"}</Link></li>
+                <li><Link href="/cookies" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "سياسة ملفات الارتباط" : "Cookie Policy"}</Link></li>
+              </ul>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Bottom bar */}
-      <div className="border-t border-white/5">
-        <div className="section-container flex flex-col gap-3 py-5 text-xs text-[#4B5563] sm:flex-row sm:items-center sm:justify-between">
-          <p>
-            © {year} Alpha Traders.{" "}
-            {isAr ? "جميع الحقوق محفوظة." : "All rights reserved."}
-          </p>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <span className="text-[#C9A227]/60">
-              {isAr ? "مُصمَّم للتداول الجاد." : "Built for disciplined trading."}
-            </span>
-          </div>
+      <div className="relative border-t border-white/10">
+        <div className="section-container flex flex-col gap-3 py-5 text-xs text-[#6B7280] sm:flex-row sm:items-center sm:justify-between">
+          <p>© {year} Alpha Traders. {isAr ? "جميع الحقوق محفوظة." : "All rights reserved."}</p>
+          <p className="text-[#C9A227]/70">{isAr ? "منصة موثوقة لتداول منضبط." : "Built for disciplined, secure trading."}</p>
         </div>
       </div>
     </footer>

@@ -23,7 +23,10 @@ const PRIVACY_KEYS = [
   "public_profile",
   "show_trade_stats",
   "show_last_active",
-  "show_whatsapp",
+  "allow_messages",
+  "search_visibility",
+  "show_phone",
+  "show_email",
 ] as const;
 
 type PrivacyKey = (typeof PRIVACY_KEYS)[number];
@@ -47,7 +50,10 @@ function defaultPrivacy(): PrivacyPrefs {
     public_profile: true,
     show_trade_stats: true,
     show_last_active: true,
-    show_whatsapp: false,
+    allow_messages: true,
+    search_visibility: true,
+    show_phone: false,
+    show_email: false,
   };
 }
 
@@ -72,6 +78,7 @@ export function AccountSettingsPanel({ locale }: { locale: "ar" | "en" }) {
   const [activeTab, setActiveTab] = useState<Tab>("security");
   const [userId, setUserId] = useState<string | null>(null);
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>(defaultNotifications());
+  const [notifChannels, setNotifChannels] = useState({ inApp: true, email: false, sms: false });
   const [privacyPrefs, setPrivacyPrefs] = useState<PrivacyPrefs>(defaultPrivacy());
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState("");
@@ -82,14 +89,41 @@ export function AccountSettingsPanel({ locale }: { locale: "ar" | "en" }) {
     void (async () => {
       const res = await fetch("/api/auth/profile", { cache: "no-store" });
       if (!res.ok) return;
-      const data = (await res.json()) as { profile?: { id?: string } };
+      const data = (await res.json()) as { profile?: {
+        id?: string;
+        isProfileHidden?: boolean;
+        showTradeStats?: boolean;
+        showLastActive?: boolean;
+        allowDirectMessages?: boolean;
+        allowProfileSearch?: boolean;
+        showPhonePublic?: boolean;
+        showEmailPublic?: boolean;
+      } };
       const id = data.profile?.id ?? "unknown";
       setUserId(id);
+      if (data.profile) {
+        setPrivacyPrefs({
+          public_profile: data.profile.isProfileHidden !== true,
+          show_trade_stats: data.profile.showTradeStats !== false,
+          show_last_active: data.profile.showLastActive !== false,
+          allow_messages: data.profile.allowDirectMessages !== false,
+          search_visibility: data.profile.allowProfileSearch !== false,
+          show_phone: data.profile.showPhonePublic === true,
+          show_email: data.profile.showEmailPublic === true,
+        });
+      }
+      const channelRes = await fetch("/api/alpha-exchange/notification-preferences", { cache: "no-store" });
+      if (channelRes.ok) {
+        const channelData = (await channelRes.json()) as { preferences?: { inApp?: boolean; email?: boolean; sms?: boolean } };
+        setNotifChannels({
+          inApp: channelData.preferences?.inApp !== false,
+          email: channelData.preferences?.email === true,
+          sms: channelData.preferences?.sms === true,
+        });
+      }
       try {
         const rawNotif = localStorage.getItem(`notification_prefs_${id}`);
         if (rawNotif) setNotifPrefs(JSON.parse(rawNotif) as NotificationPrefs);
-        const rawPriv = localStorage.getItem(`privacy_settings_${id}`);
-        if (rawPriv) setPrivacyPrefs(JSON.parse(rawPriv) as PrivacyPrefs);
       } catch {
         // ignore storage errors
       }
@@ -101,9 +135,41 @@ export function AccountSettingsPanel({ locale }: { locale: "ar" | "en" }) {
     if (userId) localStorage.setItem(`notification_prefs_${userId}`, JSON.stringify(prefs));
   }
 
-  function savePrivacyPrefs(prefs: PrivacyPrefs) {
+  async function savePrivacyPrefs(prefs: PrivacyPrefs) {
     setPrivacyPrefs(prefs);
-    if (userId) localStorage.setItem(`privacy_settings_${userId}`, JSON.stringify(prefs));
+    try {
+      const response = await fetch("/api/auth/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          isProfileHidden: !prefs.public_profile,
+          showTradeStats: prefs.show_trade_stats,
+          showLastActive: prefs.show_last_active,
+          allowDirectMessages: prefs.allow_messages,
+          allowProfileSearch: prefs.search_visibility,
+          showPhonePublic: prefs.show_phone,
+          showEmailPublic: prefs.show_email,
+        }),
+      });
+      if (!response.ok) {
+        setDeleteMessage(isAr ? "تعذر حفظ إعدادات الخصوصية." : "Failed to save privacy settings.");
+      }
+    } catch {
+      setDeleteMessage(isAr ? "تعذر حفظ إعدادات الخصوصية." : "Failed to save privacy settings.");
+    }
+  }
+
+  async function saveNotificationChannels(next: { inApp: boolean; email: boolean; sms: boolean }) {
+    setNotifChannels(next);
+    try {
+      await fetch("/api/alpha-exchange/notification-preferences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      });
+    } catch {
+      // keep optimistic state
+    }
   }
 
   const tabs: { key: Tab; labelEn: string; labelAr: string }[] = [
@@ -142,11 +208,29 @@ export function AccountSettingsPanel({ locale }: { locale: "ar" | "en" }) {
       descEn: "Show when you were last active",
       descAr: "إظهار وقت آخر نشاط لك",
     },
-    show_whatsapp: {
-      en: "Show WhatsApp number",
-      ar: "إظهار رقم واتساب",
-      descEn: "Show your WhatsApp number on profile",
-      descAr: "إظهار رقم واتساب على ملفك الشخصي",
+    allow_messages: {
+      en: "Allow direct messages",
+      ar: "السماح بالرسائل المباشرة",
+      descEn: "Allow users to message you directly",
+      descAr: "السماح للمستخدمين بمراسلتك مباشرة",
+    },
+    search_visibility: {
+      en: "Allow profile search",
+      ar: "الظهور في البحث",
+      descEn: "Allow your profile to appear in user search",
+      descAr: "السماح بظهور ملفك في نتائج البحث",
+    },
+    show_phone: {
+      en: "Show phone number",
+      ar: "إظهار رقم الهاتف",
+      descEn: "Display your verified phone on public profile",
+      descAr: "إظهار رقم هاتفك الموثق في الملف العام",
+    },
+    show_email: {
+      en: "Show email",
+      ar: "إظهار البريد الإلكتروني",
+      descEn: "Display your email on public profile",
+      descAr: "إظهار بريدك الإلكتروني في الملف العام",
     },
   };
 
@@ -244,8 +328,31 @@ export function AccountSettingsPanel({ locale }: { locale: "ar" | "en" }) {
             <CardContent className="space-y-4">
               <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 text-xs text-[#9CA3AF]">
                 {isAr
-                  ? "يتم حفظ تفضيلات الإشعارات محليًا على هذا الجهاز."
-                  : "Your notification preferences are saved locally on this device."}
+                  ? "يمكنك ضبط قنوات الإشعارات وتفضيلات التنبيهات من هنا."
+                  : "Manage delivery channels and alert preferences from here."}
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] p-4">
+                  <span className="text-sm text-[#D1D5DB]">{isAr ? "إشعارات داخل المنصة" : "In-app notifications"}</span>
+                  <PillToggle
+                    checked={notifChannels.inApp}
+                    onChange={(v) => void saveNotificationChannels({ ...notifChannels, inApp: v })}
+                  />
+                </div>
+                <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] p-4">
+                  <span className="text-sm text-[#D1D5DB]">{isAr ? "إشعارات البريد الإلكتروني" : "Email notifications"}</span>
+                  <PillToggle
+                    checked={notifChannels.email}
+                    onChange={(v) => void saveNotificationChannels({ ...notifChannels, email: v })}
+                  />
+                </div>
+                <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] p-4">
+                  <span className="text-sm text-[#D1D5DB]">{isAr ? "إشعارات الرسائل النصية" : "SMS notifications"}</span>
+                  <PillToggle
+                    checked={notifChannels.sms}
+                    onChange={(v) => void saveNotificationChannels({ ...notifChannels, sms: v })}
+                  />
+                </div>
               </div>
               <div className="space-y-3">
                 {NOTIFICATION_KEYS.map((key) => (
@@ -289,7 +396,7 @@ export function AccountSettingsPanel({ locale }: { locale: "ar" | "en" }) {
                     </div>
                     <PillToggle
                       checked={privacyPrefs[key]}
-                      onChange={(v) => savePrivacyPrefs({ ...privacyPrefs, [key]: v })}
+                      onChange={(v) => void savePrivacyPrefs({ ...privacyPrefs, [key]: v })}
                     />
                   </div>
                 ))}

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
+import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
 import { hasRole } from "@/lib/roles";
 import { logEvent } from "@/lib/structured-logging";
 
@@ -16,6 +16,7 @@ export async function requireApiUser() {
     const unauthorized = NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     unauthorized.cookies.delete(AUTH_COOKIE_NAME);
     unauthorized.cookies.delete(AUTH_VERIFIED_COOKIE_NAME);
+    unauthorized.cookies.delete(AUTH_PHONE_VERIFIED_COOKIE_NAME);
     return {
       user: null,
       unauthorized,

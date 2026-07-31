@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
+import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -12,6 +12,7 @@ export async function GET() {
     const cookieStore = await cookies();
     cookieStore.delete(AUTH_COOKIE_NAME);
     cookieStore.delete(AUTH_VERIFIED_COOKIE_NAME);
+    cookieStore.delete(AUTH_PHONE_VERIFIED_COOKIE_NAME);
     return NextResponse.json({ user: null }, { status: 200, headers: AUTH_RESPONSE_HEADERS });
   }
   return NextResponse.json({
@@ -41,6 +42,8 @@ export async function GET() {
       isFoundingMember: user.isFoundingMember === true,
       isFoundingSeller: user.isFoundingSeller === true,
       emailVerified: user.emailVerified === true,
+      verifiedPhone: user.verifiedPhone ?? "",
+      phoneVerifiedAt: user.phoneVerifiedAt ?? "",
       onboardingSelection: user.onboardingSelection,
       onboardingCompletedAt: user.onboardingCompletedAt,
       lifetimeCompletedVolumeUsdt: user.lifetimeCompletedVolumeUsdt ?? 0,

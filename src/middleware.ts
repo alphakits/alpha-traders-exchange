@@ -1,21 +1,29 @@
 import createMiddleware from "next-intl/middleware";
 import { NextResponse } from "next/server";
 import { routing } from "@/i18n/routing";
-import { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME } from "@/lib/auth-constants";
+import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME } from "@/lib/auth-constants";
 
 const intlMiddleware = createMiddleware(routing);
 
 export default function middleware(request: Parameters<typeof intlMiddleware>[0]) {
   const { pathname } = request.nextUrl;
   const isProtectedRoute = /^\/(ar|en)\/(?:academy|lessons|usdt-exchange|dashboard|profile|settings|admin)(?:\/|$)/.test(pathname);
+  const isExchangeRoute = /^\/(ar|en)\/(?:usdt-exchange|dashboard\/seller)(?:\/|$)/.test(pathname);
   const hasSession = Boolean(request.cookies.get(AUTH_COOKIE_NAME)?.value);
   const hasVerifiedEmail = request.cookies.get(AUTH_VERIFIED_COOKIE_NAME)?.value === "1";
+  const hasVerifiedPhone = request.cookies.get(AUTH_PHONE_VERIFIED_COOKIE_NAME)?.value === "1";
 
   if (isProtectedRoute && !hasSession) {
     const locale = pathname.startsWith("/ar/") ? "ar" : "en";
     const loginUrl = new URL(`/${locale}/login`, request.url);
     loginUrl.searchParams.set("redirectTo", `${pathname}${request.nextUrl.search}`);
     return NextResponse.redirect(loginUrl);
+  }
+  if (isExchangeRoute && hasSession && (!hasVerifiedEmail || !hasVerifiedPhone)) {
+    const locale = pathname.startsWith("/ar/") ? "ar" : "en";
+    const verifyAccountUrl = new URL(`/${locale}/verify-account`, request.url);
+    verifyAccountUrl.searchParams.set("redirectTo", `${pathname}${request.nextUrl.search}`);
+    return NextResponse.redirect(verifyAccountUrl);
   }
   if (isProtectedRoute && hasSession && !hasVerifiedEmail) {
     const locale = pathname.startsWith("/ar/") ? "ar" : "en";

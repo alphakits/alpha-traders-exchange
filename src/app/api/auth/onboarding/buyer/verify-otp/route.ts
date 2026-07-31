@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { requireApiUser } from "@/lib/api-auth";
 import { completeBuyerVerification, findUserById, recordBuyerVerificationAttempt } from "@/lib/alpha-exchange-store";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getSmsProvider } from "@/lib/sms-provider";
 import { logEvent } from "@/lib/structured-logging";
+import { AUTH_PHONE_VERIFIED_COOKIE_NAME } from "@/lib/auth";
+import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
 
 const OTP_EXPIRY_MINUTES = Number(process.env.BUYER_OTP_EXPIRY_MINUTES ?? "10");
 
@@ -76,6 +79,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const updated = await completeBuyerVerification({ userId: user.id, phone });
+    const cookieStore = await cookies();
+    const secureCookies = shouldUseSecureAuthCookie(request);
+    cookieStore.set(AUTH_PHONE_VERIFIED_COOKIE_NAME, "1", {
+      httpOnly: true,
+      secure: secureCookies,
+      sameSite: "lax",
+      path: "/",
+    });
     logEvent("info", {
       event: "buyer_verification_otp_verify",
       actorUserId: user.id,

@@ -4,9 +4,9 @@ import path from "path";
 import { promisify } from "util";
 import { cookies } from "next/headers";
 import { createAuthSession, deleteSessionByToken, findUserByEmail, findUserById, getSessionByToken } from "@/lib/alpha-exchange-store";
-import { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME } from "@/lib/auth-constants";
+import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME } from "@/lib/auth-constants";
 
-export { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME };
+export { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME };
 
 const scrypt = promisify(scryptCallback);
 

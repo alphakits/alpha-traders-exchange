@@ -667,6 +667,10 @@ function deriveSellerRouteUsername(input: { fullName?: string; email?: string; i
   return normalized || "seller";
 }
 
+export function derivePublicProfileUsername(input: { fullName?: string; email?: string; id?: string }) {
+  return deriveSellerRouteUsername(input);
+}
+
 function isTrustEligibleSeller(user: AlphaExchangeUser) {
   return hasRole(user, "approved_seller") || user.sellerStatus === "approved_seller" || user.sellerStatus === "suspended";
 }
@@ -873,6 +877,84 @@ export async function getSellerProfileRouteData(input: {
     profile,
     sellerListings,
     similarSellers,
+  };
+}
+
+export async function getPublicUserProfileRouteData(input: {
+  username: string;
+  viewerUserId?: string;
+  viewerRole?: UserRole;
+}) {
+  const db = await readDb();
+  const normalizedUsername = input.username.trim().toLowerCase();
+  const user = db.users.find((row) => deriveSellerRouteUsername({ fullName: row.fullName, email: row.email, id: row.id }) === normalizedUsername);
+  if (!user) return null;
+
+  const viewerIsPrivileged = input.viewerRole === "admin" || input.viewerRole === "owner";
+  const viewerIsOwner = input.viewerUserId === user.id;
+  const canBypassVisibility = viewerIsOwner || viewerIsPrivileged;
+
+  if (user.isProfileHidden === true && !canBypassVisibility) return null;
+  if (user.allowProfileSearch === false && !canBypassVisibility) return null;
+
+  const username = deriveSellerRouteUsername({ fullName: user.fullName, email: user.email, id: user.id });
+  const trustSnapshot = isTrustEligibleSeller(user) ? computeSellerReputationSnapshot(db, user.id) : null;
+  const buyerRequests = db.purchaseRequests.filter((request) => request.buyerId === user.id);
+  const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === user.id);
+  const completedAsBuyer = buyerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length;
+  const completedAsSeller = sellerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length;
+  const reviewsWritten = buyerRequests.filter((request) => Boolean(request.buyerReview)).length;
+  const reviewsReceived = sellerRequests.filter((request) => Boolean(request.buyerReview)).length;
+
+  const showStats = user.showTradeStats !== false || canBypassVisibility;
+  const showLastActive = user.showLastActive !== false || canBypassVisibility;
+  const showPhone = user.showPhonePublic === true || canBypassVisibility;
+  const showEmail = user.showEmailPublic === true || canBypassVisibility;
+
+  return {
+    profile: {
+      id: user.id,
+      username,
+      fullName: user.fullName,
+      role: user.role,
+      roles: user.roles ?? [user.role],
+      sellerStatus: user.sellerStatus,
+      memberSince: user.createdAt,
+      lastActiveAt: showLastActive ? user.lastActiveAt ?? user.updatedAt : null,
+      country: user.country ?? "",
+      city: user.city ?? "",
+      languages: user.languages ?? [],
+      bio: user.bio ?? "",
+      profilePhotoUrl: user.profilePhotoUrl ?? "",
+      coverBannerUrl: user.coverBannerUrl ?? "",
+      isFeaturedSeller: user.isFeaturedSeller === true,
+      isFoundingMember: user.isFoundingMember === true,
+      isFoundingSeller: user.isFoundingSeller === true,
+      allowDirectMessages: user.allowDirectMessages !== false || canBypassVisibility,
+      contact: {
+        email: showEmail ? user.email : "",
+        phone: showPhone ? user.whatsappNumber : "",
+      },
+    },
+    reputation: trustSnapshot
+      ? {
+          level: user.sellerPrestigeRank ?? trustSnapshot.level,
+          trustScore: trustSnapshot.trustScore,
+          publicVolumeRange: trustSnapshot.publicVolumeRange,
+          rating: trustSnapshot.rating,
+          badges: trustSnapshot.badges,
+        }
+      : null,
+    stats: showStats
+      ? {
+          completedAsBuyer,
+          completedAsSeller,
+          reviewsWritten,
+          reviewsReceived,
+          activeListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "active").length,
+          pendingListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "draft").length,
+        }
+      : null,
   };
 }
 
@@ -1167,6 +1249,12 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         lastActiveAt: typeof (user as { lastActiveAt?: string }).lastActiveAt === "string" ? (user as { lastActiveAt: string }).lastActiveAt : (typeof user.updatedAt === "string" ? user.updatedAt : undefined),
         isFeaturedSeller: (user as { isFeaturedSeller?: boolean }).isFeaturedSeller === true,
         isProfileHidden: (user as { isProfileHidden?: boolean }).isProfileHidden === true,
+        showTradeStats: (user as { showTradeStats?: boolean }).showTradeStats !== false,
+        showLastActive: (user as { showLastActive?: boolean }).showLastActive !== false,
+        allowDirectMessages: (user as { allowDirectMessages?: boolean }).allowDirectMessages !== false,
+        allowProfileSearch: (user as { allowProfileSearch?: boolean }).allowProfileSearch !== false,
+        showPhonePublic: (user as { showPhonePublic?: boolean }).showPhonePublic === true,
+        showEmailPublic: (user as { showEmailPublic?: boolean }).showEmailPublic === true,
         notificationPreferences: normalizeNotificationPreferences((user as { notificationPreferences?: NotificationPreferences }).notificationPreferences),
         emailVerified: (user as { emailVerified?: boolean }).emailVerified !== false,
         emailVerifiedAt:
@@ -2300,6 +2388,12 @@ export async function createUser(input: {
     lastActiveAt: timestamp,
     isFeaturedSeller: false,
     isProfileHidden: false,
+    showTradeStats: true,
+    showLastActive: true,
+    allowDirectMessages: true,
+    allowProfileSearch: true,
+    showPhonePublic: false,
+    showEmailPublic: false,
     notificationPreferences: normalizeNotificationPreferences(),
     role,
     roles,
@@ -2408,6 +2502,12 @@ export async function upsertUserProfileForAuth(input: {
     lastActiveAt: timestamp,
     isFeaturedSeller: false,
     isProfileHidden: false,
+    showTradeStats: true,
+    showLastActive: true,
+    allowDirectMessages: true,
+    allowProfileSearch: true,
+    showPhonePublic: false,
+    showEmailPublic: false,
     notificationPreferences: normalizeNotificationPreferences(),
     role,
     roles,
@@ -2690,6 +2790,13 @@ export async function updateUserSellerSettings(input: {
   country?: string;
   city?: string;
   onlineStatus?: SellerOnlineStatus;
+  isProfileHidden?: boolean;
+  showTradeStats?: boolean;
+  showLastActive?: boolean;
+  allowDirectMessages?: boolean;
+  allowProfileSearch?: boolean;
+  showPhonePublic?: boolean;
+  showEmailPublic?: boolean;
 }) {
   const db = await readDb();
   const index = db.users.findIndex((user) => user.id === input.userId);
@@ -2710,6 +2817,13 @@ export async function updateUserSellerSettings(input: {
     country: input.country?.trim() ?? user.country,
     city: input.city?.trim() ?? user.city,
     onlineStatus: input.onlineStatus ?? user.onlineStatus,
+    isProfileHidden: typeof input.isProfileHidden === "boolean" ? input.isProfileHidden : user.isProfileHidden,
+    showTradeStats: typeof input.showTradeStats === "boolean" ? input.showTradeStats : user.showTradeStats,
+    showLastActive: typeof input.showLastActive === "boolean" ? input.showLastActive : user.showLastActive,
+    allowDirectMessages: typeof input.allowDirectMessages === "boolean" ? input.allowDirectMessages : user.allowDirectMessages,
+    allowProfileSearch: typeof input.allowProfileSearch === "boolean" ? input.allowProfileSearch : user.allowProfileSearch,
+    showPhonePublic: typeof input.showPhonePublic === "boolean" ? input.showPhonePublic : user.showPhonePublic,
+    showEmailPublic: typeof input.showEmailPublic === "boolean" ? input.showEmailPublic : user.showEmailPublic,
     lastActiveAt: nowIso(),
     updatedAt: nowIso(),
   };
@@ -3951,6 +4065,7 @@ export async function getMyPurchaseRequests(userId: string, role: UserRole) {
 export interface AccountProfileSummary {
   id: string;
   profilePhotoUrl: string;
+  coverBannerUrl: string;
   fullName: string;
   username: string;
   email: string;
@@ -3963,6 +4078,12 @@ export interface AccountProfileSummary {
   country: string;
   language: string;
   whatsappNumber: string;
+  showTradeStats: boolean;
+  showLastActive: boolean;
+  allowDirectMessages: boolean;
+  allowProfileSearch: boolean;
+  showPhonePublic: boolean;
+  showEmailPublic: boolean;
 }
 
 export interface SellerAccountStats {
@@ -4009,6 +4130,7 @@ export async function getAccountProfileData(userId: string): Promise<{
   const profile: AccountProfileSummary = {
     id: user.id,
     profilePhotoUrl: user.profilePhotoUrl,
+    coverBannerUrl: user.coverBannerUrl ?? "",
     fullName: user.fullName,
     username,
     email: user.email,
@@ -4021,6 +4143,12 @@ export async function getAccountProfileData(userId: string): Promise<{
     country: user.country ?? "",
     language: user.languages?.[0] ?? "English",
     whatsappNumber: user.whatsappNumber ?? "",
+    showTradeStats: user.showTradeStats !== false,
+    showLastActive: user.showLastActive !== false,
+    allowDirectMessages: user.allowDirectMessages !== false,
+    allowProfileSearch: user.allowProfileSearch !== false,
+    showPhonePublic: user.showPhonePublic === true,
+    showEmailPublic: user.showEmailPublic === true,
   };
 
   if (hasRole(user, "approved_seller") || user.sellerStatus === "approved_seller" || user.sellerStatus === "suspended") {
@@ -4068,6 +4196,13 @@ export async function updateAccountProfileData(input: {
   country?: string;
   language?: string;
   whatsappNumber?: string;
+  isProfileHidden?: boolean;
+  showTradeStats?: boolean;
+  showLastActive?: boolean;
+  allowDirectMessages?: boolean;
+  allowProfileSearch?: boolean;
+  showPhonePublic?: boolean;
+  showEmailPublic?: boolean;
 }) {
   const languages = input.language !== undefined ? [String(input.language).trim() || "English"] : undefined;
   return updateUserSellerSettings({
@@ -4079,6 +4214,13 @@ export async function updateAccountProfileData(input: {
     country: input.country,
     languages,
     whatsappNumber: input.whatsappNumber,
+    isProfileHidden: input.isProfileHidden,
+    showTradeStats: input.showTradeStats,
+    showLastActive: input.showLastActive,
+    allowDirectMessages: input.allowDirectMessages,
+    allowProfileSearch: input.allowProfileSearch,
+    showPhonePublic: input.showPhonePublic,
+    showEmailPublic: input.showEmailPublic,
   });
 }
 

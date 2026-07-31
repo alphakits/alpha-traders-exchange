@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
-import { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, authenticateLocalUser, createUserSession } from "@/lib/auth";
+import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, authenticateLocalUser, createUserSession } from "@/lib/auth";
 import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { createSupabaseAuthClient } from "@/lib/supabase-auth-provider";
@@ -23,6 +23,39 @@ function clearAuthCookies(cookieStore: Awaited<ReturnType<typeof cookies>>, secu
     sameSite: "lax",
     path: "/",
     expires,
+  });
+  cookieStore.set(AUTH_PHONE_VERIFIED_COOKIE_NAME, "", {
+    httpOnly: true,
+    secure,
+    sameSite: "lax",
+    path: "/",
+    expires,
+  });
+}
+
+function setPhoneVerificationCookie(
+  cookieStore: Awaited<ReturnType<typeof cookies>>,
+  secure: boolean,
+  rememberMe: boolean,
+  expiresAt: string,
+  isPhoneVerified: boolean,
+) {
+  if (!isPhoneVerified) {
+    cookieStore.set(AUTH_PHONE_VERIFIED_COOKIE_NAME, "", {
+      httpOnly: true,
+      secure,
+      sameSite: "lax",
+      path: "/",
+      expires: new Date(0),
+    });
+    return;
+  }
+  cookieStore.set(AUTH_PHONE_VERIFIED_COOKIE_NAME, "1", {
+    httpOnly: true,
+    secure,
+    sameSite: "lax",
+    path: "/",
+    expires: rememberMe ? new Date(expiresAt) : undefined,
   });
 }
 
@@ -76,6 +109,7 @@ export async function POST(request: NextRequest) {
         path: "/",
         expires: rememberMe ? new Date(expiresAt) : undefined,
       });
+      setPhoneVerificationCookie(cookieStore, secureCookies, rememberMe, expiresAt, Boolean(user.verifiedPhone && user.phoneVerifiedAt));
       return NextResponse.json({
         user: {
           id: user.id,
@@ -144,6 +178,7 @@ export async function POST(request: NextRequest) {
       path: "/",
       expires: rememberMe ? new Date(expiresAt) : undefined,
     });
+    setPhoneVerificationCookie(cookieStore, secureCookies, rememberMe, expiresAt, Boolean(user.verifiedPhone && user.phoneVerifiedAt));
     return NextResponse.json({
       user: {
         id: user.id,

@@ -5,7 +5,7 @@ import { checkRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
 import type { NotificationCategory } from "@/types/alpha-exchange";
 
 function isNotificationCategory(value: string): value is NotificationCategory {
-  return value === "trade" || value === "listing" || value === "account" || value === "trust" || value === "application" || value === "dispute" || value === "report" || value === "system";
+  return value === "trade" || value === "listing" || value === "account" || value === "trust" || value === "application" || value === "dispute" || value === "report" || value === "system" || value === "review";
 }
 
 export async function GET(request: NextRequest) {

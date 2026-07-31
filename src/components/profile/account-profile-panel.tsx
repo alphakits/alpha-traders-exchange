@@ -19,7 +19,7 @@ type AccountProfilePayload = {
     email: string;
     role: string;
     roles?: string[];
-    onboardingSelection?: "guest" | "student" | "buyer";
+    onboardingSelection?: "guest" | "student" | "buyer" | "seller_applicant";
     onboardingCompletedAt?: string;
     memberSince: string;
     lastLogin: string;
@@ -28,6 +28,12 @@ type AccountProfilePayload = {
     country: string;
     language: string;
     whatsappNumber: string;
+    showTradeStats?: boolean;
+    showLastActive?: boolean;
+    allowDirectMessages?: boolean;
+    allowProfileSearch?: boolean;
+    showPhonePublic?: boolean;
+    showEmailPublic?: boolean;
   };
   stats:
     | {
@@ -402,9 +408,14 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>{isAr ? "إدارة الملف الشخصي" : "Manage Profile"}</CardTitle>
-            <Link href="/settings" className={buttonVariants({ variant: "secondary", size: "sm" })}>
-              {isAr ? "الإعدادات" : "Settings"}
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link href={`/u/${payload.profile.username}`} className={buttonVariants({ variant: "secondary", size: "sm" })}>
+                {isAr ? "المعاينة العامة" : "Public Preview"}
+              </Link>
+              <Link href="/settings" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+                {isAr ? "الإعدادات" : "Settings"}
+              </Link>
+            </div>
           </div>
         </CardHeader>
         <CardContent>

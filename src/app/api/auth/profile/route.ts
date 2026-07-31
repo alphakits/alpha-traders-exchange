@@ -76,6 +76,13 @@ export async function PATCH(request: NextRequest) {
     const country = body.country !== undefined ? String(body.country).trim().slice(0, 100) : undefined;
     const language = body.language !== undefined ? String(body.language).trim().slice(0, 20) : undefined;
     const whatsappNumber = body.whatsappNumber !== undefined ? String(body.whatsappNumber).trim().slice(0, 30) : undefined;
+    const isProfileHidden = typeof body.isProfileHidden === "boolean" ? body.isProfileHidden : undefined;
+    const showTradeStats = typeof body.showTradeStats === "boolean" ? body.showTradeStats : undefined;
+    const showLastActive = typeof body.showLastActive === "boolean" ? body.showLastActive : undefined;
+    const allowDirectMessages = typeof body.allowDirectMessages === "boolean" ? body.allowDirectMessages : undefined;
+    const allowProfileSearch = typeof body.allowProfileSearch === "boolean" ? body.allowProfileSearch : undefined;
+    const showPhonePublic = typeof body.showPhonePublic === "boolean" ? body.showPhonePublic : undefined;
+    const showEmailPublic = typeof body.showEmailPublic === "boolean" ? body.showEmailPublic : undefined;
 
     if (fullName !== undefined && !fullName) {
       return NextResponse.json({ error: "Full name is required." }, { status: 400 });
@@ -90,6 +97,13 @@ export async function PATCH(request: NextRequest) {
       country,
       language,
       whatsappNumber,
+      isProfileHidden,
+      showTradeStats,
+      showLastActive,
+      allowDirectMessages,
+      allowProfileSearch,
+      showPhonePublic,
+      showEmailPublic,
     });
 
     const payload = await getAccountProfileData(user.id);
