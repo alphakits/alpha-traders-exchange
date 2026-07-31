@@ -6,7 +6,7 @@ import { Inter, IBM_Plex_Sans_Arabic } from "next/font/google";
 import { routing, localeDirection, type AppLocale } from "@/i18n/routing";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
-import { GlobalBlockchainBackground } from "@/components/layout/global-blockchain-background";
+import { HtmlAttributesSetter } from "@/components/layout/html-attributes-setter";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -42,21 +42,17 @@ export default async function LocaleLayout({
   const dir = localeDirection[appLocale];
 
   return (
-    <html lang={appLocale} dir={dir} suppressHydrationWarning>
-      <body className="relative bg-background text-foreground antialiased">
-        <GlobalBlockchainBackground />
-        <NextIntlClientProvider messages={messages}>
-          <div
-            className={`${inter.variable} ${plexArabic.variable} relative z-10 min-h-screen text-white ${
-              appLocale === "ar" ? "font-[var(--font-plex-arabic)]" : "font-[var(--font-inter)]"
-            }`}
-          >
-            <SiteHeader locale={appLocale} />
-            <main className="min-h-[calc(100vh-9rem)]">{children}</main>
-            <SiteFooter locale={appLocale} />
-          </div>
-        </NextIntlClientProvider>
-      </body>
-    </html>
+    <NextIntlClientProvider messages={messages}>
+      <HtmlAttributesSetter lang={appLocale} dir={dir} />
+      <div
+        className={`${inter.variable} ${plexArabic.variable} relative z-10 min-h-screen text-white ${
+          appLocale === "ar" ? "font-[var(--font-plex-arabic)]" : "font-[var(--font-inter)]"
+        }`}
+      >
+        <SiteHeader locale={appLocale} />
+        <main className="min-h-[calc(100vh-9rem)]">{children}</main>
+        <SiteFooter locale={appLocale} />
+      </div>
+    </NextIntlClientProvider>
   );
 }

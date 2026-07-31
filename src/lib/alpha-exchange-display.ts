@@ -11,10 +11,12 @@ export function normalizeDisplayNumber(value: unknown) {
   return undefined;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function createExchangeDisplayLookup(_input: Record<string, unknown>) {
   return {} as Record<string, string>;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function replaceExchangeEntityIds(value: string | undefined, _lookup?: Record<string, string>) {
   return value ?? "";
 }

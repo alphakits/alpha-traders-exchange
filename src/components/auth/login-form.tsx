@@ -37,15 +37,27 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
     const fallback = defaultRedirectByRole(user);
     const roles = user?.roles ?? [];
     const needsOnboarding = !user?.onboardingSelection && !user?.onboardingCompletedAt && ((roles.length === 1 && roles[0] === "guest") || user?.role === "guest");
-    if (needsOnboarding) return "/onboarding";
+    if (needsOnboarding) {
+      // Preserve the intended destination through onboarding via sessionStorage
+      const intendedPath = normalizeRedirectPath(rawRedirect);
+      if (intendedPath) {
+        try { sessionStorage.setItem("post_onboarding_redirect", intendedPath); } catch { /* ignore */ }
+      }
+      return "/onboarding";
+    }
     if (!rawRedirect) return fallback;
-    if (!rawRedirect.startsWith("/") || rawRedirect.startsWith("//")) return fallback;
+    return normalizeRedirectPath(rawRedirect) ?? fallback;
+  }
+
+  function normalizeRedirectPath(rawRedirect: string | undefined): string | null {
+    if (!rawRedirect) return null;
+    if (!rawRedirect.startsWith("/") || rawRedirect.startsWith("//")) return null;
     if (rawRedirect === `/${locale}`) return "/";
     if (rawRedirect.startsWith(`/${locale}/`)) {
       const localePath = rawRedirect.slice(`/${locale}`.length);
       return localePath || "/";
     }
-    if (/^\/(ar|en)\/(?:login|register)(?:\/|$)/.test(rawRedirect)) return fallback;
+    if (/^\/(ar|en)\/(?:login|register)(?:\/|$)/.test(rawRedirect)) return null;
     return rawRedirect;
   }
 

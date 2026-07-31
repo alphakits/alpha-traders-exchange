@@ -4240,7 +4240,7 @@ export async function downloadTradeEvidenceContent(input: {
   assertTradeParticipantOrAdmin(request, input.actorUserId, input.actorRole);
 
   const actor = db.users.find((item) => item.id === input.actorUserId);
-  if (input.actorRole === "admin") {
+  if (input.actorRole === "admin" || input.actorRole === "owner") {
     await appendAuditLog(db, {
       action: isAlphaExchangeOwnerEmail(actor?.email ?? "") ? "trade_evidence_viewed_by_owner" : "trade_evidence_viewed_by_moderator",
       actorUserId: input.actorUserId,
@@ -4406,7 +4406,7 @@ export async function getSellerReviews(input: {
 }) {
   const db = await readDb();
   const reviews = db.sellerReviews.filter((review) => review.sellerId === input.sellerId);
-  const canViewHidden = input.actorRole === "admin" || input.actorUserId === input.sellerId;
+  const canViewHidden = input.actorRole === "admin" || input.actorRole === "owner" || input.actorUserId === input.sellerId;
   return canViewHidden ? reviews : reviews.filter((review) => !review.hidden);
 }
 
@@ -4418,7 +4418,7 @@ export async function moderateSellerReview(input: {
   hiddenReason?: string;
 }) {
   const db = await readDb();
-  if (input.actorRole !== "admin") throw new Error("Only admins can moderate reviews.");
+  if (input.actorRole !== "admin" && input.actorRole !== "owner") throw new Error("Only admins can moderate reviews.");
   const review = db.sellerReviews.find((item) => item.id === input.reviewId);
   if (!review) throw new Error("Review not found.");
   const nextReview = {
@@ -4457,7 +4457,7 @@ export async function updatePurchaseRequestStatus(input: {
 
   const isSeller = request.sellerId === input.actorUserId;
   const isBuyer = request.buyerId === input.actorUserId;
-  const isAdmin = input.actorRole === "admin";
+  const isAdmin = input.actorRole === "admin" || input.actorRole === "owner";
 
   if (!isSeller && !isBuyer && !isAdmin) {
     throw new Error("You are not allowed to update this request.");

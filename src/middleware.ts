@@ -1,9 +1,7 @@
 import createMiddleware from "next-intl/middleware";
 import { NextResponse } from "next/server";
 import { routing } from "@/i18n/routing";
-
-const AUTH_COOKIE_NAME = "alpha_exchange_session";
-const AUTH_VERIFIED_COOKIE_NAME = "alpha_exchange_verified";
+import { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME } from "@/lib/auth-constants";
 
 const intlMiddleware = createMiddleware(routing);
 

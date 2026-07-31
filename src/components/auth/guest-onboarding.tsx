@@ -5,6 +5,18 @@ import { useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+const POST_ONBOARDING_KEY = "post_onboarding_redirect";
+
+function consumePostOnboardingRedirect(): string | null {
+  try {
+    const stored = sessionStorage.getItem(POST_ONBOARDING_KEY);
+    if (stored) sessionStorage.removeItem(POST_ONBOARDING_KEY);
+    return stored || null;
+  } catch {
+    return null;
+  }
+}
+
 type Props = {
   locale: "ar" | "en";
 };
@@ -25,7 +37,7 @@ export function GuestOnboarding({ locale }: Props) {
       const res = await fetch("/api/auth/onboarding/student", { method: "POST" });
       const payload = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(payload.error ?? "Failed to enable student role.");
-      router.replace("/academy");
+      router.replace((consumePostOnboardingRedirect() ?? "/academy") as "/academy");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to enable student role.");
     } finally {
@@ -65,7 +77,7 @@ export function GuestOnboarding({ locale }: Props) {
       });
       const payload = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(payload.error ?? "Verification failed.");
-      router.replace("/usdt-exchange");
+      router.replace((consumePostOnboardingRedirect() ?? "/usdt-exchange") as "/usdt-exchange");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Verification failed.");
     } finally {
@@ -81,7 +93,7 @@ export function GuestOnboarding({ locale }: Props) {
       const res = await fetch("/api/auth/onboarding/guest", { method: "POST" });
       const payload = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(payload.error ?? "Failed to continue as guest.");
-      router.replace("/usdt-exchange");
+      router.replace((consumePostOnboardingRedirect() ?? "/usdt-exchange") as "/usdt-exchange");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to continue as guest.");
       setLoading(null);

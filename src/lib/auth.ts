@@ -4,10 +4,11 @@ import path from "path";
 import { promisify } from "util";
 import { cookies } from "next/headers";
 import { createAuthSession, deleteSessionByToken, findUserByEmail, findUserById, getSessionByToken } from "@/lib/alpha-exchange-store";
+import { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME } from "@/lib/auth-constants";
+
+export { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME };
 
 const scrypt = promisify(scryptCallback);
-export const AUTH_COOKIE_NAME = "alpha_exchange_session";
-export const AUTH_VERIFIED_COOKIE_NAME = "alpha_exchange_verified";
 
 export async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
