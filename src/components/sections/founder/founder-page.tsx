@@ -76,7 +76,7 @@ export function FounderPage() {
         <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55, ease: "easeOut" }} className="relative max-w-4xl">
           <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-[#C9A227]">
             <BookOpen className="h-3.5 w-3.5" />
-            {isAr ? "Founder Introduction" : "Founder Introduction"}
+            {isAr ? "مقدمة المؤسس" : "Founder Introduction"}
           </p>
           <h1 className="text-4xl font-semibold leading-tight md:text-6xl">{isAr ? "تعرف على مؤسس Alpha Traders" : "Meet the Founder of Alpha Traders"}</h1>
           <p className="mt-4 max-w-3xl text-base leading-relaxed text-[#9CA3AF] md:text-lg">

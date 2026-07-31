@@ -1,7 +1,9 @@
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
+import { getLocale } from "next-intl/server";
 import { GlobalBlockchainBackground } from "@/components/layout/global-blockchain-background";
 import { getSiteUrlObject, getSiteUrl } from "@/lib/site-url";
+import { localeDirection, type AppLocale } from "@/i18n/routing";
 
 const siteUrl = getSiteUrl();
 const OG_IMAGE = `${siteUrl}/images/hero/hero-trading-office.png`;
@@ -56,15 +58,23 @@ export const metadata: Metadata = {
   },
 };
 
-// Root layout provides <html> and <body> so Next.js injects <head> metadata correctly.
-// The locale layout uses suppressHydrationWarning and sets lang/dir client-side.
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Read locale from next-intl middleware context so we can set lang/dir server-side.
+  // Falls back to "ar" (the default locale) for non-locale routes like /api/*.
+  let locale: AppLocale = "ar";
+  try {
+    locale = (await getLocale()) as AppLocale;
+  } catch {
+    // getLocale() may throw for API routes that bypass next-intl middleware
+  }
+  const dir = localeDirection[locale] ?? "rtl";
+
   return (
-    <html suppressHydrationWarning>
+    <html lang={locale} dir={dir} suppressHydrationWarning>
       <body className="relative bg-background text-foreground antialiased" suppressHydrationWarning>
         <GlobalBlockchainBackground />
         <div className="relative z-10">{children}</div>

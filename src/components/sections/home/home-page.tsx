@@ -173,14 +173,17 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                         : "Master trading through structured lessons, psychology, market structure, risk management, and practical education."}
                     </p>
                     <div className="flex flex-wrap gap-2 text-xs text-[#D1D5DB]">
-                      {["Beginner Friendly", "Advanced Lessons", "Community", "Professional Education"].map((item) => (
+                      {(isRtl
+                        ? ["مناسب للمبتدئين", "دروس متقدمة", "مجتمع", "تعليم احترافي"]
+                        : ["Beginner Friendly", "Advanced Lessons", "Community", "Professional Education"]
+                      ).map((item) => (
                         <span key={item} className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1">
                           {item}
                         </span>
                       ))}
                     </div>
                     <Link href="/academy" className={cn(buttonVariants(), "gap-2")}>
-                        Start Learning
+                        {isRtl ? "ابدأ التعلم" : "Start Learning"}
                         {isRtl ? <ArrowLeft className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
                       </Link>
                   </CardContent>
@@ -200,7 +203,10 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                         : "Trade USDT through trusted sellers reviewed by Alpha Exchange."}
                     </p>
                     <div className="flex flex-wrap gap-2 text-xs text-[#D1D5DB]">
-                      {["Verified Sellers", "Trust Score", "Reviews", "Fast Transactions", "Owner Approved Marketplace"].map((item) => (
+                      {(isRtl
+                        ? ["بائعون موثوقون", "نقاط ثقة", "تقييمات", "معاملات سريعة", "سوق معتمد"]
+                        : ["Verified Sellers", "Trust Score", "Reviews", "Fast Transactions", "Owner Approved Marketplace"]
+                      ).map((item) => (
                         <span key={item} className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1">
                           {item}
                         </span>
@@ -210,7 +216,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                         href={exchangeHref}
                         className={cn(buttonVariants(), "group relative overflow-hidden border border-[#6CAEFF]/45 bg-gradient-to-r from-[#1B60ED]/85 via-[#2A7BFF]/80 to-[#3A9DFF]/75 font-semibold text-white shadow-[0_10px_26px_rgba(36,121,255,0.34)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(36,121,255,0.5)]")}
                       >
-                        <span className="relative z-10">Enter Exchange</span>
+                        <span className="relative z-10">{isRtl ? "ادخل البورصة" : "Enter Exchange"}</span>
                         <span className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 transition duration-700 group-hover:left-[120%] group-hover:opacity-100" />
                       </Link>
                   </CardContent>

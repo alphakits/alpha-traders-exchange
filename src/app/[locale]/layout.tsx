@@ -3,10 +3,9 @@ import { notFound } from "next/navigation";
 import { NextIntlClientProvider, hasLocale } from "next-intl";
 import { getMessages } from "next-intl/server";
 import { Inter, IBM_Plex_Sans_Arabic } from "next/font/google";
-import { routing, localeDirection, type AppLocale } from "@/i18n/routing";
+import { routing, type AppLocale } from "@/i18n/routing";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
-import { HtmlAttributesSetter } from "@/components/layout/html-attributes-setter";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -39,13 +38,11 @@ export default async function LocaleLayout({
 
   const messages = await getMessages();
   const appLocale = locale as AppLocale;
-  const dir = localeDirection[appLocale];
 
   return (
     <NextIntlClientProvider messages={messages}>
-      <HtmlAttributesSetter lang={appLocale} dir={dir} />
       <div
-        className={`${inter.variable} ${plexArabic.variable} relative z-10 min-h-screen text-white ${
+        className={`${inter.variable} ${plexArabic.variable} min-h-screen text-white ${
           appLocale === "ar" ? "font-[var(--font-plex-arabic)]" : "font-[var(--font-inter)]"
         }`}
       >

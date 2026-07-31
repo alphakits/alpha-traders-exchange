@@ -83,7 +83,7 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
               <span className="max-w-[140px] truncate">{sessionUser.fullName}</span>
             </div>
           ) : null}
-          <Link href={dashboardHref} locale={locale} className={cn(buttonVariants({ size: "sm" }), "hidden sm:inline-flex")}>
+          <Link href={dashboardHref} locale={locale} className={cn(buttonVariants({ size: "sm" }), "inline-flex")}>
             {dashboardLabel}
           </Link>
           {sessionUser ? <NotificationBell locale={locale} /> : null}
@@ -95,7 +95,7 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
             </form>
           ) : null}
           <details className="group relative lg:hidden">
-            <summary className="inline-flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-full border border-white/20 text-[#9CA3AF] hover:border-[#C9A227] hover:text-[#C9A227]">
+            <summary className="inline-flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-full border border-white/20 text-[#9CA3AF] hover:border-[#C9A227] hover:text-[#C9A227]">
               <Menu className="h-4 w-4" />
               <span className="sr-only">Open menu</span>
             </summary>

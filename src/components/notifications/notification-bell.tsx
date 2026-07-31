@@ -95,29 +95,37 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   }
 
   async function handleMarkOneRead(notificationId: string) {
-    const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isRead: true }),
-    });
-    if (!response.ok) {
+    try {
+      const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isRead: true }),
+      });
+      if (!response.ok) {
+        setError("Failed to update notification.");
+        return;
+      }
+      await loadNotifications(20);
+    } catch {
       setError("Failed to update notification.");
-      return;
     }
-    await loadNotifications(20);
   }
 
   async function handleMarkAllRead() {
-    const response = await fetch("/api/alpha-exchange/notifications", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "mark_all_read" }),
-    });
-    if (!response.ok) {
+    try {
+      const response = await fetch("/api/alpha-exchange/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_all_read" }),
+      });
+      if (!response.ok) {
+        setError("Failed to update notifications.");
+        return;
+      }
+      await loadNotifications(20);
+    } catch {
       setError("Failed to update notifications.");
-      return;
     }
-    await loadNotifications(20);
   }
 
   async function handleOpenNotification(notification: AlphaExchangeNotification) {
