@@ -1087,7 +1087,7 @@ function inferSellerStatus(role: UserRole): SellerStatus {
 }
 
 function isOnboardingSelection(value: string): value is OnboardingSelection {
-  return value === "guest" || value === "student" || value === "buyer";
+  return value === "guest" || value === "student" || value === "buyer" || value === "seller_applicant";
 }
 
 function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
@@ -2867,6 +2867,8 @@ export async function createSellerApplication(input: {
       sellerStatus: "pending_seller_approval",
       roles: nextRoles,
       role: resolvePrimaryRole(nextRoles),
+      onboardingSelection: "seller_applicant",
+      onboardingCompletedAt: db.users[userIndex].onboardingCompletedAt ?? now,
       updatedAt: now,
     };
   }

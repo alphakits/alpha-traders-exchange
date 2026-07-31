@@ -43,5 +43,11 @@ export default async function OnboardingPage({
     redirect(`/${locale}/usdt-exchange`);
   }
 
-  return <GuestOnboarding locale={locale as "ar" | "en"} />;
+  return (
+    <GuestOnboarding
+      locale={locale as "ar" | "en"}
+      isBuyer={hasRole(user, "buyer")}
+      sellerStatus={user.sellerStatus}
+    />
+  );
 }
