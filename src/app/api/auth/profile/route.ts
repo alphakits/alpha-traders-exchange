@@ -71,6 +71,7 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json();
     const fullName = body.fullName !== undefined ? String(body.fullName).trim().slice(0, 100) : undefined;
     const profilePhotoUrl = body.profilePhotoUrl !== undefined ? String(body.profilePhotoUrl).trim().slice(0, 500) : undefined;
+    const coverBannerUrl = body.coverBannerUrl !== undefined ? String(body.coverBannerUrl).trim().slice(0, 500) : undefined;
     const bio = body.bio !== undefined ? String(body.bio).slice(0, 2000) : undefined;
     const country = body.country !== undefined ? String(body.country).trim().slice(0, 100) : undefined;
     const language = body.language !== undefined ? String(body.language).trim().slice(0, 20) : undefined;
@@ -83,6 +84,7 @@ export async function PATCH(request: NextRequest) {
     await updateAccountProfileData({
       userId: user.id,
       profilePhotoUrl,
+      coverBannerUrl,
       fullName,
       bio,
       country,

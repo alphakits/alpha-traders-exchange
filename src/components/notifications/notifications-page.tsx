@@ -25,6 +25,7 @@ function notificationIcon(notification: AlphaExchangeNotification) {
   if (notification.category === "application") return UserRound;
   if (notification.category === "report" || notification.category === "dispute") return ShieldCheck;
   if (notification.category === "trust") return Star;
+  if (notification.category === "review") return Star;
   if (notification.title.toLowerCase().includes("announcement")) return Megaphone;
   return BellDot;
 }
@@ -39,7 +40,7 @@ function isAnnouncement(notification: AlphaExchangeNotification) {
 }
 
 function isReview(notification: AlphaExchangeNotification) {
-  return `${notification.title} ${notification.message}`.toLowerCase().includes("review");
+  return notification.category === "review" || `${notification.title} ${notification.message}`.toLowerCase().includes("review");
 }
 
 function matchesFilter(notification: AlphaExchangeNotification, filter: NotificationFilter) {

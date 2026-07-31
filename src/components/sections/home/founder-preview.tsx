@@ -65,7 +65,7 @@ export function FounderPreview() {
           className="relative min-h-[260px] flex-shrink-0 overflow-hidden md:min-h-[420px] md:w-[46%]"
         >
           <Image
-            src="/images/hero/hero-trading-office.png"
+            src="/images/hero/hero-trading-office.webp"
             alt={isRtl ? "مكتب Alpha Traders" : "Alpha Traders workspace"}
             fill
             sizes="(min-width: 768px) 46vw, 100vw"

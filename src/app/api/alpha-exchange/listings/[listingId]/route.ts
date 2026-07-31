@@ -37,6 +37,25 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const body = await request.json();
     const action = body.action !== undefined ? String(body.action).trim() : "";
     if (action === "renew") {
+      // Validate the existing listing's price against market rate before renewing.
+      // A listing that was valid when created may violate the cap if market rate dropped.
+      const marketRateForRenew = await fetchUsdIlsMarketRate();
+      const { getMarketplaceListings } = await import("@/lib/alpha-exchange-store");
+      const allListings = await getMarketplaceListings();
+      const targetListing = allListings.find((l) => l.id === listingId);
+      if (targetListing) {
+        const renewPriceError = getListingPriceValidationError({
+          price: targetListing.price,
+          currency: targetListing.currency ?? "ILS",
+          marketRate: marketRateForRenew,
+        });
+        if (renewPriceError) {
+          return NextResponse.json(
+            { error: `Cannot renew: ${renewPriceError}` },
+            { status: 400 },
+          );
+        }
+      }
       const listing = await renewMarketplaceListing({
         listingId,
         actorUserId: user.id,
@@ -71,7 +90,16 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Price must be greater than zero." }, { status: 400 });
     }
     const marketRate = await fetchUsdIlsMarketRate();
-    const priceValidationError = getListingPriceValidationError({ price: price ?? "", currency: currency ?? "ILS", marketRate });
+    // Validate the price being set, OR the existing price if being re-activated.
+    let effectivePrice = price;
+    if (!effectivePrice && status === "active") {
+      // Seller is reactivating without changing price — validate the stored price.
+      const { getMarketplaceListings } = await import("@/lib/alpha-exchange-store");
+      const allListings = await getMarketplaceListings();
+      const stored = allListings.find((l) => l.id === listingId);
+      if (stored) effectivePrice = stored.price;
+    }
+    const priceValidationError = getListingPriceValidationError({ price: effectivePrice ?? "", currency: currency ?? "ILS", marketRate });
     if (priceValidationError) {
       return NextResponse.json({ error: priceValidationError }, { status: 400 });
     }

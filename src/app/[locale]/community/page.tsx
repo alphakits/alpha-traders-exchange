@@ -86,7 +86,7 @@ export default async function CommunityPage() {
 
           <div className="grid gap-3 sm:grid-cols-2">
             {[
-              { src: "/images/hero/hero-trading-office.png", altAr: "بيئة تداول احترافية", alt: "Professional trading environment" },
+              { src: "/images/hero/hero-trading-office.webp", altAr: "بيئة تداول احترافية", alt: "Professional trading environment" },
               { src: "/images/course-materials/webp/image32.webp", altAr: "نقاشات النماذج السعرية", alt: "Pattern discussion visual" },
               { src: "/images/course-materials/webp/image48.webp", altAr: "تحليل مستويات السوق", alt: "Market level analysis visual" },
               { src: "/images/course-materials/webp/image53.webp", altAr: "تأكيد الترندلاين", alt: "Trendline confirmation visual" },
@@ -198,7 +198,7 @@ export default async function CommunityPage() {
 
           <div className="grid gap-3 sm:grid-cols-2">
             {[
-              { src: "/images/hero/hero-trading-office.png", altAr: "بيئة تداول احترافية", alt: "Professional trading workspace" },
+              { src: "/images/hero/hero-trading-office.webp", altAr: "بيئة تداول احترافية", alt: "Professional trading workspace" },
               { src: "/images/course-materials/webp/image50.webp", altAr: "محتوى USDT", alt: "USDT themed market visual" },
               { src: "/images/course-materials/webp/image32.webp", altAr: "تفاعل المجتمع", alt: "Community interaction visual" },
               { src: "/images/course-materials/webp/image48.webp", altAr: "لوحة تحليل السوق", alt: "Trading dashboard visual" },

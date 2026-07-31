@@ -17,7 +17,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 const VIDEO_URL =
   process.env.NEXT_PUBLIC_FOUNDER_VIDEO_URL ||
   "/files/founder/alpha-traders-founder-introduction.mp4";
-const FOUNDER_POSTER_URL = "/images/hero/hero-trading-office.png";
+const FOUNDER_POSTER_URL = "/images/hero/hero-trading-office.webp";
 
 const highlights = [
   { titleAr: "من أنا؟", title: "Who am I?", icon: Crown },

@@ -43,7 +43,7 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-[#C9A227]/45 to-transparent" />
         <Link href="/" locale={locale} className="inline-flex items-center gap-3 text-lg font-semibold tracking-wide text-white">
           <Image
-            src="/images/brand/alpha-traders-logo.png"
+            src="/images/brand/alpha-traders-logo.webp"
             alt="Alpha Traders logo"
             width={42}
             height={42}

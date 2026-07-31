@@ -409,7 +409,7 @@ export interface TradeEvidenceFile {
   status: TradeEvidenceStatus;
 }
 
-export type NotificationCategory = "trade" | "listing" | "account" | "trust" | "application" | "dispute" | "report" | "system";
+export type NotificationCategory = "trade" | "listing" | "account" | "trust" | "application" | "dispute" | "report" | "system" | "review";
 
 export interface AlphaExchangeNotification {
   id: string;

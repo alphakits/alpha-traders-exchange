@@ -24,8 +24,16 @@ import { cn } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { VideoPlayer } from "./video-player";
-import { PdfViewer } from "./pdf-viewer";
-import { LessonQuiz } from "./lesson-quiz";
+import dynamic from "next/dynamic";
+
+const PdfViewer = dynamic(() => import("./pdf-viewer").then((m) => ({ default: m.PdfViewer })), {
+  loading: () => <div className="flex h-48 items-center justify-center rounded-xl border border-white/10 bg-black/20 text-sm text-[#9CA3AF]">Loading PDF viewer…</div>,
+  ssr: false,
+});
+const LessonQuiz = dynamic(() => import("./lesson-quiz").then((m) => ({ default: m.LessonQuiz })), {
+  loading: () => <div className="flex h-24 items-center justify-center rounded-xl border border-white/10 bg-black/20 text-sm text-[#9CA3AF]">Loading quiz…</div>,
+  ssr: false,
+});
 
 const SECTION_IDS = {
   overview: "lesson-overview",

@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link } from "@/i18n/navigation";
 import { RoleBadge, type RoleBadgeVariant } from "@/components/ui/role-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -13,6 +13,7 @@ type AccountProfilePayload = {
   profile: {
     id: string;
     profilePhotoUrl: string;
+    coverBannerUrl?: string;
     fullName: string;
     username: string;
     email: string;
@@ -61,8 +62,15 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
   const [payload, setPayload] = useState<AccountProfilePayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string>("");
+  const [coverUrl, setCoverUrl] = useState<string>("");
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [coverUploading, setCoverUploading] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [coverError, setCoverError] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState({
-    profilePhotoUrl: "",
     fullName: "",
     bio: "",
     country: "",
@@ -81,8 +89,9 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
       }
       const data = (await response.json()) as AccountProfilePayload;
       setPayload(data);
+      setAvatarUrl(data.profile.profilePhotoUrl ?? "");
+      setCoverUrl(data.profile.coverBannerUrl ?? "");
       setForm({
-        profilePhotoUrl: data.profile.profilePhotoUrl ?? "",
         fullName: data.profile.fullName ?? "",
         bio: data.profile.bio ?? "",
         country: data.profile.country ?? "",
@@ -92,6 +101,60 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
       setLoading(false);
     })();
   }, [isAr]);
+
+  async function handlePhotoUpload(file: File) {
+    setPhotoUploading(true);
+    setPhotoError(null);
+    const fd = new FormData();
+    fd.append("kind", "profile");
+    fd.append("file", file);
+    const res = await fetch("/api/auth/profile/photo", { method: "POST", body: fd });
+    const json = (await res.json()) as { url?: string; error?: string };
+    setPhotoUploading(false);
+    if (!res.ok) {
+      setPhotoError(json.error ?? (isAr ? "فشل رفع الصورة." : "Photo upload failed."));
+      return;
+    }
+    if (json.url) setAvatarUrl(json.url);
+  }
+
+  async function handleCoverUpload(file: File) {
+    setCoverUploading(true);
+    setCoverError(null);
+    const fd = new FormData();
+    fd.append("kind", "cover");
+    fd.append("file", file);
+    const res = await fetch("/api/auth/profile/photo", { method: "POST", body: fd });
+    const json = (await res.json()) as { url?: string; error?: string };
+    setCoverUploading(false);
+    if (!res.ok) {
+      setCoverError(json.error ?? (isAr ? "فشل رفع صورة الغلاف." : "Cover upload failed."));
+      return;
+    }
+    if (json.url) setCoverUrl(json.url);
+  }
+
+  async function handleRemovePhoto() {
+    setPhotoError(null);
+    const res = await fetch("/api/auth/profile/photo", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "profile" }),
+    });
+    if (res.ok) setAvatarUrl("");
+    else setPhotoError(isAr ? "فشل حذف الصورة." : "Failed to remove photo.");
+  }
+
+  async function handleRemoveCover() {
+    setCoverError(null);
+    const res = await fetch("/api/auth/profile/photo", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "cover" }),
+    });
+    if (res.ok) setCoverUrl("");
+    else setCoverError(isAr ? "فشل حذف صورة الغلاف." : "Failed to remove cover.");
+  }
 
   const onlineLabel = useMemo(() => {
     if (!payload) return "";
@@ -154,8 +217,54 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
 
   if (!payload) return null;
 
+  const initials = payload.profile.fullName?.charAt(0).toUpperCase() ?? "?";
+
   return (
     <section className="section-container page-shell">
+      {/* Cover Banner */}
+      <div className="mx-auto mb-6 max-w-5xl">
+        <div className="relative h-28 w-full overflow-hidden rounded-2xl border border-white/10">
+          {coverUrl ? (
+            <Image src={coverUrl} alt="Cover" fill unoptimized className="object-cover" />
+          ) : (
+            <button
+              type="button"
+              onClick={() => coverInputRef.current?.click()}
+              className="flex h-full w-full items-center justify-center bg-gradient-to-r from-[#0B0B0B] via-[#1a1400] to-[#0B0B0B] text-sm text-[#9CA3AF] transition-colors hover:text-[#C9A227]"
+            >
+              {isAr ? "+ إضافة صورة الغلاف" : "+ Add Cover Photo"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => coverInputRef.current?.click()}
+            disabled={coverUploading}
+            className="absolute right-3 top-3 rounded-full border border-white/20 bg-black/60 px-3 py-1 text-xs text-white backdrop-blur-sm transition-colors hover:border-[#C9A227] hover:text-[#C9A227] disabled:opacity-50"
+          >
+            {coverUploading ? (isAr ? "جاري الرفع..." : "Uploading...") : (isAr ? "تعديل الغلاف" : "Edit Cover")}
+          </button>
+          {coverUrl && (
+            <button
+              type="button"
+              onClick={() => void handleRemoveCover()}
+              className="absolute bottom-3 right-3 rounded-full border border-red-500/30 bg-black/60 px-3 py-1 text-xs text-red-400 backdrop-blur-sm transition-colors hover:border-red-500/60"
+            >
+              {isAr ? "إزالة الغلاف" : "Remove Cover"}
+            </button>
+          )}
+          {coverError && (
+            <p className="absolute bottom-3 left-3 text-xs text-red-400">{coverError}</p>
+          )}
+        </div>
+        <input
+          ref={coverInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleCoverUpload(f); e.target.value = ""; }}
+        />
+      </div>
+
       <div className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-3">
         <Card className="border-white/10 bg-[#0B0B0B]/95 lg:col-span-2">
           <CardHeader>
@@ -164,14 +273,16 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
           <CardContent className="grid gap-4 md:grid-cols-2">
             <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 md:col-span-2">
               <div className="flex items-center gap-4">
-                <div className="h-16 w-16 overflow-hidden rounded-full border border-white/15 bg-black/30">
-                  {payload.profile.profilePhotoUrl ? (
-                    <Image src={payload.profile.profilePhotoUrl} alt="Profile" width={64} height={64} unoptimized className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-xl text-[#9CA3AF]">
-                      {payload.profile.fullName.charAt(0).toUpperCase()}
-                    </div>
-                  )}
+                <div className="relative">
+                  <div className="h-20 w-20 overflow-hidden rounded-full border border-white/15 bg-black/30">
+                    {avatarUrl ? (
+                      <Image src={avatarUrl} alt="Profile" width={80} height={80} unoptimized className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-[#1a1400] text-2xl font-semibold text-[#C9A227]">
+                        {initials}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
@@ -179,7 +290,7 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
                     {payload.stats.kind === "seller" ? (
                       <span className="inline-flex items-center gap-1 rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#FDE68A]">
                         <span className="h-1.5 w-1.5 rounded-full bg-[#FDE68A]" />
-                        Verified Seller
+                        {isAr ? "بائع موثق" : "Verified Seller"}
                       </span>
                     ) : null}
                   </div>
@@ -191,15 +302,34 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
                       </span>
                     ) : null}
                   </div>
+                  {/* Photo upload controls */}
+                  <div className="flex flex-wrap items-center gap-3 pt-1">
+                    <Button type="button" variant="secondary" size="sm" disabled={photoUploading} onClick={() => photoInputRef.current?.click()}>
+                      {photoUploading ? (isAr ? "جاري الرفع..." : "Uploading...") : (isAr ? "تغيير الصورة" : "Change Photo")}
+                    </Button>
+                    {avatarUrl && (
+                      <button type="button" onClick={() => void handleRemovePhoto()} className="text-xs text-red-400 hover:text-red-300">
+                        {isAr ? "إزالة الصورة" : "Remove Photo"}
+                      </button>
+                    )}
+                    <input
+                      ref={photoInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) void handlePhotoUpload(f); e.target.value = ""; }}
+                    />
+                  </div>
+                  {photoError && <p className="text-xs text-red-400">{photoError}</p>}
                 </div>
               </div>
             </div>
             <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
-              <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Username</p>
+              <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "اسم المستخدم" : "Username"}</p>
               <p className="mt-2 text-sm text-white">{payload.profile.username}</p>
             </div>
             <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
-              <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Email</p>
+              <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "البريد الإلكتروني" : "Email"}</p>
               <p className="mt-2 text-sm text-white">{payload.profile.email}</p>
             </div>
             <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
@@ -270,7 +400,12 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
 
       <Card className="mx-auto mt-6 max-w-5xl border-white/10 bg-[#0B0B0B]/95">
         <CardHeader>
-          <CardTitle>{isAr ? "إدارة الملف الشخصي" : "Manage Profile"}</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>{isAr ? "إدارة الملف الشخصي" : "Manage Profile"}</CardTitle>
+            <Link href="/settings" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+              {isAr ? "الإعدادات" : "Settings"}
+            </Link>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="mb-4 rounded-2xl border border-[#C9A227]/25 bg-black/30 p-4">
@@ -289,14 +424,12 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
               </Button>
             </div>
           </div>
-          <form className="grid gap-3 md:grid-cols-2" onSubmit={handleSave}>
-            <Input value={form.profilePhotoUrl} onChange={(event) => setForm((prev) => ({ ...prev, profilePhotoUrl: event.target.value }))} placeholder="Profile photo URL" />
-            <Input value={form.fullName} onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))} placeholder="Full name" />
-            <Input value={form.country} onChange={(event) => setForm((prev) => ({ ...prev, country: event.target.value }))} placeholder="Country" />
-            <Input value={form.language} onChange={(event) => setForm((prev) => ({ ...prev, language: event.target.value }))} placeholder="Language" />
-            <Input value={form.whatsappNumber} onChange={(event) => setForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} placeholder="Phone number" />
-            <div />
-            <Textarea className="md:col-span-2" value={form.bio} onChange={(event) => setForm((prev) => ({ ...prev, bio: event.target.value }))} placeholder="Bio" />
+          <form className="grid gap-3 md:grid-cols-2" onSubmit={(e) => void handleSave(e)}>
+            <Input value={form.fullName} onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))} placeholder={isAr ? "الاسم الكامل" : "Full name"} />
+            <Input value={form.country} onChange={(event) => setForm((prev) => ({ ...prev, country: event.target.value }))} placeholder={isAr ? "الدولة" : "Country"} />
+            <Input value={form.language} onChange={(event) => setForm((prev) => ({ ...prev, language: event.target.value }))} placeholder={isAr ? "اللغة" : "Language"} />
+            <Input value={form.whatsappNumber} onChange={(event) => setForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} placeholder={isAr ? "رقم الهاتف" : "Phone number"} />
+            <Textarea className="md:col-span-2" value={form.bio} onChange={(event) => setForm((prev) => ({ ...prev, bio: event.target.value }))} placeholder={isAr ? "نبذة شخصية" : "Bio"} />
             <div className="md:col-span-2">
               <Button type="submit">{isAr ? "حفظ" : "Save Profile"}</Button>
             </div>

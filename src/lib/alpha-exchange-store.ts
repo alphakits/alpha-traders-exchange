@@ -4062,6 +4062,7 @@ export async function getAccountProfileData(userId: string): Promise<{
 export async function updateAccountProfileData(input: {
   userId: string;
   profilePhotoUrl?: string;
+  coverBannerUrl?: string;
   fullName?: string;
   bio?: string;
   country?: string;
@@ -4072,6 +4073,7 @@ export async function updateAccountProfileData(input: {
   return updateUserSellerSettings({
     userId: input.userId,
     profilePhotoUrl: input.profilePhotoUrl,
+    coverBannerUrl: input.coverBannerUrl,
     fullName: input.fullName,
     bio: input.bio,
     country: input.country,
@@ -4321,7 +4323,7 @@ export async function submitBuyerTradeReview(input: {
   });
   pushNotification(db, {
     userId: request.sellerId,
-    category: "trade",
+    category: "review",
     title: "Buyer left a review",
     message: "A buyer submitted a review for a completed trade.",
     relatedTradeId: request.tradeId ?? request.id,
