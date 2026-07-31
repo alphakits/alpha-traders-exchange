@@ -85,7 +85,7 @@ export function TrustBar() {
             key={item.titleEn}
             variants={itemVariants}
             whileHover={{ y: -4, transition: { duration: 0.2 } }}
-            className={`group relative flex flex-col items-center gap-2.5 rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-5 text-center backdrop-blur-sm transition-shadow duration-300 hover:border-[#C9A227]/35 hover:bg-white/[0.055] hover:shadow-[0_6px_28px_rgba(201,162,39,0.14)] focus-within:outline-none focus-within:ring-2 focus-within:ring-[#C9A227]/50 ${
+            className={`group relative flex flex-col items-center gap-2.5 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-5 text-center backdrop-blur-sm transition-shadow duration-300 hover:border-[#C9A227]/35 hover:bg-white/[0.055] hover:shadow-[0_6px_28px_rgba(201,162,39,0.14)] focus-within:outline-none focus-within:ring-2 focus-within:ring-[#C9A227]/50 ${
               isRtl ? "text-right items-end" : "text-left items-start"
             } sm:items-center sm:text-center`}
           >

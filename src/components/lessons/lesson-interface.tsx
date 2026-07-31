@@ -599,7 +599,7 @@ export function LessonInterface({
               initial={{ opacity: 0, y: 24, scale: 0.96 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 16 }}
-              className="w-full max-w-xl rounded-3xl border border-[#C9A227]/40 bg-[#0B0B0B] p-7 text-center shadow-[0_30px_90px_rgba(0,0,0,0.65)]"
+              className="modal-panel w-full max-w-xl border-[#C9A227]/40 p-7 text-center shadow-[0_30px_90px_rgba(0,0,0,0.65)]"
             >
               <Sparkles className="mx-auto mb-3 h-8 w-8 text-[#C9A227]" />
               <p className="text-sm uppercase tracking-[0.2em] text-[#C9A227]">{isAr ? "ممتاز" : "Excellent work"}</p>

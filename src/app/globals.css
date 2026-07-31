@@ -6,8 +6,13 @@
   --accent: #c9a227;
   --foreground: #ffffff;
   --muted-foreground: #9ca3af;
+  --muted-secondary: #D1D5DB;
   --border: rgba(255, 255, 255, 0.1);
+  --border-accent: rgba(201, 162, 39, 0.25);
   --radius: 0.75rem;
+  --radius-card: 1rem;
+  --shadow-card: 0 10px 30px rgba(0, 0, 0, 0.22);
+  --shadow-glow: 0 0 24px rgba(201, 162, 39, 0.18);
 }
 
 body {
@@ -16,7 +21,7 @@ body {
   font-feature-settings: "ss01" on, "cv01" on;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  line-height: 1.55;
+  line-height: 1.6;
 }
 
 .global-chain-bg {
@@ -373,6 +378,32 @@ textarea {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
 }
 
+.surface-panel {
+  @apply rounded-2xl border border-white/10 bg-[#0B0B0B]/90 backdrop-blur-xl;
+  box-shadow: var(--shadow-card);
+}
+
+.surface-panel-subtle {
+  @apply rounded-2xl border border-white/10 bg-black/20;
+}
+
+.modal-panel {
+  @apply rounded-2xl border border-white/10 bg-[#0B0B0B]/95 p-6 backdrop-blur-xl;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+}
+
+.table-shell {
+  @apply overflow-hidden rounded-2xl border border-white/10 bg-black/20;
+}
+
+.badge-chip {
+  @apply inline-flex items-center rounded-full border px-2 py-0.5 text-[11px];
+}
+
+.empty-state-panel {
+  @apply rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-[#9CA3AF];
+}
+
 .role-badge {
   position: relative;
   display: inline-flex;
@@ -470,16 +501,32 @@ textarea {
 }
 
 .page-shell {
-  @apply py-10 md:py-14;
+  @apply py-10 md:py-16;
   animation: page-fade-up 320ms ease-out both;
 }
 
 .page-title {
-  @apply text-3xl font-semibold leading-tight md:text-4xl;
+  @apply text-3xl font-semibold leading-tight tracking-tight md:text-4xl;
 }
 
 .page-subtitle {
-  @apply mt-3 max-w-3xl text-sm text-[#9CA3AF] md:text-base;
+  @apply mt-3 max-w-2xl text-sm leading-relaxed text-[#9CA3AF] md:text-base;
+}
+
+.section-label {
+  @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-[#C9A227];
+}
+
+.section-heading {
+  @apply text-2xl font-semibold leading-tight tracking-tight text-white md:text-3xl;
+}
+
+.premium-text-muted {
+  color: var(--muted-foreground);
+}
+
+.premium-text-secondary {
+  color: var(--muted-secondary);
 }
 
 @keyframes page-fade-up {

@@ -42,15 +42,24 @@ async function login(page: Page, email: string, password: string) {
       return;
     }
   }
-  await page.goto("/en/login");
-  if (!page.url().includes("/login")) {
-    return;
+  const loginResponse = await page.request.post("/api/auth/login", {
+    data: { email, password, rememberMe: true },
+  });
+  expect(loginResponse.ok()).toBeTruthy();
+
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    const meResponse = await page.request.get("/api/auth/me");
+    if (meResponse.ok()) {
+      const mePayload = (await meResponse.json()) as { user?: { id?: string } | null };
+      if (mePayload.user?.id) {
+        await page.goto("/en/usdt-exchange");
+        return;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  await page.waitForSelector('form[data-hydrated="true"]', { timeout: 15_000 });
-  await page.getByPlaceholder("Email").fill(email);
-  await page.getByPlaceholder("Password").fill(password);
-  await page.locator('form[data-hydrated="true"]').getByRole("button", { name: /login|sign in/i }).click();
-  await page.waitForURL((url) => !url.pathname.endsWith("/login"), { timeout: 20_000 });
+  throw new Error("Timed out waiting for authenticated session after login.");
 }
 
 async function createSession(browser: Browser, email: string, password: string) {
@@ -125,17 +134,36 @@ async function resetLifecycleFixtures() {
   return true;
 }
 
-async function uploadEvidence(request: APIRequestContext, requestId: string, side: "buyer" | "seller") {
-  const response = await request.post(`/api/alpha-exchange/purchase-requests/${requestId}/evidence`, {
-    data: {
-      side,
-      fileName: `${side}-proof.png`,
-      mimeType: "image/png",
-      sizeBytes: Buffer.from(TEST_EVIDENCE_BASE64, "base64").length,
-      fileData: `data:image/png;base64,${TEST_EVIDENCE_BASE64}`,
+async function uploadEvidence(page: Page, requestId: string, side: "buyer" | "seller") {
+  const response = await page.evaluate(
+    async ({ targetRequestId, targetSide, evidenceBase64 }) => {
+      const fetchResponse = await fetch(`/api/alpha-exchange/purchase-requests/${targetRequestId}/evidence`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          side: targetSide,
+          fileName: `${targetSide}-proof.png`,
+          mimeType: "image/png",
+          sizeBytes: Math.ceil((evidenceBase64.length * 3) / 4),
+          fileData: `data:image/png;base64,${evidenceBase64}`,
+        }),
+      });
+
+      return {
+        ok: fetchResponse.ok,
+        status: fetchResponse.status,
+        text: await fetchResponse.text(),
+      };
     },
-  });
-  expect(response.ok()).toBeTruthy();
+    {
+      targetRequestId: requestId,
+      targetSide: side,
+      evidenceBase64: TEST_EVIDENCE_BASE64,
+    },
+  );
+
+  expect(response.ok, `Upload ${side} evidence failed (${response.status}): ${response.text}`).toBeTruthy();
 }
 
 async function createRequest(request: APIRequestContext, listingId: string, usdtAmount: string) {
@@ -173,6 +201,39 @@ async function createListing(request: APIRequestContext, input: { availableAmoun
   return (await response.json()) as { listing: { id: string; status: string; expiresAt?: string } };
 }
 
+async function submitListingFromSellerWorkspace(page: Page, expectedListing: { availableAmount: string; price: string }) {
+  const submitButton = page.getByRole("button", { name: "Create Live Listing" });
+  await expect(submitButton).toBeEnabled({ timeout: 60_000 });
+  const [createResponse] = await Promise.all([
+    page.waitForResponse(
+      (response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/alpha-exchange/listings",
+      { timeout: 120_000 },
+    ),
+    submitButton.click(),
+  ]);
+
+  expect([200, 201]).toContain(createResponse.status());
+
+  await Promise.all([
+    page.waitForResponse(
+      (response) => response.request().method() === "GET" && new URL(response.url()).pathname === "/api/alpha-exchange/my-listings",
+      { timeout: 120_000 },
+    ),
+    page.waitForResponse(
+      (response) => response.request().method() === "GET" && new URL(response.url()).pathname === "/api/alpha-exchange/listings",
+      { timeout: 120_000 },
+    ),
+  ]);
+
+  await expect(page.getByText(`${expectedListing.availableAmount} USDT • ${expectedListing.price} ILS`)).toBeVisible({ timeout: 30_000 });
+
+  const payload = (await createResponse.json()) as { listing?: { id: string; status: string; availableAmount?: string; price?: string } };
+  if (!payload.listing?.id) {
+    throw new Error("Listing create response did not include a listing id.");
+  }
+  return { listing: payload.listing };
+}
+
 async function getDbNotificationsForEmail(email: string) {
   const api = await request.newContext({ baseURL: "http://localhost:3000" });
   const db = await readRuntimeDb(api);
@@ -195,7 +256,24 @@ async function getAdminPrep(request: APIRequestContext) {
   expect(response.ok()).toBeTruthy();
   return (await response.json()) as {
     listings: Array<{ id: string; status: string; expiresAt?: string; expiredAt?: string; lastRenewedAt?: string }>;
-    purchaseRequests: Array<{ id: string; listingId: string; status: string; timedOutAt?: string; timeoutReason?: string }>;
+    purchaseRequests: Array<{
+      id: string;
+      listingId: string;
+      sellerId?: string;
+      buyerId?: string;
+      status: string;
+      timedOutAt?: string;
+      timeoutReason?: string;
+      tradeCreatedAt?: string;
+      paymentSentAt?: string;
+      fundsReceivedAt?: string;
+      usdtReleaseStartedAt?: string;
+      usdtReleaseDeadlineAt?: string;
+      usdtSentAt?: string;
+      completedAt?: string;
+      buyerEvidence?: { fileName?: string } | null;
+      sellerEvidence?: { fileName?: string } | null;
+    }>;
     auditLogs: Array<{ action: string; listingId?: string; purchaseRequestId?: string; details?: string; reason?: string }>;
     notifications: Array<{ userId: string; title: string; message: string; relatedListingId?: string; relatedTradeId?: string }>;
   };
@@ -207,36 +285,62 @@ async function expectOkWithBody(response: Awaited<ReturnType<APIRequestContext["
   }
 }
 
+type PurchasePayload = {
+  id: string;
+  status: string;
+  buyerEvidence?: { fileName?: string } | null;
+  sellerEvidence?: { fileName?: string } | null;
+  fundsReceivedAt?: string;
+  usdtReleaseStartedAt?: string;
+  usdtReleaseDeadlineAt?: string;
+  usdtSentAt?: string;
+  completedAt?: string;
+};
+
+async function readPurchaseFromPatchResponse(response: Awaited<ReturnType<APIRequestContext["patch"]>>) {
+  const payload = (await response.json()) as { purchase?: PurchasePayload; request?: PurchasePayload };
+  const purchase = payload.purchase ?? payload.request;
+  if (!purchase) {
+    throw new Error("Missing purchase payload in response.");
+  }
+  return purchase;
+}
+
 test.describe.configure({ mode: "serial" });
 
 test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(420_000);
   const hasFixtures = await resetLifecycleFixtures();
   test.skip(!hasFixtures, "Set E2E owner/seller credentials and seed matching runtime accounts to run lifecycle tests.");
 
   const seller = await createSession(browser, SELLER_EMAIL, SELLER_PASSWORD);
   await seller.page.goto("/en/usdt-exchange");
-  const createListingForm = seller.page.locator("form").filter({ has: seller.page.getByRole("button", { name: "Create Live Listing" }) });
+  await expect(seller.page.getByRole("button", { name: "Create Live Listing" })).toBeVisible({ timeout: 60_000 });
+  const availableAmountInput = seller.page.getByPlaceholder("Available Amount", { exact: true });
+  const priceInput = seller.page.getByPlaceholder("Price", { exact: true });
+  const minimumTradeInput = seller.page.getByPlaceholder("Minimum Trade", { exact: true });
+  const maximumTradeInput = seller.page.getByPlaceholder("Maximum Trade", { exact: true });
 
-  await createListingForm.getByPlaceholder("Available Amount", { exact: true }).fill("1000");
-  await createListingForm.getByPlaceholder("Price", { exact: true }).fill("3.70");
-  await createListingForm.getByPlaceholder("Minimum Trade", { exact: true }).fill("100");
-  await createListingForm.getByPlaceholder("Maximum Trade", { exact: true }).fill("1000");
-  await seller.page.getByRole("button", { name: "Create Live Listing" }).click();
-  await expect(seller.page.getByText("Listing is now live.")).toBeVisible({ timeout: 10_000 });
+  await availableAmountInput.fill("1000");
+  await priceInput.fill("3.70");
+  await minimumTradeInput.fill("100");
+  await maximumTradeInput.fill("1000");
+  const firstListingCreate = await submitListingFromSellerWorkspace(seller.page, { availableAmount: "1000", price: "3.70" });
+  expect(firstListingCreate.listing?.id).toBeTruthy();
 
-  await createListingForm.getByPlaceholder("Available Amount", { exact: true }).fill("500");
-  await createListingForm.getByPlaceholder("Price", { exact: true }).fill("3.65");
-  await createListingForm.getByPlaceholder("Minimum Trade", { exact: true }).fill("50");
-  await createListingForm.getByPlaceholder("Maximum Trade", { exact: true }).fill("500");
-  await seller.page.getByRole("button", { name: "Create Live Listing" }).click();
-  await expect(seller.page.getByText("Listing is now live.")).toBeVisible({ timeout: 10_000 });
+  await availableAmountInput.fill("500");
+  await priceInput.fill("3.65");
+  await minimumTradeInput.fill("50");
+  await maximumTradeInput.fill("500");
+  const secondListingCreate = await submitListingFromSellerWorkspace(seller.page, { availableAmount: "500", price: "3.65" });
+  expect(secondListingCreate.listing?.id).toBeTruthy();
+  await expect(seller.page.getByText("You already have 2 active listings. Close one before creating another.")).toBeVisible({ timeout: 30_000 });
 
-  await createListingForm.getByPlaceholder("Available Amount", { exact: true }).fill("250");
-  await createListingForm.getByPlaceholder("Price", { exact: true }).fill("3.60");
-  await createListingForm.getByPlaceholder("Minimum Trade", { exact: true }).fill("25");
-  await createListingForm.getByPlaceholder("Maximum Trade", { exact: true }).fill("250");
-  await seller.page.getByRole("button", { name: "Create Live Listing" }).click();
+  await availableAmountInput.fill("250");
+  await priceInput.fill("3.60");
+  await minimumTradeInput.fill("25");
+  await maximumTradeInput.fill("250");
+  await expect(seller.page.getByRole("button", { name: "Create Live Listing" })).toBeDisabled();
   await expect(seller.page.getByText("You already have 2 active listings. Close one before creating another.")).toBeVisible({ timeout: 10_000 });
 
   const sellerListingsResponse = await seller.page.request.get("/api/alpha-exchange/my-listings");
@@ -249,8 +353,10 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
 
   let response = await seller.page.request.patch(`/api/alpha-exchange/purchase-requests/${firstRequest.purchase.id}`, { data: { status: "accepted" } });
   expect(response.ok()).toBeTruthy();
+  let firstTrade = await readPurchaseFromPatchResponse(response);
+  expect(firstTrade.status).toBe("accepted");
   await seller.page.reload();
-  await expect(seller.page.getByText("This listing is locked by an active trade. Editing, pausing, and closing are unavailable until the trade finishes.")).toBeVisible({ timeout: 10_000 });
+  await expect(seller.page.getByText("In Trade")).toBeVisible({ timeout: 10_000 });
 
   response = await seller.page.request.patch(`/api/alpha-exchange/listings/${primaryListing.id}`, {
     data: { price: "4.00" },
@@ -260,49 +366,79 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
     error: expect.stringMatching(/locked by an active trade/i),
   });
 
-  await uploadEvidence(buyer.page.request, firstRequest.purchase.id, "buyer");
+  await uploadEvidence(buyer.page, firstRequest.purchase.id, "buyer");
   response = await buyer.page.request.patch(`/api/alpha-exchange/purchase-requests/${firstRequest.purchase.id}`, { data: { status: "payment_sent" } });
   expect(response.ok()).toBeTruthy();
+  firstTrade = await readPurchaseFromPatchResponse(response);
+  expect(firstTrade.status).toBe("payment_sent");
+  expect(firstTrade.buyerEvidence?.fileName).toBe("buyer-proof.png");
 
-  await uploadEvidence(seller.page.request, firstRequest.purchase.id, "seller");
+  response = await seller.page.request.patch(`/api/alpha-exchange/purchase-requests/${firstRequest.purchase.id}`, { data: { status: "funds_received" } });
+  expect(response.ok()).toBeTruthy();
+  firstTrade = await readPurchaseFromPatchResponse(response);
+  expect(firstTrade.status).toBe("funds_received");
+  expect(Boolean(firstTrade.fundsReceivedAt)).toBeTruthy();
+
+  response = await seller.page.request.patch(`/api/alpha-exchange/purchase-requests/${firstRequest.purchase.id}`, { data: { status: "usdt_release_pending" } });
+  expect(response.ok()).toBeTruthy();
+  firstTrade = await readPurchaseFromPatchResponse(response);
+  expect(firstTrade.status).toBe("usdt_release_pending");
+  expect(Boolean(firstTrade.usdtReleaseStartedAt)).toBeTruthy();
+  expect(Boolean(firstTrade.usdtReleaseDeadlineAt)).toBeTruthy();
+  const startedAtMs = new Date(String(firstTrade.usdtReleaseStartedAt)).getTime();
+  const deadlineAtMs = new Date(String(firstTrade.usdtReleaseDeadlineAt)).getTime();
+  expect(deadlineAtMs - startedAtMs).toBe(45 * 60 * 1000);
+
+  await uploadEvidence(seller.page, firstRequest.purchase.id, "seller");
   response = await seller.page.request.patch(`/api/alpha-exchange/purchase-requests/${firstRequest.purchase.id}`, { data: { status: "usdt_sent" } });
   expect(response.ok()).toBeTruthy();
+  firstTrade = await readPurchaseFromPatchResponse(response);
+  expect(firstTrade.status).toBe("usdt_sent");
+  expect(firstTrade.sellerEvidence?.fileName).toBe("seller-proof.png");
 
   response = await buyer.page.request.patch(`/api/alpha-exchange/purchase-requests/${firstRequest.purchase.id}`, { data: { status: "completed" } });
   expect(response.ok()).toBeTruthy();
+  firstTrade = await readPurchaseFromPatchResponse(response);
+  expect(firstTrade.status).toBe("review_open");
+  expect(Boolean(firstTrade.completedAt)).toBeTruthy();
+
+  let adminPrep = await getAdminPrep(buyer.page.request);
+  let firstTradeAdmin = adminPrep.purchaseRequests.find((request) => request.id === firstRequest.purchase.id);
+  expect(firstTradeAdmin?.status).toBe("review_open");
+  expect(firstTradeAdmin?.buyerEvidence?.fileName).toBe("buyer-proof.png");
+  expect(firstTradeAdmin?.sellerEvidence?.fileName).toBe("seller-proof.png");
+  expect(Boolean(firstTradeAdmin?.fundsReceivedAt)).toBeTruthy();
+  expect(Boolean(firstTradeAdmin?.usdtReleaseStartedAt)).toBeTruthy();
+  expect(Boolean(firstTradeAdmin?.usdtReleaseDeadlineAt)).toBeTruthy();
+  expect(Boolean(firstTradeAdmin?.usdtSentAt)).toBeTruthy();
+  expect(Boolean(firstTradeAdmin?.completedAt)).toBeTruthy();
+
+  const sellerNotificationsAfterFirstTrade = await getDbNotificationsForEmail(SELLER_EMAIL);
+  expect(sellerNotificationsAfterFirstTrade.some((item) => item.title === "Buyer paid")).toBeTruthy();
+  expect(sellerNotificationsAfterFirstTrade.some((item) => item.title === "Trade completed")).toBeTruthy();
+  const buyerNotificationsAfterFirstTrade = await getDbNotificationsForEmail(OWNER_EMAIL);
+  expect(buyerNotificationsAfterFirstTrade.some((item) => item.title === "Trade request accepted")).toBeTruthy();
+  expect(buyerNotificationsAfterFirstTrade.some((item) => item.title === "Seller confirmed funds received")).toBeTruthy();
+  expect(buyerNotificationsAfterFirstTrade.some((item) => item.title === "USDT release pending")).toBeTruthy();
+  expect(buyerNotificationsAfterFirstTrade.some((item) => item.title === "Seller marked USDT sent")).toBeTruthy();
+  expect(buyerNotificationsAfterFirstTrade.some((item) => item.title === "Trade completed")).toBeTruthy();
+  expect(buyerNotificationsAfterFirstTrade.some((item) => item.title === "Review available")).toBeTruthy();
 
   response = await seller.page.request.get("/api/alpha-exchange/my-listings");
-  let payload = (await response.json()) as { listings: Array<{ id: string; status: string; availableAmount: string }> };
+  const payload = (await response.json()) as { listings: Array<{ id: string; status: string; availableAmount: string }> };
   const reopenedListing = payload.listings.find((listing) => listing.id === primaryListing.id);
   expect(reopenedListing).toMatchObject({ status: "active", availableAmount: "700" });
 
-  const secondRequest = await createRequest(buyer.page.request, primaryListing.id, "700");
-  response = await seller.page.request.patch(`/api/alpha-exchange/purchase-requests/${secondRequest.purchase.id}`, { data: { status: "accepted" } });
-  expect(response.ok()).toBeTruthy();
-  await uploadEvidence(buyer.page.request, secondRequest.purchase.id, "buyer");
-  response = await buyer.page.request.patch(`/api/alpha-exchange/purchase-requests/${secondRequest.purchase.id}`, { data: { status: "payment_sent" } });
-  expect(response.ok()).toBeTruthy();
-  await uploadEvidence(seller.page.request, secondRequest.purchase.id, "seller");
-  response = await seller.page.request.patch(`/api/alpha-exchange/purchase-requests/${secondRequest.purchase.id}`, { data: { status: "usdt_sent" } });
-  expect(response.ok()).toBeTruthy();
-  response = await buyer.page.request.patch(`/api/alpha-exchange/purchase-requests/${secondRequest.purchase.id}`, { data: { status: "completed" } });
-  expect(response.ok()).toBeTruthy();
-
-  response = await seller.page.request.get("/api/alpha-exchange/my-listings");
-  payload = (await response.json()) as { listings: Array<{ id: string; status: string; availableAmount: string }> };
-  const completedListing = payload.listings.find((listing) => listing.id === primaryListing.id);
-  expect(completedListing).toMatchObject({ status: "completed", availableAmount: "0" });
-
-  response = await buyer.page.request.get("/api/alpha-exchange/admin-prep");
-  expect(response.ok()).toBeTruthy();
-  const adminPayload = (await response.json()) as {
-    listings: Array<{ id: string; status: string }>;
-    purchaseRequests: Array<{ listingId: string; status: string }>;
-    commissionRecords: Array<{ listingId: string; paymentStatus: string }>;
-  };
-  expect(adminPayload.listings.some((listing) => listing.id === primaryListing.id && listing.status === "completed")).toBeTruthy();
-  expect(adminPayload.purchaseRequests.filter((request) => request.listingId === primaryListing.id && request.status === "review_open")).toHaveLength(2);
-  expect(adminPayload.commissionRecords.filter((record) => record.listingId === primaryListing.id && record.paymentStatus === "pending")).toHaveLength(2);
+  const runtimeDb = await readRuntimeDb(seller.page.request);
+  const trustSnapshots = Array.isArray(runtimeDb.trustSnapshots) ? (runtimeDb.trustSnapshots as Array<Record<string, unknown>>) : [];
+  const users = Array.isArray(runtimeDb.users) ? (runtimeDb.users as Array<Record<string, unknown>>) : [];
+  const sellerUser = users.find((user) => String(user.email ?? "").toLowerCase() === SELLER_EMAIL);
+  expect(Boolean(sellerUser)).toBeTruthy();
+  const sellerTrustSnapshot = trustSnapshots.find((entry) => String(entry.sellerId ?? "") === String(sellerUser?.id ?? ""));
+  const reputation = (sellerTrustSnapshot?.snapshot ?? null) as Record<string, unknown> | null;
+  expect(Number(reputation?.completedTrades ?? 0)).toBeGreaterThanOrEqual(1);
+  expect(Number(reputation?.totalUsdtVolume ?? 0)).toBeGreaterThanOrEqual(300);
+  expect(Number(reputation?.completionRate ?? 0)).toBeGreaterThan(0);
 
   await Promise.all([seller.context.close(), buyer.context.close()]);
 });

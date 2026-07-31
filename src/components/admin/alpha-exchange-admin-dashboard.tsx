@@ -588,7 +588,7 @@ export function AlphaExchangeAdminDashboard() {
   }
 
   return (
-    <section className="section-container page-shell pb-14">
+    <section className="section-container page-shell">
       <div className="grid gap-6 xl:grid-cols-[280px_1fr]">
         <aside className="h-fit rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-4 backdrop-blur-sm">
           <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-[#C9A227]">
@@ -1750,7 +1750,7 @@ export function AlphaExchangeAdminDashboard() {
       <AnimatePresence>
         {selectedSeller ? (
           <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 10, opacity: 0 }} className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-white/10 bg-[#0B0B0B]/95 p-6 shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
+            <motion.div initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 10, opacity: 0 }} className="modal-panel max-h-[90vh] w-full max-w-xl overflow-y-auto">
               <div className="flex items-center justify-between">
                 <h3 className="text-xl font-semibold">{selectedSeller.fullName}</h3>
                 <button type="button" aria-label="Close seller profile" onClick={() => setSelectedSeller(null)} className="rounded-full border border-white/15 p-2 text-[#9CA3AF] transition hover:text-white">
@@ -1821,7 +1821,7 @@ export function AlphaExchangeAdminDashboard() {
       <AnimatePresence>
         {selectedRequest ? (
           <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 10, opacity: 0 }} className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-white/10 bg-[#0B0B0B]/95 p-6 shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
+            <motion.div initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 10, opacity: 0 }} className="modal-panel max-h-[90vh] w-full max-w-xl overflow-y-auto">
               <div className="flex items-center justify-between">
                 <h3 className="text-xl font-semibold">Purchase Request Details</h3>
                 <button type="button" aria-label="Close request details" onClick={() => setSelectedRequest(null)} className="rounded-full border border-white/15 p-2 text-[#9CA3AF] transition hover:text-white">

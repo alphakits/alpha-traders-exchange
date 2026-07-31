@@ -28,6 +28,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const { requestId } = await context.params;
     const body = await request.json();
     const status = String(body.status ?? "").trim();
+    const traceId = `usdt-sent:${requestId}:${Date.now()}`;
+    const isUsdtSent = status === "usdt_sent";
+    if (isUsdtSent) {
+      console.log("[usdt-sent-trace] route entry", { traceId, requestId, actorUserId: user.id });
+    }
     if (!status) {
       return NextResponse.json({ error: "Status is required." }, { status: 400 });
     }
@@ -40,7 +45,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       actorUserId: user.id,
       actorRole: user.role,
       nextStatus: status,
+      traceId: isUsdtSent ? traceId : undefined,
     });
+    if (isUsdtSent) {
+      console.log("[usdt-sent-trace] before response", { traceId, requestId, updatedStatus: updated.status });
+    }
     return NextResponse.json({ request: updated });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update request." }, { status: 400 });

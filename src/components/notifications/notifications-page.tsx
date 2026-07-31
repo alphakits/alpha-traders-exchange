@@ -127,14 +127,14 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
   }
 
   return (
-    <section className="section-container py-8 md:py-10">
+    <section className="section-container page-shell">
       <Card className="border-white/10 bg-[#0B0B0B]/90">
         <CardHeader>
           <CardTitle className="inline-flex items-center gap-2 text-white">
             <BellDot className="h-5 w-5 text-[#C9A227]" />
             Notifications
             {unreadCount > 0 ? (
-              <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5 text-[11px] font-normal text-[#C9A227]">
+              <span className="badge-chip border-[#C9A227]/35 bg-[#C9A227]/10 font-normal text-[#C9A227]">
                 {unreadCount} unread
               </span>
             ) : null}
@@ -169,11 +169,9 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
             ))}
           </div>
 
-          {loading ? <p className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-[#9CA3AF]">Loading notifications...</p> : null}
+          {loading ? <p className="empty-state-panel">Loading notifications...</p> : null}
           {!loading && error ? <p className="rounded-xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</p> : null}
-          {!loading && !error && pageItems.length === 0 ? (
-            <p className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-[#9CA3AF]">No notifications found for this filter.</p>
-          ) : null}
+          {!loading && !error && pageItems.length === 0 ? <p className="empty-state-panel">No notifications found for this filter.</p> : null}
 
           <div className="space-y-2">
             {pageItems.map((notification) => {

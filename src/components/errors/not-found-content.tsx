@@ -41,7 +41,7 @@ export function NotFoundContent({ locale }: { locale: Locale }) {
         transition={{ duration: 0.5, ease: "easeOut" }}
         className="w-full max-w-lg"
       >
-        <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] p-8 shadow-2xl backdrop-blur-sm md:p-10">
+        <div className="surface-panel-subtle relative overflow-hidden p-8 shadow-2xl backdrop-blur-sm md:p-10">
           {/* Radial glow */}
           <div
             className="pointer-events-none absolute -top-24 left-1/2 h-56 w-56 -translate-x-1/2 rounded-full bg-[#C9A227]/10 blur-3xl"

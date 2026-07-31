@@ -18,9 +18,21 @@ export async function GET() {
   return NextResponse.json({ listings });
 }
 
+function isListingCreateProfilingEnabled() {
+  return process.env.ALPHA_EXCHANGE_PROFILE_LISTING_CREATE === "1";
+}
+function createProfileLogger() {
+  const startedAt = Date.now();
+  return (stage: string) => {
+    if (!isListingCreateProfilingEnabled()) return;
+    console.log(`[alpha-exchange-profile] listings.route ${stage} +${Date.now() - startedAt}ms`);
+  };
+}
 export async function POST(request: NextRequest) {
+  const logProfile = createProfileLogger();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  logProfile("requireApiUser");
   if (!canPublishListings(user)) {
     return NextResponse.json({ error: "You must be approved by Alpha Traders before publishing listings." }, { status: 403 });
   }
@@ -31,6 +43,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
+    logProfile("request.json");
     const availableAmount = String(body.availableAmount ?? "").trim();
     const price = String(body.price ?? "").trim();
     const responseTime = String(body.responseTime ?? "").trim().slice(0, 100) || "5 min";
@@ -59,6 +72,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Price must be greater than zero." }, { status: 400 });
     }
     const marketRate = await fetchUsdIlsMarketRate();
+    logProfile("fetchUsdIlsMarketRate");
     const priceValidationError = getListingPriceValidationError({ price, currency, marketRate });
     if (priceValidationError) {
       return NextResponse.json({ error: priceValidationError }, { status: 400 });
@@ -107,6 +121,7 @@ export async function POST(request: NextRequest) {
       responseTime,
       actorUserId: user.id,
     });
+    logProfile("createMarketplaceListing");
     return NextResponse.json({ listing }, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to create listing." }, { status: 400 });

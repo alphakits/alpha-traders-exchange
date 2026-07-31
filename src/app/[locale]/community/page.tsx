@@ -46,7 +46,7 @@ export default async function CommunityPage() {
         ))}
       </div>
 
-      <div className="mt-10 rounded-3xl border border-white/10 bg-[#0A0A0A]/90 p-5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] md:p-8">
+      <div className="surface-panel mt-10 p-5 md:p-8">
         <div className="grid gap-8 lg:grid-cols-[1.05fr_1fr]">
           <div className={`${isAr ? "lg:text-right" : "lg:text-left"}`}>
             <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#25D366]/35 bg-[#25D366]/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-[#25D366]">
@@ -129,7 +129,7 @@ export default async function CommunityPage() {
         </div>
       </div>
 
-      <div className="mt-8 rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] md:p-8">
+      <div className="surface-panel mt-8 p-5 md:p-8">
         <div className="grid gap-8 lg:grid-cols-[1fr_1.05fr]">
           <div className={`${isAr ? "lg:text-right" : "lg:text-left"}`}>
             <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/[0.03] px-3 py-1 text-xs uppercase tracking-[0.2em] text-white">
@@ -145,7 +145,7 @@ export default async function CommunityPage() {
                 : "Follow @Mark_Jozen for trading content, market insights, educational videos, community updates, and behind-the-scenes content from Alpha Traders."}
             </p>
 
-            <div className={`mt-6 rounded-2xl border border-white/10 bg-black/25 p-5 ${isAr ? "md:text-right" : ""}`}>
+            <div className={`surface-panel-subtle mt-6 p-5 ${isAr ? "md:text-right" : ""}`}>
               <div className={`flex items-center justify-between gap-4 ${isAr ? "flex-row-reverse" : ""}`}>
                 <div className={`inline-flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                   <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white/[0.04]">
@@ -170,7 +170,7 @@ export default async function CommunityPage() {
               <div className="mt-4 rounded-xl border border-white/10 bg-[#0F0F0F] p-3">
                 <p className="text-xs text-[#9CA3AF]">{isAr ? "معاينة الملف الشخصي" : "Profile preview"}</p>
                 <div className="mt-2 grid grid-cols-3 gap-2">
-                  {["/images/community/tiktok-preview-1.png", "/images/community/tiktok-preview-2.png", "/images/community/tiktok-preview-3.png"].map((src) => (
+                  {["/images/community/tiktok-preview-1.png", "/images/community/tiktok-preview-2.png", "/images/community/tiktok-preview-3.png"].map((src, index) => (
                     <div key={src} className="relative aspect-[9/16] overflow-hidden rounded-lg border border-white/10 bg-black/40">
                       <Image
                         src={src}
@@ -183,7 +183,7 @@ export default async function CommunityPage() {
                       />
                       <Image
                         src={src}
-                        alt="TikTok preview visual"
+                        alt={isAr ? `معاينة فيديو Alpha Traders على TikTok ${index + 1}` : `Alpha Traders TikTok video preview ${index + 1}`}
                         fill
                         sizes="(max-width: 768px) 30vw, 220px"
                         quality={75}

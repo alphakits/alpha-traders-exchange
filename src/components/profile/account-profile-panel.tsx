@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link } from "@/i18n/navigation";
 import { RoleBadge, type RoleBadgeVariant } from "@/components/ui/role-badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -144,7 +144,7 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
 
   if (loading) {
     return (
-      <section className="section-container page-shell py-14">
+      <section className="section-container page-shell">
         <Card className="mx-auto max-w-5xl border-white/10 bg-[#0B0B0B]/95">
           <CardContent className="p-6 text-sm text-[#D1D5DB]">{isAr ? "جاري التحميل..." : "Loading profile..."}</CardContent>
         </Card>
@@ -155,7 +155,7 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
   if (!payload) return null;
 
   return (
-    <section className="section-container page-shell py-14">
+    <section className="section-container page-shell">
       <div className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-3">
         <Card className="border-white/10 bg-[#0B0B0B]/95 lg:col-span-2">
           <CardHeader>
@@ -281,7 +281,7 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
               <Button type="button" variant="secondary" onClick={() => void activateStudentRole()}>
                 {isAr ? "تفعيل دور الطالب" : "Join Alpha Academy"}
               </Button>
-              <Link href="/onboarding?mode=manage" className="inline-flex h-10 items-center justify-center rounded-md border border-white/20 px-4 text-sm hover:border-[#C9A227] hover:text-[#C9A227]">
+              <Link href="/onboarding?mode=manage" className={buttonVariants({ variant: "secondary" })}>
                 {isAr ? "اختيار دور المشتري" : "Become a Buyer"}
               </Link>
               <Button type="button" variant="secondary" onClick={() => void continueAsGuest()}>

@@ -89,22 +89,9 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
         setRequiresEmailVerification(payload?.requiresEmailVerification === true);
         return;
       }
-      const meResponse = await fetch("/api/auth/me", {
-        method: "GET",
-        cache: "no-store",
-        credentials: "include",
-        headers: { "Cache-Control": "no-store" },
-      });
-      if (!meResponse.ok) {
-        setErrorMessage(
-          isAr
-            ? "تم تسجيل الدخول ولكن تعذر تأكيد الجلسة. حاول مرة أخرى."
-            : "Logged in, but we couldn't confirm your session. Please try again.",
-        );
-        return;
-      }
-      const mePayload = (await meResponse.json()) as { user?: { id?: string } | null };
-      if (!mePayload?.user?.id) {
+
+      const userForRedirect = payload?.user;
+      if (!userForRedirect) {
         setErrorMessage(
           isAr
             ? "تم تسجيل الدخول ولكن تعذر تأكيد الجلسة. حاول مرة أخرى."
@@ -113,7 +100,7 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
         return;
       }
 
-      const target = resolveLoginRedirectTarget(redirectTo, payload?.user);
+      const target = resolveLoginRedirectTarget(redirectTo, userForRedirect);
       window.location.replace(toLocaleHref(target));
     } catch {
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
@@ -178,8 +165,8 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
 
   return (
     <section className="section-container page-shell">
-      <div className="mx-auto w-full max-w-xl rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.4)] backdrop-blur-xl md:p-8">
-        <h1 className="text-3xl font-semibold md:text-4xl">{isAr ? "تسجيل الدخول" : "Login"}</h1>
+      <div className="surface-panel mx-auto w-full max-w-xl p-6 md:p-8">
+        <h1 className="page-title">{isAr ? "تسجيل الدخول" : "Login"}</h1>
         <p className="mt-2 text-sm text-[#9CA3AF]">
           {isAr ? "أنشئ حساب Alpha Traders للوصول إلى Alpha Academy و Alpha Exchange." : "Create your Alpha Traders account to access Alpha Academy and Alpha Exchange."}
         </p>

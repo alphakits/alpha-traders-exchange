@@ -108,8 +108,8 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
                     locale={locale}
                     className={
                       item.cta
-                        ? "group relative block overflow-hidden rounded-lg border border-[#6CAEFF]/45 bg-gradient-to-r from-[#1B60ED]/85 via-[#2A7BFF]/80 to-[#3A9DFF]/75 px-3 py-2 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(36,121,255,0.32)] backdrop-blur-xl transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(36,121,255,0.42)]"
-                        : "block rounded-lg px-3 py-2 text-sm text-[#d1d5db] transition hover:bg-white/5 hover:text-white"
+                        ? "group relative block overflow-hidden rounded-full border border-[#6CAEFF]/45 bg-gradient-to-r from-[#1B60ED]/85 via-[#2A7BFF]/80 to-[#3A9DFF]/75 px-3 py-2 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(36,121,255,0.32)] backdrop-blur-xl transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(36,121,255,0.42)]"
+                        : "block rounded-xl px-3 py-2 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white"
                     }
                   >
                     {item.label}
@@ -124,11 +124,11 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
                       {sessionUser.fullName}
                     </div>
                   ) : null}
-                  <Link href={dashboardHref} locale={locale} className="block rounded-lg px-3 py-2 text-sm text-[#d1d5db] transition hover:bg-white/5 hover:text-white">
+                  <Link href={dashboardHref} locale={locale} className="block rounded-xl px-3 py-2 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white">
                     {dashboardLabel}
                   </Link>
                   {sessionUser ? (
-                    <Link href="/notifications" locale={locale} className="block rounded-lg px-3 py-2 text-sm text-[#d1d5db] transition hover:bg-white/5 hover:text-white">
+                    <Link href="/notifications" locale={locale} className="block rounded-xl px-3 py-2 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white">
                       {t("notifications")}
                     </Link>
                   ) : null}
@@ -136,7 +136,7 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
                     <form action={logoutAction}>
                       <button
                         type="submit"
-                        className="mt-1 block w-full rounded-lg px-3 py-2 text-start text-sm text-[#d1d5db] transition hover:bg-white/5 hover:text-white"
+                        className="mt-1 block w-full rounded-xl px-3 py-2 text-start text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white"
                       >
                         {t("signOut")}
                       </button>

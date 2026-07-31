@@ -3,6 +3,7 @@ import { Link } from "@/i18n/navigation";
 import { BadgeCheck, Network, ShieldCheck, Star, TrendingUp, WalletCards } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { UsdtIcon } from "@/components/ui/usdt-icon";
 import { buildSellerReviewStats, getVisibleSellerReviews } from "@/lib/reviews";
 import type { PremiumSellerProfileData, SellerBadge, SellerLevel } from "@/types/alpha-exchange";
 
@@ -38,10 +39,13 @@ function badgeLabel(badge: SellerBadge) {
   return formatSellerBadgeLabel(badge);
 }
 
-function StatCard({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
+function StatCard({ label, value, accent = false, isUsdt = false }: { label: string; value: string; accent?: boolean; isUsdt?: boolean }) {
   return (
     <div className={`rounded-2xl border border-white/10 bg-black/20 p-4 ${accent ? "border-[#C9A227]/25 bg-[#C9A227]/10" : ""}`}>
-      <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{label}</p>
+      <p className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">
+        {isUsdt ? <UsdtIcon /> : null}
+        {label}
+      </p>
       <p className="mt-2 text-xl font-semibold text-white">{value}</p>
     </div>
   );
@@ -84,20 +88,20 @@ export function PremiumSellerProfilePage({ locale, data }: PremiumSellerProfileP
 
   const visibleReviews = getVisibleSellerReviews(profile.latestReviews as never[]);
   const reviewStats = buildSellerReviewStats(visibleReviews as never[]);
-  const stats = [
+  const stats: Array<{ label: string; value: string; isUsdt?: boolean }> = [
     { label: isAr ? "صفقات مكتملة" : "Completed trades", value: profile.completedTrades.toString() },
-    { label: isAr ? "حجم التداول" : "Trade volume", value: `${profile.tradeVolume?.toLocaleString("en-IL") ?? profile.lifetimeCompletedVolumeUsdt.toLocaleString("en-IL")} USDT` },
+    { label: isAr ? "حجم التداول" : "Trade volume", value: `${profile.tradeVolume?.toLocaleString("en-IL") ?? profile.lifetimeCompletedVolumeUsdt.toLocaleString("en-IL")} USDT`, isUsdt: true },
     { label: isAr ? "التقييم المتوسط" : "Average rating", value: `${reviewStats.averageRating.toFixed(2)}★` },
     { label: isAr ? "المشترون المتكرّرون" : "Repeat buyers", value: `${profile.repeatBuyersPercent.toFixed(1)}%` },
     { label: isAr ? "معدل الإكمال" : "Completion rate", value: `${profile.completionRate.toFixed(1)}%` },
     { label: isAr ? "متوسط سرعة الرد" : "Avg response", value: `${profile.responseTimeMinutes.toFixed(0)} min` },
-    { label: isAr ? "العروض النشطة" : "Active listings", value: data.sellerListings.length.toString() },
+    { label: isAr ? "العروض النشطة" : "Active listings", value: data.sellerListings.length.toString(), isUsdt: true },
     { label: isAr ? "سنوات على المنصة" : "Years on platform", value: `${profile.yearsOnPlatform.toFixed(1)}` },
   ];
 
   return (
     <main className="min-h-screen bg-[#050505] text-white">
-      <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="section-container page-shell flex flex-col gap-8">
         <Card className="overflow-hidden border-white/10 bg-[#0B0B0B]/95">
           <div
             className="relative h-56 md:h-72"
@@ -220,7 +224,7 @@ export function PremiumSellerProfilePage({ locale, data }: PremiumSellerProfileP
             </CardHeader>
             <CardContent className="grid gap-3 sm:grid-cols-2">
               {stats.map((stat) => (
-                <StatCard key={stat.label} label={stat.label} value={stat.value} accent={stat.label.includes("Completed") || stat.label.includes("Completed trades") || stat.label.includes("trade") || stat.label.includes("حجم") || stat.label.includes("صفقات") } />
+                <StatCard key={stat.label} label={stat.label} value={stat.value} accent={stat.label.includes("Completed") || stat.label.includes("Completed trades") || stat.label.includes("trade") || stat.label.includes("حجم") || stat.label.includes("صفقات")} isUsdt={Boolean(stat.isUsdt)} />
               ))}
             </CardContent>
           </Card>
@@ -269,13 +273,13 @@ export function PremiumSellerProfilePage({ locale, data }: PremiumSellerProfileP
                   </div>
                   <p className={`mt-3 text-sm leading-7 text-[#D1D5DB] ${isAr ? "text-right" : ""}`}>{review.comment}</p>
                   <div className={`mt-3 flex flex-wrap items-center gap-3 text-xs text-[#9CA3AF] ${isAr ? "flex-row-reverse" : ""}`}>
-                    <span>{isAr ? "المبلغ" : "Trade amount"}: {review.tradeAmount} USDT</span>
+                    <span className="inline-flex items-center gap-1.5"><UsdtIcon />{isAr ? "المبلغ" : "Trade amount"}: {review.tradeAmount} USDT</span>
                     <span>{isAr ? "التاريخ" : "Trade date"}: {new Date(review.createdAt).toLocaleDateString(locale === "ar" ? "ar-EG" : "en-IL")}</span>
                     <span>{review.network}</span>
                   </div>
                   {review.sellerReply ? <div className="mt-3 rounded-xl border border-[#22C55E]/20 bg-[#22C55E]/10 p-3 text-sm text-[#86EFAC]">{review.sellerReply}</div> : null}
                 </div>
-              )) : <p className="text-sm text-[#9CA3AF]">{isAr ? "لا توجد مراجعات بعد." : "No reviews yet."}</p>}
+              )) : <p className="empty-state-panel">{isAr ? "لا توجد مراجعات بعد." : "No reviews yet."}</p>}
             </CardContent>
           </Card>
 
@@ -286,11 +290,11 @@ export function PremiumSellerProfilePage({ locale, data }: PremiumSellerProfileP
             </CardHeader>
             <CardContent className="space-y-4">
               {data.sellerListings.length ? data.sellerListings.map((listing) => (
-                <div key={listing.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                <div key={listing.id} className="surface-panel-subtle p-4 transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/25">
                   <div className={`flex items-center justify-between ${isAr ? "flex-row-reverse" : ""}`}>
                     <div>
-                      <p className="text-lg font-semibold text-white">{listing.price} USDT</p>
-                      <p className="text-sm text-[#9CA3AF]">{isAr ? "المتاح" : "Available"}: {listing.availableAmount}</p>
+                      <p className="text-lg font-semibold text-white">{listing.price} ILS / USDT</p>
+                      <p className="inline-flex items-center gap-1.5 text-sm text-[#9CA3AF]"><UsdtIcon />{isAr ? "المتاح" : "Available"}: {listing.availableAmount}</p>
                     </div>
                     <span className="rounded-full border border-[#C9A227]/20 bg-[#C9A227]/10 px-3 py-1 text-xs text-[#FDE68A]">{listing.network}</span>
                   </div>
@@ -300,7 +304,7 @@ export function PremiumSellerProfilePage({ locale, data }: PremiumSellerProfileP
                   </div>
                   <Button className="mt-4 w-full">{isAr ? "شراء" : "Buy"}</Button>
                 </div>
-              )) : <p className="text-sm text-[#9CA3AF]">{isAr ? "لا توجد عروض نشطة حاليًا." : "No active listings right now."}</p>}
+              )) : <p className="empty-state-panel">{isAr ? "لا توجد عروض نشطة حاليًا." : "No active listings right now."}</p>}
             </CardContent>
           </Card>
         </div>
@@ -312,12 +316,12 @@ export function PremiumSellerProfilePage({ locale, data }: PremiumSellerProfileP
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {data.similarSellers.length ? data.similarSellers.map((sellerItem) => (
-              <div key={sellerItem.sellerId} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+              <div key={sellerItem.sellerId} className="surface-panel-subtle p-4 transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/25">
                 <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#C9A227]/20 text-sm font-semibold text-[#FDE68A]">{sellerItem.sellerName.slice(0, 2).toUpperCase()}</div>
                   <div>
                     <p className="font-medium text-white">{sellerItem.sellerName}</p>
-                    <p className="text-xs text-[#9CA3AF]">{sellerItem.publicVolumeRange}</p>
+                    <p className="inline-flex items-center gap-1 text-xs text-[#9CA3AF]"><UsdtIcon />{sellerItem.publicVolumeRange}</p>
                   </div>
                 </div>
                 <div className={`mt-3 flex items-center justify-between text-sm ${isAr ? "flex-row-reverse" : ""}`}>
@@ -326,7 +330,7 @@ export function PremiumSellerProfilePage({ locale, data }: PremiumSellerProfileP
                 </div>
                 <Link href={`/exchange/seller/${slugify(sellerItem.sellerName)}`} className="mt-4 inline-flex text-sm text-[#C9A227] hover:underline">{isAr ? "عرض الملف" : "View profile"}</Link>
               </div>
-            )) : <p className="text-sm text-[#9CA3AF]">{isAr ? "لا توجد توصيات متاحة." : "No similar sellers available."}</p>}
+            )) : <p className="empty-state-panel">{isAr ? "لا توجد توصيات متاحة." : "No similar sellers available."}</p>}
           </CardContent>
         </Card>
       </div>

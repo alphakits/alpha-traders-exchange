@@ -4,6 +4,8 @@ import "./globals.css";
 import { useEffect } from "react";
 import Link from "next/link";
 import { ShieldAlert, RefreshCcw, Home } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export default function GlobalError({
   error,
@@ -21,7 +23,7 @@ export default function GlobalError({
       <body className="relative bg-[#0B0B0B] text-white antialiased">
         <div className="flex min-h-screen items-center justify-center px-4">
           <div className="w-full max-w-lg">
-            <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] p-8 text-center shadow-2xl backdrop-blur-sm md:p-10">
+            <div className="surface-panel-subtle relative overflow-hidden p-8 text-center shadow-2xl backdrop-blur-sm md:p-10">
               {/* Radial glow */}
               <div
                 className="pointer-events-none absolute -top-24 left-1/2 h-56 w-56 -translate-x-1/2 rounded-full bg-[#C9A227]/10 blur-3xl"
@@ -52,14 +54,14 @@ export default function GlobalError({
                 <button
                   type="button"
                   onClick={reset}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[#C9A227] px-6 text-sm font-medium text-black shadow-[0_8px_20px_rgba(201,162,39,0.2)] transition-all duration-200 hover:-translate-y-0.5 hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227]"
+                  className={buttonVariants()}
                 >
                   <RefreshCcw className="h-4 w-4" aria-hidden="true" />
                   Try Again
                 </button>
                 <Link
                   href="/"
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-full border border-white/20 px-6 text-sm font-medium text-white transition-all duration-200 hover:-translate-y-0.5 hover:border-[#C9A227] hover:text-[#C9A227] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227]"
+                  className={cn(buttonVariants({ variant: "secondary" }))}
                 >
                   <Home className="h-4 w-4" aria-hidden="true" />
                   Home
@@ -72,4 +74,3 @@ export default function GlobalError({
     </html>
   );
 }
-

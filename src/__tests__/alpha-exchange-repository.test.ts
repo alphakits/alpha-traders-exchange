@@ -167,16 +167,23 @@ describe("AlphaExchangeRepository", () => {
     expect(repository.saveSnapshot).toHaveBeenCalledTimes(2);
   });
 
-  it("destroys a broken transaction client so the next attempt can start cleanly", async () => {
-    const client = {
+  it("retries an aborted transaction with a fresh client so auth sessions still persist", async () => {
+    const firstClient = {
+      query: vi.fn().mockRejectedValueOnce(new Error("current transaction is aborted, commands ignored until end of transaction block")),
+      release: vi.fn(),
+    };
+    const secondClient = {
       query: vi.fn()
-        .mockRejectedValueOnce(new Error("current transaction is aborted, commands ignored until end of transaction block"))
-        .mockResolvedValue({ rows: [] }),
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ next_index: "0" }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
     };
     const pool = {
       query: vi.fn().mockResolvedValue({ rows: [] }),
-      connect: vi.fn().mockResolvedValue(client),
+      connect: vi.fn().mockResolvedValueOnce(firstClient).mockResolvedValueOnce(secondClient),
       on: vi.fn(),
     } as unknown as Pool;
 
@@ -187,8 +194,100 @@ describe("AlphaExchangeRepository", () => {
       userId: "user-1",
       createdAt: new Date().toISOString(),
       expiresAt: new Date().toISOString(),
-    })).rejects.toThrow("current transaction is aborted");
+    })).resolves.toBeUndefined();
 
-    expect(client.release).toHaveBeenCalledWith(true);
+    expect(firstClient.release).toHaveBeenCalledWith(true);
+    expect(secondClient.release).toHaveBeenCalled();
+  });
+
+  it("retries after an advisory lock timeout so saveSnapshot can continue", async () => {
+    const firstClient = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockRejectedValueOnce(Object.assign(new Error("canceling statement due to statement timeout"), { code: "57014" }))
+        .mockResolvedValueOnce({ rows: [] }),
+      release: vi.fn(),
+    };
+    const secondClient = {
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    };
+    const pool = {
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      connect: vi.fn().mockResolvedValueOnce(firstClient).mockResolvedValueOnce(secondClient),
+      on: vi.fn(),
+    } as unknown as Pool;
+
+    const repository = new AlphaExchangeRepository(pool);
+
+    await expect(repository.saveSnapshot({
+      users: [],
+      sellerApplications: [],
+      marketplaceListings: [],
+      purchaseRequests: [],
+      commissionRecords: [],
+      auditLogs: [],
+      authSessions: [],
+      passwordResetTokens: [],
+      notifications: [],
+      activityLog: [],
+      disputes: [],
+      sellerReports: [],
+      trustSnapshots: [],
+      trustScoreHistory: [],
+      tradeEvidenceFiles: [],
+      privateBetaInvites: [],
+      privateBetaInviteUses: [],
+      betaFeedback: [],
+      betaAnnouncements: [],
+      sellerReviews: [],
+    })).resolves.toBeUndefined();
+
+    expect(firstClient.release).toHaveBeenCalledWith(true);
+    expect(secondClient.release).toHaveBeenCalled();
+  });
+
+  it("retries a failed snapshot save with a fresh client after an aborted transaction", async () => {
+    const firstClient = {
+      query: vi.fn().mockRejectedValueOnce(new Error("current transaction is aborted, commands ignored until end of transaction block")),
+      release: vi.fn(),
+    };
+    const secondClient = {
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    };
+    const pool = {
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      connect: vi.fn().mockResolvedValueOnce(firstClient).mockResolvedValueOnce(secondClient),
+      on: vi.fn(),
+    } as unknown as Pool;
+
+    const repository = new AlphaExchangeRepository(pool);
+
+    await expect(repository.saveSnapshot({
+      users: [],
+      sellerApplications: [],
+      marketplaceListings: [],
+      purchaseRequests: [],
+      commissionRecords: [],
+      auditLogs: [],
+      authSessions: [],
+      passwordResetTokens: [],
+      notifications: [],
+      activityLog: [],
+      disputes: [],
+      sellerReports: [],
+      trustSnapshots: [],
+      trustScoreHistory: [],
+      tradeEvidenceFiles: [],
+      privateBetaInvites: [],
+      privateBetaInviteUses: [],
+      betaFeedback: [],
+      betaAnnouncements: [],
+      sellerReviews: [],
+    })).resolves.toBeUndefined();
+
+    expect(firstClient.release).toHaveBeenCalledWith(true);
+    expect(secondClient.release).toHaveBeenCalled();
   });
 });

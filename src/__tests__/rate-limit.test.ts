@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
 
 function makeHeaders(ip = "1.2.3.4") {
   return new Headers({ "x-forwarded-for": ip });
@@ -47,5 +47,11 @@ describe("checkRateLimit", () => {
 
     const after = checkRateLimit(opts); // new window
     expect(after.allowed).toBe(true);
+  });
+
+  it("creates a 429 response with retry-after metadata", () => {
+    const response = createRateLimitResponse(12);
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("12");
   });
 });

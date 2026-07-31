@@ -4,6 +4,7 @@ import { requireApiUser } from "@/lib/api-auth";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { hasRole } from "@/lib/roles";
 import { logEvent } from "@/lib/structured-logging";
+import { checkRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
 
 function isValidNetwork(value: string): value is SupportedNetwork {
@@ -33,6 +34,8 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const rate = checkRateLimit({ headers: request.headers, key: "exchange:seller-application", maxRequests: 6, windowMs: 60_000 });
+  if (!rate.allowed) return createRateLimitResponse(rate.retryAfterSeconds);
   if (isAlphaExchangeOwnerEmail(user.email)) {
     logEvent("warn", { event: "seller_application_submit", actorUserId: user.id, actorRole: user.role, outcome: "denied", reason: "Owner cannot apply as seller" });
     return NextResponse.json({ error: "Owner accounts cannot submit seller applications." }, { status: 403 });

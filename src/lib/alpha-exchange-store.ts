@@ -1,8 +1,8 @@
-import { appendFileSync } from "fs";
+                  import { appendFileSync, mkdirSync } from "fs";
 import path from "path";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "crypto";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
-import { createExchangeDisplayLookup, normalizeDisplayNumber, replaceExchangeEntityIds } from "@/lib/alpha-exchange-display";
+import { createExchangeDisplayLookup, normalizeDisplayNumber, replaceExchangeEntityIds } from "./alpha-exchange-display";
 import { calculateSellerTrustSnapshot, rankTrustSnapshots } from "@/lib/trust-engine";
 import { getSellerPrestigeProgress, getSellerPublicVolumeLabel, resolveSellerPrestigeRank, sellerPrestigeRankWeight } from "@/lib/seller-prestige";
 import { evaluateSellerAchievements } from "@/lib/seller-achievements";
@@ -58,11 +58,14 @@ import type {
   OnboardingSelection,
   UserRole,
   SellerReviewRecord,
+  TrustSnapshotRecord,
+  TrustScoreChangeLog,
 } from "@/types/alpha-exchange";
 
 const SELLER_EVIDENCE_TRACE_PATH = path.join(process.cwd(), "tmp", "seller-evidence-server.log");
 
 function writeSellerEvidenceTrace(label: string, payload: unknown) {
+  mkdirSync(path.dirname(SELLER_EVIDENCE_TRACE_PATH), { recursive: true });
   appendFileSync(SELLER_EVIDENCE_TRACE_PATH, `${JSON.stringify({ label, payload }, null, 2)}\n`, "utf8");
 }
 
@@ -415,6 +418,12 @@ function addDaysIso(value: string, days: number) {
   const start = new Date(value).getTime();
   if (!start || Number.isNaN(start)) return nowIso();
   return new Date(start + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function addMinutesIso(value: string, minutes: number) {
+  const start = new Date(value).getTime();
+  if (!start || Number.isNaN(start)) return nowIso();
+  return new Date(start + minutes * 60 * 1000).toISOString();
 }
 
 function normalizeListingStatus(value: string): ListingStatus {
@@ -1026,6 +1035,8 @@ function isValidPurchaseStatus(value: string): value is PurchaseRequestStatus {
     value === "pending" ||
     value === "accepted" ||
     value === "payment_sent" ||
+    value === "funds_received" ||
+    value === "usdt_release_pending" ||
     value === "usdt_sent" ||
     value === "completed" ||
     value === "locked" ||
@@ -1040,6 +1051,8 @@ function isValidTradeTimelineType(value: string): value is TradeTimelineEventTyp
     value === "request_submitted" ||
     value === "request_accepted" ||
     value === "payment_sent" ||
+    value === "seller_confirmed_funds" ||
+    value === "usdt_release_started" ||
     value === "usdt_sent" ||
     value === "trade_completed" ||
     value === "trade_locked" ||
@@ -1078,6 +1091,7 @@ function isOnboardingSelection(value: string): value is OnboardingSelection {
 }
 
 function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
+  const runtimeVersion = (db as { __runtimeVersion?: unknown }).__runtimeVersion;
   const normalized: AlphaExchangeDb = {
     ...defaultDb,
     ...db,
@@ -1490,6 +1504,15 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
     })),
   };
 
+  if (typeof runtimeVersion === "number" && Number.isFinite(runtimeVersion)) {
+    Object.defineProperty(normalized, "__runtimeVersion", {
+      value: runtimeVersion,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+
   ensureDisplayNumbers(normalized);
   return normalized;
 }
@@ -1522,17 +1545,90 @@ async function readDb(): Promise<AlphaExchangeDb> {
   return structuredClone(normalized);
 }
 
-async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<string, Buffer> }) {
+async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<string, Buffer>; traceTag?: string }) {
   const normalized = normalizeDb(db);
   ensureDisplayNumbers(normalized);
   const writeTask = dbWriteInFlight.then(async () => {
     const repository = await getAlphaExchangeRepository();
-    await repository.saveSnapshot(normalized, { evidenceOverrides: options?.evidenceOverrides });
+    await repository.saveSnapshot(normalized, {
+      evidenceOverrides: options?.evidenceOverrides,
+      traceTag: options?.traceTag,
+    });
   });
   dbWriteInFlight = writeTask.catch(() => undefined);
   try {
     await writeTask;
     dbCache = { value: normalized, updatedAt: Date.now() };
+  } finally {
+    dbReadInFlight = null;
+  }
+}
+
+// Internal delta type for targeted listing-creation writes.
+type ListingCreationWriteDelta = {
+  newListing: MarketplaceListing;
+  newAuditLogs: AuditLogEntry[];
+  newNotifications: AlphaExchangeNotification[];
+  newActivityLogs: AlphaExchangeActivityLogEntry[];
+  newTrustHistoryEntries: TrustScoreChangeLog[];
+  updatedTrustSnapshots: TrustSnapshotRecord[];
+};
+
+// Targeted read — fetches only the 11 tables required by createMarketplaceListing,
+// dropping the 11 tables that are never read on this code path (seller_profiles,
+// seller_settings, trades, evidence, sessions, password_reset_tokens,
+// seller_reports, private_beta_invites, private_beta_invite_uses,
+// beta_feedback, beta_announcements).
+// Returns the full cached db when the cache is warm (TTL: 1 s) to avoid any
+// DB round-trip at all. fromCache=true signals that the caller may update the
+// cache with the mutated db after writing; fromCache=false signals it should
+// invalidate so the next read performs a fresh full load.
+async function readDbForListingCreation(): Promise<{ db: AlphaExchangeDb; fromCache: boolean }> {
+  const now = Date.now();
+  if (dbCache && now - dbCache.updatedAt <= DB_CACHE_TTL_MS) {
+    return { db: structuredClone(dbCache.value), fromCache: true };
+  }
+  if (!dbReadInFlight) {
+    dbReadInFlight = (async () => {
+      try {
+        const repository = await getAlphaExchangeRepository();
+        const partial = await repository.loadSnapshotForListingCreation();
+        const normalized = normalizeDb(partial);
+        ensureDisplayNumbers(normalized);
+        return normalized;
+      } finally {
+        dbReadInFlight = null;
+      }
+    })();
+  }
+  const db = await dbReadInFlight;
+  return { db: structuredClone(db), fromCache: false };
+}
+
+// Targeted write — persists only the rows that changed during createMarketplaceListing.
+// The listing INSERT + trust_snapshot UPSERTs run in one transaction; all other
+// writes (audit_logs, notifications, activity_log, trust_score_history) are
+// independent parallel INSERTs with no advisory lock or version-check overhead.
+// Cache is updated when db came from the full cached read (fromCache=true) so
+// subsequent in-process hits reflect the new listing immediately. When the read
+// was a targeted partial read the cache is invalidated to force a fresh full load.
+async function writeDbForListingCreation(
+  db: AlphaExchangeDb,
+  delta: ListingCreationWriteDelta,
+  fromCache: boolean,
+) {
+  const writeTask = dbWriteInFlight.then(async () => {
+    const repository = await getAlphaExchangeRepository();
+    await repository.saveListingCreationSnapshotTargeted(delta);
+  });
+  dbWriteInFlight = writeTask.catch(() => undefined);
+  try {
+    await writeTask;
+    if (fromCache) {
+      dbCache = { value: db, updatedAt: Date.now() };
+    } else {
+      dbCache = null;
+    }
   } finally {
     dbReadInFlight = null;
   }
@@ -1664,7 +1760,6 @@ function pushNotification(
     id: `notif-${randomUUID()}`,
     userId: input.userId,
     category: input.category,
-    centerCategory,
     title: input.title,
     message: input.message,
     isRead: nextState !== "unread",
@@ -2249,17 +2344,37 @@ export async function upsertUserProfileForAuth(input: {
       roles: existing.roles,
       sellerStatus: existing.sellerStatus,
     });
+    const nextFullName = input.fullName.trim() || existing.fullName;
+    const nextWhatsappNumber = input.whatsappNumber.trim() || existing.whatsappNumber;
+    const nextPasswordHash = input.passwordHash ?? existing.passwordHash;
+    const nextRole = resolvePrimaryRole(normalizedRoles);
+    const nextEmailVerified = input.emailVerified === true ? true : existing.emailVerified === true;
+    const nextEmailVerifiedAt = input.emailVerified === true
+      ? (existing.emailVerifiedAt ?? timestamp)
+      : existing.emailVerifiedAt;
+
+    const unchanged =
+      existing.fullName === nextFullName
+      && existing.whatsappNumber === nextWhatsappNumber
+      && existing.passwordHash === nextPasswordHash
+      && existing.role === nextRole
+      && existing.emailVerified === nextEmailVerified
+      && existing.emailVerifiedAt === nextEmailVerifiedAt
+      && JSON.stringify(existing.roles ?? []) === JSON.stringify(normalizedRoles);
+
+    if (unchanged) {
+      return existing;
+    }
+
     db.users[existingIndex] = {
       ...existing,
-      fullName: input.fullName.trim() || existing.fullName,
-      whatsappNumber: input.whatsappNumber.trim() || existing.whatsappNumber,
-      passwordHash: input.passwordHash ?? existing.passwordHash,
+      fullName: nextFullName,
+      whatsappNumber: nextWhatsappNumber,
+      passwordHash: nextPasswordHash,
       roles: normalizedRoles,
-      role: resolvePrimaryRole(normalizedRoles),
-      emailVerified: input.emailVerified === true ? true : existing.emailVerified === true,
-      emailVerifiedAt: input.emailVerified === true
-        ? (existing.emailVerifiedAt ?? timestamp)
-        : existing.emailVerifiedAt,
+      role: nextRole,
+      emailVerified: nextEmailVerified,
+      emailVerifiedAt: nextEmailVerifiedAt,
       updatedAt: timestamp,
     };
     await writeDb(db);
@@ -3123,6 +3238,16 @@ export async function getMarketplaceListingById(id: string) {
   return enriched ?? null;
 }
 
+function isListingCreateProfilingEnabled() {
+  return process.env.ALPHA_EXCHANGE_PROFILE_LISTING_CREATE === "1";
+}
+function createStoreProfileLogger(scope: string) {
+  const startedAt = Date.now();
+  return (stage: string) => {
+    if (!isListingCreateProfilingEnabled()) return;
+    console.log(`[alpha-exchange-profile] ${scope} ${stage} +${Date.now() - startedAt}ms`);
+  };
+}
 export async function createMarketplaceListing(input: {
   sellerId: string;
   sellerDisplayName: string;
@@ -3143,9 +3268,12 @@ export async function createMarketplaceListing(input: {
   responseTime: string;
   actorUserId: string;
 }) {
-  const db = await readDb();
+  const logProfile = createStoreProfileLogger("createMarketplaceListing");
+  const { db, fromCache } = await readDbForListingCreation();
+  logProfile("readDb");
   const blockReason = getSellerListingBlockReason(db, input.sellerId);
   if (blockReason) throw new Error(blockReason);
+  logProfile("getSellerListingBlockReason");
   const now = nowIso();
   const expiresAt = input.expiresAt?.trim() || getListingExpirationIso(now, input.expirationHours);
   const listing: MarketplaceListing = {
@@ -3173,6 +3301,17 @@ export async function createMarketplaceListing(input: {
   };
   listing.paymentMethod = listing.paymentMethods[0] ?? "Bank transfer";
   db.marketplaceListings.push(listing);
+  // Assign display numbers for the new listing (ensureDisplayNumbers is idempotent
+  // for items that already have a number, so existing listings are unaffected).
+  ensureDisplayNumbers(db);
+  logProfile("buildListing");
+
+  // Snapshot array lengths before any mutations so we can compute the delta afterwards.
+  const auditCountBefore = db.auditLogs.length;
+  const notifCountBefore = db.notifications.length;
+  const activityCountBefore = db.activityLog.length;
+  const trustHistoryCountBefore = db.trustScoreHistory.length;
+
   await appendAuditLog(db, {
     action: "listing_created",
     actorUserId: input.actorUserId,
@@ -3180,6 +3319,7 @@ export async function createMarketplaceListing(input: {
     listingId: listing.id,
     details: `Created listing ${listing.id} with ${listing.availableAmount} USDT available.`,
   });
+  logProfile("appendAuditLog");
   const owner = getOwnerUser(db);
   if (owner) {
     pushNotification(db, {
@@ -3191,15 +3331,34 @@ export async function createMarketplaceListing(input: {
       relatedHref: "/admin/alpha-exchange",
     });
   }
+  logProfile("pushNotification");
   pushActivityLog(db, {
     userId: input.sellerId,
     category: "listing",
     title: "Listing published",
     details: `Listing ${listing.id} is now live.`,
   });
+  logProfile("pushActivityLog");
   await recalculateTrustEngine(db, { reason: "Listing created", triggeredBy: input.actorUserId });
-  await writeDb(db);
+  logProfile("recalculateTrustEngine");
+
+  // Compute deltas — new entries were prepended via unshift so they sit at the front.
+  const newAuditLogs = db.auditLogs.slice(0, db.auditLogs.length - auditCountBefore);
+  const newNotifications = db.notifications.slice(0, db.notifications.length - notifCountBefore);
+  const newActivityLogs = db.activityLog.slice(0, db.activityLog.length - activityCountBefore);
+  const newTrustHistoryEntries = db.trustScoreHistory.slice(0, db.trustScoreHistory.length - trustHistoryCountBefore);
+
+  await writeDbForListingCreation(db, {
+    newListing: listing,
+    newAuditLogs,
+    newNotifications,
+    newActivityLogs,
+    newTrustHistoryEntries,
+    updatedTrustSnapshots: db.trustSnapshots,
+  }, fromCache);
+  logProfile("writeDbForListingCreation");
   publishRealtimeEvent({ type: "listing.created", payload: { listing } });
+  logProfile("publishRealtimeEvent");
   return listing;
 }
 
@@ -4280,7 +4439,17 @@ export async function updatePurchaseRequestStatus(input: {
   actorUserId: string;
   actorRole: UserRole;
   nextStatus: PurchaseRequestStatus;
+  traceId?: string;
 }) {
+  const isUsdtSentTrace = input.nextStatus === "usdt_sent";
+  if (isUsdtSentTrace) {
+    console.log("[usdt-sent-trace] service entry", {
+      traceId: input.traceId ?? null,
+      requestId: input.requestId,
+      actorUserId: input.actorUserId,
+      actorRole: input.actorRole,
+    });
+  }
   const db = await readDb();
   const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.requestId);
   if (requestIndex === -1) throw new Error("Purchase request not found.");
@@ -4444,7 +4613,7 @@ export async function updatePurchaseRequestStatus(input: {
   } else if (input.nextStatus === "usdt_release_pending") {
     next.status = "usdt_release_pending";
     next.usdtReleaseStartedAt = now;
-    next.usdtReleaseDeadlineAt = addDaysIso(now, 1);
+    next.usdtReleaseDeadlineAt = addMinutesIso(now, 45);
     appendTradeTimelineEntry(next, { type: "usdt_release_started", actorUserId: input.actorUserId, actorRole, message: "Seller started USDT release", createdAt: now });
     pushNotification(db, {
       userId: request.buyerId,
@@ -4623,7 +4792,13 @@ export async function updatePurchaseRequestStatus(input: {
 
   await recalculateTrustEngine(db, { reason: input.nextStatus === "completed" ? "Trade completed" : "Trade lifecycle updated", triggeredBy: input.actorUserId });
 
-  await writeDb(db);
+  if (isUsdtSentTrace) {
+    console.log("[usdt-sent-trace] before DB write", { traceId: input.traceId ?? null, requestId: input.requestId });
+  }
+  await writeDb(db, { traceTag: isUsdtSentTrace ? input.traceId : undefined });
+  if (isUsdtSentTrace) {
+    console.log("[usdt-sent-trace] after DB write", { traceId: input.traceId ?? null, requestId: input.requestId });
+  }
   return enrichRequestWithEvidence(db, db.purchaseRequests[requestIndex]);
 }
 

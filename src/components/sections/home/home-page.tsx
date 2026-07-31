@@ -73,7 +73,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
             {[12, 30, 48, 64, 80].map((left, index) => (
               <motion.span
                 key={left}
-                className="absolute h-1 w-1 rounded-full bg-[#d4af37]/40"
+                className="absolute h-1 w-1 rounded-full bg-[#C9A227]/40"
                 style={{ left: `${left}%`, top: `${26 + index * 10}%` }}
                 animate={{ opacity: [0.12, 0.35, 0.12], y: [0, -8, 0] }}
                 transition={{ duration: 4 + index * 0.45, repeat: Infinity, ease: "easeInOut", delay: index * 0.3 }}
@@ -95,7 +95,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                   width={28}
                   height={28}
                   style={{ width: 28, height: 28 }}
-                  className="rounded-md object-contain shadow-[0_4px_12px_rgba(0,0,0,0.35)]"
+                  className="rounded-lg object-contain shadow-[0_4px_12px_rgba(0,0,0,0.35)]"
                 />
                 <span>{t("badge")}</span>
               </div>
@@ -145,11 +145,11 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
       <FounderPreview />
 
       <section className="section-container">
-        <Card className="overflow-hidden border-white/10 bg-[#0A0A0A]/92">
+        <Card className="surface-panel overflow-hidden bg-[#0A0A0A]/92">
           <CardContent className="p-6 md:p-8">
             <div className={`max-w-3xl ${isRtl ? "md:ms-auto md:text-right" : "md:text-left"}`}>
-              <p className="text-xs uppercase tracking-[0.2em] text-[#C9A227]">{isRtl ? "اختر المسار" : "Choose your path"}</p>
-              <h2 className="mt-2 text-2xl font-semibold md:text-4xl">
+              <p className="section-label">{isRtl ? "اختر المسار" : "Choose your path"}</p>
+              <h2 className="section-heading mt-2 md:text-4xl">
                 {isRtl ? "ما الذي تبحث عنه اليوم؟" : "What are you here for today?"}
               </h2>
               <p className="mt-3 text-sm leading-7 text-[#9CA3AF] md:text-base">
@@ -260,7 +260,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
 
       <section className="section-container">
         <div className={`mb-6 max-w-3xl ${isRtl ? "md:ms-auto md:text-right" : "md:text-left"}`}>
-          <h2 className="text-2xl font-semibold md:text-3xl">
+          <h2 className="section-heading">
             {locale === "ar" ? courseSource.homepage.learnTitleAr : courseSource.homepage.learnTitle}
           </h2>
           <p className="mt-3 text-sm leading-7 text-[#9CA3AF] md:text-base">
@@ -342,7 +342,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
 
       <section className="section-container">
         <div className={`mb-6 max-w-3xl ${isRtl ? "md:ms-auto md:text-right" : "md:text-left"}`}>
-          <h2 className="text-2xl font-semibold md:text-3xl">
+          <h2 className="section-heading">
             {locale === "ar" ? courseSource.homepage.visualCurriculumTitleAr : courseSource.homepage.visualCurriculumTitle}
           </h2>
           <p className="mt-3 text-sm leading-7 text-[#9CA3AF] md:text-base">
@@ -385,7 +385,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
 
       <section className="section-container">
         <div className="mb-6">
-          <h2 className="text-2xl font-semibold md:text-3xl">{locale === "ar" ? "دروس مميزة" : "Featured Lessons"}</h2>
+          <h2 className="section-heading">{locale === "ar" ? "دروس مميزة" : "Featured Lessons"}</h2>
         </div>
         <div className="grid gap-4 md:grid-cols-2">
           {latestLessons.length === 0 ? (
@@ -422,12 +422,12 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
       </section>
 
       <section className="section-container">
-        <Card className="overflow-hidden border-white/10 bg-[#090909] p-2">
+        <Card className="surface-panel overflow-hidden bg-[#090909] p-2">
           <CardContent className="relative grid gap-6 p-6 md:grid-cols-2 md:items-center">
             <div className="pointer-events-none absolute inset-0 opacity-25 [background:radial-gradient(circle_at_15%_25%,#C9A227_0,transparent_45%)]" />
             <div className="relative">
-              <p className="text-xs uppercase tracking-[0.2em] text-[#C9A227]">{locale === "ar" ? "الخطوة التالية" : "Next Step"}</p>
-              <h3 className="mt-2 text-2xl font-semibold md:text-3xl">{locale === "ar" ? "اختر مسارك داخل Alpha Traders" : "Choose Your Path Inside Alpha Traders"}</h3>
+              <p className="section-label">{locale === "ar" ? "الخطوة التالية" : "Next Step"}</p>
+              <h3 className="section-heading mt-2">{locale === "ar" ? "اختر مسارك داخل Alpha Traders" : "Choose Your Path Inside Alpha Traders"}</h3>
               <p className="mt-3 text-sm text-[#9CA3AF]">
                 {primaryCourseValue
                   ? locale === "ar"

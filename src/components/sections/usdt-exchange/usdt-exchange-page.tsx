@@ -11,13 +11,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RoleBadge } from "@/components/ui/role-badge";
+import { UsdtIcon } from "@/components/ui/usdt-icon";
 import { ExchangeMarketStats } from "@/components/sections/usdt-exchange/exchange-market-stats";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { getSellerPrestigeProgress, getSellerPublicVolumeLabel } from "@/lib/seller-prestige";
 import { hasRole } from "@/lib/roles";
 import { createDefaultSellerListingDraft, persistSellerListingDraft, readSellerListingDraft } from "@/lib/seller-listing-draft";
-import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
+import { getListingPriceValidationError } from "@/lib/listing-price-validation";
 import { getIsraeliBankOption, getIsraeliBankOptions } from "@/lib/israeli-banks";
+import { getSellerWorkspaceHighlights, type SellerWorkspaceTab } from "@/lib/premium-seller-dashboard";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, BetaAnnouncement, BetaFeedbackCategory, BetaFeedbackEntry, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerAvailabilityStatus, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
 const WHATSAPP_URL = "https://wa.me/972525967649";
@@ -113,9 +115,6 @@ function safeText(value: unknown, fallback = "—") {
   return fallback;
 }
 
-function slugifySellerRoute(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-}
 
 function safeErrorMessage(context: "application" | "purchase" | "listing" | "request" | "settings" | "password" | "workspace" | "review" | "evidence") {
   const map = {
@@ -419,6 +418,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [myBetaFeedback, setMyBetaFeedback] = useState<BetaFeedbackEntry[]>([]);
   const [betaFeedbackCategory, setBetaFeedbackCategory] = useState<BetaFeedbackCategory>("suggestion");
   const [betaFeedbackMessage, setBetaFeedbackMessage] = useState("");
+  const [activeSellerWorkspaceTab, setActiveSellerWorkspaceTab] = useState<SellerWorkspaceTab>("overview");
   const [promotionModalRank, setPromotionModalRank] = useState<SellerLevel | null>(null);
   const [prestigeModalOpen, setPrestigeModalOpen] = useState(false);
   const [prestigeModalStats, setPrestigeModalStats] = useState<{
@@ -453,8 +453,19 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   useEffect(() => {
     let active = true;
     void (async () => {
-      const rate = await fetchUsdIlsMarketRate();
-      if (active) setMarketRate(rate);
+      try {
+        const response = await fetch("/api/alpha-exchange/market-rate");
+        if (response.ok) {
+          const data = (await response.json()) as { rate?: number };
+          if (typeof data.rate === "number" && active) {
+            setMarketRate(data.rate);
+            return;
+          }
+        }
+      } catch {
+        // fall through to default
+      }
+      if (active) setMarketRate(null);
     })();
     return () => {
       active = false;
@@ -1070,6 +1081,26 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const sellerActiveListingsCount = myListings.filter((listing) => ["active", "paused", "expired"].includes(listing.status)).length;
   const sellerPendingActionCount = sellerRequests.filter((request) => ["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending"].includes(request.status)).length;
   const sellerBankReadyCount = sellerRequests.filter((request) => ["payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(request.status)).length;
+  const sellerWorkspaceTabs = useMemo<Array<{ key: SellerWorkspaceTab; label: string; description: string }>>(
+    () => [
+      { key: "overview", label: isAr ? "نظرة عامة" : "Overview", description: isAr ? "ملخص سريع" : "Quick pulse" },
+      { key: "listings", label: isAr ? "العروض" : "Listings", description: isAr ? "إدارة العروض" : "Manage listings" },
+      { key: "trades", label: isAr ? "الصفقات" : "Trades", description: isAr ? "متابعة الطلبات" : "Track requests" },
+      { key: "settings", label: isAr ? "الإعدادات" : "Settings", description: isAr ? "الملف الشخصي" : "Profile & settings" },
+    ],
+    [isAr],
+  );
+  const sellerWorkspaceHighlights = useMemo(() => {
+    const fallbackCompletedTrades = sellerRequests.filter((request) => request.status === "completed" || request.status === "review_open" || Boolean(request.completedAt)).length;
+    const fallbackSuccessRate = sellerRequests.length ? 100 : 0;
+    return getSellerWorkspaceHighlights({
+      openListings: sellerActiveListingsCount,
+      pendingActions: sellerPendingActionCount,
+      bankReadyTrades: sellerBankReadyCount,
+      completedTrades: fallbackCompletedTrades,
+      successRate: fallbackSuccessRate,
+    });
+  }, [sellerActiveListingsCount, sellerBankReadyCount, sellerPendingActionCount, sellerRequests]);
   const filteredBuyerRequests = useMemo(() => {
     return buyerRequests.filter((request) => {
       if (buyerTradeStatus !== "all" && request.status !== buyerTradeStatus) return false;
@@ -2075,22 +2106,24 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       {/* ── Price + USDT hero panel ── */}
                       <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-black/40 to-[#C9A227]/[0.04]">
                         <div className={`border-e border-white/10 p-3.5 ${isAr ? "text-right" : ""}`}>
-                          <p className="text-[10px] uppercase tracking-[0.16em] text-[#9CA3AF]">
-                            {isAr ? "السعر / USDT" : "Price / USDT"}
-                          </p>
-                          <p className="mt-1 text-2xl font-bold leading-none text-[#C9A227]">
-                            {safeText(listing.price)}
-                          </p>
-                          <p className="mt-0.5 text-[11px] text-[#9CA3AF]">{safeText(listing.currency, "ILS")}</p>
-                        </div>
-                        <div className={`p-3.5 ${isAr ? "text-right" : ""}`}>
-                          <p className="text-[10px] uppercase tracking-[0.16em] text-[#9CA3AF]">
+                          <p className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] text-[#9CA3AF]">
+                            <UsdtIcon />
                             {isAr ? "USDT متاح" : "Available"}
                           </p>
-                          <p className="mt-1 text-2xl font-bold leading-none text-white">
+                          <p className="mt-1 text-2xl font-bold leading-none text-[#C9A227]">
                             {safeText(listing.availableAmount)}
                           </p>
                           <p className="mt-0.5 text-[11px] text-[#9CA3AF]">USDT</p>
+                        </div>
+                        <div className={`p-3.5 ${isAr ? "text-right" : ""}`}>
+                          <p className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] text-[#9CA3AF]">
+                            <UsdtIcon />
+                            {isAr ? "سعر USDT" : "USDT price"}
+                          </p>
+                          <p className="mt-1 text-2xl font-bold leading-none text-white">
+                            {safeText(listing.price)}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-[#9CA3AF]">{safeText(listing.currency, "ILS")} / USDT</p>
                         </div>
                       </div>
 
@@ -2158,7 +2191,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           <span className="mx-2 text-white/20">·</span>
                           {formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt)}
                         </p>
-                        <p>
+                        <p className="inline-flex items-center gap-1.5">
+                          <UsdtIcon />
                           <span className="text-white/45">{isAr ? "الحجم العام: " : "Public Volume: "}</span>
                           {publicVolumeRange}
                           <span className="mx-2 text-white/20">·</span>
@@ -2181,14 +2215,63 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       ) : null}
 
                       {/* ── CTA ── */}
-                      <Button
-                        className="w-full gap-2 transition-all group-hover:scale-[1.01] group-hover:shadow-[0_8px_24px_rgba(201,162,39,0.22)]"
-                        onClick={() => router.push(`/exchange/seller/${slugifySellerRoute(listing.sellerDisplayName)}`)}
-                        aria-label={`${isAr ? "عرض ملف البائع" : "View seller profile for"} ${safeText(listing.sellerDisplayName, "seller")}`}
-                      >
-                        <MessageCircle className="h-4 w-4" aria-hidden="true" />
-                        {isAr ? "ملف البائع" : "View Seller Profile"}
-                      </Button>
+                      {(() => {
+                        const isOwnListing = sessionUser && listing.sellerId === sessionUser.id;
+                        const listingPurchasable = listing.status === "active" && Number(listing.availableAmount) > 0;
+                        if (isOwnListing) {
+                          return (
+                            <Button
+                              className="w-full gap-2 opacity-50"
+                              variant="secondary"
+                              disabled
+                              aria-label={isAr ? "عرضك الخاص" : "Your listing"}
+                            >
+                              {isAr ? "عرضك الخاص" : "Your Listing"}
+                            </Button>
+                          );
+                        }
+                        if (!sessionUser) {
+                          return (
+                            <Button
+                              className="w-full gap-2 transition-all group-hover:scale-[1.01] group-hover:shadow-[0_8px_24px_rgba(201,162,39,0.22)]"
+                              onClick={() => router.push(`/login?redirectTo=/${locale}/usdt-exchange` as Parameters<typeof router.push>[0])}
+                              aria-label={isAr ? "سجّل الدخول لشراء USDT" : "Sign in to Buy USDT"}
+                            >
+                              {isAr ? "سجّل الدخول للشراء" : "Sign In to Buy"}
+                            </Button>
+                          );
+                        }
+                        if (!listingPurchasable) {
+                          return (
+                            <Button
+                              className="w-full gap-2 opacity-50"
+                              variant="secondary"
+                              disabled
+                              aria-label={isAr ? "غير متاح للشراء" : "Not available for purchase"}
+                            >
+                              {listing.status === "expired"
+                                ? (isAr ? "انتهت صلاحية العرض" : "Listing Expired")
+                                : listing.status === "paused"
+                                  ? (isAr ? "العرض موقوف مؤقتاً" : "Listing Paused")
+                                  : (isAr ? "غير متاح" : "Unavailable")}
+                            </Button>
+                          );
+                        }
+                        return (
+                          <Button
+                            className="w-full gap-2 transition-all group-hover:scale-[1.01] group-hover:shadow-[0_8px_24px_rgba(201,162,39,0.22)]"
+                            onClick={() => {
+                              setSelectedListing(listing);
+                              setPurchaseSubmitted(false);
+                              if (listing.sellerId) void fetchSellerProfileData(listing.sellerId);
+                            }}
+                            aria-label={`${isAr ? "شراء USDT من" : "Buy USDT from"} ${safeText(listing.sellerDisplayName, "seller")}`}
+                          >
+                            <HandCoins className="h-4 w-4" aria-hidden="true" />
+                            {isAr ? "شراء USDT" : "Buy USDT"}
+                          </Button>
+                        );
+                      })()}
                     </CardContent>
                   </Card>
                 );
@@ -2346,36 +2429,61 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
       {isApprovedSeller ? (
         <div className="mt-8 space-y-6">
-          <div className="rounded-3xl border border-white/10 bg-[#0B0B0B]/95 p-4 shadow-[0_18px_45px_rgba(0,0,0,0.24)]">
-            <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.2em] text-[#C9A227]">Seller workspace</p>
+          <div className="rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top_left,_rgba(201,162,39,0.2),_transparent_30%),linear-gradient(135deg,_rgba(10,10,10,0.98),_rgba(16,16,16,0.94))] p-4 shadow-[0_22px_55px_rgba(0,0,0,0.26)]">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="max-w-2xl">
+                <p className="text-[11px] uppercase tracking-[0.24em] text-[#C9A227]">Premium seller workspace</p>
                 <h2 className="mt-1 text-xl font-semibold text-white">Bank-transfer momentum, all in one place</h2>
-                <p className="mt-1 text-sm text-[#9CA3AF]">Keep your listings live, track incoming requests, and confirm the right bank step without losing momentum.</p>
+                <p className="mt-1 text-sm text-[#9CA3AF]">Keep your listings live, review buyer requests, and confirm the right bank step without switching context.</p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <span className="rounded-full border border-[#6CAEFF]/20 bg-[#6CAEFF]/10 px-3 py-1 text-xs text-[#93C5FD]">Open listings: {sellerActiveListingsCount}</span>
-                <span className="rounded-full border border-[#C9A227]/20 bg-[#C9A227]/10 px-3 py-1 text-xs text-[#FDE68A]">Pending actions: {sellerPendingActionCount}</span>
-                <span className="rounded-full border border-[#22C55E]/20 bg-[#22C55E]/10 px-3 py-1 text-xs text-[#86EFAC]">Bank-ready trades: {sellerBankReadyCount}</span>
+                <Button type="button" size="sm" variant="secondary" className="border-[#6CAEFF]/30 bg-[#6CAEFF]/10 text-[#93C5FD] hover:bg-[#6CAEFF]/20 hover:text-[#BFDBFE]" onClick={() => setActiveSellerWorkspaceTab("listings")}>Create listing</Button>
+                <Button type="button" size="sm" variant="secondary" className="border-[#C9A227]/30 bg-[#C9A227]/10 text-[#FDE68A] hover:bg-[#C9A227]/20 hover:text-[#FDE68A]" onClick={() => setActiveSellerWorkspaceTab("trades")}>Review trades</Button>
+                <Button type="button" size="sm" variant="secondary" className="text-[#E5E7EB]" onClick={() => setActiveSellerWorkspaceTab("settings")}>Update profile</Button>
               </div>
             </div>
-            <div className="mt-4 grid gap-3 md:grid-cols-3">
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">Live listings</p>
-                <p className="mt-2 text-2xl font-semibold text-white">{sellerActiveListingsCount}</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {sellerWorkspaceTabs.map((tab) => {
+                const active = activeSellerWorkspaceTab === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setActiveSellerWorkspaceTab(tab.key)}
+                    className={`rounded-full border px-3 py-1.5 text-sm transition ${active ? "border-[#C9A227]/40 bg-[#C9A227]/15 text-white" : "border-white/10 bg-black/20 text-[#9CA3AF] hover:border-white/20 hover:text-[#E5E7EB]"}`}
+                  >
+                    <span className="font-medium">{tab.label}</span>
+                    <span className="ml-2 text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{tab.description}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-5 grid gap-3 lg:grid-cols-[1.15fr_0.85fr]">
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-[#9CA3AF]">Focus for today</p>
+                <p className="mt-2 text-sm text-white">
+                  {isAr
+                    ? `لديك ${sellerPendingActionCount} إجراءات معلقة و${sellerBankReadyCount} صفقة جاهزة للتأكيد البنكي.`
+                    : `You have ${sellerPendingActionCount} pending actions and ${sellerBankReadyCount} trade(s) ready for bank confirmation.`}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="rounded-full border border-[#6CAEFF]/20 bg-[#6CAEFF]/10 px-3 py-1 text-xs text-[#93C5FD]">{sellerActiveListingsCount} active listings</span>
+                  <span className="rounded-full border border-[#C9A227]/20 bg-[#C9A227]/10 px-3 py-1 text-xs text-[#FDE68A]">{sellerOverviewStats.completedTrades} completed trades</span>
+                </div>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">Incoming requests</p>
-                <p className="mt-2 text-2xl font-semibold text-white">{sellerPendingActionCount}</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">Awaiting bank confirmation</p>
-                <p className="mt-2 text-2xl font-semibold text-white">{sellerBankReadyCount}</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {sellerWorkspaceHighlights.map((item) => (
+                  <div key={item.label} className={`rounded-2xl border p-3 ${item.tone === "accent" ? "border-[#C9A227]/20 bg-[#C9A227]/10" : item.tone === "success" ? "border-[#22C55E]/20 bg-[#22C55E]/10" : item.tone === "warning" ? "border-[#F59E0B]/20 bg-[#F59E0B]/10" : "border-white/10 bg-black/20"}`}>
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{item.label}</p>
+                    <p className="mt-2 text-xl font-semibold text-white">{item.value}</p>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {activeSellerWorkspaceTab === "overview" ? (
+            <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {isLoadingListings
               ? Array.from({ length: 6 }).map((_, index) => (
                   <Card key={`seller-stat-skeleton-${index}`} className="border-white/10 bg-[#0B0B0B]/90">
@@ -2412,8 +2520,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               </Card>
             )) : null}
           </div>
+          ) : null}
 
-          <div ref={createListingFormRef}>
+          {(activeSellerWorkspaceTab === "overview" || activeSellerWorkspaceTab === "listings") ? (
+            <>
+              <div ref={createListingFormRef}>
             <Card className="border-white/10 bg-[#0B0B0B]/90">
               <CardHeader>
                 <CardTitle>{isAr ? "إنشاء عرض جديد" : "Create Listing"}</CardTitle>
@@ -2430,46 +2541,70 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     {listingWorkspaceSummary.blockedReason ? <p className="mt-1 text-[#FDE68A]">{listingWorkspaceSummary.blockedReason}</p> : null}
                   </div>
                 ) : null}
-                <form className="grid gap-3 md:grid-cols-2" onSubmit={handleSellerListingCreateSubmit}>
-                  <Input placeholder="Available Amount" value={listingCreateForm.availableAmount} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, availableAmount: event.target.value }))} />
-                  <Input placeholder="Price" value={listingCreateForm.price} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, price: event.target.value }))} />
-                  <Input placeholder="Currency (e.g. ILS)" value={listingCreateForm.currency} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, currency: event.target.value }))} />
-                  <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={listingCreateForm.network} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
+                <form className="grid gap-4 md:grid-cols-2" onSubmit={handleSellerListingCreateSubmit}>
+                  <div className="space-y-1.5">
+                    <label className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
+                      <UsdtIcon />
+                      {isAr ? "الكمية المتاحة (USDT)" : "Available amount (USDT)"}
+                    </label>
+                    <Input placeholder="500" value={listingCreateForm.availableAmount} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, availableAmount: event.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
+                      <UsdtIcon />
+                      {isAr ? "السعر لكل USDT" : "Price per USDT"}
+                    </label>
+                    <Input placeholder="39.50" value={listingCreateForm.price} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, price: event.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "عملة التسعير" : "Pricing currency"}</label>
+                    <Input placeholder="ILS" value={listingCreateForm.currency} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, currency: event.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "الشبكة" : "Network"}</label>
+                    <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={listingCreateForm.network} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
                     <option value="TRC20">TRC20</option>
                     <option value="ERC20">ERC20</option>
                     <option value="BEP20">BEP20</option>
                     <option value="SOL">SOL</option>
-                  </select>
-                  <Input placeholder="Payment Methods (comma separated)" value={listingCreateForm.paymentMethods} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, paymentMethods: event.target.value }))} />
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "طرق الدفع" : "Payment methods"}</label>
+                    <Input placeholder="Bank transfer, PayBox" value={listingCreateForm.paymentMethods} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, paymentMethods: event.target.value }))} />
+                  </div>
                   <IsraeliBankSelector
                     value={listingCreateForm.bankName}
                     onChange={(value) => setListingCreateForm((prev) => ({ ...prev, bankName: value }))}
                     className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white"
-                    placeholder="Search receiving bank"
+                    placeholder={isAr ? "ابحث عن البنك المستلم" : "Search receiving bank"}
                     descriptionClassName="text-xs text-[#FDE68A]"
                   />
-                  <Input placeholder="Minimum Trade" value={listingCreateForm.minimumTrade} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, minimumTrade: event.target.value }))} />
-                  <Input placeholder="Maximum Trade" value={listingCreateForm.maximumTrade} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, maximumTrade: event.target.value }))} />
+                  <Input placeholder={isAr ? "الحد الأدنى للصفقة (USDT)" : "Minimum trade (USDT)"} value={listingCreateForm.minimumTrade} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, minimumTrade: event.target.value }))} />
+                  <Input placeholder={isAr ? "الحد الأعلى للصفقة (USDT)" : "Maximum trade (USDT)"} value={listingCreateForm.maximumTrade} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, maximumTrade: event.target.value }))} />
                   <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-[#D1D5DB]">
                     <p className="font-medium text-white">Auto-expiration</p>
                     <p className="mt-1">All new listings are set to expire automatically after 24 hours. No manual expiration step is needed.</p>
                   </div>
                   <div className="md:col-span-2 rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10 p-3 text-sm text-[#FDE68A]">
-                    <p className="font-medium text-white">Live price guard</p>
-                    <p className="mt-1">USD/ILS market rate: <span className="font-semibold text-white">₪{(marketRate ?? 39.2).toFixed(2)}</span> • max allowed ILS price: <span className="font-semibold text-white">₪{((marketRate ?? 39.2) + 0.35).toFixed(2)}</span></p>
+                    <p className="inline-flex items-center gap-2 font-medium text-white"><UsdtIcon />Live price guard</p>
+                    <p className="mt-1">USD/ILS market rate: <span className="font-semibold text-white">₪{(marketRate ?? 39.2).toFixed(2)}</span> • max allowed ILS price per USDT: <span className="font-semibold text-white">₪{((marketRate ?? 39.2) + 0.35).toFixed(2)}</span></p>
                     {createListingPriceValidationError ? <p className="mt-2 text-xs text-[#FDE68A]">{createListingPriceValidationError}</p> : null}
                   </div>
                   <div className="md:col-span-2">
-                    <Button type="submit" disabled={isCreatingListing || Boolean(listingWorkspaceSummary && !listingWorkspaceSummary.canCreateListing) || Boolean(createListingPriceValidationError)}>
+                    <Button type="submit" className="w-full md:w-auto" disabled={isCreatingListing || Boolean(listingWorkspaceSummary && !listingWorkspaceSummary.canCreateListing) || Boolean(createListingPriceValidationError)}>
                       {isCreatingListing ? "Creating listing..." : "Create Live Listing"}
                     </Button>
                   </div>
                 </form>
               </CardContent>
             </Card>
-          </div>
+              </div>
+            </>
+          ) : null}
 
-          <Card className="border-white/10 bg-[#0B0B0B]/90">
+          {(activeSellerWorkspaceTab === "overview" || activeSellerWorkspaceTab === "listings") ? (
+            <Card className="border-white/10 bg-[#0B0B0B]/90">
             <CardHeader>
               <CardTitle>{isAr ? "عروضي النشطة" : "My Active Listings"}</CardTitle>
               <CardDescription>{isAr ? "أدِر عروضك النشطة بسرعة من مكان واحد." : "Manage your active listings quickly from one place."}</CardDescription>
@@ -2489,7 +2624,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 </div>
               ) : null}
               {!isLoadingListings && myListings.length === 0 ? (
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center">
+                <div className="empty-state-panel p-5 text-center">
                   <Store className="mx-auto h-5 w-5 text-[#C9A227]" />
                   <p className="mt-2 text-sm font-medium text-white">{isAr ? "لا توجد عروض بعد" : "No Listings Yet"}</p>
                   <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "أنشئ أول عرض لتظهر للمشترين المعتمدين." : "Create your first listing to start receiving buyer requests."}</p>
@@ -2503,7 +2638,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <div key={listing.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <p className="text-sm font-medium text-white">{safeText(listing.availableAmount)} USDT • {safeText(listing.price)} {safeText(listing.currency)}</p>
+                        <p className="inline-flex items-center gap-1.5 text-sm font-medium text-white">
+                          <UsdtIcon />
+                          {safeText(listing.availableAmount)} USDT • {safeText(listing.price)} {safeText(listing.currency)}
+                        </p>
                         <p className="mt-1 text-xs text-[#9CA3AF]">{listingStatusLabel(listing.status)} • {safeText(listing.network)} • {safeText(listing.paymentMethods?.[0] ?? listing.paymentMethod)}</p>
                         <p className="mt-1 text-xs text-[#C9A227]">Receiving bank: {getIsraeliBankOption(listing.bankName ?? listing.paymentMethod).name}</p>
                       </div>
@@ -2577,9 +2715,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 );
               })}
             </CardContent>
-          </Card>
+            </Card>
+          ) : null}
 
-          <Card className="border-white/10 bg-[#0B0B0B]/90">
+          {(activeSellerWorkspaceTab === "overview" || activeSellerWorkspaceTab === "trades") ? (
+            <Card className="border-white/10 bg-[#0B0B0B]/90">
             <CardHeader>
               <CardTitle>{isAr ? "طلبات الشراء" : "Purchase Requests"}</CardTitle>
               <CardDescription>{isAr ? "إدارة طلبات المشترين الواردة لك." : "Manage incoming buyer purchase requests."}</CardDescription>
@@ -2601,7 +2741,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 </select>
               </div>
               {!isLoadingListings && sellerRequests.length === 0 ? (
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center">
+                <div className="empty-state-panel p-5 text-center">
                   <MessageCircle className="mx-auto h-5 w-5 text-[#C9A227]" />
                   <p className="mt-2 text-sm font-medium text-white">{isAr ? "لا توجد طلبات شراء" : "No Purchase Requests"}</p>
                   <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "ستظهر طلبات المشترين هنا عند وصولها." : "Incoming buyer requests will appear here."}</p>
@@ -2614,7 +2754,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <p>Trade ID: <span className="text-white">{request.tradeId ?? "Pending Creation"}</span></p>
                       <p>Buyer Name: <span className="text-white">{request.buyerName}</span></p>
                       <p>WhatsApp: <span className="text-white">{request.buyerWhatsapp}</span></p>
-                      <p>USDT Amount: <span className="text-white">{request.usdtAmount}</span></p>
+                      <p className="inline-flex items-center gap-1.5">USDT Amount: <UsdtIcon /> <span className="text-white">{request.usdtAmount}</span></p>
                       <p>Fiat Amount: <span className="text-white">{request.fiatAmount} {request.currency}</span></p>
                       <p>Network: <span className="text-white">{request.network}</span></p>
                       <p>Payment Method: <span className="text-white">{request.paymentMethod}</span></p>
@@ -2771,215 +2911,222 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 );
               })}
             </CardContent>
-          </Card>
+            </Card>
+          ) : null}
 
-          <div className="grid gap-4 xl:grid-cols-3">
-            <Card className="border-white/10 bg-[#0B0B0B]/90">
-              <CardHeader>
-                <CardTitle>{isAr ? "ملف البائع" : "Seller Profile"}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm text-[#D1D5DB]">
-                <div className="flex items-center gap-3">
-                  {sessionUser?.profilePhotoUrl ? (
-                    <Image src={sessionUser.profilePhotoUrl} alt={`${sessionUser.fullName} profile`} width={52} height={52} unoptimized className="h-13 w-13 rounded-full border border-white/15 object-cover" />
-                  ) : (
-                    <div className="inline-flex h-13 w-13 items-center justify-center rounded-full border border-white/15 bg-white/[0.04] text-sm font-semibold text-[#D1D5DB]">
-                      {safeText(sessionUser?.fullName, "Seller")
-                        .split(" ")
-                        .map((part) => part[0])
-                        .join("")
-                        .slice(0, 2)}
+          {(activeSellerWorkspaceTab === "overview" || activeSellerWorkspaceTab === "settings") ? (
+            <>
+              <div className="grid gap-4 xl:grid-cols-3">
+                <Card className="border-white/10 bg-[#0B0B0B]/90">
+                  <CardHeader>
+                    <CardTitle>{isAr ? "ملف البائع" : "Seller Profile"}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2 text-sm text-[#D1D5DB]">
+                    <div className="flex items-center gap-3">
+                      {sessionUser?.profilePhotoUrl ? (
+                        <Image src={sessionUser.profilePhotoUrl} alt={`${sessionUser.fullName} profile`} width={52} height={52} unoptimized className="h-13 w-13 rounded-full border border-white/15 object-cover" />
+                      ) : (
+                        <div className="inline-flex h-13 w-13 items-center justify-center rounded-full border border-white/15 bg-white/[0.04] text-sm font-semibold text-[#D1D5DB]">
+                          {safeText(sessionUser?.fullName, "Seller")
+                            .split(" ")
+                            .map((part) => part[0])
+                            .join("")
+                            .slice(0, 2)}
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-base font-semibold text-white">{safeText(sessionUser?.fullName, "Seller")}</p>
+                        <RoleBadge variant="approved_seller" />
+                      </div>
                     </div>
-                  )}
-                  <div>
-                    <p className="text-base font-semibold text-white">{safeText(sessionUser?.fullName, "Seller")}</p>
-                    <RoleBadge variant="approved_seller" />
-                  </div>
-                </div>
-                <p>Member Since: <span className="text-white">{sessionUser?.createdAt ? new Date(sessionUser.createdAt).toLocaleDateString("en-IL") : "—"}</span></p>
-                <p>Languages: <span className="text-white">{sessionUser?.languages?.join(", ") || "English"}</span></p>
-                <p>Preferred Networks: <span className="text-white">{sessionUser?.preferredNetworks?.join(", ") || "TRC20"}</span></p>
-                <div className="rounded-2xl border border-[#C9A227]/20 bg-gradient-to-br from-[#C9A227]/10 via-black/20 to-[#6CAEFF]/10 p-3">
-                  <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">
-                    <Sparkles className="h-3.5 w-3.5 text-[#C9A227]" />
-                    Premium Prestige
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPrestigeModalOpen(true);
-                      setPrestigeModalStats((prev) => prev ?? {
-                        currentRank: sellerOverviewStats.currentPrestigeRank,
-                        nextRank: sellerOverviewStats.nextPrestigeRank,
-                        progressPercent: sellerOverviewStats.prestigeProgressPercent,
-                        remainingVolumeToNextRank: sellerOverviewStats.remainingVolumeToNextRank,
-                        publicVolumeRange: sellerOverviewStats.publicVolumeRange,
-                        publicVolumeLabel: sellerOverviewStats.publicVolumeRange,
-                        completedTrades: sellerOverviewStats.completedTrades,
-                        totalVolumeUsdt: sellerOverviewStats.totalUsdtSold,
-                        averageRating: sellerOverviewStats.reputation?.rating ?? 4.5,
-                        responseTimeMinutes: parseMinutes(sellerOverviewStats.averageResponseTime),
-                        completionRate: sellerOverviewStats.completionRate,
-                        averageTradeSize: sellerOverviewStats.averageTradeSize,
-                        repeatBuyersPercent: sellerOverviewStats.repeatBuyers,
-                        totalReviews: sellerOverviewStats.completedTrades,
-                        yearsOnPlatform: 0,
-                        promotionHistory: (sellerOverviewStats.promotionHistory ?? []).slice(0, 6).map((entry) => ({ id: entry.id, rank: entry.rank, promotedAt: entry.promotedAt, source: entry.source })),
-                        achievements: [
-                          { key: "first_trade", title: "First Trade", description: "Completed the first successful trade.", earnedAt: new Date().toISOString() },
-                          { key: "fast_responder", title: "Fast Responder", description: "Maintained an average response time under 2 minutes.", earnedAt: new Date().toISOString() },
-                        ],
-                        canViewExactValues: true,
-                      });
-                    }}
-                    className="mt-2 text-left text-sm font-semibold text-white transition hover:text-[#E8C547]"
-                  >
-                    Current Rank: <span className={cn("font-semibold capitalize", sellerRankTheme(sellerOverviewStats.currentPrestigeRank))}>{sellerLevelDisplayName(sellerOverviewStats.currentPrestigeRank)}</span>
-                  </button>
-                  <p className="mt-1 text-xs text-[#D1D5DB]">
-                    Next Rank: {sellerOverviewStats.nextPrestigeRank ? sellerLevelDisplayName(sellerOverviewStats.nextPrestigeRank) : "Top tier reached"}
-                    {sellerOverviewStats.nextPrestigeRank ? ` • ${sellerOverviewStats.remainingVolumeToNextRank.toLocaleString("en-IL")} USDT remaining` : ""}
-                  </p>
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
-                    <div className="h-full rounded-full bg-gradient-to-r from-[#B8942A] via-[#C9A227] to-[#E8C547]" style={{ width: `${Math.min(100, sellerOverviewStats.prestigeProgressPercent)}%` }} />
-                  </div>
-                  <p className="mt-1 text-[11px] text-[#9CA3AF]">Public volume label: {sellerOverviewStats.publicVolumeRange}</p>
-                </div>
-                <p>Rating: <span className="text-white">{(sellerOverviewStats.reputation?.rating ?? 4.5).toFixed(2)}</span></p>
-                <p>Success Rate: <span className="text-white">{sellerOverviewStats.successRate.toFixed(1)}%</span></p>
-                <p>Completed Trades: <span className="text-white">{sellerOverviewStats.completedTrades}</span></p>
-                <p>Total USDT Volume: <span className="text-white">{sellerOverviewStats.totalUsdtSold.toLocaleString("en-IL")}</span></p>
-                <p>Current Listings: <span className="text-white">{sellerOverviewStats.activeListings}</span></p>
-                <p>Average Response Time: <span className="text-white">{sellerOverviewStats.averageResponseTime}</span></p>
-                <p>Status: <span className="text-white">{sessionUser?.onlineStatus === "online" ? "Online" : "Offline"}</span></p>
-                <p>Availability: <span className="text-white capitalize">{sessionUser?.availabilityStatus ?? "available"}</span></p>
-                <p>Last Active: <span className="text-white">{formatRelativeMinutesLabel(sessionUser?.lastActiveAt)}</span></p>
-                <p>Bio: <span className="text-white">{safeText(sessionUser?.bio, "Professional USDT seller on Alpha Exchange.")}</span></p>
-                <p>Trading Experience: <span className="text-white">{safeText(sessionUser?.tradingExperience, "Professional trading experience")}</span></p>
-                <p>Working Hours: <span className="text-white">{safeText(sessionUser?.workingHours, "Sun-Thu, 09:00-21:00")}</span></p>
-                <p>Account Status: <span className="text-white">{sessionUser?.sellerStatus ?? "buyer"}</span></p>
-                <div className="flex flex-wrap gap-2 pt-1">
-                  {(sellerOverviewStats.reputation?.badges ?? []).map((badge) => (
-                    <span key={badge} className="rounded-full border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-2 py-1 text-[11px] text-[#93C5FD]">
-                      {sellerBadgeLabel(badge)}
-                    </span>
-                  ))}
-                </div>
-                {(sellerOverviewStats.promotionHistory ?? []).length ? (
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs">
-                    <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Promotion History</p>
-                    <div className="mt-2 space-y-1 text-[#D1D5DB]">
-                      {(sellerOverviewStats.promotionHistory ?? []).slice(0, 4).map((entry) => (
-                        <p key={entry.id}>
-                          <span className="capitalize text-white">{sellerLevelLabel(entry.rank)}</span> • {new Date(entry.promotedAt).toLocaleDateString("en-IL")}
-                        </p>
+                    <p>Member Since: <span className="text-white">{sessionUser?.createdAt ? new Date(sessionUser.createdAt).toLocaleDateString("en-IL") : "—"}</span></p>
+                    <p>Languages: <span className="text-white">{sessionUser?.languages?.join(", ") || "English"}</span></p>
+                    <p>Preferred Networks: <span className="text-white">{sessionUser?.preferredNetworks?.join(", ") || "TRC20"}</span></p>
+                    <div className="rounded-2xl border border-[#C9A227]/20 bg-gradient-to-br from-[#C9A227]/10 via-black/20 to-[#6CAEFF]/10 p-3">
+                      <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">
+                        <Sparkles className="h-3.5 w-3.5 text-[#C9A227]" />
+                        Premium Prestige
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPrestigeModalOpen(true);
+                          setPrestigeModalStats((prev) => prev ?? {
+                            currentRank: sellerOverviewStats.currentPrestigeRank,
+                            nextRank: sellerOverviewStats.nextPrestigeRank,
+                            progressPercent: sellerOverviewStats.prestigeProgressPercent,
+                            remainingVolumeToNextRank: sellerOverviewStats.remainingVolumeToNextRank,
+                            publicVolumeRange: sellerOverviewStats.publicVolumeRange,
+                            publicVolumeLabel: sellerOverviewStats.publicVolumeRange,
+                            completedTrades: sellerOverviewStats.completedTrades,
+                            totalVolumeUsdt: sellerOverviewStats.totalUsdtSold,
+                            averageRating: sellerOverviewStats.reputation?.rating ?? 4.5,
+                            responseTimeMinutes: parseMinutes(sellerOverviewStats.averageResponseTime),
+                            completionRate: sellerOverviewStats.completionRate,
+                            averageTradeSize: sellerOverviewStats.averageTradeSize,
+                            repeatBuyersPercent: sellerOverviewStats.repeatBuyers,
+                            totalReviews: sellerOverviewStats.completedTrades,
+                            yearsOnPlatform: 0,
+                            promotionHistory: (sellerOverviewStats.promotionHistory ?? []).slice(0, 6).map((entry) => ({ id: entry.id, rank: entry.rank, promotedAt: entry.promotedAt, source: entry.source })),
+                            achievements: [
+                              { key: "first_trade", title: "First Trade", description: "Completed the first successful trade.", earnedAt: new Date().toISOString() },
+                              { key: "fast_responder", title: "Fast Responder", description: "Maintained an average response time under 2 minutes.", earnedAt: new Date().toISOString() },
+                            ],
+                            canViewExactValues: true,
+                          });
+                        }}
+                        className="mt-2 text-left text-sm font-semibold text-white transition hover:text-[#E8C547]"
+                      >
+                        Current Rank: <span className={cn("font-semibold capitalize", sellerRankTheme(sellerOverviewStats.currentPrestigeRank))}>{sellerLevelDisplayName(sellerOverviewStats.currentPrestigeRank)}</span>
+                      </button>
+                      <p className="mt-1 text-xs text-[#D1D5DB]">
+                        Next Rank: {sellerOverviewStats.nextPrestigeRank ? sellerLevelDisplayName(sellerOverviewStats.nextPrestigeRank) : "Top tier reached"}
+                        {sellerOverviewStats.nextPrestigeRank ? ` • ${sellerOverviewStats.remainingVolumeToNextRank.toLocaleString("en-IL")} USDT remaining` : ""}
+                      </p>
+                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
+                        <div className="h-full rounded-full bg-gradient-to-r from-[#B8942A] via-[#C9A227] to-[#E8C547]" style={{ width: `${Math.min(100, sellerOverviewStats.prestigeProgressPercent)}%` }} />
+                      </div>
+                      <p className="mt-1 text-[11px] text-[#9CA3AF]">Public volume label: {sellerOverviewStats.publicVolumeRange}</p>
+                    </div>
+                    <p>Rating: <span className="text-white">{(sellerOverviewStats.reputation?.rating ?? 4.5).toFixed(2)}</span></p>
+                    <p>Success Rate: <span className="text-white">{sellerOverviewStats.successRate.toFixed(1)}%</span></p>
+                    <p>Completed Trades: <span className="text-white">{sellerOverviewStats.completedTrades}</span></p>
+                    <p>Total USDT Volume: <span className="text-white">{sellerOverviewStats.totalUsdtSold.toLocaleString("en-IL")}</span></p>
+                    <p>Current Listings: <span className="text-white">{sellerOverviewStats.activeListings}</span></p>
+                    <p>Average Response Time: <span className="text-white">{sellerOverviewStats.averageResponseTime}</span></p>
+                    <p>Status: <span className="text-white">{sessionUser?.onlineStatus === "online" ? "Online" : "Offline"}</span></p>
+                    <p>Availability: <span className="text-white capitalize">{sessionUser?.availabilityStatus ?? "available"}</span></p>
+                    <p>Last Active: <span className="text-white">{formatRelativeMinutesLabel(sessionUser?.lastActiveAt)}</span></p>
+                    <p>Bio: <span className="text-white">{safeText(sessionUser?.bio, "Professional USDT seller on Alpha Exchange.")}</span></p>
+                    <p>Trading Experience: <span className="text-white">{safeText(sessionUser?.tradingExperience, "Professional trading experience")}</span></p>
+                    <p>Working Hours: <span className="text-white">{safeText(sessionUser?.workingHours, "Sun-Thu, 09:00-21:00")}</span></p>
+                    <p>Account Status: <span className="text-white">{sessionUser?.sellerStatus ?? "buyer"}</span></p>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {(sellerOverviewStats.reputation?.badges ?? []).map((badge) => (
+                        <span key={badge} className="rounded-full border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-2 py-1 text-[11px] text-[#93C5FD]">
+                          {sellerBadgeLabel(badge)}
+                        </span>
                       ))}
                     </div>
-                  </div>
-                ) : null}
-                {sellerOverviewStats.completedTrades === 0 ? (
-                  <div className="mt-2 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#9CA3AF]">
-                    {isAr ? "لا توجد صفقات مكتملة بعد. أكمل أول صفقة لبناء سجل ثقة قوي." : "No Trades Yet. Complete your first trade to start building trust history."}
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
+                    {(sellerOverviewStats.promotionHistory ?? []).length ? (
+                      <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs">
+                        <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Promotion History</p>
+                        <div className="mt-2 space-y-1 text-[#D1D5DB]">
+                          {(sellerOverviewStats.promotionHistory ?? []).slice(0, 4).map((entry) => (
+                            <p key={entry.id}>
+                              <span className="capitalize text-white">{sellerLevelLabel(entry.rank)}</span> • {new Date(entry.promotedAt).toLocaleDateString("en-IL")}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    {sellerOverviewStats.completedTrades === 0 ? (
+                      <div className="mt-2 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#9CA3AF]">
+                        {isAr ? "لا توجد صفقات مكتملة بعد. أكمل أول صفقة لبناء سجل ثقة قوي." : "No Trades Yet. Complete your first trade to start building trust history."}
+                      </div>
+                    ) : null}
+                  </CardContent>
+                </Card>
 
-            {showLegacyNotificationCenter ? notificationCenterCard : null}
-            {betaChannelsCard}
+                {showLegacyNotificationCenter ? notificationCenterCard : null}
+                {betaChannelsCard}
 
-            <Card className="border-white/10 bg-[#0B0B0B]/90">
-              <CardHeader>
-                <CardTitle>{isAr ? "الإعدادات" : "Settings"}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {isLoadingListings ? (
-                  <div className="space-y-2">
-                    <div className="h-10 animate-pulse rounded-xl bg-white/10" />
-                    <div className="h-10 animate-pulse rounded-xl bg-white/10" />
-                  </div>
+                <Card className="border-white/10 bg-[#0B0B0B]/90">
+                  <CardHeader>
+                    <CardTitle>{isAr ? "الإعدادات" : "Settings"}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {isLoadingListings ? (
+                      <div className="space-y-2">
+                        <div className="h-10 animate-pulse rounded-xl bg-white/10" />
+                        <div className="h-10 animate-pulse rounded-xl bg-white/10" />
+                      </div>
+                    ) : null}
+                    <form className="grid gap-2" onSubmit={handleSellerSettingsSubmit}>
+                      <Input placeholder="Profile" value={sellerSettings.fullName} onChange={(event) => setSellerSettings((prev) => ({ ...prev, fullName: event.target.value }))} />
+                      <Input placeholder="WhatsApp" value={sellerSettings.whatsappNumber} onChange={(event) => setSellerSettings((prev) => ({ ...prev, whatsappNumber: event.target.value }))} />
+                      <Input placeholder="Languages (comma separated)" value={sellerSettings.languages.join(", ")} onChange={(event) => setSellerSettings((prev) => ({ ...prev, languages: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) }))} />
+                      <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={sellerSettings.preferredNetworks[0] ?? "TRC20"} onChange={(event) => setSellerSettings((prev) => ({ ...prev, preferredNetworks: [event.target.value as SupportedNetwork] }))}>
+                        <option value="TRC20">Preferred Network: TRC20</option>
+                        <option value="ERC20">Preferred Network: ERC20</option>
+                        <option value="BEP20">Preferred Network: BEP20</option>
+                        <option value="SOL">Preferred Network: SOL</option>
+                      </select>
+                      <Input placeholder="Profile Photo URL" value={sellerSettings.profilePhotoUrl} onChange={(event) => setSellerSettings((prev) => ({ ...prev, profilePhotoUrl: event.target.value }))} />
+                      <Input placeholder="Cover Banner URL" value={sellerSettings.coverBannerUrl} onChange={(event) => setSellerSettings((prev) => ({ ...prev, coverBannerUrl: event.target.value }))} />
+                      <Textarea placeholder="Bio" value={sellerSettings.bio} onChange={(event) => setSellerSettings((prev) => ({ ...prev, bio: event.target.value }))} />
+                      <Input placeholder="Trading Experience" value={sellerSettings.tradingExperience} onChange={(event) => setSellerSettings((prev) => ({ ...prev, tradingExperience: event.target.value }))} />
+                      <Input placeholder="Working Hours" value={sellerSettings.workingHours} onChange={(event) => setSellerSettings((prev) => ({ ...prev, workingHours: event.target.value }))} />
+                      <Input placeholder="Preferred Payment Methods (comma separated)" value={sellerSettings.preferredPaymentMethods.join(", ")} onChange={(event) => setSellerSettings((prev) => ({ ...prev, preferredPaymentMethods: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) }))} />
+                      <Input placeholder="Country" value={sellerSettings.country} onChange={(event) => setSellerSettings((prev) => ({ ...prev, country: event.target.value }))} />
+                      <Input placeholder="City (optional)" value={sellerSettings.city} onChange={(event) => setSellerSettings((prev) => ({ ...prev, city: event.target.value }))} />
+                      <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={sellerSettings.onlineStatus} onChange={(event) => setSellerSettings((prev) => ({ ...prev, onlineStatus: event.target.value as "online" | "offline" }))}>
+                        <option value="online">Status: Online</option>
+                        <option value="offline">Status: Offline</option>
+                      </select>
+                      <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={sellerSettings.availabilityStatus} onChange={(event) => setSellerSettings((prev) => ({ ...prev, availabilityStatus: event.target.value as SellerAvailabilityStatus }))}>
+                        <option value="available">Availability: Available</option>
+                        <option value="away">Availability: Away</option>
+                        <option value="vacation">Availability: Vacation Mode</option>
+                      </select>
+                      {sellerSettings.availabilityStatus === "vacation" ? (
+                        <p className="text-xs text-[#FDE68A]">Vacation Mode hides your active listings from buyers and blocks new matches until you switch back.</p>
+                      ) : null}
+                      <Button type="submit" size="sm">Save Profile</Button>
+                    </form>
+                    <form className="grid gap-2" onSubmit={handleSellerPasswordSubmit}>
+                      <Input type="password" placeholder="Current Password" value={sellerSettings.currentPassword} onChange={(event) => setSellerSettings((prev) => ({ ...prev, currentPassword: event.target.value }))} />
+                      <Input type="password" placeholder="New Password" value={sellerSettings.newPassword} onChange={(event) => setSellerSettings((prev) => ({ ...prev, newPassword: event.target.value }))} />
+                      <Button type="submit" size="sm" variant="secondary">Update Password</Button>
+                    </form>
+                    <form className="grid gap-2 border-t border-white/10 pt-3" onSubmit={handleNotificationPreferencesSave}>
+                      <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Notification Preferences</p>
+                      <label className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-[#D1D5DB]">
+                        <span>In-app</span>
+                        <input type="checkbox" checked={notificationPreferences.inApp} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, inApp: event.target.checked }))} />
+                      </label>
+                      <label className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-[#D1D5DB]">
+                        <span>Email (future-ready)</span>
+                        <input type="checkbox" checked={notificationPreferences.email} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, email: event.target.checked }))} />
+                      </label>
+                      <label className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-[#D1D5DB]">
+                        <span>SMS (future-ready)</span>
+                        <input type="checkbox" checked={notificationPreferences.sms} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, sms: event.target.checked }))} />
+                      </label>
+                      <div>
+                        <Button type="submit" size="sm" variant="secondary">Save Notification Preferences</Button>
+                      </div>
+                    </form>
+                  </CardContent>
+                </Card>
+              </div>
+              <div className="mt-4 space-y-3">
+                <Card className="border-white/10 bg-[#0B0B0B]/90">
+                  <CardHeader>
+                    <CardTitle>Private Activity History</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {!activityHistory.length ? (
+                      <p className="text-xs text-[#9CA3AF]">No activity entries yet.</p>
+                    ) : (
+                      activityHistory.slice(0, 12).map((entry) => (
+                        <div key={entry.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
+                          <p className="font-medium text-white">{entry.title}</p>
+                          <p className="mt-1">{entry.details}</p>
+                          <p className="mt-1 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleString("en-IL")}</p>
+                        </div>
+                      ))
+                    )}
+                  </CardContent>
+                </Card>
+                {sellerWorkspaceMessage ? (
+                  <Card className="border-[#C9A227]/30 bg-[#C9A227]/10">
+                    <CardContent className="p-3 text-xs text-white">{sellerWorkspaceMessage}</CardContent>
+                  </Card>
                 ) : null}
-                <form className="grid gap-2" onSubmit={handleSellerSettingsSubmit}>
-                  <Input placeholder="Profile" value={sellerSettings.fullName} onChange={(event) => setSellerSettings((prev) => ({ ...prev, fullName: event.target.value }))} />
-                  <Input placeholder="WhatsApp" value={sellerSettings.whatsappNumber} onChange={(event) => setSellerSettings((prev) => ({ ...prev, whatsappNumber: event.target.value }))} />
-                  <Input placeholder="Languages (comma separated)" value={sellerSettings.languages.join(", ")} onChange={(event) => setSellerSettings((prev) => ({ ...prev, languages: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) }))} />
-                  <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={sellerSettings.preferredNetworks[0] ?? "TRC20"} onChange={(event) => setSellerSettings((prev) => ({ ...prev, preferredNetworks: [event.target.value as SupportedNetwork] }))}>
-                    <option value="TRC20">Preferred Network: TRC20</option>
-                    <option value="ERC20">Preferred Network: ERC20</option>
-                    <option value="BEP20">Preferred Network: BEP20</option>
-                    <option value="SOL">Preferred Network: SOL</option>
-                  </select>
-                  <Input placeholder="Profile Photo URL" value={sellerSettings.profilePhotoUrl} onChange={(event) => setSellerSettings((prev) => ({ ...prev, profilePhotoUrl: event.target.value }))} />
-                  <Input placeholder="Cover Banner URL" value={sellerSettings.coverBannerUrl} onChange={(event) => setSellerSettings((prev) => ({ ...prev, coverBannerUrl: event.target.value }))} />
-                  <Textarea placeholder="Bio" value={sellerSettings.bio} onChange={(event) => setSellerSettings((prev) => ({ ...prev, bio: event.target.value }))} />
-                  <Input placeholder="Trading Experience" value={sellerSettings.tradingExperience} onChange={(event) => setSellerSettings((prev) => ({ ...prev, tradingExperience: event.target.value }))} />
-                  <Input placeholder="Working Hours" value={sellerSettings.workingHours} onChange={(event) => setSellerSettings((prev) => ({ ...prev, workingHours: event.target.value }))} />
-                  <Input placeholder="Preferred Payment Methods (comma separated)" value={sellerSettings.preferredPaymentMethods.join(", ")} onChange={(event) => setSellerSettings((prev) => ({ ...prev, preferredPaymentMethods: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) }))} />
-                  <Input placeholder="Country" value={sellerSettings.country} onChange={(event) => setSellerSettings((prev) => ({ ...prev, country: event.target.value }))} />
-                  <Input placeholder="City (optional)" value={sellerSettings.city} onChange={(event) => setSellerSettings((prev) => ({ ...prev, city: event.target.value }))} />
-                  <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={sellerSettings.onlineStatus} onChange={(event) => setSellerSettings((prev) => ({ ...prev, onlineStatus: event.target.value as "online" | "offline" }))}>
-                    <option value="online">Status: Online</option>
-                    <option value="offline">Status: Offline</option>
-                  </select>
-                  <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={sellerSettings.availabilityStatus} onChange={(event) => setSellerSettings((prev) => ({ ...prev, availabilityStatus: event.target.value as SellerAvailabilityStatus }))}>
-                    <option value="available">Availability: Available</option>
-                    <option value="away">Availability: Away</option>
-                    <option value="vacation">Availability: Vacation Mode</option>
-                  </select>
-                  {sellerSettings.availabilityStatus === "vacation" ? (
-                    <p className="text-xs text-[#FDE68A]">Vacation Mode hides your active listings from buyers and blocks new matches until you switch back.</p>
-                  ) : null}
-                  <Button type="submit" size="sm">Save Profile</Button>
-                </form>
-                <form className="grid gap-2" onSubmit={handleSellerPasswordSubmit}>
-                  <Input type="password" placeholder="Current Password" value={sellerSettings.currentPassword} onChange={(event) => setSellerSettings((prev) => ({ ...prev, currentPassword: event.target.value }))} />
-                  <Input type="password" placeholder="New Password" value={sellerSettings.newPassword} onChange={(event) => setSellerSettings((prev) => ({ ...prev, newPassword: event.target.value }))} />
-                  <Button type="submit" size="sm" variant="secondary">Update Password</Button>
-                </form>
-                <form className="grid gap-2 border-t border-white/10 pt-3" onSubmit={handleNotificationPreferencesSave}>
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Notification Preferences</p>
-                  <label className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-[#D1D5DB]">
-                    <span>In-app</span>
-                    <input type="checkbox" checked={notificationPreferences.inApp} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, inApp: event.target.checked }))} />
-                  </label>
-                  <label className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-[#D1D5DB]">
-                    <span>Email (future-ready)</span>
-                    <input type="checkbox" checked={notificationPreferences.email} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, email: event.target.checked }))} />
-                  </label>
-                  <label className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-[#D1D5DB]">
-                    <span>SMS (future-ready)</span>
-                    <input type="checkbox" checked={notificationPreferences.sms} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, sms: event.target.checked }))} />
-                  </label>
-                  <div>
-                    <Button type="submit" size="sm" variant="secondary">Save Notification Preferences</Button>
-                  </div>
-                </form>
-              </CardContent>
-            </Card>
-          </div>
-          <Card className="border-white/10 bg-[#0B0B0B]/90">
-            <CardHeader>
-              <CardTitle>Private Activity History</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {!activityHistory.length ? (
-                <p className="text-xs text-[#9CA3AF]">No activity entries yet.</p>
-              ) : (
-                activityHistory.slice(0, 12).map((entry) => (
-                  <div key={entry.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                    <p className="font-medium text-white">{entry.title}</p>
-                    <p className="mt-1">{entry.details}</p>
-                    <p className="mt-1 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleString("en-IL")}</p>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-            {sellerWorkspaceMessage ? (
-              <Card className="border-[#C9A227]/30 bg-[#C9A227]/10">
-                <CardContent className="p-3 text-xs text-white">{sellerWorkspaceMessage}</CardContent>
-              </Card>
-            ) : null}
+              </div>
+            </>
+          ) : null}
         </div>
       ) : (
         <div className="mt-8 grid gap-4 md:grid-cols-2">
@@ -3077,16 +3224,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <option value="cancelled">Cancelled</option>
                   </select>
                 </div>
-                {!filteredBuyerRequests.length ? (
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-[#9CA3AF]">No trades found for current filters.</div>
-                ) : null}
+                {!filteredBuyerRequests.length ? <div className="empty-state-panel">No trades found for current filters.</div> : null}
                 {filteredBuyerRequests.map((request) => (
                   <div key={request.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <div className="grid gap-2 text-sm md:grid-cols-3">
                       <p>Trade ID: <span className="text-white">{request.tradeId ?? "Pending Creation"}</span></p>
                       <p>Listing: <span className="text-white">{request.listingId}</span></p>
                       <p>Status: <span className="text-white">{tradeStatusLabel(request.status)}</span></p>
-                      <p>USDT Amount: <span className="text-white">{request.usdtAmount}</span></p>
+                      <p className="inline-flex items-center gap-1.5">USDT Amount: <UsdtIcon /> <span className="text-white">{request.usdtAmount}</span></p>
                       <p>Fiat Amount: <span className="text-white">{request.fiatAmount} {request.currency}</span></p>
                       <p>Network: <span className="text-white">{request.network}</span></p>
                       <p>Payment Method: <span className="text-white">{request.paymentMethod}</span></p>
@@ -3328,7 +3473,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       <AnimatePresence>
         {selectedListing ? (
           <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-white/10 bg-[#0B0B0B]/95 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.5)]" initial={{ opacity: 0, y: 24, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.97 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+            <motion.div className="modal-panel max-h-[90vh] w-full max-w-2xl overflow-y-auto" initial={{ opacity: 0, y: 24, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.97 }} transition={{ duration: 0.2, ease: "easeOut" }}>
               <div className={`mb-4 flex items-start justify-between gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                 <div>
                   <h3 className="text-2xl font-semibold">{isAr ? "ملف البائع" : "Seller Business Profile"}</h3>
@@ -3721,7 +3866,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               initial={{ opacity: 0, y: 12, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 8, scale: 0.98 }}
-              className="w-full max-w-md rounded-2xl border border-[#C9A227]/35 bg-[#0B0B0B]/95 p-6 text-center shadow-[0_20px_60px_rgba(0,0,0,0.5)]"
+              className="modal-panel w-full max-w-md border-[#C9A227]/35 text-center"
             >
               <p className="text-xs uppercase tracking-[0.16em] text-[#9CA3AF]">Congratulations!</p>
               <p className="mt-2 text-2xl font-semibold text-white">You reached:</p>

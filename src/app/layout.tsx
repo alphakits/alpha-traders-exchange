@@ -1,6 +1,5 @@
 import "./globals.css";
 import type { Metadata } from "next";
-import { GlobalBlockchainBackground } from "@/components/layout/global-blockchain-background";
 import { getSiteUrlObject } from "@/lib/site-url";
 
 export const metadata: Metadata = {
@@ -27,17 +26,11 @@ export const metadata: Metadata = {
   }
 };
 
+// html/body are provided by [locale]/layout.tsx so each locale gets correct lang and dir.
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  return (
-    <html suppressHydrationWarning>
-      <body className="relative bg-background text-foreground antialiased">
-        <GlobalBlockchainBackground />
-        <div className="relative z-10">{children}</div>
-      </body>
-    </html>
-  );
+  return children;
 }

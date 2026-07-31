@@ -1,3 +1,5 @@
+import { NextResponse } from "next/server";
+
 type RateLimitWindow = {
   count: number;
   windowStart: number;
@@ -54,4 +56,17 @@ export function checkRateLimit(input: {
   existing.count += 1;
   buckets.set(bucketKey, existing);
   return { allowed: true, retryAfterSeconds: 0 };
+}
+
+export function createRateLimitResponse(retryAfterSeconds: number) {
+  return NextResponse.json(
+    { error: "Too many requests. Please try again shortly." },
+    {
+      status: 429,
+      headers: {
+        "Retry-After": String(retryAfterSeconds),
+        "Cache-Control": "no-store, max-age=0",
+      },
+    },
+  );
 }

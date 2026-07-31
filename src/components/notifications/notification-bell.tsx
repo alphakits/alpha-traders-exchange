@@ -5,7 +5,7 @@ import { Bell, BellDot, CircleDot, ExternalLink, Megaphone, Scale, ShieldCheck, 
 import type { AppLocale } from "@/i18n/routing";
 import { Link, usePathname, useRouter } from "@/i18n/navigation";
 import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -159,7 +159,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
             <BellDot className="h-4 w-4 text-[#C9A227]" />
             Notifications
             {hasUnread ? (
-              <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5 text-[11px] font-normal text-[#C9A227]">
+              <span className="badge-chip border-[#C9A227]/35 bg-[#C9A227]/10 font-normal text-[#C9A227]">
                 {unreadCount} unread
               </span>
             ) : null}
@@ -174,11 +174,9 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
         </div>
 
         <div className="max-h-[26rem] space-y-2 overflow-y-auto p-3">
-          {isLoading ? <p className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#9CA3AF]">Loading...</p> : null}
+          {isLoading ? <p className="empty-state-panel p-3 text-xs">Loading...</p> : null}
           {!isLoading && error ? <p className="rounded-xl border border-red-400/20 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
-          {!isLoading && !error && notifications.length === 0 ? (
-            <p className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#9CA3AF]">No notifications yet.</p>
-          ) : null}
+          {!isLoading && !error && notifications.length === 0 ? <p className="empty-state-panel p-3 text-xs">No notifications yet.</p> : null}
           {!isLoading && !error
             ? notifications.map((notification) => {
                 const Icon = notificationIcon(notification);
@@ -200,9 +198,9 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                         </div>
                         <p className="mt-1 line-clamp-2">{notification.message}</p>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                          {!notification.isRead ? <span className="rounded-full bg-[#C9A227]/20 px-2 py-0.5 text-[10px] text-[#C9A227]">Unread</span> : null}
-                          {notification.relatedTradeId ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Trade #{notification.relatedTradeId.slice(-6)}</span> : null}
-                          {notification.relatedListingId ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Listing #{notification.relatedListingId.slice(-6)}</span> : null}
+                          {!notification.isRead ? <span className="inline-flex items-center rounded-full bg-[#C9A227]/20 px-2 py-0.5 text-[10px] text-[#C9A227]">Unread</span> : null}
+                          {notification.relatedTradeId ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Trade #{notification.relatedTradeId.slice(-6)}</span> : null}
+                          {notification.relatedListingId ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Listing #{notification.relatedListingId.slice(-6)}</span> : null}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleOpenNotification(notification)}>
@@ -220,7 +218,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                                 router.push(notification.relatedHref!);
                                 setIsOpen(false);
                               }}
-                              className="inline-flex h-7 items-center gap-1 rounded-full border border-white/20 px-2.5 text-[11px] text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227]"
+                              className={buttonVariants({ variant: "secondary", size: "sm" })}
                             >
                               <ExternalLink className="h-3 w-3" />
                               Related

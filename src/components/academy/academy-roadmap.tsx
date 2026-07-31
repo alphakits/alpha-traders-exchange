@@ -85,7 +85,7 @@ export function AcademyRoadmap() {
                           <div
                             key={lesson.id}
                             className={`flex items-center gap-2 rounded-lg px-2 py-1 text-sm ${
-                              isLocked ? "blur-[1px] opacity-60" : "text-[#d1d5db]"
+                              isLocked ? "blur-[1px] opacity-60" : "text-[#D1D5DB]"
                             }`}
                             aria-disabled={isLocked}
                           >

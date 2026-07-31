@@ -47,3 +47,14 @@ next-env.d.ts
 
 # Runtime database (seeded from data/alpha-exchange-db.json)
 /data/alpha-exchange-evidence/
+
+# Debug / QA artifacts
+cookies.txt
+build.log
+build-output.txt
+tmp-*.js
+tmp-*.mjs
+tmp-*.ts
+tmp-*.png
+/tmp/
+/test-results/

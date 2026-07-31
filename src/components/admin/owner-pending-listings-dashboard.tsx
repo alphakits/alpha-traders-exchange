@@ -93,7 +93,7 @@ export function OwnerPendingListingsDashboard() {
   }, [data.allListings, data.purchaseRequests, selectedSellerId]);
 
   return (
-    <section className="section-container page-shell py-10">
+    <section className="section-container page-shell">
       <Card className="border-white/10 bg-[#0B0B0B]/95">
         <CardHeader>
           <CardTitle>Pending Listings (Owner Review)</CardTitle>

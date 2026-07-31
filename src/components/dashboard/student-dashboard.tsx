@@ -23,7 +23,7 @@ export function StudentDashboard() {
       <p className="page-subtitle">{isAr ? "تتبّع تقدمك ومتابعة الدرس التالي بسرعة." : "Track progress and continue from where you left off."}</p>
 
       <div className="mt-8 grid gap-4 lg:grid-cols-3">
-        <Card className="h-full">
+        <Card className="h-full transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/30">
           <CardHeader>
             <CardDescription>{isAr ? "الدرس الحالي" : "Current Lesson"}</CardDescription>
             <CardTitle className="text-lg">
@@ -40,7 +40,7 @@ export function StudentDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="h-full">
+        <Card className="h-full transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/30">
           <CardHeader>
             <CardDescription>{isAr ? "تقدم الدورة" : "Course Progress"}</CardDescription>
             <CardTitle>{overallProgress}%</CardTitle>
@@ -53,7 +53,7 @@ export function StudentDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="h-full">
+        <Card className="h-full transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/30">
           <CardHeader>
             <CardDescription>{isAr ? "دروس مكتملة" : "Lessons Completed"}</CardDescription>
             <CardTitle>{snapshot.completedLessons}</CardTitle>
@@ -66,7 +66,7 @@ export function StudentDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="h-full">
+        <Card className="h-full transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/30">
           <CardHeader>
             <CardDescription>{isAr ? "ساعات الدراسة" : "Hours Studied"}</CardDescription>
             <CardTitle>{snapshot.hoursStudied}</CardTitle>
@@ -79,7 +79,7 @@ export function StudentDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="h-full">
+        <Card className="h-full transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/30">
           <CardHeader>
             <CardDescription>{isAr ? "آخر نشاط" : "Last Activity"}</CardDescription>
             <CardTitle className="text-base">
@@ -94,7 +94,7 @@ export function StudentDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="h-full">
+        <Card className="h-full transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/30">
           <CardHeader>
             <CardDescription>{isAr ? "الملاحظات الأخيرة" : "Recent Notes"}</CardDescription>
             <CardTitle className="text-base">{isAr ? "ملاحظاتك المحفوظة" : "Saved Notes"}</CardTitle>
@@ -111,7 +111,7 @@ export function StudentDashboard() {
                 </Link>
               ))
             ) : (
-              <p>{isAr ? "لا توجد ملاحظات بعد." : "No notes yet."}</p>
+              <p className="empty-state-panel">{isAr ? "لا توجد ملاحظات بعد." : "No notes yet."}</p>
             )}
           </CardContent>
         </Card>

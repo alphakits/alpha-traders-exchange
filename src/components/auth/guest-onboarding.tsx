@@ -90,8 +90,8 @@ export function GuestOnboarding({ locale }: Props) {
 
   return (
     <section className="section-container page-shell">
-      <div className="mx-auto w-full max-w-4xl rounded-3xl border border-white/10 bg-[#0B0B0B]/90 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.4)] backdrop-blur-xl md:p-8">
-        <h1 className="text-3xl font-semibold md:text-4xl">{isAr ? "مرحبًا بك في Alpha Traders" : "Welcome to Alpha Traders"}</h1>
+      <div className="surface-panel mx-auto w-full max-w-4xl p-6 md:p-8">
+        <h1 className="page-title">{isAr ? "مرحبًا بك في Alpha Traders" : "Welcome to Alpha Traders"}</h1>
         <p className="mt-2 text-sm text-[#9CA3AF]">
           {isAr ? "اختر كيف تريد البدء في المنصة." : "Choose how you want to get started."}
         </p>

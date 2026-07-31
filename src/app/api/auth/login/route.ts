@@ -52,12 +52,14 @@ export async function POST(request: NextRequest) {
 
     const localUser = await authenticateLocalUser(email, password);
     if (localUser) {
+      console.log("[auth/login] upserting local user profile", email);
       const user = await upsertUserProfileForAuth({
         fullName: localUser.fullName,
         email: localUser.email,
         whatsappNumber: localUser.whatsappNumber,
         emailVerified: true,
       });
+      console.log("[auth/login] creating user session", user.id);
 
       const { token, expiresAt } = await createUserSession(user.id, rememberMe ? 14 : 1);
       cookieStore.set(AUTH_COOKIE_NAME, token, {
@@ -118,12 +120,14 @@ export async function POST(request: NextRequest) {
         { status: 403, headers: AUTH_RESPONSE_HEADERS },
       );
     }
+    console.log("[auth/login] upserting supabase user profile", supabaseUser.email);
     const user = await upsertUserProfileForAuth({
       fullName: String(supabaseUser.user_metadata?.full_name ?? supabaseUser.email.split("@")[0]),
       email: supabaseUser.email,
       whatsappNumber: String(supabaseUser.user_metadata?.whatsapp_number ?? ""),
       emailVerified: true,
     });
+    console.log("[auth/login] creating user session for supabase user", user.id);
 
     const { token, expiresAt } = await createUserSession(user.id, rememberMe ? 14 : 1);
     cookieStore.set(AUTH_COOKIE_NAME, token, {
@@ -153,6 +157,7 @@ export async function POST(request: NextRequest) {
       },
     }, { headers: AUTH_RESPONSE_HEADERS });
   } catch (error) {
+    console.error("[auth/login] unexpected error", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Login failed." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
   }
 }

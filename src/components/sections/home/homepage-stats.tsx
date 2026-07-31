@@ -116,7 +116,7 @@ function StatCard({ stat, isRtl }: { stat: StatItem; isRtl: boolean }) {
       ref={cardRef}
       variants={cardVariants}
       whileHover={{ y: -5, transition: { duration: 0.2 } }}
-      className={`group relative flex flex-col gap-4 rounded-2xl border border-white/8 bg-white/[0.03] px-5 py-6 backdrop-blur-sm transition-shadow duration-300 hover:border-[#C9A227]/35 hover:bg-white/[0.055] hover:shadow-[0_8px_32px_rgba(201,162,39,0.14)] ${
+      className={`group relative flex flex-col gap-4 rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-6 backdrop-blur-sm transition-shadow duration-300 hover:border-[#C9A227]/35 hover:bg-white/[0.055] hover:shadow-[0_8px_32px_rgba(201,162,39,0.14)] ${
         isRtl ? "items-end text-right" : "items-start text-left"
       }`}
     >

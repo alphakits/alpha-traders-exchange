@@ -52,7 +52,7 @@ function StatCard({ stat, isRtl }: { stat: StatDef; isRtl: boolean }) {
     <motion.div
       variants={cardVariants}
       whileHover={{ y: -4, transition: { duration: 0.18 } }}
-      className={`group relative flex flex-col gap-3 rounded-2xl border border-white/8 bg-white/[0.03] p-5 backdrop-blur-sm transition-shadow duration-300 hover:border-[#C9A227]/35 hover:bg-white/[0.055] hover:shadow-[0_8px_32px_rgba(201,162,39,0.13)] ${
+      className={`group relative flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-5 backdrop-blur-sm transition-shadow duration-300 hover:border-[#C9A227]/35 hover:bg-white/[0.055] hover:shadow-[0_8px_32px_rgba(201,162,39,0.13)] ${
         isRtl ? "items-end text-right" : "items-start text-left"
       }`}
       aria-label={`${isRtl ? stat.titleAr : stat.titleEn}: ${stat.value}`}
