@@ -16,6 +16,11 @@ type NotificationsPayload = {
   unreadCount: number;
 };
 
+type NotificationsStreamPayload = {
+  notifications: AlphaExchangeNotification[];
+  unreadCount: number;
+};
+
 type NotificationFilter = "all" | "unread" | "trades" | "listings" | "reviews" | "announcements" | "history";
 
 const PAGE_SIZE = 20;
@@ -106,6 +111,25 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
   useEffect(() => {
     void loadNotifications(filter);
   }, [filter, loadNotifications]);
+
+  useEffect(() => {
+    const stream = new EventSource("/api/alpha-exchange/notifications/stream");
+    const onNotifications = (event: Event) => {
+      const messageEvent = event as MessageEvent<string>;
+      try {
+        const payload = JSON.parse(messageEvent.data) as NotificationsStreamPayload;
+        if (!Array.isArray(payload.notifications)) return;
+        setNotifications(payload.notifications);
+        setUnreadCount(typeof payload.unreadCount === "number" ? payload.unreadCount : 0);
+      } catch {
+        // Ignore malformed stream payloads.
+      }
+    };
+    stream.addEventListener("notifications", onNotifications);
+    return () => {
+      stream.close();
+    };
+  }, []);
 
   useEffect(() => {
     setPage(1);

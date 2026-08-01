@@ -14,6 +14,11 @@ type NotificationsPayload = {
   unreadCount: number;
 };
 
+type NotificationsStreamPayload = {
+  notifications: AlphaExchangeNotification[];
+  unreadCount: number;
+};
+
 const TRADE_ROOM_DEBUG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
 
 function formatRelativeTime(isoDate: string, locale: AppLocale) {
@@ -105,6 +110,28 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
 
   useEffect(() => {
     void loadNotifications(1);
+  }, []);
+
+  useEffect(() => {
+    const stream = new EventSource("/api/alpha-exchange/notifications/stream");
+    const onNotifications = (event: Event) => {
+      const messageEvent = event as MessageEvent<string>;
+      try {
+        const payload = JSON.parse(messageEvent.data) as NotificationsStreamPayload;
+        setNotifications(Array.isArray(payload.notifications) ? payload.notifications : []);
+        setUnreadCount(typeof payload.unreadCount === "number" ? payload.unreadCount : 0);
+      } catch {
+        // Ignore malformed stream payloads and keep current state.
+      }
+    };
+    const onError = () => {
+      // Keep the stream best-effort; periodic snapshots on reconnect will self-heal state.
+    };
+    stream.addEventListener("notifications", onNotifications);
+    stream.addEventListener("error", onError as EventListener);
+    return () => {
+      stream.close();
+    };
   }, []);
 
   async function handleToggleOpen() {
