@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, BadgePercent, BellRing, CheckCircle2, Clock3, Copy, Edit3, HandCoins, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Users, WalletCards, X } from "lucide-react";
+import { Activity, AlertTriangle, BadgePercent, BellRing, CheckCircle2, Clock3, Copy, Edit3, HandCoins, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Users, WalletCards, X, Zap } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -235,6 +235,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
   const [isLoadingListings, setIsLoadingListings] = useState(true);
+  const [pulseNow, setPulseNow] = useState(() => Date.now());
+  const listingsLoadedAtRef = useRef<number>(Date.now());
   const [applicationSubmitted, setApplicationSubmitted] = useState(false);
   const [purchaseSubmitted, setPurchaseSubmitted] = useState(false);
   const [selectedListing, setSelectedListing] = useState<MarketplaceListing | null>(null);
@@ -477,6 +479,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         if (cancelled) return;
         setSessionUser(meJson.user);
         setListings(listingsJson.listings ?? []);
+        listingsLoadedAtRef.current = Date.now();
 
         if (meJson.user) {
           const user = meJson.user;
@@ -521,6 +524,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     if (!sessionUser) return;
     void refreshNotifications();
   }, [sessionUser, notificationCategory, notificationQuery, notificationUnreadOnly, refreshNotifications]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setPulseNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const features: FeatureCard[] = [
     {
@@ -1628,44 +1636,114 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       </div>
 
       <div id="marketplace" className="mt-12">
-        <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "السوق المباشر" : "Live Marketplace"}</h2>
-        <p className="mt-2 text-sm text-[#9CA3AF]">
-          {isAr
-            ? "سوق حيّ يتم تحديثه باستمرار مع بائعين موثوقين، عروض نشطة، وشبكات تداول مفضلة."
-            : "A live marketplace with trusted sellers, active listings, and continuously refreshed trading activity."}
-        </p>
-
-        <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-          {[
-            { label: isAr ? "بائعون موثقون متصلون" : "Verified Sellers Online", value: marketplacePulse.onlineVerifiedSellers.toLocaleString("en-IL") },
-            { label: isAr ? "العروض النشطة" : "Live Listings", value: marketplacePulse.liveListings.toLocaleString("en-IL") },
-            { label: isAr ? "USDT متاح" : "USDT Available", value: `${marketplacePulse.totalUsdtAvailable.toLocaleString("en-IL")} USDT` },
-            { label: isAr ? "متوسط الاستجابة" : "Avg. Response", value: `${marketplacePulse.averageResponseMinutes} min` },
-            { label: isAr ? "الشبكة الرائجة" : "Trending Network", value: marketplacePulse.topNetwork },
-            { label: isAr ? "طريقة الدفع الشائعة" : "Popular Payment", value: marketplacePulse.topPaymentMethod },
-          ].map((item) => (
-            <Card key={item.label} className="border-white/10 bg-[#0B0B0B]/90">
-              <CardContent className="p-4">
-                <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{item.label}</p>
-                <p className="mt-1 text-base font-semibold text-white">{item.value}</p>
-              </CardContent>
-            </Card>
-          ))}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "السوق المباشر" : "Live Marketplace"}</h2>
+          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
+            <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
+            LIVE
+          </div>
         </div>
-        <p className="mt-3 text-xs text-[#9CA3AF]">
-          {isAr ? "أحدث البائعين النشطين:" : "Newest active sellers:"}{" "}
-          <span className="text-white">{marketplacePulse.newestSellers.length ? marketplacePulse.newestSellers.join(" • ") : (isAr ? "سيتم عرضها قريبًا" : "Will appear soon")}</span>
-        </p>
-        {sessionUser && recentCompletedTrades.length ? (
-          <Card className="mt-3 border-white/10 bg-[#0B0B0B]/90">
+
+        {/* Marketplace Heartbeat */}
+        <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#0A0A0A]/90 shadow-[0_16px_48px_rgba(0,0,0,0.35)]">
+          <div className="border-b border-white/[0.07] px-5 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs text-[#9CA3AF]">
+              <Activity className="h-3.5 w-3.5 text-emerald-400" />
+              {isAr ? "نبض السوق" : "Marketplace Pulse"}
+            </div>
+            <span className="text-[11px] text-[#9CA3AF]">
+              {isAr ? "محدّث" : "Updated"}{" "}
+              {Math.max(0, Math.round((pulseNow - listingsLoadedAtRef.current) / 1000))}{" "}
+              {isAr ? "ثانية" : "sec ago"}
+            </span>
+          </div>
+          <div className="grid divide-x divide-white/[0.06] md:grid-cols-3 xl:grid-cols-6">
+            {[
+              {
+                icon: ShieldCheck,
+                label: isAr ? "بائعون موثقون" : "Verified Sellers",
+                value: marketplacePulse.onlineVerifiedSellers > 0
+                  ? `${marketplacePulse.onlineVerifiedSellers} online`
+                  : marketplacePulse.verifiedSellers > 0 ? `${marketplacePulse.verifiedSellers}` : "—",
+                accent: "text-emerald-300",
+                show: true,
+              },
+              {
+                icon: Store,
+                label: isAr ? "العروض النشطة" : "Live Listings",
+                value: marketplacePulse.liveListings > 0 ? marketplacePulse.liveListings.toLocaleString("en-IL") : "—",
+                accent: "text-[#C9A227]",
+                show: true,
+              },
+              {
+                icon: WalletCards,
+                label: isAr ? "USDT متاح" : "USDT Available",
+                value: marketplacePulse.totalUsdtAvailable > 0
+                  ? `${marketplacePulse.totalUsdtAvailable.toLocaleString("en-IL")} USDT`
+                  : "—",
+                accent: "text-[#93C5FD]",
+                show: true,
+              },
+              {
+                icon: Zap,
+                label: isAr ? "متوسط الاستجابة" : "Avg Response",
+                value: marketplacePulse.averageResponseMinutes > 0 ? `${marketplacePulse.averageResponseMinutes} min` : "—",
+                accent: "text-amber-300",
+                show: true,
+              },
+              {
+                icon: Network,
+                label: isAr ? "الشبكة الرائجة" : "Trending Network",
+                value: marketplacePulse.topNetwork || "—",
+                accent: "text-violet-300",
+                show: Boolean(marketplacePulse.topNetwork),
+              },
+              {
+                icon: TrendingUp,
+                label: isAr ? "طريقة الدفع الشائعة" : "Popular Payment",
+                value: marketplacePulse.topPaymentMethod || "—",
+                accent: "text-rose-300",
+                show: Boolean(marketplacePulse.topPaymentMethod),
+              },
+            ]
+              .filter((item) => item.show)
+              .map((item) => {
+                const Icon = item.icon;
+                return (
+                  <div key={item.label} className="flex flex-col gap-1 px-5 py-4">
+                    <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">
+                      <Icon className={`h-3 w-3 ${item.accent}`} />
+                      {item.label}
+                    </div>
+                    <p className={`mt-0.5 text-base font-semibold ${item.accent}`}>{item.value}</p>
+                  </div>
+                );
+              })}
+          </div>
+          {marketplacePulse.newestSellers.length ? (
+            <div className="border-t border-white/[0.07] px-5 py-3 text-xs text-[#9CA3AF]">
+              <span className="text-emerald-400">↑ {isAr ? "أحدث البائعين النشطين" : "Recently active"}: </span>
+              <span className="text-white">{marketplacePulse.newestSellers.join(" • ")}</span>
+            </div>
+          ) : null}
+        </div>
+
+        {/* Recent completed trades — visible to all to signal activity */}
+        {recentCompletedTrades.length ? (
+          <Card className="mt-4 border-white/10 bg-[#0B0B0B]/90">
             <CardContent className="p-4">
-              <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Recent completed trades</p>
+              <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
+                {isAr ? "الصفقات المكتملة مؤخرًا" : "Recently Completed Trades"}
+              </p>
               <div className="mt-2 grid gap-2 md:grid-cols-2">
                 {recentCompletedTrades.map((trade) => (
-                  <div key={`recent-completed-${trade.id}`} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
-                    <p className="font-medium text-white">{shortTradeRef(trade)}</p>
-                    <p className="mt-1">{toNumber(trade.usdtAmount).toLocaleString("en-IL")} USDT • {toNumber(trade.fiatAmount).toLocaleString("en-IL")} {trade.currency}</p>
-                    <p className="mt-1 text-[#9CA3AF]">{new Date(trade.completedAt ?? trade.updatedAt).toLocaleString("en-IL")}</p>
+                  <div key={`recent-completed-${trade.id}`} className="flex items-start gap-3 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+                    <div>
+                      <p className="font-medium text-white">{shortTradeRef(trade)}</p>
+                      <p className="mt-0.5">{toNumber(trade.usdtAmount).toLocaleString("en-IL")} USDT • {toNumber(trade.fiatAmount).toLocaleString("en-IL")} {trade.currency}</p>
+                      <p className="mt-0.5 text-[#9CA3AF]">{new Date(trade.completedAt ?? trade.updatedAt).toLocaleString("en-IL")}</p>
+                    </div>
                   </div>
                 ))}
               </div>
