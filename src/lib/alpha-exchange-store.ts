@@ -2338,7 +2338,9 @@ function isAdminEmail(email: string) {
 }
 
 export function canPublishListings(user: Pick<AlphaExchangeUser, "role" | "roles" | "sellerStatus">) {
-  return !hasRole(user, "admin") && user.sellerStatus === "approved_seller";
+  // Admin and owner can always publish listings.
+  if (hasRole(user, "admin") || hasRole(user, "owner")) return true;
+  return user.sellerStatus === "approved_seller";
 }
 
 function resolveInviteStatus(invite: PrivateBetaInviteCode) {
