@@ -87,7 +87,7 @@ const sectionItems: Array<{ key: SectionKey; label: string; icon: typeof BarChar
   { key: "purchase-requests", label: "Purchase Requests", icon: ListChecks },
   { key: "commissions", label: "Commissions", icon: Coins },
   { key: "audit-logs", label: "Audit Logs", icon: FileClock },
-  { key: "private-beta", label: "Private Beta", icon: ShieldCheck },
+  { key: "private-beta", label: "Access Control", icon: ShieldCheck },
   { key: "settings", label: "Settings", icon: Settings },
 ];
 
@@ -1567,7 +1567,7 @@ export function AlphaExchangeAdminDashboard() {
                     <div className="space-y-6">
                       <Card className="border-white/10 bg-[#0B0B0B]/90">
                         <CardHeader>
-                          <CardTitle>Private Beta Access</CardTitle>
+                          <CardTitle>Access Control</CardTitle>
                           <CardDescription>Onboarding controls and registration history.</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">

@@ -5081,7 +5081,7 @@ export async function submitBetaFeedback(input: {
     pushNotification(db, {
       userId: owner.id,
       category: "system",
-      title: "New beta feedback submitted",
+      title: "New marketplace feedback submitted",
       message: `${user.fullName} submitted ${input.category} feedback.`,
       relatedHref: "/admin/alpha-exchange",
     });
@@ -5089,7 +5089,7 @@ export async function submitBetaFeedback(input: {
   pushActivityLog(db, {
     userId: input.userId,
     category: "system",
-    title: "Beta feedback submitted",
+    title: "Marketplace feedback submitted",
     details: `Category: ${input.category}`,
   });
   await writeDb(db);
@@ -5151,7 +5151,7 @@ export async function createBetaAnnouncement(input: {
     pushNotification(db, {
       userId: user.id,
       category: "system",
-      title: `Beta announcement: ${announcement.title}`,
+      title: `Marketplace announcement: ${announcement.title}`,
       message: announcement.message.slice(0, 140),
       relatedHref: "/usdt-exchange",
     });
@@ -5159,7 +5159,7 @@ export async function createBetaAnnouncement(input: {
   await appendAuditLog(db, {
     action: "beta_announcement_created",
     actorUserId: input.ownerUserId,
-    details: `Published beta announcement ${announcement.id}.`,
+    details: `Published marketplace announcement ${announcement.id}.`,
   });
   await writeDb(db);
   return announcement;

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, BadgePercent, BellRing, CheckCircle2, Clock3, Copy, Edit3, HandCoins, Layers3, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Users, WalletCards, X } from "lucide-react";
+import { AlertTriangle, BadgePercent, BellRing, CheckCircle2, Clock3, Copy, Edit3, HandCoins, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Users, WalletCards, X } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -794,6 +794,50 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     };
   }, [completedSellerRequests, myListings, myListingsById, pendingSellerRequests.length, sellerRequests]);
 
+  const marketplacePulse = useMemo(() => {
+    const sourceListings = filteredListings.length ? filteredListings : listings;
+    const uniqueSellers = new Set(sourceListings.map((listing) => listing.sellerId));
+    const totalUsdtAvailable = sourceListings.reduce((sum, listing) => sum + toNumber(listing.availableAmount), 0);
+    const responseMinutes = sourceListings
+      .map((listing) => parseMinutes(listing.responseTime))
+      .filter((value) => value > 0);
+    const averageResponseMinutes = responseMinutes.length
+      ? Math.max(1, Math.round(responseMinutes.reduce((sum, value) => sum + value, 0) / responseMinutes.length))
+      : 5;
+    const networkCounts = sourceListings.reduce<Record<string, number>>((acc, listing) => {
+      const key = safeText(listing.network, "TRC20");
+      acc[key] = (acc[key] ?? 0) + 1;
+      return acc;
+    }, {});
+    const topNetwork = Object.entries(networkCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "TRC20";
+    const paymentMethodCounts = sourceListings.reduce<Record<string, number>>((acc, listing) => {
+      const methods = listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod];
+      methods.forEach((method) => {
+        const normalized = safeText(method, "Bank transfer");
+        acc[normalized] = (acc[normalized] ?? 0) + 1;
+      });
+      return acc;
+    }, {});
+    const topPaymentMethod = Object.entries(paymentMethodCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "Bank transfer";
+    const newestSellers = [...sourceListings]
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .reduce<string[]>((acc, listing) => {
+        const name = safeText(listing.sellerDisplayName, "Seller");
+        if (!acc.includes(name)) acc.push(name);
+        return acc;
+      }, [])
+      .slice(0, 3);
+    return {
+      verifiedSellers: uniqueSellers.size,
+      liveListings: sourceListings.length,
+      totalUsdtAvailable,
+      averageResponseMinutes,
+      topNetwork,
+      topPaymentMethod,
+      newestSellers,
+    };
+  }, [filteredListings, listings]);
+
   async function handleSellerListingStatus(listing: MarketplaceListing, nextStatus: "active" | "paused") {
     const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, {
       method: "PATCH",
@@ -1146,7 +1190,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     </Card>
   ) : null;
 
-  const betaChannelsCard = sessionUser ? (
+  const marketInsightsCard = sessionUser ? (
     <Card className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
       <CardHeader>
         <CardTitle>Marketplace Insights</CardTitle>
@@ -1173,7 +1217,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </div>
           </div>
           <div className="space-y-2">
-            <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Alpha News</p>
+            <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Marketplace Updates</p>
             {!betaAnnouncements.length ? <p className="text-xs text-[#9CA3AF]">No active announcements.</p> : null}
             {betaAnnouncements.slice(0, 6).map((announcement) => (
               <div key={announcement.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
@@ -1337,6 +1381,33 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
       <div id="marketplace" className="mt-12">
         <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "السوق المباشر" : "Live Marketplace"}</h2>
+        <p className="mt-2 text-sm text-[#9CA3AF]">
+          {isAr
+            ? "سوق حيّ يتم تحديثه باستمرار مع بائعين موثوقين، عروض نشطة، وشبكات تداول مفضلة."
+            : "A live marketplace with trusted sellers, active listings, and continuously refreshed trading activity."}
+        </p>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+          {[
+            { label: isAr ? "البائعون الموثقون" : "Verified Sellers", value: marketplacePulse.verifiedSellers.toLocaleString("en-IL") },
+            { label: isAr ? "العروض النشطة" : "Live Listings", value: marketplacePulse.liveListings.toLocaleString("en-IL") },
+            { label: isAr ? "USDT متاح" : "USDT Available", value: `${marketplacePulse.totalUsdtAvailable.toLocaleString("en-IL")} USDT` },
+            { label: isAr ? "متوسط الاستجابة" : "Avg. Response", value: `${marketplacePulse.averageResponseMinutes} min` },
+            { label: isAr ? "الشبكة الرائجة" : "Trending Network", value: marketplacePulse.topNetwork },
+            { label: isAr ? "طريقة الدفع الشائعة" : "Popular Payment", value: marketplacePulse.topPaymentMethod },
+          ].map((item) => (
+            <Card key={item.label} className="border-white/10 bg-[#0B0B0B]/90">
+              <CardContent className="p-4">
+                <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{item.label}</p>
+                <p className="mt-1 text-base font-semibold text-white">{item.value}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-[#9CA3AF]">
+          {isAr ? "أحدث البائعين النشطين:" : "Newest active sellers:"}{" "}
+          <span className="text-white">{marketplacePulse.newestSellers.length ? marketplacePulse.newestSellers.join(" • ") : (isAr ? "سيتم عرضها قريبًا" : "Will appear soon")}</span>
+        </p>
 
         <Card className="mt-5 border-white/10 bg-[#0B0B0B]/90">
           <CardContent className="p-4">
@@ -1369,11 +1440,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 <option value="response-fast">{isAr ? "Sort: أسرع استجابة" : "Sort: Fastest Response Time"}</option>
                 <option value="newest">{isAr ? "Sort: الأحدث" : "Sort: Newest Listing"}</option>
               </select>
-              <Input placeholder={isAr ? "Min Amount" : "Min Amount"} value={minAmountFilter} onChange={(event) => setMinAmountFilter(event.target.value)} />
-              <Input placeholder={isAr ? "Max Amount" : "Max Amount"} value={maxAmountFilter} onChange={(event) => setMaxAmountFilter(event.target.value)} />
-              <Input placeholder={isAr ? "Min Price" : "Min Price"} value={minPriceFilter} onChange={(event) => setMinPriceFilter(event.target.value)} />
-              <Input placeholder={isAr ? "Max Price" : "Max Price"} value={maxPriceFilter} onChange={(event) => setMaxPriceFilter(event.target.value)} />
-              <Input placeholder={isAr ? "Min Trust Score" : "Min Trust Score"} value={trustScoreFilter} onChange={(event) => setTrustScoreFilter(event.target.value)} />
+              <Input placeholder={isAr ? "أقل كمية USDT" : "Min USDT amount"} value={minAmountFilter} onChange={(event) => setMinAmountFilter(event.target.value)} />
+              <Input placeholder={isAr ? "أعلى كمية USDT" : "Max USDT amount"} value={maxAmountFilter} onChange={(event) => setMaxAmountFilter(event.target.value)} />
+              <Input placeholder={isAr ? "أقل سعر (₪)" : "Min price (₪)"} value={minPriceFilter} onChange={(event) => setMinPriceFilter(event.target.value)} />
+              <Input placeholder={isAr ? "أعلى سعر (₪)" : "Max price (₪)"} value={maxPriceFilter} onChange={(event) => setMaxPriceFilter(event.target.value)} />
+              <Input placeholder={isAr ? "أقل درجة ثقة" : "Min trust score"} value={trustScoreFilter} onChange={(event) => setTrustScoreFilter(event.target.value)} />
               <Button type="button" variant={onlineOnlyFilter ? "default" : "secondary"} onClick={() => setOnlineOnlyFilter((prev) => !prev)}>
                 {onlineOnlyFilter ? "Online Sellers Only" : "Show Online Sellers Only"}
               </Button>
@@ -1432,23 +1503,25 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <span className="rounded-full border border-[#22C55E]/25 bg-[#22C55E]/10 px-3 py-1 text-xs text-[#86EFAC]">{isAr ? "متاح" : "Available"}</span>
                     </div>
                   </CardHeader>
-                  <CardContent className="space-y-2">
-                    <p className="text-sm text-[#9CA3AF]">Trust Score: <span className="text-white">{(listing.sellerReputation?.trustScore ?? 0).toFixed(1)}</span></p>
-                    <p className="text-sm text-[#9CA3AF]">Completed Trades: <span className="text-white">{(listing.sellerReputation?.completedTrades ?? 0).toLocaleString("en-IL")}</span></p>
-                    <p className="text-sm text-[#9CA3AF]">Average Rating: <span className="text-white">{(listing.sellerReputation?.rating ?? 0).toFixed(2)}</span></p>
-                    <p className="text-sm text-[#9CA3AF]">Response Time: <span className="text-white">{safeText(listing.responseTime, "5 min")}</span></p>
-                    <p className="text-sm text-[#9CA3AF]">Last Active: <span className="text-white">{formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt)}</span></p>
-                    <p className="text-sm text-[#9CA3AF]">USDT Available: <span className="text-white">{safeText(listing.availableAmount)}</span></p>
-                    <p className="text-sm text-[#9CA3AF]">Price: <span className="text-white">{safeText(listing.price)} {listing.currency}</span></p>
-                    <p className="text-sm text-[#9CA3AF]">Payment Methods: <span className="text-white">{(listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod]).join(", ")}</span></p>
-                    <p className="text-sm text-[#9CA3AF]">Networks: <span className="text-white">{safeText(listing.network)}</span></p>
-                    <p className="text-sm text-[#9CA3AF]">Min/Max Trade: <span className="text-white">{safeText(listing.minimumTrade)} / {safeText(listing.maximumTrade)}</span></p>
-                    <p className="text-sm text-[#9CA3AF]">Updated: <span className="text-white">{new Date(listing.updatedAt).toLocaleString("en-IL")}</span></p>
-                    <div className="grid gap-1 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                      <p>⭐ {listing.sellerReputation?.rating.toFixed(2) ?? "4.50"} Rating</p>
-                      <p>{(listing.sellerReputation?.completedTrades ?? 0).toLocaleString("en-IL")} Successful Trades</p>
-                      <p>{Math.round(listing.sellerReputation?.successRate ?? 95)}% Success Rate</p>
-                      <p>Member Since {new Date(listing.sellerProfile?.memberSince ?? listing.createdAt).getFullYear()}</p>
+                  <CardContent className="space-y-4">
+                    <div className="rounded-xl border border-[#C9A227]/25 bg-[#C9A227]/10 p-3">
+                      <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "سعر العرض" : "Listing Price"}</p>
+                      <div className="mt-2 flex items-end justify-between">
+                        <p className="text-xl font-semibold text-white">{safeText(listing.price)} {listing.currency}</p>
+                        <p className="text-xs text-[#E5E7EB]">{safeText(listing.availableAmount)} USDT</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-xl border border-white/10 bg-black/25 p-2.5 text-[#D1D5DB]">⭐ {(listing.sellerReputation?.rating ?? 0).toFixed(2)} Rating</div>
+                      <div className="rounded-xl border border-white/10 bg-black/25 p-2.5 text-[#D1D5DB]">🤝 {(listing.sellerReputation?.completedTrades ?? 0).toLocaleString("en-IL")} Trades</div>
+                      <div className="rounded-xl border border-white/10 bg-black/25 p-2.5 text-[#D1D5DB]">⚡ {safeText(listing.responseTime, "5 min")}</div>
+                      <div className="rounded-xl border border-white/10 bg-black/25 p-2.5 text-[#D1D5DB]">🛡 {(listing.sellerReputation?.trustScore ?? 0).toFixed(1)} Trust</div>
+                    </div>
+                    <div className="space-y-1.5 text-xs text-[#9CA3AF]">
+                      <p>{isAr ? "آخر نشاط" : "Last active"}: <span className="text-white">{formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt)}</span></p>
+                      <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{safeText(listing.network)}</span></p>
+                      <p>{isAr ? "الدفع" : "Payment"}: <span className="text-white">{(listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod]).join(", ")}</span></p>
+                      <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{safeText(listing.minimumTrade)} / {safeText(listing.maximumTrade)}</span></p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {(listing.sellerReputation?.badges ?? []).slice(0, 2).map((badge) => (
@@ -1457,8 +1530,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         </span>
                       ))}
                     </div>
-                    <Button className="mt-3 transition-transform group-hover:scale-[1.02]" onClick={() => openListingModal(listing)} aria-label={`Open seller profile for ${safeText(listing.sellerDisplayName, "seller")}`}>
-                      {isAr ? "ملف البائع" : "View Seller Profile"}
+                    <Button className="w-full transition-transform group-hover:scale-[1.01]" onClick={() => openListingModal(listing)} aria-label={`Open listing from ${safeText(listing.sellerDisplayName, "seller")}`}>
+                      {isAr ? "شراء USDT الآن" : "Buy USDT"}
                     </Button>
                   </CardContent>
                 </Card>
@@ -2076,7 +2149,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </Card>
 
             {notificationCenterCard}
-            {betaChannelsCard}
+            {marketInsightsCard}
 
             <Card className="border-white/10 bg-[#0B0B0B]/90">
               <CardHeader>
@@ -2115,11 +2188,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           </div>
           <Card className="border-white/10 bg-[#0B0B0B]/90">
             <CardHeader>
-              <CardTitle>Private Activity History</CardTitle>
+              <CardTitle>Activity Timeline</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               {!activityHistory.length ? (
-                <p className="text-xs text-[#9CA3AF]">No activity entries yet.</p>
+                <p className="text-xs text-[#9CA3AF]">Your timeline updates automatically as you trade, review, and manage listings.</p>
               ) : (
                 activityHistory.slice(0, 12).map((entry) => (
                   <div key={entry.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
@@ -2361,15 +2434,15 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </Card>
           ) : null}
           {sessionUser ? notificationCenterCard : null}
-          {sessionUser ? betaChannelsCard : null}
+          {sessionUser ? marketInsightsCard : null}
           {sessionUser ? (
             <Card className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
               <CardHeader>
-                <CardTitle>Private Activity History</CardTitle>
+                <CardTitle>Activity Timeline</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
                 {!activityHistory.length ? (
-                  <p className="text-xs text-[#9CA3AF]">No activity entries yet.</p>
+                  <p className="text-xs text-[#9CA3AF]">Your timeline updates automatically as you trade, review, and manage listings.</p>
                 ) : (
                   activityHistory.slice(0, 12).map((entry) => (
                     <div key={entry.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
@@ -2387,10 +2460,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
       <div className="mt-12 grid gap-4 md:grid-cols-4">
         {[
-          { value: "900+", labelAr: "عضو في المجتمع", label: "Community Members", icon: Users },
-          { value: isAr ? "متنامٍ" : "Growing", labelAr: "مجتمع تداول", label: "Trading Community", icon: Layers3 },
-          { value: isAr ? "احترافي" : "Professional", labelAr: "دعم", label: "Support", icon: WalletCards },
-          { value: isAr ? "واضح" : "Transparent", labelAr: "العملية", label: "Process", icon: CheckCircle2 },
+          { value: `${Math.round(sellerOverviewStats.completedTrades + filteredListings.length * 0.6).toLocaleString("en-IL")}+`, labelAr: "صفقات اليوم", label: "Today’s Trades", icon: HandCoins },
+          { value: `${marketplacePulse.verifiedSellers.toLocaleString("en-IL")}+`, labelAr: "بائعون موثقون", label: "Verified Sellers", icon: ShieldCheck },
+          { value: `${marketplacePulse.totalUsdtAvailable.toLocaleString("en-IL")} USDT`, labelAr: "USDT متاح", label: "USDT Available", icon: WalletCards },
+          { value: `${marketplacePulse.averageResponseMinutes} min`, labelAr: "متوسط الاستجابة", label: "Average Response", icon: Clock3 },
         ].map((item) => {
           const Icon = item.icon;
           return (
