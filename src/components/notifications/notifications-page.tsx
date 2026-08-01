@@ -150,31 +150,27 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
   }
 
   async function openTradeRoomFromNotification(notification: AlphaExchangeNotification) {
-    const resolvedDestination = resolveTradeRoomHref(notification);
-    const destination = resolvedDestination
+    const destination = resolveTradeRoomHref(notification)
       ?? await resolveActiveTradeHref({ notificationId: notification.id, includePending: true });
-    const localizedDestination = destination
-      ? (destination.startsWith(`/${locale}/`) ? destination : `/${locale}${destination.startsWith("/") ? destination : `/${destination}`}`)
-      : null;
     console.log("[trade-room-open] notification click", {
       notificationId: notification.id,
       relatedRequestId: notification.relatedRequestId ?? null,
       relatedListingId: notification.relatedListingId ?? null,
       relatedTradeId: notification.relatedTradeId ?? null,
-      destination: localizedDestination,
+      destination,
     });
-    if (!localizedDestination) {
+    if (!destination) {
       setError("Could not resolve this trade room.");
       return;
     }
-    const requestId = extractRequestIdFromTradeRoomHref(localizedDestination);
+    const requestId = extractRequestIdFromTradeRoomHref(destination);
     if (requestId) {
       prefetchTradeRoom(router, requestId);
     }
     if (!notification.isRead) {
       void handleMarkOneRead(notification.id);
     }
-    router.push(localizedDestination);
+    router.push(destination);
   }
 
   async function handleMarkOneRead(notificationId: string) {

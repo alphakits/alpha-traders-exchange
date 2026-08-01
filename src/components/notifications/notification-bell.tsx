@@ -150,23 +150,20 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   async function handleOpenNotification(notification: AlphaExchangeNotification) {
     const tradeRoomHref = resolveTradeRoomHref(notification)
       ?? await resolveActiveTradeHref({ notificationId: notification.id, includePending: true });
-    const localizedTradeRoomHref = tradeRoomHref
-      ? (tradeRoomHref.startsWith(`/${locale}/`) ? tradeRoomHref : `/${locale}${tradeRoomHref.startsWith("/") ? tradeRoomHref : `/${tradeRoomHref}`}`)
-      : null;
     console.log("[trade-room-open] notification click", {
       notificationId: notification.id,
       relatedRequestId: notification.relatedRequestId ?? null,
       relatedListingId: notification.relatedListingId ?? null,
       relatedTradeId: notification.relatedTradeId ?? null,
-      destination: localizedTradeRoomHref,
+      destination: tradeRoomHref,
     });
     if (!notification.isRead) {
       void handleMarkOneRead(notification.id);
     }
-    if (localizedTradeRoomHref) {
-      const requestId = extractRequestIdFromTradeRoomHref(localizedTradeRoomHref);
+    if (tradeRoomHref) {
+      const requestId = extractRequestIdFromTradeRoomHref(tradeRoomHref);
       if (requestId) prefetchTradeRoom(router, requestId);
-      router.push(localizedTradeRoomHref);
+      router.push(tradeRoomHref);
       setIsOpen(false);
       return;
     }
