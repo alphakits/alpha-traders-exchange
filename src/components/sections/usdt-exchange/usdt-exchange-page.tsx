@@ -19,6 +19,18 @@ const MAX_EVIDENCE_SIZE_BYTES = 8 * 1024 * 1024;
 const ALLOWED_EVIDENCE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
 const MAX_PRICE_MARKUP_ILS = 0.35;
 const DEFAULT_MARKET_PRICE_PER_USDT = 3.05;
+const DEFAULT_RESPONSE_TIME = "5 min";
+
+const ISRAELI_BANKS = [
+  { id: "hapoalim", name: "Bank Hapoalim", code: "בנק הפועלים" },
+  { id: "leumi", name: "Bank Leumi", code: "בנק לאומי" },
+  { id: "mizrahi-tefahot", name: "Mizrahi-Tefahot", code: "מזרחי טפחות" },
+  { id: "discount", name: "Discount Bank", code: "דיסקונט" },
+  { id: "fibi", name: "First International", code: "הבינלאומי" },
+  { id: "mercantile", name: "Mercantile", code: "מרכנתיל" },
+  { id: "yahav", name: "Yahav", code: "יהב" },
+  { id: "jerusalem", name: "Jerusalem Bank", code: "בנק ירושלים" },
+] as const;
 
 type Locale = "ar" | "en";
 
@@ -79,6 +91,29 @@ function safeText(value: unknown, fallback = "—") {
 
 function formatIls(value: number) {
   return `₪${value.toFixed(2)}`;
+}
+
+function formatIntegerForInput(value: string | number | null | undefined) {
+  const raw = String(value ?? "").replace(/[^\d]/g, "");
+  if (!raw) return "";
+  return Number(raw).toLocaleString("en-IL");
+}
+
+function normalizeDecimalInput(value: string | number | null | undefined) {
+  const raw = String(value ?? "").replace(/[^\d.]/g, "");
+  const firstDot = raw.indexOf(".");
+  if (firstDot === -1) return raw;
+  return `${raw.slice(0, firstDot + 1)}${raw.slice(firstDot + 1).replace(/\./g, "")}`;
+}
+
+function shortListingRef(listing: Pick<MarketplaceListing, "displayNumber" | "id">) {
+  return `#${listing.displayNumber ?? String(listing.id).slice(-6)}`;
+}
+
+function shortTradeRef(request: Pick<PurchaseRequest, "displayNumber" | "tradeId" | "id">) {
+  if (request.displayNumber) return `Trade #${request.displayNumber}`;
+  if (request.tradeId?.trim()) return request.tradeId;
+  return `Trade #${String(request.id).slice(-6)}`;
 }
 
 function safeErrorMessage(context: "application" | "purchase" | "listing" | "request" | "settings" | "password" | "workspace" | "review" | "evidence") {
@@ -188,10 +223,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     currency: "ILS",
     network: "TRC20" as SupportedNetwork,
     paymentMethods: "Bank transfer",
+    bankName: "",
     minimumTrade: "0",
     maximumTrade: "",
-    expiresAt: "",
-    notes: "",
+    sellerDescription: "",
   });
   const [listingCreateForm, setListingCreateForm] = useState({
     availableAmount: "",
@@ -199,13 +234,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     currency: "ILS",
     network: "TRC20" as SupportedNetwork,
     paymentMethods: "Bank transfer",
+    bankName: "",
     minimumTrade: "0",
     maximumTrade: "",
-    expiresAt: "",
-    notes: "",
     sellerDescription: "",
-    responseTime: "5 min",
-    photos: "",
   });
   const [currencyFilter, setCurrencyFilter] = useState("all");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState("all");
@@ -258,7 +290,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       }
       if (myListingsRes.ok) {
         const myListingsJson = (await myListingsRes.json()) as { listings: MarketplaceListing[] };
-        setMyListings(myListingsJson.listings ?? []);
+        setMyListings((myListingsJson.listings ?? []).filter((listing) => listing.status !== "closed" && listing.status !== "cancelled"));
       }
       setWorkspaceError(null);
     } catch {
@@ -694,9 +726,15 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const maxAllowedListingPrice = marketPricePerUsdt + MAX_PRICE_MARKUP_ILS;
   const listingCreatePrice = toNumber(listingCreateForm.price);
   const listingCreateAmount = toNumber(listingCreateForm.availableAmount);
+  const listingCreateMinTrade = toNumber(listingCreateForm.minimumTrade);
+  const listingCreateMaxTrade = toNumber(listingCreateForm.maximumTrade || listingCreateForm.availableAmount);
   const listingCreateCurrency = listingCreateForm.currency.trim().toUpperCase();
   const listingCreatePriceInvalid = listingCreateCurrency === "ILS" && listingCreatePrice > maxAllowedListingPrice;
   const listingCreatePriceValid = listingCreatePrice > 0 && !listingCreatePriceInvalid;
+  const listingCreateTradeRangeInvalid = listingCreateMaxTrade <= 0 || listingCreateMaxTrade > listingCreateAmount || listingCreateMaxTrade < listingCreateMinTrade;
+  const listingCreateMissingRequired = !listingCreateAmount || !listingCreatePrice || !listingCreateForm.bankName.trim();
+  const listingCreateTotalIls = listingCreateAmount * listingCreatePrice;
+  const isListingCreateSubmitDisabled = listingCreateMissingRequired || listingCreatePriceInvalid || listingCreateTradeRangeInvalid;
   const listingCreateGuardCardTone = listingCreatePriceInvalid
     ? "border-red-500/60 bg-red-500/10 shadow-[0_0_0_3px_rgba(239,68,68,0.16)]"
     : listingCreatePriceValid
@@ -709,9 +747,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       : "border-white/10 bg-black/20 text-[#D1D5DB]";
   const listingEditPrice = toNumber(listingEditForm.price);
   const listingEditAmount = toNumber(listingEditForm.availableAmount);
+  const listingEditMinTrade = toNumber(listingEditForm.minimumTrade);
+  const listingEditMaxTrade = toNumber(listingEditForm.maximumTrade || listingEditForm.availableAmount);
   const listingEditCurrency = listingEditForm.currency.trim().toUpperCase();
   const listingEditPriceInvalid = listingEditCurrency === "ILS" && listingEditPrice > maxAllowedListingPrice;
   const listingEditPriceValid = listingEditPrice > 0 && !listingEditPriceInvalid;
+  const listingEditTradeRangeInvalid = listingEditMaxTrade <= 0 || listingEditMaxTrade > listingEditAmount || listingEditMaxTrade < listingEditMinTrade;
+  const listingEditMissingRequired = !listingEditAmount || !listingEditPrice || !listingEditForm.bankName.trim();
+  const isListingEditSubmitDisabled = listingEditMissingRequired || listingEditPriceInvalid || listingEditTradeRangeInvalid;
   const listingEditGuardTone = listingEditPriceInvalid
     ? "border-red-500/60 bg-red-500/10 text-red-200"
     : listingEditPriceValid
@@ -744,6 +787,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     [sellerRequests],
   );
   const myListingsById = useMemo(() => new Map(myListings.map((listing) => [listing.id, listing])), [myListings]);
+  const listingsById = useMemo(() => new Map(listings.map((listing) => [listing.id, listing])), [listings]);
 
   const sellerOverviewStats = useMemo(() => {
     const completedByListing = completedSellerRequests.map((request) => {
@@ -844,23 +888,21 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: nextStatus }),
     });
-    await response.json();
     if (!response.ok) {
-      setSellerWorkspaceMessage(safeErrorMessage("listing"));
+      setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
       return;
     }
-    setSellerWorkspaceMessage(nextStatus === "paused" ? "Listing paused." : "Listing resumed.");
+    setSellerWorkspaceMessage(`${shortListingRef(listing)} ${nextStatus === "paused" ? "paused" : "resumed"}.`);
     await refreshSellerWorkspace();
   }
 
-  async function handleSellerListingDelete(listingId: string) {
-    const response = await fetch(`/api/alpha-exchange/listings/${listingId}`, { method: "DELETE" });
-    await response.json();
+  async function handleSellerListingDelete(listing: MarketplaceListing) {
+    const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, { method: "DELETE" });
     if (!response.ok) {
-      setSellerWorkspaceMessage(safeErrorMessage("listing"));
+      setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
       return;
     }
-    setSellerWorkspaceMessage("Listing deleted.");
+    setSellerWorkspaceMessage(`Listing ${shortListingRef(listing)} deleted.`);
     await refreshSellerWorkspace();
   }
 
@@ -875,20 +917,32 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         currency: listing.currency ?? "ILS",
         network: listing.network,
         paymentMethods: listing.paymentMethods ?? [listing.paymentMethod ?? ""],
+        bankName: listing.bankName ?? "",
         minimumTrade: listing.minimumTrade ?? "0",
         maximumTrade: listing.maximumTrade ?? listing.availableAmount,
-        expiresAt: listing.expiresAt ?? "",
-        notes: listing.notes ?? "",
         sellerDescription: listing.sellerDescription ?? "",
-        responseTime: listing.responseTime,
       }),
     });
-    await response.json();
     if (!response.ok) {
-      setSellerWorkspaceMessage(safeErrorMessage("listing"));
+      setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
       return;
     }
-    setSellerWorkspaceMessage("Listing duplicated.");
+    setSellerWorkspaceMessage(`${shortListingRef(listing)} duplicated successfully.`);
+    setEditingListingId(null);
+    await refreshSellerWorkspace();
+  }
+
+  async function handleSellerListingRenew(listing: MarketplaceListing) {
+    const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "renew" }),
+    });
+    if (!response.ok) {
+      setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
+      return;
+    }
+    setSellerWorkspaceMessage(`${shortListingRef(listing)} renewed and reactivated.`);
     await refreshSellerWorkspace();
   }
 
@@ -907,34 +961,25 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           .map((value) => value.trim())
           .filter(Boolean)
           .slice(0, 8),
+        bankName: listingCreateForm.bankName,
         minimumTrade: listingCreateForm.minimumTrade,
         maximumTrade: listingCreateForm.maximumTrade || listingCreateForm.availableAmount,
-        expiresAt: listingCreateForm.expiresAt,
-        notes: listingCreateForm.notes,
         sellerDescription: listingCreateForm.sellerDescription,
-        responseTime: listingCreateForm.responseTime,
-        photos: listingCreateForm.photos
-          .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean)
-          .slice(0, 6),
+        responseTime: DEFAULT_RESPONSE_TIME,
       }),
     });
-    await response.json();
     if (!response.ok) {
-      setSellerWorkspaceMessage(safeErrorMessage("listing"));
+      setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
       return;
     }
     setListingCreateForm((prev) => ({
       ...prev,
       availableAmount: "",
       price: "",
+      bankName: "",
       minimumTrade: "0",
       maximumTrade: "",
-      expiresAt: "",
-      notes: "",
       sellerDescription: "",
-      photos: "",
     }));
     setSellerWorkspaceMessage("Listing submitted for owner approval.");
     await refreshSellerWorkspace();
@@ -956,15 +1001,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           .map((value) => value.trim())
           .filter(Boolean)
           .slice(0, 8),
+        bankName: listingEditForm.bankName,
         minimumTrade: listingEditForm.minimumTrade,
         maximumTrade: listingEditForm.maximumTrade || listingEditForm.availableAmount,
-        expiresAt: listingEditForm.expiresAt,
-        notes: listingEditForm.notes,
+        sellerDescription: listingEditForm.sellerDescription,
       }),
     });
-    await response.json();
     if (!response.ok) {
-      setSellerWorkspaceMessage(safeErrorMessage("listing"));
+      setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
       return;
     }
     setEditingListingId(null);
@@ -1170,6 +1214,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="text-sm font-medium text-white">{notification.title}</p>
+                  <p className="mt-1 text-[11px] text-[#93C5FD]">
+                    {notification.relatedListingDisplayNumber ? `Listing #${notification.relatedListingDisplayNumber}` : null}
+                    {notification.relatedTradeDisplayNumber ? `${notification.relatedListingDisplayNumber ? " • " : ""}Trade #${notification.relatedTradeDisplayNumber}` : null}
+                    {notification.relatedRequestDisplayNumber && !notification.relatedTradeDisplayNumber ? `${notification.relatedListingDisplayNumber ? " • " : ""}Trade #${notification.relatedRequestDisplayNumber}` : null}
+                  </p>
                   <p className="mt-1">{notification.message}</p>
                   <p className="mt-1 text-[11px]">{new Date(notification.createdAt).toLocaleString("en-IL")}</p>
                   {notification.relatedHref ? <a href={notification.relatedHref} className="mt-1 inline-block text-[#C9A227]">Open related</a> : null}
@@ -1742,12 +1791,20 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 </div>
               </div>
               <form className="grid gap-3 md:grid-cols-2" onSubmit={handleSellerListingCreateSubmit}>
-                <Input placeholder="Available Amount" value={listingCreateForm.availableAmount} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, availableAmount: event.target.value }))} />
+                <div className="space-y-2">
+                  <Input
+                    placeholder="Available USDT *"
+                    value={listingCreateForm.availableAmount}
+                    onChange={(event) => setListingCreateForm((prev) => ({ ...prev, availableAmount: formatIntegerForInput(event.target.value) }))}
+                    className={!listingCreateAmount ? "border-amber-400/70" : ""}
+                  />
+                  <p className="text-xs text-[#9CA3AF]">Amount is auto-formatted while typing (e.g. 25,000).</p>
+                </div>
                 <div className="space-y-2">
                   <Input
                     placeholder="Price"
                     value={listingCreateForm.price}
-                    onChange={(event) => setListingCreateForm((prev) => ({ ...prev, price: event.target.value }))}
+                    onChange={(event) => setListingCreateForm((prev) => ({ ...prev, price: normalizeDecimalInput(event.target.value) }))}
                     className={`transition-all duration-200 ${
                       listingCreatePriceInvalid
                         ? "border-red-500/85 shadow-[0_0_0_3px_rgba(239,68,68,0.2)]"
@@ -1774,13 +1831,53 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <option value="SOL">SOL</option>
                 </select>
                 <Input placeholder="Payment Methods (comma separated)" value={listingCreateForm.paymentMethods} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, paymentMethods: event.target.value }))} />
-                <Input placeholder="Minimum Trade" value={listingCreateForm.minimumTrade} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, minimumTrade: event.target.value }))} />
-                <Input placeholder="Maximum Trade" value={listingCreateForm.maximumTrade} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, maximumTrade: event.target.value }))} />
-                <Input placeholder="Expiry (YYYY-MM-DDTHH:mm)" value={listingCreateForm.expiresAt} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, expiresAt: event.target.value }))} />
-                <Input placeholder="Response Time (e.g. 5 min)" value={listingCreateForm.responseTime} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, responseTime: event.target.value }))} />
-                <Input className="md:col-span-2" placeholder="Photo URLs (comma separated)" value={listingCreateForm.photos} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, photos: event.target.value }))} />
-                <Textarea className="md:col-span-2" placeholder="Optional Notes" value={listingCreateForm.notes} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, notes: event.target.value }))} />
+                <div className="space-y-2">
+                  <Input
+                    placeholder="Minimum Trade (Required)"
+                    value={listingCreateForm.minimumTrade}
+                    onChange={(event) => setListingCreateForm((prev) => ({ ...prev, minimumTrade: formatIntegerForInput(event.target.value) }))}
+                    className={!listingCreateMinTrade && listingCreateAmount > 0 ? "border-amber-400/70" : ""}
+                  />
+                  <p className="text-xs text-[#9CA3AF]">The smallest trade amount you are willing to accept.</p>
+                </div>
+                <div className="space-y-2">
+                  <Input
+                    placeholder="Maximum Trade (Required)"
+                    value={listingCreateForm.maximumTrade}
+                    onChange={(event) => setListingCreateForm((prev) => ({ ...prev, maximumTrade: formatIntegerForInput(event.target.value) }))}
+                    className={listingCreateTradeRangeInvalid ? "border-amber-400/70" : ""}
+                  />
+                  <p className="text-xs text-[#9CA3AF]">The largest amount a buyer can purchase in a single transaction.</p>
+                </div>
                 <Textarea className="md:col-span-2" placeholder="Seller Description" value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
+                <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
+                  <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Bank selection *</p>
+                  <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                    {ISRAELI_BANKS.map((bank) => {
+                      const selected = listingCreateForm.bankName === bank.name;
+                      return (
+                        <button
+                          key={bank.id}
+                          type="button"
+                          onClick={() => setListingCreateForm((prev) => ({ ...prev, bankName: bank.name }))}
+                          className={`rounded-xl border p-3 text-left transition ${
+                            selected
+                              ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_0_0_2px_rgba(108,174,255,0.25)]"
+                              : "border-white/10 bg-black/25 hover:border-[#6CAEFF]/40"
+                          }`}
+                        >
+                          <p className="text-sm font-medium text-white">{bank.name}</p>
+                          <p className="text-[11px] text-[#9CA3AF]">{bank.code}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="md:col-span-2 rounded-2xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-4 text-sm text-[#E5E7EB]">
+                  <p className="text-xs uppercase tracking-[0.14em] text-[#93C5FD]">Live total value</p>
+                  <p className="mt-1">{listingCreateAmount.toLocaleString("en-IL")} USDT</p>
+                  <p className="mt-1">× {formatIls(listingCreatePrice || 0)} = <span className="font-semibold text-white">{formatIls(listingCreateTotalIls)}</span></p>
+                </div>
                 <div className={`md:col-span-2 rounded-2xl border p-4 transition-all duration-200 ${listingCreateGuardTone}`}>
                   <div className="flex items-start gap-2">
                     {listingCreatePriceInvalid ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
@@ -1790,12 +1887,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       </p>
                       <p>Current market: {formatIls(marketPricePerUsdt)} per 1 USDT</p>
                       <p>Maximum allowed: {formatIls(maxAllowedListingPrice)}</p>
+                      {listingCreateTradeRangeInvalid ? <p className="text-amber-200">Maximum trade must be greater than minimum trade and less than or equal to available USDT.</p> : null}
+                      {!listingCreateForm.bankName.trim() ? <p className="text-amber-200">Select a receiving bank before submitting.</p> : null}
                       {listingCreateAmount > 0 ? <p>{listingCreateAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingCreateAmount * marketPricePerUsdt)}</p> : null}
                     </div>
                   </div>
                 </div>
                 <div className="md:col-span-2">
-                  <Button type="submit" disabled={listingCreatePriceInvalid}>Submit Listing</Button>
+                  <Button type="submit" disabled={isListingCreateSubmitDisabled}>Submit Listing</Button>
                 </div>
               </form>
             </CardContent>
@@ -1822,11 +1921,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 const views = 120 + String(listing.id ?? "").split("").reduce((acc, char) => acc + char.charCodeAt(0), 0) % 900;
                 return (
                   <div key={listing.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-[#93C5FD]">Listing {shortListingRef(listing)}</p>
                     <div className="grid gap-2 text-sm md:grid-cols-4">
                       <p>Status: <span className="text-white">{safeText(listing.status)}</span></p>
-                      <p>Available Amount: <span className="text-white">{safeText(listing.availableAmount)}</span></p>
-                      <p>Price: <span className="text-white">{safeText(listing.price)}</span></p>
+                      <p>Available Amount: <span className="text-white">{toNumber(listing.availableAmount).toLocaleString("en-IL")} USDT</span></p>
+                      <p>Price: <span className="text-white">{formatIls(toNumber(listing.price))}</span></p>
                       <p>Network: <span className="text-white">{safeText(listing.network)}</span></p>
+                      <p>Bank: <span className="text-white">{safeText(listing.bankName, "Not set")}</span></p>
                       <p>Views: <span className="text-white">{views}</span></p>
                       <p>Purchase Requests: <span className="text-white">{requestsCount}</span></p>
                       <p>Created Date: <span className="text-white">{new Date(listing.createdAt).toLocaleDateString("en-IL")}</span></p>
@@ -1844,10 +1945,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                             currency: listing.currency,
                             network: listing.network,
                             paymentMethods: (listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod]).join(", "),
+                            bankName: listing.bankName ?? "",
                             minimumTrade: listing.minimumTrade ?? "0",
                             maximumTrade: listing.maximumTrade ?? listing.availableAmount,
-                            expiresAt: listing.expiresAt ? new Date(listing.expiresAt).toISOString().slice(0, 16) : "",
-                            notes: listing.notes ?? "",
+                            sellerDescription: listing.sellerDescription ?? "",
                           });
                         }}
                       >
@@ -1865,7 +1966,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           Pause
                         </Button>
                       ) : null}
-                      <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingDelete(listing.id)}>
+                      <Button type="button" size="sm" variant="secondary" onClick={() => void handleSellerListingRenew(listing)}>
+                        <Clock3 className="h-4 w-4" />
+                        Renew
+                      </Button>
+                      <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingDelete(listing)}>
                         <Trash2 className="h-4 w-4" />
                         Delete
                       </Button>
@@ -1876,11 +1981,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     </div>
                     {editingListingId === listing.id ? (
                       <form className="mt-3 grid gap-2 md:grid-cols-4" onSubmit={handleSellerListingEditSubmit}>
-                        <Input value={listingEditForm.availableAmount} onChange={(event) => setListingEditForm((prev) => ({ ...prev, availableAmount: event.target.value }))} placeholder="Available Amount" />
+                        <Input value={listingEditForm.availableAmount} onChange={(event) => setListingEditForm((prev) => ({ ...prev, availableAmount: formatIntegerForInput(event.target.value) }))} placeholder="Available Amount" />
                         <div className="space-y-2">
                           <Input
                             value={listingEditForm.price}
-                            onChange={(event) => setListingEditForm((prev) => ({ ...prev, price: event.target.value }))}
+                            onChange={(event) => setListingEditForm((prev) => ({ ...prev, price: normalizeDecimalInput(event.target.value) }))}
                             placeholder="Price"
                             className={`transition-all duration-200 ${
                               listingEditPriceInvalid
@@ -1907,11 +2012,31 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           <option value="BEP20">BEP20</option>
                           <option value="SOL">SOL</option>
                         </select>
-                        <Input value={listingEditForm.minimumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, minimumTrade: event.target.value }))} placeholder="Minimum Trade" />
-                        <Input value={listingEditForm.maximumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, maximumTrade: event.target.value }))} placeholder="Maximum Trade" />
-                        <Input value={listingEditForm.expiresAt} onChange={(event) => setListingEditForm((prev) => ({ ...prev, expiresAt: event.target.value }))} placeholder="Expiry (YYYY-MM-DDTHH:mm)" />
+                        <Input value={listingEditForm.minimumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, minimumTrade: formatIntegerForInput(event.target.value) }))} placeholder="Minimum Trade" />
+                        <Input value={listingEditForm.maximumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, maximumTrade: formatIntegerForInput(event.target.value) }))} placeholder="Maximum Trade" />
                         <Input className="md:col-span-2" value={listingEditForm.paymentMethods} onChange={(event) => setListingEditForm((prev) => ({ ...prev, paymentMethods: event.target.value }))} placeholder="Payment Methods (comma separated)" />
-                        <Input className="md:col-span-2" value={listingEditForm.notes} onChange={(event) => setListingEditForm((prev) => ({ ...prev, notes: event.target.value }))} placeholder="Optional Notes" />
+                        <Textarea className="md:col-span-2" value={listingEditForm.sellerDescription} onChange={(event) => setListingEditForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} placeholder="Seller Description" />
+                        <div className="md:col-span-4 rounded-2xl border border-white/10 bg-black/20 p-3">
+                          <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Receiving bank *</p>
+                          <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                            {ISRAELI_BANKS.map((bank) => {
+                              const selected = listingEditForm.bankName === bank.name;
+                              return (
+                                <button
+                                  key={`${listing.id}-${bank.id}`}
+                                  type="button"
+                                  onClick={() => setListingEditForm((prev) => ({ ...prev, bankName: bank.name }))}
+                                  className={`rounded-xl border p-2 text-left transition ${
+                                    selected ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15" : "border-white/10 bg-black/25 hover:border-[#6CAEFF]/40"
+                                  }`}
+                                >
+                                  <p className="text-xs font-medium text-white">{bank.name}</p>
+                                  <p className="text-[10px] text-[#9CA3AF]">{bank.code}</p>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
                         <div className={`md:col-span-4 rounded-2xl border p-3 text-xs transition-all duration-200 ${listingEditGuardTone}`}>
                           <div className="flex items-start gap-2">
                             {listingEditPriceInvalid ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
@@ -1921,12 +2046,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                               </p>
                               <p>Current market: {formatIls(marketPricePerUsdt)} per 1 USDT</p>
                               <p>Maximum allowed: {formatIls(maxAllowedListingPrice)}</p>
+                              {listingEditTradeRangeInvalid ? <p className="text-amber-200">Maximum trade must be greater than minimum trade and less than or equal to available USDT.</p> : null}
+                              {!listingEditForm.bankName.trim() ? <p className="text-amber-200">Select a receiving bank before saving.</p> : null}
                               {listingEditAmount > 0 ? <p>{listingEditAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingEditAmount * marketPricePerUsdt)}</p> : null}
                             </div>
                           </div>
                         </div>
                         <div className="md:col-span-4 flex gap-2">
-                          <Button type="submit" size="sm" disabled={listingEditPriceInvalid}>Save</Button>
+                          <Button type="submit" size="sm" disabled={isListingEditSubmitDisabled}>Save</Button>
                           <Button type="button" size="sm" variant="secondary" onClick={() => setEditingListingId(null)}>Cancel</Button>
                         </div>
                       </form>
@@ -1966,15 +2093,16 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               {filteredSellerRequests.map((request) => {
                 return (
                   <div key={request.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-[#93C5FD]">{shortTradeRef(request)}</p>
                     <div className="grid gap-2 text-sm md:grid-cols-3">
-                      <p>Trade ID: <span className="text-white">{request.tradeId ?? "Pending Creation"}</span></p>
+                      <p>Trade Ref: <span className="text-white">{shortTradeRef(request)}</span></p>
                       <p>Buyer Name: <span className="text-white">{request.buyerName}</span></p>
                       <p>WhatsApp: <span className="text-white">{request.buyerWhatsapp}</span></p>
-                      <p>USDT Amount: <span className="text-white">{request.usdtAmount}</span></p>
-                      <p>Fiat Amount: <span className="text-white">{request.fiatAmount} {request.currency}</span></p>
+                      <p>USDT Amount: <span className="text-white">{toNumber(request.usdtAmount).toLocaleString("en-IL")}</span></p>
+                      <p>Fiat Amount: <span className="text-white">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</span></p>
                       <p>Network: <span className="text-white">{request.network}</span></p>
                       <p>Payment Method: <span className="text-white">{request.paymentMethod}</span></p>
-                      <p>Listing: <span className="text-white">{request.listingId}</span></p>
+                      <p>Listing: <span className="text-white">{shortListingRef({ id: request.listingId, displayNumber: myListingsById.get(request.listingId)?.displayNumber })}</span></p>
                       <p>Submitted: <span className="text-white">{new Date(request.createdAt).toLocaleString("en-IL")}</span></p>
                       <p>Status: <span className="text-white">{tradeStatusLabel(request.status)}</span></p>
                       {request.completedAt ? <p>Completed: <span className="text-white">{new Date(request.completedAt).toLocaleString("en-IL")}</span></p> : null}
@@ -2309,12 +2437,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 ) : null}
                 {filteredBuyerRequests.map((request) => (
                   <div key={request.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-[#93C5FD]">{shortTradeRef(request)}</p>
                     <div className="grid gap-2 text-sm md:grid-cols-3">
-                      <p>Trade ID: <span className="text-white">{request.tradeId ?? "Pending Creation"}</span></p>
-                      <p>Listing: <span className="text-white">{request.listingId}</span></p>
+                      <p>Trade Ref: <span className="text-white">{shortTradeRef(request)}</span></p>
+                      <p>Listing: <span className="text-white">{shortListingRef({ id: request.listingId, displayNumber: listingsById.get(request.listingId)?.displayNumber })}</span></p>
                       <p>Status: <span className="text-white">{tradeStatusLabel(request.status)}</span></p>
-                      <p>USDT Amount: <span className="text-white">{request.usdtAmount}</span></p>
-                      <p>Fiat Amount: <span className="text-white">{request.fiatAmount} {request.currency}</span></p>
+                      <p>USDT Amount: <span className="text-white">{toNumber(request.usdtAmount).toLocaleString("en-IL")}</span></p>
+                      <p>Fiat Amount: <span className="text-white">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</span></p>
                       <p>Network: <span className="text-white">{request.network}</span></p>
                       <p>Payment Method: <span className="text-white">{request.paymentMethod}</span></p>
                       <p>Submitted: <span className="text-white">{new Date(request.createdAt).toLocaleString("en-IL")}</span></p>

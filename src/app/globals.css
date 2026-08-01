@@ -534,12 +534,13 @@ textarea {
 }
 
 .profile-identity-name--seller {
-  background-image: linear-gradient(120deg, #f4d87a 0%, #ffffff 40%, #c9a227 60%, #f4d87a 100%);
+  background-image: linear-gradient(120deg, #93c5fd 0%, #e0f2fe 40%, #60a5fa 62%, #bfdbfe 100%);
   background-size: 220% auto;
   color: transparent;
   -webkit-background-clip: text;
   background-clip: text;
   animation: seller-name-shimmer 5.5s linear infinite;
+  text-shadow: 0 0 14px rgba(108, 174, 255, 0.22);
 }
 
 .profile-identity-name--admin {
@@ -566,8 +567,8 @@ textarea {
 }
 
 .profile-seller-frame {
-  border-color: rgba(212, 175, 55, 0.5);
-  box-shadow: 0 0 40px rgba(212, 175, 55, 0.2);
+  border-color: rgba(108, 174, 255, 0.55);
+  box-shadow: 0 0 36px rgba(108, 174, 255, 0.24);
 }
 
 .profile-member-frame {
