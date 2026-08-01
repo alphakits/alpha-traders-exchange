@@ -2380,14 +2380,43 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
   const owner = getOwnerUser(db);
   const eligibleSellers = db.users.filter((user) => isTrustEligibleSeller(user));
   const sellerById = new Map(eligibleSellers.map((seller) => [seller.id, seller]));
+  const sellerIndexById = new Map(db.users.map((user, index) => [user.id, index]));
+  const listingsBySeller = new Map<string, MarketplaceListing[]>();
+  const requestsBySeller = new Map<string, PurchaseRequest[]>();
+  const commissionsBySeller = new Map<string, CommissionRecord[]>();
+  const visibleReviewCountBySeller = new Map<string, number>();
+
+  for (const listing of db.marketplaceListings) {
+    const bucket = listingsBySeller.get(listing.sellerId);
+    if (bucket) bucket.push(listing);
+    else listingsBySeller.set(listing.sellerId, [listing]);
+  }
+
+  for (const request of db.purchaseRequests) {
+    const bucket = requestsBySeller.get(request.sellerId);
+    if (bucket) bucket.push(request);
+    else requestsBySeller.set(request.sellerId, [request]);
+  }
+
+  for (const record of db.commissionRecords) {
+    const bucket = commissionsBySeller.get(record.sellerId);
+    if (bucket) bucket.push(record);
+    else commissionsBySeller.set(record.sellerId, [record]);
+  }
+
+  for (const review of db.sellerReviews) {
+    if (review.hidden) continue;
+    visibleReviewCountBySeller.set(review.sellerId, (visibleReviewCountBySeller.get(review.sellerId) ?? 0) + 1);
+  }
+
   const computed = rankTrustSnapshots(
     eligibleSellers
       .map((seller) => {
         const snapshot = calculateSellerTrustSnapshot({
           seller,
-          listings: db.marketplaceListings.filter((listing) => listing.sellerId === seller.id),
-          requests: db.purchaseRequests.filter((request) => request.sellerId === seller.id),
-          commissions: db.commissionRecords.filter((record) => record.sellerId === seller.id),
+          listings: listingsBySeller.get(seller.id) ?? [],
+          requests: requestsBySeller.get(seller.id) ?? [],
+          commissions: commissionsBySeller.get(seller.id) ?? [],
         });
         const derivedRank = resolveSellerPrestigeRank(snapshot.totalUsdtVolume);
         const effectiveRank = seller.sellerRankOverride?.rank ?? seller.sellerPrestigeRank ?? derivedRank;
@@ -2413,7 +2442,7 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
   }));
 
   for (const snapshot of computed) {
-    const sellerIndex = db.users.findIndex((user) => user.id === snapshot.sellerId);
+    const sellerIndex = sellerIndexById.get(snapshot.sellerId) ?? -1;
     const seller = sellerIndex !== -1 ? db.users[sellerIndex] : sellerById.get(snapshot.sellerId);
     const previousRank = seller?.sellerPrestigeRank ?? previous.get(snapshot.sellerId)?.level ?? resolveSellerPrestigeRank(snapshot.totalUsdtVolume);
     const hasOverride = Boolean(seller?.sellerRankOverride);
@@ -2442,7 +2471,7 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
         payload: {
           sellerId: snapshot.sellerId,
           trustScore: newScore,
-          reviewCount: db.sellerReviews.filter((review) => review.sellerId === snapshot.sellerId && !review.hidden).length,
+          reviewCount: visibleReviewCountBySeller.get(snapshot.sellerId) ?? 0,
         },
       });
       db.trustScoreHistory.unshift({
@@ -5322,7 +5351,6 @@ export async function submitBuyerTradeReview(input: {
   });
 
   const sellerSnapshotBefore = computeSellerReputationSnapshot(db, request.sellerId);
-  await recalculateTrustEngine(db, { reason: "Verified trade review submitted", triggeredBy: input.buyerUserId });
   const sellerSnapshotAfter = computeSellerReputationSnapshot(db, request.sellerId);
   await writeDb(db);
   publishRealtimeEvent({ type: "review.count_changed", payload: { sellerId: request.sellerId, reviewCount: db.sellerReviews.filter((item) => item.sellerId === request.sellerId && !item.hidden).length } });
@@ -5394,7 +5422,6 @@ export async function submitSellerReviewResponse(input: {
     details: `Response sent for trade ${request.tradeId ?? request.id}.`,
   });
 
-  await recalculateTrustEngine(db, { reason: "Seller review response submitted", triggeredBy: input.sellerUserId });
   await writeDb(db);
   return updatedReview;
 }
@@ -5428,7 +5455,6 @@ export async function moderateSellerReview(input: {
     updatedAt: nowIso(),
   };
   db.sellerReviews = db.sellerReviews.map((item) => (item.id === review.id ? nextReview : item));
-  await recalculateTrustEngine(db, { reason: "Seller review moderated", triggeredBy: input.actorUserId });
   await writeDb(db);
   publishRealtimeEvent({ type: "review.count_changed", payload: { sellerId: review.sellerId, reviewCount: db.sellerReviews.filter((item) => item.sellerId === review.sellerId && !item.hidden).length } });
   return nextReview;

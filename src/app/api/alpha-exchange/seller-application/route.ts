@@ -32,6 +32,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const routeStartedAt = Date.now();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
   const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
@@ -61,6 +62,7 @@ export async function POST(request: NextRequest) {
   }
 
   let payload: Record<string, unknown> = {};
+  const validationStartedAt = Date.now();
   try {
     const body = await request.json();
     if (body && typeof body === "object" && !Array.isArray(body)) {
@@ -93,8 +95,10 @@ export async function POST(request: NextRequest) {
   if (preferredNetworks.length === 0) {
     return NextResponse.json({ error: "At least one preferred network is required." }, { status: 400 });
   }
+  const validationMs = Date.now() - validationStartedAt;
 
   try {
+    const logicStartedAt = Date.now();
     const application = await createSellerApplication({
       userId: user.id,
       fullName,
@@ -111,7 +115,17 @@ export async function POST(request: NextRequest) {
       resourceId: application.id,
       outcome: "success",
     });
-    return NextResponse.json({ application }, { status: 201 });
+    const logicMs = Date.now() - logicStartedAt;
+    const routeMs = Date.now() - routeStartedAt;
+    return NextResponse.json({ application }, {
+      status: 201,
+      headers: {
+        "X-Trade-Route-Ms": String(routeMs),
+        "X-Trade-Validation-Ms": String(validationMs),
+        "X-Trade-Logic-Ms": String(logicMs),
+        "Server-Timing": `route;dur=${routeMs}, validate;dur=${validationMs}, logic;dur=${logicMs}`,
+      },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown seller-application failure";
     console.error("[alpha-exchange][seller-application][POST]", {

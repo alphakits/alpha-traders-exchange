@@ -23,6 +23,7 @@ type RouteContext = {
 };
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
+  const routeStartedAt = Date.now();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
   const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
@@ -37,6 +38,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
   try {
     const { listingId } = await context.params;
+    const validationStartedAt = Date.now();
     const existingListing = await getMarketplaceListingById(listingId);
     const body = await request.json();
     const action = body.action !== undefined ? String(body.action).trim() : "";
@@ -57,13 +59,24 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
           );
         }
       }
+      const validationMs = Date.now() - validationStartedAt;
+      const logicStartedAt = Date.now();
       const listing = await renewMarketplaceListing({
         listingId,
         actorUserId: user.id,
         sellerId: user.id,
         expirationHours: body.expirationHours,
       });
-      return NextResponse.json({ listing });
+      const logicMs = Date.now() - logicStartedAt;
+      const routeMs = Date.now() - routeStartedAt;
+      return NextResponse.json({ listing }, {
+        headers: {
+          "X-Trade-Route-Ms": String(routeMs),
+          "X-Trade-Validation-Ms": String(validationMs),
+          "X-Trade-Logic-Ms": String(logicMs),
+          "Server-Timing": `route;dur=${routeMs}, validate;dur=${validationMs}, logic;dur=${logicMs}`,
+        },
+      });
     }
     const availableAmount = body.availableAmount !== undefined ? String(body.availableAmount).trim() : undefined;
     const price = body.price !== undefined ? String(body.price).trim() : undefined;
@@ -132,7 +145,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         return NextResponse.json({ error: "Invalid expiry date." }, { status: 400 });
       }
     }
+    const validationMs = Date.now() - validationStartedAt;
 
+    const logicStartedAt = Date.now();
     const listing = await updateMarketplaceListingForSeller({
       listingId,
       sellerId: user.id,
@@ -154,13 +169,23 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       responseTime,
       status,
     });
-    return NextResponse.json({ listing });
+    const logicMs = Date.now() - logicStartedAt;
+    const routeMs = Date.now() - routeStartedAt;
+    return NextResponse.json({ listing }, {
+      headers: {
+        "X-Trade-Route-Ms": String(routeMs),
+        "X-Trade-Validation-Ms": String(validationMs),
+        "X-Trade-Logic-Ms": String(logicMs),
+        "Server-Timing": `route;dur=${routeMs}, validate;dur=${validationMs}, logic;dur=${logicMs}`,
+      },
+    });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update listing." }, { status: 400 });
   }
 }
 
 export async function DELETE(_: NextRequest, context: RouteContext) {
+  const routeStartedAt = Date.now();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
   const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
@@ -171,12 +196,21 @@ export async function DELETE(_: NextRequest, context: RouteContext) {
 
   try {
     const { listingId } = await context.params;
+    const logicStartedAt = Date.now();
     await deleteMarketplaceListingForSeller({
       listingId,
       sellerId: user.id,
       actorUserId: user.id,
     });
-    return NextResponse.json({ success: true });
+    const logicMs = Date.now() - logicStartedAt;
+    const routeMs = Date.now() - routeStartedAt;
+    return NextResponse.json({ success: true }, {
+      headers: {
+        "X-Trade-Route-Ms": String(routeMs),
+        "X-Trade-Logic-Ms": String(logicMs),
+        "Server-Timing": `route;dur=${routeMs}, logic;dur=${logicMs}`,
+      },
+    });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to delete listing." }, { status: 400 });
   }

@@ -7,16 +7,20 @@ import {
 } from "@/lib/alpha-exchange-store";
 
 export async function POST(request: NextRequest) {
+  const routeStartedAt = Date.now();
   const { user: admin, unauthorized } = await requireApiAdmin();
   if (!admin) return unauthorized;
 
   try {
+    const validationStartedAt = Date.now();
     const body = await request.json();
     const email = String(body.email ?? "").trim().toLowerCase();
     if (!email) {
       return NextResponse.json({ error: "email is required." }, { status: 400 });
     }
+    const validationMs = Date.now() - validationStartedAt;
 
+    const logicStartedAt = Date.now();
     const preTrace = await getCommissionResetTraceByEmail(email);
     const sellers = await findUsersByEmail(email);
     if (sellers.length === 0) {
@@ -48,14 +52,31 @@ export async function POST(request: NextRequest) {
         clearedCount: result.clearedCount,
         preTrace,
         postTrace,
-      }, { status: 500 });
+      }, {
+        status: 500,
+        headers: {
+          "X-Trade-Route-Ms": String(Date.now() - routeStartedAt),
+          "X-Trade-Validation-Ms": String(validationMs),
+          "X-Trade-Logic-Ms": String(Date.now() - logicStartedAt),
+          "Server-Timing": `route;dur=${Date.now() - routeStartedAt}, validate;dur=${validationMs}, logic;dur=${Date.now() - logicStartedAt}`,
+        },
+      });
     }
 
+    const logicMs = Date.now() - logicStartedAt;
+    const routeMs = Date.now() - routeStartedAt;
     return NextResponse.json({
       clearedCount: result.clearedCount,
       preTrace,
       postTrace,
       message: `Cleared ${result.clearedCount} commission record(s) for ${email}.`,
+    }, {
+      headers: {
+        "X-Trade-Route-Ms": String(routeMs),
+        "X-Trade-Validation-Ms": String(validationMs),
+        "X-Trade-Logic-Ms": String(logicMs),
+        "Server-Timing": `route;dur=${routeMs}, validate;dur=${validationMs}, logic;dur=${logicMs}`,
+      },
     });
   } catch (error) {
     return NextResponse.json(

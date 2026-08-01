@@ -8,6 +8,7 @@ type RouteContext = {
 };
 
 export async function POST(request: NextRequest, context: RouteContext) {
+  const routeStartedAt = Date.now();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
   const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
@@ -24,6 +25,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   try {
     const { requestId } = await context.params;
+    const validationStartedAt = Date.now();
     const body = await request.json();
     const mode = String(body.mode ?? "buyer_review").trim();
 
@@ -33,23 +35,45 @@ export async function POST(request: NextRequest, context: RouteContext) {
         return NextResponse.json({ error: "Rating must be a whole number between 1 and 5." }, { status: 400 });
       }
       const comment = String(body.comment ?? "").slice(0, 2000);
+      const validationMs = Date.now() - validationStartedAt;
+      const logicStartedAt = Date.now();
       const updated = await submitBuyerTradeReview({
         requestId,
         buyerUserId: user.id,
         rating,
         comment,
       });
-      return NextResponse.json(updated);
+      const logicMs = Date.now() - logicStartedAt;
+      const routeMs = Date.now() - routeStartedAt;
+      return NextResponse.json(updated, {
+        headers: {
+          "X-Trade-Route-Ms": String(routeMs),
+          "X-Trade-Validation-Ms": String(validationMs),
+          "X-Trade-Logic-Ms": String(logicMs),
+          "Server-Timing": `route;dur=${routeMs}, validate;dur=${validationMs}, logic;dur=${logicMs}`,
+        },
+      });
     }
 
     if (mode === "seller_response") {
       const message = String(body.message ?? "").slice(0, 2000);
+      const validationMs = Date.now() - validationStartedAt;
+      const logicStartedAt = Date.now();
       const updated = await submitSellerReviewResponse({
         requestId,
         sellerUserId: user.id,
         message,
       });
-      return NextResponse.json({ request: updated });
+      const logicMs = Date.now() - logicStartedAt;
+      const routeMs = Date.now() - routeStartedAt;
+      return NextResponse.json({ request: updated }, {
+        headers: {
+          "X-Trade-Route-Ms": String(routeMs),
+          "X-Trade-Validation-Ms": String(validationMs),
+          "X-Trade-Logic-Ms": String(logicMs),
+          "Server-Timing": `route;dur=${routeMs}, validate;dur=${validationMs}, logic;dur=${logicMs}`,
+        },
+      });
     }
 
     return NextResponse.json({ error: "Invalid review mode." }, { status: 400 });
