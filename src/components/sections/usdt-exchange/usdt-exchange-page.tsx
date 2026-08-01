@@ -13,6 +13,7 @@ import { AlphaMarketCenter } from "@/components/market/alpha-market-center";
 import { useMarketFeed } from "@/components/market/use-market-feed";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { MARKETPLACE_PAYMENT_METHODS, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { prefetchTradeRoom } from "@/lib/trade-room-client";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
 const WHATSAPP_URL = "https://wa.me/972525967649";
@@ -1148,6 +1149,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   }, [sellerRequests, sellerTradeQuery, sellerTradeStatus]);
   const sellerRequestSections = useMemo(() => groupTradeRequests(filteredSellerRequests, "seller"), [filteredSellerRequests]);
   const buyerRequestSections = useMemo(() => groupTradeRequests(filteredBuyerRequests, "buyer"), [filteredBuyerRequests]);
+  const handlePrefetchTradeRoom = useCallback((requestId: string) => {
+    prefetchTradeRoom(router, requestId);
+  }, [router]);
+  const handleOpenTradeRoom = useCallback((requestId: string) => {
+    prefetchTradeRoom(router, requestId);
+    router.push(`/trade-room/${requestId}`);
+  }, [router]);
   const pendingSellerRequests = useMemo(() => sellerRequests.filter((request) => request.status === "pending"), [sellerRequests]);
   const completedSellerRequests = useMemo(
     () => sellerRequests.filter((request) => request.status === "completed" || request.status === "review_open" || Boolean(request.completedAt)),
@@ -2997,6 +3005,21 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   ) : null}
                 </div>
               ) : null}
+              {sellerRequestSections.action.length === 0 ? (
+                <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-[#9CA3AF]">
+                  No trades require your action. You&apos;re all caught up.
+                </div>
+              ) : null}
+              {sellerRequestSections.active.length === 0 ? (
+                <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-[#9CA3AF]">
+                  No active trades right now.
+                </div>
+              ) : null}
+              {sellerRequestSections.waiting.length === 0 ? (
+                <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-[#9CA3AF]">
+                  No waiting trades right now.
+                </div>
+              ) : null}
               {[...sellerRequestSections.action, ...sellerRequestSections.active, ...sellerRequestSections.waiting].map((request) => {
                 const presentation = getTradeQueuePresentation(request, "seller");
                 return (
@@ -3040,7 +3063,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       </div>
                     ) : null}
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Button type="button" size="sm" variant="secondary" onClick={() => router.push(`/trade-room/${request.id}`)}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onMouseEnter={() => handlePrefetchTradeRoom(request.id)}
+                        onFocus={() => handlePrefetchTradeRoom(request.id)}
+                        onClick={() => handleOpenTradeRoom(request.id)}
+                      >
                         Open Trade Room
                       </Button>
                       <Button
@@ -3186,7 +3216,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     onClick={() => setSellerClosedRequestsCollapsed((value) => !value)}
                   >
                     <span className="text-sm font-medium text-white">
-                      Completed / Closed · {sellerRequestSections.completed.length + sellerRequestSections.cancelled.length}
+                      Completed / Closed ({sellerRequestSections.completed.length + sellerRequestSections.cancelled.length})
                     </span>
                     <span className="text-xs text-[#9CA3AF]">{sellerClosedRequestsCollapsed ? "Show" : "Hide"}</span>
                   </button>
@@ -3209,7 +3239,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                               <p>Updated: <span className="text-white">{new Date(request.updatedAt).toLocaleString("en-IL")}</span></p>
                             </div>
                             <div className="mt-3">
-                              <Button type="button" size="sm" variant="secondary" onClick={() => router.push(`/trade-room/${request.id}`)}>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                onMouseEnter={() => handlePrefetchTradeRoom(request.id)}
+                                onFocus={() => handlePrefetchTradeRoom(request.id)}
+                                onClick={() => handleOpenTradeRoom(request.id)}
+                              >
                                 Open Trade Room
                               </Button>
                             </div>
@@ -3470,7 +3507,22 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     ) : null}
                   </div>
                 ) : null}
-                {[...buyerRequestSections.action, ...buyerRequestSections.active, ...buyerRequestSections.waiting].map((request) => {
+                  {buyerRequestSections.action.length === 0 ? (
+                    <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-[#9CA3AF]">
+                      No trades require your action. You&apos;re all caught up.
+                    </div>
+                  ) : null}
+                  {buyerRequestSections.active.length === 0 ? (
+                    <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-[#9CA3AF]">
+                      No active trades right now.
+                    </div>
+                  ) : null}
+                  {buyerRequestSections.waiting.length === 0 ? (
+                    <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-[#9CA3AF]">
+                      No waiting trades right now.
+                    </div>
+                  ) : null}
+                  {[...buyerRequestSections.action, ...buyerRequestSections.active, ...buyerRequestSections.waiting].map((request) => {
                   const presentation = getTradeQueuePresentation(request, "buyer");
                   return (
                   <div key={request.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
@@ -3495,7 +3547,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <p className="mt-1">Review details in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link>.</p>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Button type="button" size="sm" variant="secondary" onClick={() => router.push(`/trade-room/${request.id}`)}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onMouseEnter={() => handlePrefetchTradeRoom(request.id)}
+                        onFocus={() => handlePrefetchTradeRoom(request.id)}
+                        onClick={() => handleOpenTradeRoom(request.id)}
+                      >
                         Open Trade Room
                       </Button>
                       <Button type="button" size="sm" disabled={request.status !== "accepted" || !request.buyerEvidence} onClick={() => handleBuyerTradeStatus(request, "payment_sent")}>
@@ -3616,7 +3675,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       onClick={() => setBuyerClosedRequestsCollapsed((value) => !value)}
                     >
                       <span className="text-sm font-medium text-white">
-                        Completed / Closed · {buyerRequestSections.completed.length + buyerRequestSections.cancelled.length}
+                        Completed / Closed ({buyerRequestSections.completed.length + buyerRequestSections.cancelled.length})
                       </span>
                       <span className="text-xs text-[#9CA3AF]">{buyerClosedRequestsCollapsed ? "Show" : "Hide"}</span>
                     </button>
@@ -3639,7 +3698,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                                 <p>Updated: <span className="text-white">{new Date(request.updatedAt).toLocaleString("en-IL")}</span></p>
                               </div>
                               <div className="mt-3">
-                                <Button type="button" size="sm" variant="secondary" onClick={() => router.push(`/trade-room/${request.id}`)}>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  onMouseEnter={() => handlePrefetchTradeRoom(request.id)}
+                                  onFocus={() => handlePrefetchTradeRoom(request.id)}
+                                  onClick={() => handleOpenTradeRoom(request.id)}
+                                >
                                   Open Trade Room
                                 </Button>
                               </div>

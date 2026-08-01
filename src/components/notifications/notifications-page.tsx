@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { BellDot, Megaphone, Scale, Search, ShieldCheck, Star, Tags, UserRound } from "lucide-react";
 import type { AppLocale } from "@/i18n/routing";
 import { useRouter } from "@/i18n/navigation";
@@ -8,6 +8,7 @@ import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { prefetchTradeRoom } from "@/lib/trade-room-client";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -15,7 +16,7 @@ type NotificationsPayload = {
   unreadCount: number;
 };
 
-type NotificationFilter = "all" | "unread" | "trades" | "listings" | "reviews" | "announcements";
+type NotificationFilter = "all" | "unread" | "trades" | "listings" | "reviews" | "announcements" | "history";
 
 const PAGE_SIZE = 20;
 
@@ -44,6 +45,7 @@ function isReview(notification: AlphaExchangeNotification) {
 }
 
 function matchesFilter(notification: AlphaExchangeNotification, filter: NotificationFilter) {
+  if (filter === "history") return notification.state === "archived";
   if (filter === "all") return true;
   if (filter === "unread") return !notification.isRead;
   if (filter === "trades") return notification.category === "trade";
@@ -63,6 +65,13 @@ function extractTradeRoomHrefFromRelatedHref(relatedHref?: string) {
   return null;
 }
 
+function extractRequestIdFromTradeRoomHref(href: string | null) {
+  if (!href) return null;
+  const normalized = href.replace(/\/+$/, "");
+  const requestId = normalized.slice(normalized.lastIndexOf("/") + 1).trim();
+  return requestId || null;
+}
+
 export function NotificationsPage({ locale }: { locale: AppLocale }) {
   const [notifications, setNotifications] = useState<AlphaExchangeNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -75,11 +84,13 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
   const [itemLoading, setItemLoading] = useState<Record<string, boolean>>({});
   const router = useRouter();
 
-  async function loadNotifications() {
+  const loadNotifications = useCallback(async (nextFilter: NotificationFilter = filter) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/alpha-exchange/notifications?limit=200&includeActivity=0", { cache: "no-store" });
+      const params = new URLSearchParams({ limit: "200", includeActivity: "0" });
+      if (nextFilter === "history") params.set("state", "archived");
+      const response = await fetch(`/api/alpha-exchange/notifications?${params.toString()}`, { cache: "no-store" });
       if (!response.ok) throw new Error("Failed to load notifications.");
       const payload = (await response.json()) as NotificationsPayload;
       setNotifications(payload.notifications ?? []);
@@ -89,11 +100,11 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [filter]);
 
   useEffect(() => {
-    void loadNotifications();
-  }, []);
+    void loadNotifications(filter);
+  }, [filter, loadNotifications]);
 
   useEffect(() => {
     setPage(1);
@@ -134,10 +145,15 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
   }
 
   async function openTradeRoomFromNotification(notification: AlphaExchangeNotification) {
-    const destination = resolveTradeRoomHref(notification) ?? await resolveActiveTradeHref();
+    const resolvedDestination = resolveTradeRoomHref(notification);
+    const destination = resolvedDestination ?? await resolveActiveTradeHref();
     if (!destination) {
       setError("Could not resolve this trade room.");
       return;
+    }
+    const requestId = extractRequestIdFromTradeRoomHref(destination);
+    if (requestId) {
+      prefetchTradeRoom(router, requestId);
     }
     if (!notification.isRead) {
       void handleMarkOneRead(notification.id);
@@ -211,7 +227,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {(["all", "unread", "trades", "listings", "reviews", "announcements"] as NotificationFilter[]).map((item) => (
+            {(["all", "unread", "trades", "listings", "reviews", "announcements", "history"] as NotificationFilter[]).map((item) => (
               <button
                 key={item}
                 type="button"
@@ -222,7 +238,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                     : "border-white/15 bg-black/20 text-[#D1D5DB] hover:border-white/25 hover:text-white"
                 }`}
               >
-                {item === "all" ? "All" : item === "unread" ? "Unread" : item === "trades" ? "Trades" : item === "listings" ? "Listings" : item === "reviews" ? "Reviews" : "Announcements"}
+                {item === "all" ? "All" : item === "unread" ? "Unread" : item === "trades" ? "Trades" : item === "listings" ? "Listings" : item === "reviews" ? "Reviews" : item === "announcements" ? "Announcements" : "History"}
               </button>
             ))}
           </div>
@@ -266,11 +282,13 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                           className="h-8 px-3 text-xs"
                           onMouseEnter={() => {
                             const href = resolveTradeRoomHref(notification);
-                            if (href) void router.prefetch(href);
+                            const requestId = extractRequestIdFromTradeRoomHref(href);
+                            if (requestId) prefetchTradeRoom(router, requestId);
                           }}
                           onFocus={() => {
                             const href = resolveTradeRoomHref(notification);
-                            if (href) void router.prefetch(href);
+                            const requestId = extractRequestIdFromTradeRoomHref(href);
+                            if (requestId) prefetchTradeRoom(router, requestId);
                           }}
                           onClick={() => void openTradeRoomFromNotification(notification)}
                         >

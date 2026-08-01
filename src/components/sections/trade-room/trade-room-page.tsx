@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { MarketplaceListing, PurchaseRequest, TradeChatMessage, TradeTimelineEntry, UserRole } from "@/types/alpha-exchange";
+import { readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
 
 type Locale = "ar" | "en";
 
@@ -281,6 +282,7 @@ export function TradeRoomPage({
       if (!response.ok) {
         throw new Error(readApiErrorFallback(payload, isAr ? "تعذر تحميل غرفة الصفقة." : "Failed to load trade room."));
       }
+      writeTradeRoomCache(requestId, payload);
       setRoom(payload);
       setSelectedStep(getStepId(payload.request.status));
     } catch (error) {
@@ -292,8 +294,16 @@ export function TradeRoomPage({
   }, [isAr, requestId]);
 
   useEffect(() => {
+    const cached = readTradeRoomCache<TradeRoomData>(requestId);
+    if (cached) {
+      setRoom(cached);
+      setSelectedStep(getStepId(cached.request.status));
+      setIsLoading(false);
+      void fetchRoom(true);
+      return;
+    }
     void fetchRoom();
-  }, [fetchRoom]);
+  }, [fetchRoom, requestId]);
 
   useEffect(() => {
     if (!room) return;
@@ -314,6 +324,7 @@ export function TradeRoomPage({
       const messageEvent = event as MessageEvent<string>;
       try {
         const payload = JSON.parse(messageEvent.data) as TradeRoomData;
+        writeTradeRoomCache(requestId, payload);
         setRoom(payload);
         setStreamConnected(true);
         setErrorMessage(null);
@@ -546,7 +557,23 @@ export function TradeRoomPage({
   if (isLoading) {
     return (
       <main className="min-h-screen bg-[#050505] px-4 py-6 text-white md:px-6">
-        <div className="mx-auto max-w-7xl rounded-2xl border border-white/10 bg-black/30 p-6">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4">
+          <div className="animate-pulse rounded-2xl border border-white/10 bg-black/30 p-6">
+            <div className="h-4 w-32 rounded bg-white/10" />
+            <div className="mt-3 h-8 w-60 rounded bg-white/10" />
+            <div className="mt-4 h-3 w-72 rounded bg-white/10" />
+          </div>
+          <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+            <div className="space-y-4 rounded-2xl border border-white/10 bg-black/25 p-4">
+              <div className="h-5 w-36 rounded bg-white/10" />
+              <div className="h-24 rounded-xl bg-white/5" />
+              <div className="h-12 rounded-xl bg-white/5" />
+            </div>
+            <div className="space-y-4 rounded-2xl border border-white/10 bg-black/25 p-4">
+              <div className="h-5 w-24 rounded bg-white/10" />
+              <div className="h-44 rounded-xl bg-white/5" />
+            </div>
+          </div>
           <p className="text-sm text-[#D1D5DB]">{isAr ? "جاري تحميل غرفة الصفقة..." : "Loading trade room..."}</p>
         </div>
       </main>

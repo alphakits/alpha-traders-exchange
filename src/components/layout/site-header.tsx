@@ -6,6 +6,7 @@ import { getTranslations } from "next-intl/server";
 import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
 import { AUTH_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
+import { getFirstActiveTradeForUser } from "@/lib/alpha-exchange-store";
 import { hasRole } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -18,6 +19,10 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
   const cookieStore = await cookies();
   const sessionToken = cookieStore.get(AUTH_COOKIE_NAME)?.value ?? null;
   const sessionUser = sessionToken ? await getCurrentSessionUser() : null;
+  const activeTrade = sessionUser ? await getFirstActiveTradeForUser(sessionUser.id, sessionUser.role) : null;
+  const activeTradeCounterparty = activeTrade
+    ? (activeTrade.sellerId === sessionUser?.id ? activeTrade.buyerName : (locale === "ar" ? "البائع" : "seller"))
+    : null;
   const dashboardHref = sessionUser ? "/profile" : "/login";
   const dashboardLabel = sessionUser ? t("profile") : t("signIn");
   const canAccessSellerWorkspace = Boolean(
@@ -166,6 +171,19 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
           </details>
         </div>
       </div>
+      {sessionUser && activeTrade ? (
+      <div className="section-container pb-2">
+        <div className="flex items-center justify-between gap-2 rounded-xl border border-emerald-400/35 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">
+          <p className="truncate">
+            🟢 {locale === "ar" ? "صفقة نشطة" : "Active Trade"} — {locale === "ar" ? "تابع الصفقة مع" : "Continue trade with"}{" "}
+            <span className="font-semibold text-white">{activeTradeCounterparty}</span>
+          </p>
+          <Link href={`/trade-room/${activeTrade.id}`} locale={locale} className="shrink-0 rounded-full border border-emerald-300/40 bg-emerald-500/20 px-3 py-1 text-[11px] font-semibold text-emerald-100 transition hover:border-emerald-200 hover:bg-emerald-500/30">
+            {locale === "ar" ? "استئناف الصفقة" : "Resume Trade"}
+          </Link>
+        </div>
+      </div>
+      ) : null}
     </header>
   );
 }

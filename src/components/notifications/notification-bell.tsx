@@ -6,6 +6,7 @@ import type { AppLocale } from "@/i18n/routing";
 import { Link, usePathname, useRouter } from "@/i18n/navigation";
 import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { prefetchTradeRoom } from "@/lib/trade-room-client";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -47,6 +48,13 @@ function extractTradeRoomHrefFromRelatedHref(relatedHref?: string) {
   const requestMatch = normalized.match(/[?&]requestId=([^&]+)/i);
   if (requestMatch?.[1]) return `/trade-room/${decodeURIComponent(requestMatch[1])}`;
   return null;
+}
+
+function extractRequestIdFromTradeRoomHref(href: string | null) {
+  if (!href) return null;
+  const normalized = href.replace(/\/+$/, "");
+  const requestId = normalized.slice(normalized.lastIndexOf("/") + 1).trim();
+  return requestId || null;
 }
 
 export function NotificationBell({ locale }: { locale: AppLocale }) {
@@ -145,6 +153,8 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
       void handleMarkOneRead(notification.id);
     }
     if (tradeRoomHref) {
+      const requestId = extractRequestIdFromTradeRoomHref(tradeRoomHref);
+      if (requestId) prefetchTradeRoom(router, requestId);
       router.push(tradeRoomHref);
       setIsOpen(false);
       return;
@@ -252,11 +262,13 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                             className="h-7 px-2.5 text-[11px]"
                             onMouseEnter={() => {
                               const href = resolveTradeRoomHref(notification);
-                              if (href) void router.prefetch(href);
+                              const requestId = extractRequestIdFromTradeRoomHref(href);
+                              if (requestId) prefetchTradeRoom(router, requestId);
                             }}
                             onFocus={() => {
                               const href = resolveTradeRoomHref(notification);
-                              if (href) void router.prefetch(href);
+                              const requestId = extractRequestIdFromTradeRoomHref(href);
+                              if (requestId) prefetchTradeRoom(router, requestId);
                             }}
                             onClick={() => void handleOpenNotification(notification)}
                           >

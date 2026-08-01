@@ -2,10 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getNotificationsForUser, markAllNotificationsRead } from "@/lib/alpha-exchange-store";
 import { requireApiUser } from "@/lib/api-auth";
 import { checkRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
-import type { NotificationCategory } from "@/types/alpha-exchange";
+import type { NotificationCategory, NotificationState } from "@/types/alpha-exchange";
 
 function isNotificationCategory(value: string): value is NotificationCategory {
   return value === "trade" || value === "listing" || value === "account" || value === "trust" || value === "application" || value === "dispute" || value === "report" || value === "system" || value === "review";
+}
+
+function isNotificationState(value: string): value is NotificationState {
+  return value === "read" || value === "unread" || value === "archived";
 }
 
 export async function GET(request: NextRequest) {
@@ -18,12 +22,14 @@ export async function GET(request: NextRequest) {
   const limitRaw = String(searchParams.get("limit") ?? "").trim();
   const offsetRaw = String(searchParams.get("offset") ?? "").trim();
   const includeActivityRaw = String(searchParams.get("includeActivity") ?? "").trim();
+  const stateRaw = String(searchParams.get("state") ?? "").trim();
   const query = String(searchParams.get("q") ?? "");
   const category = isNotificationCategory(categoryRaw) ? categoryRaw : undefined;
   const unreadOnly = unreadOnlyRaw === "1" || unreadOnlyRaw === "true";
   const limit = Number.isFinite(Number(limitRaw)) ? Number(limitRaw) : undefined;
   const offset = Number.isFinite(Number(offsetRaw)) ? Number(offsetRaw) : undefined;
   const includeActivity = !(includeActivityRaw === "0" || includeActivityRaw === "false");
+  const state = isNotificationState(stateRaw) ? stateRaw : undefined;
   const payload = await getNotificationsForUser({
     userId: user.id,
     category,
@@ -32,6 +38,7 @@ export async function GET(request: NextRequest) {
     limit,
     offset,
     includeActivity,
+    state,
   });
   return NextResponse.json(payload);
 }

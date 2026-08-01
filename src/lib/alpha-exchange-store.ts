@@ -5887,6 +5887,33 @@ export async function getNotificationsForUser(input: {
   includeActivity?: boolean;
 }) {
   const db = await readDb();
+  const now = nowIso();
+  let changed = false;
+  db.notifications = db.notifications.map((notification) => {
+    if (notification.userId !== input.userId) return notification;
+    if (notification.state === "archived") return notification;
+    const tradeRequest = resolveTradeContextForNotification(db, {
+      userId: notification.userId,
+      relatedRequestId: notification.relatedRequestId,
+      relatedTradeId: notification.relatedTradeId,
+      relatedListingId: notification.relatedListingId,
+    });
+    if (!tradeRequest) return notification;
+    if (tradeRequest.status !== "completed" && tradeRequest.status !== "review_open" && tradeRequest.status !== "locked") {
+      return notification;
+    }
+    changed = true;
+    return enrichNotification(db, {
+      ...notification,
+      state: "archived",
+      isRead: true,
+      archivedAt: notification.archivedAt ?? now,
+      updatedAt: now,
+    });
+  });
+  if (changed) {
+    await writeDb(db);
+  }
   const category = input.category;
   const centerCategory = input.centerCategory;
   const query = String(input.query ?? "").trim().toLowerCase();
@@ -5895,6 +5922,7 @@ export async function getNotificationsForUser(input: {
     if (category && notification.category !== category) return false;
     if (centerCategory && notification.centerCategory !== centerCategory) return false;
     if (input.state && notification.state !== input.state) return false;
+    if (!input.state && notification.state === "archived") return false;
     if (input.unreadOnly && notification.state !== "unread") return false;
     if (!query) return true;
     const haystack = `${notification.title} ${notification.message} ${notification.relatedTradeId ?? ""} ${notification.relatedRequestId ?? ""} ${notification.relatedListingId ?? ""} ${notification.tradeSnapshot?.counterpartyName ?? ""}`.toLowerCase();
