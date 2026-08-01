@@ -868,27 +868,39 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       setStatusMessage(`Trade amount must be between ${minTrade.toLocaleString("en-IL")} and ${maxTrade.toLocaleString("en-IL")} USDT.`);
       return;
     }
-    const response = await fetch("/api/alpha-exchange/purchase-requests", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        listingId: selectedListing.id,
-        usdtAmount: tradeAmount,
-        buyerName: buyerInfo.name,
-        buyerWhatsapp: buyerInfo.whatsapp,
-        buyerNotes: notesOverride ?? buyerInfo.notes,
-        safetyAcknowledged: faceToFaceSafetyAcknowledged,
-      }),
-    });
-    const data = (await response.json()) as { error?: string; purchase?: PurchaseRequest };
-    if (!response.ok) {
-      setStatusMessage(safeErrorMessage("purchase"));
-      return;
-    }
-    if (data.purchase) {
-      setMyRequests((prev) => [data.purchase as PurchaseRequest, ...prev]);
-      setPurchaseSubmitted(true);
-      setStatusMessage(null);
+    const fallbackMessage = "We could not start this trade due to an unexpected server error.";
+    try {
+      const response = await fetch("/api/alpha-exchange/purchase-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          listingId: selectedListing.id,
+          usdtAmount: tradeAmount,
+          buyerName: buyerInfo.name,
+          buyerWhatsapp: buyerInfo.whatsapp,
+          buyerNotes: notesOverride ?? buyerInfo.notes,
+          safetyAcknowledged: faceToFaceSafetyAcknowledged,
+        }),
+      });
+      if (!response.ok) {
+        const requestId = response.headers.get("x-request-id");
+        if (requestId) {
+          console.warn("[alpha-exchange] purchase request rejected", { requestId, listingId: selectedListing.id });
+        }
+        setStatusMessage(await readApiErrorMessage(response, fallbackMessage));
+        return;
+      }
+      const data = (await response.json()) as { purchase?: PurchaseRequest };
+      if (data.purchase) {
+        setMyRequests((prev) => [data.purchase as PurchaseRequest, ...prev]);
+        setPurchaseSubmitted(true);
+        setStatusMessage(null);
+      }
+    } catch (error) {
+      const message = error instanceof Error && error.message.trim()
+        ? error.message
+        : "Unable to reach the server right now. Check your connection and try again.";
+      setStatusMessage(message);
     }
   }
 

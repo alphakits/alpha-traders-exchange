@@ -3,6 +3,7 @@ import { createPurchaseRequest, getMyPurchaseRequests } from "@/lib/alpha-exchan
 import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { hasRole } from "@/lib/roles";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { logEvent } from "@/lib/structured-logging";
 
 export async function GET() {
   const { user, unauthorized } = await requireApiUser();
@@ -12,12 +13,36 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const requestId = crypto.randomUUID();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const withRequestIdHeaders = (headers?: HeadersInit) => ({ ...(headers ?? {}), "X-Request-Id": requestId });
+  const denied = (error: string, status: number, headers?: HeadersInit, metadata?: Record<string, unknown>) => {
+    logEvent("warn", {
+      event: "exchange_purchase_request_create",
+      actorUserId: user.id,
+      actorRole: user.role,
+      outcome: "denied",
+      reason: error,
+      metadata: { requestId, ...metadata },
+    });
+    return NextResponse.json({ error, requestId }, { status, headers: withRequestIdHeaders(headers) });
+  };
+  const failed = (error: string, metadata?: Record<string, unknown>) => {
+    logEvent("error", {
+      event: "exchange_purchase_request_create",
+      actorUserId: user.id,
+      actorRole: user.role,
+      outcome: "failed",
+      reason: error,
+      metadata: { requestId, ...metadata },
+    });
+    return NextResponse.json({ error, requestId }, { status: 500, headers: withRequestIdHeaders() });
+  };
   const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
   if (phoneVerificationRequired) return phoneVerificationRequired;
   if (!hasRole(user, "buyer") && !hasRole(user, "approved_seller") && !hasRole(user, "admin")) {
-    return NextResponse.json({ error: "Buyer verification required." }, { status: 403 });
+    return denied("Buyer verification required.", 403);
   }
   const rate = checkRateLimit({
     headers: request.headers,
@@ -26,28 +51,33 @@ export async function POST(request: NextRequest) {
     windowMs: 60_000,
   });
   if (!rate.allowed) {
-    return NextResponse.json({ error: "Too many requests. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
+    return denied(
+      "Too many requests. Please try again shortly.",
+      429,
+      { "Retry-After": String(rate.retryAfterSeconds) },
+      { retryAfterSeconds: rate.retryAfterSeconds },
+    );
   }
   try {
     const body = await request.json();
     const listingId = String(body.listingId ?? "").trim();
     if (!listingId) {
-      return NextResponse.json({ error: "Listing ID is required." }, { status: 400 });
+      return denied("Listing ID is required.", 400);
     }
 
     const buyerName = String(body.buyerName ?? user.fullName).trim();
     const buyerWhatsapp = String(body.buyerWhatsapp ?? user.whatsappNumber).trim();
     if (!buyerName) {
-      return NextResponse.json({ error: "Buyer name is required." }, { status: 400 });
+      return denied("Buyer name is required.", 400);
     }
     if (!buyerWhatsapp) {
-      return NextResponse.json({ error: "Buyer WhatsApp is required." }, { status: 400 });
+      return denied("Buyer WhatsApp is required.", 400);
     }
 
     const buyerNotes = String(body.buyerNotes ?? "").slice(0, 2000);
     const usdtAmount = String(body.usdtAmount ?? "").trim();
     if (!usdtAmount) {
-      return NextResponse.json({ error: "Trade amount is required." }, { status: 400 });
+      return denied("Trade amount is required.", 400);
     }
     const bankName = String(body.bankName ?? "").trim();
     const safetyAcknowledged = body.safetyAcknowledged === true;
@@ -63,9 +93,19 @@ export async function POST(request: NextRequest) {
       safetyAcknowledged,
       actorUserId: user.id,
     });
-
-    return NextResponse.json({ purchase }, { status: 201 });
+    logEvent("info", {
+      event: "exchange_purchase_request_create",
+      actorUserId: user.id,
+      actorRole: user.role,
+      resourceId: purchase.id,
+      outcome: "success",
+      metadata: { requestId, listingId, paymentMethod: purchase.paymentMethod },
+    });
+    return NextResponse.json({ purchase, requestId }, { status: 201, headers: withRequestIdHeaders() });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to submit purchase request." }, { status: 400 });
+    if (error instanceof Error && error.message.trim()) {
+      return denied(error.message, 400, undefined, { errorName: error.name });
+    }
+    return failed("Failed to submit purchase request.");
   }
 }
