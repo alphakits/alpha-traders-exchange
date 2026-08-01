@@ -1545,10 +1545,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     nextStatus: "accepted" | "declined" | "funds_received" | "usdt_release_pending" | "usdt_sent",
     options?: { safetyAcknowledged?: boolean },
   ) {
+    const safetyAcknowledged = nextStatus === "accepted"
+      ? true
+      : options?.safetyAcknowledged === true;
     const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: nextStatus, safetyAcknowledged: options?.safetyAcknowledged === true }),
+      body: JSON.stringify({ status: nextStatus, safetyAcknowledged }),
     });
     const payload = (await response.json()) as { error?: string };
     if (!response.ok) {
