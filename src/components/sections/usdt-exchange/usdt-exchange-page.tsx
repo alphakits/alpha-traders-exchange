@@ -1157,6 +1157,16 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   const isApprovedSeller = sessionUser?.role === "approved_seller" && sessionUser?.sellerStatus === "approved_seller";
   const isOwnerViewer = sessionUser?.role === "admin" && isAlphaExchangeOwnerEmail(sessionUser.email);
+  useEffect(() => {
+    if (!sessionUser) return;
+    if (typeof window === "undefined") return;
+    if (!/^\/(ar|en)\/dashboard\/seller\/?$/.test(window.location.pathname)) return;
+    const canAccessSellerDashboard = isApprovedSeller || sessionUser.role === "admin" || sessionUser.role === "owner";
+    if (!canAccessSellerDashboard) {
+      router.replace("/dashboard");
+    }
+  }, [isApprovedSeller, router, sessionUser]);
+
   const marketPricePerUsdt = marketSnapshot?.pairs.usdtIls.price ?? DEFAULT_MARKET_PRICE_PER_USDT;
   const maxAllowedListingPrice = marketPricePerUsdt + MAX_PRICE_MARKUP_ILS;
   const listingCreatePrice = toNumber(listingCreateForm.price);
