@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ALPHA_EXCHANGE_OWNER_EMAIL } from "@/lib/alpha-exchange-identity";
 
 // Mock @/lib/auth before importing api-auth so the module uses our stub
@@ -11,10 +11,11 @@ vi.mock("@/lib/auth", () => ({
   AUTH_PHONE_VERIFIED_COOKIE_NAME: "alpha_exchange_phone_verified",
 }));
 
-import { requireApiUser, requireApiAdmin } from "@/lib/api-auth";
+import { requireApiUser, requireApiAdmin, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { getCurrentSessionUser } from "@/lib/auth";
 
 const mockGetCurrentSessionUser = vi.mocked(getCurrentSessionUser);
+const originalBypassEnv = process.env.PHOTO_VERIFICATION_BYPASS_EMAILS;
 
 function makeUser(overrides: Partial<{ role: string; email: string }> = {}) {
   return {
@@ -27,6 +28,11 @@ function makeUser(overrides: Partial<{ role: string; email: string }> = {}) {
 
 beforeEach(() => {
   mockGetCurrentSessionUser.mockReset();
+  process.env.PHOTO_VERIFICATION_BYPASS_EMAILS = originalBypassEnv;
+});
+
+afterEach(() => {
+  process.env.PHOTO_VERIFICATION_BYPASS_EMAILS = originalBypassEnv;
 });
 
 describe("requireApiUser", () => {
@@ -69,5 +75,32 @@ describe("requireApiAdmin", () => {
     const { user, unauthorized } = await requireApiAdmin();
     expect(user).toEqual(u);
     expect(unauthorized).toBeNull();
+  });
+});
+
+describe("requirePhoneVerificationForTrading", () => {
+  it("allows configured bypass email even without verified phone", () => {
+    process.env.PHOTO_VERIFICATION_BYPASS_EMAILS = "jozemark@gmail.com";
+    const denied = requirePhoneVerificationForTrading({
+      id: "user-1",
+      role: "buyer",
+      email: "jozemark@gmail.com",
+      verifiedPhone: "",
+      phoneVerifiedAt: "",
+    });
+    expect(denied).toBeNull();
+  });
+
+  it("still denies non-whitelisted accounts without verified phone", async () => {
+    process.env.PHOTO_VERIFICATION_BYPASS_EMAILS = "jozemark@gmail.com";
+    const denied = requirePhoneVerificationForTrading({
+      id: "user-2",
+      role: "buyer",
+      email: "other@example.com",
+      verifiedPhone: "",
+      phoneVerifiedAt: "",
+    });
+    expect(denied).not.toBeNull();
+    expect(denied?.status).toBe(403);
   });
 });

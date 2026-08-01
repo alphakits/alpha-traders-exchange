@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
+import { isPhotoVerificationBypassed } from "@/lib/verification-bypass";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -14,6 +15,18 @@ export async function GET() {
     cookieStore.delete(AUTH_VERIFIED_COOKIE_NAME);
     cookieStore.delete(AUTH_PHONE_VERIFIED_COOKIE_NAME);
     return NextResponse.json({ user: null }, { status: 200, headers: AUTH_RESPONSE_HEADERS });
+  }
+  const cookieStore = await cookies();
+  const verificationBypassed = isPhotoVerificationBypassed(user.email);
+  const effectiveVerifiedPhone = verificationBypassed ? user.verifiedPhone || "bypassed" : user.verifiedPhone ?? "";
+  const effectivePhoneVerifiedAt = verificationBypassed ? user.phoneVerifiedAt || new Date(0).toISOString() : user.phoneVerifiedAt ?? "";
+  if (verificationBypassed) {
+    cookieStore.set(AUTH_PHONE_VERIFIED_COOKIE_NAME, "1", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+    });
   }
   return NextResponse.json({
     user: {
@@ -42,8 +55,8 @@ export async function GET() {
       isFoundingMember: user.isFoundingMember === true,
       isFoundingSeller: user.isFoundingSeller === true,
       emailVerified: user.emailVerified === true,
-      verifiedPhone: user.verifiedPhone ?? "",
-      phoneVerifiedAt: user.phoneVerifiedAt ?? "",
+      verifiedPhone: effectiveVerifiedPhone,
+      phoneVerifiedAt: effectivePhoneVerifiedAt,
       onboardingSelection: user.onboardingSelection,
       onboardingCompletedAt: user.onboardingCompletedAt,
       lifetimeCompletedVolumeUsdt: user.lifetimeCompletedVolumeUsdt ?? 0,
