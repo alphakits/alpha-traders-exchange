@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { AlertTriangle, CheckCircle2, Clock3, MessageCircle, ShieldCheck, Upload, WalletCards } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, LoaderCircle, MessageCircle, ShieldCheck, Upload, WalletCards } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -238,6 +238,47 @@ function encodeFileToDataUrl(file: File) {
   });
 }
 
+function applyRequestToRoom(room: TradeRoomData, nextRequest: PurchaseRequest): TradeRoomData {
+  const deadlineAt = nextRequest.usdtReleaseDeadlineAt ?? null;
+  const timeRemainingSeconds = deadlineAt ? Math.max(0, Math.floor((new Date(deadlineAt).getTime() - Date.now()) / 1000)) : null;
+  const releaseDeadlineActive = nextRequest.status === "usdt_release_pending";
+  const releaseDeadlineOverdue = Boolean(releaseDeadlineActive && timeRemainingSeconds !== null && timeRemainingSeconds <= 0);
+  const isOverdue = releaseDeadlineOverdue || nextRequest.timeoutReason === "USDT release SLA expired.";
+  return {
+    ...room,
+    request: nextRequest,
+    deadlineAt,
+    timeRemainingSeconds,
+    releaseDeadlineActive,
+    releaseDeadlineOverdue,
+    isOverdue,
+  };
+}
+
+function buildOptimisticRoom(room: TradeRoomData, nextStatus: PrimaryAction["nextStatus"]) {
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const requestStatus = nextStatus === "completed" ? "review_open" : nextStatus;
+  const nextRequest: PurchaseRequest = {
+    ...room.request,
+    status: requestStatus,
+    updatedAt: nowIso,
+  };
+  if (nextStatus === "payment_sent") nextRequest.paymentSentAt = nowIso;
+  if (nextStatus === "funds_received") nextRequest.fundsReceivedAt = nowIso;
+  if (nextStatus === "usdt_release_pending") {
+    nextRequest.usdtReleaseStartedAt = nowIso;
+    nextRequest.usdtReleaseDeadlineAt = new Date(now.getTime() + 45 * 60 * 1000).toISOString();
+  }
+  if (nextStatus === "usdt_sent") nextRequest.usdtSentAt = nowIso;
+  if (nextStatus === "completed") {
+    nextRequest.completedAt = nowIso;
+    nextRequest.reviewUnlockedAt = nowIso;
+    nextRequest.lockedAt = nowIso;
+  }
+  return applyRequestToRoom(room, nextRequest);
+}
+
 export function TradeRoomPage({
   locale,
   requestId,
@@ -254,6 +295,8 @@ export function TradeRoomPage({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [chatBusy, setChatBusy] = useState(false);
   const [chatDraft, setChatDraft] = useState("");
   const [disputeReason, setDisputeReason] = useState("");
@@ -270,6 +313,9 @@ export function TradeRoomPage({
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
   const reconnectTimeoutRef = useRef<number | null>(null);
+  const actionNoticeTimeoutRef = useRef<number | null>(null);
+  const actionAbortTimeoutRef = useRef<number | null>(null);
+  const actionInFlightRef = useRef<string | null>(null);
 
   const fetchRoom = useCallback(async (silent = false) => {
     if (!silent) {
@@ -277,17 +323,24 @@ export function TradeRoomPage({
       setErrorMessage(null);
     }
     try {
+      const startedAt = performance.now();
       const response = await fetch(`/api/alpha-exchange/trade-room/${requestId}`, { cache: "no-store" });
       const payload = (await response.json()) as TradeRoomData & { error?: string; message?: string };
       if (!response.ok) {
         throw new Error(readApiErrorFallback(payload, isAr ? "تعذر تحميل غرفة الصفقة." : "Failed to load trade room."));
       }
+      const apiLatencyMs = Math.round(performance.now() - startedAt);
+      const routeMs = Number(response.headers.get("X-Trade-Route-Ms") ?? "0");
+      const dbMs = Number(response.headers.get("X-Trade-Db-Ms") ?? routeMs);
+      console.log("[trade-room-load] fetch", { requestId, apiLatencyMs, routeMs, dbMs, stateAfter: payload.request.status });
       writeTradeRoomCache(requestId, payload);
       setRoom(payload);
       setSelectedStep(getStepId(payload.request.status));
+      return payload;
     } catch (error) {
       const message = error instanceof Error ? error.message : (isAr ? "تعذر تحميل غرفة الصفقة." : "Failed to load trade room.");
       setErrorMessage(message);
+      return null;
     } finally {
       if (!silent) setIsLoading(false);
     }
@@ -299,7 +352,6 @@ export function TradeRoomPage({
       setRoom(cached);
       setSelectedStep(getStepId(cached.request.status));
       setIsLoading(false);
-      void fetchRoom(true);
       return;
     }
     void fetchRoom();
@@ -407,26 +459,100 @@ export function TradeRoomPage({
   }, [isAr, primaryAction, request]);
 
   const handleStatusUpdate = useCallback(async (nextStatus: PrimaryAction["nextStatus"]) => {
-    if (!request) return;
+    if (!request || !room) return;
+    const mutationKey = `${request.id}:${request.status}:${nextStatus}`;
+    if (actionInFlightRef.current === mutationKey) return;
+    actionInFlightRef.current = mutationKey;
+    const previousRoom = room;
+    const optimisticRoom = buildOptimisticRoom(room, nextStatus);
+    const payload = { status: nextStatus };
+    const startedAt = performance.now();
+    const optimisticStartedAt = performance.now();
+    setRoom(optimisticRoom);
+    writeTradeRoomCache(requestId, optimisticRoom);
+    const optimisticUiMs = Math.round(performance.now() - optimisticStartedAt);
     setActionBusy(true);
+    setActionNotice(null);
+    setActionError(null);
+    setStatusMessage(null);
+    console.log("[trade-room-action] client request", {
+      requestId: request.id,
+      payload,
+      stateBefore: request.status,
+      optimisticStateAfter: optimisticRoom.request.status,
+      frontendRenderMs: optimisticUiMs,
+      streamConnected,
+    });
+    const controller = new AbortController();
+    actionNoticeTimeoutRef.current = window.setTimeout(() => {
+      setActionNotice(isAr ? "ما زال التنفيذ جاريًا... ننتظر الخادم." : "Still processing... we're waiting for the server.");
+    }, 8000);
+    actionAbortTimeoutRef.current = window.setTimeout(() => {
+      controller.abort();
+    }, 20000);
     try {
+      const responseStartedAt = performance.now();
       const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: nextStatus }),
+        body: JSON.stringify(payload),
+        signal: controller.signal,
       });
-      const payload = (await response.json()) as { error?: string; message?: string };
+      const responsePayload = (await response.json()) as { error?: string; message?: string; request?: PurchaseRequest; metrics?: { totalMs?: number } };
+      const apiLatencyMs = Math.round(performance.now() - responseStartedAt);
+      const routeMs = Number(response.headers.get("X-Trade-Route-Ms") ?? "0");
+      const dbMs = Number(response.headers.get("X-Trade-Db-Ms") ?? routeMs);
+      console.log("[trade-room-action] client response", {
+        requestId: request.id,
+        payload,
+        responseStatus: response.status,
+        responseBody: responsePayload,
+        stateBefore: request.status,
+        stateAfter: responsePayload.request?.status ?? optimisticRoom.request.status,
+        apiLatencyMs,
+        routeMs,
+        dbMs,
+        totalClientMs: Math.round(performance.now() - startedAt),
+      });
       if (!response.ok) {
-        throw new Error(readApiErrorFallback(payload, isAr ? "تعذر تحديث حالة الصفقة." : "Failed to update trade status."));
+        throw new Error(readApiErrorFallback(responsePayload, isAr ? "تعذر تحديث حالة الصفقة." : "Failed to update trade status."));
       }
+      if (responsePayload.request) {
+        const nextRoom = applyRequestToRoom(optimisticRoom, responsePayload.request);
+        setRoom(nextRoom);
+        writeTradeRoomCache(requestId, nextRoom);
+      }
+      setActionNotice(null);
       setStatusMessage(isAr ? "تم تحديث حالة الصفقة." : "Trade status updated.");
-      await fetchRoom(true);
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : (isAr ? "تعذر تحديث حالة الصفقة." : "Failed to update trade status."));
+      const refreshedRoom = await fetchRoom(true);
+      const expectedStatus = nextStatus === "completed" ? "review_open" : nextStatus;
+      if (refreshedRoom?.request.status === expectedStatus) {
+        setActionNotice(null);
+        setActionError(null);
+        setStatusMessage(isAr ? "تم تحديث حالة الصفقة بعد تأكيد الخادم." : "Trade status updated after server confirmation.");
+      } else {
+        setRoom(previousRoom);
+        writeTradeRoomCache(requestId, previousRoom);
+        const message = error instanceof Error
+          ? error.message
+          : (isAr ? "تعذر تحديث حالة الصفقة." : "Failed to update trade status.");
+        setActionError(message);
+        setActionNotice(null);
+      }
     } finally {
+      if (actionNoticeTimeoutRef.current) {
+        window.clearTimeout(actionNoticeTimeoutRef.current);
+        actionNoticeTimeoutRef.current = null;
+      }
+      if (actionAbortTimeoutRef.current) {
+        window.clearTimeout(actionAbortTimeoutRef.current);
+        actionAbortTimeoutRef.current = null;
+      }
+      actionInFlightRef.current = null;
       setActionBusy(false);
     }
-  }, [fetchRoom, isAr, request]);
+  }, [fetchRoom, isAr, request, requestId, room, streamConnected]);
 
   const handleSendMessage = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -788,7 +914,12 @@ export function TradeRoomPage({
                       disabled={actionBusy || Boolean(primaryActionDisabledReason)}
                       onClick={() => void handleStatusUpdate(primaryAction.nextStatus)}
                     >
-                      {actionBusy ? (isAr ? "جاري التنفيذ..." : "Processing...") : primaryAction.label}
+                      {actionBusy ? (
+                        <span className="inline-flex items-center gap-2">
+                          <LoaderCircle className="h-4 w-4 animate-spin" />
+                          <span>{isAr ? "جاري التنفيذ..." : "Processing..."}</span>
+                        </span>
+                      ) : primaryAction.label}
                     </Button>
                     {primaryActionDisabledReason ? <p className="text-xs text-amber-300">{primaryActionDisabledReason}</p> : null}
                     {!isSeller && request.status === "accepted" ? (
@@ -1021,6 +1152,24 @@ export function TradeRoomPage({
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-emerald-300" />
               <span>{statusMessage}</span>
+            </div>
+          </div>
+        ) : null}
+
+        {actionNotice ? (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+            <div className="flex items-center gap-2">
+              <LoaderCircle className="h-4 w-4 animate-spin" />
+              <span>{actionNotice}</span>
+            </div>
+          </div>
+        ) : null}
+
+        {actionError ? (
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" />
+              <span>{actionError}</span>
             </div>
           </div>
         ) : null}

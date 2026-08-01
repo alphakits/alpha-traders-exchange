@@ -27,6 +27,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   }
 
   try {
+    const startedAt = Date.now();
     const { requestId } = await context.params;
     const body = await request.json();
     const status = String(body.status ?? "").trim();
@@ -42,8 +43,14 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (!isValidRequestStatus(status)) {
       return NextResponse.json({ error: "Invalid purchase request status." }, { status: 400 });
     }
+    console.log("[trade-room-action] request", {
+      requestId,
+      actorUserId: user.id,
+      actorRole: user.role,
+      payload: { status, safetyAcknowledged },
+    });
 
-    const updated = await updatePurchaseRequestStatus({
+    const { request: updated, metrics } = await updatePurchaseRequestStatus({
       requestId,
       actorUserId: user.id,
       actorRole: user.role,
@@ -54,8 +61,38 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (isUsdtSent) {
       console.log("[usdt-sent-trace] before response", { traceId, requestId, updatedStatus: updated.status });
     }
-    return NextResponse.json({ request: updated });
+    const routeMs = Date.now() - startedAt;
+    const responseBody = { request: updated, metrics };
+    console.log("[trade-room-action] response", {
+      requestId,
+      actorUserId: user.id,
+      responseStatus: 200,
+      routeMs,
+      metrics,
+      stateAfter: updated.status,
+      responseBody: {
+        requestId: updated.id,
+        status: updated.status,
+        tradeId: updated.tradeId ?? null,
+        updatedAt: updated.updatedAt,
+      },
+    });
+    return NextResponse.json(responseBody, {
+      headers: {
+        "X-Trade-Route-Ms": String(routeMs),
+        "X-Trade-Db-Ms": String(metrics.totalMs),
+        "Server-Timing": `route;dur=${routeMs}, db;dur=${metrics.totalMs}`,
+      },
+    });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update request." }, { status: 400 });
+    const { requestId } = await context.params;
+    const message = error instanceof Error ? error.message : "Failed to update request.";
+    console.log("[trade-room-action] response", {
+      requestId,
+      actorUserId: user.id,
+      responseStatus: 400,
+      responseBody: { error: message },
+    });
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

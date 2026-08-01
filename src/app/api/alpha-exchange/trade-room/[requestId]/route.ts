@@ -11,6 +11,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
   if (!user) return unauthorized;
 
   const { requestId } = await context.params;
+  const startedAt = Date.now();
   const debug = process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
   if (debug) console.log("[trade-room-open] api request", {
     requestId,
@@ -33,7 +34,14 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       listingId: room.request.listingId,
       tradeId: room.request.tradeId ?? null,
     });
-    return NextResponse.json(room);
+    const routeMs = Date.now() - startedAt;
+    return NextResponse.json(room, {
+      headers: {
+        "X-Trade-Route-Ms": String(routeMs),
+        "X-Trade-Db-Ms": String(routeMs),
+        "Server-Timing": `route;dur=${routeMs}, db;dur=${routeMs}`,
+      },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load trade room.";
     const status = message === "Trade not found."

@@ -5116,6 +5116,7 @@ export async function updatePurchaseRequestStatus(input: {
   safetyAcknowledged?: boolean;
   traceId?: string;
 }) {
+  const startedAt = Date.now();
   const isUsdtSentTrace = input.nextStatus === "usdt_sent";
   if (isUsdtSentTrace) {
     console.log("[usdt-sent-trace] service entry", {
@@ -5126,9 +5127,11 @@ export async function updatePurchaseRequestStatus(input: {
     });
   }
   const db = await readDb();
+  const readDbMs = Date.now() - startedAt;
   const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.requestId);
   if (requestIndex === -1) throw new Error("Purchase request not found.");
   const request = db.purchaseRequests[requestIndex];
+  const stateBefore = request.status;
 
   const isSeller = request.sellerId === input.actorUserId;
   const isBuyer = request.buyerId === input.actorUserId;
@@ -5541,25 +5544,59 @@ export async function updatePurchaseRequestStatus(input: {
       buyerId: next.buyerId,
     });
   }
-  await recalculateTrustEngine(db, { reason: input.nextStatus === "completed" ? "Trade completed" : "Trade lifecycle updated", triggeredBy: input.actorUserId });
+  const shouldRecalculateTrust = input.nextStatus === "completed" || input.nextStatus === "declined" || input.nextStatus === "cancelled";
+  const beforeTrustMs = Date.now();
+  if (shouldRecalculateTrust) {
+    await recalculateTrustEngine(db, {
+      reason: input.nextStatus === "completed" ? "Trade completed" : "Trade lifecycle updated",
+      triggeredBy: input.actorUserId,
+    });
+  }
+  const trustMs = Date.now() - beforeTrustMs;
 
   if (isUsdtSentTrace) {
     console.log("[usdt-sent-trace] before DB write", { traceId: input.traceId ?? null, requestId: input.requestId });
   }
+  const beforeWriteMs = Date.now();
   await writeDb(db, { traceTag: isUsdtSentTrace ? input.traceId : undefined });
+  const writeDbMs = Date.now() - beforeWriteMs;
   if (isUsdtSentTrace) {
     console.log("[usdt-sent-trace] after DB write", { traceId: input.traceId ?? null, requestId: input.requestId });
   }
+  const enriched = enrichRequestWithEvidence(db, db.purchaseRequests[requestIndex]);
   publishRealtimeEvent({
     type: "trade.status_changed",
     payload: {
       requestId: next.id,
-      request: enrichRequestWithEvidence(db, next),
+      request: enriched,
       status: next.status,
       timeline: next.timeline,
     },
   });
-  return enrichRequestWithEvidence(db, db.purchaseRequests[requestIndex]);
+  const totalMs = Date.now() - startedAt;
+  console.log("[trade-room-action] state-transition", {
+    requestId: input.requestId,
+    actorUserId: input.actorUserId,
+    nextStatus: input.nextStatus,
+    stateBefore,
+    stateAfter: enriched.status,
+    shouldRecalculateTrust,
+    metrics: {
+      readDbMs,
+      trustMs,
+      writeDbMs,
+      totalMs,
+    },
+  });
+  return {
+    request: enriched,
+    metrics: {
+      readDbMs,
+      trustMs,
+      writeDbMs,
+      totalMs,
+    },
+  };
 }
 
 export async function getPurchaseRequestsForAdmin(dbInput?: AlphaExchangeDb) {
