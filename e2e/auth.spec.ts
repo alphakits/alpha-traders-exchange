@@ -4,9 +4,9 @@
  * Prerequisites: dev server running at http://localhost:3000
  * Run: npx playwright test e2e/auth.spec.ts
  *
- * Test accounts (seeded in data/alpha-exchange-db.json):
- *   Owner : jozenmark834@yahoo.com / Roflxd123!
- *   Buyer+Seller: test123@guest.local / test123
+ * Credentialed checks use environment variables only:
+ *   E2E_OWNER_EMAIL, E2E_OWNER_PASSWORD
+ *   E2E_BUYER_EMAIL, E2E_BUYER_PASSWORD
  */
 
 import { test, expect } from "@playwright/test";

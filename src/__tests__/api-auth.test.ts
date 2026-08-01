@@ -8,6 +8,7 @@ vi.mock("@/lib/auth", () => ({
   clearUserSession: vi.fn().mockResolvedValue(undefined),
   AUTH_COOKIE_NAME: "alpha_exchange_session",
   AUTH_VERIFIED_COOKIE_NAME: "alpha_exchange_verified",
+  AUTH_PHONE_VERIFIED_COOKIE_NAME: "alpha_exchange_phone_verified",
 }));
 
 import { requireApiUser, requireApiAdmin } from "@/lib/api-auth";
