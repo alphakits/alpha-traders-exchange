@@ -27,14 +27,15 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   }
 
   try {
+    const debug = process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
     const startedAt = Date.now();
     const { requestId } = await context.params;
     const body = await request.json();
     const status = String(body.status ?? "").trim();
     const safetyAcknowledged = body.safetyAcknowledged === true;
-    const traceId = `usdt-sent:${requestId}:${Date.now()}`;
     const isUsdtSent = status === "usdt_sent";
-    if (isUsdtSent) {
+    const traceId = debug && isUsdtSent ? `usdt-sent:${requestId}:${Date.now()}` : undefined;
+    if (debug && isUsdtSent) {
       console.log("[usdt-sent-trace] route entry", { traceId, requestId, actorUserId: user.id });
     }
     if (!status) {
@@ -43,12 +44,14 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (!isValidRequestStatus(status)) {
       return NextResponse.json({ error: "Invalid purchase request status." }, { status: 400 });
     }
-    console.log("[trade-room-action] request", {
-      requestId,
-      actorUserId: user.id,
-      actorRole: user.role,
-      payload: { status, safetyAcknowledged },
-    });
+    if (debug) {
+      console.log("[trade-room-action] request", {
+        requestId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        payload: { status, safetyAcknowledged },
+      });
+    }
 
     const { request: updated, metrics } = await updatePurchaseRequestStatus({
       requestId,
@@ -58,25 +61,27 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       safetyAcknowledged,
       traceId: isUsdtSent ? traceId : undefined,
     });
-    if (isUsdtSent) {
+    if (debug && isUsdtSent) {
       console.log("[usdt-sent-trace] before response", { traceId, requestId, updatedStatus: updated.status });
     }
     const routeMs = Date.now() - startedAt;
     const responseBody = { request: updated, metrics };
-    console.log("[trade-room-action] response", {
-      requestId,
-      actorUserId: user.id,
-      responseStatus: 200,
-      routeMs,
-      metrics,
-      stateAfter: updated.status,
-      responseBody: {
-        requestId: updated.id,
-        status: updated.status,
-        tradeId: updated.tradeId ?? null,
-        updatedAt: updated.updatedAt,
-      },
-    });
+    if (debug) {
+      console.log("[trade-room-action] response", {
+        requestId,
+        actorUserId: user.id,
+        responseStatus: 200,
+        routeMs,
+        metrics,
+        stateAfter: updated.status,
+        responseBody: {
+          requestId: updated.id,
+          status: updated.status,
+          tradeId: updated.tradeId ?? null,
+          updatedAt: updated.updatedAt,
+        },
+      });
+    }
     return NextResponse.json(responseBody, {
       headers: {
         "X-Trade-Route-Ms": String(routeMs),
@@ -85,14 +90,17 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       },
     });
   } catch (error) {
+    const debug = process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
     const { requestId } = await context.params;
     const message = error instanceof Error ? error.message : "Failed to update request.";
-    console.log("[trade-room-action] response", {
-      requestId,
-      actorUserId: user.id,
-      responseStatus: 400,
-      responseBody: { error: message },
-    });
+    if (debug) {
+      console.log("[trade-room-action] response", {
+        requestId,
+        actorUserId: user.id,
+        responseStatus: 400,
+        responseBody: { error: message },
+      });
+    }
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

@@ -14,6 +14,8 @@ type NotificationsPayload = {
   unreadCount: number;
 };
 
+const TRADE_ROOM_DEBUG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
+
 function formatRelativeTime(isoDate: string, locale: AppLocale) {
   const date = new Date(isoDate);
   const diffMs = Date.now() - date.getTime();
@@ -150,13 +152,15 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   async function handleOpenNotification(notification: AlphaExchangeNotification) {
     const tradeRoomHref = resolveTradeRoomHref(notification)
       ?? await resolveActiveTradeHref({ notificationId: notification.id, includePending: true });
-    console.log("[trade-room-open] notification click", {
-      notificationId: notification.id,
-      relatedRequestId: notification.relatedRequestId ?? null,
-      relatedListingId: notification.relatedListingId ?? null,
-      relatedTradeId: notification.relatedTradeId ?? null,
-      destination: tradeRoomHref,
-    });
+    if (TRADE_ROOM_DEBUG) {
+      console.log("[trade-room-open] notification click", {
+        notificationId: notification.id,
+        relatedRequestId: notification.relatedRequestId ?? null,
+        relatedListingId: notification.relatedListingId ?? null,
+        relatedTradeId: notification.relatedTradeId ?? null,
+        destination: tradeRoomHref,
+      });
+    }
     if (!notification.isRead) {
       void handleMarkOneRead(notification.id);
     }
@@ -168,10 +172,12 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
       return;
     }
     if (notification.relatedHref) {
-      console.log("[trade-room-open] fallback related href", {
-        notificationId: notification.id,
-        destination: notification.relatedHref,
-      });
+      if (TRADE_ROOM_DEBUG) {
+        console.log("[trade-room-open] fallback related href", {
+          notificationId: notification.id,
+          destination: notification.relatedHref,
+        });
+      }
       router.push(notification.relatedHref);
       setIsOpen(false);
     }

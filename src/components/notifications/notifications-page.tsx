@@ -19,6 +19,7 @@ type NotificationsPayload = {
 type NotificationFilter = "all" | "unread" | "trades" | "listings" | "reviews" | "announcements" | "history";
 
 const PAGE_SIZE = 20;
+const TRADE_ROOM_DEBUG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
 
 function notificationIcon(notification: AlphaExchangeNotification) {
   if (notification.category === "trade") return Scale;
@@ -152,13 +153,15 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
   async function openTradeRoomFromNotification(notification: AlphaExchangeNotification) {
     const destination = resolveTradeRoomHref(notification)
       ?? await resolveActiveTradeHref({ notificationId: notification.id, includePending: true });
-    console.log("[trade-room-open] notification click", {
-      notificationId: notification.id,
-      relatedRequestId: notification.relatedRequestId ?? null,
-      relatedListingId: notification.relatedListingId ?? null,
-      relatedTradeId: notification.relatedTradeId ?? null,
-      destination,
-    });
+    if (TRADE_ROOM_DEBUG) {
+      console.log("[trade-room-open] notification click", {
+        notificationId: notification.id,
+        relatedRequestId: notification.relatedRequestId ?? null,
+        relatedListingId: notification.relatedListingId ?? null,
+        relatedTradeId: notification.relatedTradeId ?? null,
+        destination,
+      });
+    }
     if (!destination) {
       setError("Could not resolve this trade room.");
       return;

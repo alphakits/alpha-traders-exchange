@@ -341,10 +341,15 @@ function shouldLogRepoVersionFlow() {
   return true;
 }
 
+function shouldPersistRepoVersionTrace() {
+  return process.env.ALPHA_EXCHANGE_REPO_TRACE === "1";
+}
+
 function logRepoVersionFlow(event: string, payload: Record<string, unknown>) {
   if (!shouldLogRepoVersionFlow()) return;
   const line = `[alpha-exchange-repo] ${new Date().toISOString()} ${event} ${JSON.stringify(payload)}`;
   console.log(line);
+  if (!shouldPersistRepoVersionTrace()) return;
   try {
     appendFileSync(`${process.cwd()}\\data\\alpha-exchange-repo-trace.log`, `${line}\n`);
   } catch {

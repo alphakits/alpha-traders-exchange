@@ -73,6 +73,7 @@ import type {
 const SELLER_EVIDENCE_TRACE_PATH = path.join(process.cwd(), "tmp", "seller-evidence-server.log");
 
 function writeSellerEvidenceTrace(label: string, payload: unknown) {
+  if (process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM !== "1") return;
   mkdirSync(path.dirname(SELLER_EVIDENCE_TRACE_PATH), { recursive: true });
   appendFileSync(SELLER_EVIDENCE_TRACE_PATH, `${JSON.stringify({ label, payload }, null, 2)}\n`, "utf8");
 }
@@ -5117,8 +5118,9 @@ export async function updatePurchaseRequestStatus(input: {
   traceId?: string;
 }) {
   const startedAt = Date.now();
+  const debugTradeRoom = process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
   const isUsdtSentTrace = input.nextStatus === "usdt_sent";
-  if (isUsdtSentTrace) {
+  if (debugTradeRoom && isUsdtSentTrace) {
     console.log("[usdt-sent-trace] service entry", {
       traceId: input.traceId ?? null,
       requestId: input.requestId,
@@ -5554,13 +5556,13 @@ export async function updatePurchaseRequestStatus(input: {
   }
   const trustMs = Date.now() - beforeTrustMs;
 
-  if (isUsdtSentTrace) {
+  if (debugTradeRoom && isUsdtSentTrace) {
     console.log("[usdt-sent-trace] before DB write", { traceId: input.traceId ?? null, requestId: input.requestId });
   }
   const beforeWriteMs = Date.now();
-  await writeDb(db, { traceTag: isUsdtSentTrace ? input.traceId : undefined });
+  await writeDb(db, { traceTag: debugTradeRoom && isUsdtSentTrace ? input.traceId : undefined });
   const writeDbMs = Date.now() - beforeWriteMs;
-  if (isUsdtSentTrace) {
+  if (debugTradeRoom && isUsdtSentTrace) {
     console.log("[usdt-sent-trace] after DB write", { traceId: input.traceId ?? null, requestId: input.requestId });
   }
   const enriched = enrichRequestWithEvidence(db, db.purchaseRequests[requestIndex]);
@@ -5574,20 +5576,22 @@ export async function updatePurchaseRequestStatus(input: {
     },
   });
   const totalMs = Date.now() - startedAt;
-  console.log("[trade-room-action] state-transition", {
-    requestId: input.requestId,
-    actorUserId: input.actorUserId,
-    nextStatus: input.nextStatus,
-    stateBefore,
-    stateAfter: enriched.status,
-    shouldRecalculateTrust,
-    metrics: {
-      readDbMs,
-      trustMs,
-      writeDbMs,
-      totalMs,
-    },
-  });
+  if (debugTradeRoom) {
+    console.log("[trade-room-action] state-transition", {
+      requestId: input.requestId,
+      actorUserId: input.actorUserId,
+      nextStatus: input.nextStatus,
+      stateBefore,
+      stateAfter: enriched.status,
+      shouldRecalculateTrust,
+      metrics: {
+        readDbMs,
+        trustMs,
+        writeDbMs,
+        totalMs,
+      },
+    });
+  }
   return {
     request: enriched,
     metrics: {
