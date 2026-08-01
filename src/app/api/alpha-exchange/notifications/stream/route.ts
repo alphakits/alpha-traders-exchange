@@ -7,8 +7,16 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 function isNotificationEventForUser(event: RealtimeEvent, userId: string) {
-  if (event.type !== "notification.created" && event.type !== "notification.updated") return false;
-  return event.payload.notification.userId === userId;
+  if (event.type === "notification.created" || event.type === "notification.updated") {
+    return event.payload.notification.userId === userId;
+  }
+  // Also refresh when the trade status changes — this fires AFTER writeDb, so the
+  // notification that was pushed in the same transaction is now persisted and readable.
+  if (event.type === "trade.status_changed") {
+    const req = event.payload.request;
+    return req?.buyerId === userId || req?.sellerId === userId;
+  }
+  return false;
 }
 
 export async function GET(request: NextRequest) {

@@ -310,8 +310,10 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                       <p className="mt-1 text-sm text-[#D1D5DB]">{notification.message}</p>
                       <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-[#C9A227]">
                         {!notification.isRead ? <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5">Unread</span> : <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#9CA3AF]">Read</span>}
-                        {notification.relatedTradeId ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">Trade #{notification.relatedTradeId.slice(-6)}</span> : null}
-                        {notification.relatedListingId ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">Listing #{notification.relatedListingId.slice(-6)}</span> : null}
+                        {notification.relatedTradeDisplayNumber ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">Trade #{notification.relatedTradeDisplayNumber}</span> : notification.relatedTradeId ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">Trade</span> : null}
+                        {notification.relatedListingDisplayNumber ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">Listing #{notification.relatedListingDisplayNumber}</span> : null}
+                        {notification.tradeSnapshot?.usdtAmount ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">{notification.tradeSnapshot.usdtAmount} USDT</span> : null}
+                        {notification.tradeSnapshot?.counterpartyName ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">{notification.tradeSnapshot.counterpartyName}</span> : null}
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <Button

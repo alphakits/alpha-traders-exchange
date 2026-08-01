@@ -634,6 +634,10 @@ export function TradeRoomPage({
       const messageEvent = event as MessageEvent<string>;
       try {
         const payload = JSON.parse(messageEvent.data) as TradeRoomData;
+        // Don't overwrite optimistic state while a mutation is in-flight.
+        // The confirmed state arrives from the HTTP response; the SSE snapshot
+        // here may be stale (e.g. a keepalive fired before the DB write).
+        if (actionInFlightRef.current) return;
         writeTradeRoomCache(requestId, payload);
         setRoom(payload);
         setStreamConnected(true);
@@ -862,6 +866,19 @@ export function TradeRoomPage({
     if (!request) return;
     const message = chatDraft.trim();
     if (!message) return;
+    // Optimistically append the message so it appears instantly for the sender.
+    const optimisticMsg: import("@/types/alpha-exchange").TradeChatMessage = {
+      id: `optimistic-msg-${Date.now()}`,
+      purchaseRequestId: request.id,
+      kind: "user",
+      senderUserId: actor.id,
+      senderRole: actor.role,
+      message,
+      createdAt: new Date().toISOString(),
+      readByUserIds: [actor.id],
+    };
+    setRoom((prev) => prev ? { ...prev, messages: [optimisticMsg, ...prev.messages] } : prev);
+    setChatDraft("");
     setChatBusy(true);
     try {
       const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}/messages`, {
@@ -871,16 +888,18 @@ export function TradeRoomPage({
       });
       const payload = (await response.json()) as { error?: string; message?: string };
       if (!response.ok) {
+        // Revert the optimistic message on failure.
+        setRoom((prev) => prev ? { ...prev, messages: prev.messages.filter((m) => m.id !== optimisticMsg.id) } : prev);
+        setChatDraft(message);
         throw new Error(readApiErrorFallback(payload, isAr ? "تعذر إرسال الرسالة." : "Failed to send message."));
       }
-      setChatDraft("");
-      await fetchRoom(true);
+      // The SSE stream will deliver the authoritative snapshot with the confirmed message.
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : (isAr ? "تعذر إرسال الرسالة." : "Failed to send message."));
     } finally {
       setChatBusy(false);
     }
-  }, [chatDraft, fetchRoom, isAr, request]);
+  }, [actor.id, actor.role, chatDraft, isAr, request]);
 
   const handleUploadEvidence = useCallback(async (side: "buyer" | "seller") => {
     if (!request || !room) return;
