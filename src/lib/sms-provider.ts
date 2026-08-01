@@ -53,7 +53,7 @@ const USER_FACING_OTP_ERRORS = new Set([
 
 function classifyOtpError(raw: string): OtpSupportCode {
   const normalized = raw.toLowerCase();
-  if (/signups not allowed|provider disabled|sms.*not.*enabled|not configured|twilio|messaging service|verify service/i.test(normalized)) {
+  if (/signups not allowed|provider disabled|sms.*not.*enabled|not configured|twilio|messaging service|verify service|compliance profile|trust hub|kyc|20003/i.test(normalized)) {
     return "OTP_PROVIDER_CONFIGURATION";
   }
   if (/rate.?limit|too many/i.test(normalized)) {
@@ -73,7 +73,7 @@ function toUserFacingOtpError(raw: string): string {
     if (raw.toLowerCase().includes(msg.toLowerCase())) return msg;
   }
   // "Signups not allowed for otp" and other provider/config errors must never reach end users
-  if (/signups not allowed|provider disabled|sms.*not.*enabled|not configured/i.test(raw)) {
+  if (/signups not allowed|provider disabled|sms.*not.*enabled|not configured|compliance profile|trust hub|kyc|20003/i.test(raw)) {
     return "Phone verification is temporarily unavailable. Please try again later or contact support.";
   }
   if (/rate.?limit|too many/i.test(raw)) {
