@@ -379,7 +379,8 @@ export type TradeTimelineEventType =
   | "seller_evidence_uploaded"
   | "request_declined"
   | "request_cancelled"
-  | "buyer_confirmed_receipt";
+  | "buyer_confirmed_receipt"
+  | "buyer_confirmation_overdue";
 
 export interface TradeTimelineEntry {
   id: string;
@@ -395,6 +396,8 @@ export interface TradeReview {
   rating: number;
   comment: string;
   createdAt: string;
+  hidden?: boolean;
+  hiddenReason?: string;
 }
 
 export interface TradeReviewResponse {
@@ -571,6 +574,7 @@ export interface PurchaseRequest {
   completedAt?: string;
   timedOutAt?: string;
   timeoutReason?: string;
+  buyerConfirmationArchivedAt?: string;
   lockedAt?: string;
   reviewUnlockedAt?: string;
   buyerEvidence?: TradeEvidenceFile;

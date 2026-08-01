@@ -177,7 +177,11 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     if (error instanceof Error && error.message.trim()) {
-      return denied(error.message, 400, "PURCHASE_REQUEST_VALIDATION_FAILED", undefined, { errorName: error.name });
+      const blocked = error as Error & { code?: string; purchaseRequestId?: string };
+      const code = blocked.code ?? "PURCHASE_REQUEST_VALIDATION_FAILED";
+      const details: Record<string, unknown> = { errorName: error.name };
+      if (blocked.purchaseRequestId) details.purchaseRequestId = blocked.purchaseRequestId;
+      return denied(error.message, 400, code, undefined, details);
     }
     return failed("Failed to submit purchase request.");
   }

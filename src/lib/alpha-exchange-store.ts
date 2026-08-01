@@ -165,12 +165,24 @@ const COMMISSION_GRACE_PERIOD_DAYS = 7;
 const DEFAULT_LISTING_EXPIRATION_HOURS = 24;
 const ALLOWED_LISTING_EXPIRATION_HOURS = [1, 6, 12, 24] as const;
 const DEFAULT_STALE_TRADE_TIMEOUT_MINUTES = 20;
+const BUYER_CONFIRMATION_TIMEOUT_MINUTES = 5;
 const EMAIL_VERIFICATION_TOKEN_BYTES = 32;
 const EMAIL_VERIFICATION_EXPIRY_HOURS = 24;
 const SYSTEM_ACTOR_USER_ID = "system:marketplace";
 let dbCache: { value: AlphaExchangeDb; updatedAt: number } | null = null;
 let dbReadInFlight: Promise<AlphaExchangeDb> | null = null;
 let dbWriteInFlight: Promise<void> = Promise.resolve();
+
+class TradeBlockedError extends Error {
+  readonly code: string;
+  readonly purchaseRequestId?: string;
+  constructor(code: string, message: string, purchaseRequestId?: string) {
+    super(message);
+    this.name = "TradeBlockedError";
+    this.code = code;
+    this.purchaseRequestId = purchaseRequestId;
+  }
+}
 
 function syncCachedAuthSessions(nextAuthSessions: AuthSession[]) {
   if (!dbCache) return;
@@ -2300,6 +2312,54 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
     });
   }
 
+  const buyerConfirmationTimeoutMs = BUYER_CONFIRMATION_TIMEOUT_MINUTES * 60 * 1000;
+  for (const request of db.purchaseRequests) {
+    if (request.status !== "usdt_sent") continue;
+    if (request.buyerConfirmationArchivedAt || request.completedAt) continue;
+    if (!request.usdtSentAt) continue;
+    const usdtSentMs = new Date(request.usdtSentAt).getTime();
+    if (!usdtSentMs || Number.isNaN(usdtSentMs) || usdtSentMs + buyerConfirmationTimeoutMs > nowMs) continue;
+
+    const now = nowIso();
+    changed = true;
+    request.buyerConfirmationArchivedAt = now;
+    request.updatedAt = now;
+    appendTradeTimelineEntry(request, {
+      type: "buyer_confirmation_overdue",
+      actorUserId: SYSTEM_ACTOR_USER_ID,
+      actorRole: "admin",
+      message: "Buyer confirmation reminder sent — trade archived awaiting buyer confirmation.",
+      createdAt: now,
+    });
+    await appendAuditLog(db, {
+      action: "trade_timed_out",
+      actorUserId: SYSTEM_ACTOR_USER_ID,
+      targetUserId: request.buyerId,
+      listingId: request.listingId,
+      purchaseRequestId: request.id,
+      details: `Trade ${request.tradeId ?? request.id} awaiting buyer confirmation beyond the ${BUYER_CONFIRMATION_TIMEOUT_MINUTES}-minute window.`,
+      oldValue: { status: "usdt_sent" },
+      newValue: { status: "usdt_sent", buyerConfirmationArchivedAt: now },
+      reason: "Buyer confirmation overdue.",
+    });
+    pushNotification(db, {
+      userId: request.buyerId,
+      category: "trade",
+      title: "Action Required — Confirm USDT Receipt",
+      message: `Please confirm that you received your USDT from trade ${request.tradeId ?? request.id} to complete your purchase.`,
+      relatedTradeId: request.tradeId ?? request.id,
+      relatedListingId: request.listingId,
+      relatedHref: requestDetailsHref(request.id),
+      priority: "high",
+      actionLabel: "Confirm Receipt",
+      actionHref: requestDetailsHref(request.id),
+    });
+    publishRealtimeEvent({
+      type: "trade.status_changed",
+      payload: { request: enrichRequestWithEvidence(db, request) },
+    });
+  }
+
   for (const listing of db.marketplaceListings) {
     if (!isListingLocked(listing.status) && !listing.activeTradeRequestId) continue;
     const linkedRequest = listing.activeTradeRequestId
@@ -4420,6 +4480,16 @@ export async function createPurchaseRequest(input: {
   const dbReadMs = Date.now() - dbReadStartedAt;
   const validationStartedAt = Date.now();
   const now = nowIso();
+  const pendingConfirmationTrade = db.purchaseRequests.find(
+    (r) => r.buyerId === input.buyerId && r.status === "usdt_sent" && r.buyerConfirmationArchivedAt,
+  );
+  if (pendingConfirmationTrade) {
+    throw new TradeBlockedError(
+      "AWAITING_BUYER_CONFIRMATION",
+      "You have an outstanding trade awaiting your confirmation. Please confirm that you received your USDT before starting another purchase.",
+      pendingConfirmationTrade.id,
+    );
+  }
   const pendingFeedbackTrade = getBuyerPendingFeedbackTrade(db, input.buyerId);
   if (pendingFeedbackTrade) {
     throw new Error("Please complete your feedback for your previous trade before starting a new one.");

@@ -1108,11 +1108,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         }
         let errorMessage = fallbackMessage;
         let errorCode = "";
+        let errorDetails: Record<string, unknown> = {};
         try {
-          const payload = (await response.json()) as { error?: unknown; message?: unknown; code?: unknown };
+          const payload = (await response.json()) as { error?: unknown; message?: unknown; code?: unknown; details?: unknown };
           if (typeof payload.error === "string" && payload.error.trim()) errorMessage = payload.error;
           else if (typeof payload.message === "string" && payload.message.trim()) errorMessage = payload.message;
           if (typeof payload.code === "string" && payload.code.trim()) errorCode = payload.code;
+          if (payload.details && typeof payload.details === "object") errorDetails = payload.details as Record<string, unknown>;
         } catch {
           const fallbackText = (await response.text()).trim();
           if (fallbackText && !/^<!doctype html>/i.test(fallbackText)) errorMessage = fallbackText;
@@ -1124,6 +1126,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             || /phone verification is required/i.test(errorMessage)
           );
         setShowVerificationCta(requiresVerification);
+        if (errorCode === "AWAITING_BUYER_CONFIRMATION") {
+          const blockingId = typeof errorDetails.purchaseRequestId === "string" ? errorDetails.purchaseRequestId : null;
+          if (blockingId) {
+            setMyRequests((prev) =>
+              prev.map((r) => r.id === blockingId ? { ...r, buyerConfirmationArchivedAt: new Date().toISOString() } : r),
+            );
+          }
+        }
         setStatusMessage(errorMessage);
         return;
       }
@@ -1157,6 +1167,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   const isApprovedSeller = sessionUser?.role === "approved_seller" && sessionUser?.sellerStatus === "approved_seller";
   const isOwnerViewer = sessionUser?.role === "admin" && isAlphaExchangeOwnerEmail(sessionUser.email);
+  const archivedConfirmationTrade = !isApprovedSeller
+    ? myRequests.find((r) => r.status === "usdt_sent" && r.buyerConfirmationArchivedAt)
+    : undefined;
   useEffect(() => {
     if (!sessionUser) return;
     if (typeof window === "undefined") return;
@@ -3983,6 +3996,28 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         </div>
       ) : (
         <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)] xl:items-start">
+          {archivedConfirmationTrade ? (
+            <Card className="md:col-span-2 border-[#C9A227]/40 bg-[#C9A227]/10">
+              <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl">⏰</span>
+                  <div>
+                    <p className="font-semibold text-[#FDE68A]">{isAr ? "إجراء مطلوب — تأكيد استلام USDT" : "Action Required — Confirm USDT Receipt"}</p>
+                    <p className="mt-0.5 text-sm text-[#E5E7EB]">
+                      {isAr
+                        ? "لديك صفقة تنتظر تأكيد استلام USDT. يرجى التأكيد لإكمال صفقتك والسماح بعمليات الشراء الجديدة."
+                        : "You have a trade waiting for your USDT receipt confirmation. Please confirm receipt to complete your trade and unblock new purchases."}
+                    </p>
+                  </div>
+                </div>
+                <Link href={`/trade-room/${archivedConfirmationTrade.id}`} className="shrink-0">
+                  <Button size="sm" className="w-full sm:w-auto">
+                    {isAr ? "تأكيد الاستلام" : "Confirm Receipt"}
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+          ) : null}
           {buyerOverviewCard}
           <Card className="border-white/10 bg-[#0B0B0B]/85">
             <CardHeader>

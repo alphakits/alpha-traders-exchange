@@ -325,10 +325,14 @@ function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isA
           tradeStatus: currentStatus,
         }
       : {
-          icon: "🎯",
-          title: isAr ? "الحالة الحالية" : "Current Status",
-          headline: isAr ? "أكد استلام USDT" : "Confirm USDT Received",
-          detail: isAr ? "بعد التأكيد ستنتقل الصفقة إلى سجل الصفقات الناجحة." : "After confirmation, the trade moves into your completed history.",
+          icon: "⏰",
+          title: isAr ? "الحالة الحالية" : "Action Required",
+          headline: request.buyerConfirmationArchivedAt
+            ? (isAr ? "تأكيد الاستلام متأخر — أكد استلام USDT الآن" : "Confirmation Overdue — Confirm USDT Receipt Now")
+            : (isAr ? "أكد استلام USDT" : "Confirm USDT Received"),
+          detail: request.buyerConfirmationArchivedAt
+            ? (isAr ? "لم يتم تأكيد استلام USDT خلال 5 دقائق. يرجى التأكيد الآن لإكمال الصفقة والسماح بالمشتريات الجديدة." : "USDT receipt was not confirmed within 5 minutes. Please confirm now to complete the trade and unblock future purchases.")
+            : (isAr ? "بعد التأكيد ستنتقل الصفقة إلى سجل الصفقات الناجحة." : "After confirmation, the trade moves into your completed history."),
           yourAction: primaryAction?.label ?? (isAr ? "تأكيد استلام USDT" : "Confirm USDT Received"),
           counterpartyAction: isAr ? "البائع أرسل USDT" : "Seller has already sent the USDT",
           tradeStatus: currentStatus,
