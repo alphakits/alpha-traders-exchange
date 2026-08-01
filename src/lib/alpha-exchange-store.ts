@@ -5350,9 +5350,13 @@ export async function updatePurchaseRequestStatus(input: {
     });
   } else if (input.nextStatus === "usdt_sent") {
     const sellerEvidence = getTradeEvidenceFile(db, request.id, "seller");
-    if (!sellerEvidence) throw new Error("Seller evidence is required before marking USDT sent.");
+    if (isFaceToFaceTrade && !sellerEvidence) {
+      throw new Error("Seller evidence is required before marking USDT sent.");
+    }
     next.status = "usdt_sent";
-    next.sellerEvidence = sellerEvidence;
+    if (sellerEvidence) {
+      next.sellerEvidence = sellerEvidence;
+    }
     next.usdtSentAt = now;
     appendTradeTimelineEntry(next, { type: "usdt_sent", actorUserId: input.actorUserId, actorRole, message: "Seller marked USDT sent", createdAt: now });
     appendSystemTradeMessage(db, next, {

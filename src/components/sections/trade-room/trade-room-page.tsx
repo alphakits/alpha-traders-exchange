@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { MarketplaceListing, PurchaseRequest, TradeChatMessage, TradeEvidenceFile, TradeTimelineEntry, UserRole } from "@/types/alpha-exchange";
 import { readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
+import { isFaceToFacePaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 
 type Locale = "ar" | "en";
 
@@ -115,7 +116,7 @@ function getStepIndex(status: PurchaseRequest["status"]) {
   return STEP_ORDER.findIndex((item) => item.id === id);
 }
 
-function getPrimaryAction(request: PurchaseRequest, isSeller: boolean, isAr: boolean): PrimaryAction | null {
+function getPrimaryAction(request: PurchaseRequest, isSeller: boolean, isAr: boolean, isFaceToFaceTrade: boolean): PrimaryAction | null {
   if (request.status === "pending" && isSeller) {
     return {
       label: isAr ? "قبول الطلب" : "Accept Trade",
@@ -158,7 +159,7 @@ function getPrimaryAction(request: PurchaseRequest, isSeller: boolean, isAr: boo
     };
   }
   if (request.status === "usdt_release_pending" && isSeller) {
-    if (!request.sellerEvidence) {
+    if (isFaceToFaceTrade && !request.sellerEvidence) {
       return {
         label: isAr ? "إصدار USDT" : "Release USDT",
         successLabel: isAr ? "تم إصدار USDT" : "USDT Released",
@@ -675,16 +676,30 @@ export function TradeRoomPage({
 
   const isSeller = room ? room.request.sellerId === actor.id : actor.role === "approved_seller";
   const request = room?.request ?? null;
+  const requestPaymentMethod = request ? (normalizeMarketplacePaymentMethod(request.paymentMethod) ?? request.paymentMethod) : "";
+  const isFaceToFaceTrade = request ? isFaceToFacePaymentMethod(requestPaymentMethod) : false;
   const counterpartName = request
     ? (isSeller ? room?.counterpart.buyerName : room?.counterpart.sellerName)
     : "";
   const currentStepIndex = request ? getStepIndex(request.status) : 0;
   const progressPercent = Math.round((currentStepIndex / (STEP_ORDER.length - 1)) * 100);
   const turn = request ? getTurnPanel(request, isSeller, isAr) : null;
-  const primaryAction = request ? getPrimaryAction(request, isSeller, isAr) : null;
+  const primaryAction = request ? getPrimaryAction(request, isSeller, isAr, isFaceToFaceTrade) : null;
   const isOverdueTrade = Boolean(room?.isOverdue);
   const statusBanner = request ? getStatusBannerContent(request, isSeller, isAr, primaryAction, isOverdueTrade) : null;
   const showSuccessScreen = request?.status === "review_open" || request?.status === "completed" || request?.status === "locked";
+  const sellerCanViewBuyerReceipt = Boolean(
+    isSeller
+    && request
+    && (request.status === "payment_sent"
+      || request.status === "funds_received"
+      || request.status === "usdt_release_pending"
+      || request.status === "usdt_sent"
+      || request.status === "review_open"
+      || request.status === "completed"
+      || request.status === "locked"),
+  );
+  const canShowBuyerReceipt = Boolean(request?.buyerEvidence && (!isSeller || sellerCanViewBuyerReceipt));
   const activeTimeline = useMemo(() => {
     if (!request) return [] as TradeTimelineEntry[];
     return [...(request.timeline ?? [])].sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
@@ -1331,6 +1346,16 @@ export function TradeRoomPage({
                 ) : (
                   <p className="text-sm text-[#9CA3AF]">{isAr ? "لا يوجد إجراء مطلوب الآن." : "No required action at this moment."}</p>
                 )}
+                {isSeller && request.status === "accepted" ? (
+                  <div className="rounded-xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-3 text-sm text-[#DBEAFE]">
+                    <p className="font-medium text-white">{isAr ? "بانتظار دفع المشتري" : "Waiting for Buyer Payment"}</p>
+                    <p className="mt-1">
+                      {isAr
+                        ? "بانتظار المشتري لرفع إيصال الدفع. لا يمكنك المتابعة قبل إرسال الدفع."
+                        : "Waiting for the buyer to upload their payment receipt. You cannot continue until the buyer submits payment."}
+                    </p>
+                  </div>
+                ) : null}
 
                 {room.canOpenDispute && !room.hasOpenDispute ? (
                   <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
@@ -1404,14 +1429,18 @@ export function TradeRoomPage({
               <CardContent className="grid gap-3 text-sm md:grid-cols-2">
                 <div className="rounded-xl border border-white/10 bg-black/25 p-3">
                   <p className="font-medium text-white">{isAr ? "إيصال دفع المشتري" : "Buyer Payment Receipt"}</p>
-                  {request.buyerEvidence ? (
-                    <a href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.buyerEvidence.id}`} target="_blank" rel="noreferrer" className="mt-2 inline-block text-[#C9A227] hover:underline">
-                      {request.buyerEvidence.fileName}
+                  {canShowBuyerReceipt ? (
+                    <a href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.buyerEvidence!.id}`} target="_blank" rel="noreferrer" className="mt-2 inline-block text-[#C9A227] hover:underline">
+                      {request.buyerEvidence!.fileName}
                     </a>
                   ) : (
-                    <p className="mt-2 text-[#9CA3AF]">{isAr ? "لم يتم الرفع بعد." : "Not uploaded yet."}</p>
+                    <p className="mt-2 text-[#9CA3AF]">
+                      {isSeller && request.status === "accepted"
+                        ? (isAr ? "سيظهر إيصال المشتري هنا بعد إرسال الدفع." : "The buyer receipt will appear here after payment is submitted.")
+                        : (isAr ? "لم يتم الرفع بعد." : "Not uploaded yet.")}
+                    </p>
                   )}
-                  {actorSide === "buyer" ? (
+                  {actorSide === "buyer" && request.status === "accepted" ? (
                     <div className="mt-3 space-y-2">
                       <p className="text-xs text-[#9CA3AF]">
                         {isAr ? "هذه الخطوة مطلوبة قبل إرسال تأكيد الدفع." : "This receipt is required before payment confirmation."}
@@ -1436,9 +1465,13 @@ export function TradeRoomPage({
                       {request.sellerEvidence.fileName}
                     </a>
                   ) : (
-                    <p className="mt-2 text-[#9CA3AF]">{isAr ? "لم يتم الرفع بعد." : "Not uploaded yet."}</p>
+                    <p className="mt-2 text-[#9CA3AF]">
+                      {isFaceToFaceTrade
+                        ? (isAr ? "يظهر هذا الحقل فقط لصفقات وجهًا لوجه." : "This is shown only for Face-to-Face trades.")
+                        : (isAr ? "غير مطلوب لهذا النوع من الصفقة." : "Not required for this trade type.")}
+                    </p>
                   )}
-                  {actorSide === "seller" ? (
+                  {actorSide === "seller" && isFaceToFaceTrade && request.status === "usdt_release_pending" ? (
                     <div className="mt-3 space-y-2">
                       <Input ref={sellerEvidenceInputRef} type="file" accept=".png,.jpg,.jpeg,.webp,.pdf" onChange={(event) => setSellerEvidenceFile(event.target.files?.[0] ?? null)} />
                       {sellerEvidenceFile ? (
