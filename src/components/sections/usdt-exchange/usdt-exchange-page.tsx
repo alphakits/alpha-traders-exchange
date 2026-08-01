@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Activity, AlertTriangle, BadgePercent, BellRing, CheckCircle2, Clock3, Copy, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Users, WalletCards, X, Zap } from "lucide-react";
+import { Activity, AlertTriangle, ArrowRight, BadgePercent, BellRing, CheckCircle2, Clock3, Copy, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Users, WalletCards, X, Zap } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -2048,33 +2048,89 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div className="rounded-xl border border-[#C9A227]/25 bg-[#C9A227]/10 p-3">
-                      <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "سعر العرض" : "Listing Price"}</p>
-                      <div className="mt-2 flex items-end justify-between">
-                        <p className="text-2xl font-semibold text-white">{formatIls(toNumber(listing.price))}</p>
-                        <p className="text-xs text-[#E5E7EB]">{toNumber(listing.availableAmount).toLocaleString("en-IL")} USDT</p>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="rounded-xl border border-white/10 bg-black/25 p-2.5 text-[#D1D5DB]">⭐ {(listing.sellerReputation?.rating ?? 0).toFixed(2)} Rating</div>
-                      <div className="rounded-xl border border-white/10 bg-black/25 p-2.5 text-[#D1D5DB]">🤝 {(listing.sellerReputation?.completedTrades ?? 0).toLocaleString("en-IL")} Trades</div>
-                      <div className="rounded-xl border border-white/10 bg-black/25 p-2.5 text-[#D1D5DB]">⚡ {safeText(listing.responseTime, "5 min")}</div>
-                      <div className="rounded-xl border border-white/10 bg-black/25 p-2.5 text-[#D1D5DB]">🛡 {(listing.sellerReputation?.trustScore ?? 0).toFixed(1)} Trust</div>
-                    </div>
-                    <div className="space-y-1.5 text-xs text-[#9CA3AF]">
-                      <p>{isAr ? "آخر نشاط" : "Last active"}: <span className="text-white">{formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt)}</span></p>
-                      <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{safeText(listing.network)}</span></p>
-                      <div>
-                        <p>{isAr ? "الدفع" : "Payment"}:</p>
-                        <div className="mt-1 flex flex-wrap gap-1.5">
-                          {normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).map((method) => (
-                            <span key={`${listing.id}-${method}`} className="rounded-full border border-white/15 bg-white/[0.03] px-2 py-0.5 text-[11px] text-[#D1D5DB]">
-                              {paymentMethodEmoji(method)} {paymentMethodLabel(method)}
+                    <div className="rounded-2xl border border-[#C9A227]/25 bg-[linear-gradient(135deg,rgba(201,162,39,0.14),rgba(5,5,5,0.88))] p-4 shadow-[0_14px_36px_rgba(0,0,0,0.35)] transition duration-300 group-hover:border-[#C9A227]/45 group-hover:shadow-[0_18px_42px_rgba(201,162,39,0.2)]">
+                      <div className="grid gap-4 md:grid-cols-[7fr_auto_3fr] md:items-stretch">
+                        <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 p-3 shadow-[0_0_25px_rgba(16,185,129,0.15)]">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-300">
+                            {isAr ? "USDT المتاح" : "Available USDT"}
+                          </p>
+                          <div className="mt-3 flex items-center gap-2">
+                            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-emerald-400/40 bg-emerald-500/20 text-emerald-200">
+                              ₮
                             </span>
-                          ))}
+                            <p className="text-5xl font-bold leading-none text-white md:text-6xl">
+                              {toNumber(listing.availableAmount).toLocaleString("en-IL")}
+                            </p>
+                          </div>
+                          <p className="mt-2 text-sm font-medium text-emerald-100">USDT</p>
+                          <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-400/45 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
+                            {isAr ? "جاهز للتداول" : "Ready to trade"}
+                          </span>
+                        </div>
+                        <div className="mx-auto hidden w-px bg-[#C9A227]/35 md:block" />
+                        <div className="mx-auto h-px w-full bg-[#C9A227]/35 md:hidden" />
+                        <div className="rounded-xl border border-[#C9A227]/30 bg-[#111111]/85 p-3">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-[#D4AF37]">
+                            {isAr ? "سعر العرض" : "Listing Price"}
+                          </p>
+                          <p className="mt-2 text-3xl font-semibold text-[#F4D87A] md:text-4xl">
+                            {toNumber(listing.price).toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </p>
+                          <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#E5E7EB]">ILS / USDT</p>
+                          <div className="mt-2 rounded-lg border border-white/10 bg-black/30 p-2 text-[11px] text-[#CFCFCF]">
+                            <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "سعر السوق" : "Market Rate"}</p>
+                            <p className="mt-0.5 text-white">
+                              {(marketPricePerUsdt - 0.03).toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              {" - "}
+                              {(marketPricePerUsdt + 0.02).toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ILS
+                            </p>
+                          </div>
                         </div>
                       </div>
-                      <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{toNumber(listing.minimumTrade).toLocaleString("en-IL")} – {toNumber(listing.maximumTrade).toLocaleString("en-IL")} USDT</span></p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                      <div className="rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/30 hover:bg-black/35">
+                        <p className="text-base">⭐</p>
+                        <p className="mt-1 font-semibold text-white">{(listing.sellerReputation?.rating ?? 0).toFixed(2)}</p>
+                        <p className="text-[11px] text-[#9CA3AF]">{isAr ? "التقييم" : "Rating"}</p>
+                      </div>
+                      <div className="rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/30 hover:bg-black/35">
+                        <p className="text-base">🤝</p>
+                        <p className="mt-1 font-semibold text-white">{(listing.sellerReputation?.completedTrades ?? 0).toLocaleString("en-IL")}</p>
+                        <p className="text-[11px] text-[#9CA3AF]">{isAr ? "الصفقات" : "Trades"}</p>
+                      </div>
+                      <div className="rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/30 hover:bg-black/35">
+                        <p className="text-base">⚡</p>
+                        <p className="mt-1 font-semibold text-white">{safeText(listing.responseTime, "5 min")}</p>
+                        <p className="text-[11px] text-[#9CA3AF]">{isAr ? "الاستجابة" : "Response Time"}</p>
+                      </div>
+                      <div className="rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/30 hover:bg-black/35">
+                        <p className="text-base">🛡</p>
+                        <p className="mt-1 font-semibold text-white">{(listing.sellerReputation?.trustScore ?? 0).toFixed(1)}</p>
+                        <p className="text-[11px] text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust Score"}</p>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 text-xs text-[#9CA3AF] md:grid-cols-2">
+                      <div className="space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
+                        <p>{isAr ? "آخر نشاط" : "Last active"}: <span className="text-white">{formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt)}</span></p>
+                        <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{safeText(listing.network)}</span></p>
+                        <div>
+                          <p>{isAr ? "الدفع" : "Payment"}:</p>
+                          <div className="mt-1 flex flex-wrap gap-1.5">
+                            {normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).map((method) => (
+                              <span key={`${listing.id}-${method}`} className="rounded-full border border-white/15 bg-white/[0.03] px-2 py-0.5 text-[11px] text-[#D1D5DB]">
+                                {paymentMethodEmoji(method)} {paymentMethodLabel(method)}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
+                        <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{toNumber(listing.minimumTrade).toLocaleString("en-IL")} – {toNumber(listing.maximumTrade).toLocaleString("en-IL")} USDT</span></p>
+                        <p>{isAr ? "الضمان" : "Escrow"}: <span className="text-white">{isAr ? "مؤمّن عبر Alpha Traders" : "Secured by Alpha Traders"}</span></p>
+                        <p>{isAr ? "المنطقة" : "Region"}: <span className="text-white">{safeText(listing.sellerProfile?.country, "Israel")}</span></p>
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {(listing.sellerReputation?.badges ?? []).slice(0, 2).map((badge) => (
@@ -2088,8 +2144,16 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         </span>
                       ) : null}
                     </div>
-                    <Button className="w-full transition-transform group-hover:scale-[1.01]" onClick={() => openListingModal(listing)} aria-label={`Open listing from ${safeText(listing.sellerDisplayName, "seller")}`}>
-                      {isAr ? "شراء USDT الآن" : "Buy USDT"}
+                    <Button
+                      className="h-[60px] w-full justify-between rounded-2xl bg-gradient-to-r from-[#C9A227] via-[#E8C560] to-[#C9A227] px-5 text-sm font-semibold text-black shadow-[0_14px_32px_rgba(201,162,39,0.35)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_18px_42px_rgba(201,162,39,0.45)]"
+                      onClick={() => openListingModal(listing)}
+                      aria-label={`Open listing from ${safeText(listing.sellerDisplayName, "seller")}`}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <LockKeyhole className="h-4 w-4" />
+                        {isAr ? "شراء USDT الآن" : "Buy USDT"}
+                      </span>
+                      <ArrowRight className="h-4 w-4" />
                     </Button>
                     {(sessionUser?.role === "admin" || isAlphaExchangeOwnerEmail(sessionUser?.email ?? "")) ? (
                       <div className="mt-2 flex flex-wrap gap-1.5 border-t border-white/[0.07] pt-2">
