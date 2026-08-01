@@ -13,7 +13,7 @@ import { AlphaMarketCenter } from "@/components/market/alpha-market-center";
 import { useMarketFeed } from "@/components/market/use-market-feed";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { MARKETPLACE_PAYMENT_METHODS, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
-import { CLIENT_COMMISSION_WALLETS, COMMISSION_NETWORKS, getDefaultCommissionNetwork, type CommissionNetworkId } from "@/lib/commission-config";
+import { CLIENT_COMMISSION_WALLETS, COMMISSION_NETWORKS, type CommissionNetworkId } from "@/lib/commission-config";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
@@ -396,7 +396,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     relatedTradeDisplayNumber?: number;
   } | null>(null);
   const [commissionPayOpen, setCommissionPayOpen] = useState(false);
-  const [commissionNetwork, setCommissionNetwork] = useState<CommissionNetworkId>(getDefaultCommissionNetwork());
+  const [commissionNetwork, setCommissionNetwork] = useState<CommissionNetworkId>("ERC20");
   const [commissionTxSignature, setCommissionTxSignature] = useState("");
   const [commissionPayBusy, setCommissionPayBusy] = useState(false);
   const [commissionPayMessage, setCommissionPayMessage] = useState<string | null>(null);
@@ -2656,33 +2656,41 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
                 {/* Network selector */}
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">Select Network</p>
-                  <div className="flex flex-wrap gap-2">
-                    {COMMISSION_NETWORKS.map((net) => (
-                      <button
-                        key={net.id}
-                        type="button"
-                        onClick={() => setCommissionNetwork(net.id)}
-                        className={`rounded-full border px-3 py-1 text-xs font-medium transition-all ${
-                          commissionNetwork === net.id
-                            ? "border-[#C9A227] bg-[#C9A227]/20 text-[#C9A227]"
-                            : "border-white/20 text-[#9CA3AF] hover:border-white/40 hover:text-white"
-                        }`}
-                      >
-                        {net.id}
-                      </button>
-                    ))}
+                  <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">Choose Payment Network</p>
+                  <div className="space-y-2">
+                    {COMMISSION_NETWORKS.map((net) => {
+                      const selected = commissionNetwork === net.id;
+                      return (
+                        <button
+                          key={net.id}
+                          type="button"
+                          onClick={() => setCommissionNetwork(net.id)}
+                          className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all ${
+                            selected
+                              ? "border-[#C9A227] bg-[#C9A227]/10 text-white"
+                              : "border-white/15 bg-black/20 text-[#9CA3AF] hover:border-white/30 hover:text-white"
+                          }`}
+                        >
+                          <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${selected ? "border-[#C9A227]" : "border-white/30"}`}>
+                            {selected ? <div className="h-2 w-2 rounded-full bg-[#C9A227]" /> : null}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-medium">{net.label}</span>
+                            {net.recommended ? <span className="ml-2 text-xs text-[#C9A227]">⭐ Recommended</span> : null}
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
-                  <p className="text-xs text-[#6B7280]">
-                    {COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.label ?? commissionNetwork} · USDT
-                  </p>
                 </div>
 
                 {/* Recipient address + QR */}
                 {CLIENT_COMMISSION_WALLETS[commissionNetwork] ? (
                   <div className="space-y-3">
                     <div className="space-y-1">
-                      <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">Recipient Address</p>
+                      <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">
+                        Recipient Address · {COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.sublabel ?? commissionNetwork}
+                      </p>
                       <div className="flex items-center gap-2">
                         <code className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-xs font-mono text-white break-all">
                           {CLIENT_COMMISSION_WALLETS[commissionNetwork]}
