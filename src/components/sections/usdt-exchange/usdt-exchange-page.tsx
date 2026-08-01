@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Activity, AlertTriangle, BadgePercent, BellRing, CheckCircle2, Clock3, Copy, Edit3, HandCoins, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Users, WalletCards, X, Zap } from "lucide-react";
+import { Activity, AlertTriangle, BadgePercent, BellRing, CheckCircle2, Clock3, Copy, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Users, WalletCards, X, Zap } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -296,6 +296,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [myRequests, setMyRequests] = useState<PurchaseRequest[]>([]);
   const [myListings, setMyListings] = useState<MarketplaceListing[]>([]);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [showVerificationCta, setShowVerificationCta] = useState(false);
+  const [isRedirectingToVerification, setIsRedirectingToVerification] = useState(false);
   const [sellerWorkspaceMessage, setSellerWorkspaceMessage] = useState<string | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [editingListingId, setEditingListingId] = useState<string | null>(null);
@@ -342,6 +344,37 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     maximumTrade: "",
     sellerDescription: "",
   });
+
+  const tradeReturnPath = selectedListing
+    ? `/${locale}/usdt-exchange?listing=${encodeURIComponent(selectedListing.id)}`
+    : `/${locale}/usdt-exchange`;
+
+  const updateListingSelectionQuery = useCallback((listingId: string | null) => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (listingId) {
+      url.searchParams.set("listing", listingId);
+    } else {
+      url.searchParams.delete("listing");
+    }
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
+  const closeListingModal = useCallback(() => {
+    setSelectedListing(null);
+    setSellerProfileData(null);
+    setStatusMessage(null);
+    setShowVerificationCta(false);
+    setIsRedirectingToVerification(false);
+    setFaceToFaceSafetyAcknowledged(false);
+    updateListingSelectionQuery(null);
+  }, [updateListingSelectionQuery]);
+
+  const goToVerificationGate = useCallback(() => {
+    setIsRedirectingToVerification(true);
+    setStatusMessage("Redirecting to verification...");
+    router.push(`/verify-account?redirectTo=${encodeURIComponent(tradeReturnPath)}`);
+  }, [router, tradeReturnPath]);
   const [currencyFilter, setCurrencyFilter] = useState("all");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState("all");
   const [networkFilter, setNetworkFilter] = useState<"all" | SupportedNetwork>("all");
@@ -595,6 +628,30 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     return () => window.clearTimeout(timeout);
   }, [isLoadingListings]);
 
+  useEffect(() => {
+    if (isLoadingListings || selectedListing || !sessionUser) return;
+    if (typeof window === "undefined") return;
+    const listingId = new URLSearchParams(window.location.search).get("listing");
+    if (!listingId) return;
+    const listing = listings.find((item) => item.id === listingId);
+    if (!listing) {
+      updateListingSelectionQuery(null);
+      setStatusMessage("This listing is no longer available.");
+      return;
+    }
+    setSelectedListing(listing);
+    setSellerProfileData(null);
+    setPurchaseSubmitted(false);
+    setShowVerificationCta(false);
+    setIsRedirectingToVerification(false);
+    setFaceToFaceSafetyAcknowledged(false);
+    setBuyerInfo((prev) => ({
+      ...prev,
+      usdtAmount: formatIntegerForInput(listing.minimumTrade || listing.availableAmount),
+    }));
+    void fetchSellerProfileData(listing.sellerId);
+  }, [isLoadingListings, listings, selectedListing, sessionUser, updateListingSelectionQuery]);
+
   const features: FeatureCard[] = [
     {
       icon: ShieldCheck,
@@ -814,7 +871,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     void fetchSellerProfileData(listing.sellerId);
     setPurchaseSubmitted(false);
     setStatusMessage(null);
+    setShowVerificationCta(false);
+    setIsRedirectingToVerification(false);
     setFaceToFaceSafetyAcknowledged(false);
+    updateListingSelectionQuery(listing.id);
     setBuyerInfo((prev) => ({
       ...prev,
       usdtAmount: formatIntegerForInput(listing.minimumTrade || listing.availableAmount),
@@ -887,13 +947,29 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         if (requestId) {
           console.warn("[alpha-exchange] purchase request rejected", { requestId, listingId: selectedListing.id });
         }
-        setStatusMessage(await readApiErrorMessage(response, fallbackMessage));
+        let errorMessage = fallbackMessage;
+        let errorCode = "";
+        try {
+          const payload = (await response.json()) as { error?: unknown; message?: unknown; code?: unknown };
+          if (typeof payload.error === "string" && payload.error.trim()) errorMessage = payload.error;
+          else if (typeof payload.message === "string" && payload.message.trim()) errorMessage = payload.message;
+          if (typeof payload.code === "string" && payload.code.trim()) errorCode = payload.code;
+        } catch {
+          const fallbackText = (await response.text()).trim();
+          if (fallbackText && !/^<!doctype html>/i.test(fallbackText)) errorMessage = fallbackText;
+        }
+        const requiresVerification = response.status === 403
+          && (errorCode === "PHONE_VERIFICATION_REQUIRED" || /verification/i.test(errorMessage));
+        setShowVerificationCta(requiresVerification);
+        setStatusMessage(errorMessage);
         return;
       }
       const data = (await response.json()) as { purchase?: PurchaseRequest };
       if (data.purchase) {
         setMyRequests((prev) => [data.purchase as PurchaseRequest, ...prev]);
         setPurchaseSubmitted(true);
+        setShowVerificationCta(false);
+        setIsRedirectingToVerification(false);
         setStatusMessage(null);
       }
     } catch (error) {
@@ -3409,10 +3485,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     </span>
                   </p>
                 </div>
-                <button type="button" aria-label="Close listing details" onClick={() => {
-                  setSelectedListing(null);
-                  setSellerProfileData(null);
-                }} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227]">
+                <button type="button" aria-label="Close listing details" onClick={closeListingModal} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227]">
                   <X className="h-4 w-4" />
                 </button>
               </div>
@@ -3504,10 +3577,35 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     </div>
                     <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
                       <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Listing & Trade Quote</p>
-                      <div className="mt-2 space-y-1 text-xs">
-                        <p>Available Amount: <span className="text-white">{selectedListing.availableAmount}</span></p>
+                      <motion.div
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.22, ease: "easeOut" }}
+                        className="mt-3 rounded-2xl border border-[#C9A227]/30 bg-gradient-to-r from-emerald-500/10 via-black/60 to-[#C9A227]/12 p-4 shadow-[0_0_24px_rgba(16,185,129,0.12)] transition-transform duration-300 hover:-translate-y-0.5"
+                      >
+                        <div className="grid gap-4 md:grid-cols-[1fr_auto_1fr] md:items-center">
+                          <div className="text-center md:text-left">
+                            <div className="mb-2 inline-flex h-10 w-10 items-center justify-center rounded-full border border-emerald-400/45 bg-emerald-500/20 text-emerald-200 shadow-[0_0_18px_rgba(16,185,129,0.35)]">
+                              ₮
+                            </div>
+                            <p className="text-5xl font-bold leading-none text-white md:text-6xl">{selectedAmount.toLocaleString("en-IL")}</p>
+                            <p className="mt-2 text-sm uppercase tracking-[0.14em] text-emerald-200/90">USDT Available</p>
+                            <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-400/45 bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-200">
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
+                              Available Now
+                            </span>
+                          </div>
+                          <div className="mx-auto hidden h-24 w-px bg-white/15 md:block" />
+                          <div className="mx-auto h-px w-full bg-white/15 md:hidden" />
+                          <div className="text-center md:text-right">
+                            <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">Listing Price</p>
+                            <p className="mt-2 text-4xl font-bold text-[#C9A227] md:text-5xl">{formatIls(selectedPrice)}</p>
+                            <p className="mt-2 text-xs uppercase tracking-[0.12em] text-[#D1D5DB]">ILS per USDT</p>
+                          </div>
+                        </div>
+                      </motion.div>
+                      <div className="mt-3 space-y-1 text-xs">
                         <p>Network: <span className="text-white">{selectedListing.network}</span></p>
-                        <p>Price: <span className="text-white">{selectedListing.price}</span></p>
                         <p>Commission (1%): <span className="text-white">₪{commission.toFixed(2)}</span></p>
                         <p className="font-medium">Estimated Total: <span className="text-[#C9A227]">₪{estimatedTotal.toFixed(2)}</span></p>
                         <p>Trade Instructions: <span className="text-white">{paymentMethodTradeInstruction(selectedListing.paymentMethod, "buyer")}</span></p>
@@ -3666,7 +3764,41 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         </Button>
                       </div>
                     </div>
-                    {statusMessage ? (
+                    {showVerificationCta ? (
+                      <Card className="border-[#C9A227]/50 bg-gradient-to-br from-amber-500/15 via-black/60 to-[#C9A227]/10 shadow-[0_0_26px_rgba(201,162,39,0.22)]">
+                        <CardContent className="space-y-3 p-4">
+                          <div className="flex items-start gap-2">
+                            <AlertTriangle className="mt-0.5 h-4 w-4 text-[#FDE68A]" />
+                            <div>
+                              <p className="text-sm font-semibold text-[#FDE68A]">⚠️ Buyer Verification Required</p>
+                              <p className="mt-1 text-xs text-[#E5E7EB]">
+                                Complete your verification to begin trading safely on Alpha Exchange. The verification takes less than one minute.
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex flex-col gap-2 sm:flex-row">
+                            <Button
+                              type="button"
+                              className="w-full sm:w-auto"
+                              onClick={goToVerificationGate}
+                              disabled={isRedirectingToVerification}
+                            >
+                              {isRedirectingToVerification ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                              {isRedirectingToVerification ? "Redirecting to verification..." : "✅ Verify Now"}
+                            </Button>
+                            <button
+                              type="button"
+                              onClick={goToVerificationGate}
+                              disabled={isRedirectingToVerification}
+                              className="text-left text-xs text-[#FDE68A] underline underline-offset-2 transition hover:text-[#FFE8A3] disabled:cursor-not-allowed disabled:opacity-70"
+                            >
+                              Go to Verification →
+                            </button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ) : null}
+                    {statusMessage && !showVerificationCta ? (
                       <Card className="border-amber-500/30 bg-black/30">
                         <CardContent className="flex items-center gap-2 p-3 text-xs text-[#FDE68A]">
                           <AlertTriangle className="h-3.5 w-3.5" />
@@ -3682,8 +3814,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <p className="mt-2 text-[#D1D5DB]">Alpha Traders has received your request. We will connect you with the Approved Seller shortly.</p>
                   <div className="mt-4">
                     <Button onClick={() => {
-                      setSelectedListing(null);
-                      setSellerProfileData(null);
+                      closeListingModal();
                     }}>Close</Button>
                   </div>
                 </div>
