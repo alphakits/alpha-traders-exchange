@@ -2,7 +2,7 @@
 
 import { useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { GraduationCap, ShieldCheck, Store, UserCircle2, Sparkles, Clock3, CheckCircle2 } from "lucide-react";
+import { GraduationCap, ShieldCheck, Store, UserCircle2, Sparkles, Clock3, CheckCircle2, Send, Smartphone, KeyRound } from "lucide-react";
 import { useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -313,40 +313,50 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
                 value={buyer.displayName}
                 onChange={(event) => setBuyer((prev) => ({ ...prev, displayName: event.target.value }))}
               />
-              <Input
-                aria-label={isAr ? "رقم الهاتف الإسرائيلي" : "Israeli mobile number"}
-                placeholder={isAr ? "رقم الهاتف الإسرائيلي (+972 / 05...)" : "Israeli mobile (+972 / 05...)"}
-                value={buyer.phone}
-                onChange={(event) => setBuyer((prev) => ({ ...prev, phone: event.target.value }))}
-              />
-              <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="grid gap-2 lg:grid-cols-[minmax(0,1.25fr)_auto_minmax(0,1fr)_auto] lg:items-center">
+                <div className="relative">
+                  <Smartphone className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#C9A227]" />
+                  <Input
+                    aria-label={isAr ? "رقم الهاتف الإسرائيلي" : "Israeli mobile number"}
+                    placeholder={isAr ? "رقم الهاتف الإسرائيلي (+972 / 05...)" : "Israeli mobile (+972 / 05...)"}
+                    value={buyer.phone}
+                    onChange={(event) => setBuyer((prev) => ({ ...prev, phone: event.target.value }))}
+                    className="pl-10"
+                  />
+                </div>
                 <Button
                   type="button"
-                  className="flex-1"
+                  className="h-11 w-full whitespace-nowrap px-5 sm:min-w-[230px] lg:w-auto"
                   loading={loading === "sendOtp"}
                   loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
                   onClick={() => void sendOtp()}
                   disabled={isLoading}
                 >
+                  <Send className="h-4 w-4" />
                   {isAr ? "إرسال رمز التحقق" : "Send verification code"}
                 </Button>
-                <Input
-                  aria-label={isAr ? "رمز مكون من 6 أرقام" : "6-digit code"}
-                  placeholder={isAr ? "رمز مكون من 6 أرقام" : "6-digit code"}
-                  value={buyer.token}
-                  onChange={(event) => setBuyer((prev) => ({ ...prev, token: event.target.value }))}
-                />
+                <div className="relative">
+                  <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#C9A227]" />
+                  <Input
+                    aria-label={isAr ? "رمز مكون من 6 أرقام" : "6-digit code"}
+                    placeholder={isAr ? "رمز مكون من 6 أرقام" : "6-digit code"}
+                    value={buyer.token}
+                    onChange={(event) => setBuyer((prev) => ({ ...prev, token: event.target.value }))}
+                    className="pl-10"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="h-11 w-full whitespace-nowrap px-5 sm:min-w-[180px] lg:w-auto"
+                  loading={loading === "verifyOtp"}
+                  loadingLabel={isAr ? "جارٍ التحقق..." : "Verifying..."}
+                  onClick={() => void verifyOtp()}
+                  disabled={isLoading || buyer.token.length !== 6}
+                >
+                  {isAr ? "تأكيد التحقق" : "Verify"}
+                </Button>
               </div>
-              <Button
-                type="button"
-                variant="secondary"
-                loading={loading === "verifyOtp"}
-                loadingLabel={isAr ? "جارٍ التحقق..." : "Verifying..."}
-                onClick={() => void verifyOtp()}
-                disabled={isLoading || buyer.token.length !== 6}
-              >
-                {isAr ? "تأكيد وتفعيل المشتري" : "Verify & activate Buyer"}
-              </Button>
             </div>
             {error ? <p className="mt-2 text-xs text-rose-300">{error}</p> : null}
             {status ? <p className="mt-2 text-xs text-emerald-300">{status}</p> : null}
