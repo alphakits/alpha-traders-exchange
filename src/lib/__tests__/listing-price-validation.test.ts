@@ -1,37 +1,30 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { DEFAULT_USD_ILS_MARKET_RATE, fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
 
 describe("listing price validation", () => {
+  afterEach(() => {
+    delete process.env.ALPHA_EXCHANGE_USD_ILS_RATE;
+  });
+
   it("allows ILS prices at the configured cap", () => {
-    const error = getListingPriceValidationError({ price: "39.55", currency: "ILS", marketRate: 39.2 });
+    const error = getListingPriceValidationError({ price: "3.35", currency: "ILS", marketRate: 3.0 });
     expect(error).toBeNull();
   });
 
   it("rejects ILS prices above the configured cap", () => {
-    const error = getListingPriceValidationError({ price: "39.56", currency: "ILS", marketRate: 39.2 });
-    expect(error).toContain("39.55");
+    const error = getListingPriceValidationError({ price: "3.36", currency: "ILS", marketRate: 3.0 });
+    expect(error).toContain("3.35");
   });
 
   it("does not enforce a cap for non-ILS currencies", () => {
-    const error = getListingPriceValidationError({ price: "5000", currency: "USD", marketRate: 39.2 });
+    const error = getListingPriceValidationError({ price: "5000", currency: "USD", marketRate: 3.0 });
     expect(error).toBeNull();
   });
 
-  it("falls back to the configured default when the live rate is implausible", async () => {
-    const originalFetch = global.fetch;
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ rates: { ILS: 3.0695 } }),
-    }) as unknown as typeof fetch);
-
-    try {
-      const rate = await fetchUsdIlsMarketRate();
-      expect(rate).toBe(DEFAULT_USD_ILS_MARKET_RATE);
-    } finally {
-      vi.unstubAllGlobals();
-      if (originalFetch) {
-        global.fetch = originalFetch;
-      }
-    }
+  it("uses the configured market reference rate when present", async () => {
+    process.env.ALPHA_EXCHANGE_USD_ILS_RATE = "3.12";
+    const rate = await fetchUsdIlsMarketRate();
+    expect(rate).toBe(3.12);
+    expect(rate).not.toBe(DEFAULT_USD_ILS_MARKET_RATE);
   });
 });

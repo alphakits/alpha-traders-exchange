@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { TrustBar } from "@/components/sections/home/trust-bar";
 import { HomepageStats } from "@/components/sections/home/homepage-stats";
 import { FounderPreview } from "@/components/sections/home/founder-preview";
+import { AlphaMarketCenter } from "@/components/market/alpha-market-center";
 
 export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
   const t = useTranslations("home");
@@ -141,6 +142,10 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
       <TrustBar />
 
       <HomepageStats />
+
+      <section className="section-container">
+        <AlphaMarketCenter locale={isRtl ? "ar" : "en"} showCta />
+      </section>
 
       <FounderPreview />
 

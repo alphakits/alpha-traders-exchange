@@ -9,15 +9,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RoleBadge } from "@/components/ui/role-badge";
+import { AlphaMarketCenter } from "@/components/market/alpha-market-center";
+import { useMarketFeed } from "@/components/market/use-market-feed";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, BetaAnnouncement, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
 const WHATSAPP_URL = "https://wa.me/972525967649";
 const MAX_EVIDENCE_SIZE_BYTES = 8 * 1024 * 1024;
 const ALLOWED_EVIDENCE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
-const MARKET_PRICE_PER_USDT = 3.92;
 const MAX_PRICE_MARKUP_ILS = 0.35;
-const MAX_ALLOWED_LISTING_PRICE = MARKET_PRICE_PER_USDT + MAX_PRICE_MARKUP_ILS;
+const DEFAULT_MARKET_PRICE_PER_USDT = 3.05;
 
 type Locale = "ar" | "en";
 
@@ -163,6 +164,7 @@ function roleBadgeVariantFromSession(user: SessionUser) {
 export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const isAr = locale === "ar";
   const router = useRouter();
+  const { snapshot: marketSnapshot } = useMarketFeed({ refreshMs: 45_000 });
 
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
@@ -688,17 +690,27 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const isApprovedSeller = sessionUser?.role === "approved_seller" && sessionUser?.sellerStatus === "approved_seller";
   const isOwnerViewer = sessionUser?.role === "admin" && isAlphaExchangeOwnerEmail(sessionUser.email);
   const menuItems = isApprovedSeller ? sellerMenu : buyerMenu;
+  const marketPricePerUsdt = marketSnapshot?.pairs.usdtIls.price ?? DEFAULT_MARKET_PRICE_PER_USDT;
+  const maxAllowedListingPrice = marketPricePerUsdt + MAX_PRICE_MARKUP_ILS;
   const listingCreatePrice = toNumber(listingCreateForm.price);
   const listingCreateAmount = toNumber(listingCreateForm.availableAmount);
-  const listingCreatePriceInvalid = listingCreatePrice > MAX_ALLOWED_LISTING_PRICE;
+  const listingCreateCurrency = listingCreateForm.currency.trim().toUpperCase();
+  const listingCreatePriceInvalid = listingCreateCurrency === "ILS" && listingCreatePrice > maxAllowedListingPrice;
   const listingCreatePriceValid = listingCreatePrice > 0 && !listingCreatePriceInvalid;
+  const listingCreateGuardCardTone = listingCreatePriceInvalid
+    ? "border-red-500/60 bg-red-500/10 shadow-[0_0_0_3px_rgba(239,68,68,0.16)]"
+    : listingCreatePriceValid
+      ? "border-emerald-500/60 bg-emerald-500/10 shadow-[0_0_0_3px_rgba(16,185,129,0.14)]"
+      : "border-[#C9A227]/30 bg-[#C9A227]/10";
   const listingCreateGuardTone = listingCreatePriceInvalid
     ? "border-red-500/60 bg-red-500/10 text-red-200"
     : listingCreatePriceValid
       ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-200"
       : "border-white/10 bg-black/20 text-[#D1D5DB]";
   const listingEditPrice = toNumber(listingEditForm.price);
-  const listingEditPriceInvalid = listingEditPrice > MAX_ALLOWED_LISTING_PRICE;
+  const listingEditAmount = toNumber(listingEditForm.availableAmount);
+  const listingEditCurrency = listingEditForm.currency.trim().toUpperCase();
+  const listingEditPriceInvalid = listingEditCurrency === "ILS" && listingEditPrice > maxAllowedListingPrice;
   const listingEditPriceValid = listingEditPrice > 0 && !listingEditPriceInvalid;
   const listingEditGuardTone = listingEditPriceInvalid
     ? "border-red-500/60 bg-red-500/10 text-red-200"
@@ -1241,6 +1253,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       </Card>
 
       <div className="mt-6">
+        <AlphaMarketCenter locale={locale} />
+      </div>
+
+      <div className="mt-6">
         <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "مركز الثقة والأمان" : "Trust & Security"}</h2>
         <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {[
@@ -1641,12 +1657,15 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="mb-4 rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-4 text-sm text-[#E5E7EB]">
+              <div className={`mb-4 rounded-2xl border p-4 text-sm text-[#E5E7EB] transition-all duration-200 ${listingCreateGuardCardTone}`}>
                 <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">Live Market Price Guard</p>
+                <p className={`mt-1 text-xs ${marketSnapshot?.status === "live" ? "text-emerald-300" : "text-amber-200"}`}>
+                  {marketSnapshot?.status === "live" ? "LIVE" : "Market temporarily unavailable — using last known price."}
+                </p>
                 <div className="mt-2 space-y-1">
-                  <p>1 USDT = <span className="font-semibold text-white">{formatIls(MARKET_PRICE_PER_USDT)}</span></p>
-                  <p>Maximum listing price: <span className="font-semibold text-white">{formatIls(MAX_ALLOWED_LISTING_PRICE)}</span></p>
-                  {listingCreateAmount > 0 ? <p>{listingCreateAmount.toLocaleString("en-IL")} USDT ≈ <span className="font-semibold text-white">{formatIls(listingCreateAmount * MARKET_PRICE_PER_USDT)}</span></p> : null}
+                  <p>1 USDT = <span className="font-semibold text-white">{formatIls(marketPricePerUsdt)}</span></p>
+                  <p>Maximum listing price: <span className="font-semibold text-white">{formatIls(maxAllowedListingPrice)}</span></p>
+                  {listingCreateAmount > 0 ? <p>{listingCreateAmount.toLocaleString("en-IL")} USDT ≈ <span className="font-semibold text-white">{formatIls(listingCreateAmount * marketPricePerUsdt)}</span></p> : null}
                 </div>
               </div>
               <form className="grid gap-3 md:grid-cols-2" onSubmit={handleSellerListingCreateSubmit}>
@@ -1656,7 +1675,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     placeholder="Price"
                     value={listingCreateForm.price}
                     onChange={(event) => setListingCreateForm((prev) => ({ ...prev, price: event.target.value }))}
-                    className={`transition-all duration-300 ${
+                    className={`transition-all duration-200 ${
                       listingCreatePriceInvalid
                         ? "border-red-500/85 shadow-[0_0_0_3px_rgba(239,68,68,0.2)]"
                         : listingCreatePriceValid
@@ -1664,14 +1683,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           : ""
                     }`}
                   />
-                  <p className={`text-xs transition-colors duration-300 ${
+                  <p className={`text-xs transition-colors duration-200 ${
                     listingCreatePriceInvalid ? "text-red-300" : listingCreatePriceValid ? "text-emerald-300" : "text-[#9CA3AF]"
                   }`}>
                     {listingCreatePriceInvalid
-                      ? `Price exceeds maximum allowed (${formatIls(MAX_ALLOWED_LISTING_PRICE)}).`
+                      ? `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)}).`
                       : listingCreatePriceValid
-                        ? `Valid price. Maximum allowed is ${formatIls(MAX_ALLOWED_LISTING_PRICE)}.`
-                        : `Enter a price up to ${formatIls(MAX_ALLOWED_LISTING_PRICE)}.`}
+                        ? `Valid price. Maximum allowed is ${formatIls(maxAllowedListingPrice)}.`
+                        : `Enter a price up to ${formatIls(maxAllowedListingPrice)}.`}
                   </p>
                 </div>
                 <Input placeholder="Currency (e.g. ILS)" value={listingCreateForm.currency} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, currency: event.target.value }))} />
@@ -1689,16 +1708,16 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 <Input className="md:col-span-2" placeholder="Photo URLs (comma separated)" value={listingCreateForm.photos} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, photos: event.target.value }))} />
                 <Textarea className="md:col-span-2" placeholder="Optional Notes" value={listingCreateForm.notes} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, notes: event.target.value }))} />
                 <Textarea className="md:col-span-2" placeholder="Seller Description" value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
-                <div className={`md:col-span-2 rounded-2xl border p-4 transition-all duration-300 ${listingCreateGuardTone}`}>
+                <div className={`md:col-span-2 rounded-2xl border p-4 transition-all duration-200 ${listingCreateGuardTone}`}>
                   <div className="flex items-start gap-2">
                     {listingCreatePriceInvalid ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
                     <div className="space-y-1 text-sm">
                       <p className="font-medium">
-                        {listingCreatePriceInvalid ? `Price exceeds maximum allowed (${formatIls(MAX_ALLOWED_LISTING_PRICE)})` : "Market guard active"}
+                        {listingCreatePriceInvalid ? `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)})` : "Market guard active"}
                       </p>
-                      <p>Current market: {formatIls(MARKET_PRICE_PER_USDT)} per 1 USDT</p>
-                      <p>Maximum allowed: {formatIls(MAX_ALLOWED_LISTING_PRICE)}</p>
-                      {listingCreateAmount > 0 ? <p>{listingCreateAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingCreateAmount * MARKET_PRICE_PER_USDT)}</p> : null}
+                      <p>Current market: {formatIls(marketPricePerUsdt)} per 1 USDT</p>
+                      <p>Maximum allowed: {formatIls(maxAllowedListingPrice)}</p>
+                      {listingCreateAmount > 0 ? <p>{listingCreateAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingCreateAmount * marketPricePerUsdt)}</p> : null}
                     </div>
                   </div>
                 </div>
@@ -1790,7 +1809,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                             value={listingEditForm.price}
                             onChange={(event) => setListingEditForm((prev) => ({ ...prev, price: event.target.value }))}
                             placeholder="Price"
-                            className={`transition-all duration-300 ${
+                            className={`transition-all duration-200 ${
                               listingEditPriceInvalid
                                 ? "border-red-500/85 shadow-[0_0_0_3px_rgba(239,68,68,0.2)]"
                                 : listingEditPriceValid
@@ -1798,14 +1817,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                                   : ""
                             }`}
                           />
-                          <p className={`text-xs transition-colors duration-300 ${
+                          <p className={`text-xs transition-colors duration-200 ${
                             listingEditPriceInvalid ? "text-red-300" : listingEditPriceValid ? "text-emerald-300" : "text-[#9CA3AF]"
                           }`}>
                             {listingEditPriceInvalid
-                              ? `Price exceeds maximum allowed (${formatIls(MAX_ALLOWED_LISTING_PRICE)}).`
+                              ? `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)}).`
                               : listingEditPriceValid
-                                ? `Valid price. Maximum allowed is ${formatIls(MAX_ALLOWED_LISTING_PRICE)}.`
-                                : `Enter a price up to ${formatIls(MAX_ALLOWED_LISTING_PRICE)}.`}
+                                ? `Valid price. Maximum allowed is ${formatIls(maxAllowedListingPrice)}.`
+                                : `Enter a price up to ${formatIls(maxAllowedListingPrice)}.`}
                           </p>
                         </div>
                         <Input value={listingEditForm.currency} onChange={(event) => setListingEditForm((prev) => ({ ...prev, currency: event.target.value }))} placeholder="Currency" />
@@ -1820,15 +1839,16 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         <Input value={listingEditForm.expiresAt} onChange={(event) => setListingEditForm((prev) => ({ ...prev, expiresAt: event.target.value }))} placeholder="Expiry (YYYY-MM-DDTHH:mm)" />
                         <Input className="md:col-span-2" value={listingEditForm.paymentMethods} onChange={(event) => setListingEditForm((prev) => ({ ...prev, paymentMethods: event.target.value }))} placeholder="Payment Methods (comma separated)" />
                         <Input className="md:col-span-2" value={listingEditForm.notes} onChange={(event) => setListingEditForm((prev) => ({ ...prev, notes: event.target.value }))} placeholder="Optional Notes" />
-                        <div className={`md:col-span-4 rounded-2xl border p-3 text-xs transition-all duration-300 ${listingEditGuardTone}`}>
+                        <div className={`md:col-span-4 rounded-2xl border p-3 text-xs transition-all duration-200 ${listingEditGuardTone}`}>
                           <div className="flex items-start gap-2">
                             {listingEditPriceInvalid ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
                             <div className="space-y-1">
                               <p className="font-medium">
-                                {listingEditPriceInvalid ? `Price exceeds maximum allowed (${formatIls(MAX_ALLOWED_LISTING_PRICE)})` : "Market guard active"}
+                                {listingEditPriceInvalid ? `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)})` : "Market guard active"}
                               </p>
-                              <p>Current market: {formatIls(MARKET_PRICE_PER_USDT)} per 1 USDT</p>
-                              <p>Maximum allowed: {formatIls(MAX_ALLOWED_LISTING_PRICE)}</p>
+                              <p>Current market: {formatIls(marketPricePerUsdt)} per 1 USDT</p>
+                              <p>Maximum allowed: {formatIls(maxAllowedListingPrice)}</p>
+                              {listingEditAmount > 0 ? <p>{listingEditAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingEditAmount * marketPricePerUsdt)}</p> : null}
                             </div>
                           </div>
                         </div>

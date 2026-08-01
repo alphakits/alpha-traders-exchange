@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMarketplaceListings, adminOverrideMarketplaceListing } from "@/lib/alpha-exchange-store";
 import { requireApiAdmin } from "@/lib/api-auth";
-import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
+import { fetchUsdIlsMarketRate, getListingPriceValidationError, MAX_ILS_PRICE_OVER_MARKET } from "@/lib/listing-price-validation";
 
 /**
  * GET  /api/alpha-exchange/admin/listings/price-audit
@@ -29,7 +29,7 @@ export async function GET() {
       price: l.price,
       currency: l.currency,
       status: l.status,
-      maxAllowed: (marketRate + 0.35).toFixed(2),
+      maxAllowed: (marketRate + MAX_ILS_PRICE_OVER_MARKET).toFixed(2),
       marketRate: marketRate.toFixed(4),
     }));
 
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
         listingId: listing.id,
         adminUserId: user.id,
         action: "force_close",
-        reason: `Price ₪${listing.price} exceeds market cap ₪${(marketRate + 0.35).toFixed(2)} (market ₪${marketRate.toFixed(4)} + ₪0.35).`,
+        reason: `Price ₪${listing.price} exceeds market cap ₪${(marketRate + MAX_ILS_PRICE_OVER_MARKET).toFixed(2)} (market ₪${marketRate.toFixed(4)} + ₪${MAX_ILS_PRICE_OVER_MARKET.toFixed(2)}).`,
       });
       results.push({ id: listing.id, outcome: "force_closed" });
     } catch (err) {

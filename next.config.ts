@@ -24,6 +24,7 @@ const securityHeaders = [
       "font-src 'self' data:",
       "connect-src 'self' https:",
       "media-src 'self' https: blob:",
+      "frame-src 'self' https://s.tradingview.com https://www.tradingview.com",
       "frame-ancestors 'self'",
       "base-uri 'self'",
       "form-action 'self'",
