@@ -595,6 +595,15 @@ textarea {
   }
 }
 
+@keyframes shimmer {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(120%);
+  }
+}
+
 @keyframes blockchain-node-pulse {
   0%,
   100% {

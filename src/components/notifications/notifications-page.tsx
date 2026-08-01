@@ -60,6 +60,8 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<NotificationFilter>("all");
   const [page, setPage] = useState(1);
+  const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
+  const [itemLoading, setItemLoading] = useState<Record<string, boolean>>({});
   const router = useRouter();
 
   async function loadNotifications() {
@@ -102,29 +104,42 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
   const pageItems = filteredNotifications.slice(pageStart, pageStart + PAGE_SIZE);
 
   async function handleMarkOneRead(notificationId: string) {
-    const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isRead: true }),
-    });
-    if (!response.ok) {
-      setError("Failed to update notification.");
-      return;
+    const key = `read:${notificationId}`;
+    if (itemLoading[key]) return;
+    setItemLoading((prev) => ({ ...prev, [key]: true }));
+    try {
+      const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isRead: true }),
+      });
+      if (!response.ok) {
+        setError("Failed to update notification.");
+        return;
+      }
+      await loadNotifications();
+    } finally {
+      setItemLoading((prev) => ({ ...prev, [key]: false }));
     }
-    await loadNotifications();
   }
 
   async function handleMarkAllRead() {
-    const response = await fetch("/api/alpha-exchange/notifications", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "mark_all_read" }),
-    });
-    if (!response.ok) {
-      setError("Failed to update notifications.");
-      return;
+    if (isMarkingAllRead) return;
+    setIsMarkingAllRead(true);
+    try {
+      const response = await fetch("/api/alpha-exchange/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_all_read" }),
+      });
+      if (!response.ok) {
+        setError("Failed to update notifications.");
+        return;
+      }
+      await loadNotifications();
+    } finally {
+      setIsMarkingAllRead(false);
     }
-    await loadNotifications();
   }
 
   return (
@@ -148,7 +163,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
               <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
               <Input className="ps-9" placeholder="Search notifications" value={search} onChange={(event) => setSearch(event.target.value)} />
             </div>
-            <Button type="button" size="sm" variant="secondary" className="h-11 px-4" onClick={() => void handleMarkAllRead()}>
+            <Button type="button" size="sm" variant="secondary" className="h-11 px-4" loading={isMarkingAllRead} loadingLabel="Marking..." onClick={() => void handleMarkAllRead()}>
               Mark all as read
             </Button>
           </div>
@@ -170,7 +185,13 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
             ))}
           </div>
 
-          {loading ? <p className="empty-state-panel">Loading notifications...</p> : null}
+          {loading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="h-20 animate-pulse rounded-xl border border-white/10 bg-black/20" />
+              ))}
+            </div>
+          ) : null}
           {!loading && error ? <p className="rounded-xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</p> : null}
           {!loading && !error && pageItems.length === 0 ? <p className="empty-state-panel">No notifications found for this filter.</p> : null}
 
@@ -213,7 +234,15 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                           Open notification
                         </Button>
                         {!notification.isRead ? (
-                          <Button type="button" size="sm" variant="secondary" className="h-8 px-3 text-xs" onClick={() => void handleMarkOneRead(notification.id)}>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            className="h-8 px-3 text-xs"
+                            loading={Boolean(itemLoading[`read:${notification.id}`])}
+                            loadingLabel="Saving..."
+                            onClick={() => void handleMarkOneRead(notification.id)}
+                          >
                             Mark as read
                           </Button>
                         ) : null}

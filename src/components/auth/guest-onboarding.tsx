@@ -313,8 +313,15 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
                 onChange={(event) => setBuyer((prev) => ({ ...prev, phone: event.target.value }))}
               />
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Button type="button" className="flex-1" onClick={() => void sendOtp()} disabled={isLoading}>
-                  {loading === "sendOtp" ? (isAr ? "جارٍ الإرسال..." : "Sending...") : (isAr ? "إرسال رمز التحقق" : "Send verification code")}
+                <Button
+                  type="button"
+                  className="flex-1"
+                  loading={loading === "sendOtp"}
+                  loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
+                  onClick={() => void sendOtp()}
+                  disabled={isLoading}
+                >
+                  {isAr ? "إرسال رمز التحقق" : "Send verification code"}
                 </Button>
                 <Input
                   aria-label={isAr ? "رمز مكون من 6 أرقام" : "6-digit code"}
@@ -323,8 +330,15 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
                   onChange={(event) => setBuyer((prev) => ({ ...prev, token: event.target.value }))}
                 />
               </div>
-              <Button type="button" variant="secondary" onClick={() => void verifyOtp()} disabled={isLoading || buyer.token.length !== 6}>
-                {loading === "verifyOtp" ? (isAr ? "جارٍ التحقق..." : "Verifying...") : (isAr ? "تأكيد وتفعيل المشتري" : "Verify & activate Buyer")}
+              <Button
+                type="button"
+                variant="secondary"
+                loading={loading === "verifyOtp"}
+                loadingLabel={isAr ? "جارٍ التحقق..." : "Verifying..."}
+                onClick={() => void verifyOtp()}
+                disabled={isLoading || buyer.token.length !== 6}
+              >
+                {isAr ? "تأكيد وتفعيل المشتري" : "Verify & activate Buyer"}
               </Button>
             </div>
             {error ? <p className="mt-2 text-xs text-rose-300">{error}</p> : null}
@@ -392,8 +406,14 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
                     value={seller.expectedVolume}
                     onChange={(e) => setSeller((p) => ({ ...p, expectedVolume: e.target.value }))}
                   />
-                  <Button type="button" onClick={() => void submitSellerApplication()} disabled={isLoading || seller.preferredNetworks.length === 0}>
-                    {loading === "seller_apply" ? (isAr ? "جارٍ الإرسال..." : "Submitting...") : (isAr ? "تقديم طلب البائع" : "Submit Seller Application")}
+                  <Button
+                    type="button"
+                    loading={loading === "seller_apply"}
+                    loadingLabel={isAr ? "جارٍ الإرسال..." : "Submitting..."}
+                    onClick={() => void submitSellerApplication()}
+                    disabled={isLoading || seller.preferredNetworks.length === 0}
+                  >
+                    {isAr ? "تقديم طلب البائع" : "Submit Seller Application"}
                   </Button>
                 </motion.div>
               ) : sellerStep === "otp_sent" ? (
@@ -422,10 +442,14 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
                     value={seller.token}
                     onChange={(e) => setSeller((p) => ({ ...p, token: e.target.value }))}
                   />
-                  <Button type="button" onClick={() => void sellerVerifyAndApply()} disabled={isLoading || seller.preferredNetworks.length === 0 || seller.token.length !== 6}>
-                    {loading === "seller_verify" || loading === "seller_apply"
-                      ? (isAr ? "جارٍ التحقق..." : "Verifying...")
-                      : (isAr ? "تحقق وتقديم الطلب" : "Verify & Submit Application")}
+                  <Button
+                    type="button"
+                    loading={loading === "seller_verify" || loading === "seller_apply"}
+                    loadingLabel={isAr ? "جارٍ التحقق..." : "Verifying..."}
+                    onClick={() => void sellerVerifyAndApply()}
+                    disabled={isLoading || seller.preferredNetworks.length === 0 || seller.token.length !== 6}
+                  >
+                    {isAr ? "تحقق وتقديم الطلب" : "Verify & Submit Application"}
                   </Button>
                   <button type="button" className="text-xs text-[#9CA3AF] underline" onClick={() => setSellerStep("idle")} disabled={isLoading}>
                     {isAr ? "تعديل البيانات" : "Edit details"}
@@ -476,10 +500,12 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
                   />
                   <Button
                     type="button"
+                    loading={loading === "seller_sendOtp"}
+                    loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
                     onClick={() => void sellerSendOtp()}
                     disabled={isLoading || !seller.firstName || !seller.lastName || !seller.phone || seller.preferredNetworks.length === 0}
                   >
-                    {loading === "seller_sendOtp" ? (isAr ? "جارٍ الإرسال..." : "Sending...") : (isAr ? "إرسال رمز التحقق" : "Send verification code")}
+                    {isAr ? "إرسال رمز التحقق" : "Send verification code"}
                   </Button>
                 </motion.div>
               )}
@@ -493,8 +519,15 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
             icon={GraduationCap}
             accent="green"
           >
-            <Button type="button" className="w-full" onClick={() => void becomeStudent()} disabled={isLoading}>
-              {loading === "student" ? (isAr ? "جارٍ التفعيل..." : "Activating...") : (isAr ? "تفعيل دور الطالب" : "Become a Student")}
+            <Button
+              type="button"
+              className="w-full"
+              loading={loading === "student"}
+              loadingLabel={isAr ? "جارٍ التفعيل..." : "Activating..."}
+              onClick={() => void becomeStudent()}
+              disabled={isLoading}
+            >
+              {isAr ? "تفعيل دور الطالب" : "Become a Student"}
             </Button>
           </PremiumCard>
 
@@ -504,8 +537,16 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
             icon={UserCircle2}
             accent="slate"
           >
-            <Button type="button" variant="secondary" className="w-full" onClick={() => void skip()} disabled={isLoading}>
-              {loading === "skip" ? (isAr ? "جاري المتابعة..." : "Continuing...") : (isAr ? "المتابعة كضيف" : "Continue as Guest")}
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full"
+              loading={loading === "skip"}
+              loadingLabel={isAr ? "جاري المتابعة..." : "Continuing..."}
+              onClick={() => void skip()}
+              disabled={isLoading}
+            >
+              {isAr ? "المتابعة كضيف" : "Continue as Guest"}
             </Button>
           </PremiumCard>
         </div>

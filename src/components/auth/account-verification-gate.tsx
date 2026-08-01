@@ -205,12 +205,11 @@ export function AccountVerificationGate({ locale, redirectTo, initialEmail, init
                 type="button"
                 className="mt-4 w-full"
                 variant="secondary"
-                disabled={resendingEmail}
+                loading={resendingEmail}
+                loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
                 onClick={() => void resendVerificationEmail()}
               >
-                {resendingEmail
-                  ? (isAr ? "جارٍ الإرسال..." : "Sending...")
-                  : (isAr ? "إعادة إرسال بريد التحقق" : "Resend verification email")}
+                {isAr ? "إعادة إرسال بريد التحقق" : "Resend verification email"}
               </Button>
             ) : null}
           </div>
@@ -256,10 +255,12 @@ export function AccountVerificationGate({ locale, redirectTo, initialEmail, init
                 />
                 <Button
                   type="button"
-                  disabled={sendingOtp || !phoneForm.firstName || !phoneForm.lastName || !phoneForm.phone}
+                  loading={sendingOtp}
+                  loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
+                  disabled={!phoneForm.firstName || !phoneForm.lastName || !phoneForm.phone}
                   onClick={() => void sendOtp()}
                 >
-                  {sendingOtp ? (isAr ? "جارٍ الإرسال..." : "Sending...") : (isAr ? "إرسال رمز التحقق" : "Send verification code")}
+                  {isAr ? "إرسال رمز التحقق" : "Send verification code"}
                 </Button>
                 <Input
                   value={phoneForm.token}
@@ -270,10 +271,12 @@ export function AccountVerificationGate({ locale, redirectTo, initialEmail, init
                 <Button
                   type="button"
                   variant="secondary"
-                  disabled={verifyingOtp || phoneForm.token.length !== 6 || !phoneForm.phone}
+                  loading={verifyingOtp}
+                  loadingLabel={isAr ? "جارٍ التحقق..." : "Verifying..."}
+                  disabled={phoneForm.token.length !== 6 || !phoneForm.phone}
                   onClick={() => void verifyOtp()}
                 >
-                  {verifyingOtp ? (isAr ? "جارٍ التحقق..." : "Verifying...") : (isAr ? "تأكيد رقم الهاتف" : "Verify phone")}
+                  {isAr ? "تأكيد رقم الهاتف" : "Verify phone"}
                 </Button>
               </div>
             )}

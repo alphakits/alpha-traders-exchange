@@ -72,6 +72,10 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
   const [coverUrl, setCoverUrl] = useState<string>("");
   const [photoUploading, setPhotoUploading] = useState(false);
   const [coverUploading, setCoverUploading] = useState(false);
+  const [photoRemoving, setPhotoRemoving] = useState(false);
+  const [coverRemoving, setCoverRemoving] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [roleActionLoading, setRoleActionLoading] = useState<null | "student" | "guest">(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [coverError, setCoverError] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -141,25 +145,37 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
   }
 
   async function handleRemovePhoto() {
+    if (photoRemoving) return;
+    setPhotoRemoving(true);
     setPhotoError(null);
-    const res = await fetch("/api/auth/profile/photo", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind: "profile" }),
-    });
-    if (res.ok) setAvatarUrl("");
-    else setPhotoError(isAr ? "فشل حذف الصورة." : "Failed to remove photo.");
+    try {
+      const res = await fetch("/api/auth/profile/photo", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "profile" }),
+      });
+      if (res.ok) setAvatarUrl("");
+      else setPhotoError(isAr ? "فشل حذف الصورة." : "Failed to remove photo.");
+    } finally {
+      setPhotoRemoving(false);
+    }
   }
 
   async function handleRemoveCover() {
+    if (coverRemoving) return;
+    setCoverRemoving(true);
     setCoverError(null);
-    const res = await fetch("/api/auth/profile/photo", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind: "cover" }),
-    });
-    if (res.ok) setCoverUrl("");
-    else setCoverError(isAr ? "فشل حذف صورة الغلاف." : "Failed to remove cover.");
+    try {
+      const res = await fetch("/api/auth/profile/photo", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "cover" }),
+      });
+      if (res.ok) setCoverUrl("");
+      else setCoverError(isAr ? "فشل حذف صورة الغلاف." : "Failed to remove cover.");
+    } finally {
+      setCoverRemoving(false);
+    }
   }
 
   const onlineLabel = useMemo(() => {
@@ -169,46 +185,64 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
 
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const response = await fetch("/api/auth/profile", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-    const data = (await response.json()) as AccountProfilePayload & { error?: string };
-    if (!response.ok) {
-      setMessage(data.error ?? (isAr ? "تعذر تحديث الملف الشخصي." : "Failed to update profile."));
-      return;
+    if (profileSaving) return;
+    setProfileSaving(true);
+    try {
+      const response = await fetch("/api/auth/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const data = (await response.json()) as AccountProfilePayload & { error?: string };
+      if (!response.ok) {
+        setMessage(data.error ?? (isAr ? "تعذر تحديث الملف الشخصي." : "Failed to update profile."));
+        return;
+      }
+      setPayload(data);
+      setMessage(isAr ? "تم حفظ الملف الشخصي." : "Profile saved.");
+    } finally {
+      setProfileSaving(false);
     }
-    setPayload(data);
-    setMessage(isAr ? "تم حفظ الملف الشخصي." : "Profile saved.");
   }
 
   async function activateStudentRole() {
-    const response = await fetch("/api/auth/onboarding/student", { method: "POST" });
-    const data = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setMessage(data.error ?? (isAr ? "تعذر تفعيل دور الطالب." : "Failed to activate student role."));
-      return;
+    if (roleActionLoading) return;
+    setRoleActionLoading("student");
+    try {
+      const response = await fetch("/api/auth/onboarding/student", { method: "POST" });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setMessage(data.error ?? (isAr ? "تعذر تفعيل دور الطالب." : "Failed to activate student role."));
+        return;
+      }
+      const refreshed = await fetch("/api/auth/profile", { cache: "no-store" });
+      if (refreshed.ok) {
+        setPayload((await refreshed.json()) as AccountProfilePayload);
+      }
+      setMessage(isAr ? "تم تفعيل دور الطالب." : "Student role activated.");
+    } finally {
+      setRoleActionLoading(null);
     }
-    const refreshed = await fetch("/api/auth/profile", { cache: "no-store" });
-    if (refreshed.ok) {
-      setPayload((await refreshed.json()) as AccountProfilePayload);
-    }
-    setMessage(isAr ? "تم تفعيل دور الطالب." : "Student role activated.");
   }
 
   async function continueAsGuest() {
-    const response = await fetch("/api/auth/onboarding/guest", { method: "POST" });
-    const data = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setMessage(data.error ?? (isAr ? "تعذر تحديث تفضيل الدور." : "Failed to update role preference."));
-      return;
+    if (roleActionLoading) return;
+    setRoleActionLoading("guest");
+    try {
+      const response = await fetch("/api/auth/onboarding/guest", { method: "POST" });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setMessage(data.error ?? (isAr ? "تعذر تحديث تفضيل الدور." : "Failed to update role preference."));
+        return;
+      }
+      const refreshed = await fetch("/api/auth/profile", { cache: "no-store" });
+      if (refreshed.ok) {
+        setPayload((await refreshed.json()) as AccountProfilePayload);
+      }
+      setMessage(isAr ? "تم تحديث الاختيار إلى ضيف." : "Role selection updated to Guest.");
+    } finally {
+      setRoleActionLoading(null);
     }
-    const refreshed = await fetch("/api/auth/profile", { cache: "no-store" });
-    if (refreshed.ok) {
-      setPayload((await refreshed.json()) as AccountProfilePayload);
-    }
-    setMessage(isAr ? "تم تحديث الاختيار إلى ضيف." : "Role selection updated to Guest.");
   }
 
   if (loading) {
@@ -244,18 +278,19 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
           <button
             type="button"
             onClick={() => coverInputRef.current?.click()}
-            disabled={coverUploading}
+            disabled={coverUploading || coverRemoving}
             className="absolute right-3 top-3 rounded-full border border-white/20 bg-black/60 px-3 py-1 text-xs text-white backdrop-blur-sm transition-colors hover:border-[#C9A227] hover:text-[#C9A227] disabled:opacity-50"
           >
-            {coverUploading ? (isAr ? "جاري الرفع..." : "Uploading...") : (isAr ? "تعديل الغلاف" : "Edit Cover")}
+            {coverUploading ? (isAr ? "جاري الرفع..." : "Uploading...") : coverRemoving ? (isAr ? "جاري الإزالة..." : "Removing...") : (isAr ? "تعديل الغلاف" : "Edit Cover")}
           </button>
           {coverUrl && (
             <button
               type="button"
               onClick={() => void handleRemoveCover()}
+              disabled={coverRemoving || coverUploading}
               className="absolute bottom-3 right-3 rounded-full border border-red-500/30 bg-black/60 px-3 py-1 text-xs text-red-400 backdrop-blur-sm transition-colors hover:border-red-500/60"
             >
-              {isAr ? "إزالة الغلاف" : "Remove Cover"}
+              {coverRemoving ? (isAr ? "جاري الإزالة..." : "Removing...") : (isAr ? "إزالة الغلاف" : "Remove Cover")}
             </button>
           )}
           {coverError && (
@@ -310,13 +345,13 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
                   </div>
                   {/* Photo upload controls */}
                   <div className="flex flex-wrap items-center gap-3 pt-1">
-                    <Button type="button" variant="secondary" size="sm" disabled={photoUploading} onClick={() => photoInputRef.current?.click()}>
-                      {photoUploading ? (isAr ? "جاري الرفع..." : "Uploading...") : (isAr ? "تغيير الصورة" : "Change Photo")}
+                    <Button type="button" variant="secondary" size="sm" loading={photoUploading} loadingLabel={isAr ? "جاري الرفع..." : "Uploading..."} disabled={photoRemoving} onClick={() => photoInputRef.current?.click()}>
+                      {isAr ? "تغيير الصورة" : "Change Photo"}
                     </Button>
                     {avatarUrl && (
-                      <button type="button" onClick={() => void handleRemovePhoto()} className="text-xs text-red-400 hover:text-red-300">
+                      <Button type="button" variant="destructive" size="sm" loading={photoRemoving} loadingLabel={isAr ? "جاري الإزالة..." : "Removing..."} onClick={() => void handleRemovePhoto()}>
                         {isAr ? "إزالة الصورة" : "Remove Photo"}
-                      </button>
+                      </Button>
                     )}
                     <input
                       ref={photoInputRef}
@@ -424,13 +459,13 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
               {isAr ? "إدارة مسار حسابك:" : "Manage your account path:"}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button type="button" variant="secondary" onClick={() => void activateStudentRole()}>
+              <Button type="button" variant="secondary" loading={roleActionLoading === "student"} loadingLabel={isAr ? "جاري التفعيل..." : "Activating..."} onClick={() => void activateStudentRole()}>
                 {isAr ? "تفعيل دور الطالب" : "Join Alpha Academy"}
               </Button>
               <Link href="/onboarding?mode=manage" className={buttonVariants({ variant: "secondary" })}>
                 {isAr ? "اختيار دور المشتري" : "Become a Buyer"}
               </Link>
-              <Button type="button" variant="secondary" onClick={() => void continueAsGuest()}>
+              <Button type="button" variant="secondary" loading={roleActionLoading === "guest"} loadingLabel={isAr ? "جاري التحديث..." : "Updating..."} onClick={() => void continueAsGuest()}>
                 {isAr ? "المتابعة كضيف" : "Continue as Guest"}
               </Button>
             </div>
@@ -442,7 +477,7 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
             <Input value={form.whatsappNumber} onChange={(event) => setForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} placeholder={isAr ? "رقم الهاتف" : "Phone number"} />
             <Textarea className="md:col-span-2" value={form.bio} onChange={(event) => setForm((prev) => ({ ...prev, bio: event.target.value }))} placeholder={isAr ? "نبذة شخصية" : "Bio"} />
             <div className="md:col-span-2">
-              <Button type="submit">{isAr ? "حفظ" : "Save Profile"}</Button>
+              <Button type="submit" loading={profileSaving} loadingLabel={isAr ? "جاري الحفظ..." : "Saving..."}>{isAr ? "حفظ" : "Save Profile"}</Button>
             </div>
             {message ? <p className="text-xs text-[#D1D5DB] md:col-span-2">{message}</p> : null}
           </form>

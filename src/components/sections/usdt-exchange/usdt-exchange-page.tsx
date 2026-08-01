@@ -410,6 +410,18 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [activityHistory, setActivityHistory] = useState<AlphaExchangeActivityLogEntry[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [isCreatingListing, setIsCreatingListing] = useState(false);
+  const [isSubmittingSellerApplication, setIsSubmittingSellerApplication] = useState(false);
+  const [isSubmittingPurchase, setIsSubmittingPurchase] = useState(false);
+  const [listingActionLoading, setListingActionLoading] = useState<Record<string, boolean>>({});
+  const [tradeActionLoading, setTradeActionLoading] = useState<Record<string, boolean>>({});
+  const [reviewActionLoading, setReviewActionLoading] = useState<Record<string, boolean>>({});
+  const [isSavingSellerSettings, setIsSavingSellerSettings] = useState(false);
+  const [isSavingSellerPassword, setIsSavingSellerPassword] = useState(false);
+  const [isSavingNotificationPreferences, setIsSavingNotificationPreferences] = useState(false);
+  const [isSubmittingBetaFeedback, setIsSubmittingBetaFeedback] = useState(false);
+  const [isMarkingAllNotificationsRead, setIsMarkingAllNotificationsRead] = useState(false);
+  const [notificationActionLoading, setNotificationActionLoading] = useState<Record<string, boolean>>({});
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [notificationQuery, setNotificationQuery] = useState("");
   const [notificationCategory, setNotificationCategory] = useState<"all" | NotificationCategory>("all");
   const [notificationUnreadOnly, setNotificationUnreadOnly] = useState(false);
@@ -557,56 +569,82 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   }, []);
 
   async function handleMarkAllNotificationsRead() {
-    const response = await fetch("/api/alpha-exchange/notifications", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "mark_all_read" }),
-    });
-    await response.json();
-    if (!response.ok) {
-      setStatusMessage(safeErrorMessage("workspace"));
-      return;
+    if (isMarkingAllNotificationsRead) return;
+    setIsMarkingAllNotificationsRead(true);
+    try {
+      const response = await fetch("/api/alpha-exchange/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_all_read" }),
+      });
+      await response.json();
+      if (!response.ok) {
+        setStatusMessage(safeErrorMessage("workspace"));
+        return;
+      }
+      await refreshNotifications();
+    } finally {
+      setIsMarkingAllNotificationsRead(false);
     }
-    await refreshNotifications();
   }
 
   async function handleNotificationReadState(notificationId: string, isRead: boolean) {
-    const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isRead }),
-    });
-    await response.json();
-    if (!response.ok) {
-      setStatusMessage(safeErrorMessage("workspace"));
-      return;
+    const actionKey = `read:${notificationId}`;
+    if (notificationActionLoading[actionKey]) return;
+    setNotificationActionLoading((prev) => ({ ...prev, [actionKey]: true }));
+    try {
+      const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isRead }),
+      });
+      await response.json();
+      if (!response.ok) {
+        setStatusMessage(safeErrorMessage("workspace"));
+        return;
+      }
+      await refreshNotifications();
+    } finally {
+      setNotificationActionLoading((prev) => ({ ...prev, [actionKey]: false }));
     }
-    await refreshNotifications();
   }
 
   async function handleDeleteNotification(notificationId: string) {
-    const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, { method: "DELETE" });
-    await response.json();
-    if (!response.ok) {
-      setStatusMessage(safeErrorMessage("workspace"));
-      return;
+    const actionKey = `delete:${notificationId}`;
+    if (notificationActionLoading[actionKey]) return;
+    setNotificationActionLoading((prev) => ({ ...prev, [actionKey]: true }));
+    try {
+      const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, { method: "DELETE" });
+      await response.json();
+      if (!response.ok) {
+        setStatusMessage(safeErrorMessage("workspace"));
+        return;
+      }
+      await refreshNotifications();
+    } finally {
+      setNotificationActionLoading((prev) => ({ ...prev, [actionKey]: false }));
     }
-    await refreshNotifications();
   }
 
   async function handleNotificationPreferencesSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const response = await fetch("/api/alpha-exchange/notification-preferences", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(notificationPreferences),
-    });
-    await response.json();
-    if (!response.ok) {
-      setSellerWorkspaceMessage(safeErrorMessage("settings"));
-      return;
+    if (isSavingNotificationPreferences) return;
+    setIsSavingNotificationPreferences(true);
+    try {
+      const response = await fetch("/api/alpha-exchange/notification-preferences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(notificationPreferences),
+      });
+      await response.json();
+      if (!response.ok) {
+        setSellerWorkspaceMessage(safeErrorMessage("settings"));
+        return;
+      }
+      setSellerWorkspaceMessage("Notification preferences updated.");
+    } finally {
+      setIsSavingNotificationPreferences(false);
     }
-    setSellerWorkspaceMessage("Notification preferences updated.");
   }
 
   const refreshBetaChannels = useCallback(async () => {
@@ -630,22 +668,28 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   async function handleSubmitBetaFeedback(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const response = await fetch("/api/alpha-exchange/private-beta/feedback", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        category: betaFeedbackCategory,
-        message: betaFeedbackMessage,
-      }),
-    });
-    const payload = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setStatusMessage(payload.error ?? safeErrorMessage("workspace"));
-      return;
+    if (isSubmittingBetaFeedback) return;
+    setIsSubmittingBetaFeedback(true);
+    try {
+      const response = await fetch("/api/alpha-exchange/private-beta/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category: betaFeedbackCategory,
+          message: betaFeedbackMessage,
+        }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setStatusMessage(payload.error ?? safeErrorMessage("workspace"));
+        return;
+      }
+      setBetaFeedbackMessage("");
+      setStatusMessage("Beta feedback submitted.");
+      await refreshBetaChannels();
+    } finally {
+      setIsSubmittingBetaFeedback(false);
     }
-    setBetaFeedbackMessage("");
-    setStatusMessage("Beta feedback submitted.");
-    await refreshBetaChannels();
   }
 
   useEffect(() => {
@@ -1010,9 +1054,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   async function handleSellerApplicationSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmittingSellerApplication) return;
     if (!requireAuth()) return;
     setStatusMessage(null);
     const fallbackMessage = safeErrorMessage("application");
+    setIsSubmittingSellerApplication(true);
     try {
       const response = await fetch("/api/alpha-exchange/seller-application", {
         method: "POST",
@@ -1034,34 +1080,42 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     } catch (error) {
       const message = error instanceof Error && error.message.trim() ? error.message : fallbackMessage;
       setStatusMessage(message);
+    } finally {
+      setIsSubmittingSellerApplication(false);
     }
   }
 
   async function handlePurchaseSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmittingPurchase) return;
     if (!selectedListing) return;
     const fallbackMessage = safeErrorMessage("purchase");
-    const response = await fetch("/api/alpha-exchange/purchase-requests", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        listingId: selectedListing.id,
-        usdtAmount: buyerInfo.amount,
-        buyerName: buyerInfo.name,
-        buyerWhatsapp: buyerInfo.whatsapp,
-        buyerNotes: buyerInfo.notes,
-        bankName: buyerInfo.bankName,
-      }),
-    });
-    const data = (await response.json()) as { error?: string; purchase?: PurchaseRequest };
-    if (!response.ok) {
-      setStatusMessage(data.error ?? fallbackMessage);
-      return;
-    }
-    if (data.purchase) {
-      setMyRequests((prev) => [data.purchase as PurchaseRequest, ...prev]);
-      setPurchaseSubmitted(true);
-      setStatusMessage(null);
+    setIsSubmittingPurchase(true);
+    try {
+      const response = await fetch("/api/alpha-exchange/purchase-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          listingId: selectedListing.id,
+          usdtAmount: buyerInfo.amount,
+          buyerName: buyerInfo.name,
+          buyerWhatsapp: buyerInfo.whatsapp,
+          buyerNotes: buyerInfo.notes,
+          bankName: buyerInfo.bankName,
+        }),
+      });
+      const data = (await response.json()) as { error?: string; purchase?: PurchaseRequest };
+      if (!response.ok) {
+        setStatusMessage(data.error ?? fallbackMessage);
+        return;
+      }
+      if (data.purchase) {
+        setMyRequests((prev) => [data.purchase as PurchaseRequest, ...prev]);
+        setPurchaseSubmitted(true);
+        setStatusMessage(null);
+      }
+    } finally {
+      setIsSubmittingPurchase(false);
     }
   }
 
@@ -1233,78 +1287,105 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   }, [isApprovedSeller, sessionUser, sellerOverviewStats]);
 
   async function handleSellerListingStatus(listing: MarketplaceListing, nextStatus: "active" | "paused") {
-    const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: nextStatus }),
-    });
-    const payload = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
-      return;
+    const actionKey = `${listing.id}:${nextStatus}`;
+    if (listingActionLoading[actionKey]) return;
+    setListingActionLoading((prev) => ({ ...prev, [actionKey]: true }));
+    try {
+      const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
+        return;
+      }
+      setSellerWorkspaceMessage(nextStatus === "paused" ? "Listing paused." : "Listing resumed.");
+      await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
+    } finally {
+      setListingActionLoading((prev) => ({ ...prev, [actionKey]: false }));
     }
-    setSellerWorkspaceMessage(nextStatus === "paused" ? "Listing paused." : "Listing resumed.");
-    await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
   }
 
   async function handleSellerListingDelete(listingId: string) {
-    const response = await fetch(`/api/alpha-exchange/listings/${listingId}`, { method: "DELETE" });
-    const payload = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
-      return;
+    const actionKey = `${listingId}:delete`;
+    if (listingActionLoading[actionKey]) return;
+    setListingActionLoading((prev) => ({ ...prev, [actionKey]: true }));
+    try {
+      const response = await fetch(`/api/alpha-exchange/listings/${listingId}`, { method: "DELETE" });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
+        return;
+      }
+      setSellerWorkspaceMessage("Listing closed.");
+      await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
+    } finally {
+      setListingActionLoading((prev) => ({ ...prev, [actionKey]: false }));
     }
-    setSellerWorkspaceMessage("Listing closed.");
-    await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
   }
 
   async function handleSellerListingRenew(listingId: string, expirationHours = "24") {
-    const response = await fetch(`/api/alpha-exchange/listings/${listingId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "renew", expirationHours }),
-    });
-    const payload = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
-      return;
+    const actionKey = `${listingId}:renew`;
+    if (listingActionLoading[actionKey]) return;
+    setListingActionLoading((prev) => ({ ...prev, [actionKey]: true }));
+    try {
+      const response = await fetch(`/api/alpha-exchange/listings/${listingId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "renew", expirationHours }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
+        return;
+      }
+      setSellerWorkspaceMessage("Listing renewed and visible to buyers again.");
+      await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
+    } finally {
+      setListingActionLoading((prev) => ({ ...prev, [actionKey]: false }));
     }
-    setSellerWorkspaceMessage("Listing renewed and visible to buyers again.");
-    await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
   }
 
   async function handleSellerListingDuplicate(listing: MarketplaceListing) {
+    const actionKey = `${listing.id}:duplicate`;
+    if (listingActionLoading[actionKey]) return;
     const duplicatePriceValidationError = getListingPriceValidationError({ price: listing.price, currency: listing.currency ?? "ILS", marketRate });
     if (duplicatePriceValidationError) {
       setSellerWorkspaceMessage(duplicatePriceValidationError);
       return;
     }
-
-    const response = await fetch("/api/alpha-exchange/listings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        photos: listing.photos ?? [],
-        availableAmount: listing.availableAmount,
-        price: listing.price,
-        currency: listing.currency ?? "ILS",
-        network: listing.network,
-        paymentMethods: listing.paymentMethods ?? [listing.paymentMethod ?? ""],
-        minimumTrade: listing.minimumTrade ?? "0",
-        maximumTrade: listing.maximumTrade ?? listing.availableAmount,
-        expirationHours: "24",
-        notes: listing.notes ?? "",
-        sellerDescription: listing.sellerDescription ?? "",
-        responseTime: listing.responseTime,
-      }),
-    });
-    const payload = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
-      return;
+    setListingActionLoading((prev) => ({ ...prev, [actionKey]: true }));
+    try {
+      const response = await fetch("/api/alpha-exchange/listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          photos: listing.photos ?? [],
+          availableAmount: listing.availableAmount,
+          price: listing.price,
+          currency: listing.currency ?? "ILS",
+          network: listing.network,
+          paymentMethods: listing.paymentMethods ?? [listing.paymentMethod ?? ""],
+          minimumTrade: listing.minimumTrade ?? "0",
+          maximumTrade: listing.maximumTrade ?? listing.availableAmount,
+          expirationHours: "24",
+          notes: listing.notes ?? "",
+          sellerDescription: listing.sellerDescription ?? "",
+          responseTime: listing.responseTime,
+        }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
+        return;
+      }
+      setSellerWorkspaceMessage("Listing duplicated.");
+      await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
+    } finally {
+      setListingActionLoading((prev) => ({ ...prev, [actionKey]: false }));
     }
-    setSellerWorkspaceMessage("Listing duplicated.");
-    await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
   }
 
   async function handleSellerListingCreateSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1367,6 +1448,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   async function handleSellerListingEditSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editingListingId) return;
+    const actionKey = `edit:${editingListingId}`;
+    if (listingActionLoading[actionKey]) return;
 
     const editPriceValidationError = getListingPriceValidationError({ price: listingEditForm.price, currency: listingEditForm.currency, marketRate });
     if (editPriceValidationError) {
@@ -1374,35 +1457,40 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       return;
     }
 
-    const response = await fetch(`/api/alpha-exchange/listings/${editingListingId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        availableAmount: listingEditForm.availableAmount,
-        price: listingEditForm.price,
-        currency: listingEditForm.currency,
-        network: listingEditForm.network,
-        paymentMethods: listingEditForm.paymentMethods
-          .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean)
-          .slice(0, 8),
-        bankName: listingEditForm.bankName,
-        minimumTrade: listingEditForm.minimumTrade,
-        maximumTrade: listingEditForm.maximumTrade || listingEditForm.availableAmount,
-        expirationHours: listingEditForm.expirationHours,
-        notes: listingEditForm.notes,
-        status: myListings.find((listing) => listing.id === editingListingId)?.status === "expired" ? "active" : undefined,
-      }),
-    });
-    const payload = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
-      return;
+    setListingActionLoading((prev) => ({ ...prev, [actionKey]: true }));
+    try {
+      const response = await fetch(`/api/alpha-exchange/listings/${editingListingId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          availableAmount: listingEditForm.availableAmount,
+          price: listingEditForm.price,
+          currency: listingEditForm.currency,
+          network: listingEditForm.network,
+          paymentMethods: listingEditForm.paymentMethods
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean)
+            .slice(0, 8),
+          bankName: listingEditForm.bankName,
+          minimumTrade: listingEditForm.minimumTrade,
+          maximumTrade: listingEditForm.maximumTrade || listingEditForm.availableAmount,
+          expirationHours: listingEditForm.expirationHours,
+          notes: listingEditForm.notes,
+          status: myListings.find((listing) => listing.id === editingListingId)?.status === "expired" ? "active" : undefined,
+        }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
+        return;
+      }
+      setEditingListingId(null);
+      setSellerWorkspaceMessage("Listing updated.");
+      await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
+    } finally {
+      setListingActionLoading((prev) => ({ ...prev, [actionKey]: false }));
     }
-    setEditingListingId(null);
-    setSellerWorkspaceMessage("Listing updated.");
-    await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
   }
 
   async function fileToDataUrl(file: File) {
@@ -1472,85 +1560,113 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   }
 
   async function handleSellerRequestAction(requestId: string, nextStatus: "accepted" | "declined" | "funds_received" | "usdt_release_pending" | "usdt_sent") {
-    const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: nextStatus }),
-    });
-    const payload = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("request"));
-      return;
+    const actionKey = `${requestId}:${nextStatus}`;
+    if (tradeActionLoading[actionKey]) return;
+    setTradeActionLoading((prev) => ({ ...prev, [actionKey]: true }));
+    try {
+      const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("request"));
+        return;
+      }
+      if (nextStatus === "accepted") setSellerWorkspaceMessage("Request accepted and trade created.");
+      else if (nextStatus === "funds_received") setSellerWorkspaceMessage("Funds received confirmed.");
+      else if (nextStatus === "usdt_release_pending") setSellerWorkspaceMessage("USDT release process started.");
+      else if (nextStatus === "usdt_sent") setSellerWorkspaceMessage("USDT sent marked.");
+      else setSellerWorkspaceMessage("Request declined.");
+      await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
+    } finally {
+      setTradeActionLoading((prev) => ({ ...prev, [actionKey]: false }));
     }
-    if (nextStatus === "accepted") setSellerWorkspaceMessage("Request accepted and trade created.");
-    else if (nextStatus === "funds_received") setSellerWorkspaceMessage("Funds received confirmed.");
-    else if (nextStatus === "usdt_release_pending") setSellerWorkspaceMessage("USDT release process started.");
-    else if (nextStatus === "usdt_sent") setSellerWorkspaceMessage("USDT sent marked.");
-    else setSellerWorkspaceMessage("Request declined.");
-    await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
   }
 
   async function handleBuyerTradeStatus(requestId: string, nextStatus: "payment_sent" | "completed" | "cancelled") {
-    const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: nextStatus }),
-    });
-    const payload = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setStatusMessage(payload.error ?? safeErrorMessage("request"));
-      return;
+    const actionKey = `${requestId}:${nextStatus}`;
+    if (tradeActionLoading[actionKey]) return;
+    setTradeActionLoading((prev) => ({ ...prev, [actionKey]: true }));
+    try {
+      const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setStatusMessage(payload.error ?? safeErrorMessage("request"));
+        return;
+      }
+      setStatusMessage(
+        nextStatus === "payment_sent"
+          ? "Bank transfer sent confirmed."
+          : nextStatus === "completed"
+            ? "Trade completed. Review window is open."
+            : "Request cancelled.",
+      );
+      await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
+    } finally {
+      setTradeActionLoading((prev) => ({ ...prev, [actionKey]: false }));
     }
-    setStatusMessage(
-      nextStatus === "payment_sent"
-        ? "Bank transfer sent confirmed."
-        : nextStatus === "completed"
-          ? "Trade completed. Review window is open."
-          : "Request cancelled.",
-    );
-    await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
   }
 
   async function handleSubmitBuyerReview(request: PurchaseRequest) {
+    const actionKey = `${request.id}:buyer-review`;
+    if (reviewActionLoading[actionKey]) return;
     const comment = String(tradeReviewDrafts[request.id] ?? "").trim();
     if (!comment) {
       setStatusMessage(safeErrorMessage("review"));
       return;
     }
-    const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}/review`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "buyer_review", rating: 5, comment }),
-    });
-    await response.json();
-    if (!response.ok) {
-      setStatusMessage(safeErrorMessage("review"));
-      return;
+    setReviewActionLoading((prev) => ({ ...prev, [actionKey]: true }));
+    try {
+      const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "buyer_review", rating: 5, comment }),
+      });
+      await response.json();
+      if (!response.ok) {
+        setStatusMessage(safeErrorMessage("review"));
+        return;
+      }
+      setTradeReviewDrafts((prev) => ({ ...prev, [request.id]: "" }));
+      setStatusMessage("Review submitted.");
+      await refreshSellerWorkspace();
+    } finally {
+      setReviewActionLoading((prev) => ({ ...prev, [actionKey]: false }));
     }
-    setTradeReviewDrafts((prev) => ({ ...prev, [request.id]: "" }));
-    setStatusMessage("Review submitted.");
-    await refreshSellerWorkspace();
   }
 
   async function handleSubmitSellerResponse(request: PurchaseRequest) {
+    const actionKey = `${request.id}:seller-review`;
+    if (reviewActionLoading[actionKey]) return;
     const message = String(sellerResponseDrafts[request.id] ?? "").trim();
     if (!message) {
       setSellerWorkspaceMessage(safeErrorMessage("review"));
       return;
     }
-    const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}/review`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "seller_response", message }),
-    });
-    await response.json();
-    if (!response.ok) {
-      setSellerWorkspaceMessage(safeErrorMessage("review"));
-      return;
+    setReviewActionLoading((prev) => ({ ...prev, [actionKey]: true }));
+    try {
+      const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "seller_response", message }),
+      });
+      await response.json();
+      if (!response.ok) {
+        setSellerWorkspaceMessage(safeErrorMessage("review"));
+        return;
+      }
+      setSellerResponseDrafts((prev) => ({ ...prev, [request.id]: "" }));
+      setSellerWorkspaceMessage("Review response submitted.");
+      await refreshSellerWorkspace();
+    } finally {
+      setReviewActionLoading((prev) => ({ ...prev, [actionKey]: false }));
     }
-    setSellerResponseDrafts((prev) => ({ ...prev, [request.id]: "" }));
-    setSellerWorkspaceMessage("Review response submitted.");
-    await refreshSellerWorkspace();
   }
 
   function handleMessageBuyer(request: PurchaseRequest) {
@@ -1561,91 +1677,103 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   async function handleSellerSettingsSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const response = await fetch("/api/alpha-exchange/seller-settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        fullName: sellerSettings.fullName,
-        whatsappNumber: sellerSettings.whatsappNumber,
-        preferredNetworks: sellerSettings.preferredNetworks,
-        profilePhotoUrl: sellerSettings.profilePhotoUrl,
-        coverBannerUrl: sellerSettings.coverBannerUrl,
-        languages: sellerSettings.languages,
-        bio: sellerSettings.bio,
-        tradingExperience: sellerSettings.tradingExperience,
-        workingHours: sellerSettings.workingHours,
-        preferredPaymentMethods: sellerSettings.preferredPaymentMethods,
-        country: sellerSettings.country,
-        city: sellerSettings.city,
-        onlineStatus: sellerSettings.onlineStatus,
-        availabilityStatus: sellerSettings.availabilityStatus,
-      }),
-    });
-    const payload = (await response.json()) as {
-      error?: string;
-      profile?: {
-        fullName: string;
-        whatsappNumber: string;
-        preferredNetworks: SupportedNetwork[];
-        profilePhotoUrl: string;
-        coverBannerUrl: string;
-        languages: string[];
-        bio: string;
-        tradingExperience: string;
-        workingHours: string;
-        preferredPaymentMethods: string[];
-        country: string;
-        city: string;
-        onlineStatus: "online" | "offline";
-        availabilityStatus: SellerAvailabilityStatus;
+    if (isSavingSellerSettings) return;
+    setIsSavingSellerSettings(true);
+    try {
+      const response = await fetch("/api/alpha-exchange/seller-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fullName: sellerSettings.fullName,
+          whatsappNumber: sellerSettings.whatsappNumber,
+          preferredNetworks: sellerSettings.preferredNetworks,
+          profilePhotoUrl: sellerSettings.profilePhotoUrl,
+          coverBannerUrl: sellerSettings.coverBannerUrl,
+          languages: sellerSettings.languages,
+          bio: sellerSettings.bio,
+          tradingExperience: sellerSettings.tradingExperience,
+          workingHours: sellerSettings.workingHours,
+          preferredPaymentMethods: sellerSettings.preferredPaymentMethods,
+          country: sellerSettings.country,
+          city: sellerSettings.city,
+          onlineStatus: sellerSettings.onlineStatus,
+          availabilityStatus: sellerSettings.availabilityStatus,
+        }),
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        profile?: {
+          fullName: string;
+          whatsappNumber: string;
+          preferredNetworks: SupportedNetwork[];
+          profilePhotoUrl: string;
+          coverBannerUrl: string;
+          languages: string[];
+          bio: string;
+          tradingExperience: string;
+          workingHours: string;
+          preferredPaymentMethods: string[];
+          country: string;
+          city: string;
+          onlineStatus: "online" | "offline";
+          availabilityStatus: SellerAvailabilityStatus;
+        };
       };
-    };
-    if (!response.ok || !payload.profile) {
-      setSellerWorkspaceMessage(safeErrorMessage("settings"));
-      return;
+      if (!response.ok || !payload.profile) {
+        setSellerWorkspaceMessage(safeErrorMessage("settings"));
+        return;
+      }
+      setSessionUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              fullName: payload.profile!.fullName,
+              whatsappNumber: payload.profile!.whatsappNumber,
+              preferredNetworks: payload.profile!.preferredNetworks,
+              profilePhotoUrl: payload.profile!.profilePhotoUrl,
+              coverBannerUrl: payload.profile!.coverBannerUrl,
+              languages: payload.profile!.languages,
+              bio: payload.profile!.bio,
+              tradingExperience: payload.profile!.tradingExperience,
+              workingHours: payload.profile!.workingHours,
+              preferredPaymentMethods: payload.profile!.preferredPaymentMethods,
+              country: payload.profile!.country,
+              city: payload.profile!.city,
+              onlineStatus: payload.profile!.onlineStatus,
+              availabilityStatus: payload.profile!.availabilityStatus,
+            }
+          : prev,
+      );
+      setSellerWorkspaceMessage("Seller profile updated.");
+      await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
+    } finally {
+      setIsSavingSellerSettings(false);
     }
-    setSessionUser((prev) =>
-      prev
-        ? {
-            ...prev,
-            fullName: payload.profile!.fullName,
-            whatsappNumber: payload.profile!.whatsappNumber,
-            preferredNetworks: payload.profile!.preferredNetworks,
-            profilePhotoUrl: payload.profile!.profilePhotoUrl,
-            coverBannerUrl: payload.profile!.coverBannerUrl,
-            languages: payload.profile!.languages,
-            bio: payload.profile!.bio,
-            tradingExperience: payload.profile!.tradingExperience,
-            workingHours: payload.profile!.workingHours,
-            preferredPaymentMethods: payload.profile!.preferredPaymentMethods,
-            country: payload.profile!.country,
-            city: payload.profile!.city,
-            onlineStatus: payload.profile!.onlineStatus,
-            availabilityStatus: payload.profile!.availabilityStatus,
-          }
-        : prev,
-    );
-    setSellerWorkspaceMessage("Seller profile updated.");
-    await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
   }
 
   async function handleSellerPasswordSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const response = await fetch("/api/alpha-exchange/seller-settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        currentPassword: sellerSettings.currentPassword,
-        newPassword: sellerSettings.newPassword,
-      }),
-    });
-    await response.json();
-    if (!response.ok) {
-      setSellerWorkspaceMessage(safeErrorMessage("password"));
-      return;
+    if (isSavingSellerPassword) return;
+    setIsSavingSellerPassword(true);
+    try {
+      const response = await fetch("/api/alpha-exchange/seller-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentPassword: sellerSettings.currentPassword,
+          newPassword: sellerSettings.newPassword,
+        }),
+      });
+      await response.json();
+      if (!response.ok) {
+        setSellerWorkspaceMessage(safeErrorMessage("password"));
+        return;
+      }
+      setSellerSettings((prev) => ({ ...prev, currentPassword: "", newPassword: "" }));
+      setSellerWorkspaceMessage("Password updated.");
+    } finally {
+      setIsSavingSellerPassword(false);
     }
-    setSellerSettings((prev) => ({ ...prev, currentPassword: "", newPassword: "" }));
-    setSellerWorkspaceMessage("Password updated.");
   }
 
   const unreadNotificationsCount = notifications.filter((item) => !item.isRead).length;
@@ -1678,7 +1806,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           <Button type="button" size="sm" variant="secondary" onClick={() => setNotificationUnreadOnly((prev) => !prev)}>
             {notificationUnreadOnly ? "Showing unread only" : "Show unread only"}
           </Button>
-          <Button type="button" size="sm" variant="secondary" onClick={() => void handleMarkAllNotificationsRead()}>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            loading={isMarkingAllNotificationsRead}
+            loadingLabel="Marking..."
+            onClick={() => void handleMarkAllNotificationsRead()}
+          >
             Mark All Read
           </Button>
         </div>
@@ -1699,10 +1834,24 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   {notification.relatedHref ? <a href={notification.relatedHref} className="mt-1 inline-block text-[#C9A227]">Open related</a> : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
-                  <Button type="button" size="sm" variant="secondary" onClick={() => void handleNotificationReadState(notification.id, !notification.isRead)}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    loading={Boolean(notificationActionLoading[`read:${notification.id}`])}
+                    loadingLabel="Saving..."
+                    onClick={() => void handleNotificationReadState(notification.id, !notification.isRead)}
+                  >
                     {notification.isRead ? "Unread" : "Read"}
                   </Button>
-                  <Button type="button" size="sm" variant="secondary" onClick={() => void handleDeleteNotification(notification.id)}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    loading={Boolean(notificationActionLoading[`delete:${notification.id}`])}
+                    loadingLabel="Deleting..."
+                    onClick={() => void handleDeleteNotification(notification.id)}
+                  >
                     Delete
                   </Button>
                 </div>
@@ -1750,7 +1899,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               <option value="other">Other</option>
             </select>
             <Textarea placeholder="Share your feedback..." value={betaFeedbackMessage} onChange={(event) => setBetaFeedbackMessage(event.target.value)} />
-            <Button type="submit" size="sm" variant="secondary">Submit Feedback</Button>
+            <Button type="submit" size="sm" variant="secondary" loading={isSubmittingBetaFeedback} loadingLabel="Submitting...">Submit Feedback</Button>
           </form>
           <div className="space-y-2">
             <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">My Feedback</p>
@@ -2373,7 +2522,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               </select>
               <Input placeholder={isAr ? "حجم التداول الشهري المتوقع" : "Expected Monthly Trading Volume"} value={sellerForm.expectedMonthlyTradingVolume} onChange={(event) => setSellerForm((prev) => ({ ...prev, expectedMonthlyTradingVolume: event.target.value }))} />
               <Textarea placeholder={isAr ? "ملاحظات إضافية" : "Additional Notes"} value={sellerForm.additionalNotes} onChange={(event) => setSellerForm((prev) => ({ ...prev, additionalNotes: event.target.value }))} />
-              <Button type="submit">{isAr ? "قدّم طلب الاعتماد" : "Apply for Approval"}</Button>
+              <Button
+                type="submit"
+                loading={isSubmittingSellerApplication}
+                loadingLabel={isAr ? "جاري الإرسال..." : "Submitting..."}
+              >
+                {isAr ? "قدّم طلب الاعتماد" : "Apply for Approval"}
+              </Button>
             </form>
             {applicationSubmitted ? (
               <div className="mt-4 rounded-xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-4 text-sm">
@@ -2592,8 +2747,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     {createListingPriceValidationError ? <p className="mt-2 text-xs text-[#FDE68A]">{createListingPriceValidationError}</p> : null}
                   </div>
                   <div className="md:col-span-2">
-                    <Button type="submit" className="w-full md:w-auto" disabled={isCreatingListing || Boolean(listingWorkspaceSummary && !listingWorkspaceSummary.canCreateListing) || Boolean(createListingPriceValidationError)}>
-                      {isCreatingListing ? "Creating listing..." : "Create Live Listing"}
+                    <Button
+                      type="submit"
+                      className="w-full md:w-auto"
+                      loading={isCreatingListing}
+                      loadingLabel="Creating listing..."
+                      disabled={Boolean(listingWorkspaceSummary && !listingWorkspaceSummary.canCreateListing) || Boolean(createListingPriceValidationError)}
+                    >
+                      Create Live Listing
                     </Button>
                   </div>
                 </form>
@@ -2652,22 +2813,29 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         <Edit3 className="h-4 w-4" />
                         Edit
                       </Button>
-                      <Button type="button" size="sm" variant="secondary" onClick={() => { if (listingWorkspaceSummary?.blockedReason) { setSellerWorkspaceMessage(listingWorkspaceSummary.blockedReason); return; } void handleSellerListingDuplicate(listing); }}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        loading={Boolean(listingActionLoading[`${listing.id}:duplicate`])}
+                        loadingLabel="Duplicating..."
+                        onClick={() => { if (listingWorkspaceSummary?.blockedReason) { setSellerWorkspaceMessage(listingWorkspaceSummary.blockedReason); return; } void handleSellerListingDuplicate(listing); }}
+                      >
                         <Copy className="h-4 w-4" />
                         Duplicate
                       </Button>
                       {listing.status === "active" ? (
-                        <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingStatus(listing, "paused")}> <PauseCircle className="h-4 w-4" /> Pause </Button>
+                        <Button type="button" size="sm" variant="secondary" loading={Boolean(listingActionLoading[`${listing.id}:paused`])} loadingLabel="Pausing..." onClick={() => handleSellerListingStatus(listing, "paused")}> <PauseCircle className="h-4 w-4" /> Pause </Button>
                       ) : listing.status === "paused" ? (
-                        <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingStatus(listing, "active")}> <PlayCircle className="h-4 w-4" /> Resume </Button>
+                        <Button type="button" size="sm" variant="secondary" loading={Boolean(listingActionLoading[`${listing.id}:active`])} loadingLabel="Resuming..." onClick={() => handleSellerListingStatus(listing, "active")}> <PlayCircle className="h-4 w-4" /> Resume </Button>
                       ) : null}
                       {(listing.status === "expired" || listing.status === "paused" || listing.status === "active") ? (
-                        <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingRenew(listing.id)}>
+                        <Button type="button" size="sm" variant="secondary" loading={Boolean(listingActionLoading[`${listing.id}:renew`])} loadingLabel="Renewing..." onClick={() => handleSellerListingRenew(listing.id)}>
                           <PlayCircle className="h-4 w-4" />
                           Renew
                         </Button>
                       ) : null}
-                      <Button type="button" size="sm" variant="secondary" disabled={isLockedListing || listing.status === "completed" || listing.status === "closed" || listing.status === "cancelled"} onClick={() => handleSellerListingDelete(listing.id)}>
+                      <Button type="button" size="sm" variant="secondary" loading={Boolean(listingActionLoading[`${listing.id}:delete`])} loadingLabel="Closing..." disabled={isLockedListing || listing.status === "completed" || listing.status === "closed" || listing.status === "cancelled"} onClick={() => handleSellerListingDelete(listing.id)}>
                         <Trash2 className="h-4 w-4" />
                         Close
                       </Button>
@@ -2706,7 +2874,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           </div>
                         ) : null}
                         <div className="md:col-span-4 flex gap-2">
-                          <Button type="submit" size="sm" disabled={Boolean(editListingPriceValidationError)}>Save</Button>
+                          <Button type="submit" size="sm" loading={Boolean(listingActionLoading[`edit:${listing.id}`])} loadingLabel="Saving..." disabled={Boolean(editListingPriceValidationError)}>Save</Button>
                           <Button type="button" size="sm" variant="secondary" onClick={() => setEditingListingId(null)}>Cancel</Button>
                         </div>
                       </form>
@@ -2765,11 +2933,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       {request.reviewUnlockedAt ? <p>Review Unlocked: <span className="text-white">{new Date(request.reviewUnlockedAt).toLocaleString("en-IL")}</span></p> : null}
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Button type="button" size="sm" disabled={request.status !== "pending"} onClick={() => handleSellerRequestAction(request.id, "accepted")}>Accept</Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "pending"} onClick={() => handleSellerRequestAction(request.id, "declined")}>Decline</Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "payment_sent"} onClick={() => handleSellerRequestAction(request.id, "funds_received")}>Confirm Funds Received</Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "funds_received"} onClick={() => handleSellerRequestAction(request.id, "usdt_release_pending")}>Start USDT Release</Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_release_pending" || !request.sellerEvidence} onClick={() => handleSellerRequestAction(request.id, "usdt_sent")}>
+                      <Button type="button" size="sm" loading={Boolean(tradeActionLoading[`${request.id}:accepted`])} loadingLabel="Accepting..." disabled={request.status !== "pending"} onClick={() => handleSellerRequestAction(request.id, "accepted")}>Accept</Button>
+                      <Button type="button" size="sm" variant="secondary" loading={Boolean(tradeActionLoading[`${request.id}:declined`])} loadingLabel="Declining..." disabled={request.status !== "pending"} onClick={() => handleSellerRequestAction(request.id, "declined")}>Decline</Button>
+                      <Button type="button" size="sm" variant="secondary" loading={Boolean(tradeActionLoading[`${request.id}:funds_received`])} loadingLabel="Confirming..." disabled={request.status !== "payment_sent"} onClick={() => handleSellerRequestAction(request.id, "funds_received")}>Confirm Funds Received</Button>
+                      <Button type="button" size="sm" variant="secondary" loading={Boolean(tradeActionLoading[`${request.id}:usdt_release_pending`])} loadingLabel="Starting..." disabled={request.status !== "funds_received"} onClick={() => handleSellerRequestAction(request.id, "usdt_release_pending")}>Start USDT Release</Button>
+                      <Button type="button" size="sm" variant="secondary" loading={Boolean(tradeActionLoading[`${request.id}:usdt_sent`])} loadingLabel="Submitting..." disabled={request.status !== "usdt_release_pending" || !request.sellerEvidence} onClick={() => handleSellerRequestAction(request.id, "usdt_sent")}>
                         Mark USDT Sent
                       </Button>
                       <Button type="button" size="sm" variant="secondary" onClick={() => handleMessageBuyer(request)}>
@@ -2858,14 +3026,16 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                               type="button"
                               size="sm"
                               variant="secondary"
-                              disabled={!sellerEvidenceFiles[request.id] || evidenceUploading[`${request.id}:seller`]}
+                              loading={Boolean(evidenceUploading[`${request.id}:seller`])}
+                              loadingLabel="Uploading..."
+                              disabled={!sellerEvidenceFiles[request.id]}
                               onClick={() => {
                                 const file = sellerEvidenceFiles[request.id];
                                 if (!file) return;
                                 void uploadTradeEvidenceFile(request.id, "seller", file);
                               }}
                             >
-                              {evidenceUploading[`${request.id}:seller`] ? "Uploading..." : "Upload Evidence"}
+                              Upload Evidence
                             </Button>
                           </div>
                         </div>
@@ -2897,7 +3067,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       >
                         <Textarea placeholder="Respond to buyer review" value={sellerResponseDrafts[request.id] ?? ""} onChange={(event) => setSellerResponseDrafts((prev) => ({ ...prev, [request.id]: event.target.value }))} />
                         <div>
-                          <Button type="submit" size="sm" variant="secondary">Submit Seller Response</Button>
+                          <Button type="submit" size="sm" variant="secondary" loading={Boolean(reviewActionLoading[`${request.id}:seller-review`])} loadingLabel="Submitting...">Submit Seller Response</Button>
                         </div>
                       </form>
                     ) : null}
@@ -3072,12 +3242,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       {sellerSettings.availabilityStatus === "vacation" ? (
                         <p className="text-xs text-[#FDE68A]">Vacation Mode hides your active listings from buyers and blocks new matches until you switch back.</p>
                       ) : null}
-                      <Button type="submit" size="sm">Save Profile</Button>
+                      <Button type="submit" size="sm" loading={isSavingSellerSettings} loadingLabel="Saving...">Save Profile</Button>
                     </form>
                     <form className="grid gap-2" onSubmit={handleSellerPasswordSubmit}>
                       <Input type="password" placeholder="Current Password" value={sellerSettings.currentPassword} onChange={(event) => setSellerSettings((prev) => ({ ...prev, currentPassword: event.target.value }))} />
                       <Input type="password" placeholder="New Password" value={sellerSettings.newPassword} onChange={(event) => setSellerSettings((prev) => ({ ...prev, newPassword: event.target.value }))} />
-                      <Button type="submit" size="sm" variant="secondary">Update Password</Button>
+                      <Button type="submit" size="sm" variant="secondary" loading={isSavingSellerPassword} loadingLabel="Updating...">Update Password</Button>
                     </form>
                     <form className="grid gap-2 border-t border-white/10 pt-3" onSubmit={handleNotificationPreferencesSave}>
                       <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Notification Preferences</p>
@@ -3094,7 +3264,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         <input type="checkbox" checked={notificationPreferences.sms} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, sms: event.target.checked }))} />
                       </label>
                       <div>
-                        <Button type="submit" size="sm" variant="secondary">Save Notification Preferences</Button>
+                        <Button type="submit" size="sm" variant="secondary" loading={isSavingNotificationPreferences} loadingLabel="Saving...">Save Notification Preferences</Button>
                       </div>
                     </form>
                   </CardContent>
@@ -3171,9 +3341,17 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <Link href="/profile" className={buttonVariants({ variant: "secondary" })}>Profile</Link>
                     <Button
                       variant="secondary"
+                      loading={isLoggingOut}
+                      loadingLabel="Logging out..."
                       onClick={async () => {
-                        await fetch("/api/auth/logout", { method: "POST" });
-                        router.push("/login");
+                        if (isLoggingOut) return;
+                        setIsLoggingOut(true);
+                        try {
+                          await fetch("/api/auth/logout", { method: "POST" });
+                          router.push("/login");
+                        } finally {
+                          setIsLoggingOut(false);
+                        }
                       }}
                     >
                       Logout
@@ -3196,7 +3374,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <span>SMS (future-ready)</span>
                     <input type="checkbox" checked={notificationPreferences.sms} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, sms: event.target.checked }))} />
                   </label>
-                  <Button type="submit" size="sm" variant="secondary">Save Preferences</Button>
+                  <Button type="submit" size="sm" variant="secondary" loading={isSavingNotificationPreferences} loadingLabel="Saving...">Save Preferences</Button>
                 </form>
               ) : null}
             </CardContent>
@@ -3239,13 +3417,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       {request.completedAt ? <p>Completed: <span className="text-white">{new Date(request.completedAt).toLocaleString("en-IL")}</span></p> : null}
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Button type="button" size="sm" disabled={request.status !== "accepted" || !request.buyerEvidence} onClick={() => handleBuyerTradeStatus(request.id, "payment_sent")}>
+                      <Button type="button" size="sm" loading={Boolean(tradeActionLoading[`${request.id}:payment_sent`])} loadingLabel="Submitting..." disabled={request.status !== "accepted" || !request.buyerEvidence} onClick={() => handleBuyerTradeStatus(request.id, "payment_sent")}>
                         Mark Bank Transfer Sent
                       </Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_sent"} onClick={() => handleBuyerTradeStatus(request.id, "completed")}>
+                      <Button type="button" size="sm" variant="secondary" loading={Boolean(tradeActionLoading[`${request.id}:completed`])} loadingLabel="Confirming..." disabled={request.status !== "usdt_sent"} onClick={() => handleBuyerTradeStatus(request.id, "completed")}>
                         Confirm Trade Completed
                       </Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "pending" && request.status !== "accepted"} onClick={() => handleBuyerTradeStatus(request.id, "cancelled")}>
+                      <Button type="button" size="sm" variant="secondary" loading={Boolean(tradeActionLoading[`${request.id}:cancelled`])} loadingLabel="Cancelling..." disabled={request.status !== "pending" && request.status !== "accepted"} onClick={() => handleBuyerTradeStatus(request.id, "cancelled")}>
                         Cancel
                       </Button>
                     </div>
@@ -3330,14 +3508,16 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                               type="button"
                               size="sm"
                               variant="secondary"
-                              disabled={!buyerEvidenceFiles[request.id] || evidenceUploading[`${request.id}:buyer`]}
+                              loading={Boolean(evidenceUploading[`${request.id}:buyer`])}
+                              loadingLabel="Uploading..."
+                              disabled={!buyerEvidenceFiles[request.id]}
                               onClick={() => {
                                 const file = buyerEvidenceFiles[request.id];
                                 if (!file) return;
                                 void uploadTradeEvidenceFile(request.id, "buyer", file);
                               }}
                             >
-                              {evidenceUploading[`${request.id}:buyer`] ? "Uploading..." : "Upload Evidence"}
+                              Upload Evidence
                             </Button>
                           </div>
                         </div>
@@ -3363,7 +3543,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       >
                         <Textarea placeholder="Leave one review after completed trade" value={tradeReviewDrafts[request.id] ?? ""} onChange={(event) => setTradeReviewDrafts((prev) => ({ ...prev, [request.id]: event.target.value }))} />
                         <div>
-                          <Button type="submit" size="sm" variant="secondary">Submit Buyer Review</Button>
+                          <Button type="submit" size="sm" variant="secondary" loading={Boolean(reviewActionLoading[`${request.id}:buyer-review`])} loadingLabel="Submitting...">Submit Buyer Review</Button>
                         </div>
                       </form>
                     ) : null}
@@ -3747,7 +3927,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <Textarea className="md:col-span-3" placeholder="Notes" value={buyerInfo.notes} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, notes: event.target.value }))} />
                     </div>
                     <div className="sticky bottom-0 z-10 rounded-xl border border-[#C9A227]/30 bg-[#0B0B0B]/95 p-3">
-                      <Button type="submit" className="w-full">Start Trade</Button>
+                      <Button type="submit" className="w-full" loading={isSubmittingPurchase} loadingLabel="Starting trade...">Start Trade</Button>
                     </div>
                     {statusMessage ? (
                       <Card className="border-amber-500/30 bg-black/30">

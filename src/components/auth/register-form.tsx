@@ -80,7 +80,9 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
             />
             {isAr ? "أوافق على شروط الخدمة." : "I agree to the Terms of Service."}
           </label>
-          <Button type="submit" disabled={isSubmitting}>{isSubmitting ? (isAr ? "جاري الإنشاء..." : "Creating...") : (isAr ? "إنشاء الحساب" : "Create Account")}</Button>
+          <Button type="submit" loading={isSubmitting} loadingLabel={isAr ? "جاري الإنشاء..." : "Creating..."}>
+            {isAr ? "إنشاء الحساب" : "Create Account"}
+          </Button>
         </form>
 
         {errorMessage ? <p className="mt-3 text-sm text-rose-300" role="status" aria-live="polite">{errorMessage}</p> : null}

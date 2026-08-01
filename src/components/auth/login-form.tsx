@@ -216,14 +216,23 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
               {isAr ? "نسيت كلمة المرور" : "Forgot Password"}
             </button>
           </div>
-          <Button type="submit" disabled={isLoginSubmitting}>{isLoginSubmitting ? (isAr ? "جاري تسجيل الدخول..." : "Logging in...") : (isAr ? "تسجيل الدخول" : "Login")}</Button>
+          <Button type="submit" loading={isLoginSubmitting} loadingLabel={isAr ? "جاري تسجيل الدخول..." : "Logging in..."}>
+            {isAr ? "تسجيل الدخول" : "Login"}
+          </Button>
         </form>
 
         {resetMode ? (
           <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
             <form className="grid gap-2" onSubmit={handleResetRequest}>
               <Input aria-label={isAr ? "البريد لإعادة تعيين كلمة المرور" : "Email for password reset"} placeholder={isAr ? "البريد لإعادة تعيين كلمة المرور" : "Email for password reset"} type="email" autoComplete="email" required value={resetRequestEmail} onChange={(event) => setResetRequestEmail(event.target.value)} />
-              <Button type="submit" variant="secondary" disabled={isResetRequestSubmitting}>{isResetRequestSubmitting ? (isAr ? "جاري الإرسال..." : "Sending...") : (isAr ? "إرسال رابط إعادة التعيين" : "Send Reset Link")}</Button>
+              <Button
+                type="submit"
+                variant="secondary"
+                loading={isResetRequestSubmitting}
+                loadingLabel={isAr ? "جاري الإرسال..." : "Sending..."}
+              >
+                {isAr ? "إرسال رابط إعادة التعيين" : "Send Reset Link"}
+              </Button>
             </form>
           </div>
         ) : null}
@@ -234,12 +243,11 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
             type="button"
             variant="secondary"
             className="mt-3"
-            disabled={isResendVerificationSubmitting}
+            loading={isResendVerificationSubmitting}
+            loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
             onClick={handleResendVerification}
           >
-            {isResendVerificationSubmitting
-              ? (isAr ? "جارٍ الإرسال..." : "Sending...")
-              : (isAr ? "إعادة إرسال بريد التحقق" : "Resend verification email")}
+            {isAr ? "إعادة إرسال بريد التحقق" : "Resend verification email"}
           </Button>
         ) : null}
         {statusMessage ? <p className="mt-3 text-sm text-emerald-300" role="status" aria-live="polite">{statusMessage}</p> : null}
