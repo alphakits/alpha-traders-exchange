@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMyMarketplaceListings, getSellerCommissionStatus, getSellerListingWorkspaceSummary } from "@/lib/alpha-exchange-store";
+import { getCommissionQaModeStatus, getMyMarketplaceListings, getSellerCommissionStatus, getSellerListingWorkspaceSummary } from "@/lib/alpha-exchange-store";
 import { requireApiSellerWorkspaceActor } from "@/lib/api-auth";
 
 export async function GET(request: NextRequest) {
@@ -13,5 +13,5 @@ export async function GET(request: NextRequest) {
     getSellerListingWorkspaceSummary(user.id),
     getSellerCommissionStatus(user.id),
   ]);
-  return NextResponse.json({ listings, summary, commissionStatus });
+  return NextResponse.json({ listings, summary, commissionStatus, qaCommissionModeEnabled: getCommissionQaModeStatus() });
 }

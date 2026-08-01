@@ -399,6 +399,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     relatedTradeId?: string;
     relatedTradeDisplayNumber?: number;
   } | null>(null);
+  const [qaCommissionModeEnabled, setQaCommissionModeEnabled] = useState(false);
   const [commissionPayOpen, setCommissionPayOpen] = useState(false);
   const [commissionNetwork, setCommissionNetwork] = useState<CommissionNetworkId>("ERC20");
   const [commissionTxSignature, setCommissionTxSignature] = useState("");
@@ -407,6 +408,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [commissionCopied, setCommissionCopied] = useState(false);
   const [commissionQrDataUrl, setCommissionQrDataUrl] = useState<string | null>(null);
   const [requestActionKey, setRequestActionKey] = useState<string | null>(null);
+  const qaCommissionResetAttemptedRef = useRef(false);
   const [listingCreateForm, setListingCreateForm] = useState({
     availableAmount: "",
     price: "",
@@ -521,10 +523,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             relatedTradeId?: string;
             relatedTradeDisplayNumber?: number;
           };
+          qaCommissionModeEnabled?: boolean;
         };
         setMyListings((myListingsJson.listings ?? []).filter((listing) => listing.status !== "closed" && listing.status !== "cancelled"));
         setSellerWorkspaceSummary(myListingsJson.summary ?? null);
         setSellerCommissionStatus(myListingsJson.commissionStatus ?? null);
+        setQaCommissionModeEnabled(Boolean(myListingsJson.qaCommissionModeEnabled));
       }
       setWorkspaceError(null);
     } catch {
@@ -727,6 +731,27 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     }));
     void fetchSellerProfileData(listing.sellerId);
   }, [isLoadingListings, listings, selectedListing, sessionUser, updateListingSelectionQuery]);
+
+  useEffect(() => {
+    if (!qaCommissionModeEnabled) return;
+    if (!sellerCommissionStatus || sellerCommissionStatus.status === "clear") return;
+    if (sellerCommissionStatus.amountDue <= 1) return;
+    if (qaCommissionResetAttemptedRef.current) return;
+    qaCommissionResetAttemptedRef.current = true;
+    void (async () => {
+      try {
+        const response = await fetch("/api/alpha-exchange/commissions/qa-reset", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+        if (!response.ok) return;
+        setCommissionPayMessage("QA commission cleanup completed.");
+        await refreshSellerWorkspace();
+      } catch {
+        // Keep normal commission flow available if QA cleanup fails.
+      }
+    })();
+  }, [qaCommissionModeEnabled, refreshSellerWorkspace, sellerCommissionStatus]);
 
   // Generate QR code when commission modal opens or network changes
   useEffect(() => {
@@ -4268,7 +4293,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
                           <p className="font-medium text-white">Recent Commission</p>
                           {(sellerProfileData.ownerTools?.commissionHistory ?? []).slice(0, 3).map((entry) => (
-                            <p key={entry.id} className="mt-1">{entry.commissionAmount.toFixed(2)} • {new Date(entry.createdAt).toLocaleDateString("en-IL")}</p>
+                            <p key={entry.id} className="mt-1">{entry.commissionAmount.toFixed(2)} USDT • {new Date(entry.createdAt).toLocaleDateString("en-IL")}</p>
                           ))}
                         </div>
                         <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">

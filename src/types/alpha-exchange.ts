@@ -596,7 +596,7 @@ export interface CommissionRecord {
   grossAmount: number;
   commissionAmount: number;
   paymentStatus: CommissionPaymentStatus;
-  paymentProvider?: "phantom" | "crypto_wallet";
+  paymentProvider?: "phantom" | "crypto_wallet" | "qa_reset";
   paymentNetwork?: string;
   payerWalletAddress?: string;
   recipientWalletAddress?: string;

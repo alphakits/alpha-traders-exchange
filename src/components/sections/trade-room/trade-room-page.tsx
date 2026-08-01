@@ -1355,7 +1355,7 @@ export function TradeRoomPage({
               {room.sellerCommissionDueCount > 0 && isSeller ? (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
                   <p className="font-medium">{isAr ? "عمولة مستحقة" : "Commission Due"}</p>
-                  <p>{isAr ? `الإجمالي: ₪${room.sellerCommissionDueAmount.toFixed(2)}` : `Amount: ₪${room.sellerCommissionDueAmount.toFixed(2)}`}</p>
+                  <p>{isAr ? `الإجمالي: ${room.sellerCommissionDueAmount.toFixed(2)} USDT` : `Amount: ${room.sellerCommissionDueAmount.toFixed(2)} USDT`}</p>
                   <p className="text-xs">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
                 </div>
               ) : null}
@@ -1722,7 +1722,7 @@ export function TradeRoomPage({
                 </CardHeader>
                 <CardContent className="text-sm text-[#FDE68A]">
                   <p>{isAr ? `عدد العمولات غير المدفوعة: ${room.sellerCommissionDueCount}` : `Pending commissions: ${room.sellerCommissionDueCount}`}</p>
-                  <p className="mt-1">{isAr ? `المبلغ الإجمالي: ₪${room.sellerCommissionDueAmount.toFixed(2)}` : `Total due: ₪${room.sellerCommissionDueAmount.toFixed(2)}`}</p>
+                  <p className="mt-1">{isAr ? `المبلغ الإجمالي: ${room.sellerCommissionDueAmount.toFixed(2)} USDT` : `Total due: ${room.sellerCommissionDueAmount.toFixed(2)} USDT`}</p>
                   <p className="mt-1 text-xs text-amber-100">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
                   <Button type="button" size="sm" className="mt-2" onClick={() => router.push("/usdt-exchange")}>
                     Pay Now

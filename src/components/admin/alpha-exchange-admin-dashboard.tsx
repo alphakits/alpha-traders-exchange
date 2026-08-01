@@ -1418,7 +1418,7 @@ export function AlphaExchangeAdminDashboard() {
                                     <td className="px-4 py-3 text-white">{request?.buyerName ?? record.buyerId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{seller?.fullName ?? record.sellerId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{formatCurrency(record.grossAmount)}</td>
-                                    <td className="px-4 py-3 text-[#C9A227]">{formatCurrency(record.commissionAmount)}</td>
+                                    <td className="px-4 py-3 text-[#C9A227]">{formatUsdt(record.commissionAmount)}</td>
                                     <td className="px-4 py-3">
                                       <span className={`rounded-full px-2.5 py-1 text-xs ${record.paymentStatus === "paid" ? "border border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : record.paymentStatus === "overdue" ? "border border-red-500/35 bg-red-500/10 text-red-300" : "border border-amber-500/35 bg-amber-500/10 text-amber-300"}`}>
                                         {record.paymentStatus}
@@ -1734,7 +1734,7 @@ export function AlphaExchangeAdminDashboard() {
                             <CardDescription>Current fee logic is tracked at 1% per completed trade.</CardDescription>
                           </CardHeader>
                           <CardContent className="pt-0 text-sm text-[#D1D5DB]">
-                            Total earned: <span className="text-white">{formatCurrency(data.summary.totalCommissionAmount)}</span>
+                            Total earned: <span className="text-white">{formatUsdt(data.summary.totalCommissionAmount)}</span>
                           </CardContent>
                         </Card>
                       </CardContent>

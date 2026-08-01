@@ -429,12 +429,18 @@ function roundUsdt(value: number) {
   return Number(value.toFixed(2));
 }
 
+function isQaCommissionModeEnabled() {
+  return process.env.ALPHA_EXCHANGE_QA_COMMISSION_MODE === "1";
+}
+
 function getCommissionAmountDueUsdt(db: AlphaExchangeDb, record: CommissionRecord) {
   const request = db.purchaseRequests.find((item) => item.id === record.purchaseRequestId);
   if (request) {
+    if (isQaCommissionModeEnabled()) return 1;
     const requestedUsdt = toNumber(request.usdtAmount);
     if (requestedUsdt > 0) return roundUsdt(requestedUsdt * 0.01);
   }
+  if (isQaCommissionModeEnabled()) return 1;
   return roundUsdt(record.commissionAmount);
 }
 
@@ -4176,6 +4182,10 @@ export async function getSellerCommissionStatus(sellerId: string) {
   };
 }
 
+export function getCommissionQaModeStatus() {
+  return isQaCommissionModeEnabled();
+}
+
 export async function createPurchaseRequest(input: {
   buyerId: string;
   listingId: string;
@@ -5565,7 +5575,7 @@ export async function updatePurchaseRequestStatus(input: {
     if (!hasCommission) {
       const normalizedGross = toNumber(next.fiatAmount);
       const normalizedUsdt = toNumber(next.usdtAmount);
-      const commissionAmount = roundUsdt(normalizedUsdt * 0.01);
+      const commissionAmount = isQaCommissionModeEnabled() ? 1 : roundUsdt(normalizedUsdt * 0.01);
       const commission: CommissionRecord = {
         id: `commission-${randomUUID()}`,
         purchaseRequestId: request.id,
@@ -6218,6 +6228,62 @@ export async function submitSellerCommissionWalletPayment(input: {
   };
 }
 
+export async function clearSellerQaCommissionDues(input: {
+  sellerUserId: string;
+}) {
+  if (!isQaCommissionModeEnabled()) {
+    throw new Error("QA commission mode is not enabled.");
+  }
+
+  const db = await readDb();
+  const now = nowIso();
+  const sellerPendingCommissions = db.commissionRecords.filter(
+    (record) =>
+      record.sellerId === input.sellerUserId &&
+      normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid",
+  );
+
+  for (const current of sellerPendingCommissions) {
+    const index = db.commissionRecords.findIndex((record) => record.id === current.id);
+    if (index === -1) continue;
+    const amountDueUsdt = getCommissionAmountDueUsdt(db, current);
+    db.commissionRecords[index] = {
+      ...current,
+      paymentProvider: "qa_reset",
+      paymentNetwork: "QA",
+      paymentStatus: "paid",
+      paymentVerificationStatus: "verified",
+      paymentVerificationNotes: "Cleared automatically by QA commission mode.",
+      paymentSubmittedAt: now,
+      paidAt: now,
+      updatedAt: now,
+    };
+    const request = db.purchaseRequests.find((item) => item.id === current.purchaseRequestId);
+    if (request) {
+      appendTradeTimelineEntry(request, {
+        type: "commission_paid",
+        actorUserId: input.sellerUserId,
+        actorRole: resolveActorRole(db, input.sellerUserId),
+        message: `QA commission cleanup cleared ${amountDueUsdt.toFixed(2)} USDT.`,
+        createdAt: now,
+      });
+    }
+    await appendAuditLog(db, {
+      action: "commission_paid",
+      actorUserId: input.sellerUserId,
+      targetUserId: current.sellerId,
+      listingId: current.listingId,
+      purchaseRequestId: current.purchaseRequestId,
+      details: `QA commission cleanup cleared ${current.id}.`,
+    });
+  }
+
+  await writeDb(db);
+  return {
+    clearedCount: sellerPendingCommissions.length,
+  };
+}
+
 export async function updateCommissionPaymentStatus(input: {
   commissionId: string;
   actorUserId: string;
@@ -6228,6 +6294,7 @@ export async function updateCommissionPaymentStatus(input: {
   if (index === -1) throw new Error("Commission record not found.");
   const now = nowIso();
   const current = db.commissionRecords[index];
+  const amountDueUsdt = getCommissionAmountDueUsdt(db, current);
   const request = db.purchaseRequests.find((item) => item.id === current.purchaseRequestId);
   db.commissionRecords[index] = {
     ...current,
@@ -6250,7 +6317,7 @@ export async function updateCommissionPaymentStatus(input: {
         type: "commission_paid",
         actorUserId: input.actorUserId,
         actorRole: resolveActorRole(db, input.actorUserId),
-        message: `Commission marked paid (${current.commissionAmount.toFixed(2)}).`,
+        message: `Commission marked paid (${amountDueUsdt.toFixed(2)} USDT).`,
         createdAt: now,
       });
     }
