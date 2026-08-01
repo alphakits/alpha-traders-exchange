@@ -2,10 +2,13 @@ import type { MarketPairKey, MarketSnapshot } from "@/types/market";
 
 const DEFAULT_USD_ILS_RATE = 3.05;
 const DEFAULT_BTC_USDT_RATE = 118200;
+const DEFAULT_ETH_USDT_RATE = 3800;
 const MIN_USD_ILS_RATE = 2;
 const MAX_USD_ILS_RATE = 10;
 const MIN_BTC_USDT_RATE = 1000;
 const MAX_BTC_USDT_RATE = 1_000_000;
+const MIN_ETH_USDT_RATE = 100;
+const MAX_ETH_USDT_RATE = 100_000;
 const MIN_CACHE_TTL_MS = 30_000;
 const MAX_CACHE_TTL_MS = 60_000;
 const DEFAULT_CACHE_TTL_MS = 45_000;
@@ -108,6 +111,42 @@ async function fetchBtcUsdtRate() {
   return { value: DEFAULT_BTC_USDT_RATE, source: "fallback:default", success: false as const };
 }
 
+async function fetchEthUsdtRate() {
+  const configured = toNumber(process.env.ALPHA_MARKET_ETH_USDT_RATE);
+  if (configured > 0) {
+    return { value: configured, source: "env:ALPHA_MARKET_ETH_USDT_RATE", success: true as const };
+  }
+
+  const endpoints = [
+    {
+      name: "binance",
+      url: "https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT",
+      parse: (payload: { price?: unknown }) => toNumber(payload.price),
+    },
+    {
+      name: "coinbase-spot",
+      url: "https://api.coinbase.com/v2/prices/ETH-USD/spot",
+      parse: (payload: { data?: { amount?: unknown } }) => toNumber(payload.data?.amount),
+    },
+  ];
+
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint.url, { cache: "no-store" });
+      if (!response.ok) continue;
+      const payload = await response.json();
+      const value = endpoint.parse(payload as { price?: unknown; data?: { amount?: unknown } });
+      if (isInRange(value, MIN_ETH_USDT_RATE, MAX_ETH_USDT_RATE)) {
+        return { value, source: endpoint.name, success: true as const };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return { value: DEFAULT_ETH_USDT_RATE, source: "fallback:default", success: false as const };
+}
+
 function calculateChangePercent(current: number, previous: number | null) {
   if (!previous || !Number.isFinite(previous) || previous <= 0) return null;
   const delta = ((current - previous) / previous) * 100;
@@ -115,28 +154,29 @@ function calculateChangePercent(current: number, previous: number | null) {
 }
 
 async function refreshMarketSnapshot() {
-  const [usdIlsResult, btcUsdtResult] = await Promise.all([fetchUsdIlsRate(), fetchBtcUsdtRate()]);
+  const [usdIlsResult, btcUsdtResult, ethUsdtResult] = await Promise.all([fetchUsdIlsRate(), fetchBtcUsdtRate(), fetchEthUsdtRate()]);
   const nowIso = new Date().toISOString();
   const unavailablePairs: MarketPairKey[] = [];
-  if (!usdIlsResult.success) unavailablePairs.push("usdIls");
   if (!btcUsdtResult.success) unavailablePairs.push("btcUsdt");
+  if (!ethUsdtResult.success) unavailablePairs.push("ethUsdt");
 
   const usdIlsPrice = usdIlsResult.value;
   const usdtIlsPrice = usdIlsPrice;
   const btcUsdtPrice = btcUsdtResult.value;
+  const ethUsdtPrice = ethUsdtResult.value;
   const previous = lastLiveSnapshot?.pairs;
   const snapshot: MarketSnapshot = {
-    status: unavailablePairs.length === 0 ? "live" : "degraded",
+    status: usdIlsResult.success && unavailablePairs.length === 0 ? "live" : "degraded",
     updatedAt: nowIso,
-    stale: unavailablePairs.length > 0,
+    stale: !usdIlsResult.success || unavailablePairs.length > 0,
     unavailablePairs,
     pairs: {
-      usdIls: {
-        key: "usdIls",
-        label: "USD / ILS",
-        price: usdIlsPrice,
-        changePercent: calculateChangePercent(usdIlsPrice, previous?.usdIls?.price ?? null),
-        source: usdIlsResult.source,
+      ethUsdt: {
+        key: "ethUsdt",
+        label: "ETH / USDT",
+        price: ethUsdtPrice,
+        changePercent: calculateChangePercent(ethUsdtPrice, previous?.ethUsdt?.price ?? null),
+        source: ethUsdtResult.source,
       },
       btcUsdt: {
         key: "btcUsdt",
@@ -171,7 +211,7 @@ function getFallbackSnapshot() {
       stale: true,
       unavailablePairs: cachedSnapshot.unavailablePairs.length
         ? cachedSnapshot.unavailablePairs
-        : ["usdIls", "btcUsdt"] as MarketPairKey[],
+        : ["ethUsdt", "btcUsdt"] as MarketPairKey[],
     };
   }
 
@@ -180,12 +220,12 @@ function getFallbackSnapshot() {
     status: "degraded" as const,
     updatedAt: nowIso,
     stale: true,
-    unavailablePairs: ["usdIls", "btcUsdt"] as MarketPairKey[],
+    unavailablePairs: ["ethUsdt", "btcUsdt"] as MarketPairKey[],
     pairs: {
-      usdIls: {
-        key: "usdIls",
-        label: "USD / ILS",
-        price: DEFAULT_USD_ILS_RATE,
+      ethUsdt: {
+        key: "ethUsdt",
+        label: "ETH / USDT",
+        price: DEFAULT_ETH_USDT_RATE,
         changePercent: null,
         source: "fallback:default",
       },

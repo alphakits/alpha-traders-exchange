@@ -19,8 +19,8 @@ const TradingViewMarketCharts = dynamic(
 
 type Locale = "ar" | "en";
 
-function formatPrice(value: number, key: "usdIls" | "btcUsdt" | "usdtIls") {
-  if (key === "btcUsdt") return `$${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+function formatPrice(value: number, key: "ethUsdt" | "btcUsdt" | "usdtIls") {
+  if (key === "btcUsdt" || key === "ethUsdt") return `$${value.toLocaleString("en-US", { maximumFractionDigits: key === "ethUsdt" ? 2 : 0 })}`;
   return `₪${value.toFixed(2)}`;
 }
 
@@ -63,7 +63,7 @@ export function AlphaMarketCenter({ locale, showCta = false }: { locale: Locale;
   }
 
   if (!snapshot) return null;
-  const cards = [snapshot.pairs.usdIls, snapshot.pairs.btcUsdt, snapshot.pairs.usdtIls];
+  const cards = [snapshot.pairs.ethUsdt, snapshot.pairs.btcUsdt, snapshot.pairs.usdtIls];
 
   return (
     <Card className="border-white/10 bg-[#0B0B0B]/90">

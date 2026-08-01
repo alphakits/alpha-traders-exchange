@@ -1,4 +1,4 @@
-export type MarketPairKey = "usdIls" | "btcUsdt" | "usdtIls";
+export type MarketPairKey = "ethUsdt" | "btcUsdt" | "usdtIls";
 
 export type MarketPair = {
   key: MarketPairKey;
@@ -15,7 +15,7 @@ export type MarketSnapshot = {
   stale: boolean;
   unavailablePairs: MarketPairKey[];
   pairs: {
-    usdIls: MarketPair;
+    ethUsdt: MarketPair;
     btcUsdt: MarketPair;
     usdtIls: MarketPair;
   };

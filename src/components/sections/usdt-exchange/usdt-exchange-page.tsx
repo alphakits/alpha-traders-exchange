@@ -42,6 +42,16 @@ const PAYMENT_METHOD_META: Record<string, { emoji: string; shortLabel: string }>
   "Cardless ATM Withdrawal": { emoji: "🏧", shortLabel: "Cardless ATM" },
 };
 
+const SELLER_APPLICATION_METHOD_OPTIONS = [
+  "TRC20",
+  "ERC20",
+  "Polygon",
+  "Solana",
+  "Face-to-Face",
+  "Cardless Withdrawal",
+  "Bank Transfer",
+] as const;
+
 type Locale = "ar" | "en";
 
 type SessionUser = {
@@ -106,6 +116,24 @@ function formatIls(value: number) {
 
 function formatUsdt(value: number) {
   return `${value.toFixed(2)} USDT`;
+}
+
+function tradeHistoryTimestamp(request: PurchaseRequest) {
+  return new Date(request.completedAt ?? request.updatedAt ?? request.createdAt).getTime();
+}
+
+function groupActivityEntriesByDay(entries: AlphaExchangeActivityLogEntry[]) {
+  const sorted = [...entries].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+  const grouped = new Map<string, AlphaExchangeActivityLogEntry[]>();
+  for (const entry of sorted) {
+    const dayKey = entry.createdAt.slice(0, 10);
+    grouped.set(dayKey, [...(grouped.get(dayKey) ?? []), entry]);
+  }
+  return Array.from(grouped.entries()).map(([dayKey, items]) => ({
+    dayKey,
+    label: new Date(`${dayKey}T00:00:00`).toLocaleDateString("en-IL", { weekday: "short", month: "short", day: "numeric" }),
+    items,
+  }));
 }
 
 function formatIntegerForInput(value: string | number | null | undefined) {
@@ -457,6 +485,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [currencyFilter, setCurrencyFilter] = useState("all");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState("all");
   const [networkFilter, setNetworkFilter] = useState<"all" | SupportedNetwork>("all");
+  const [showMarketplaceFilters, setShowMarketplaceFilters] = useState(false);
   const [minAmountFilter, setMinAmountFilter] = useState("");
   const [maxAmountFilter, setMaxAmountFilter] = useState("");
   const [minPriceFilter, setMinPriceFilter] = useState("");
@@ -469,7 +498,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [sellerTradeQuery, setSellerTradeQuery] = useState("");
   const [sellerTradeStatus, setSellerTradeStatus] = useState<"all" | PurchaseRequest["status"]>("all");
   const [sellerClosedRequestsCollapsed, setSellerClosedRequestsCollapsed] = useState(true);
-  const [buyerClosedRequestsCollapsed, setBuyerClosedRequestsCollapsed] = useState(true);
+  const [buyerExpandedTradeId, setBuyerExpandedTradeId] = useState<string | null>(null);
+  const [buyerTradeVisibleCount, setBuyerTradeVisibleCount] = useState(8);
   const [tradeReviewDrafts, setTradeReviewDrafts] = useState<Record<string, string>>({});
   const [sellerResponseDrafts, setSellerResponseDrafts] = useState<Record<string, string>>({});
   const [buyerEvidenceFiles, setBuyerEvidenceFiles] = useState<Record<string, File | null>>({});
@@ -494,6 +524,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     expectedMonthlyTradingVolume: "",
     additionalNotes: "",
   });
+  const [sellerApplicationMethods, setSellerApplicationMethods] = useState<string[]>(["Bank Transfer"]);
 
   const refreshSellerWorkspace = useCallback(async () => {
     try {
@@ -1013,6 +1044,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         body: JSON.stringify({
           ...sellerForm,
           preferredNetworks: [sellerForm.preferredNetwork],
+          additionalNotes: [
+            sellerForm.additionalNotes.trim(),
+            sellerApplicationMethods.length ? `Preferred selling methods: ${sellerApplicationMethods.join(", ")}` : "",
+          ].filter(Boolean).join("\n\n"),
         }),
       });
       if (!response.ok) {
@@ -1118,11 +1153,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const commission = selectedAmount * selectedPrice * 0.01;
   const estimatedTotal = selectedAmount * selectedPrice + commission;
 
-  const buyerMenu = ["Profile", "My Requests", "Settings"];
-  const sellerMenu = ["Profile", "My Listings", "Create Listing", "My Requests", "Notifications"];
   const isApprovedSeller = sessionUser?.role === "approved_seller" && sessionUser?.sellerStatus === "approved_seller";
   const isOwnerViewer = sessionUser?.role === "admin" && isAlphaExchangeOwnerEmail(sessionUser.email);
-  const menuItems = isApprovedSeller ? sellerMenu : buyerMenu;
   const marketPricePerUsdt = marketSnapshot?.pairs.usdtIls.price ?? DEFAULT_MARKET_PRICE_PER_USDT;
   const maxAllowedListingPrice = marketPricePerUsdt + MAX_PRICE_MARKUP_ILS;
   const listingCreatePrice = toNumber(listingCreateForm.price);
@@ -1209,7 +1241,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     });
   }, [sellerRequests, sellerTradeQuery, sellerTradeStatus]);
   const sellerRequestSections = useMemo(() => groupTradeRequests(filteredSellerRequests, "seller"), [filteredSellerRequests]);
-  const buyerRequestSections = useMemo(() => groupTradeRequests(filteredBuyerRequests, "buyer"), [filteredBuyerRequests]);
+  const sortedBuyerRequests = useMemo(
+    () => [...filteredBuyerRequests].sort((left, right) => tradeHistoryTimestamp(right) - tradeHistoryTimestamp(left)),
+    [filteredBuyerRequests],
+  );
   const handlePrefetchTradeRoom = useCallback((requestId: string) => {
     prefetchTradeRoom(router, requestId);
   }, [router]);
@@ -1299,6 +1334,46 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       createdAt: notification.createdAt,
     }));
   }, [activityHistory, notifications]);
+  const groupedActivityHistory = useMemo(() => groupActivityEntriesByDay(activityHistory).slice(0, 5), [activityHistory]);
+  const buyerOverviewStats = useMemo(() => {
+    const completed = buyerRequests.filter((request) => request.status === "completed" || request.status === "review_open" || Boolean(request.completedAt));
+    const pending = buyerRequests.filter((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status));
+    const totalUsdtBought = completed.reduce((sum, request) => sum + toNumber(request.usdtAmount), 0);
+    const totalFiatSpent = completed.reduce((sum, request) => sum + toNumber(request.fiatAmount), 0);
+    const averagePurchasePrice = totalUsdtBought > 0 ? totalFiatSpent / totalUsdtBought : marketPricePerUsdt;
+    const paymentCounts = buyerRequests.reduce<Record<string, number>>((acc, request) => {
+      const method = normalizeMarketplacePaymentMethod(request.paymentMethod);
+      if (!method) return acc;
+      acc[method] = (acc[method] ?? 0) + 1;
+      return acc;
+    }, {});
+    const favoritePaymentMethods = Object.entries(paymentCounts)
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 2)
+      .map(([method]) => paymentMethodLabel(method))
+      .join(" • ");
+    const uniqueTrustedSellers = new Set(
+      completed
+        .map((request) => listingsById.get(request.listingId)?.sellerDisplayName || request.sellerId)
+        .filter(Boolean),
+    );
+    return {
+      total: buyerRequests.length,
+      completed: completed.length,
+      pending: pending.length,
+      averagePurchasePrice,
+      favoritePaymentMethods: favoritePaymentMethods || "—",
+      recentTrades: sortedBuyerRequests.slice(0, 3),
+      uniqueTrustedSellers: uniqueTrustedSellers.size,
+      totalUsdtBought,
+      activeDays: new Set(buyerRequests.map((request) => (request.completedAt ?? request.updatedAt ?? request.createdAt).slice(0, 10))).size,
+    };
+  }, [buyerRequests, listingsById, marketPricePerUsdt, sortedBuyerRequests]);
+
+  useEffect(() => {
+    setBuyerTradeVisibleCount(8);
+    setBuyerExpandedTradeId(null);
+  }, [buyerTradeQuery, buyerTradeStatus, sessionUser?.id]);
 
   const marketplacePulse = useMemo(() => {
     const sourceListings = filteredListings.length ? filteredListings : listings;
@@ -1828,7 +1903,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     </Card>
   ) : null;
 
-  const marketInsightsCard = sessionUser ? (
+  const marketInsightsCard = sessionUser && isApprovedSeller ? (
     <Card className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
       <CardHeader>
         <CardTitle>Marketplace Insights</CardTitle>
@@ -1890,6 +1965,63 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/dashboard/seller")}>Seller Dashboard</Button>
               <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/profile")}>Public Profile</Button>
               <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/settings")}>Account Settings</Button>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  ) : null;
+  const buyerOverviewCard = sessionUser && !isApprovedSeller ? (
+    <Card className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
+      <CardHeader className="pb-4">
+        <CardTitle>{isAr ? "لوحة المشتري" : "Buyer Dashboard"}</CardTitle>
+        <CardDescription>{isAr ? "ملخص سريع لرحلة الشراء الخاصة بك داخل Alpha Exchange." : "A compact view of your trading activity, trusted sellers, and recent purchase momentum."}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {[
+            { label: isAr ? "إجمالي المشتريات" : "Total Purchases", value: buyerOverviewStats.total.toLocaleString("en-IL") },
+            { label: isAr ? "المشتريات المكتملة" : "Completed Purchases", value: buyerOverviewStats.completed.toLocaleString("en-IL") },
+            { label: isAr ? "المشتريات المعلقة" : "Pending Purchases", value: buyerOverviewStats.pending.toLocaleString("en-IL") },
+            { label: isAr ? "متوسط سعر الشراء" : "Average Purchase Price", value: formatIls(buyerOverviewStats.averagePurchasePrice) },
+            { label: isAr ? "طرق الدفع المفضلة" : "Favorite Payment Methods", value: buyerOverviewStats.favoritePaymentMethods },
+            { label: isAr ? "البائعون الموثوقون" : "Trusted Sellers", value: buyerOverviewStats.uniqueTrustedSellers.toLocaleString("en-IL") },
+          ].map((item) => (
+            <div key={item.label} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{item.label}</p>
+              <p className="mt-2 text-lg font-semibold text-white">{item.value}</p>
+            </div>
+          ))}
+        </div>
+        <div className="grid gap-4 xl:grid-cols-[1.35fr_0.65fr]">
+          <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+            <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "أحدث الصفقات" : "Recent Trades"}</p>
+            {!buyerOverviewStats.recentTrades.length ? <p className="mt-3 text-sm text-[#9CA3AF]">{isAr ? "ابدأ أول صفقة لرؤية نشاطك هنا." : "Start your first trade to populate this feed."}</p> : null}
+            <div className="mt-3 space-y-2">
+              {buyerOverviewStats.recentTrades.map((request) => (
+                <div key={`buyer-overview-${request.id}`} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-xs text-[#D1D5DB]">
+                  <div>
+                    <p className="font-medium text-white">{shortTradeRef(request)}</p>
+                    <p className="mt-0.5">{toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT • {paymentMethodLabel(request.paymentMethod)}</p>
+                  </div>
+                  <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-[#C9A227]">{tradeStatusLabel(request.status)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10 p-4">
+            <p className="text-[11px] uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "نشاط التداول" : "Trading Activity"}</p>
+            <p className="mt-3 text-3xl font-semibold text-white">{buyerOverviewStats.totalUsdtBought.toLocaleString("en-IL")} USDT</p>
+            <p className="mt-1 text-sm text-[#E5E7EB]">{isAr ? "إجمالي USDT الذي اشتريته عبر المنصة." : "Total USDT purchased through Alpha Exchange."}</p>
+            <div className="mt-4 space-y-2 text-xs text-[#E5E7EB]">
+              <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                <span>{isAr ? "أيام نشطة" : "Active Trading Days"}</span>
+                <span className="font-semibold text-white">{buyerOverviewStats.activeDays}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                <span>{isAr ? "المشتريات المكتملة" : "Completed Orders"}</span>
+                <span className="font-semibold text-white">{buyerOverviewStats.completed}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -2140,48 +2272,55 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           </Card>
         ) : null}
 
-        <Card className="mt-5 border-white/10 bg-[#0B0B0B]/90">
-          <CardContent className="p-4">
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <select value={currencyFilter} onChange={(event) => setCurrencyFilter(event.target.value)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
-                <option value="all">{isAr ? "Currency: الكل" : "Currency: All"}</option>
-                {Array.from(new Set(listings.map((listing) => listing.currency))).sort().map((currency) => (
-                  <option key={currency} value={currency}>{currency}</option>
-                ))}
-              </select>
-              <select value={paymentMethodFilter} onChange={(event) => setPaymentMethodFilter(event.target.value)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
-                <option value="all">{isAr ? "Payment: الكل" : "Payment: All"}</option>
-                {Array.from(new Set(listings.flatMap((listing) => listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod]))).sort().map((method) => (
-                  <option key={method} value={method}>{method}</option>
-                ))}
-              </select>
-              <select value={networkFilter} onChange={(event) => setNetworkFilter(event.target.value as "all" | SupportedNetwork)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
-                <option value="all">{isAr ? "Network: الكل" : "Network: All"}</option>
-                <option value="TRC20">TRC20</option>
-                <option value="ERC20">ERC20</option>
-                <option value="BEP20">BEP20</option>
-                <option value="SOL">SOL</option>
-              </select>
-              <select value={sortBy} onChange={(event) => setSortBy(event.target.value as "trust-desc" | "price-asc" | "amount-desc" | "trades-desc" | "rating-desc" | "response-fast" | "newest")} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
-                <option value="trust-desc">{isAr ? "Sort: أفضل ثقة" : "Sort: Best Trust Score"}</option>
-                <option value="price-asc">{isAr ? "Sort: أقل سعر" : "Sort: Lowest Price"}</option>
-                <option value="amount-desc">{isAr ? "Sort: أعلى كمية USDT" : "Sort: Highest Available USDT"}</option>
-                <option value="trades-desc">{isAr ? "Sort: أكثر صفقات مكتملة" : "Sort: Most Completed Trades"}</option>
-                <option value="rating-desc">{isAr ? "Sort: أعلى تقييم" : "Sort: Highest Rating"}</option>
-                <option value="response-fast">{isAr ? "Sort: أسرع استجابة" : "Sort: Fastest Response Time"}</option>
-                <option value="newest">{isAr ? "Sort: الأحدث" : "Sort: Newest Listing"}</option>
-              </select>
-              <Input placeholder={isAr ? "أقل كمية USDT" : "Min USDT amount"} value={minAmountFilter} onChange={(event) => setMinAmountFilter(event.target.value)} />
-              <Input placeholder={isAr ? "أعلى كمية USDT" : "Max USDT amount"} value={maxAmountFilter} onChange={(event) => setMaxAmountFilter(event.target.value)} />
-              <Input placeholder={isAr ? "أقل سعر (₪)" : "Min price (₪)"} value={minPriceFilter} onChange={(event) => setMinPriceFilter(event.target.value)} />
-              <Input placeholder={isAr ? "أعلى سعر (₪)" : "Max price (₪)"} value={maxPriceFilter} onChange={(event) => setMaxPriceFilter(event.target.value)} />
-              <Input placeholder={isAr ? "أقل درجة ثقة" : "Min trust score"} value={trustScoreFilter} onChange={(event) => setTrustScoreFilter(event.target.value)} />
-              <Button type="button" variant={onlineOnlyFilter ? "default" : "secondary"} onClick={() => setOnlineOnlyFilter((prev) => !prev)}>
-                {onlineOnlyFilter ? "Online Sellers Only" : "Show Online Sellers Only"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="mt-5 flex items-center justify-end">
+          <Button type="button" variant="secondary" onClick={() => setShowMarketplaceFilters((value) => !value)}>
+            {showMarketplaceFilters ? (isAr ? "إخفاء الفلاتر" : "Hide Advanced Filters") : (isAr ? "فلاتر متقدمة" : "Advanced Filters")}
+          </Button>
+        </div>
+        {showMarketplaceFilters ? (
+          <Card className="mt-3 border-white/10 bg-[#0B0B0B]/90">
+            <CardContent className="p-4">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <select value={currencyFilter} onChange={(event) => setCurrencyFilter(event.target.value)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
+                  <option value="all">{isAr ? "Currency: الكل" : "Currency: All"}</option>
+                  {Array.from(new Set(listings.map((listing) => listing.currency))).sort().map((currency) => (
+                    <option key={currency} value={currency}>{currency}</option>
+                  ))}
+                </select>
+                <select value={paymentMethodFilter} onChange={(event) => setPaymentMethodFilter(event.target.value)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
+                  <option value="all">{isAr ? "Payment: الكل" : "Payment: All"}</option>
+                  {Array.from(new Set(listings.flatMap((listing) => listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod]))).sort().map((method) => (
+                    <option key={method} value={method}>{method}</option>
+                  ))}
+                </select>
+                <select value={networkFilter} onChange={(event) => setNetworkFilter(event.target.value as "all" | SupportedNetwork)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
+                  <option value="all">{isAr ? "Network: الكل" : "Network: All"}</option>
+                  <option value="TRC20">TRC20</option>
+                  <option value="ERC20">ERC20</option>
+                  <option value="BEP20">BEP20</option>
+                  <option value="SOL">SOL</option>
+                </select>
+                <select value={sortBy} onChange={(event) => setSortBy(event.target.value as "trust-desc" | "price-asc" | "amount-desc" | "trades-desc" | "rating-desc" | "response-fast" | "newest")} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
+                  <option value="trust-desc">{isAr ? "Sort: أفضل ثقة" : "Sort: Best Trust Score"}</option>
+                  <option value="price-asc">{isAr ? "Sort: أقل سعر" : "Sort: Lowest Price"}</option>
+                  <option value="amount-desc">{isAr ? "Sort: أعلى كمية USDT" : "Sort: Highest Available USDT"}</option>
+                  <option value="trades-desc">{isAr ? "Sort: أكثر صفقات مكتملة" : "Sort: Most Completed Trades"}</option>
+                  <option value="rating-desc">{isAr ? "Sort: أعلى تقييم" : "Sort: Highest Rating"}</option>
+                  <option value="response-fast">{isAr ? "Sort: أسرع استجابة" : "Sort: Fastest Response Time"}</option>
+                  <option value="newest">{isAr ? "Sort: الأحدث" : "Sort: Newest Listing"}</option>
+                </select>
+                <Input placeholder={isAr ? "أقل كمية USDT" : "Min USDT amount"} value={minAmountFilter} onChange={(event) => setMinAmountFilter(event.target.value)} />
+                <Input placeholder={isAr ? "أعلى كمية USDT" : "Max USDT amount"} value={maxAmountFilter} onChange={(event) => setMaxAmountFilter(event.target.value)} />
+                <Input placeholder={isAr ? "أقل سعر (₪)" : "Min price (₪)"} value={minPriceFilter} onChange={(event) => setMinPriceFilter(event.target.value)} />
+                <Input placeholder={isAr ? "أعلى سعر (₪)" : "Max price (₪)"} value={maxPriceFilter} onChange={(event) => setMaxPriceFilter(event.target.value)} />
+                <Input placeholder={isAr ? "أقل درجة ثقة" : "Min trust score"} value={trustScoreFilter} onChange={(event) => setTrustScoreFilter(event.target.value)} />
+                <Button type="button" variant={onlineOnlyFilter ? "default" : "secondary"} onClick={() => setOnlineOnlyFilter((prev) => !prev)}>
+                  {onlineOnlyFilter ? "Online Sellers Only" : "Show Online Sellers Only"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
 
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           {isLoadingListings
@@ -2457,16 +2596,41 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               <Input placeholder={isAr ? "الاسم الكامل" : "Full Name"} value={sellerForm.fullName} onChange={(event) => setSellerForm((prev) => ({ ...prev, fullName: event.target.value }))} />
               <Input placeholder={isAr ? "البريد الإلكتروني" : "Email"} type="email" value={sellerForm.email} onChange={(event) => setSellerForm((prev) => ({ ...prev, email: event.target.value }))} />
               <Input placeholder={isAr ? "رقم الواتساب" : "WhatsApp Number"} value={sellerForm.whatsappNumber} onChange={(event) => setSellerForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} />
-              <select
-                value={sellerForm.preferredNetwork}
-                onChange={(event) => setSellerForm((prev) => ({ ...prev, preferredNetwork: event.target.value }))}
-                className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]"
-              >
-                <option>TRC20</option>
-                <option>ERC20</option>
-                <option>BEP20</option>
-                <option>SOL</option>
-              </select>
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "الشبكة الأساسية" : "Primary Network"}</p>
+                <select
+                  value={sellerForm.preferredNetwork}
+                  onChange={(event) => setSellerForm((prev) => ({ ...prev, preferredNetwork: event.target.value }))}
+                  className="mt-2 flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]"
+                >
+                  <option>TRC20</option>
+                  <option>ERC20</option>
+                  <option>BEP20</option>
+                  <option>SOL</option>
+                </select>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "طريقة البيع المفضلة" : "Preferred Selling Method"}</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {SELLER_APPLICATION_METHOD_OPTIONS.map((method) => {
+                    const selected = sellerApplicationMethods.includes(method);
+                    return (
+                      <button
+                        key={method}
+                        type="button"
+                        onClick={() => setSellerApplicationMethods((prev) => prev.includes(method) ? prev.filter((item) => item !== method) : [...prev, method])}
+                        className={`rounded-xl border px-3 py-2 text-left text-sm transition ${
+                          selected
+                            ? "border-[#C9A227]/60 bg-[#C9A227]/12 text-white"
+                            : "border-white/10 bg-black/25 text-[#D1D5DB] hover:border-[#C9A227]/35 hover:text-white"
+                        }`}
+                      >
+                        {method}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <Input placeholder={isAr ? "حجم التداول الشهري المتوقع" : "Expected Monthly Trading Volume"} value={sellerForm.expectedMonthlyTradingVolume} onChange={(event) => setSellerForm((prev) => ({ ...prev, expectedMonthlyTradingVolume: event.target.value }))} />
               <Textarea placeholder={isAr ? "ملاحظات إضافية" : "Additional Notes"} value={sellerForm.additionalNotes} onChange={(event) => setSellerForm((prev) => ({ ...prev, additionalNotes: event.target.value }))} />
               <Button type="submit">{isAr ? "قدّم طلب الاعتماد" : "Apply for Approval"}</Button>
@@ -2529,7 +2693,26 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       ) : null}
 
       {isApprovedSeller ? (
-        <div className="mt-8 space-y-6">
+        <div className="mt-8 flex flex-col gap-6">
+          <Card className="border-white/10 bg-[#0B0B0B]/90">
+            <CardContent className="grid gap-4 p-5 md:grid-cols-3">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "حالة البائع" : "Seller Status"}</p>
+                <p className="mt-2 text-lg font-semibold text-white">{isAr ? "بائع معتمد" : "Approved Seller"}</p>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "تاريخ الاعتماد" : "Approval Date"}</p>
+                <p className="mt-2 text-sm text-[#D1D5DB]">{new Date((sellerApplication?.updatedAt ?? sessionUser?.createdAt) || Date.now()).toLocaleDateString("en-IL")}</p>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "شارة البائع" : "Seller Badge"}</p>
+                <div className="mt-2 flex items-center gap-2">
+                  <RoleBadge variant="approved_seller" />
+                  <span className="text-sm text-[#D1D5DB]">{isAr ? "موثّق من Alpha Traders" : "Verified by Alpha Traders"}</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
           {/* Seller Dashboard Hero */}
           <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#0D0D0D] via-[#0A0A0A] to-[#111827]/60 p-6 shadow-[0_24px_60px_rgba(0,0,0,0.4)]">
             <div className="pointer-events-none absolute inset-0 opacity-30">
@@ -2602,7 +2785,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             )) : null}
           </div>
 
-          <Card className={`border-white/10 bg-[#0B0B0B]/90 ${sellerCommissionStatus?.status === "overdue" ? "border-red-600/60" : sellerCommissionStatus?.status === "pending" ? "border-amber-500/40" : ""}`}>
+          <Card className={`order-5 border-white/10 bg-[#0B0B0B]/90 ${sellerCommissionStatus?.status === "overdue" ? "border-red-600/60" : sellerCommissionStatus?.status === "pending" ? "border-amber-500/40" : ""}`}>
             <CardHeader>
               <CardTitle className="inline-flex items-center gap-2">
                 <LockKeyhole className="h-4 w-4 text-[#C9A227]" />
@@ -2663,7 +2846,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </CardContent>
           </Card>
           {commissionPayOpen ? (
-            <Card className="border-red-600/40 bg-[#0B0B0B]/98">
+            <Card className="order-6 border-red-600/40 bg-[#0B0B0B]/98">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <AlertTriangle className="h-5 w-5 text-red-400" />
@@ -2805,7 +2988,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </Card>
           ) : null}
 
-          <Card id="create-listing-form" className="border-white/10 bg-[#0B0B0B]/90">
+          <Card id="create-listing-form" className="order-30 border-white/10 bg-[#0B0B0B]/90">
             <CardHeader>
               <CardTitle>{isAr ? "إنشاء عرض جديد" : "Create Listing"}</CardTitle>
               <CardDescription>
@@ -3007,7 +3190,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           </Card>
 
           {sellerWorkspaceMessage ? (
-            <div className="flex items-start justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-100 shadow-[0_0_0_1px_rgba(16,185,129,0.08)]">
+            <div className="order-25 flex items-start justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-100 shadow-[0_0_0_1px_rgba(16,185,129,0.08)]">
               <span>{sellerWorkspaceMessage}</span>
               <button
                 type="button"
@@ -3020,7 +3203,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </div>
           ) : null}
 
-          <Card className="border-white/10 bg-[#0B0B0B]/90">
+          <Card id="my-listings-section" className="order-20 border-white/10 bg-[#0B0B0B]/90">
             <CardHeader>
               <CardTitle>{isAr ? "قائمتي" : "My Listings"}</CardTitle>
               <CardDescription>{isAr ? "إدارة جميع عروضك كبائع معتمد." : "Manage all of your approved seller listings."}</CardDescription>
@@ -3219,7 +3402,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </CardContent>
           </Card>
 
-          <Card className="border-white/10 bg-[#0B0B0B]/90">
+          <Card className="order-10 border-white/10 bg-[#0B0B0B]/90">
             <CardHeader>
               <CardTitle>{isAr ? "طلبات الشراء" : "Purchase Requests"}</CardTitle>
               <CardDescription>{isAr ? "إدارة طلبات المشترين الواردة لك." : "Manage incoming buyer purchase requests."}</CardDescription>
@@ -3530,8 +3713,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </CardContent>
           </Card>
 
-          <div className="grid gap-4 xl:grid-cols-3">
-            <Card className="border-white/10 bg-[#0B0B0B]/90">
+          <div className="order-40 grid gap-4 xl:grid-cols-3">
+            <Card className="order-50 border-white/10 bg-[#0B0B0B]/90">
               <CardHeader>
                 <CardTitle>{isAr ? "ملف البائع" : "Seller Profile"}</CardTitle>
               </CardHeader>
@@ -3629,7 +3812,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               </CardContent>
             </Card>
           </div>
-          <Card className="border-white/10 bg-[#0B0B0B]/90">
+          <Card className="order-50 border-white/10 bg-[#0B0B0B]/90">
             <CardHeader>
               <CardTitle>Activity Timeline</CardTitle>
             </CardHeader>
@@ -3637,11 +3820,18 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               {!activityHistory.length ? (
                 <p className="text-xs text-[#9CA3AF]">Your timeline updates automatically as you trade, review, and manage listings.</p>
               ) : (
-                activityHistory.slice(0, 12).map((entry) => (
-                  <div key={entry.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                    <p className="font-medium text-white">{entry.title}</p>
-                    <p className="mt-1">{entry.details}</p>
-                    <p className="mt-1 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleString("en-IL")}</p>
+                groupedActivityHistory.map((group) => (
+                  <div key={group.dayKey} className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{group.label}</p>
+                    <div className="mt-3 grid gap-2 md:grid-cols-2">
+                      {group.items.slice(0, 4).map((entry) => (
+                        <div key={entry.id} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
+                          <p className="font-medium text-white">{entry.title}</p>
+                          <p className="mt-1 line-clamp-2">{entry.details}</p>
+                          <p className="mt-1 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleTimeString("en-IL", { hour: "2-digit", minute: "2-digit" })}</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))
               )}
@@ -3650,21 +3840,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         </div>
       ) : (
         <div className="mt-8 grid gap-4 md:grid-cols-2">
-          <Card className="border-white/10 bg-[#0B0B0B]/85">
-            <CardHeader>
-              <CardTitle>{isAr ? "بعد تسجيل الدخول" : "After Login"}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm text-[#D1D5DB]">
-              {menuItems.map((item) => (
-                <p key={item}>• {item}</p>
-              ))}
-              <p className="pt-2 text-xs text-[#9CA3AF]">
-                {isAr
-                  ? `My Requests: ${myRequests.length} | My Listings: ${myListings.length}`
-                  : `My Requests: ${myRequests.length} | My Listings: ${myListings.length}`}
-              </p>
-            </CardContent>
-          </Card>
+          {buyerOverviewCard}
           <Card className="border-white/10 bg-[#0B0B0B]/85">
             <CardHeader>
               <CardTitle>{isAr ? "جلسة المستخدم" : "Session"}</CardTitle>
@@ -3724,7 +3900,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             <Card className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
               <CardHeader>
                 <CardTitle>My Trade History</CardTitle>
-                <CardDescription>Track each lifecycle step from request to review unlock.</CardDescription>
+                <CardDescription>Newest first, compact rows, and expandable details for each trade.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="grid gap-3 md:grid-cols-2">
@@ -3756,232 +3932,164 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-[#9CA3AF]">No trades found for current filters.</div>
                   )
                 ) : null}
-                {(buyerRequestSections.action.length || buyerRequestSections.active.length || buyerRequestSections.waiting.length) ? (
-                  <div className="space-y-3">
-                    {buyerRequestSections.action.length ? (
-                      <div className="rounded-xl border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-2 text-xs font-medium text-[#FDE68A]">
-                        Requires Your Action · {buyerRequestSections.action.length}
-                      </div>
-                    ) : null}
-                    {buyerRequestSections.active.length ? (
-                      <div className="rounded-xl border border-white/15 bg-black/25 px-3 py-2 text-xs font-medium text-white">
-                        Active Trades · {buyerRequestSections.active.length}
-                      </div>
-                    ) : null}
-                    {buyerRequestSections.waiting.length ? (
-                      <div className="rounded-xl border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 px-3 py-2 text-xs font-medium text-[#BFDBFE]">
-                        Waiting · {buyerRequestSections.waiting.length}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-                  {buyerRequestSections.action.length === 0 ? (
-                    <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-[#9CA3AF]">
-                      No trades require your action. You&apos;re all caught up.
+                {sortedBuyerRequests.length ? (
+                  <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+                    <div className="hidden grid-cols-[1.1fr_0.9fr_0.9fr_0.9fr_0.9fr_auto] gap-3 border-b border-white/10 px-4 py-3 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF] md:grid">
+                      <span>Trade</span>
+                      <span>Status</span>
+                      <span>Amount</span>
+                      <span>Method</span>
+                      <span>Updated</span>
+                      <span className="text-right">Details</span>
                     </div>
-                  ) : null}
-                  {buyerRequestSections.active.length === 0 ? (
-                    <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-[#9CA3AF]">
-                      No active trades right now.
-                    </div>
-                  ) : null}
-                  {buyerRequestSections.waiting.length === 0 ? (
-                    <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-[#9CA3AF]">
-                      No waiting trades right now.
-                    </div>
-                  ) : null}
-                  {[...buyerRequestSections.action, ...buyerRequestSections.active, ...buyerRequestSections.waiting].map((request) => {
-                  const presentation = getTradeQueuePresentation(request, "buyer");
-                  return (
-                  <div key={request.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#93C5FD]">{shortTradeRef(request)}</p>
-                      <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-[0.08em] ${presentation.badgeTone}`}>{presentation.badge}</span>
-                    </div>
-                    <div className="grid gap-2 text-sm md:grid-cols-3">
-                      <p>Trade Ref: <span className="text-white">{shortTradeRef(request)}</span></p>
-                      <p>Listing: <span className="text-white">{shortListingRef({ id: request.listingId, displayNumber: listingsById.get(request.listingId)?.displayNumber })}</span></p>
-                      <p>Status: <span className="text-white">{tradeStatusLabel(request.status)}</span></p>
-                      <p>USDT Amount: <span className="text-white">{toNumber(request.usdtAmount).toLocaleString("en-IL")}</span></p>
-                      <p>Fiat Amount: <span className="text-white">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</span></p>
-                      <p>Network: <span className="text-white">{request.network}</span></p>
-                      <p>Payment Method: <span className="text-white">{paymentMethodEmoji(request.paymentMethod)} {paymentMethodLabel(request.paymentMethod)}</span></p>
-                      <p>Submitted: <span className="text-white">{new Date(request.createdAt).toLocaleString("en-IL")}</span></p>
-                      {request.completedAt ? <p>Completed: <span className="text-white">{new Date(request.completedAt).toLocaleString("en-IL")}</span></p> : null}
-                    </div>
-                    <div className="mt-3 rounded-xl border border-[#6CAEFF]/25 bg-[#6CAEFF]/10 p-3 text-xs text-[#D1D5DB]">
-                      <p className="font-medium text-white">{paymentMethodEmoji(request.paymentMethod)} Trade Instructions</p>
-                      <p className="mt-1">{paymentMethodTradeInstruction(request.paymentMethod, "buyer")}</p>
-                      <p className="mt-1">Review details in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link>.</p>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        onMouseEnter={() => handlePrefetchTradeRoom(request.id)}
-                        onFocus={() => handlePrefetchTradeRoom(request.id)}
-                        onClick={() => handleOpenTradeRoom(request.id)}
-                      >
-                        Open Trade Room
-                      </Button>
-                      <Button type="button" size="sm" disabled={request.status !== "accepted" || !request.buyerEvidence} onClick={() => handleBuyerTradeStatus(request, "payment_sent")}>
-                        {normalizeMarketplacePaymentMethod(request.paymentMethod) === "Cardless ATM Withdrawal" ? "Mark Withdrawal Ready" : "Mark Payment Sent"}
-                      </Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_sent"} onClick={() => handleBuyerTradeStatus(request, "completed")}>
-                        Confirm Trade Completed
-                      </Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "pending" && request.status !== "accepted"} onClick={() => handleBuyerTradeStatus(request, "cancelled")}>
-                        Cancel
-                      </Button>
-                    </div>
-                    <div className="mt-3 grid gap-2 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB] md:grid-cols-2">
-                      <div>
-                        <p className="font-medium text-white">Buyer Evidence</p>
-                        {request.buyerEvidence ? (
-                          <a
-                            href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.buyerEvidence.id}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="mt-1 inline-block text-[#C9A227] underline-offset-2 hover:underline"
+                    {sortedBuyerRequests.slice(0, buyerTradeVisibleCount).map((request) => {
+                      const presentation = getTradeQueuePresentation(request, "buyer");
+                      const isExpanded = buyerExpandedTradeId === request.id;
+                      return (
+                        <div key={request.id} className="border-t border-white/10 first:border-t-0">
+                          <button
+                            type="button"
+                            className="grid w-full gap-3 px-4 py-3 text-left transition hover:bg-white/[0.03] md:grid-cols-[1.1fr_0.9fr_0.9fr_0.9fr_0.9fr_auto] md:items-center"
+                            onClick={() => setBuyerExpandedTradeId((prev) => prev === request.id ? null : request.id)}
                           >
-                            {request.buyerEvidence.fileName}
-                          </a>
-                        ) : (
-                          <p className="mt-1 text-[#9CA3AF]">Upload required before marking payment sent.</p>
-                        )}
-                      </div>
-                      <div>
-                        <p className="font-medium text-white">Seller Evidence</p>
-                        {request.sellerEvidence ? (
-                          <a
-                            href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.sellerEvidence.id}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="mt-1 inline-block text-[#C9A227] underline-offset-2 hover:underline"
-                          >
-                            {request.sellerEvidence.fileName}
-                          </a>
-                        ) : (
-                          <p className="mt-1 text-[#9CA3AF]">Waiting for seller evidence.</p>
-                        )}
-                      </div>
-                      {!request.buyerEvidence ? (
-                        <div className="md:col-span-2">
-                          <label className="text-[11px] uppercase tracking-[0.1em] text-[#9CA3AF]">Upload Payment Evidence</label>
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <Input
-                              type="file"
-                              accept=".png,.jpg,.jpeg,.webp,.pdf"
-                              className="h-10 max-w-xs"
-                              onChange={(event) => {
-                                const file = event.target.files?.[0] ?? null;
-                                setBuyerEvidenceFiles((prev) => ({ ...prev, [request.id]: file }));
-                              }}
-                            />
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              disabled={!buyerEvidenceFiles[request.id] || evidenceUploading[`${request.id}:buyer`]}
-                              onClick={() => {
-                                const file = buyerEvidenceFiles[request.id];
-                                if (!file) return;
-                                void uploadTradeEvidenceFile(request.id, "buyer", file);
-                              }}
-                            >
-                              {evidenceUploading[`${request.id}:buyer`] ? "Uploading..." : "Upload Evidence"}
-                            </Button>
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                    <div className="mt-3 space-y-2">
-                      {(request.timeline ?? []).map((event) => (
-                        <div key={event.id} className="flex items-start gap-2 text-xs">
-                          <span className="mt-1 h-2.5 w-2.5 rounded-full bg-[#C9A227]" />
-                          <span className="text-[#D1D5DB]">
-                            {new Date(event.createdAt).toLocaleTimeString("en-IL", { hour: "2-digit", minute: "2-digit" })} {event.message}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                    {request.status === "review_open" && !request.buyerReview ? (
-                      <form
-                        className="mt-3 grid gap-2"
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          void handleSubmitBuyerReview(request);
-                        }}
-                      >
-                        <Textarea placeholder="Leave one review after completed trade" value={tradeReviewDrafts[request.id] ?? ""} onChange={(event) => setTradeReviewDrafts((prev) => ({ ...prev, [request.id]: event.target.value }))} />
-                        <div>
-                          <Button type="submit" size="sm" variant="secondary">Submit Buyer Review</Button>
-                        </div>
-                      </form>
-                    ) : null}
-                    {request.buyerReview ? (
-                      <div className="mt-3 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
-                        <p className="font-medium text-white">Buyer Review</p>
-                        <p className="mt-1">{request.buyerReview.comment}</p>
-                      </div>
-                    ) : null}
-                    {request.sellerResponse ? (
-                      <div className="mt-3 rounded-xl border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 p-3 text-xs text-[#D1D5DB]">
-                        <p className="font-medium text-white">Seller Response</p>
-                        <p className="mt-1">{request.sellerResponse.message}</p>
-                      </div>
-                    ) : null}
-                  </div>
-                );
-                })}
-                {(buyerRequestSections.completed.length || buyerRequestSections.cancelled.length) ? (
-                  <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                    <button
-                      type="button"
-                      className="flex w-full items-center justify-between text-left"
-                      onClick={() => setBuyerClosedRequestsCollapsed((value) => !value)}
-                    >
-                      <span className="text-sm font-medium text-white">
-                        Completed / Closed ({buyerRequestSections.completed.length + buyerRequestSections.cancelled.length})
-                      </span>
-                      <span className="text-xs text-[#9CA3AF]">{buyerClosedRequestsCollapsed ? "Show" : "Hide"}</span>
-                    </button>
-                    {!buyerClosedRequestsCollapsed ? (
-                      <div className="mt-3 space-y-3">
-                        {[...buyerRequestSections.completed, ...buyerRequestSections.cancelled].map((request) => {
-                          const presentation = getTradeQueuePresentation(request, "buyer");
-                          return (
-                            <div key={request.id} className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                                <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#93C5FD]">{shortTradeRef(request)}</p>
-                                <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-[0.08em] ${presentation.badgeTone}`}>{presentation.badge}</span>
-                              </div>
+                            <div>
+                              <p className="text-sm font-medium text-white">{shortTradeRef(request)}</p>
+                              <p className="mt-1 text-xs text-[#9CA3AF]">Listing {shortListingRef({ id: request.listingId, displayNumber: listingsById.get(request.listingId)?.displayNumber })}</p>
+                            </div>
+                            <div className="text-xs">
+                              <span className={`rounded-full border px-2.5 py-1 font-semibold tracking-[0.08em] ${presentation.badgeTone}`}>{presentation.badge}</span>
+                            </div>
+                            <div className="text-sm text-[#D1D5DB]">
+                              <p>{toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT</p>
+                              <p className="mt-1 text-xs text-[#9CA3AF]">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</p>
+                            </div>
+                            <p className="text-sm text-[#D1D5DB]">{paymentMethodEmoji(request.paymentMethod)} {paymentMethodLabel(request.paymentMethod)}</p>
+                            <p className="text-sm text-[#D1D5DB]">{new Date(request.completedAt ?? request.updatedAt).toLocaleDateString("en-IL")}</p>
+                            <p className="text-sm text-[#C9A227] md:text-right">{isExpanded ? "Hide" : "Expand"}</p>
+                          </button>
+                          {isExpanded ? (
+                            <div className="space-y-3 border-t border-white/10 bg-black/25 px-4 py-4">
                               <div className="grid gap-2 text-sm md:grid-cols-3">
-                                <p>Trade Ref: <span className="text-white">{shortTradeRef(request)}</span></p>
-                                <p>Status: <span className="text-white">{tradeStatusLabel(request.status)}</span></p>
-                                <p>Listing: <span className="text-white">{shortListingRef({ id: request.listingId, displayNumber: listingsById.get(request.listingId)?.displayNumber })}</span></p>
-                                <p>USDT Amount: <span className="text-white">{toNumber(request.usdtAmount).toLocaleString("en-IL")}</span></p>
-                                <p>Fiat Amount: <span className="text-white">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</span></p>
-                                <p>Updated: <span className="text-white">{new Date(request.updatedAt).toLocaleString("en-IL")}</span></p>
+                                <p>Network: <span className="text-white">{request.network}</span></p>
+                                <p>Submitted: <span className="text-white">{new Date(request.createdAt).toLocaleString("en-IL")}</span></p>
+                                {request.completedAt ? <p>Completed: <span className="text-white">{new Date(request.completedAt).toLocaleString("en-IL")}</span></p> : null}
                               </div>
-                              <div className="mt-3">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="secondary"
-                                  onMouseEnter={() => handlePrefetchTradeRoom(request.id)}
-                                  onFocus={() => handlePrefetchTradeRoom(request.id)}
-                                  onClick={() => handleOpenTradeRoom(request.id)}
-                                >
+                              <div className="rounded-xl border border-[#6CAEFF]/25 bg-[#6CAEFF]/10 p-3 text-xs text-[#D1D5DB]">
+                                <p className="font-medium text-white">{paymentMethodEmoji(request.paymentMethod)} Trade Instructions</p>
+                                <p className="mt-1">{paymentMethodTradeInstruction(request.paymentMethod, "buyer")}</p>
+                                <p className="mt-1">Review details in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link>.</p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Button type="button" size="sm" variant="secondary" onMouseEnter={() => handlePrefetchTradeRoom(request.id)} onFocus={() => handlePrefetchTradeRoom(request.id)} onClick={() => handleOpenTradeRoom(request.id)}>
                                   Open Trade Room
                                 </Button>
+                                <Button type="button" size="sm" disabled={request.status !== "accepted" || !request.buyerEvidence} onClick={() => handleBuyerTradeStatus(request, "payment_sent")}>
+                                  {normalizeMarketplacePaymentMethod(request.paymentMethod) === "Cardless ATM Withdrawal" ? "Mark Withdrawal Ready" : "Mark Payment Sent"}
+                                </Button>
+                                <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_sent"} onClick={() => handleBuyerTradeStatus(request, "completed")}>
+                                  Confirm Trade Completed
+                                </Button>
+                                <Button type="button" size="sm" variant="secondary" disabled={request.status !== "pending" && request.status !== "accepted"} onClick={() => handleBuyerTradeStatus(request, "cancelled")}>
+                                  Cancel
+                                </Button>
                               </div>
+                              <div className="grid gap-2 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB] md:grid-cols-2">
+                                <div>
+                                  <p className="font-medium text-white">Buyer Evidence</p>
+                                  {request.buyerEvidence ? (
+                                    <a href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.buyerEvidence.id}`} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[#C9A227] underline-offset-2 hover:underline">
+                                      {request.buyerEvidence.fileName}
+                                    </a>
+                                  ) : (
+                                    <p className="mt-1 text-[#9CA3AF]">Upload required before marking payment sent.</p>
+                                  )}
+                                </div>
+                                <div>
+                                  <p className="font-medium text-white">Seller Evidence</p>
+                                  {request.sellerEvidence ? (
+                                    <a href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.sellerEvidence.id}`} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[#C9A227] underline-offset-2 hover:underline">
+                                      {request.sellerEvidence.fileName}
+                                    </a>
+                                  ) : (
+                                    <p className="mt-1 text-[#9CA3AF]">Waiting for seller evidence.</p>
+                                  )}
+                                </div>
+                                {!request.buyerEvidence ? (
+                                  <div className="md:col-span-2">
+                                    <label className="text-[11px] uppercase tracking-[0.1em] text-[#9CA3AF]">Upload Payment Evidence</label>
+                                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                                      <Input
+                                        type="file"
+                                        accept=".png,.jpg,.jpeg,.webp,.pdf"
+                                        className="h-10 max-w-xs"
+                                        onChange={(event) => {
+                                          const file = event.target.files?.[0] ?? null;
+                                          setBuyerEvidenceFiles((prev) => ({ ...prev, [request.id]: file }));
+                                        }}
+                                      />
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="secondary"
+                                        disabled={!buyerEvidenceFiles[request.id] || evidenceUploading[`${request.id}:buyer`]}
+                                        onClick={() => {
+                                          const file = buyerEvidenceFiles[request.id];
+                                          if (!file) return;
+                                          void uploadTradeEvidenceFile(request.id, "buyer", file);
+                                        }}
+                                      >
+                                        {evidenceUploading[`${request.id}:buyer`] ? "Uploading..." : "Upload Evidence"}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div className="space-y-2">
+                                {(request.timeline ?? []).map((event) => (
+                                  <div key={event.id} className="flex items-start gap-2 text-xs">
+                                    <span className="mt-1 h-2.5 w-2.5 rounded-full bg-[#C9A227]" />
+                                    <span className="text-[#D1D5DB]">{new Date(event.createdAt).toLocaleTimeString("en-IL", { hour: "2-digit", minute: "2-digit" })} {event.message}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              {request.status === "review_open" && !request.buyerReview ? (
+                                <form
+                                  className="grid gap-2"
+                                  onSubmit={(event) => {
+                                    event.preventDefault();
+                                    void handleSubmitBuyerReview(request);
+                                  }}
+                                >
+                                  <Textarea placeholder="Leave one review after completed trade" value={tradeReviewDrafts[request.id] ?? ""} onChange={(event) => setTradeReviewDrafts((prev) => ({ ...prev, [request.id]: event.target.value }))} />
+                                  <div>
+                                    <Button type="submit" size="sm" variant="secondary">Submit Buyer Review</Button>
+                                  </div>
+                                </form>
+                              ) : null}
+                              {request.buyerReview ? (
+                                <div className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
+                                  <p className="font-medium text-white">Buyer Review</p>
+                                  <p className="mt-1">{request.buyerReview.comment}</p>
+                                </div>
+                              ) : null}
+                              {request.sellerResponse ? (
+                                <div className="rounded-xl border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 p-3 text-xs text-[#D1D5DB]">
+                                  <p className="font-medium text-white">Seller Response</p>
+                                  <p className="mt-1">{request.sellerResponse.message}</p>
+                                </div>
+                              ) : null}
                             </div>
-                          );
-                        })}
-                      </div>
-                    ) : null}
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                {sortedBuyerRequests.length > buyerTradeVisibleCount ? (
+                  <div className="flex justify-center">
+                    <Button type="button" variant="secondary" onClick={() => setBuyerTradeVisibleCount((value) => value + 8)}>
+                      Load More
+                    </Button>
                   </div>
                 ) : null}
               </CardContent>
@@ -3998,11 +4106,18 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 {!activityHistory.length ? (
                   <p className="text-xs text-[#9CA3AF]">Your timeline updates automatically as you trade, review, and manage listings.</p>
                 ) : (
-                  activityHistory.slice(0, 12).map((entry) => (
-                    <div key={entry.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                      <p className="font-medium text-white">{entry.title}</p>
-                      <p className="mt-1">{entry.details}</p>
-                      <p className="mt-1 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleString("en-IL")}</p>
+                  groupedActivityHistory.map((group) => (
+                    <div key={group.dayKey} className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{group.label}</p>
+                      <div className="mt-3 grid gap-2 md:grid-cols-2">
+                        {group.items.slice(0, 4).map((entry) => (
+                          <div key={entry.id} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
+                            <p className="font-medium text-white">{entry.title}</p>
+                            <p className="mt-1 line-clamp-2">{entry.details}</p>
+                            <p className="mt-1 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleTimeString("en-IL", { hour: "2-digit", minute: "2-digit" })}</p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ))
                 )}
