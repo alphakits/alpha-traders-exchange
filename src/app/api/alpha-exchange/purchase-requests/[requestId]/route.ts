@@ -66,27 +66,27 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
     const routeMs = Date.now() - startedAt;
     const responseBody = { request: updated, metrics };
-    if (debug) {
-      console.log("[trade-room-action] response", {
-        requestId,
-        actorUserId: user.id,
-        responseStatus: 200,
-        routeMs,
-        metrics,
-        stateAfter: updated.status,
-        responseBody: {
-          requestId: updated.id,
-          status: updated.status,
-          tradeId: updated.tradeId ?? null,
-          updatedAt: updated.updatedAt,
-        },
-      });
-    }
+    // Always log server-side timings so production performance is visible in Vercel logs.
+    console.log("[trade-room-perf] server timings", {
+      requestId,
+      actorUserId: user.id,
+      nextStatus: status,
+      stateAfter: updated.status,
+      "queueMs (route arrival → store entry)": metrics.readDbMs > 0 ? routeMs - metrics.totalMs : null,
+      "readDbMs": metrics.readDbMs,
+      "writeDbMs": metrics.writeDbMs,
+      "trustMs": metrics.trustMs,
+      "totalDbMs": metrics.totalMs,
+      "routeMs (arrival → response)": routeMs,
+    });
     return NextResponse.json(responseBody, {
       headers: {
         "X-Trade-Route-Ms": String(routeMs),
         "X-Trade-Db-Ms": String(metrics.totalMs),
-        "Server-Timing": `route;dur=${routeMs}, db;dur=${metrics.totalMs}`,
+        "X-Trade-Read-Ms": String(metrics.readDbMs),
+        "X-Trade-Write-Ms": String(metrics.writeDbMs),
+        "X-Trade-Trust-Ms": String(metrics.trustMs),
+        "Server-Timing": `route;dur=${routeMs}, db;dur=${metrics.totalMs}, read;dur=${metrics.readDbMs}, write;dur=${metrics.writeDbMs}, trust;dur=${metrics.trustMs}`,
       },
     });
   } catch (error) {

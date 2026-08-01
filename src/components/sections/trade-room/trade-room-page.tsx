@@ -66,6 +66,9 @@ type PrimaryAction = StatusPrimaryAction | UploadPrimaryAction;
 const ALLOWED_EVIDENCE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
 const MAX_EVIDENCE_SIZE_BYTES = 8 * 1024 * 1024;
 const TRADE_ROOM_DEBUG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
+// Performance timing logs are always-on during RC5 QA so timings are visible in
+// the browser console without needing a special env var set on production.
+const PERF_LOG = true;
 
 const STEP_ORDER: Array<{ id: StepId; icon: string; label: { en: string; ar: string } }> = [
   { id: "request", icon: "📝", label: { en: "Request", ar: "الطلب" } },
@@ -622,7 +625,7 @@ export function TradeRoomPage({
 
   // Measure T4→T5: SSE received → UI rendered (useLayoutEffect fires synchronously after DOM paint).
   useLayoutEffect(() => {
-    if (!TRADE_ROOM_DEBUG) return;
+    if (!PERF_LOG) return;
     const sseTs = perfSseReceivedTsRef.current;
     const publishedAt = perfSsePublishedAtRef.current;
     if (!sseTs) return;
@@ -670,7 +673,7 @@ export function TradeRoomPage({
         // The confirmed state arrives from the HTTP response; the SSE snapshot
         // here may be stale (e.g. a keepalive fired before the DB write).
         if (actionInFlightRef.current) return;
-        if (TRADE_ROOM_DEBUG) {
+        if (PERF_LOG) {
           const sseReceivedTs = performance.now();
           perfSseReceivedTsRef.current = sseReceivedTs;
           perfSsePublishedAtRef.current = payload._timing?.publishedAtEpochMs ?? null;
@@ -814,7 +817,7 @@ export function TradeRoomPage({
     setActionNotice(null);
     setActionError(null);
     setStatusMessage(null);
-    if (TRADE_ROOM_DEBUG) {
+    if (PERF_LOG) {
       console.log("[trade-room-perf] T0 click", {
         requestId: request.id,
         nextStatus,
@@ -835,7 +838,7 @@ export function TradeRoomPage({
       // T1: request sent
       const responseStartedAt = performance.now();
       perfFetchStartTsRef.current = responseStartedAt;
-      if (TRADE_ROOM_DEBUG) {
+      if (PERF_LOG) {
         console.log("[trade-room-perf] T1 fetch-start", {
           requestId: request.id,
           clickToFetchMs: Math.round(responseStartedAt - startedAt),
@@ -852,14 +855,20 @@ export function TradeRoomPage({
       // T2+T3: server timings from response headers
       const routeMs = Number(response.headers.get("X-Trade-Route-Ms") ?? "0");
       const dbMs = Number(response.headers.get("X-Trade-Db-Ms") ?? routeMs);
-      if (TRADE_ROOM_DEBUG) {
+      const readMs = Number(response.headers.get("X-Trade-Read-Ms") ?? "0");
+      const writeMs = Number(response.headers.get("X-Trade-Write-Ms") ?? "0");
+      const trustMs = Number(response.headers.get("X-Trade-Trust-Ms") ?? "0");
+      if (PERF_LOG) {
         console.log("[trade-room-perf] T2+T3 server timings", {
           requestId: request.id,
           stateAfter: responsePayload.request?.status ?? optimisticRoom.request.status,
           "T0→T1 clickToFetchMs": Math.round(responseStartedAt - startedAt),
           "T1→response apiLatencyMs": apiLatencyMs,
           "  server routeMs (T1 arrival→response)": routeMs,
-          "  server dbMs (readDb+writeDb)": dbMs,
+          "  server readDbMs": readMs,
+          "  server writeDbMs": writeMs,
+          "  server trustMs": trustMs,
+          "  server totalDbMs": dbMs,
           "T0→response totalClientMs": Math.round(performance.now() - startedAt),
         });
       }
