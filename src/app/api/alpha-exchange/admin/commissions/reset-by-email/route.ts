@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAdmin } from "@/lib/api-auth";
 import {
+  clearSellerCommissionDuesByAdmin,
   findUserByEmail,
-  getCommissionRecordsForAdmin,
-  updateCommissionPaymentStatus,
+  getSellerCommissionStatus,
+  getSellerListingWorkspaceSummary,
 } from "@/lib/alpha-exchange-store";
 
 export async function POST(request: NextRequest) {
@@ -22,24 +23,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `No user found with email: ${email}.` }, { status: 404 });
     }
 
-    const allRecords = await getCommissionRecordsForAdmin();
-    const pending = allRecords.filter(
-      (r) => r.sellerId === seller.id && r.paymentStatus !== "paid",
-    );
-
-    for (const record of pending) {
-      await updateCommissionPaymentStatus({
-        commissionId: record.id,
-        actorUserId: admin.id,
-        paymentStatus: "paid",
-      });
+    const result = await clearSellerCommissionDuesByAdmin({
+      sellerUserId: seller.id,
+      adminUserId: admin.id,
+    });
+    const [commissionStatus, workspaceSummary] = await Promise.all([
+      getSellerCommissionStatus(seller.id),
+      getSellerListingWorkspaceSummary(seller.id),
+    ]);
+    if (commissionStatus.pendingCount > 0) {
+      return NextResponse.json({
+        error: "Commission reset did not fully clear outstanding dues.",
+        sellerId: seller.id,
+        sellerEmail: seller.email,
+        clearedCount: result.clearedCount,
+        commissionStatus,
+        workspaceSummary,
+      }, { status: 409 });
     }
 
     return NextResponse.json({
       sellerId: seller.id,
       sellerEmail: seller.email,
-      clearedCount: pending.length,
-      message: `Cleared ${pending.length} commission record(s) for ${email}.`,
+      clearedCount: result.clearedCount,
+      commissionStatus,
+      workspaceSummary,
+      message: `Cleared ${result.clearedCount} commission record(s) for ${email}.`,
     });
   } catch (error) {
     return NextResponse.json(

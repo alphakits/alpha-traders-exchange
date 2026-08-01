@@ -6292,6 +6292,63 @@ export async function clearSellerQaCommissionDues(input: {
   };
 }
 
+export async function clearSellerCommissionDuesByAdmin(input: {
+  sellerUserId: string;
+  adminUserId: string;
+}) {
+  const db = await readDb();
+  const now = nowIso();
+  const sellerPendingCommissions = db.commissionRecords.filter(
+    (record) =>
+      record.sellerId === input.sellerUserId &&
+      normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid",
+  );
+
+  for (const current of sellerPendingCommissions) {
+    const index = db.commissionRecords.findIndex((record) => record.id === current.id);
+    if (index === -1) continue;
+    const amountDueUsdt = getCommissionAmountDueUsdt(db, current);
+    db.commissionRecords[index] = {
+      ...current,
+      paymentProvider: "qa_reset",
+      paymentNetwork: "QA",
+      paymentStatus: "paid",
+      paymentVerificationStatus: "verified",
+      paymentVerificationNotes: "Cleared by admin reset-by-email action.",
+      paymentSubmittedAt: now,
+      paidAt: now,
+      updatedAt: now,
+    };
+    const request = db.purchaseRequests.find((item) => item.id === current.purchaseRequestId);
+    if (request) {
+      appendTradeTimelineEntry(request, {
+        type: "commission_paid",
+        actorUserId: input.adminUserId,
+        actorRole: resolveActorRole(db, input.adminUserId),
+        message: `Admin cleared ${amountDueUsdt.toFixed(2)} USDT commission.`,
+        createdAt: now,
+      });
+      publishRealtimeEvent({
+        type: "trade.status_changed",
+        payload: { request: enrichRequestWithEvidence(db, request) },
+      });
+    }
+    await appendAuditLog(db, {
+      action: "commission_paid",
+      actorUserId: input.adminUserId,
+      targetUserId: current.sellerId,
+      listingId: current.listingId,
+      purchaseRequestId: current.purchaseRequestId,
+      details: `Admin reset-by-email cleared commission ${current.id}.`,
+    });
+  }
+
+  await writeDb(db);
+  return {
+    clearedCount: sellerPendingCommissions.length,
+  };
+}
+
 export async function updateCommissionPaymentStatus(input: {
   commissionId: string;
   actorUserId: string;
