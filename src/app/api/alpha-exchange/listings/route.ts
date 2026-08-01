@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canPublishListings, createMarketplaceListing, getMarketplaceListings } from "@/lib/alpha-exchange-store";
-import { requireApiUser } from "@/lib/api-auth";
+import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
@@ -32,6 +32,8 @@ export async function POST(request: NextRequest) {
   const logProfile = createProfileLogger();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
+  if (phoneVerificationRequired) return phoneVerificationRequired;
   logProfile("requireApiUser");
   if (!canPublishListings(user)) {
     return NextResponse.json({ error: "You must be approved by Alpha Traders before publishing listings." }, { status: 403 });

@@ -25,6 +25,28 @@ export async function requireApiUser() {
   return { user, unauthorized: null };
 }
 
+export function hasPhoneVerification(user: { verifiedPhone?: string; phoneVerifiedAt?: string }) {
+  return Boolean(user.verifiedPhone && user.phoneVerifiedAt);
+}
+
+export function requirePhoneVerificationForTrading(user: { id: string; role: string; verifiedPhone?: string; phoneVerifiedAt?: string }) {
+  if (hasPhoneVerification(user)) return null;
+  logEvent("warn", {
+    event: "permission_denied",
+    actorUserId: user.id,
+    actorRole: user.role,
+    outcome: "denied",
+    reason: "Phone verification required for marketplace action",
+  });
+  return NextResponse.json(
+    {
+      error: "Phone verification is required before marketplace actions.",
+      code: "PHONE_VERIFICATION_REQUIRED",
+    },
+    { status: 403 },
+  );
+}
+
 export async function requireApiAdmin() {
   const { user, unauthorized } = await requireApiUser();
   if (!user) {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTradeEvidenceForRequest, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
-import { requireApiUser } from "@/lib/api-auth";
+import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 type RouteContext = {
@@ -25,6 +25,8 @@ function normalizeBase64Payload(value: string) {
 export async function GET(_request: NextRequest, context: RouteContext) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
+  if (phoneVerificationRequired) return phoneVerificationRequired;
   try {
     const { requestId } = await context.params;
     const trade = await getTradeEvidenceForRequest({
@@ -41,6 +43,8 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 export async function POST(request: NextRequest, context: RouteContext) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
+  if (phoneVerificationRequired) return phoneVerificationRequired;
   const rate = checkRateLimit({
     headers: request.headers,
     key: "exchange:trade-evidence-upload",

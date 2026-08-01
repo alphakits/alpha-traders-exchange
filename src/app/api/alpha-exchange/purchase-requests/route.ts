@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createPurchaseRequest, getMyPurchaseRequests } from "@/lib/alpha-exchange-store";
-import { requireApiUser } from "@/lib/api-auth";
+import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { hasRole } from "@/lib/roles";
 import { checkRateLimit } from "@/lib/rate-limit";
 
@@ -14,6 +14,8 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
+  if (phoneVerificationRequired) return phoneVerificationRequired;
   if (!hasRole(user, "buyer") && !hasRole(user, "approved_seller") && !hasRole(user, "admin")) {
     return NextResponse.json({ error: "Buyer verification required." }, { status: 403 });
   }

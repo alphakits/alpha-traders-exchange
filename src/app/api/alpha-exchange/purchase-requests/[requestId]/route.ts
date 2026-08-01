@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
-import { requireApiUser } from "@/lib/api-auth";
+import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 type RouteContext = {
@@ -14,6 +14,8 @@ function isValidRequestStatus(value: string): value is "pending" | "accepted" | 
 export async function PATCH(request: NextRequest, context: RouteContext) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
+  if (phoneVerificationRequired) return phoneVerificationRequired;
   const rate = checkRateLimit({
     headers: request.headers,
     key: "exchange:purchase-request-status",

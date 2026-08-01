@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSellerApplication, getSellerApplicationByUserId } from "@/lib/alpha-exchange-store";
-import { requireApiUser } from "@/lib/api-auth";
+import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { hasRole } from "@/lib/roles";
 import { logEvent } from "@/lib/structured-logging";
@@ -34,6 +34,8 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
+  if (phoneVerificationRequired) return phoneVerificationRequired;
   const rate = checkRateLimit({ headers: request.headers, key: "exchange:seller-application", maxRequests: 6, windowMs: 60_000 });
   if (!rate.allowed) return createRateLimitResponse(rate.retryAfterSeconds);
   if (isAlphaExchangeOwnerEmail(user.email)) {
