@@ -52,6 +52,17 @@ function matchesFilter(notification: AlphaExchangeNotification, filter: Notifica
   return isAnnouncement(notification);
 }
 
+function extractTradeRoomHrefFromRelatedHref(relatedHref?: string) {
+  const href = relatedHref?.trim();
+  if (!href) return null;
+  const normalized = href.startsWith("/") ? href : `/${href}`;
+  const roomMatch = normalized.match(/\/trade-room\/([^/?#]+)/i);
+  if (roomMatch?.[1]) return `/trade-room/${decodeURIComponent(roomMatch[1])}`;
+  const requestMatch = normalized.match(/[?&]requestId=([^&]+)/i);
+  if (requestMatch?.[1]) return `/trade-room/${decodeURIComponent(requestMatch[1])}`;
+  return null;
+}
+
 export function NotificationsPage({ locale }: { locale: AppLocale }) {
   const [notifications, setNotifications] = useState<AlphaExchangeNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -102,6 +113,37 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
   const currentPage = Math.min(page, totalPages);
   const pageStart = (currentPage - 1) * PAGE_SIZE;
   const pageItems = filteredNotifications.slice(pageStart, pageStart + PAGE_SIZE);
+
+  function resolveTradeRoomHref(notification: AlphaExchangeNotification) {
+    if (notification.relatedRequestId?.trim()) return `/trade-room/${notification.relatedRequestId.trim()}`;
+    const fromHref = extractTradeRoomHrefFromRelatedHref(notification.relatedHref ?? notification.actionHref);
+    if (fromHref) return fromHref;
+    return null;
+  }
+
+  async function resolveActiveTradeHref() {
+    try {
+      const response = await fetch("/api/alpha-exchange/trade-room/active", { cache: "no-store" });
+      if (!response.ok) return null;
+      const payload = (await response.json()) as { activeRequestId?: string | null };
+      if (!payload.activeRequestId) return null;
+      return `/trade-room/${payload.activeRequestId}`;
+    } catch {
+      return null;
+    }
+  }
+
+  async function openTradeRoomFromNotification(notification: AlphaExchangeNotification) {
+    const destination = resolveTradeRoomHref(notification) ?? await resolveActiveTradeHref();
+    if (!destination) {
+      setError("Could not resolve this trade room.");
+      return;
+    }
+    if (!notification.isRead) {
+      void handleMarkOneRead(notification.id);
+    }
+    router.push(destination);
+  }
 
   async function handleMarkOneRead(notificationId: string) {
     const key = `read:${notificationId}`;
@@ -222,16 +264,17 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                           size="sm"
                           variant="secondary"
                           className="h-8 px-3 text-xs"
-                          onClick={() => {
-                            if (!notification.isRead) {
-                              void handleMarkOneRead(notification.id);
-                            }
-                            if (notification.relatedHref) {
-                              router.push(notification.relatedHref);
-                            }
+                          onMouseEnter={() => {
+                            const href = resolveTradeRoomHref(notification);
+                            if (href) void router.prefetch(href);
                           }}
+                          onFocus={() => {
+                            const href = resolveTradeRoomHref(notification);
+                            if (href) void router.prefetch(href);
+                          }}
+                          onClick={() => void openTradeRoomFromNotification(notification)}
                         >
-                          Open notification
+                          Open Trade Room
                         </Button>
                         {!notification.isRead ? (
                           <Button
@@ -246,8 +289,17 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                             Mark as read
                           </Button>
                         ) : null}
-                        {notification.relatedHref ? (
-                          <Button type="button" size="sm" variant="secondary" className="h-8 px-3 text-xs" onClick={() => router.push(notification.relatedHref!)}>
+                        {(notification.actionHref || notification.relatedHref) ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            className="h-8 px-3 text-xs"
+                            onClick={() => {
+                              const fallbackHref = notification.actionHref ?? notification.relatedHref;
+                              if (fallbackHref) router.push(fallbackHref);
+                            }}
+                          >
                             Open related page
                           </Button>
                         ) : null}

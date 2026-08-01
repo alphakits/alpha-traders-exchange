@@ -192,6 +192,65 @@ function tradeStatusLabel(status: PurchaseRequest["status"]) {
   return status[0].toUpperCase() + status.slice(1);
 }
 
+type TradeQueueSectionKey = "action" | "active" | "waiting" | "completed" | "cancelled";
+type TradePerspective = "buyer" | "seller";
+
+function getTradeQueuePresentation(request: PurchaseRequest, perspective: TradePerspective) {
+  if (request.status === "declined" || request.status === "cancelled") {
+    return { section: "cancelled" as const, badge: "CANCELLED", badgeTone: "border-white/20 bg-white/5 text-[#9CA3AF]", rank: 4 };
+  }
+  if (request.status === "completed" || request.status === "review_open") {
+    return { section: "completed" as const, badge: "COMPLETED", badgeTone: "border-emerald-400/40 bg-emerald-500/15 text-emerald-200", rank: 3 };
+  }
+
+  if (perspective === "seller") {
+    if (request.status === "pending" || request.status === "payment_sent" || request.status === "funds_received" || request.status === "usdt_release_pending") {
+      const overdue = request.timeoutReason === "USDT release SLA expired.";
+      return {
+        section: "action" as const,
+        badge: overdue ? "OVERDUE" : "YOUR ACTION",
+        badgeTone: overdue ? "border-red-400/50 bg-red-500/15 text-red-200" : "border-[#C9A227]/50 bg-[#C9A227]/15 text-[#FDE68A]",
+        rank: 0,
+      };
+    }
+    if (request.status === "accepted" || request.status === "usdt_sent") {
+      return { section: "waiting" as const, badge: "WAITING FOR BUYER", badgeTone: "border-[#6CAEFF]/40 bg-[#6CAEFF]/15 text-[#BFDBFE]", rank: 2 };
+    }
+    return { section: "active" as const, badge: "ACTIVE", badgeTone: "border-white/20 bg-white/5 text-[#D1D5DB]", rank: 1 };
+  }
+
+  if (request.status === "accepted" || request.status === "usdt_sent") {
+    return { section: "action" as const, badge: "YOUR ACTION", badgeTone: "border-[#C9A227]/50 bg-[#C9A227]/15 text-[#FDE68A]", rank: 0 };
+  }
+  if (request.status === "pending" || request.status === "payment_sent" || request.status === "funds_received" || request.status === "usdt_release_pending") {
+    return { section: "waiting" as const, badge: "WAITING FOR SELLER", badgeTone: "border-[#6CAEFF]/40 bg-[#6CAEFF]/15 text-[#BFDBFE]", rank: 2 };
+  }
+  return { section: "active" as const, badge: "ACTIVE", badgeTone: "border-white/20 bg-white/5 text-[#D1D5DB]", rank: 1 };
+}
+
+function prioritizeTradeRequests(requests: PurchaseRequest[], perspective: TradePerspective) {
+  return [...requests].sort((left, right) => {
+    const leftMeta = getTradeQueuePresentation(left, perspective);
+    const rightMeta = getTradeQueuePresentation(right, perspective);
+    if (leftMeta.rank !== rightMeta.rank) return leftMeta.rank - rightMeta.rank;
+    return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+  });
+}
+
+function groupTradeRequests(requests: PurchaseRequest[], perspective: TradePerspective) {
+  const grouped: Record<TradeQueueSectionKey, PurchaseRequest[]> = {
+    action: [],
+    active: [],
+    waiting: [],
+    completed: [],
+    cancelled: [],
+  };
+  for (const request of prioritizeTradeRequests(requests, perspective)) {
+    grouped[getTradeQueuePresentation(request, perspective).section].push(request);
+  }
+  return grouped;
+}
+
 function formatRelativeMinutesLabel(value?: string) {
   if (!value) return "Unknown";
   const ms = new Date(value).getTime();
@@ -390,6 +449,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [buyerTradeStatus, setBuyerTradeStatus] = useState<"all" | PurchaseRequest["status"]>("all");
   const [sellerTradeQuery, setSellerTradeQuery] = useState("");
   const [sellerTradeStatus, setSellerTradeStatus] = useState<"all" | PurchaseRequest["status"]>("all");
+  const [sellerClosedRequestsCollapsed, setSellerClosedRequestsCollapsed] = useState(true);
+  const [buyerClosedRequestsCollapsed, setBuyerClosedRequestsCollapsed] = useState(true);
   const [tradeReviewDrafts, setTradeReviewDrafts] = useState<Record<string, string>>({});
   const [sellerResponseDrafts, setSellerResponseDrafts] = useState<Record<string, string>>({});
   const [buyerEvidenceFiles, setBuyerEvidenceFiles] = useState<Record<string, File | null>>({});
@@ -1085,6 +1146,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       return haystack.includes(query);
     });
   }, [sellerRequests, sellerTradeQuery, sellerTradeStatus]);
+  const sellerRequestSections = useMemo(() => groupTradeRequests(filteredSellerRequests, "seller"), [filteredSellerRequests]);
+  const buyerRequestSections = useMemo(() => groupTradeRequests(filteredBuyerRequests, "buyer"), [filteredBuyerRequests]);
   const pendingSellerRequests = useMemo(() => sellerRequests.filter((request) => request.status === "pending"), [sellerRequests]);
   const completedSellerRequests = useMemo(
     () => sellerRequests.filter((request) => request.status === "completed" || request.status === "review_open" || Boolean(request.completedAt)),
@@ -2915,10 +2978,33 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "عند استلام أول طلب شراء، ستتمكن من الرد عليه فورًا من هنا." : "Your next buyer request will appear here with quick actions to accept, decline, or continue the trade."}</p>
                 </div>
               ) : null}
-              {filteredSellerRequests.map((request) => {
+              {(sellerRequestSections.action.length || sellerRequestSections.active.length || sellerRequestSections.waiting.length) ? (
+                <div className="space-y-3">
+                  {sellerRequestSections.action.length ? (
+                    <div className="rounded-xl border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-2 text-xs font-medium text-[#FDE68A]">
+                      Requires Your Action · {sellerRequestSections.action.length}
+                    </div>
+                  ) : null}
+                  {sellerRequestSections.active.length ? (
+                    <div className="rounded-xl border border-white/15 bg-black/25 px-3 py-2 text-xs font-medium text-white">
+                      Active Trades · {sellerRequestSections.active.length}
+                    </div>
+                  ) : null}
+                  {sellerRequestSections.waiting.length ? (
+                    <div className="rounded-xl border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 px-3 py-2 text-xs font-medium text-[#BFDBFE]">
+                      Waiting · {sellerRequestSections.waiting.length}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {[...sellerRequestSections.action, ...sellerRequestSections.active, ...sellerRequestSections.waiting].map((request) => {
+                const presentation = getTradeQueuePresentation(request, "seller");
                 return (
                   <div key={request.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-[#93C5FD]">{shortTradeRef(request)}</p>
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#93C5FD]">{shortTradeRef(request)}</p>
+                      <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-[0.08em] ${presentation.badgeTone}`}>{presentation.badge}</span>
+                    </div>
                     <div className="grid gap-2 text-sm md:grid-cols-3">
                       <p>Trade Ref: <span className="text-white">{shortTradeRef(request)}</span></p>
                       <p>Buyer Name: <span className="text-white">{request.buyerName}</span></p>
@@ -2954,6 +3040,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       </div>
                     ) : null}
                     <div className="mt-3 flex flex-wrap gap-2">
+                      <Button type="button" size="sm" variant="secondary" onClick={() => router.push(`/trade-room/${request.id}`)}>
+                        Open Trade Room
+                      </Button>
                       <Button
                         type="button"
                         size="sm"
@@ -3089,6 +3178,48 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   </div>
                 );
               })}
+              {(sellerRequestSections.completed.length || sellerRequestSections.cancelled.length) ? (
+                <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between text-left"
+                    onClick={() => setSellerClosedRequestsCollapsed((value) => !value)}
+                  >
+                    <span className="text-sm font-medium text-white">
+                      Completed / Closed · {sellerRequestSections.completed.length + sellerRequestSections.cancelled.length}
+                    </span>
+                    <span className="text-xs text-[#9CA3AF]">{sellerClosedRequestsCollapsed ? "Show" : "Hide"}</span>
+                  </button>
+                  {!sellerClosedRequestsCollapsed ? (
+                    <div className="mt-3 space-y-3">
+                      {[...sellerRequestSections.completed, ...sellerRequestSections.cancelled].map((request) => {
+                        const presentation = getTradeQueuePresentation(request, "seller");
+                        return (
+                          <div key={request.id} className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#93C5FD]">{shortTradeRef(request)}</p>
+                              <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-[0.08em] ${presentation.badgeTone}`}>{presentation.badge}</span>
+                            </div>
+                            <div className="grid gap-2 text-sm md:grid-cols-3">
+                              <p>Trade Ref: <span className="text-white">{shortTradeRef(request)}</span></p>
+                              <p>Buyer Name: <span className="text-white">{request.buyerName}</span></p>
+                              <p>Status: <span className="text-white">{tradeStatusLabel(request.status)}</span></p>
+                              <p>USDT Amount: <span className="text-white">{toNumber(request.usdtAmount).toLocaleString("en-IL")}</span></p>
+                              <p>Fiat Amount: <span className="text-white">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</span></p>
+                              <p>Updated: <span className="text-white">{new Date(request.updatedAt).toLocaleString("en-IL")}</span></p>
+                            </div>
+                            <div className="mt-3">
+                              <Button type="button" size="sm" variant="secondary" onClick={() => router.push(`/trade-room/${request.id}`)}>
+                                Open Trade Room
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
 
@@ -3320,9 +3451,33 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-[#9CA3AF]">No trades found for current filters.</div>
                   )
                 ) : null}
-                {filteredBuyerRequests.map((request) => (
+                {(buyerRequestSections.action.length || buyerRequestSections.active.length || buyerRequestSections.waiting.length) ? (
+                  <div className="space-y-3">
+                    {buyerRequestSections.action.length ? (
+                      <div className="rounded-xl border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-2 text-xs font-medium text-[#FDE68A]">
+                        Requires Your Action · {buyerRequestSections.action.length}
+                      </div>
+                    ) : null}
+                    {buyerRequestSections.active.length ? (
+                      <div className="rounded-xl border border-white/15 bg-black/25 px-3 py-2 text-xs font-medium text-white">
+                        Active Trades · {buyerRequestSections.active.length}
+                      </div>
+                    ) : null}
+                    {buyerRequestSections.waiting.length ? (
+                      <div className="rounded-xl border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 px-3 py-2 text-xs font-medium text-[#BFDBFE]">
+                        Waiting · {buyerRequestSections.waiting.length}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {[...buyerRequestSections.action, ...buyerRequestSections.active, ...buyerRequestSections.waiting].map((request) => {
+                  const presentation = getTradeQueuePresentation(request, "buyer");
+                  return (
                   <div key={request.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-[#93C5FD]">{shortTradeRef(request)}</p>
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#93C5FD]">{shortTradeRef(request)}</p>
+                      <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-[0.08em] ${presentation.badgeTone}`}>{presentation.badge}</span>
+                    </div>
                     <div className="grid gap-2 text-sm md:grid-cols-3">
                       <p>Trade Ref: <span className="text-white">{shortTradeRef(request)}</span></p>
                       <p>Listing: <span className="text-white">{shortListingRef({ id: request.listingId, displayNumber: listingsById.get(request.listingId)?.displayNumber })}</span></p>
@@ -3340,6 +3495,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <p className="mt-1">Review details in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link>.</p>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
+                      <Button type="button" size="sm" variant="secondary" onClick={() => router.push(`/trade-room/${request.id}`)}>
+                        Open Trade Room
+                      </Button>
                       <Button type="button" size="sm" disabled={request.status !== "accepted" || !request.buyerEvidence} onClick={() => handleBuyerTradeStatus(request, "payment_sent")}>
                         {normalizeMarketplacePaymentMethod(request.paymentMethod) === "Cardless ATM Withdrawal" ? "Mark Withdrawal Ready" : "Mark Payment Sent"}
                       </Button>
@@ -3448,7 +3606,50 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       </div>
                     ) : null}
                   </div>
-                ))}
+                );
+                })}
+                {(buyerRequestSections.completed.length || buyerRequestSections.cancelled.length) ? (
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between text-left"
+                      onClick={() => setBuyerClosedRequestsCollapsed((value) => !value)}
+                    >
+                      <span className="text-sm font-medium text-white">
+                        Completed / Closed · {buyerRequestSections.completed.length + buyerRequestSections.cancelled.length}
+                      </span>
+                      <span className="text-xs text-[#9CA3AF]">{buyerClosedRequestsCollapsed ? "Show" : "Hide"}</span>
+                    </button>
+                    {!buyerClosedRequestsCollapsed ? (
+                      <div className="mt-3 space-y-3">
+                        {[...buyerRequestSections.completed, ...buyerRequestSections.cancelled].map((request) => {
+                          const presentation = getTradeQueuePresentation(request, "buyer");
+                          return (
+                            <div key={request.id} className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#93C5FD]">{shortTradeRef(request)}</p>
+                                <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-[0.08em] ${presentation.badgeTone}`}>{presentation.badge}</span>
+                              </div>
+                              <div className="grid gap-2 text-sm md:grid-cols-3">
+                                <p>Trade Ref: <span className="text-white">{shortTradeRef(request)}</span></p>
+                                <p>Status: <span className="text-white">{tradeStatusLabel(request.status)}</span></p>
+                                <p>Listing: <span className="text-white">{shortListingRef({ id: request.listingId, displayNumber: listingsById.get(request.listingId)?.displayNumber })}</span></p>
+                                <p>USDT Amount: <span className="text-white">{toNumber(request.usdtAmount).toLocaleString("en-IL")}</span></p>
+                                <p>Fiat Amount: <span className="text-white">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</span></p>
+                                <p>Updated: <span className="text-white">{new Date(request.updatedAt).toLocaleString("en-IL")}</span></p>
+                              </div>
+                              <div className="mt-3">
+                                <Button type="button" size="sm" variant="secondary" onClick={() => router.push(`/trade-room/${request.id}`)}>
+                                  Open Trade Room
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           ) : null}

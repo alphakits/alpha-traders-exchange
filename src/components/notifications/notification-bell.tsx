@@ -38,6 +38,17 @@ function notificationIcon(notification: AlphaExchangeNotification) {
   return BellDot;
 }
 
+function extractTradeRoomHrefFromRelatedHref(relatedHref?: string) {
+  const href = relatedHref?.trim();
+  if (!href) return null;
+  const normalized = href.startsWith("/") ? href : `/${href}`;
+  const roomMatch = normalized.match(/\/trade-room\/([^/?#]+)/i);
+  if (roomMatch?.[1]) return `/trade-room/${decodeURIComponent(roomMatch[1])}`;
+  const requestMatch = normalized.match(/[?&]requestId=([^&]+)/i);
+  if (requestMatch?.[1]) return `/trade-room/${decodeURIComponent(requestMatch[1])}`;
+  return null;
+}
+
 export function NotificationBell({ locale }: { locale: AppLocale }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -129,12 +140,35 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   }
 
   async function handleOpenNotification(notification: AlphaExchangeNotification) {
+    const tradeRoomHref = resolveTradeRoomHref(notification) ?? await resolveActiveTradeHref();
     if (!notification.isRead) {
-      await handleMarkOneRead(notification.id);
+      void handleMarkOneRead(notification.id);
+    }
+    if (tradeRoomHref) {
+      router.push(tradeRoomHref);
+      setIsOpen(false);
+      return;
     }
     if (notification.relatedHref) {
       router.push(notification.relatedHref);
       setIsOpen(false);
+    }
+  }
+
+  function resolveTradeRoomHref(notification: AlphaExchangeNotification) {
+    if (notification.relatedRequestId?.trim()) return `/trade-room/${notification.relatedRequestId.trim()}`;
+    return extractTradeRoomHrefFromRelatedHref(notification.relatedHref ?? notification.actionHref);
+  }
+
+  async function resolveActiveTradeHref() {
+    try {
+      const response = await fetch("/api/alpha-exchange/trade-room/active", { cache: "no-store" });
+      if (!response.ok) return null;
+      const payload = (await response.json()) as { activeRequestId?: string | null };
+      if (!payload.activeRequestId) return null;
+      return `/trade-room/${payload.activeRequestId}`;
+    } catch {
+      return null;
     }
   }
 
@@ -211,8 +245,22 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                           {notification.relatedListingId ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Listing #{notification.relatedListingId.slice(-6)}</span> : null}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
-                          <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleOpenNotification(notification)}>
-                            Open
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            className="h-7 px-2.5 text-[11px]"
+                            onMouseEnter={() => {
+                              const href = resolveTradeRoomHref(notification);
+                              if (href) void router.prefetch(href);
+                            }}
+                            onFocus={() => {
+                              const href = resolveTradeRoomHref(notification);
+                              if (href) void router.prefetch(href);
+                            }}
+                            onClick={() => void handleOpenNotification(notification)}
+                          >
+                            Open Trade Room
                           </Button>
                           {!notification.isRead ? (
                             <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleMarkOneRead(notification.id)}>

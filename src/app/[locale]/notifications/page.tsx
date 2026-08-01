@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { NotificationsPage } from "@/components/notifications/notifications-page";
 import { getCurrentSessionUser } from "@/lib/auth";
+import { getFirstActiveTradeForUser } from "@/lib/alpha-exchange-store";
 import { buildPageMetadata } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,10 @@ export default async function NotificationsRoute({ params }: { params: Promise<{
   const user = await getCurrentSessionUser();
   if (!user) {
     redirect(`/${locale}/login?redirectTo=/${locale}/notifications`);
+  }
+  const activeTrade = await getFirstActiveTradeForUser(user.id, user.role);
+  if (activeTrade) {
+    redirect(`/${locale}/trade-room/${activeTrade.id}`);
   }
 
   return <NotificationsPage locale={locale === "ar" ? "ar" : "en"} />;

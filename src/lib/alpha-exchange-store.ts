@@ -1928,7 +1928,7 @@ function pushNotification(
 }
 
 function requestDetailsHref(requestId: string) {
-  return `/usdt-exchange?requestId=${encodeURIComponent(requestId)}`;
+  return `/trade-room/${encodeURIComponent(requestId)}`;
 }
 
 function pushActivityLog(
