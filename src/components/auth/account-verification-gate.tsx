@@ -87,6 +87,20 @@ export function AccountVerificationGate({ locale, redirectTo, initialEmail, init
   }, [locale]);
 
   useEffect(() => {
+    if (!user?.fullName?.trim()) return;
+    const parts = user.fullName.trim().split(/\s+/);
+    const firstName = parts[0] ?? "";
+    const lastName = parts.slice(1).join(" ");
+    setPhoneForm((prev) => ({
+      ...prev,
+      firstName: prev.firstName || firstName,
+      lastName: prev.lastName || lastName,
+      displayName: prev.displayName || user.fullName || "",
+      phone: prev.phone || user.verifiedPhone || "",
+    }));
+  }, [user]);
+
+  useEffect(() => {
     if (!loading && emailVerified && phoneVerified) {
       window.location.replace(`/${locale}${target === "/" ? "" : target}`);
     }
@@ -103,10 +117,22 @@ export function AccountVerificationGate({ locale, redirectTo, initialEmail, init
     setError(null);
     setStatus(null);
     try {
+      const sourceName = [phoneForm.firstName, phoneForm.lastName].filter(Boolean).join(" ").trim() || user?.fullName?.trim() || initialName.trim();
+      const nameParts = sourceName.split(/\s+/).filter(Boolean);
+      const firstName = (phoneForm.firstName || nameParts[0] || "").trim();
+      const lastName = (phoneForm.lastName || nameParts.slice(1).join(" ") || "").trim();
+      if (!firstName || !lastName || !phoneForm.phone.trim()) {
+        throw new Error(isAr ? "يرجى إدخال رقم هاتف صالح قبل إرسال رمز التحقق." : "Please enter a valid phone number before sending a verification code.");
+      }
       const res = await fetch("/api/auth/onboarding/buyer/send-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(phoneForm),
+        body: JSON.stringify({
+          firstName,
+          lastName,
+          displayName: user?.fullName?.trim() || phoneForm.displayName || sourceName,
+          phone: phoneForm.phone.trim(),
+        }),
       });
       const payload = (await res.json()) as ApiErrorPayload;
       if (!res.ok) throw new Error(withSupportDetails(payload, "Failed to send verification code."));
@@ -235,52 +261,50 @@ export function AccountVerificationGate({ locale, redirectTo, initialEmail, init
             {phoneVerified ? (
               <p className="mt-2 text-sm text-[#9CA3AF]">{user?.verifiedPhone}</p>
             ) : (
-              <div className="mt-3 grid gap-2">
-                <Input
-                  value={phoneForm.firstName}
-                  onChange={(event) => setPhoneForm((prev) => ({ ...prev, firstName: event.target.value }))}
-                  placeholder={isAr ? "الاسم الأول" : "First name"}
-                  aria-label={isAr ? "الاسم الأول" : "First name"}
-                />
-                <Input
-                  value={phoneForm.lastName}
-                  onChange={(event) => setPhoneForm((prev) => ({ ...prev, lastName: event.target.value }))}
-                  placeholder={isAr ? "اسم العائلة" : "Last name"}
-                  aria-label={isAr ? "اسم العائلة" : "Last name"}
-                />
-                <Input
-                  value={phoneForm.phone}
-                  onChange={(event) => setPhoneForm((prev) => ({ ...prev, phone: event.target.value }))}
-                  placeholder={isAr ? "رقم الهاتف (+972 / 05...)" : "Phone (+972 / 05...)"}
-                  aria-label={isAr ? "رقم الهاتف" : "Phone"}
-                />
-                <Button
-                  type="button"
-                  className="w-full"
-                  loading={sendingOtp}
-                  loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
-                  disabled={!phoneForm.firstName || !phoneForm.lastName || !phoneForm.phone}
-                  onClick={() => void sendOtp()}
-                >
-                  {isAr ? "إرسال رمز التحقق" : "Send verification code"}
-                </Button>
-                <Input
-                  value={phoneForm.token}
-                  onChange={(event) => setPhoneForm((prev) => ({ ...prev, token: event.target.value }))}
-                  placeholder={isAr ? "رمز مكون من 6 أرقام" : "6-digit code"}
-                  aria-label={isAr ? "رمز التحقق" : "Verification code"}
-                />
-                <Button
-                  type="button"
-                  className="w-full"
-                  variant="secondary"
-                  loading={verifyingOtp}
-                  loadingLabel={isAr ? "جارٍ التحقق..." : "Verifying..."}
-                  disabled={phoneForm.token.length !== 6 || !phoneForm.phone}
-                  onClick={() => void verifyOtp()}
-                >
-                  {isAr ? "تأكيد رقم الهاتف" : "Verify phone"}
-                </Button>
+              <div className="mt-3 grid gap-3">
+                <p className="text-xs text-[#9CA3AF]">
+                  {isAr ? "أدخل رقم الهاتف ثم رمز OTP لإكمال التحقق." : "Enter your phone number and OTP code to complete verification."}
+                </p>
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                  <Input
+                    value={phoneForm.phone}
+                    onChange={(event) => setPhoneForm((prev) => ({ ...prev, phone: event.target.value }))}
+                    placeholder={isAr ? "رقم الهاتف (+972 / 05...)" : "Phone (+972 / 05...)"}
+                    aria-label={isAr ? "رقم الهاتف" : "Phone"}
+                  />
+                  <Button
+                    type="button"
+                    className="w-full sm:w-auto sm:min-w-[196px]"
+                    loading={sendingOtp}
+                    loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
+                    disabled={!phoneForm.phone.trim()}
+                    onClick={() => void sendOtp()}
+                  >
+                    {isAr ? "إرسال رمز التحقق" : "Send verification code"}
+                  </Button>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                  <Input
+                    value={phoneForm.token}
+                    onChange={(event) => setPhoneForm((prev) => ({ ...prev, token: event.target.value }))}
+                    placeholder={isAr ? "رمز مكون من 6 أرقام" : "6-digit code"}
+                    aria-label={isAr ? "رمز التحقق" : "Verification code"}
+                  />
+                  <Button
+                    type="button"
+                    className="w-full sm:w-auto sm:min-w-[196px]"
+                    variant="secondary"
+                    loading={verifyingOtp}
+                    loadingLabel={isAr ? "جارٍ التحقق..." : "Verifying..."}
+                    disabled={phoneForm.token.length !== 6 || !phoneForm.phone.trim()}
+                    onClick={() => void verifyOtp()}
+                  >
+                    {isAr ? "تأكيد رقم الهاتف" : "Verify phone"}
+                  </Button>
+                </div>
+                <p className="text-[11px] text-[#6CAEFF]">
+                  {isAr ? "يتم استخدام رقمك المحقق للتواصل عبر WhatsApp حول الطلبات." : "Your verified number is used for WhatsApp contact during application review."}
+                </p>
               </div>
             )}
           </div>

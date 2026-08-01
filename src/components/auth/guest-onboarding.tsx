@@ -8,8 +8,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 const POST_ONBOARDING_KEY = "post_onboarding_redirect";
-const SUPPORTED_NETWORKS = ["TRC20", "ERC20", "BEP20", "SOL"] as const;
-type Network = (typeof SUPPORTED_NETWORKS)[number];
+const SELLER_METHOD_OPTIONS = [
+  { id: "USDT (ERC20 / Ethereum)", group: "Crypto", recommended: true },
+  { id: "USDT (Polygon)", group: "Crypto", recommended: false },
+  { id: "USDT (Solana SPL / Phantom)", group: "Crypto", recommended: false },
+  { id: "Face-to-Face", group: "Fiat", recommended: false },
+  { id: "Cardless Withdrawal", group: "Fiat", recommended: false },
+  { id: "Bank Transfer", group: "Fiat", recommended: false },
+] as const;
+type SellerMethod = (typeof SELLER_METHOD_OPTIONS)[number]["id"];
 
 type Props = {
   locale: "ar" | "en";
@@ -78,7 +85,7 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<null | "student" | "sendOtp" | "verifyOtp" | "skip" | "seller_sendOtp" | "seller_verify" | "seller_apply">(null);
   const [buyer, setBuyer] = useState({ firstName: "", lastName: "", displayName: "", phone: "", token: "" });
-  const [seller, setSeller] = useState({ firstName: "", lastName: "", displayName: "", phone: "", token: "", preferredNetworks: [] as Network[], expectedVolume: "", notes: "" });
+  const [seller, setSeller] = useState({ firstName: "", lastName: "", displayName: "", phone: "", token: "", preferredNetworks: [] as SellerMethod[], expectedVolume: "", notes: "" });
   const [sellerStep, setSellerStep] = useState<"idle" | "otp_sent" | "applied">("idle");
   const [sellerError, setSellerError] = useState<string | null>(null);
   const [sellerStatus2, setSellerStatus2] = useState<string | null>(null);
@@ -99,7 +106,7 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
     return `${message} (${suffix})`;
   }
 
-  function toggleNetwork(net: Network) {
+  function toggleNetwork(net: SellerMethod) {
     setSeller((prev) => ({
       ...prev,
       preferredNetworks: prev.preferredNetworks.includes(net)
@@ -383,22 +390,38 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
                 </motion.div>
               ) : isBuyer ? (
                 <motion.div key="seller-buyer" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="grid gap-2">
-                  <p className="text-xs text-[#AEB5C2]">{isAr ? "اختر الشبكات المفضلة للتداول:" : "Select preferred trading networks:"}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {SUPPORTED_NETWORKS.map((net) => (
-                      <button
-                        key={net}
-                        type="button"
-                        onClick={() => toggleNetwork(net)}
-                        className={`rounded-lg border px-3 py-1 text-xs font-medium transition-colors ${
-                          seller.preferredNetworks.includes(net)
-                            ? "border-[#C9A227] bg-[#C9A227]/20 text-[#F4D87A]"
-                            : "border-[#374151] bg-black/20 text-[#9CA3AF] hover:border-[#C9A227]/50"
-                        }`}
-                      >
-                        {net}
-                      </button>
-                    ))}
+                  <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+                    <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "طرق البيع المدعومة" : "Supported Selling Methods"}</p>
+                    <p className="mt-1 text-xs text-[#AEB5C2]">{isAr ? "اختر طريقة أو أكثر." : "Select one or more methods."}</p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      {(["Crypto", "Fiat"] as const).map((group) => (
+                        <div key={`buyer-${group}`} className="space-y-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9CA3AF]">{group}</p>
+                          <div className="grid gap-2">
+                            {SELLER_METHOD_OPTIONS.filter((option) => option.group === group).map((option) => {
+                              const selected = seller.preferredNetworks.includes(option.id);
+                              return (
+                                <button
+                                  key={`buyer-${option.id}`}
+                                  type="button"
+                                  onClick={() => toggleNetwork(option.id)}
+                                  className={`rounded-lg border px-3 py-2 text-left text-xs font-medium transition-colors ${
+                                    selected
+                                      ? "border-[#C9A227] bg-[#C9A227]/20 text-[#F4D87A]"
+                                      : "border-[#374151] bg-black/20 text-[#D1D5DB] hover:border-[#C9A227]/50"
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span>{option.id}</span>
+                                    {option.recommended ? <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#D4AF37]">⭐</span> : null}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   <Input
                     aria-label={isAr ? "حجم التداول الشهري المتوقع (اختياري)" : "Expected monthly volume (optional)"}
@@ -419,22 +442,34 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
               ) : sellerStep === "otp_sent" ? (
                 <motion.div key="seller-otp" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="grid gap-2">
                   {sellerStatus2 ? <p className="text-xs text-emerald-300">{sellerStatus2}</p> : null}
-                  <p className="text-xs text-[#AEB5C2]">{isAr ? "اختر الشبكات المفضلة للتداول:" : "Select preferred trading networks:"}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {SUPPORTED_NETWORKS.map((net) => (
-                      <button
-                        key={net}
-                        type="button"
-                        onClick={() => toggleNetwork(net)}
-                        className={`rounded-lg border px-3 py-1 text-xs font-medium transition-colors ${
-                          seller.preferredNetworks.includes(net)
-                            ? "border-[#C9A227] bg-[#C9A227]/20 text-[#F4D87A]"
-                            : "border-[#374151] bg-black/20 text-[#9CA3AF] hover:border-[#C9A227]/50"
-                        }`}
-                      >
-                        {net}
-                      </button>
-                    ))}
+                  <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+                    <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "طرق البيع المدعومة" : "Supported Selling Methods"}</p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      {(["Crypto", "Fiat"] as const).map((group) => (
+                        <div key={`otp-${group}`} className="space-y-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9CA3AF]">{group}</p>
+                          <div className="grid gap-2">
+                            {SELLER_METHOD_OPTIONS.filter((option) => option.group === group).map((option) => {
+                              const selected = seller.preferredNetworks.includes(option.id);
+                              return (
+                                <button
+                                  key={`otp-${option.id}`}
+                                  type="button"
+                                  onClick={() => toggleNetwork(option.id)}
+                                  className={`rounded-lg border px-3 py-2 text-left text-xs font-medium transition-colors ${
+                                    selected
+                                      ? "border-[#C9A227] bg-[#C9A227]/20 text-[#F4D87A]"
+                                      : "border-[#374151] bg-black/20 text-[#D1D5DB] hover:border-[#C9A227]/50"
+                                  }`}
+                                >
+                                  {option.id}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   <Input
                     aria-label={isAr ? "رمز التحقق المكون من 6 أرقام" : "6-digit verification code"}
@@ -475,23 +510,52 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
                     value={seller.phone}
                     onChange={(e) => setSeller((p) => ({ ...p, phone: e.target.value }))}
                   />
-                  <p className="text-xs text-[#AEB5C2]">{isAr ? "الشبكات المفضلة للتداول:" : "Preferred trading networks:"}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {SUPPORTED_NETWORKS.map((net) => (
-                      <button
-                        key={net}
-                        type="button"
-                        onClick={() => toggleNetwork(net)}
-                        className={`rounded-lg border px-3 py-1 text-xs font-medium transition-colors ${
-                          seller.preferredNetworks.includes(net)
-                            ? "border-[#C9A227] bg-[#C9A227]/20 text-[#F4D87A]"
-                            : "border-[#374151] bg-black/20 text-[#9CA3AF] hover:border-[#C9A227]/50"
-                        }`}
-                      >
-                        {net}
-                      </button>
-                    ))}
+                  <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+                    <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "طرق البيع المدعومة" : "Supported Selling Methods"}</p>
+                    <p className="mt-1 text-xs text-[#AEB5C2]">{isAr ? "اختر طريقة أو أكثر." : "Select one or more methods."}</p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      {(["Crypto", "Fiat"] as const).map((group) => (
+                        <div key={`idle-${group}`} className="space-y-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9CA3AF]">{group}</p>
+                          <div className="grid gap-2">
+                            {SELLER_METHOD_OPTIONS.filter((option) => option.group === group).map((option) => {
+                              const selected = seller.preferredNetworks.includes(option.id);
+                              return (
+                                <button
+                                  key={`idle-${option.id}`}
+                                  type="button"
+                                  onClick={() => toggleNetwork(option.id)}
+                                  className={`rounded-lg border px-3 py-2 text-left text-xs font-medium transition-colors ${
+                                    selected
+                                      ? "border-[#C9A227] bg-[#C9A227]/20 text-[#F4D87A]"
+                                      : "border-[#374151] bg-black/20 text-[#D1D5DB] hover:border-[#C9A227]/50"
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span>{option.id}</span>
+                                    {option.recommended ? <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#D4AF37]">⭐ Recommended</span> : null}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
+                    <p className="font-semibold text-white">{isAr ? "ماذا يحدث بعد التقديم؟" : "What happens after you apply?"}</p>
+                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                      <li>{isAr ? "يدخل طلبك في مراجعة يدوية." : "Your application enters manual review."}</li>
+                      <li>{isAr ? "يتواصل فريق Alpha Traders عبر WhatsApp على رقمك المحقق." : "The Alpha Traders team contacts you via WhatsApp using your verified number."}</li>
+                      <li>{isAr ? "قد نطلب معلومات إضافية قبل الموافقة." : "Additional verification may be requested before approval."}</li>
+                    </ul>
+                  </div>
+                  <p className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-[#9CA3AF]">
+                    {isAr
+                      ? "الموافقة على البائعين تتم يدويًا لحماية المشترين والحفاظ على سوق موثوق."
+                      : "Seller approval is performed manually to protect buyers and maintain a trusted marketplace."}
+                  </p>
                   <Input
                     aria-label={isAr ? "حجم التداول الشهري المتوقع (اختياري)" : "Expected monthly volume (optional)"}
                     placeholder={isAr ? "حجم التداول الشهري المتوقع (اختياري)" : "Expected monthly volume (optional)"}
