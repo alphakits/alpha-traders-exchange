@@ -35,12 +35,19 @@ export function LogoutButton({
     if (isPending) return;
     setIsPending(true);
     setErrorMessage(null);
+    // Safety-net: if the server doesn't respond in 3 s, navigate anyway.
+    // The server expires cookies before doing any async work, so a slow
+    // response likely means the cookies were already cleared.
+    const controller = new AbortController();
+    const safetyTimeout = window.setTimeout(() => controller.abort(), 3000);
     try {
       const response = await fetch("/api/auth/logout", {
         method: "POST",
         credentials: "include",
         cache: "no-store",
+        signal: controller.signal,
       });
+      window.clearTimeout(safetyTimeout);
       if (!response.ok) {
         const payload = await response.json().catch(() => null) as { error?: string } | null;
         throw new Error(payload?.error || (locale === "ar" ? "تعذر تسجيل الخروج. حاول مرة أخرى." : "Failed to sign out. Please try again."));
@@ -48,18 +55,21 @@ export function LogoutButton({
       onSignedOut?.();
       window.location.replace(`/${locale}/login`);
     } catch (error) {
+      window.clearTimeout(safetyTimeout);
+      if (error instanceof Error && error.name === "AbortError") {
+        // Safety timeout fired — navigate anyway; server may have cleared cookies.
+        onSignedOut?.();
+        window.location.replace(`/${locale}/login`);
+        return;
+      }
+      // Genuine failure — re-enable button and surface the error.
       setIsPending(false);
       const message = error instanceof Error
         ? error.message
         : (locale === "ar" ? "تعذر تسجيل الخروج. حاول مرة أخرى." : "Failed to sign out. Please try again.");
       setErrorMessage(message);
-      if (timeoutRef.current !== null) {
-        window.clearTimeout(timeoutRef.current);
-      }
-      timeoutRef.current = window.setTimeout(() => {
-        setErrorMessage(null);
-        timeoutRef.current = null;
-      }, 4000);
+      if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = window.setTimeout(() => { setErrorMessage(null); timeoutRef.current = null; }, 4000);
     }
   }
 
