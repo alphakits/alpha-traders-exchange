@@ -4,6 +4,7 @@ import { submitSellerCommissionWalletPayment } from "@/lib/alpha-exchange-store"
 import { checkRateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
+  const routeStartedAt = Date.now();
   const { user, unauthorized } = await requireApiSellerWorkspaceActor();
   if (!user) return unauthorized;
 
@@ -38,7 +39,21 @@ export async function POST(request: NextRequest) {
       payerWalletAddress,
       paymentSignature,
     });
-    return NextResponse.json(result);
+    const routeMs = Date.now() - routeStartedAt;
+    const queueMs = Math.max(0, routeMs - result.metrics.totalMs);
+    return NextResponse.json(result, {
+      headers: {
+        "X-Trade-Route-Ms": String(routeMs),
+        "X-Trade-Queue-Ms": String(queueMs),
+        "X-Trade-Db-Ms": String(result.metrics.totalMs),
+        "X-Trade-Read-Ms": String(result.metrics.readDbMs),
+        "X-Trade-Validation-Ms": String(result.metrics.validationMs),
+        "X-Trade-Verify-Ms": String(result.metrics.verificationMs),
+        "X-Trade-Logic-Ms": String(result.metrics.businessMs),
+        "X-Trade-Write-Ms": String(result.metrics.writeDbMs),
+        "Server-Timing": `route;dur=${routeMs}, queue;dur=${queueMs}, db;dur=${result.metrics.totalMs}, read;dur=${result.metrics.readDbMs}, validate;dur=${result.metrics.validationMs}, verify;dur=${result.metrics.verificationMs}, logic;dur=${result.metrics.businessMs}, write;dur=${result.metrics.writeDbMs}`,
+      },
+    });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to submit commission payment." }, { status: 400 });
   }

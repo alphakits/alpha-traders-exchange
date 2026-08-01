@@ -4350,7 +4350,11 @@ export async function createPurchaseRequest(input: {
   safetyAcknowledged?: boolean;
   actorUserId: string;
 }) {
+  const startedAt = Date.now();
+  const dbReadStartedAt = Date.now();
   const db = await readDb();
+  const dbReadMs = Date.now() - dbReadStartedAt;
+  const validationStartedAt = Date.now();
   const now = nowIso();
   const pendingFeedbackTrade = getBuyerPendingFeedbackTrade(db, input.buyerId);
   if (pendingFeedbackTrade) {
@@ -4400,6 +4404,8 @@ export async function createPurchaseRequest(input: {
   if (requestedAmount < minimumTrade) throw new Error(`Minimum trade for this listing is ${listing.minimumTrade} USDT.`);
   if (requestedAmount > maximumTrade) throw new Error(`Maximum trade for this listing is ${listing.maximumTrade} USDT.`);
   if (requestedAmount > remainingAmount) throw new Error("Requested amount exceeds the remaining listing quantity.");
+  const validationMs = Date.now() - validationStartedAt;
+  const businessStartedAt = Date.now();
   const sellerId = listing.sellerId;
   const usdtAmount = requestedUsdtAmount;
   const fiatAmount = (requestedAmount * toNumber(listing.price)).toFixed(2);
@@ -4467,13 +4473,28 @@ export async function createPurchaseRequest(input: {
     title: "Trade request submitted",
     details: `Request ${request.id} was submitted.`,
   });
-  await recalculateTrustEngine(db, { reason: "Purchase request submitted", triggeredBy: input.actorUserId });
+  const businessMs = Date.now() - businessStartedAt;
+  const writeStartedAt = Date.now();
+  await writeDb(db);
+  const writeMs = Date.now() - writeStartedAt;
+  const sseStartedAt = Date.now();
   publishRealtimeEvent({
     type: "trade.request_created",
     payload: { request: enrichRequestWithEvidence(db, request) },
   });
-  await writeDb(db);
-  return request;
+  const sseMs = Date.now() - sseStartedAt;
+  return {
+    request,
+    metrics: {
+      totalMs: Date.now() - startedAt,
+      readDbMs: dbReadMs,
+      validationMs,
+      businessMs,
+      writeDbMs: writeMs,
+      sseMs,
+      trustMs: 0,
+    },
+  };
 }
 
 export async function getMyPurchaseRequests(userId: string, role: UserRole) {
@@ -4737,7 +4758,11 @@ export async function postTradeRoomMessage(input: {
   actorRole: UserRole;
   message: string;
 }) {
+  const startedAt = Date.now();
+  const dbReadStartedAt = Date.now();
   const db = await readDb();
+  const dbReadMs = Date.now() - dbReadStartedAt;
+  const validationStartedAt = Date.now();
   const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.purchaseRequestId);
   if (requestIndex === -1) throw new Error("Trade not found.");
   const request = db.purchaseRequests[requestIndex];
@@ -4746,7 +4771,9 @@ export async function postTradeRoomMessage(input: {
   const message = input.message.trim();
   if (!message) throw new Error("Message is required.");
   if (message.length > 1200) throw new Error("Message is too long.");
+  const validationMs = Date.now() - validationStartedAt;
 
+  const businessStartedAt = Date.now();
   const senderRole = resolveActorRole(db, input.actorUserId);
   const nextMessage: TradeChatMessage = {
     id: `trade-msg-${randomUUID()}`,
@@ -4763,7 +4790,11 @@ export async function postTradeRoomMessage(input: {
   request.messages = [nextMessage, ...(request.messages ?? [])];
   db.purchaseRequests[requestIndex] = request;
   db.tradeMessages = [nextMessage, ...(db.tradeMessages ?? [])];
+  const businessMs = Date.now() - businessStartedAt;
+  const writeStartedAt = Date.now();
   await writeDb(db);
+  const writeMs = Date.now() - writeStartedAt;
+  const sseStartedAt = Date.now();
   publishRealtimeEvent({
     type: "trade.message_created",
     payload: {
@@ -4771,7 +4802,18 @@ export async function postTradeRoomMessage(input: {
       messageId: nextMessage.id,
     },
   });
-  return nextMessage;
+  const sseMs = Date.now() - sseStartedAt;
+  return {
+    message: nextMessage,
+    metrics: {
+      totalMs: Date.now() - startedAt,
+      readDbMs: dbReadMs,
+      validationMs,
+      businessMs,
+      writeDbMs: writeMs,
+      sseMs,
+    },
+  };
 }
 
 export interface AccountProfileSummary {
@@ -6273,7 +6315,11 @@ export async function submitSellerCommissionWalletPayment(input: {
   paymentSignature: string;
   network?: string;
 }) {
+  const startedAt = Date.now();
+  const dbReadStartedAt = Date.now();
   const db = await readDb();
+  const dbReadMs = Date.now() - dbReadStartedAt;
+  const validationStartedAt = Date.now();
   const index = db.commissionRecords.findIndex((record) => record.id === input.commissionId);
   if (index === -1) throw new Error("Commission record not found.");
   const current = db.commissionRecords[index];
@@ -6283,7 +6329,9 @@ export async function submitSellerCommissionWalletPayment(input: {
   if (normalizeCommissionPaymentStatus(current.paymentStatus, current.dueAt) === "paid") {
     throw new Error("This commission is already settled.");
   }
+  const validationMs = Date.now() - validationStartedAt;
 
+  const verificationStartedAt = Date.now();
   const chosenNetwork = (input.network ?? "ERC20").trim();
   const { getCommissionWalletForNetwork } = await import("@/lib/commission-config");
   const recipientWalletAddress =
@@ -6306,6 +6354,8 @@ export async function submitSellerCommissionWalletPayment(input: {
     paymentSignature: input.paymentSignature.trim(),
     existingSignatures,
   });
+  const verificationMs = Date.now() - verificationStartedAt;
+  const businessStartedAt = Date.now();
   const now = nowIso();
 
   const nextRecord: CommissionRecord = {
@@ -6373,11 +6423,22 @@ export async function submitSellerCommissionWalletPayment(input: {
       });
     }
   }
+  const businessMs = Date.now() - businessStartedAt;
 
+  const writeStartedAt = Date.now();
   await writeDb(db);
+  const writeMs = Date.now() - writeStartedAt;
   return {
     commission: nextRecord,
     verification,
+    metrics: {
+      totalMs: Date.now() - startedAt,
+      readDbMs: dbReadMs,
+      validationMs,
+      verificationMs,
+      businessMs,
+      writeDbMs: writeMs,
+    },
   };
 }
 

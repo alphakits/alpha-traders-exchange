@@ -14,6 +14,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const routeStartedAt = Date.now();
   const requestId = crypto.randomUUID();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
@@ -135,7 +136,7 @@ export async function POST(request: NextRequest) {
     const bankName = String(body.bankName ?? "").trim();
     const safetyAcknowledged = body.safetyAcknowledged === true;
 
-    const purchase = await createPurchaseRequest({
+    const created = await createPurchaseRequest({
       buyerId: user.id,
       listingId,
       usdtAmount,
@@ -146,6 +147,9 @@ export async function POST(request: NextRequest) {
       safetyAcknowledged,
       actorUserId: user.id,
     });
+    const { request: purchase, metrics } = created;
+    const routeMs = Date.now() - routeStartedAt;
+    const queueMs = Math.max(0, routeMs - metrics.totalMs);
     logEvent("info", {
       event: "exchange_purchase_request_create",
       actorUserId: user.id,
@@ -154,7 +158,23 @@ export async function POST(request: NextRequest) {
       outcome: "success",
       metadata: { requestId, listingId, paymentMethod: purchase.paymentMethod },
     });
-    return NextResponse.json({ purchase, requestId }, { status: 201, headers: withRequestIdHeaders() });
+    return NextResponse.json(
+      { purchase, requestId, metrics },
+      {
+        status: 201,
+        headers: withRequestIdHeaders({
+          "X-Trade-Route-Ms": String(routeMs),
+          "X-Trade-Queue-Ms": String(queueMs),
+          "X-Trade-Db-Ms": String(metrics.totalMs),
+          "X-Trade-Read-Ms": String(metrics.readDbMs),
+          "X-Trade-Validation-Ms": String(metrics.validationMs),
+          "X-Trade-Logic-Ms": String(metrics.businessMs),
+          "X-Trade-Write-Ms": String(metrics.writeDbMs),
+          "X-Trade-Sse-Ms": String(metrics.sseMs),
+          "Server-Timing": `route;dur=${routeMs}, queue;dur=${queueMs}, db;dur=${metrics.totalMs}, read;dur=${metrics.readDbMs}, validate;dur=${metrics.validationMs}, logic;dur=${metrics.businessMs}, write;dur=${metrics.writeDbMs}, sse;dur=${metrics.sseMs}`,
+        }),
+      },
+    );
   } catch (error) {
     if (error instanceof Error && error.message.trim()) {
       return denied(error.message, 400, "PURCHASE_REQUEST_VALIDATION_FAILED", undefined, { errorName: error.name });

@@ -30,6 +30,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
+  const routeStartedAt = Date.now();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
 
@@ -49,13 +50,31 @@ export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const { requestId } = await context.params;
     const body = (await request.json()) as { message?: string };
-    const message = await postTradeRoomMessage({
+    const posted = await postTradeRoomMessage({
       purchaseRequestId: requestId,
       actorUserId: user.id,
       actorRole: user.role,
       message: String(body.message ?? ""),
     });
-    return NextResponse.json({ message }, { status: 201 });
+    const routeMs = Date.now() - routeStartedAt;
+    const queueMs = Math.max(0, routeMs - posted.metrics.totalMs);
+    return NextResponse.json(
+      { message: posted.message, metrics: posted.metrics },
+      {
+        status: 201,
+        headers: {
+          "X-Trade-Route-Ms": String(routeMs),
+          "X-Trade-Queue-Ms": String(queueMs),
+          "X-Trade-Db-Ms": String(posted.metrics.totalMs),
+          "X-Trade-Read-Ms": String(posted.metrics.readDbMs),
+          "X-Trade-Validation-Ms": String(posted.metrics.validationMs),
+          "X-Trade-Logic-Ms": String(posted.metrics.businessMs),
+          "X-Trade-Write-Ms": String(posted.metrics.writeDbMs),
+          "X-Trade-Sse-Ms": String(posted.metrics.sseMs),
+          "Server-Timing": `route;dur=${routeMs}, queue;dur=${queueMs}, db;dur=${posted.metrics.totalMs}, read;dur=${posted.metrics.readDbMs}, validate;dur=${posted.metrics.validationMs}, logic;dur=${posted.metrics.businessMs}, write;dur=${posted.metrics.writeDbMs}, sse;dur=${posted.metrics.sseMs}`,
+        },
+      },
+    );
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to send message." },

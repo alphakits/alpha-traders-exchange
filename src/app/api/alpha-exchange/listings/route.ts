@@ -30,6 +30,7 @@ function createProfileLogger() {
   };
 }
 export async function POST(request: NextRequest) {
+  const routeStartedAt = Date.now();
   const logProfile = createProfileLogger();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
@@ -45,6 +46,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const validationStartedAt = Date.now();
     const body = await request.json();
     logProfile("request.json");
     const availableAmount = String(body.availableAmount ?? "").trim();
@@ -102,7 +104,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Invalid expiry date." }, { status: 400 });
       }
     }
+    const validationMs = Date.now() - validationStartedAt;
 
+    const businessStartedAt = Date.now();
     const listing = await createMarketplaceListing({
       sellerId: user.id,
       sellerDisplayName: user.fullName,
@@ -123,8 +127,21 @@ export async function POST(request: NextRequest) {
       acceptedCommissionPolicy,
       actorUserId: user.id,
     });
+    const businessMs = Date.now() - businessStartedAt;
     logProfile("createMarketplaceListing");
-    return NextResponse.json({ listing }, { status: 201 });
+    const routeMs = Date.now() - routeStartedAt;
+    return NextResponse.json(
+      { listing },
+      {
+        status: 201,
+        headers: {
+          "X-Trade-Route-Ms": String(routeMs),
+          "X-Trade-Validation-Ms": String(validationMs),
+          "X-Trade-Logic-Ms": String(businessMs),
+          "Server-Timing": `route;dur=${routeMs}, validate;dur=${validationMs}, logic;dur=${businessMs}`,
+        },
+      },
+    );
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to create listing." }, { status: 400 });
   }

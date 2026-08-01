@@ -354,6 +354,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const listingsLoadedAtRef = useRef<number>(Date.now());
   const [applicationSubmitted, setApplicationSubmitted] = useState(false);
   const [purchaseSubmitted, setPurchaseSubmitted] = useState(false);
+  const [isSubmittingPurchase, setIsSubmittingPurchase] = useState(false);
   const [selectedListing, setSelectedListing] = useState<MarketplaceListing | null>(null);
   const [sellerProfileData, setSellerProfileData] = useState<PremiumSellerProfileData | null>(null);
   const [isSellerProfileLoading, setIsSellerProfileLoading] = useState(false);
@@ -1030,6 +1031,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   async function submitPurchaseRequest(notesOverride?: string) {
     if (!selectedListing) return;
+    if (isSubmittingPurchase) return;
     if (listingRequiresFaceToFaceSafetyNotice(selectedListing) && !faceToFaceSafetyAcknowledged) {
       setStatusMessage("Please acknowledge the Face-to-Face privacy and safety guidelines before continuing.");
       return;
@@ -1047,6 +1049,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       return;
     }
     const fallbackMessage = "We could not start this trade due to an unexpected server error.";
+    setIsSubmittingPurchase(true);
     try {
       const response = await fetch("/api/alpha-exchange/purchase-requests", {
         method: "POST",
@@ -1099,6 +1102,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         ? error.message
         : "Unable to reach the server right now. Check your connection and try again.";
       setStatusMessage(message);
+    } finally {
+      setIsSubmittingPurchase(false);
     }
   }
 
@@ -4352,15 +4357,19 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     ) : null}
                     <div className="sticky bottom-0 z-10 rounded-xl border border-[#C9A227]/30 bg-[#0B0B0B]/95 p-3">
                       <div className="grid gap-2 md:grid-cols-2">
-                        <Button type="submit" className="w-full" disabled={buyerTradeAmountInvalid || (selectedListingRequiresSafetyNotice && !faceToFaceSafetyAcknowledged)}>Start Trade</Button>
+                        <Button type="submit" className="w-full" disabled={isSubmittingPurchase || buyerTradeAmountInvalid || (selectedListingRequiresSafetyNotice && !faceToFaceSafetyAcknowledged)}>
+                          {isSubmittingPurchase ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                          {isSubmittingPurchase ? "Starting trade..." : "Start Trade"}
+                        </Button>
                         <Button
                           type="button"
                           variant="secondary"
                           className="w-full"
-                          disabled={buyerTradeAmountInvalid || (selectedListingRequiresSafetyNotice && !faceToFaceSafetyAcknowledged)}
+                          disabled={isSubmittingPurchase || buyerTradeAmountInvalid || (selectedListingRequiresSafetyNotice && !faceToFaceSafetyAcknowledged)}
                           onClick={() => void submitPurchaseRequest("Please proceed with this trade.")}
                         >
-                          Quick Buy
+                          {isSubmittingPurchase ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                          {isSubmittingPurchase ? "Submitting..." : "Quick Buy"}
                         </Button>
                       </div>
                     </div>
