@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
-import { AUTH_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
+import { AUTH_COOKIE_NAME, clearUserSession, expireAuthCookies, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
 import { getFirstActiveTradeForUser } from "@/lib/alpha-exchange-store";
 import { hasRole } from "@/lib/roles";
 import { cn } from "@/lib/utils";
@@ -35,7 +35,7 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
     const token = await getCurrentSessionToken();
     await clearUserSession(token);
     const cookieStore = await cookies();
-    cookieStore.delete(AUTH_COOKIE_NAME);
+    expireAuthCookies(cookieStore, process.env.NODE_ENV === "production");
     redirect(`/${locale}/login`);
   }
 

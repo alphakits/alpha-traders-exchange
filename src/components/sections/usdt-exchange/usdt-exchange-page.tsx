@@ -3691,8 +3691,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <Button
                       variant="secondary"
                       onClick={async () => {
-                        await fetch("/api/auth/logout", { method: "POST" });
-                        router.push("/login");
+                        const response = await fetch("/api/auth/logout", { method: "POST" });
+                        if (!response.ok) return;
+                        setSessionUser(null);
+                        window.location.replace(`/${locale}/login`);
                       }}
                     >
                       Logout

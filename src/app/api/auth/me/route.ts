@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
+import { AUTH_PHONE_VERIFIED_COOKIE_NAME, clearUserSession, expireAuthCookies, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
 import { isPhotoVerificationBypassed, isVerified } from "@/lib/verification-bypass";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
@@ -11,9 +11,7 @@ export async function GET() {
     const token = await getCurrentSessionToken();
     await clearUserSession(token);
     const cookieStore = await cookies();
-    cookieStore.delete(AUTH_COOKIE_NAME);
-    cookieStore.delete(AUTH_VERIFIED_COOKIE_NAME);
-    cookieStore.delete(AUTH_PHONE_VERIFIED_COOKIE_NAME);
+    expireAuthCookies(cookieStore, process.env.NODE_ENV === "production");
     return NextResponse.json({ user: null }, { status: 200, headers: AUTH_RESPONSE_HEADERS });
   }
   const cookieStore = await cookies();

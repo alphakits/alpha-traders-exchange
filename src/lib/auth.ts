@@ -10,6 +10,33 @@ export { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE
 
 const scrypt = promisify(scryptCallback);
 
+type AuthCookieMutator = {
+  set: (
+    name: string,
+    value: string,
+    options: {
+      httpOnly: true;
+      secure: boolean;
+      sameSite: "lax";
+      path: "/";
+      expires: Date;
+    },
+  ) => unknown;
+};
+
+export function expireAuthCookies(cookieStore: AuthCookieMutator, secure: boolean) {
+  const expires = new Date(0);
+  for (const name of [AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME]) {
+    cookieStore.set(name, "", {
+      httpOnly: true,
+      secure,
+      sameSite: "lax",
+      path: "/",
+      expires,
+    });
+  }
+}
+
 export async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
   const derived = (await scrypt(password, salt, 64)) as Buffer;
