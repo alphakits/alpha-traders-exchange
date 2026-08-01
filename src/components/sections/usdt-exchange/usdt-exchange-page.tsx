@@ -717,6 +717,31 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     }
   }
 
+  async function handleOwnerModerateListing(listingId: string, action: "remove" | "hide" | "restore" | "feature") {
+    try {
+      const response = await fetch(`/api/alpha-exchange/admin/listings/${listingId}/moderate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setStatusMessage(payload.error ?? "Moderation action failed.");
+        return;
+      }
+      const messages: Record<string, string> = {
+        remove: "✅ Listing removed from marketplace.",
+        hide: "✅ Listing hidden from marketplace.",
+        restore: "✅ Listing restored to marketplace.",
+        feature: "✅ Listing featured in marketplace.",
+      };
+      setStatusMessage(messages[action] ?? "✅ Action completed.");
+      setListings((prev) => prev.filter((l) => action === "restore" ? true : l.id !== listingId));
+    } catch {
+      setStatusMessage("Moderation action failed. Please try again.");
+    }
+  }
+
   function openListingModal(listing: MarketplaceListing) {
     if (!requireAuth()) return;
     setSelectedListing(listing);
@@ -1881,6 +1906,38 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <Button className="w-full transition-transform group-hover:scale-[1.01]" onClick={() => openListingModal(listing)} aria-label={`Open listing from ${safeText(listing.sellerDisplayName, "seller")}`}>
                       {isAr ? "شراء USDT الآن" : "Buy USDT"}
                     </Button>
+                    {(sessionUser?.role === "admin" || isAlphaExchangeOwnerEmail(sessionUser?.email ?? "")) ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5 border-t border-white/[0.07] pt-2">
+                        <button
+                          type="button"
+                          className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-[11px] text-red-300 hover:bg-red-500/20 transition"
+                          onClick={() => void handleOwnerModerateListing(listing.id, "remove")}
+                        >
+                          Remove
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-300 hover:bg-amber-500/20 transition"
+                          onClick={() => void handleOwnerModerateListing(listing.id, "hide")}
+                        >
+                          Hide
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-300 hover:bg-emerald-500/20 transition"
+                          onClick={() => void handleOwnerModerateListing(listing.id, "restore")}
+                        >
+                          Restore
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-lg border border-[#C9A227]/30 bg-[#C9A227]/10 px-2 py-1 text-[11px] text-[#F4D87A] hover:bg-[#C9A227]/20 transition"
+                          onClick={() => void handleOwnerModerateListing(listing.id, "feature")}
+                        >
+                          Feature
+                        </button>
+                      </div>
+                    ) : null}
                   </CardContent>
                 </Card>
               ))}

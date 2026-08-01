@@ -23,9 +23,6 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
   const canAccessSellerWorkspace = Boolean(
     sessionUser && (hasRole(sessionUser, "approved_seller") || hasRole(sessionUser, "admin") || hasRole(sessionUser, "owner")),
   );
-  const sellerWorkspaceHref =
-    sessionUser && (hasRole(sessionUser, "admin") || hasRole(sessionUser, "owner")) ? "/admin/alpha-exchange" : "/dashboard/seller";
-  const sellerWorkspaceLabel = locale === "ar" ? "لوحة البائع" : "Seller Dashboard";
 
   async function logoutAction() {
     "use server";
@@ -94,8 +91,12 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
             {dashboardLabel}
           </Link>
           {canAccessSellerWorkspace ? (
-            <Link href={sellerWorkspaceHref} locale={locale} className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "hidden md:inline-flex")}>
-              🏪 {sellerWorkspaceLabel}
+            <Link
+              href="/usdt-exchange#create-listing-form"
+              locale={locale}
+              className="hidden items-center gap-1.5 rounded-full border border-[#C9A227]/50 bg-gradient-to-r from-[#C9A227]/20 to-[#D4AF37]/10 px-3 py-1.5 text-xs font-semibold text-[#F4D87A] shadow-[0_4px_16px_rgba(201,162,39,0.25)] transition hover:border-[#C9A227]/70 hover:shadow-[0_6px_20px_rgba(201,162,39,0.35)] md:inline-flex"
+            >
+              ➕ {locale === "ar" ? "إنشاء عرض" : "Create Listing"}
             </Link>
           ) : null}
           {sessionUser ? <NotificationBell locale={locale} /> : null}
@@ -140,8 +141,8 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
                     {dashboardLabel}
                   </Link>
                   {canAccessSellerWorkspace ? (
-                    <Link href={sellerWorkspaceHref} locale={locale} className="block rounded-xl px-3 py-2 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white">
-                      🏪 {sellerWorkspaceLabel}
+                    <Link href="/usdt-exchange#create-listing-form" locale={locale} className="block rounded-xl px-3 py-2 text-sm font-medium text-[#F4D87A] transition hover:bg-[#C9A227]/10">
+                      ➕ {locale === "ar" ? "إنشاء عرض" : "Create Listing"}
                     </Link>
                   ) : null}
                   {sessionUser ? (
