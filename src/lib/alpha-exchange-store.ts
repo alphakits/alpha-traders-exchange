@@ -425,6 +425,19 @@ function toNumber(value: string | number | null | undefined) {
   return Number(String(value ?? "").replace(/[^\d.]/g, "")) || 0;
 }
 
+function roundUsdt(value: number) {
+  return Number(value.toFixed(2));
+}
+
+function getCommissionAmountDueUsdt(db: AlphaExchangeDb, record: CommissionRecord) {
+  const request = db.purchaseRequests.find((item) => item.id === record.purchaseRequestId);
+  if (request) {
+    const requestedUsdt = toNumber(request.usdtAmount);
+    if (requestedUsdt > 0) return roundUsdt(requestedUsdt * 0.01);
+  }
+  return roundUsdt(record.commissionAmount);
+}
+
 function addDaysIso(value: string, days: number) {
   const start = new Date(value).getTime();
   if (!start || Number.isNaN(start)) return nowIso();
@@ -4145,7 +4158,7 @@ export async function getSellerCommissionStatus(sellerId: string) {
       return leftDue - rightDue;
     });
   const primaryRecord = pendingRecords[0];
-  const amountDue = pendingRecords.reduce((sum, record) => sum + record.commissionAmount, 0);
+  const amountDue = pendingRecords.reduce((sum, record) => sum + getCommissionAmountDueUsdt(db, record), 0);
   const hasOverdue = pendingRecords.some((record) => record.paymentStatus === "overdue");
   const primaryRequest = primaryRecord
     ? db.purchaseRequests.find((request) => request.id === primaryRecord.purchaseRequestId)
@@ -4550,7 +4563,7 @@ export async function getTradeRoomData(input: {
     isOverdue,
     hasOpenDispute: Boolean(openDispute),
     canOpenDispute: isBuyerActor && (request.status === "payment_sent" || request.status === "funds_received" || request.status === "usdt_release_pending" || request.status === "usdt_sent"),
-    sellerCommissionDueAmount: Number(sellerPendingCommissions.reduce((sum, record) => sum + record.commissionAmount, 0).toFixed(2)),
+    sellerCommissionDueAmount: Number(sellerPendingCommissions.reduce((sum, record) => sum + getCommissionAmountDueUsdt(db, record), 0).toFixed(2)),
     sellerCommissionDueCount: sellerPendingCommissions.length,
   };
 }
@@ -5551,7 +5564,8 @@ export async function updatePurchaseRequestStatus(input: {
     const hasCommission = db.commissionRecords.some((record) => record.purchaseRequestId === request.id);
     if (!hasCommission) {
       const normalizedGross = toNumber(next.fiatAmount);
-      const commissionAmount = normalizedGross * 0.01;
+      const normalizedUsdt = toNumber(next.usdtAmount);
+      const commissionAmount = roundUsdt(normalizedUsdt * 0.01);
       const commission: CommissionRecord = {
         id: `commission-${randomUUID()}`,
         purchaseRequestId: request.id,
@@ -5573,13 +5587,13 @@ export async function updatePurchaseRequestStatus(input: {
         type: "commission_recorded",
         actorUserId: input.actorUserId,
         actorRole,
-        message: `Commission created (${commission.commissionAmount.toFixed(2)} ${next.currency}).`,
+        message: `Commission created (${commission.commissionAmount.toFixed(2)} USDT).`,
         createdAt: now,
       });
       appendSystemTradeMessage(db, next, {
         senderUserId: input.actorUserId,
         senderRole: actorRole,
-        message: `Commission due was created for the seller (${commission.commissionAmount.toFixed(2)} ${next.currency}).`,
+        message: `Commission due was created for the seller (${commission.commissionAmount.toFixed(2)} USDT).`,
         createdAt: now,
       });
       await appendAuditLog(db, {
@@ -5811,7 +5825,11 @@ interface EvmReceiptLog {
 }
 interface EvmTxReceipt {
   status?: string;
+  blockNumber?: string;
   logs?: EvmReceiptLog[];
+}
+interface EvmTx {
+  blockNumber?: string | null;
 }
 interface SolanaTokenBalance {
   accountIndex: number;
@@ -5824,6 +5842,7 @@ async function verifyEvmUsdtPayment(input: {
   network: string;
   recipientWalletAddress: string;
   txHash: string;
+  amountDueUsdt: number;
 }): Promise<CommissionWalletVerificationResult> {
   const baseUrl = EVM_EXPLORER_APIS[input.network];
   const usdtContract = EVM_USDT_CONTRACTS[input.network];
@@ -5842,13 +5861,51 @@ async function verifyEvmUsdtPayment(input: {
   const data = (await res.json()) as { result?: EvmTxReceipt | null; message?: string };
 
   if (!data.result) {
-    const hint = (data.message ?? "").toUpperCase().includes("NOTOK") ? " It may still be pending." : "";
-    return { verified: false, reference: input.txHash, notes: `Transaction not found on chain.${hint}` };
+    const txParams = new URLSearchParams({ module: "proxy", action: "eth_getTransactionByHash", txhash: input.txHash });
+    if (apiKey) txParams.set("apikey", apiKey);
+    const txRes = await fetch(`${baseUrl}?${txParams.toString()}`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!txRes.ok) throw new Error(`Explorer API HTTP ${txRes.status}`);
+    const txData = (await txRes.json()) as { result?: EvmTx | null };
+    if (txData.result) {
+      return {
+        verified: false,
+        reference: input.txHash,
+        notes: "Transaction is still pending confirmations on the selected network. Please wait and try again once it is confirmed.",
+      };
+    }
+    return {
+      verified: false,
+      reference: input.txHash,
+      notes: `Transaction was not found on the selected ${input.network === "ERC20" ? "Ethereum" : "Polygon"} network. Please verify the hash and selected network.`,
+    };
   }
 
   const receipt = data.result;
   if (receipt.status !== "0x1") {
     return { verified: false, reference: input.txHash, notes: "Transaction failed on chain and cannot be used as commission payment." };
+  }
+
+  const blockParams = new URLSearchParams({ module: "proxy", action: "eth_blockNumber" });
+  if (apiKey) blockParams.set("apikey", apiKey);
+  const blockRes = await fetch(`${baseUrl}?${blockParams.toString()}`, {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!blockRes.ok) throw new Error(`Explorer API HTTP ${blockRes.status}`);
+  const blockData = (await blockRes.json()) as { result?: string };
+  const currentBlock = Number.parseInt(blockData.result ?? "0x0", 16);
+  const receiptBlock = Number.parseInt(receipt.blockNumber ?? "0x0", 16);
+  const minConfirmations = Math.max(1, Number(process.env.ALPHA_EXCHANGE_EVM_MIN_CONFIRMATIONS ?? "3"));
+  const confirmations = currentBlock > 0 && receiptBlock > 0 ? (currentBlock - receiptBlock + 1) : 0;
+  if (confirmations < minConfirmations) {
+    return {
+      verified: false,
+      reference: input.txHash,
+      notes: `Transaction is confirmed but still waiting for finality (${confirmations}/${minConfirmations} confirmations). Please try again shortly.`,
+    };
   }
 
   // Find ERC20 Transfer event from USDT contract to recipient wallet
@@ -5860,16 +5917,31 @@ async function verifyEvmUsdtPayment(input: {
       log.topics?.[2]?.toLowerCase() === recipientPadded,
   );
 
+  const wrongTokenLog = receipt.logs?.find(
+    (log) =>
+      log.topics?.[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC &&
+      log.topics?.[2]?.toLowerCase() === recipientPadded,
+  );
+
   if (!transferLog?.data) {
     return {
       verified: false,
       reference: input.txHash,
-      notes: `No USDT transfer to the Alpha Traders wallet was found in this transaction. Ensure you sent to the correct ${input.network === "ERC20" ? "Ethereum" : "Polygon"} address.`,
+      notes: wrongTokenLog
+        ? `This transaction sent tokens to the correct wallet, but not the supported USDT contract on ${input.network === "ERC20" ? "Ethereum" : "Polygon"}.`
+        : `No USDT transfer to the configured Alpha Traders wallet was found. Please verify the destination wallet and selected network.`,
     };
   }
 
   const usdtReceived = Number(BigInt(transferLog.data)) / 1_000_000;
   const networkLabel = input.network === "ERC20" ? "Ethereum" : "Polygon";
+  if (usdtReceived + 0.000001 < input.amountDueUsdt) {
+    return {
+      verified: false,
+      reference: input.txHash,
+      notes: `Insufficient payment. Received ${usdtReceived.toFixed(2)} USDT on ${networkLabel}, but ${input.amountDueUsdt.toFixed(2)} USDT is required.`,
+    };
+  }
   console.log(`[commission-verify] ${networkLabel} USDT received: ${usdtReceived.toFixed(6)} → ${input.recipientWalletAddress}`);
   return { verified: true, reference: input.txHash, notes: `Verified: ${usdtReceived.toFixed(2)} USDT received on ${networkLabel}.` };
 }
@@ -5877,8 +5949,45 @@ async function verifyEvmUsdtPayment(input: {
 async function verifySolanaUsdtPayment(input: {
   recipientWalletAddress: string;
   txHash: string;
+  amountDueUsdt: number;
 }): Promise<CommissionWalletVerificationResult> {
   const rpcUrl = process.env.ALPHA_EXCHANGE_SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com";
+
+  const statusRes = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "getSignatureStatuses",
+      params: [[input.txHash], { searchTransactionHistory: true }],
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!statusRes.ok) throw new Error(`Solana RPC HTTP ${statusRes.status}`);
+  const statusData = (await statusRes.json()) as {
+    result?: { value?: Array<{ confirmationStatus?: string | null; err?: unknown } | null> };
+    error?: { message: string };
+  };
+  if (statusData.error) throw new Error(`Solana RPC: ${statusData.error.message}`);
+  const signatureStatus = statusData.result?.value?.[0];
+  if (!signatureStatus) {
+    return {
+      verified: false,
+      reference: input.txHash,
+      notes: "Transaction was not found on the selected Solana network. Please verify the hash and selected network.",
+    };
+  }
+  if (signatureStatus.err) {
+    return { verified: false, reference: input.txHash, notes: "Solana transaction failed on chain." };
+  }
+  if (signatureStatus.confirmationStatus !== "finalized") {
+    return {
+      verified: false,
+      reference: input.txHash,
+      notes: "Transaction is still pending final confirmation on Solana. Please try again once it is finalized.",
+    };
+  }
 
   const res = await fetch(rpcUrl, {
     method: "POST",
@@ -5922,7 +6031,14 @@ async function verifySolanaUsdtPayment(input: {
     return {
       verified: false,
       reference: input.txHash,
-      notes: "No USDT received at the Alpha Traders Solana wallet in this transaction.",
+      notes: "No USDT received at the configured Alpha Traders Solana wallet in this transaction.",
+    };
+  }
+  if (received + 0.000001 < input.amountDueUsdt) {
+    return {
+      verified: false,
+      reference: input.txHash,
+      notes: `Insufficient payment. Received ${received.toFixed(2)} USDT on Solana, but ${input.amountDueUsdt.toFixed(2)} USDT is required.`,
     };
   }
 
@@ -5944,6 +6060,12 @@ async function verifyCommissionWalletPayment(input: {
   if (txHash.length < 24) {
     return { verified: false, reference: txHash, notes: "Transaction hash is too short to be valid." };
   }
+  if ((input.network === "ERC20" || input.network === "POLYGON") && !/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
+    return { verified: false, reference: txHash, notes: "Invalid transaction hash for the selected EVM network. Please paste the full 0x transaction hash." };
+  }
+  if (input.network === "SOL" && !/^[1-9A-HJ-NP-Za-km-z]{43,88}$/.test(txHash)) {
+    return { verified: false, reference: txHash, notes: "Invalid Solana transaction signature. Please paste the full transaction signature from your wallet or explorer." };
+  }
 
   // 2. Duplicate hash check — prevent re-use of a previously accepted transaction
   if (input.existingSignatures?.includes(txHash)) {
@@ -5959,10 +6081,19 @@ async function verifyCommissionWalletPayment(input: {
   // 4. Network-specific on-chain verification
   try {
     if (input.network === "ERC20" || input.network === "POLYGON") {
-      return await verifyEvmUsdtPayment({ network: input.network, recipientWalletAddress: input.recipientWalletAddress, txHash });
+      return await verifyEvmUsdtPayment({
+        network: input.network,
+        recipientWalletAddress: input.recipientWalletAddress,
+        txHash,
+        amountDueUsdt: input.amountDue,
+      });
     }
     if (input.network === "SOL") {
-      return await verifySolanaUsdtPayment({ recipientWalletAddress: input.recipientWalletAddress, txHash });
+      return await verifySolanaUsdtPayment({
+        recipientWalletAddress: input.recipientWalletAddress,
+        txHash,
+        amountDueUsdt: input.amountDue,
+      });
     }
     return { verified: false, reference: txHash, notes: `Network '${input.network}' is not supported. Accepted: ERC20, POLYGON, SOL.` };
   } catch (error) {
@@ -6003,8 +6134,9 @@ export async function submitSellerCommissionWalletPayment(input: {
     .filter((r) => r.paymentVerificationStatus === "verified" && r.paymentSignature)
     .map((r) => r.paymentSignature as string);
 
+  const amountDueUsdt = getCommissionAmountDueUsdt(db, current);
   const verification = await verifyCommissionWalletPayment({
-    amountDue: current.commissionAmount,
+    amountDue: amountDueUsdt,
     network: chosenNetwork,
     payerWalletAddress: input.payerWalletAddress.trim(),
     recipientWalletAddress,
@@ -6047,7 +6179,7 @@ export async function submitSellerCommissionWalletPayment(input: {
         type: "commission_paid",
         actorUserId: input.sellerUserId,
         actorRole: resolveActorRole(db, input.sellerUserId),
-        message: `Commission paid on-chain (${current.commissionAmount.toFixed(2)} ${request.currency}).`,
+        message: `Commission paid on-chain (${amountDueUsdt.toFixed(2)} USDT).`,
         createdAt: now,
       });
       publishRealtimeEvent({
@@ -6071,7 +6203,7 @@ export async function submitSellerCommissionWalletPayment(input: {
         userId: ownerUser.id,
         category: "system",
         title: "Commission payment received",
-        message: `Commission ${current.id} paid via ${chosenNetwork}. Amount: ${current.commissionAmount.toFixed(2)}. Tx: ${input.paymentSignature.trim()}`,
+        message: `Commission ${current.id} paid via ${chosenNetwork}. Amount: ${amountDueUsdt.toFixed(2)} USDT. Tx: ${input.paymentSignature.trim()}`,
         relatedTradeId: current.purchaseRequestId,
         relatedListingId: current.listingId,
         relatedHref: "/admin/commissions",

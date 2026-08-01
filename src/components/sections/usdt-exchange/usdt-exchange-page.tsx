@@ -103,6 +103,10 @@ function formatIls(value: number) {
   return `₪${value.toFixed(2)}`;
 }
 
+function formatUsdt(value: number) {
+  return `${value.toFixed(2)} USDT`;
+}
+
 function formatIntegerForInput(value: string | number | null | undefined) {
   const raw = String(value ?? "").replace(/[^\d]/g, "");
   if (!raw) return "";
@@ -2584,7 +2588,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <div className="space-y-1 text-xs">
                         <div className="flex justify-between">
                           <span className={sellerCommissionStatus.status === "overdue" ? "text-red-300" : "text-amber-300"}>Amount outstanding</span>
-                          <span className="font-bold text-white text-sm">{formatIls(sellerCommissionStatus.amountDue)}</span>
+                          <span className="font-bold text-white text-sm">{formatUsdt(sellerCommissionStatus.amountDue)}</span>
                         </div>
                         {sellerCommissionStatus.relatedTradeDisplayNumber ? (
                           <div className="flex justify-between">
@@ -2640,7 +2644,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 <div className="rounded-xl border border-red-500/30 bg-red-950/40 p-4 space-y-2 text-sm">
                   <div className="flex items-center justify-between">
                     <span className="text-[#9CA3AF]">Amount Due</span>
-                    <span className="font-bold text-white text-xl">{formatIls(sellerCommissionStatus?.amountDue ?? 0)}</span>
+                    <span className="font-bold text-white text-xl">{formatUsdt(sellerCommissionStatus?.amountDue ?? 0)}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-[#9CA3AF]">Token</span>
