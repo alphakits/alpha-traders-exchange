@@ -7,7 +7,7 @@ import { calculateSellerTrustSnapshot, rankTrustSnapshots } from "@/lib/trust-en
 import { getSellerPrestigeProgress, getSellerPublicVolumeLabel, resolveSellerPrestigeRank, sellerPrestigeRankWeight } from "@/lib/seller-prestige";
 import { evaluateSellerAchievements } from "@/lib/seller-achievements";
 import { runEnvValidation } from "@/lib/env-validation";
-import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
+import { getAlphaExchangeRepository, type SnapshotTableName } from "@/lib/alpha-exchange-repository";
 import { addRole, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import {
@@ -1736,7 +1736,22 @@ async function readDb(options?: { bypassCache?: boolean }): Promise<AlphaExchang
   return structuredClone(normalized);
 }
 
-async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<string, Buffer>; traceTag?: string }) {
+const USER_PROFILE_TABLES = ["users", "seller_profiles", "seller_settings"] as const satisfies readonly SnapshotTableName[];
+const LISTING_WRITE_TABLES = ["listings", "audit_logs", "notifications"] as const satisfies readonly SnapshotTableName[];
+const LISTING_TRUST_WRITE_TABLES = [...USER_PROFILE_TABLES, "listings", "audit_logs", "notifications", "activity_logs", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
+const PURCHASE_REQUEST_CREATE_TABLES = ["purchase_requests", "notifications", "audit_logs", "activity_logs"] as const satisfies readonly SnapshotTableName[];
+const TRADE_STATUS_BASE_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
+const TRADE_STATUS_TRUST_TABLES = [...USER_PROFILE_TABLES, "purchase_requests", "listings", "notifications", "audit_logs", "activity_logs", "commissions", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
+const TRADE_EVIDENCE_BASE_TABLES = ["purchase_requests", "audit_logs", "activity_logs", "evidence"] as const satisfies readonly SnapshotTableName[];
+const TRADE_EVIDENCE_PAYMENT_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "activity_logs", "evidence"] as const satisfies readonly SnapshotTableName[];
+const COMMISSION_PAYMENT_TABLES = ["purchase_requests", "commissions", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
+const PURCHASE_REQUEST_ONLY_TABLES = ["purchase_requests"] as const satisfies readonly SnapshotTableName[];
+const COMMISSION_RESET_TABLES = ["purchase_requests", "commissions", "audit_logs"] as const satisfies readonly SnapshotTableName[];
+const COMMISSION_STATUS_TABLES = ["purchase_requests", "commissions", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
+const AUDIT_LOG_ONLY_TABLES = ["audit_logs"] as const satisfies readonly SnapshotTableName[];
+const NOTIFICATION_ONLY_TABLES = ["notifications"] as const satisfies readonly SnapshotTableName[];
+
+async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<string, Buffer>; traceTag?: string; selectedTables?: readonly SnapshotTableName[] }) {
   const normalized = normalizeDb(db);
   ensureDisplayNumbers(normalized);
   const writeTask = dbWriteInFlight.then(async () => {
@@ -1744,6 +1759,7 @@ async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<
     await repository.saveSnapshot(normalized, {
       evidenceOverrides: options?.evidenceOverrides,
       traceTag: options?.traceTag,
+      selectedTables: options?.selectedTables,
     });
   });
   dbWriteInFlight = writeTask.catch(() => undefined);
@@ -2683,7 +2699,7 @@ export async function createUser(input: {
     updatedAt: timestamp,
   };
   db.users.push(user);
-  await writeDb(db);
+  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
   return user;
 }
 
@@ -2739,7 +2755,7 @@ export async function upsertUserProfileForAuth(input: {
       emailVerifiedAt: nextEmailVerifiedAt,
       updatedAt: timestamp,
     };
-    await writeDb(db);
+    await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
     return db.users[existingIndex];
   }
 
@@ -2797,7 +2813,7 @@ export async function upsertUserProfileForAuth(input: {
     updatedAt: timestamp,
   };
   db.users.push(user);
-  await writeDb(db);
+  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
   return user;
 }
 
@@ -2824,7 +2840,7 @@ export async function grantStudentRole(userId: string) {
     onboardingCompletedAt: nowIso(),
     updatedAt: nowIso(),
   };
-  await writeDb(db);
+  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
   return db.users[index];
 }
 
@@ -2839,7 +2855,7 @@ export async function selectGuestOnboarding(userId: string) {
     onboardingCompletedAt: nowIso(),
     updatedAt: nowIso(),
   };
-  await writeDb(db);
+  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
   return db.users[index];
 }
 
@@ -2878,7 +2894,7 @@ export async function beginBuyerVerification(input: {
     buyerOtpSendsToday: sendsToday + 1,
     updatedAt: nowIso(),
   };
-  await writeDb(db);
+  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
   return { phone: normalizedPhone, user: db.users[index] };
 }
 
@@ -2905,7 +2921,7 @@ export async function completeBuyerVerification(input: { userId: string; phone: 
     onboardingCompletedAt: nowIso(),
     updatedAt: nowIso(),
   };
-  await writeDb(db);
+  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
   return db.users[index];
 }
 
@@ -2924,7 +2940,7 @@ export async function recordBuyerVerificationAttempt(userId: string) {
     buyerVerificationWindowStartedAt: withinWindow ? user.buyerVerificationWindowStartedAt : nowIso(),
     updatedAt: nowIso(),
   };
-  await writeDb(db);
+  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
 }
 
 export async function createEmailVerificationTokenForUser(userId: string, durationHours = EMAIL_VERIFICATION_EXPIRY_HOURS) {
@@ -2947,7 +2963,7 @@ export async function createEmailVerificationTokenForUser(userId: string, durati
     updatedAt: sentAt,
   };
 
-  await writeDb(db);
+  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
   return {
     token,
     expiresAt,
@@ -2981,7 +2997,7 @@ export async function createEmailVerificationTokenForEmail(email: string, durati
     emailVerificationSentAt: sentAt,
     updatedAt: sentAt,
   };
-  await writeDb(db);
+  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
   return {
     skipped: null,
     token,
@@ -3011,7 +3027,7 @@ export async function consumeEmailVerificationToken(rawToken: string) {
         emailVerificationTokenExpiresAt: undefined,
         updatedAt: nowIso(),
       };
-      await writeDb(db);
+      await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
       return { status: "expired" as const };
     }
 
@@ -3024,7 +3040,7 @@ export async function consumeEmailVerificationToken(rawToken: string) {
       emailVerificationTokenExpiresAt: undefined,
       updatedAt: verifiedAt,
     };
-    await writeDb(db);
+    await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
     return { status: "verified" as const, user: db.users[index] };
   }
 
@@ -3040,7 +3056,7 @@ export async function updateUserPassword(userId: string, passwordHash: string) {
     passwordHash,
     updatedAt: nowIso(),
   };
-  await writeDb(db);
+  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
 }
 
 export async function updateUserSellerSettings(input: {
@@ -3098,7 +3114,7 @@ export async function updateUserSellerSettings(input: {
   if (isTrustEligibleSeller(db.users[index])) {
     await recalculateTrustEngine(db, { reason: "Seller profile updated", triggeredBy: input.userId });
   }
-  await writeDb(db);
+  await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
   if (input.onlineStatus && input.onlineStatus !== user.onlineStatus) {
     publishRealtimeEvent({ type: "seller.status_changed", payload: { sellerId: input.userId, onlineStatus: input.onlineStatus } });
   }
@@ -3261,7 +3277,7 @@ export async function createPasswordResetToken(userId: string, rawToken: string,
   };
   db.passwordResetTokens = db.passwordResetTokens.filter((item) => item.userId !== userId);
   db.passwordResetTokens.push(reset);
-  await writeDb(db);
+  await writeDb(db, { selectedTables: LISTING_WRITE_TABLES });
   return reset;
 }
 
@@ -3272,11 +3288,11 @@ export async function consumePasswordResetToken(rawToken: string) {
   if (!token) return null;
   if (new Date(token.expiresAt) < new Date()) {
     db.passwordResetTokens = db.passwordResetTokens.filter((item) => item.tokenHash !== hashed);
-    await writeDb(db);
+    await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
     return null;
   }
   db.passwordResetTokens = db.passwordResetTokens.filter((item) => item.tokenHash !== hashed);
-  await writeDb(db);
+  await writeDb(db, { selectedTables: PURCHASE_REQUEST_CREATE_TABLES });
   return token;
 }
 
@@ -3365,7 +3381,7 @@ export async function createSellerApplication(input: {
     details: "Your seller application is pending owner review.",
   });
 
-  await writeDb(db);
+  await writeDb(db, { selectedTables: AUDIT_LOG_ONLY_TABLES });
   return next;
 }
 
@@ -3950,7 +3966,7 @@ export async function updateMarketplaceListingForSeller(input: {
           : `Edited listing ${next.id}`,
   });
   await recalculateTrustEngine(db, { reason: "Seller listing updated", triggeredBy: input.actorUserId });
-  await writeDb(db);
+  await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
   if (current.availableAmount !== next.availableAmount) {
     publishRealtimeEvent({ type: "listing.quantity_changed", payload: { listingId: next.id, availableAmount: next.availableAmount } });
   }
@@ -4011,7 +4027,7 @@ export async function renewMarketplaceListing(input: {
     relatedListingId: listing.id,
     relatedHref: "/usdt-exchange",
   });
-  await writeDb(db);
+  await writeDb(db, { selectedTables: LISTING_WRITE_TABLES });
   publishRealtimeEvent({ type: "listing.status_changed", payload: { listingId: listing.id, status: listing.status } });
   return listing;
 }
@@ -4301,7 +4317,7 @@ export async function deleteMarketplaceListingForSeller(input: {
     details: `Closed listing ${input.listingId}`,
   });
   await recalculateTrustEngine(db, { reason: "Listing removed", triggeredBy: input.actorUserId });
-  await writeDb(db);
+  await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
   publishRealtimeEvent({ type: "listing.removed", payload: { listingId: input.listingId } });
 }
 
@@ -4504,7 +4520,7 @@ export async function createPurchaseRequest(input: {
   });
   const businessMs = Date.now() - businessStartedAt;
   const writeStartedAt = Date.now();
-  await writeDb(db);
+  await writeDb(db, { selectedTables: PURCHASE_REQUEST_CREATE_TABLES });
   const writeMs = Date.now() - writeStartedAt;
   const sseStartedAt = Date.now();
   publishRealtimeEvent({
@@ -4821,7 +4837,7 @@ export async function postTradeRoomMessage(input: {
   db.tradeMessages = [nextMessage, ...(db.tradeMessages ?? [])];
   const businessMs = Date.now() - businessStartedAt;
   const writeStartedAt = Date.now();
-  await writeDb(db);
+  await writeDb(db, { selectedTables: PURCHASE_REQUEST_ONLY_TABLES });
   const writeMs = Date.now() - writeStartedAt;
   const sseStartedAt = Date.now();
   publishRealtimeEvent({
@@ -5196,7 +5212,10 @@ export async function uploadTradeEvidence(input: {
   });
   const storageStartedAt = Date.now();
   const dbWriteStartedAt = Date.now();
-  await writeDb(db, { evidenceOverrides: new Map([[evidenceId, raw]]) });
+  await writeDb(db, {
+    evidenceOverrides: new Map([[evidenceId, raw]]),
+    selectedTables: shouldAutoSubmitPayment ? TRADE_EVIDENCE_PAYMENT_TABLES : TRADE_EVIDENCE_BASE_TABLES,
+  });
   const dbWriteMs = Date.now() - dbWriteStartedAt;
   const storageMs = Date.now() - storageStartedAt;
   publishRealtimeEvent({
@@ -5263,7 +5282,7 @@ export async function downloadTradeEvidenceContent(input: {
     listingId: request.listingId,
     details: `Downloaded ${evidence.side} evidence ${evidence.id}.`,
   });
-  await writeDb(db);
+  await writeDb(db, { selectedTables: PURCHASE_REQUEST_ONLY_TABLES });
 
   const repository = await getAlphaExchangeRepository();
   const buffer = await repository.readEvidenceContent(evidence.id);
@@ -5946,7 +5965,10 @@ export async function updatePurchaseRequestStatus(input: {
     actorUserId: input.actorUserId,
     nextStatus: input.nextStatus,
   });
-  await writeDb(db, { traceTag: debugTradeRoom && isUsdtSentTrace ? input.traceId : undefined });
+  await writeDb(db, {
+    traceTag: debugTradeRoom && isUsdtSentTrace ? input.traceId : undefined,
+    selectedTables: shouldRecalculateTrust ? TRADE_STATUS_TRUST_TABLES : TRADE_STATUS_BASE_TABLES,
+  });
   const writeDbMs = Date.now() - beforeWriteMs;
   console.log("[trade-consistency] mutation commit-complete", {
     requestId: input.requestId,
@@ -6452,7 +6474,7 @@ export async function submitSellerCommissionWalletPayment(input: {
   const businessMs = Date.now() - businessStartedAt;
 
   const writeStartedAt = Date.now();
-  await writeDb(db);
+  await writeDb(db, { selectedTables: COMMISSION_PAYMENT_TABLES });
   const writeMs = Date.now() - writeStartedAt;
   return {
     commission: nextRecord,
@@ -6518,7 +6540,7 @@ export async function clearSellerQaCommissionDues(input: {
     });
   }
 
-  await writeDb(db);
+  await writeDb(db, { selectedTables: COMMISSION_RESET_TABLES });
   return {
     clearedCount: sellerPendingCommissions.length,
   };
@@ -6576,7 +6598,7 @@ export async function clearSellerCommissionDuesByAdmin(input: {
     });
   }
 
-  await writeDb(db);
+  await writeDb(db, { selectedTables: COMMISSION_RESET_TABLES });
   return {
     clearedCount: sellerPendingCommissions.length,
   };
@@ -6635,7 +6657,7 @@ export async function updateCommissionPaymentStatus(input: {
       payload: { request: enrichRequestWithEvidence(db, request) },
     });
   }
-  await writeDb(db);
+  await writeDb(db, { selectedTables: COMMISSION_STATUS_TABLES });
   return db.commissionRecords[index];
 }
 
@@ -6668,7 +6690,7 @@ export async function createPrivateBetaInvite(input: {
     actorUserId: input.ownerUserId,
     details: `Created invite ${invite.code} (${invite.maxUses} max uses).`,
   });
-  await writeDb(db);
+  await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
   return invite;
 }
 
@@ -6692,7 +6714,7 @@ export async function updatePrivateBetaInviteStatus(input: {
     actorUserId: input.ownerUserId,
     details: `${input.action === "expire" ? "Expired" : "Disabled"} invite ${current.code}.`,
   });
-  await writeDb(db);
+  await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
   return db.privateBetaInvites[inviteIndex];
 }
 
@@ -6733,7 +6755,7 @@ export async function submitBetaFeedback(input: {
     title: "Marketplace feedback submitted",
     details: `Category: ${input.category}`,
   });
-  await writeDb(db);
+  await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
   return feedback;
 }
 
@@ -6760,7 +6782,7 @@ export async function updateBetaFeedbackStatus(input: {
     actorUserId: input.ownerUserId,
     details: `Set feedback ${input.feedbackId} status to ${input.status}.`,
   });
-  await writeDb(db);
+  await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
   return db.betaFeedback[index];
 }
 

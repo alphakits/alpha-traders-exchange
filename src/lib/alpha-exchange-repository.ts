@@ -270,30 +270,6 @@ const SCHEMA_SQL = [
   "create index if not exists idx_alpha_exchange_trades_status on alpha_exchange.trades (status, created_at desc)",
 ];
 
-const TRUNCATE_SQL = `
-  delete from alpha_exchange.beta_announcements;
-  delete from alpha_exchange.beta_feedback;
-  delete from alpha_exchange.private_beta_invite_uses;
-  delete from alpha_exchange.private_beta_invites;
-  delete from alpha_exchange.trust_score_history;
-  delete from alpha_exchange.trust_snapshots;
-  delete from alpha_exchange.seller_reports;
-  delete from alpha_exchange.disputes;
-  delete from alpha_exchange.activity_logs;
-  delete from alpha_exchange.seller_applications;
-  delete from alpha_exchange.password_reset_tokens;
-  delete from alpha_exchange.evidence;
-  delete from alpha_exchange.audit_logs;
-  delete from alpha_exchange.commissions;
-  delete from alpha_exchange.notifications;
-  delete from alpha_exchange.trades;
-  delete from alpha_exchange.purchase_requests;
-  delete from alpha_exchange.listings;
-  delete from alpha_exchange.seller_settings;
-  delete from alpha_exchange.seller_profiles;
-  delete from alpha_exchange.users;
-`
-
 const DEFAULT_DB = alphaExchangeSeed as unknown as AlphaExchangeDb;
 
 type SnapshotWithVersion = AlphaExchangeDb & { __runtimeVersion?: number };
@@ -310,7 +286,7 @@ type SaveContext = {
   evidenceOverrides?: EvidenceWriteMap;
 };
 
-const SNAPSHOT_TABLE_NAMES = new Set([
+const SNAPSHOT_TABLE_NAMES = [
   "users",
   "seller_profiles",
   "seller_settings",
@@ -333,7 +309,9 @@ const SNAPSHOT_TABLE_NAMES = new Set([
   "private_beta_invite_uses",
   "beta_feedback",
   "beta_announcements",
-]);
+] as const;
+
+export type SnapshotTableName = (typeof SNAPSHOT_TABLE_NAMES)[number];
 
 function shouldLogRepoVersionFlow() {
   return process.env.ALPHA_EXCHANGE_REPO_TRACE === "1";
@@ -808,12 +786,12 @@ async function upsertUsersTable(tx: PoolClient, rows: AlphaExchangeUser[]) {
   }
 }
 
-async function replaceTableContents(tx: PoolClient, tableName: string, db: AlphaExchangeDb) {
+async function replaceTableContents(tx: PoolClient, tableName: SnapshotTableName, db: AlphaExchangeDb, context?: SaveContext) {
   await tx.query(`delete from alpha_exchange.${tableName}`);
   const table = getTable(tableName);
   await table.insert(tx, table.values(db), {
-    evidenceContentById: new Map(),
-    evidenceOverrides: undefined,
+    evidenceContentById: context?.evidenceContentById ?? new Map(),
+    evidenceOverrides: context?.evidenceOverrides,
   });
 }
 
@@ -1085,7 +1063,7 @@ export class AlphaExchangeRepository {
 
   async saveSnapshot(
     db: AlphaExchangeDb,
-    options?: { evidenceOverrides?: EvidenceWriteMap; skipReadyCheck?: boolean; traceTag?: string },
+    options?: { evidenceOverrides?: EvidenceWriteMap; skipReadyCheck?: boolean; traceTag?: string; selectedTables?: readonly SnapshotTableName[] },
   ) {
     if (options?.traceTag) {
       console.log("[usdt-sent-trace] repository entry", { traceId: options.traceTag });
@@ -1153,6 +1131,11 @@ export class AlphaExchangeRepository {
       await runSchema(pool);
     }
 
+    const selectedTables = options?.selectedTables?.length
+      ? Array.from(new Set(options.selectedTables))
+      : [...SNAPSHOT_TABLE_NAMES];
+    const selectedTableSet = new Set<SnapshotTableName>(selectedTables);
+
     let client: PoolClient | null = null;
     try {
       for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -1174,11 +1157,14 @@ export class AlphaExchangeRepository {
           );
           logProfile("read_runtime_meta");
           const currentVersion = Number(currentMeta?.rows?.[0]?.version ?? "0");
-          const currentRequestCount = await queryWithLogging(client,
-            "select count(*)::text as count from alpha_exchange.purchase_requests",
-          );
-          logProfile("read_purchase_request_count");
-          const currentRequests = Number(currentRequestCount?.rows?.[0]?.count ?? "0");
+          let currentRequests: number | undefined;
+          if (shouldLogRepoVersionFlow()) {
+            const currentRequestCount = await queryWithLogging(client,
+              "select count(*)::text as count from alpha_exchange.purchase_requests",
+            );
+            logProfile("read_purchase_request_count");
+            currentRequests = Number(currentRequestCount?.rows?.[0]?.count ?? "0");
+          }
 
           logRepoVersionFlow("save:db:attempt", {
             loadedVersion,
@@ -1202,19 +1188,22 @@ export class AlphaExchangeRepository {
             const mergedSnapshot = mergeSnapshotWithLatest(latestSnapshot, db);
             const mergedVersion = getVersion(mergedSnapshot);
             const nextVersion = currentVersion + 1;
-            const evidenceRows = await queryWithLogging(client, "select id, content from alpha_exchange.evidence") as { rows?: Array<{ id: string; content: Buffer | null }> };
-            logProfile("load_evidence_rows_merge");
-            const evidenceContentById = new Map((evidenceRows.rows ?? []).map((row) => [row.id, row.content]));
+            const evidenceContentById = new Map<string, Buffer | null>();
+            if (selectedTableSet.has("evidence")) {
+              const evidenceRows = await queryWithLogging(client, "select id, content from alpha_exchange.evidence") as { rows?: Array<{ id: string; content: Buffer | null }> };
+              logProfile("load_evidence_rows_merge");
+              for (const row of evidenceRows.rows ?? []) {
+                evidenceContentById.set(row.id, row.content);
+              }
+            }
             const persistedSnapshot = attachVersion(mergedSnapshot, nextVersion);
-            await queryWithLogging(client, TRUNCATE_SQL);
-            logProfile("truncate_tables_merge");
-            for (const table of tables.filter((entry) => SNAPSHOT_TABLE_NAMES.has(entry.name))) {
-              await table.insert(client, table.values(persistedSnapshot), {
+            for (const tableName of selectedTables) {
+              await replaceTableContents(client, tableName, persistedSnapshot, {
                 evidenceContentById,
                 evidenceOverrides: options?.evidenceOverrides,
               });
             }
-            logProfile("insert_tables_merge");
+            logProfile("replace_tables_merge");
             await queryWithLogging(client,
               "update alpha_exchange.runtime_meta set version = $1, updated_at = now() where singleton = true",
               [nextVersion],
@@ -1233,28 +1222,34 @@ export class AlphaExchangeRepository {
             return;
           }
 
-          const evidenceRows = await client.query<{ id: string; content: Buffer | null }>("select id, content from alpha_exchange.evidence");
-          logProfile("load_evidence_rows");
-          const evidenceContentById = new Map((evidenceRows?.rows ?? []).map((row) => [row.id, row.content]));
+          const evidenceContentById = new Map<string, Buffer | null>();
+          if (selectedTableSet.has("evidence")) {
+            const evidenceRows = await client.query<{ id: string; content: Buffer | null }>("select id, content from alpha_exchange.evidence");
+            logProfile("load_evidence_rows");
+            for (const row of evidenceRows?.rows ?? []) {
+              evidenceContentById.set(row.id, row.content);
+            }
+          }
 
           // Snapshot writes should not evict active auth sessions managed by dedicated session methods.
-          const currentSessions = await queryWithLogging(client, "select payload from alpha_exchange.sessions order by sort_index asc") as { rows?: Array<{ payload: unknown }> };
-          logProfile("load_sessions");
-          const currentSessionRows = (currentSessions.rows ?? []) as Array<{ payload: AuthSession }>;
-          const persistedSnapshot: AlphaExchangeDb = {
-            ...db,
-            authSessions: fromPayloadRows(currentSessionRows),
-          };
+          let persistedSnapshot: AlphaExchangeDb = db;
+          if (selectedTableSet.has("sessions")) {
+            const currentSessions = await queryWithLogging(client, "select payload from alpha_exchange.sessions order by sort_index asc") as { rows?: Array<{ payload: unknown }> };
+            logProfile("load_sessions");
+            const currentSessionRows = (currentSessions.rows ?? []) as Array<{ payload: AuthSession }>;
+            persistedSnapshot = {
+              ...db,
+              authSessions: fromPayloadRows(currentSessionRows),
+            };
+          }
 
-          await client.query(TRUNCATE_SQL);
-          logProfile("truncate_tables");
-          for (const table of tables.filter((entry) => SNAPSHOT_TABLE_NAMES.has(entry.name))) {
-            await table.insert(client, table.values(persistedSnapshot), {
+          for (const tableName of selectedTables) {
+            await replaceTableContents(client, tableName, persistedSnapshot, {
               evidenceContentById,
               evidenceOverrides: options?.evidenceOverrides,
             });
           }
-          logProfile("insert_tables");
+          logProfile("replace_tables");
 
           const writtenVersion = currentVersion + 1;
           await queryWithLogging(client,
