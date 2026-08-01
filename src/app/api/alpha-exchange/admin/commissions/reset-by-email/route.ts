@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireApiAdmin } from "@/lib/api-auth";
 import {
   clearSellerCommissionDuesByAdmin,
+  getCommissionResetTraceByEmail,
   findUsersByEmail,
-  getSellerCommissionStatus,
-  getSellerListingWorkspaceSummary,
 } from "@/lib/alpha-exchange-store";
 
 export async function POST(request: NextRequest) {
@@ -18,54 +17,44 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "email is required." }, { status: 400 });
     }
 
+    const preTrace = await getCommissionResetTraceByEmail(email);
     const sellers = await findUsersByEmail(email);
     if (sellers.length === 0) {
-      return NextResponse.json({ error: `No user found with email: ${email}.` }, { status: 404 });
+      return NextResponse.json({
+        error: `No user found with email: ${email}.`,
+        trace: preTrace,
+      }, { status: 404 });
     }
     const sellerUserIds = sellers.map((seller) => seller.id);
+    const prePendingCount = preTrace.sellerStates.reduce((sum, state) => sum + state.pendingCommissionCount, 0);
+    if (prePendingCount <= 0) {
+      return NextResponse.json({
+        error: "No pending commissions found for the requested email.",
+        trace: preTrace,
+      }, { status: 409 });
+    }
 
     const result = await clearSellerCommissionDuesByAdmin({
       sellerUserIds,
       adminUserId: admin.id,
     });
-    const sellerStates = await Promise.all(
-      sellers.map(async (seller) => {
-        const [commissionStatus, workspaceSummary] = await Promise.all([
-          getSellerCommissionStatus(seller.id),
-          getSellerListingWorkspaceSummary(seller.id),
-        ]);
-        return {
-          sellerId: seller.id,
-          sellerEmail: seller.email,
-          commissionStatus,
-          workspaceSummary,
-          isUnlocked: commissionStatus.pendingCount === 0 && commissionStatus.amountDue === 0 && workspaceSummary.pendingCommissionCount === 0,
-        };
-      }),
-    );
-
-    const failedAssertion = sellerStates.find((state) =>
-      !(state.commissionStatus.pendingCount === 0
-        && state.commissionStatus.amountDue === 0
-        && state.commissionStatus.status === "clear"
-        && state.workspaceSummary.pendingCommissionCount === 0
-        && state.isUnlocked),
-    );
-    if (failedAssertion) {
+    const postTrace = await getCommissionResetTraceByEmail(email);
+    const postPendingCount = postTrace.sellerStates.reduce((sum, state) => sum + state.pendingCommissionCount, 0);
+    const postDueAmount = postTrace.sellerStates.reduce((sum, state) => sum + state.commissionDueUsdt, 0);
+    const postStillLocked = postTrace.sellerStates.some((state) => state.sellerLocked);
+    if (postPendingCount !== 0 || postDueAmount !== 0 || postStillLocked) {
       return NextResponse.json({
-        error: "Commission reset assertion failed: seller is still commission-locked.",
-        requestedEmail: email,
-        sellerUserIds,
+        error: "Commission reset assertion failed: seller is still commission-locked in dashboard source of truth.",
         clearedCount: result.clearedCount,
-        sellerStates,
+        preTrace,
+        postTrace,
       }, { status: 500 });
     }
 
     return NextResponse.json({
-      requestedEmail: email,
-      sellerUserIds,
       clearedCount: result.clearedCount,
-      sellerStates,
+      preTrace,
+      postTrace,
       message: `Cleared ${result.clearedCount} commission record(s) for ${email}.`,
     });
   } catch (error) {

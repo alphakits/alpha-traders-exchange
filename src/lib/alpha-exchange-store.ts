@@ -3036,6 +3036,93 @@ export async function findUsersByEmail(email: string) {
   return db.users.filter((user) => normalizeEmail(user.email) === normalized);
 }
 
+export async function getCommissionResetTraceByEmail(email: string) {
+  const db = await readDb({ bypassCache: true });
+  const normalizedEmail = normalizeEmail(email);
+  const users = db.users.filter((user) => normalizeEmail(user.email) === normalizedEmail);
+  const sellerUserIds = new Set(users.map((user) => user.id));
+
+  const commissionRecords = db.commissionRecords
+    .filter((record) => sellerUserIds.has(record.sellerId))
+    .map((record) => {
+      const request = db.purchaseRequests.find((item) => item.id === record.purchaseRequestId);
+      const normalizedPaymentStatus = normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt);
+      const amountDueUsdt = getCommissionAmountDueUsdt(db, record);
+      return {
+        commissionId: record.id,
+        sellerId: record.sellerId,
+        tradeId: request?.tradeId ?? request?.id ?? record.purchaseRequestId,
+        tradeDisplayNumber: request?.displayNumber,
+        paymentStatus: normalizedPaymentStatus,
+        rawPaymentStatus: record.paymentStatus,
+        amountDueUsdt,
+        locked: normalizedPaymentStatus !== "paid",
+        createdAt: record.createdAt,
+      };
+    });
+
+  const sellerStates = users.map((user) => {
+    const pendingRecords = db.commissionRecords
+      .filter((record) => record.sellerId === user.id)
+      .map((record) => ({
+        ...record,
+        paymentStatus: normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt),
+      }))
+      .filter((record) => record.paymentStatus !== "paid");
+    const pendingCount = pendingRecords.length;
+    const amountDue = pendingRecords.reduce((sum, record) => sum + getCommissionAmountDueUsdt(db, record), 0);
+    const blockedReason = getSellerListingBlockReason(db, user.id);
+    return {
+      userId: user.id,
+      normalizedEmail: normalizeEmail(user.email),
+      role: user.role,
+      pendingCommissionCount: pendingCount,
+      commissionDueUsdt: Number(amountDue.toFixed(2)),
+      sellerLocked: pendingCount > 0 || blockedReason !== null,
+      canCreateListing: blockedReason === null,
+      blockedReason,
+    };
+  });
+
+  const globalPendingCommissions = db.commissionRecords
+    .map((record) => ({
+      record,
+      normalizedPaymentStatus: normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt),
+    }))
+    .filter((item) => item.normalizedPaymentStatus !== "paid")
+    .slice(0, 100)
+    .map((item) => {
+      const seller = db.users.find((user) => user.id === item.record.sellerId);
+      const request = db.purchaseRequests.find((r) => r.id === item.record.purchaseRequestId);
+      return {
+        commissionId: item.record.id,
+        sellerId: item.record.sellerId,
+        sellerEmail: seller?.email ?? null,
+        sellerNormalizedEmail: seller ? normalizeEmail(seller.email) : null,
+        tradeId: request?.tradeId ?? request?.id ?? item.record.purchaseRequestId,
+        tradeDisplayNumber: request?.displayNumber,
+        paymentStatus: item.normalizedPaymentStatus,
+        amountDueUsdt: getCommissionAmountDueUsdt(db, item.record),
+        createdAt: item.record.createdAt,
+      };
+    });
+
+  return {
+    queryUsedBySellerDashboard: "GET /api/alpha-exchange/my-listings -> getSellerCommissionStatus(user.id) + getSellerListingWorkspaceSummary(user.id)",
+    queryUsedByResetEndpoint: "POST /api/alpha-exchange/admin/commissions/reset-by-email -> clearSellerCommissionDuesByAdmin(sellerUserIds)",
+    requestedEmail: email,
+    normalizedEmail,
+    users: users.map((user) => ({
+      userId: user.id,
+      normalizedEmail: normalizeEmail(user.email),
+      role: user.role,
+    })),
+    commissionRecords,
+    sellerStates,
+    globalPendingCommissions,
+  };
+}
+
 export async function findUserById(userId: string) {
   const db = await readDb();
   return db.users.find((user) => user.id === userId) ?? null;
