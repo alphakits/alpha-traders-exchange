@@ -52,6 +52,9 @@ export function hasRole(user: Pick<AlphaExchangeUser, "role" | "roles" | "seller
   if (role === "pending_seller_approval") {
     return user.sellerStatus === "pending_seller_approval" || (user.roles ?? []).includes("pending_seller_approval");
   }
+  if (role === "buyer") {
+    return user.sellerStatus === "buyer" || user.role === "buyer" || (user.roles ?? []).includes("buyer");
+  }
   return user.role === role || (user.roles ?? []).includes(role);
 }
 
