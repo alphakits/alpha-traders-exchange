@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
-import { isPhotoVerificationBypassed } from "@/lib/verification-bypass";
+import { isPhotoVerificationBypassed, isVerified } from "@/lib/verification-bypass";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -18,9 +18,10 @@ export async function GET() {
   }
   const cookieStore = await cookies();
   const verificationBypassed = isPhotoVerificationBypassed(user.email);
+  const verified = isVerified(user);
   const effectiveVerifiedPhone = verificationBypassed ? user.verifiedPhone || "bypassed" : user.verifiedPhone ?? "";
   const effectivePhoneVerifiedAt = verificationBypassed ? user.phoneVerifiedAt || new Date(0).toISOString() : user.phoneVerifiedAt ?? "";
-  if (verificationBypassed) {
+  if (verified) {
     cookieStore.set(AUTH_PHONE_VERIFIED_COOKIE_NAME, "1", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -55,6 +56,7 @@ export async function GET() {
       isFoundingMember: user.isFoundingMember === true,
       isFoundingSeller: user.isFoundingSeller === true,
       emailVerified: user.emailVerified === true,
+      isPhotoVerified: verified,
       verifiedPhone: effectiveVerifiedPhone,
       phoneVerifiedAt: effectivePhoneVerifiedAt,
       onboardingSelection: user.onboardingSelection,

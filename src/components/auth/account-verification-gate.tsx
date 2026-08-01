@@ -10,6 +10,7 @@ type SessionUser = {
   email?: string;
   fullName?: string;
   emailVerified?: boolean;
+  isPhotoVerified?: boolean;
   verifiedPhone?: string;
   phoneVerifiedAt?: string;
 };
@@ -56,7 +57,7 @@ export function AccountVerificationGate({ locale, redirectTo, initialEmail, init
 
   const target = useMemo(() => normalizeRedirectPath(redirectTo, locale), [redirectTo, locale]);
   const emailVerified = user?.emailVerified === true;
-  const phoneVerified = Boolean(user?.verifiedPhone && user?.phoneVerifiedAt);
+  const phoneVerified = user?.isPhotoVerified === true;
 
   useEffect(() => {
     let active = true;

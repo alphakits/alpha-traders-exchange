@@ -5,7 +5,7 @@ import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE
 import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { createSupabaseAuthClient } from "@/lib/supabase-auth-provider";
-import { isPhotoVerificationBypassed } from "@/lib/verification-bypass";
+import { isVerified } from "@/lib/verification-bypass";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -115,7 +115,7 @@ export async function POST(request: NextRequest) {
         secureCookies,
         rememberMe,
         expiresAt,
-        Boolean(user.verifiedPhone && user.phoneVerifiedAt) || isPhotoVerificationBypassed(user.email),
+        isVerified(user),
       );
       return NextResponse.json({
         user: {
@@ -190,7 +190,7 @@ export async function POST(request: NextRequest) {
       secureCookies,
       rememberMe,
       expiresAt,
-      Boolean(user.verifiedPhone && user.phoneVerifiedAt) || isPhotoVerificationBypassed(user.email),
+      isVerified(user),
     );
     return NextResponse.json({
       user: {

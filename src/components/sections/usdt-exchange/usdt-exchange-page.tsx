@@ -64,6 +64,7 @@ type SessionUser = {
   isProfileHidden?: boolean;
   isFoundingMember?: boolean;
   isFoundingSeller?: boolean;
+  isPhotoVerified?: boolean;
   notificationPreferences?: { inApp: boolean; email: boolean; sms: boolean };
   createdAt: string;
 };
@@ -959,7 +960,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           if (fallbackText && !/^<!doctype html>/i.test(fallbackText)) errorMessage = fallbackText;
         }
         const requiresVerification = response.status === 403
-          && (errorCode === "PHONE_VERIFICATION_REQUIRED" || /verification/i.test(errorMessage));
+          && sessionUser?.isPhotoVerified !== true
+          && (
+            errorCode === "PHONE_VERIFICATION_REQUIRED"
+            || /phone verification is required/i.test(errorMessage)
+          );
         setShowVerificationCta(requiresVerification);
         setStatusMessage(errorMessage);
         return;

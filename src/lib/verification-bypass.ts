@@ -15,3 +15,15 @@ export function isPhotoVerificationBypassed(email: string | null | undefined) {
   const bypassEmails = parseBypassEmails(process.env.PHOTO_VERIFICATION_BYPASS_EMAILS);
   return bypassEmails.has(normalizedEmail);
 }
+
+type VerificationState = {
+  email?: string | null;
+  verifiedPhone?: string | null;
+  phoneVerifiedAt?: string | null;
+};
+
+export function isVerified(user: VerificationState | null | undefined) {
+  if (!user) return false;
+  if (isPhotoVerificationBypassed(user.email)) return true;
+  return Boolean(user.verifiedPhone && user.phoneVerifiedAt);
+}
