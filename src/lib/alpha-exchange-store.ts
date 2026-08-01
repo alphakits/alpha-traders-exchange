@@ -4283,6 +4283,17 @@ function sortTradesByUpdatedAtDesc(left: PurchaseRequest, right: PurchaseRequest
   return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
 }
 
+function buildPurchaseRequestLookupCandidates(requestId: string) {
+  const normalized = requestId.trim();
+  const candidates = [normalized];
+  if (normalized.startsWith("purchase-")) {
+    candidates.push(normalized.slice("purchase-".length));
+  } else {
+    candidates.push(`purchase-${normalized}`);
+  }
+  return Array.from(new Set(candidates.filter(Boolean)));
+}
+
 function filterTradesForUser(db: AlphaExchangeDb, userId: string, role: UserRole) {
   return db.purchaseRequests.filter((request) => {
     if (role === "admin" || role === "owner") return true;
@@ -4397,9 +4408,27 @@ export async function getTradeRoomData(input: {
   markMessagesRead?: boolean;
 }): Promise<TradeRoomData> {
   const db = await readDb();
-  const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.purchaseRequestId);
-  if (requestIndex === -1) throw new Error("Trade not found.");
+  const lookupCandidates = buildPurchaseRequestLookupCandidates(input.purchaseRequestId);
+  const requestIndex = db.purchaseRequests.findIndex((item) => lookupCandidates.includes(item.id));
+  if (requestIndex === -1) {
+    console.log("[trade-room-open] store lookup failed", {
+      incomingRequestId: input.purchaseRequestId,
+      lookupCandidates,
+      reason: "request_not_found",
+    });
+    throw new Error("Trade not found.");
+  }
   const request = db.purchaseRequests[requestIndex];
+  console.log("[trade-room-open] store lookup success", {
+    incomingRequestId: input.purchaseRequestId,
+    resolvedRequestId: request.id,
+    lookupCandidates,
+    tradeStatus: request.status,
+    listingId: request.listingId,
+    tradeId: request.tradeId ?? null,
+    actorUserId: input.actorUserId,
+    actorRole: input.actorRole,
+  });
   assertTradeParticipantOrAdmin(request, input.actorUserId, input.actorRole);
 
   const messages = (db.tradeMessages ?? [])
@@ -4422,6 +4451,13 @@ export async function getTradeRoomData(input: {
   const listing = db.marketplaceListings.find((item) => item.id === request.listingId) ?? null;
   const buyer = db.users.find((item) => item.id === request.buyerId) ?? null;
   const seller = db.users.find((item) => item.id === request.sellerId) ?? null;
+  console.log("[trade-room-open] store related entities", {
+    requestId: request.id,
+    foundListing: Boolean(listing),
+    foundTradeId: request.tradeId ?? null,
+    foundBuyer: Boolean(buyer),
+    foundSeller: Boolean(seller),
+  });
   const openDispute = db.disputes.find((item) => item.purchaseRequestId === request.id && item.status === "open");
   const deadlineAt = request.usdtReleaseDeadlineAt ?? null;
   const timeRemainingSeconds = deadlineAt ? Math.max(0, Math.floor((new Date(deadlineAt).getTime() - Date.now()) / 1000)) : null;
