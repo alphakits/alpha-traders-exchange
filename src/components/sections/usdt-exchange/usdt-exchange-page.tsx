@@ -530,6 +530,21 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     return () => window.clearInterval(id);
   }, []);
 
+  // Scroll to the create-listing form when navigated here via the header "Create Listing" button.
+  // We wait for the page to finish loading before attempting the scroll so the element exists in the DOM.
+  useEffect(() => {
+    if (isLoadingListings) return;
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash;
+    if (!hash) return;
+    const el = document.getElementById(hash.replace("#", ""));
+    if (!el) return;
+    const timeout = window.setTimeout(() => {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 120);
+    return () => window.clearTimeout(timeout);
+  }, [isLoadingListings]);
+
   const features: FeatureCard[] = [
     {
       icon: ShieldCheck,
