@@ -12,7 +12,7 @@ import { RoleBadge } from "@/components/ui/role-badge";
 import { AlphaMarketCenter } from "@/components/market/alpha-market-center";
 import { useMarketFeed } from "@/components/market/use-market-feed";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
-import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, BetaAnnouncement, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
+import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
 const WHATSAPP_URL = "https://wa.me/972525967649";
 const MAX_EVIDENCE_SIZE_BYTES = 8 * 1024 * 1024;
@@ -265,10 +265,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [notificationCategory, setNotificationCategory] = useState<"all" | NotificationCategory>("all");
   const [notificationUnreadOnly, setNotificationUnreadOnly] = useState(false);
   const [notificationPreferences, setNotificationPreferences] = useState<{ inApp: boolean; email: boolean; sms: boolean }>({ inApp: true, email: false, sms: false });
-  const [betaAnnouncements, setBetaAnnouncements] = useState<BetaAnnouncement[]>([]);
   const notificationsRequestIdRef = useRef(0);
 
-  const [buyerInfo, setBuyerInfo] = useState({ name: "", whatsapp: "", notes: "" });
+  const [buyerInfo, setBuyerInfo] = useState({ name: "", whatsapp: "", notes: "", usdtAmount: "" });
   const [sellerForm, setSellerForm] = useState({
     fullName: "",
     email: "",
@@ -388,18 +387,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     setSellerWorkspaceMessage("Notification preferences updated.");
   }
 
-  const refreshBetaChannels = useCallback(async () => {
-    try {
-      const announcementsRes = await fetch("/api/alpha-exchange/private-beta/announcements", { cache: "no-store" });
-      if (announcementsRes.ok) {
-        const announcementsJson = (await announcementsRes.json()) as { announcements: BetaAnnouncement[] };
-        setBetaAnnouncements(announcementsJson.announcements ?? []);
-      }
-    } catch {
-      setStatusMessage(safeErrorMessage("workspace"));
-    }
-  }, []);
-
   useEffect(() => {
     const controller = new AbortController();
     let cancelled = false;
@@ -434,7 +421,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             fetch("/api/alpha-exchange/seller-application", { cache: "no-store", signal: controller.signal }),
             refreshSellerWorkspace(),
             refreshNotificationPreferences(),
-            refreshBetaChannels(),
           ]);
           if (cancelled) return;
           if (applicationRes.ok) {
@@ -455,7 +441,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       cancelled = true;
       controller.abort();
     };
-  }, [refreshBetaChannels, refreshNotificationPreferences, refreshSellerWorkspace]);
+  }, [refreshNotificationPreferences, refreshSellerWorkspace]);
 
   useEffect(() => {
     if (!sessionUser) return;
@@ -656,6 +642,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     void fetchSellerProfileData(listing.sellerId);
     setPurchaseSubmitted(false);
     setStatusMessage(null);
+    setBuyerInfo((prev) => ({
+      ...prev,
+      usdtAmount: formatIntegerForInput(listing.minimumTrade || listing.availableAmount),
+    }));
   }
 
   async function handleSellerApplicationSubmit(event: FormEvent<HTMLFormElement>) {
@@ -687,17 +677,29 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     }
   }
 
-  async function handlePurchaseSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function submitPurchaseRequest(notesOverride?: string) {
     if (!selectedListing) return;
+    const tradeAmount = String(buyerInfo.usdtAmount ?? "").trim();
+    if (!tradeAmount || toNumber(tradeAmount) <= 0) {
+      setStatusMessage("Enter a valid USDT trade amount to continue.");
+      return;
+    }
+    const requestedAmount = toNumber(tradeAmount);
+    const minTrade = Math.max(0, toNumber(selectedListing.minimumTrade));
+    const maxTrade = toNumber(selectedListing.maximumTrade || selectedListing.availableAmount);
+    if (requestedAmount < minTrade || requestedAmount > maxTrade) {
+      setStatusMessage(`Trade amount must be between ${minTrade.toLocaleString("en-IL")} and ${maxTrade.toLocaleString("en-IL")} USDT.`);
+      return;
+    }
     const response = await fetch("/api/alpha-exchange/purchase-requests", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         listingId: selectedListing.id,
+        usdtAmount: tradeAmount,
         buyerName: buyerInfo.name,
         buyerWhatsapp: buyerInfo.whatsapp,
-        buyerNotes: buyerInfo.notes,
+        buyerNotes: notesOverride ?? buyerInfo.notes,
       }),
     });
     const data = (await response.json()) as { error?: string; purchase?: PurchaseRequest };
@@ -710,6 +712,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       setPurchaseSubmitted(true);
       setStatusMessage(null);
     }
+  }
+
+  async function handlePurchaseSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await submitPurchaseRequest();
   }
 
   const selectedAmount = selectedListing ? toNumber(selectedListing.availableAmount) : 0;
@@ -760,6 +767,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     : listingEditPriceValid
       ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-200"
       : "border-white/10 bg-black/20 text-[#D1D5DB]";
+  const buyerTradeAmount = toNumber(buyerInfo.usdtAmount);
+  const selectedMinTrade = selectedListing ? Math.max(0, toNumber(selectedListing.minimumTrade)) : 0;
+  const selectedMaxTrade = selectedListing ? toNumber(selectedListing.maximumTrade || selectedListing.availableAmount) : 0;
+  const buyerTradeAmountInvalid = !!selectedListing && (buyerTradeAmount < selectedMinTrade || buyerTradeAmount > selectedMaxTrade);
+  const todayDateKey = new Date().toISOString().slice(0, 10);
 
   const sellerRequests = useMemo(() => myRequests.filter((request) => request.sellerId === sessionUser?.id), [myRequests, sessionUser?.id]);
   const buyerRequests = useMemo(() => myRequests.filter((request) => request.buyerId === sessionUser?.id), [myRequests, sessionUser?.id]);
@@ -811,9 +823,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       return acc;
     }, {});
     const repeatBuyersCount = Object.values(repeatBuyers).filter((count) => count > 1).length;
-    const profileViews = Math.round(220 + completedSellerRequests.length * 6 + myListings.length * 18);
-    const listingViews = myListings.reduce((sum, listing) => sum + (120 + String(listing.id ?? "").split("").reduce((acc, char) => acc + char.charCodeAt(0), 0) % 900), 0);
-    const monthlyGrowth = Math.min(64, Math.max(-6, pendingSellerRequests.length * 2 + completedSellerRequests.length * 1.6 - 4));
     const averageTradeSize = completedSellerRequests.length ? grossSales / completedSellerRequests.length : 0;
     const estimatedCommissionPaid = grossSales * 0.01;
     const selfReputation = myListings.find((listing) => Boolean(listing.sellerReputation))?.sellerReputation ?? null;
@@ -824,12 +833,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       totalUsdtSold,
       estimatedEarnings,
       averageResponseTime,
-      profileViews,
-      listingViews,
       tradeRequests: sellerRequests.length,
       successRate,
       completionRate,
-      monthlyGrowth,
       estimatedCommissionPaid,
       revenueGenerated: grossSales,
       repeatBuyers: repeatBuyersCount,
@@ -838,9 +844,46 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     };
   }, [completedSellerRequests, myListings, myListingsById, pendingSellerRequests.length, sellerRequests]);
 
+  const recentCompletedTrades = useMemo(
+    () =>
+      myRequests
+        .filter((request) => request.status === "completed" || Boolean(request.completedAt))
+        .sort((left, right) => new Date(right.completedAt ?? right.updatedAt).getTime() - new Date(left.completedAt ?? left.updatedAt).getTime())
+        .slice(0, 4),
+    [myRequests],
+  );
+  const todaysCompletedTrades = useMemo(
+    () =>
+      myRequests.filter((request) => {
+        const completedAt = request.completedAt ?? (request.status === "completed" ? request.updatedAt : "");
+        return completedAt.slice(0, 10) === todayDateKey;
+      }).length,
+    [myRequests, todayDateKey],
+  );
+  const marketplaceUpdates = useMemo(() => {
+    const activityItems = activityHistory.slice(0, 6).map((entry) => ({
+      id: `activity-${entry.id}`,
+      title: entry.title,
+      details: entry.details,
+      createdAt: entry.createdAt,
+    }));
+    if (activityItems.length) return activityItems;
+    return notifications.slice(0, 6).map((notification) => ({
+      id: `notification-${notification.id}`,
+      title: notification.title,
+      details: notification.message,
+      createdAt: notification.createdAt,
+    }));
+  }, [activityHistory, notifications]);
+
   const marketplacePulse = useMemo(() => {
     const sourceListings = filteredListings.length ? filteredListings : listings;
     const uniqueSellers = new Set(sourceListings.map((listing) => listing.sellerId));
+    const onlineSellers = new Set(
+      sourceListings
+        .filter((listing) => listing.sellerProfile?.onlineStatus === "online")
+        .map((listing) => listing.sellerId),
+    );
     const totalUsdtAvailable = sourceListings.reduce((sum, listing) => sum + toNumber(listing.availableAmount), 0);
     const responseMinutes = sourceListings
       .map((listing) => parseMinutes(listing.responseTime))
@@ -873,6 +916,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       .slice(0, 3);
     return {
       verifiedSellers: uniqueSellers.size,
+      onlineVerifiedSellers: onlineSellers.size,
       liveListings: sourceListings.length,
       totalUsdtAvailable,
       averageResponseMinutes,
@@ -1171,7 +1215,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const unreadNotificationsCount = notifications.filter((item) => !item.isRead).length;
 
   const notificationCenterCard = sessionUser ? (
-    <Card className="border-white/10 bg-[#0B0B0B]/90">
+    <Card id="create-listing-form" className="border-white/10 bg-[#0B0B0B]/90">
       <CardHeader>
         <CardTitle className="inline-flex items-center gap-2">
           <BellRing className="h-4 w-4 text-[#C9A227]" />
@@ -1221,7 +1265,15 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   </p>
                   <p className="mt-1">{notification.message}</p>
                   <p className="mt-1 text-[11px]">{new Date(notification.createdAt).toLocaleString("en-IL")}</p>
-                  {notification.relatedHref ? <a href={notification.relatedHref} className="mt-1 inline-block text-[#C9A227]">Open related</a> : null}
+                  {notification.actionHref ? (
+                    <a href={notification.actionHref} className="mt-2 inline-flex items-center rounded-full border border-[#6CAEFF]/40 bg-[#6CAEFF]/10 px-2.5 py-1 text-[11px] text-[#93C5FD] transition hover:border-[#6CAEFF]/70">
+                      {notification.actionLabel?.trim() || "Review now"}
+                    </a>
+                  ) : notification.relatedHref ? (
+                    <a href={notification.relatedHref} className="mt-2 inline-flex items-center rounded-full border border-[#6CAEFF]/40 bg-[#6CAEFF]/10 px-2.5 py-1 text-[11px] text-[#93C5FD] transition hover:border-[#6CAEFF]/70">
+                      Review now
+                    </a>
+                  ) : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <Button type="button" size="sm" variant="secondary" onClick={() => void handleNotificationReadState(notification.id, !notification.isRead)}>
@@ -1249,8 +1301,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         <div className="space-y-3">
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-              <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Today&apos;s Views</p>
-              <p className="mt-1 text-lg font-semibold text-white">{sellerOverviewStats.profileViews.toLocaleString("en-IL")}</p>
+              <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Today&apos;s Completed Trades</p>
+              <p className="mt-1 text-lg font-semibold text-white">{todaysCompletedTrades.toLocaleString("en-IL")}</p>
             </div>
             <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
               <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Active Listings</p>
@@ -1261,18 +1313,18 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               <p className="mt-1 text-lg font-semibold text-white">{sellerOverviewStats.successRate.toFixed(1)}%</p>
             </div>
             <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-              <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Avg. Response</p>
-              <p className="mt-1 text-lg font-semibold text-white">{sellerOverviewStats.averageResponseTime}</p>
+              <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Pending Requests</p>
+              <p className="mt-1 text-lg font-semibold text-white">{sellerOverviewStats.pendingRequests.toLocaleString("en-IL")}</p>
             </div>
           </div>
           <div className="space-y-2">
             <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Marketplace Updates</p>
-            {!betaAnnouncements.length ? <p className="text-xs text-[#9CA3AF]">No active announcements.</p> : null}
-            {betaAnnouncements.slice(0, 6).map((announcement) => (
-              <div key={announcement.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                <p className="font-medium text-white">{announcement.title}</p>
-                <p className="mt-1">{announcement.message}</p>
-                <p className="mt-1 text-[#9CA3AF]">{announcement.type.replaceAll("_", " ")} • {new Date(announcement.createdAt).toLocaleString("en-IL")}</p>
+            {!marketplaceUpdates.length ? <p className="text-xs text-[#9CA3AF]">No updates yet. Your activity appears here as soon as you trade.</p> : null}
+            {marketplaceUpdates.map((update) => (
+              <div key={update.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
+                <p className="font-medium text-white">{update.title}</p>
+                <p className="mt-1">{update.details}</p>
+                <p className="mt-1 text-[#9CA3AF]">{new Date(update.createdAt).toLocaleString("en-IL")}</p>
               </div>
             ))}
           </div>
@@ -1290,7 +1342,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
             <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Quick Actions</p>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              <Button type="button" size="sm" variant="secondary" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Create Listing</Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={() => document.getElementById("create-listing-form")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              >
+                Create Listing
+              </Button>
               <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/dashboard/seller")}>Seller Dashboard</Button>
               <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/profile")}>Public Profile</Button>
               <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/settings")}>Account Settings</Button>
@@ -1438,7 +1497,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
         <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
           {[
-            { label: isAr ? "البائعون الموثقون" : "Verified Sellers", value: marketplacePulse.verifiedSellers.toLocaleString("en-IL") },
+            { label: isAr ? "بائعون موثقون متصلون" : "Verified Sellers Online", value: marketplacePulse.onlineVerifiedSellers.toLocaleString("en-IL") },
             { label: isAr ? "العروض النشطة" : "Live Listings", value: marketplacePulse.liveListings.toLocaleString("en-IL") },
             { label: isAr ? "USDT متاح" : "USDT Available", value: `${marketplacePulse.totalUsdtAvailable.toLocaleString("en-IL")} USDT` },
             { label: isAr ? "متوسط الاستجابة" : "Avg. Response", value: `${marketplacePulse.averageResponseMinutes} min` },
@@ -1457,6 +1516,22 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           {isAr ? "أحدث البائعين النشطين:" : "Newest active sellers:"}{" "}
           <span className="text-white">{marketplacePulse.newestSellers.length ? marketplacePulse.newestSellers.join(" • ") : (isAr ? "سيتم عرضها قريبًا" : "Will appear soon")}</span>
         </p>
+        {sessionUser && recentCompletedTrades.length ? (
+          <Card className="mt-3 border-white/10 bg-[#0B0B0B]/90">
+            <CardContent className="p-4">
+              <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Recent completed trades</p>
+              <div className="mt-2 grid gap-2 md:grid-cols-2">
+                {recentCompletedTrades.map((trade) => (
+                  <div key={`recent-completed-${trade.id}`} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
+                    <p className="font-medium text-white">{shortTradeRef(trade)}</p>
+                    <p className="mt-1">{toNumber(trade.usdtAmount).toLocaleString("en-IL")} USDT • {toNumber(trade.fiatAmount).toLocaleString("en-IL")} {trade.currency}</p>
+                    <p className="mt-1 text-[#9CA3AF]">{new Date(trade.completedAt ?? trade.updatedAt).toLocaleString("en-IL")}</p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
 
         <Card className="mt-5 border-white/10 bg-[#0B0B0B]/90">
           <CardContent className="p-4">
@@ -1541,6 +1616,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                             {sellerLevelLabel(listing.sellerReputation?.level)} Seller
                             {listing.sellerProfile?.onlineStatus === "online" ? " • Online" : " • Offline"}
                           </p>
+                          <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#93C5FD]">Listing {shortListingRef(listing)}</p>
                           <div className="mt-1 flex flex-wrap gap-2">
                             <RoleBadge variant="approved_seller" />
                             {listing.sellerProfile?.isFoundingSeller ? (
@@ -1556,8 +1632,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <div className="rounded-xl border border-[#C9A227]/25 bg-[#C9A227]/10 p-3">
                       <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "سعر العرض" : "Listing Price"}</p>
                       <div className="mt-2 flex items-end justify-between">
-                        <p className="text-xl font-semibold text-white">{safeText(listing.price)} {listing.currency}</p>
-                        <p className="text-xs text-[#E5E7EB]">{safeText(listing.availableAmount)} USDT</p>
+                        <p className="text-xl font-semibold text-white">{formatIls(toNumber(listing.price))}</p>
+                        <p className="text-xs text-[#E5E7EB]">{toNumber(listing.availableAmount).toLocaleString("en-IL")} USDT</p>
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
@@ -1746,12 +1822,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               : null}
             {!isLoadingListings
               ? [
-              { label: "Profile Views", value: sellerOverviewStats.profileViews.toLocaleString("en-IL"), icon: Users },
-              { label: "Listing Views", value: sellerOverviewStats.listingViews.toLocaleString("en-IL"), icon: TrendingUp },
+              { label: "Active Listings", value: sellerOverviewStats.activeListings.toLocaleString("en-IL"), icon: TrendingUp },
+              { label: "Pending Requests", value: sellerOverviewStats.pendingRequests.toLocaleString("en-IL"), icon: MessageCircle },
               { label: "Trade Requests", value: sellerOverviewStats.tradeRequests.toLocaleString("en-IL"), icon: MessageCircle },
               { label: "Completed Trades", value: sellerOverviewStats.completedTrades.toLocaleString("en-IL"), icon: Trophy },
               { label: "Success Rate", value: `${sellerOverviewStats.successRate.toFixed(1)}%`, icon: ShieldCheck },
-              { label: "Monthly Growth", value: `${sellerOverviewStats.monthlyGrowth >= 0 ? "+" : ""}${sellerOverviewStats.monthlyGrowth.toFixed(1)}%`, icon: TrendingUp },
               { label: "Estimated Commission Paid", value: `₪${sellerOverviewStats.estimatedCommissionPaid.toFixed(2)}`, icon: BadgePercent },
               { label: "Revenue Generated", value: `₪${sellerOverviewStats.revenueGenerated.toFixed(2)}`, icon: WalletCards },
               { label: "Repeat Buyers", value: sellerOverviewStats.repeatBuyers.toLocaleString("en-IL"), icon: Users },
@@ -1909,8 +1984,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               {!isLoadingListings && myListings.length === 0 ? (
                 <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center">
                   <Store className="mx-auto h-5 w-5 text-[#C9A227]" />
-                  <p className="mt-2 text-sm font-medium text-white">{isAr ? "لا توجد عروض بعد" : "No Listings Yet"}</p>
-                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "أنشئ أول عرض لتظهر للمشترين المعتمدين." : "Create your first listing to start receiving buyer requests."}</p>
+                  <p className="mt-2 text-sm font-medium text-white">{isAr ? "ليس لديك عروض نشطة حتى الآن" : "You don&apos;t have any active listings yet."}</p>
+                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "أنشئ أول عرضك الآن ليبدأ المشترون بطلب الشراء." : "Create your first listing now and start receiving buyer requests."}</p>
                   <Button type="button" size="sm" className="mt-3" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
                     {isAr ? "إنشاء عرض" : "Create Listing"}
                   </Button>
@@ -1918,7 +1993,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               ) : null}
               {myListings.map((listing) => {
                 const requestsCount = sellerRequests.filter((request) => request.listingId === listing.id).length;
-                const views = 120 + String(listing.id ?? "").split("").reduce((acc, char) => acc + char.charCodeAt(0), 0) % 900;
                 return (
                   <div key={listing.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-[#93C5FD]">Listing {shortListingRef(listing)}</p>
@@ -1928,7 +2002,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <p>Price: <span className="text-white">{formatIls(toNumber(listing.price))}</span></p>
                       <p>Network: <span className="text-white">{safeText(listing.network)}</span></p>
                       <p>Bank: <span className="text-white">{safeText(listing.bankName, "Not set")}</span></p>
-                      <p>Views: <span className="text-white">{views}</span></p>
                       <p>Purchase Requests: <span className="text-white">{requestsCount}</span></p>
                       <p>Created Date: <span className="text-white">{new Date(listing.createdAt).toLocaleDateString("en-IL")}</span></p>
                     </div>
@@ -2086,8 +2159,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               {!isLoadingListings && sellerRequests.length === 0 ? (
                 <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center">
                   <MessageCircle className="mx-auto h-5 w-5 text-[#C9A227]" />
-                  <p className="mt-2 text-sm font-medium text-white">{isAr ? "لا توجد طلبات شراء" : "No Purchase Requests"}</p>
-                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "ستظهر طلبات المشترين هنا عند وصولها." : "Incoming buyer requests will appear here."}</p>
+                  <p className="mt-2 text-sm font-medium text-white">{isAr ? "لا توجد طلبات شراء قيد الانتظار" : "No purchase requests yet."}</p>
+                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "عند استلام أول طلب شراء، ستتمكن من الرد عليه فورًا من هنا." : "Your next buyer request will appear here with quick actions to accept, decline, or continue the trade."}</p>
                 </div>
               ) : null}
               {filteredSellerRequests.map((request) => {
@@ -2308,7 +2381,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/dashboard/seller")}>Open Seller Dashboard</Button>
                     <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/profile")}>Update Public Profile</Button>
                     <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/settings")}>Account & Security</Button>
-                    <Button type="button" size="sm" variant="secondary" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Create New Listing</Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => document.getElementById("create-listing-form")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                    >
+                      Create New Listing
+                    </Button>
                   </div>
                 </div>
               </CardContent>
@@ -2589,7 +2669,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
       <div className="mt-12 grid gap-4 md:grid-cols-4">
         {[
-          { value: `${Math.round(sellerOverviewStats.completedTrades + filteredListings.length * 0.6).toLocaleString("en-IL")}+`, labelAr: "صفقات اليوم", label: "Today’s Trades", icon: HandCoins },
+          { value: `${todaysCompletedTrades.toLocaleString("en-IL")}`, labelAr: "صفقات مكتملة اليوم", label: "Completed Trades Today", icon: HandCoins },
           { value: `${marketplacePulse.verifiedSellers.toLocaleString("en-IL")}+`, labelAr: "بائعون موثقون", label: "Verified Sellers", icon: ShieldCheck },
           { value: `${marketplacePulse.totalUsdtAvailable.toLocaleString("en-IL")} USDT`, labelAr: "USDT متاح", label: "USDT Available", icon: WalletCards },
           { value: `${marketplacePulse.averageResponseMinutes} min`, labelAr: "متوسط الاستجابة", label: "Average Response", icon: Clock3 },
@@ -2746,14 +2826,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
                       <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">About Seller</p>
-                      <p className="mt-2">{safeText(sellerProfileData?.profile.bio || selectedListing.sellerDescription, "Professional USDT seller on Alpha Exchange.")}</p>
+                      <p className="mt-2">{safeText(sellerProfileData?.profile.bio || selectedListing.sellerDescription, "Not provided yet.")}</p>
                       <div className="mt-3 grid gap-1 text-xs">
-                        <p>Trading Experience: <span className="text-white">{safeText(sellerProfileData?.profile.tradingExperience, "Professional marketplace experience")}</span></p>
-                        <p>Languages: <span className="text-white">{(sellerProfileData?.profile.languages ?? []).join(", ") || "English"}</span></p>
-                        <p>Working Hours: <span className="text-white">{safeText(sellerProfileData?.profile.workingHours, "Sun-Thu, 09:00-21:00")}</span></p>
+                        <p>Trading Experience: <span className="text-white">{safeText(sellerProfileData?.profile.tradingExperience, "Not provided yet.")}</span></p>
+                        <p>Languages: <span className="text-white">{(sellerProfileData?.profile.languages ?? []).join(", ") || "Not provided yet."}</span></p>
+                        <p>Working Hours: <span className="text-white">{safeText(sellerProfileData?.profile.workingHours, "Not provided yet.")}</span></p>
                         <p>Payment Methods: <span className="text-white">{(sellerProfileData?.profile.preferredPaymentMethods ?? [selectedListing.paymentMethod]).join(", ")}</span></p>
                         <p>Supported Networks: <span className="text-white">{(sellerProfileData?.profile.preferredNetworks ?? [selectedListing.network]).join(", ")}</span></p>
-                        <p>Country: <span className="text-white">{safeText(sellerProfileData?.profile.country, "Israel")}</span></p>
+                        <p>Country: <span className="text-white">{safeText(sellerProfileData?.profile.country, "Not provided yet.")}</span></p>
                         {sellerProfileData?.profile.city ? <p>City: <span className="text-white">{sellerProfileData.profile.city}</span></p> : null}
                       </div>
                     </div>
@@ -2866,12 +2946,34 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
                   <form className="grid gap-3" onSubmit={handlePurchaseSubmit}>
                     <div className="grid gap-3 md:grid-cols-3">
+                      <div className="space-y-2 md:col-span-3">
+                        <Input
+                          placeholder="USDT Amount"
+                          value={buyerInfo.usdtAmount}
+                          onChange={(event) => setBuyerInfo((prev) => ({ ...prev, usdtAmount: formatIntegerForInput(event.target.value) }))}
+                          className={buyerTradeAmountInvalid ? "border-red-500/80" : ""}
+                        />
+                        <p className={`text-xs ${buyerTradeAmountInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>
+                          Trade limits: {selectedMinTrade.toLocaleString("en-IL")} - {selectedMaxTrade.toLocaleString("en-IL")} USDT
+                        </p>
+                      </div>
                       <Input placeholder="Name" value={buyerInfo.name} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, name: event.target.value }))} />
                       <Input placeholder="WhatsApp" value={buyerInfo.whatsapp} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, whatsapp: event.target.value }))} />
                       <Textarea placeholder="Notes" value={buyerInfo.notes} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, notes: event.target.value }))} />
                     </div>
                     <div className="sticky bottom-0 z-10 rounded-xl border border-[#C9A227]/30 bg-[#0B0B0B]/95 p-3">
-                      <Button type="submit" className="w-full">Start Trade</Button>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        <Button type="submit" className="w-full" disabled={buyerTradeAmountInvalid}>Start Trade</Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="w-full"
+                          disabled={buyerTradeAmountInvalid}
+                          onClick={() => void submitPurchaseRequest("Please proceed with this trade.")}
+                        >
+                          Quick Buy
+                        </Button>
+                      </div>
                     </div>
                     {statusMessage ? (
                       <Card className="border-amber-500/30 bg-black/30">
