@@ -925,7 +925,16 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     || (listingCreateRequiresBank && !listingCreateForm.bankName.trim())
     || !listingCommissionAgreement;
   const listingCreateTotalIls = listingCreateAmount * listingCreatePrice;
-  const isListingCreateSubmitDisabled = listingCreateMissingRequired || listingCreatePriceInvalid || listingCreateTradeRangeInvalid;
+  const listingCreationBlocked = Boolean(sellerWorkspaceSummary && !sellerWorkspaceSummary.canCreateListing);
+  const listingCreationBlockedReason = sellerWorkspaceSummary?.blockedReason ?? "Listing creation is currently blocked.";
+  const listingBlockedByCommission = (sellerWorkspaceSummary?.pendingCommissionCount ?? 0) > 0;
+  const listingBlockedByActiveLimit = Boolean(
+    sellerWorkspaceSummary &&
+    !sellerWorkspaceSummary.canCreateListing &&
+    sellerWorkspaceSummary.openListingCount >= sellerWorkspaceSummary.activeListingLimit &&
+    !listingBlockedByCommission,
+  );
+  const isListingCreateSubmitDisabled = listingCreateMissingRequired || listingCreatePriceInvalid || listingCreateTradeRangeInvalid || listingCreationBlocked;
   const listingCreateGuardCardTone = listingCreatePriceInvalid
     ? "border-red-500/60 bg-red-500/10 shadow-[0_0_0_3px_rgba(239,68,68,0.16)]"
     : listingCreatePriceValid
@@ -1221,6 +1230,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   async function handleSellerListingCreateSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (listingCreationBlocked) {
+      setSellerWorkspaceMessage(listingCreationBlockedReason);
+      return;
+    }
     setListingActionKey("create:new");
     try {
       const response = await fetch("/api/alpha-exchange/listings", {
@@ -1459,7 +1472,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const unreadNotificationsCount = notifications.filter((item) => !item.isRead).length;
 
   const notificationCenterCard = sessionUser ? (
-    <Card className="border-white/10 bg-[#0B0B0B]/90">
+    <Card id="my-listings-section" className="border-white/10 bg-[#0B0B0B]/90">
       <CardHeader>
         <CardTitle className="inline-flex items-center gap-2">
           <BellRing className="h-4 w-4 text-[#C9A227]" />
@@ -2306,6 +2319,34 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               </CardDescription>
             </CardHeader>
             <CardContent>
+              {listingCreationBlocked ? (
+                <div className="mb-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100">
+                  <p className="font-semibold">Listing creation is currently blocked</p>
+                  <p className="mt-1 text-xs text-[#FDE68A]">{listingCreationBlockedReason}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {listingBlockedByActiveLimit ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => document.getElementById("my-listings-section")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                      >
+                        Manage Listings
+                      </Button>
+                    ) : null}
+                    {listingBlockedByCommission ? (
+                      <a
+                        href={`${WHATSAPP_URL}?text=${encodeURIComponent("Hi Alpha Traders, I need to settle my pending platform commission.")}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex h-9 items-center justify-center rounded-xl border border-[#6CAEFF]/45 bg-[#6CAEFF]/10 px-3 text-xs font-medium text-[#93C5FD] transition hover:border-[#6CAEFF]/70 hover:bg-[#6CAEFF]/15"
+                      >
+                        Pay Commission
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
               <div className={`mb-4 rounded-2xl border p-4 text-sm text-[#E5E7EB] transition-all duration-200 ${listingCreateGuardCardTone}`}>
                 <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">Live Market Price Guard</p>
                 <p className={`mt-1 text-xs ${marketSnapshot?.status === "live" ? "text-emerald-300" : "text-amber-200"}`}>
