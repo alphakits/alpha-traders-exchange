@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { MarketplaceListing, PurchaseRequest, TradeChatMessage, TradeEvidenceFile, TradeTimelineEntry, UserRole } from "@/types/alpha-exchange";
 import { readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
-import { isFaceToFacePaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 
 type Locale = "ar" | "en";
 
@@ -126,7 +126,7 @@ function getStepIndex(status: PurchaseRequest["status"]) {
   return STEP_ORDER.findIndex((item) => item.id === id);
 }
 
-function getPrimaryAction(request: PurchaseRequest, isSeller: boolean, isAr: boolean, isFaceToFaceTrade: boolean): PrimaryAction | null {
+function getPrimaryAction(request: PurchaseRequest, isSeller: boolean, isAr: boolean, sellerEvidenceRequired: boolean): PrimaryAction | null {
   if (request.status === "pending" && isSeller) {
     return {
       label: isAr ? "قبول الطلب" : "Accept Trade",
@@ -161,6 +161,14 @@ function getPrimaryAction(request: PurchaseRequest, isSeller: boolean, isAr: boo
     };
   }
   if (request.status === "funds_received" && isSeller) {
+    if (sellerEvidenceRequired && !request.sellerEvidence) {
+      return {
+        label: isAr ? "رفع إثبات البائع" : "Upload Seller Evidence",
+        successLabel: isAr ? "تم رفع الإثبات" : "Evidence Uploaded",
+        mode: "upload",
+        uploadSide: "seller",
+      };
+    }
     return {
       label: isAr ? "إصدار USDT" : "Release USDT",
       successLabel: isAr ? "بدأ إصدار USDT" : "USDT Release Started",
@@ -169,7 +177,7 @@ function getPrimaryAction(request: PurchaseRequest, isSeller: boolean, isAr: boo
     };
   }
   if (request.status === "usdt_release_pending" && isSeller) {
-    if (isFaceToFaceTrade && !request.sellerEvidence) {
+    if (sellerEvidenceRequired && !request.sellerEvidence) {
       return {
         label: isAr ? "إصدار USDT" : "Release USDT",
         successLabel: isAr ? "تم إصدار USDT" : "USDT Released",
@@ -182,7 +190,7 @@ function getPrimaryAction(request: PurchaseRequest, isSeller: boolean, isAr: boo
       successLabel: isAr ? "تم إصدار USDT" : "USDT Released",
       mode: "status",
       nextStatus: "usdt_sent",
-      requiresEvidenceSide: "seller",
+      requiresEvidenceSide: sellerEvidenceRequired ? "seller" : undefined,
     };
   }
   if (request.status === "usdt_sent" && !isSeller) {
@@ -734,14 +742,14 @@ export function TradeRoomPage({
   const isSeller = room ? room.request.sellerId === actor.id : actor.role === "approved_seller";
   const request = room?.request ?? null;
   const requestPaymentMethod = request ? (normalizeMarketplacePaymentMethod(request.paymentMethod) ?? request.paymentMethod) : "";
-  const isFaceToFaceTrade = request ? isFaceToFacePaymentMethod(requestPaymentMethod) : false;
+  const sellerEvidenceRequired = request ? isSellerEvidenceRequiredForPaymentMethod(requestPaymentMethod) : false;
   const counterpartName = request
     ? (isSeller ? room?.counterpart.buyerName : room?.counterpart.sellerName)
     : "";
   const currentStepIndex = request ? getStepIndex(request.status) : 0;
   const progressPercent = Math.round((currentStepIndex / (STEP_ORDER.length - 1)) * 100);
   const turn = request ? getTurnPanel(request, isSeller, isAr) : null;
-  const primaryAction = request ? getPrimaryAction(request, isSeller, isAr, isFaceToFaceTrade) : null;
+  const primaryAction = request ? getPrimaryAction(request, isSeller, isAr, sellerEvidenceRequired) : null;
   const isOverdueTrade = Boolean(room?.isOverdue);
   const statusBanner = request ? getStatusBannerContent(request, isSeller, isAr, primaryAction, isOverdueTrade) : null;
   const showSuccessScreen = request?.status === "review_open" || request?.status === "completed" || request?.status === "locked";
@@ -757,6 +765,11 @@ export function TradeRoomPage({
       || request.status === "locked"),
   );
   const canShowBuyerReceipt = Boolean(request?.buyerEvidence && (!isSeller || sellerCanViewBuyerReceipt));
+  const sellerEvidenceUploadOpen = Boolean(
+    isSeller
+    && request
+    && (request.status === "funds_received" || request.status === "usdt_release_pending"),
+  );
   const activeTimeline = useMemo(() => {
     if (!request) return [] as TradeTimelineEntry[];
     return [...(request.timeline ?? [])].sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
@@ -782,7 +795,7 @@ export function TradeRoomPage({
       return isAr ? "ارفع إيصال الدفع أولًا." : "Upload the payment receipt before submitting payment.";
     }
     if (primaryAction.mode === "status" && primaryAction.requiresEvidenceSide === "seller" && !request.sellerEvidence) {
-      return isAr ? "ارفع إثبات البائع أولًا." : "Upload seller evidence before marking USDT sent.";
+      return isAr ? "يرجى رفع إثبات البائع قبل إصدار USDT." : "Please upload seller evidence before releasing USDT.";
     }
     return null;
   }, [isAr, primaryAction, request]);
@@ -1592,21 +1605,45 @@ export function TradeRoomPage({
                     </a>
                   ) : (
                     <p className="mt-2 text-[#9CA3AF]">
-                      {isFaceToFaceTrade
-                        ? (isAr ? "يظهر هذا الحقل فقط لصفقات وجهًا لوجه." : "This is shown only for Face-to-Face trades.")
-                        : (isAr ? "غير مطلوب لهذا النوع من الصفقة." : "Not required for this trade type.")}
+                      {sellerEvidenceUploadOpen
+                        ? (isAr ? "بانتظار رفع إثبات البائع." : "Waiting for seller upload.")
+                        : (isAr ? "سيتم تمكين الرفع عند مرحلة إصدار USDT." : "Upload will be available at the USDT release stage.")}
                     </p>
                   )}
-                  {actorSide === "seller" && isFaceToFaceTrade && request.status === "usdt_release_pending" ? (
+                  {actorSide === "seller" && sellerEvidenceUploadOpen ? (
                     <div className="mt-3 space-y-2">
+                      <p className="text-xs text-[#9CA3AF]">
+                        {sellerEvidenceRequired
+                          ? (isAr ? "رفع الإثبات مطلوب قبل تأكيد إرسال USDT." : "Seller evidence is required before marking USDT sent.")
+                          : (isAr ? "يمكنك رفع إثبات اختياري قبل تأكيد إرسال USDT." : "You may upload optional evidence before marking USDT sent.")}
+                      </p>
                       <Input ref={sellerEvidenceInputRef} type="file" accept=".png,.jpg,.jpeg,.webp,.pdf" onChange={(event) => setSellerEvidenceFile(event.target.files?.[0] ?? null)} />
                       {sellerEvidenceFile ? (
-                        <p className="text-xs text-[#C9A227]">
-                          {isAr ? `الملف المحدد: ${sellerEvidenceFile.name}` : `Selected file: ${sellerEvidenceFile.name}`}
-                        </p>
+                        <div className="space-y-2">
+                          <p className="text-xs text-[#C9A227]">
+                            {isAr ? `الملف المحدد: ${sellerEvidenceFile.name}` : `Selected file: ${sellerEvidenceFile.name}`}
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              loading={evidenceBusy === "seller"}
+                              loadingLabel={isAr ? "جارٍ الرفع..." : "Uploading..."}
+                              onClick={() => void handleUploadEvidence("seller")}
+                            >
+                              {request.sellerEvidence
+                                ? (isAr ? "استبدال الرفع" : "Replace Upload")
+                                : (isAr ? "رفع الإثبات" : "Upload Seller Evidence")}
+                            </Button>
+                            <Button type="button" size="sm" variant="secondary" onClick={() => setSellerEvidenceFile(null)}>
+                              {isAr ? "إزالة الملف" : "Remove File"}
+                            </Button>
+                          </div>
+                        </div>
                       ) : (
                         <p className="text-xs text-[#9CA3AF]">
-                          {isAr ? "اختر الملف ثم استخدم زر الإجراء الرئيسي للمتابعة." : "Choose the file, then use the main action button above to continue."}
+                          {isAr ? "اختر ملفًا للرفع. يمكنك الاستبدال لاحقًا قبل المتابعة." : "Choose a file to upload. You can replace it before continuing."}
                         </p>
                       )}
                     </div>

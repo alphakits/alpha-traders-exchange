@@ -14,6 +14,7 @@ import {
   isBankTransferPaymentMethod,
   isCardlessAtmPaymentMethod,
   isFaceToFacePaymentMethod,
+  isSellerEvidenceRequiredForPaymentMethod,
   normalizeMarketplacePaymentMethod,
   resolveListingPaymentMethods,
 } from "@/lib/marketplace-payment-methods";
@@ -4892,7 +4893,7 @@ export async function uploadTradeEvidence(input: {
     senderRole: actorRole,
     message: input.side === "buyer"
       ? "Buyer uploaded the payment receipt."
-      : "Seller uploaded USDT release proof.",
+      : "Seller attached release evidence.",
     createdAt: updatedAt,
   });
   if (shouldAutoSubmitPayment) {
@@ -5475,7 +5476,7 @@ export async function updatePurchaseRequestStatus(input: {
     });
   } else if (input.nextStatus === "usdt_sent") {
     const sellerEvidence = getTradeEvidenceFile(db, request.id, "seller");
-    if (isFaceToFaceTrade && !sellerEvidence) {
+    if (isSellerEvidenceRequiredForPaymentMethod(requestPaymentMethod) && !sellerEvidence) {
       throw new Error("Seller evidence is required before marking USDT sent.");
     }
     next.status = "usdt_sent";

@@ -48,3 +48,27 @@ export function isCardlessAtmPaymentMethod(method: unknown) {
 export function isBankTransferPaymentMethod(method: unknown) {
   return normalizeMarketplacePaymentMethod(method) === "Bank Transfer";
 }
+
+function resolveSellerEvidenceRequiredMethods() {
+  const fallback = "Face-to-Face (Meet in Person)";
+  const raw = (
+    process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_REQUIRED_SELLER_EVIDENCE_METHODS
+    ?? process.env.ALPHA_EXCHANGE_REQUIRED_SELLER_EVIDENCE_METHODS
+    ?? fallback
+  );
+  const methods = new Set<MarketplacePaymentMethod>();
+  for (const token of raw.split(",")) {
+    const normalized = normalizeMarketplacePaymentMethod(token);
+    if (normalized) methods.add(normalized);
+  }
+  if (!methods.size) {
+    methods.add("Face-to-Face (Meet in Person)");
+  }
+  return methods;
+}
+
+export function isSellerEvidenceRequiredForPaymentMethod(method: unknown) {
+  const normalized = normalizeMarketplacePaymentMethod(method);
+  if (!normalized) return false;
+  return resolveSellerEvidenceRequiredMethods().has(normalized);
+}
