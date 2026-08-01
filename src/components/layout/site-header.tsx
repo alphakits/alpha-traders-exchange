@@ -28,6 +28,7 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
   const canAccessSellerWorkspace = Boolean(
     sessionUser && (hasRole(sessionUser, "approved_seller") || hasRole(sessionUser, "admin") || hasRole(sessionUser, "owner")),
   );
+  const canAccessAdminDashboard = Boolean(sessionUser && hasRole(sessionUser, "admin"));
 
   async function logoutAction() {
     "use server";
@@ -153,6 +154,15 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
                   {sessionUser ? (
                     <Link href="/notifications" locale={locale} className="block rounded-xl px-3 py-2 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white">
                       {t("notifications")}
+                    </Link>
+                  ) : null}
+                  {canAccessAdminDashboard ? (
+                    <Link
+                      href="/admin/alpha-exchange"
+                      locale={locale}
+                      className="block rounded-xl border border-[#C9A227]/40 bg-[#C9A227]/10 px-3 py-2 text-sm font-medium text-[#F4D87A] transition hover:border-[#C9A227]/60 hover:bg-[#C9A227]/15"
+                    >
+                      🛠 {locale === "ar" ? "لوحة الإدارة" : "Admin Dashboard"}
                     </Link>
                   ) : null}
                   {sessionUser ? (
