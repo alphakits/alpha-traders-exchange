@@ -22,14 +22,14 @@ const DEFAULT_MARKET_PRICE_PER_USDT = 3.05;
 const DEFAULT_RESPONSE_TIME = "5 min";
 
 const ISRAELI_BANKS = [
-  { id: "hapoalim", name: "Bank Hapoalim", code: "בנק הפועלים" },
-  { id: "leumi", name: "Bank Leumi", code: "בנק לאומי" },
-  { id: "mizrahi-tefahot", name: "Mizrahi-Tefahot", code: "מזרחי טפחות" },
-  { id: "discount", name: "Discount Bank", code: "דיסקונט" },
-  { id: "fibi", name: "First International", code: "הבינלאומי" },
-  { id: "mercantile", name: "Mercantile", code: "מרכנתיל" },
-  { id: "yahav", name: "Yahav", code: "יהב" },
-  { id: "jerusalem", name: "Jerusalem Bank", code: "בנק ירושלים" },
+  { id: "hapoalim", name: "Bank Hapoalim", code: "בנק הפועלים", brandPrimary: "#E31C23", brandSecondary: "#B01016", accent: "#FCA5A5" },
+  { id: "leumi", name: "Bank Leumi", code: "בנק לאומי", brandPrimary: "#2458A6", brandSecondary: "#1D4B8F", accent: "#93C5FD" },
+  { id: "mizrahi-tefahot", name: "Mizrahi-Tefahot", code: "מזרחי טפחות", brandPrimary: "#F58220", brandSecondary: "#C8600E", accent: "#FDBA74" },
+  { id: "discount", name: "Discount Bank", code: "דיסקונט", brandPrimary: "#148A79", brandSecondary: "#0F7668", accent: "#5EEAD4" },
+  { id: "fibi", name: "First International", code: "הבינלאומי", brandPrimary: "#7C3AED", brandSecondary: "#6D28D9", accent: "#C4B5FD" },
+  { id: "mercantile", name: "Mercantile", code: "מרכנתיל", brandPrimary: "#0B5CAD", brandSecondary: "#073F7A", accent: "#93C5FD" },
+  { id: "yahav", name: "Yahav", code: "יהב", brandPrimary: "#2563EB", brandSecondary: "#1E40AF", accent: "#BFDBFE" },
+  { id: "jerusalem", name: "Bank Jerusalem", code: "בנק ירושלים", brandPrimary: "#1F2937", brandSecondary: "#111827", accent: "#D1D5DB" },
 ] as const;
 
 type Locale = "ar" | "en";
@@ -104,6 +104,31 @@ function normalizeDecimalInput(value: string | number | null | undefined) {
   const firstDot = raw.indexOf(".");
   if (firstDot === -1) return raw;
   return `${raw.slice(0, firstDot + 1)}${raw.slice(firstDot + 1).replace(/\./g, "")}`;
+}
+
+function renderBankLogo(bank: (typeof ISRAELI_BANKS)[number]) {
+  if (bank.id === "hapoalim") {
+    return <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill={bank.brandPrimary} /><path d="M8 16h16M16 8v16" stroke="white" strokeWidth="3" strokeLinecap="round" /></svg>;
+  }
+  if (bank.id === "leumi") {
+    return <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill={bank.brandPrimary} /><path d="M16 7l3.4 5.8L26 14.3l-4.6 4.6.9 6.5-6.3-3.2-6.3 3.2.9-6.5L6 14.3l6.6-1.5z" fill="white" /></svg>;
+  }
+  if (bank.id === "mizrahi-tefahot") {
+    return <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill={bank.brandPrimary} /><path d="M7 23L16 7l9 16h-4l-5-9-5 9z" fill="white" /></svg>;
+  }
+  if (bank.id === "discount") {
+    return <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill={bank.brandPrimary} /><circle cx="16" cy="16" r="7.5" fill="none" stroke="white" strokeWidth="3" /><path d="M16 9.5a6.5 6.5 0 100 13" fill="none" stroke={bank.accent} strokeWidth="3" strokeLinecap="round" /></svg>;
+  }
+  if (bank.id === "fibi") {
+    return <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill={bank.brandPrimary} /><path d="M8 10h16v3H8zm0 5h12v3H8zm0 5h16v3H8z" fill="white" /></svg>;
+  }
+  if (bank.id === "mercantile") {
+    return <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill={bank.brandPrimary} /><path d="M7 23V9h3l6 7 6-7h3v14h-3v-9l-6 6-6-6v9z" fill="white" /></svg>;
+  }
+  if (bank.id === "yahav") {
+    return <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill={bank.brandPrimary} /><path d="M9 9h4l3 5 3-5h4l-5 8v6h-4v-6z" fill="white" /></svg>;
+  }
+  return <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill={bank.brandPrimary} /><path d="M9 24V8h9a5 5 0 010 10H13v6zm4-9h4a2 2 0 000-4h-4z" fill="white" /></svg>;
 }
 
 function shortListingRef(listing: Pick<MarketplaceListing, "displayNumber" | "id">) {
@@ -217,6 +242,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [sellerWorkspaceMessage, setSellerWorkspaceMessage] = useState<string | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [editingListingId, setEditingListingId] = useState<string | null>(null);
+  const [listingActionKey, setListingActionKey] = useState<string | null>(null);
   const [listingEditForm, setListingEditForm] = useState({
     availableAmount: "",
     price: "",
@@ -926,138 +952,190 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     };
   }, [filteredListings, listings]);
 
+  const isListingActionBusy = useCallback(
+    (listingId: string) => Boolean(listingActionKey && listingActionKey.startsWith(`${listingId}:`)),
+    [listingActionKey],
+  );
+
   async function handleSellerListingStatus(listing: MarketplaceListing, nextStatus: "active" | "paused") {
-    const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: nextStatus }),
-    });
-    if (!response.ok) {
-      setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
-      return;
+    const actionLabel = nextStatus === "paused" ? "pause" : "resume";
+    const confirmed = window.confirm(nextStatus === "paused" ? "Pause this listing? Buyers will not see it until you resume." : "Resume this listing and make it visible to buyers?");
+    if (!confirmed) return;
+    setListingActionKey(`${listing.id}:${actionLabel}`);
+    try {
+      const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      if (!response.ok) {
+        setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
+        return;
+      }
+      setSellerWorkspaceMessage(`${shortListingRef(listing)} ${nextStatus === "paused" ? "paused" : "resumed"} successfully.`);
+      await refreshSellerWorkspace();
+    } catch {
+      setSellerWorkspaceMessage(safeErrorMessage("listing"));
+    } finally {
+      setListingActionKey(null);
     }
-    setSellerWorkspaceMessage(`${shortListingRef(listing)} ${nextStatus === "paused" ? "paused" : "resumed"}.`);
-    await refreshSellerWorkspace();
   }
 
   async function handleSellerListingDelete(listing: MarketplaceListing) {
-    const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, { method: "DELETE" });
-    if (!response.ok) {
-      setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
-      return;
+    const confirmed = window.confirm(`Delete listing ${shortListingRef(listing)}? This action cannot be undone.`);
+    if (!confirmed) return;
+    setListingActionKey(`${listing.id}:delete`);
+    try {
+      const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, { method: "DELETE" });
+      if (!response.ok) {
+        setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
+        return;
+      }
+      setSellerWorkspaceMessage(`Listing ${shortListingRef(listing)} deleted.`);
+      await refreshSellerWorkspace();
+    } catch {
+      setSellerWorkspaceMessage(safeErrorMessage("listing"));
+    } finally {
+      setListingActionKey(null);
     }
-    setSellerWorkspaceMessage(`Listing ${shortListingRef(listing)} deleted.`);
-    await refreshSellerWorkspace();
   }
 
   async function handleSellerListingDuplicate(listing: MarketplaceListing) {
-    const response = await fetch("/api/alpha-exchange/listings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        photos: listing.photos ?? [],
-        availableAmount: listing.availableAmount,
-        price: listing.price,
-        currency: listing.currency ?? "ILS",
-        network: listing.network,
-        paymentMethods: listing.paymentMethods ?? [listing.paymentMethod ?? ""],
-        bankName: listing.bankName ?? "",
-        minimumTrade: listing.minimumTrade ?? "0",
-        maximumTrade: listing.maximumTrade ?? listing.availableAmount,
-        sellerDescription: listing.sellerDescription ?? "",
-      }),
-    });
-    if (!response.ok) {
-      setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
-      return;
+    setListingActionKey(`${listing.id}:duplicate`);
+    try {
+      const response = await fetch("/api/alpha-exchange/listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          photos: listing.photos ?? [],
+          availableAmount: listing.availableAmount,
+          price: listing.price,
+          currency: listing.currency ?? "ILS",
+          network: listing.network,
+          paymentMethods: listing.paymentMethods ?? [listing.paymentMethod ?? ""],
+          bankName: listing.bankName ?? "",
+          minimumTrade: listing.minimumTrade ?? "0",
+          maximumTrade: listing.maximumTrade ?? listing.availableAmount,
+          sellerDescription: listing.sellerDescription ?? "",
+        }),
+      });
+      if (!response.ok) {
+        setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
+        return;
+      }
+      setSellerWorkspaceMessage(`${shortListingRef(listing)} duplicated successfully.`);
+      setEditingListingId(null);
+      await refreshSellerWorkspace();
+    } catch {
+      setSellerWorkspaceMessage(safeErrorMessage("listing"));
+    } finally {
+      setListingActionKey(null);
     }
-    setSellerWorkspaceMessage(`${shortListingRef(listing)} duplicated successfully.`);
-    setEditingListingId(null);
-    await refreshSellerWorkspace();
   }
 
   async function handleSellerListingRenew(listing: MarketplaceListing) {
-    const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "renew" }),
-    });
-    if (!response.ok) {
-      setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
-      return;
+    setListingActionKey(`${listing.id}:renew`);
+    try {
+      const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "renew" }),
+      });
+      if (!response.ok) {
+        setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
+        return;
+      }
+      setSellerWorkspaceMessage(`${shortListingRef(listing)} renewed and reactivated.`);
+      await refreshSellerWorkspace();
+    } catch {
+      setSellerWorkspaceMessage(safeErrorMessage("listing"));
+    } finally {
+      setListingActionKey(null);
     }
-    setSellerWorkspaceMessage(`${shortListingRef(listing)} renewed and reactivated.`);
-    await refreshSellerWorkspace();
   }
 
   async function handleSellerListingCreateSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const response = await fetch("/api/alpha-exchange/listings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        availableAmount: listingCreateForm.availableAmount,
-        price: listingCreateForm.price,
-        currency: listingCreateForm.currency,
-        network: listingCreateForm.network,
-        paymentMethods: listingCreateForm.paymentMethods
-          .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean)
-          .slice(0, 8),
-        bankName: listingCreateForm.bankName,
-        minimumTrade: listingCreateForm.minimumTrade,
-        maximumTrade: listingCreateForm.maximumTrade || listingCreateForm.availableAmount,
-        sellerDescription: listingCreateForm.sellerDescription,
-        responseTime: DEFAULT_RESPONSE_TIME,
-      }),
-    });
-    if (!response.ok) {
-      setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
-      return;
+    setListingActionKey("create:new");
+    try {
+      const response = await fetch("/api/alpha-exchange/listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          availableAmount: listingCreateForm.availableAmount,
+          price: listingCreateForm.price,
+          currency: listingCreateForm.currency,
+          network: listingCreateForm.network,
+          paymentMethods: listingCreateForm.paymentMethods
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean)
+            .slice(0, 8),
+          bankName: listingCreateForm.bankName,
+          minimumTrade: listingCreateForm.minimumTrade,
+          maximumTrade: listingCreateForm.maximumTrade || listingCreateForm.availableAmount,
+          sellerDescription: listingCreateForm.sellerDescription,
+          responseTime: DEFAULT_RESPONSE_TIME,
+        }),
+      });
+      if (!response.ok) {
+        setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
+        return;
+      }
+      setListingCreateForm((prev) => ({
+        ...prev,
+        availableAmount: "",
+        price: "",
+        bankName: "",
+        minimumTrade: "0",
+        maximumTrade: "",
+        sellerDescription: "",
+      }));
+      setSellerWorkspaceMessage("Listing published successfully.");
+      await refreshSellerWorkspace();
+    } catch {
+      setSellerWorkspaceMessage(safeErrorMessage("listing"));
+    } finally {
+      setListingActionKey(null);
     }
-    setListingCreateForm((prev) => ({
-      ...prev,
-      availableAmount: "",
-      price: "",
-      bankName: "",
-      minimumTrade: "0",
-      maximumTrade: "",
-      sellerDescription: "",
-    }));
-    setSellerWorkspaceMessage("Listing submitted for owner approval.");
-    await refreshSellerWorkspace();
   }
 
   async function handleSellerListingEditSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editingListingId) return;
-    const response = await fetch(`/api/alpha-exchange/listings/${editingListingId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        availableAmount: listingEditForm.availableAmount,
-        price: listingEditForm.price,
-        currency: listingEditForm.currency,
-        network: listingEditForm.network,
-        paymentMethods: listingEditForm.paymentMethods
-          .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean)
-          .slice(0, 8),
-        bankName: listingEditForm.bankName,
-        minimumTrade: listingEditForm.minimumTrade,
-        maximumTrade: listingEditForm.maximumTrade || listingEditForm.availableAmount,
-        sellerDescription: listingEditForm.sellerDescription,
-      }),
-    });
-    if (!response.ok) {
-      setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
-      return;
+    setListingActionKey(`${editingListingId}:save`);
+    try {
+      const response = await fetch(`/api/alpha-exchange/listings/${editingListingId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          availableAmount: listingEditForm.availableAmount,
+          price: listingEditForm.price,
+          currency: listingEditForm.currency,
+          network: listingEditForm.network,
+          paymentMethods: listingEditForm.paymentMethods
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean)
+            .slice(0, 8),
+          bankName: listingEditForm.bankName,
+          minimumTrade: listingEditForm.minimumTrade,
+          maximumTrade: listingEditForm.maximumTrade || listingEditForm.availableAmount,
+          sellerDescription: listingEditForm.sellerDescription,
+        }),
+      });
+      if (!response.ok) {
+        setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
+        return;
+      }
+      setEditingListingId(null);
+      setSellerWorkspaceMessage("Listing saved successfully.");
+      await refreshSellerWorkspace();
+    } catch {
+      setSellerWorkspaceMessage(safeErrorMessage("listing"));
+    } finally {
+      setListingActionKey(null);
     }
-    setEditingListingId(null);
-    setSellerWorkspaceMessage("Listing updated.");
-    await refreshSellerWorkspace();
   }
 
   async function fileToDataUrl(file: File) {
@@ -1611,7 +1689,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           </div>
                         )}
                         <div>
-                          <CardTitle className="text-lg">{safeText(listing.sellerDisplayName, "Seller")}</CardTitle>
+                          <CardTitle className="profile-identity-name--seller text-lg">{safeText(listing.sellerDisplayName, "Seller")}</CardTitle>
                           <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">
                             {sellerLevelLabel(listing.sellerReputation?.level)} Seller
                             {listing.sellerProfile?.onlineStatus === "online" ? " • Online" : " • Offline"}
@@ -1935,14 +2013,22 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           key={bank.id}
                           type="button"
                           onClick={() => setListingCreateForm((prev) => ({ ...prev, bankName: bank.name }))}
-                          className={`rounded-xl border p-3 text-left transition ${
+                          className={`rounded-xl border p-3 text-left transition-all duration-200 ${
                             selected
-                              ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_0_0_2px_rgba(108,174,255,0.25)]"
-                              : "border-white/10 bg-black/25 hover:border-[#6CAEFF]/40"
+                              ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]"
+                              : "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]"
                           }`}
                         >
-                          <p className="text-sm font-medium text-white">{bank.name}</p>
-                          <p className="text-[11px] text-[#9CA3AF]">{bank.code}</p>
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-black/35">
+                              {renderBankLogo(bank)}
+                            </span>
+                            <div>
+                              <p className="text-sm font-medium text-white">{bank.name}</p>
+                              <p className="text-[11px] text-[#9CA3AF]">{bank.code}</p>
+                            </div>
+                          </div>
+                          {selected ? <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#93C5FD]">Selected</p> : null}
                         </button>
                       );
                     })}
@@ -1969,7 +2055,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   </div>
                 </div>
                 <div className="md:col-span-2">
-                  <Button type="submit" disabled={isListingCreateSubmitDisabled}>Submit Listing</Button>
+                  <Button type="submit" disabled={isListingCreateSubmitDisabled || listingActionKey === "create:new"}>
+                    {listingActionKey === "create:new" ? "Publishing..." : "Submit Listing"}
+                  </Button>
                 </div>
               </form>
             </CardContent>
@@ -1986,13 +2074,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <Store className="mx-auto h-5 w-5 text-[#C9A227]" />
                   <p className="mt-2 text-sm font-medium text-white">{isAr ? "ليس لديك عروض نشطة حتى الآن" : "You don&apos;t have any active listings yet."}</p>
                   <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "أنشئ أول عرضك الآن ليبدأ المشترون بطلب الشراء." : "Create your first listing now and start receiving buyer requests."}</p>
-                  <Button type="button" size="sm" className="mt-3" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+                  <Button type="button" size="sm" className="mt-3" onClick={() => document.getElementById("create-listing-form")?.scrollIntoView({ behavior: "smooth", block: "start" })}>
                     {isAr ? "إنشاء عرض" : "Create Listing"}
                   </Button>
                 </div>
               ) : null}
               {myListings.map((listing) => {
                 const requestsCount = sellerRequests.filter((request) => request.listingId === listing.id).length;
+                const listingBusy = isListingActionBusy(listing.id);
                 return (
                   <div key={listing.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-[#93C5FD]">Listing {shortListingRef(listing)}</p>
@@ -2010,6 +2099,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         type="button"
                         size="sm"
                         variant="secondary"
+                        disabled={listingBusy}
                         onClick={() => {
                           setEditingListingId(listing.id);
                           setListingEditForm({
@@ -2029,27 +2119,27 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         Edit
                       </Button>
                       {listing.status === "paused" ? (
-                        <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingStatus(listing, "active")}>
+                        <Button type="button" size="sm" variant="secondary" disabled={listingBusy} onClick={() => void handleSellerListingStatus(listing, "active")}>
                           <PlayCircle className="h-4 w-4" />
-                          Resume
+                          {listingActionKey === `${listing.id}:resume` ? "Resuming..." : "Resume"}
                         </Button>
                       ) : listing.status === "active" ? (
-                        <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingStatus(listing, "paused")}>
+                        <Button type="button" size="sm" variant="secondary" disabled={listingBusy} onClick={() => void handleSellerListingStatus(listing, "paused")}>
                           <PauseCircle className="h-4 w-4" />
-                          Pause
+                          {listingActionKey === `${listing.id}:pause` ? "Pausing..." : "Pause"}
                         </Button>
                       ) : null}
-                      <Button type="button" size="sm" variant="secondary" onClick={() => void handleSellerListingRenew(listing)}>
+                      <Button type="button" size="sm" variant="secondary" disabled={listingBusy} onClick={() => void handleSellerListingRenew(listing)}>
                         <Clock3 className="h-4 w-4" />
-                        Renew
+                        {listingActionKey === `${listing.id}:renew` ? "Renewing..." : "Renew"}
                       </Button>
-                      <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingDelete(listing)}>
+                      <Button type="button" size="sm" variant="secondary" disabled={listingBusy} onClick={() => void handleSellerListingDelete(listing)}>
                         <Trash2 className="h-4 w-4" />
-                        Delete
+                        {listingActionKey === `${listing.id}:delete` ? "Deleting..." : "Delete"}
                       </Button>
-                      <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingDuplicate(listing)}>
+                      <Button type="button" size="sm" variant="secondary" disabled={listingBusy} onClick={() => void handleSellerListingDuplicate(listing)}>
                         <Copy className="h-4 w-4" />
-                        Duplicate Listing
+                        {listingActionKey === `${listing.id}:duplicate` ? "Duplicating..." : "Duplicate Listing"}
                       </Button>
                     </div>
                     {editingListingId === listing.id ? (
@@ -2099,12 +2189,22 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                                   key={`${listing.id}-${bank.id}`}
                                   type="button"
                                   onClick={() => setListingEditForm((prev) => ({ ...prev, bankName: bank.name }))}
-                                  className={`rounded-xl border p-2 text-left transition ${
-                                    selected ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15" : "border-white/10 bg-black/25 hover:border-[#6CAEFF]/40"
+                                  className={`rounded-xl border p-2 text-left transition-all duration-200 ${
+                                    selected
+                                      ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]"
+                                      : "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]"
                                   }`}
                                 >
-                                  <p className="text-xs font-medium text-white">{bank.name}</p>
-                                  <p className="text-[10px] text-[#9CA3AF]">{bank.code}</p>
+                                  <div className="flex items-center gap-2">
+                                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/15 bg-black/35">
+                                      {renderBankLogo(bank)}
+                                    </span>
+                                    <div>
+                                      <p className="text-xs font-medium text-white">{bank.name}</p>
+                                      <p className="text-[10px] text-[#9CA3AF]">{bank.code}</p>
+                                    </div>
+                                  </div>
+                                  {selected ? <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#93C5FD]">Selected</p> : null}
                                 </button>
                               );
                             })}
@@ -2126,7 +2226,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           </div>
                         </div>
                         <div className="md:col-span-4 flex gap-2">
-                          <Button type="submit" size="sm" disabled={isListingEditSubmitDisabled}>Save</Button>
+                          <Button type="submit" size="sm" disabled={isListingEditSubmitDisabled || listingActionKey === `${listing.id}:save`}>
+                            {listingActionKey === `${listing.id}:save` ? "Saving..." : "Save"}
+                          </Button>
                           <Button type="button" size="sm" variant="secondary" onClick={() => setEditingListingId(null)}>Cancel</Button>
                         </div>
                       </form>
@@ -2788,7 +2890,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         </div>
                         <div className="space-y-2 text-sm text-[#D1D5DB]">
                           <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-lg font-semibold text-white">{sellerProfileData?.profile.sellerName ?? selectedListing.sellerDisplayName}</p>
+                            <p className="profile-identity-name--seller text-lg font-semibold">{sellerProfileData?.profile.sellerName ?? selectedListing.sellerDisplayName}</p>
                             <RoleBadge variant="approved_seller" />
                             {sellerProfileData?.profile.isFoundingSeller ? <span className="rounded-full border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 px-2 py-0.5 text-[11px] text-[#93C5FD]">Founding Seller</span> : null}
                             {sellerProfileData?.profile.isFeaturedSeller ? <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5 text-[11px] text-[#C9A227]">Featured Seller</span> : null}

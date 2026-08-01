@@ -6,6 +6,7 @@ import { getTranslations } from "next-intl/server";
 import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
 import { AUTH_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
+import { hasRole } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { NotificationBell } from "@/components/notifications/notification-bell";
@@ -19,6 +20,12 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
   const sessionUser = sessionToken ? await getCurrentSessionUser() : null;
   const dashboardHref = sessionUser ? "/profile" : "/login";
   const dashboardLabel = sessionUser ? t("profile") : t("signIn");
+  const canAccessSellerWorkspace = Boolean(
+    sessionUser && (hasRole(sessionUser, "approved_seller") || hasRole(sessionUser, "admin") || hasRole(sessionUser, "owner")),
+  );
+  const sellerWorkspaceHref =
+    sessionUser && (hasRole(sessionUser, "admin") || hasRole(sessionUser, "owner")) ? "/admin/alpha-exchange" : "/dashboard/seller";
+  const sellerWorkspaceLabel = locale === "ar" ? "لوحة البائع" : "Seller Dashboard";
 
   async function logoutAction() {
     "use server";
@@ -86,6 +93,11 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
           <Link href={dashboardHref} locale={locale} className={cn(buttonVariants({ size: "sm" }), "inline-flex")}>
             {dashboardLabel}
           </Link>
+          {canAccessSellerWorkspace ? (
+            <Link href={sellerWorkspaceHref} locale={locale} className={cn(buttonVariants({ size: "sm", variant: "secondary" }), "hidden md:inline-flex")}>
+              🏪 {sellerWorkspaceLabel}
+            </Link>
+          ) : null}
           {sessionUser ? <NotificationBell locale={locale} /> : null}
           {sessionUser ? (
             <form action={logoutAction} className="hidden sm:inline-flex">
@@ -127,6 +139,11 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
                   <Link href={dashboardHref} locale={locale} className="block rounded-xl px-3 py-2 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white">
                     {dashboardLabel}
                   </Link>
+                  {canAccessSellerWorkspace ? (
+                    <Link href={sellerWorkspaceHref} locale={locale} className="block rounded-xl px-3 py-2 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white">
+                      🏪 {sellerWorkspaceLabel}
+                    </Link>
+                  ) : null}
                   {sessionUser ? (
                     <Link href="/notifications" locale={locale} className="block rounded-xl px-3 py-2 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white">
                       {t("notifications")}

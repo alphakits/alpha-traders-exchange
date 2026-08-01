@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { canPublishListings, deleteMarketplaceListingForSeller, renewMarketplaceListing, updateMarketplaceListingForSeller } from "@/lib/alpha-exchange-store";
+import { canPublishListings, deleteMarketplaceListingForSeller, getMarketplaceListingById, renewMarketplaceListing, updateMarketplaceListingForSeller } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
@@ -36,19 +36,17 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
   try {
     const { listingId } = await context.params;
+    const existingListing = await getMarketplaceListingById(listingId);
     const body = await request.json();
     const action = body.action !== undefined ? String(body.action).trim() : "";
     if (action === "renew") {
       // Validate the existing listing's price against market rate before renewing.
       // A listing that was valid when created may violate the cap if market rate dropped.
       const marketRateForRenew = await fetchUsdIlsMarketRate();
-      const { getMarketplaceListings } = await import("@/lib/alpha-exchange-store");
-      const allListings = await getMarketplaceListings();
-      const targetListing = allListings.find((l) => l.id === listingId);
-      if (targetListing) {
+      if (existingListing) {
         const renewPriceError = getListingPriceValidationError({
-          price: targetListing.price,
-          currency: targetListing.currency ?? "ILS",
+          price: existingListing.price,
+          currency: existingListing.currency ?? "ILS",
           marketRate: marketRateForRenew,
         });
         if (renewPriceError) {
@@ -84,6 +82,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const photos = Array.isArray(body.photos) ? body.photos.map((photo: unknown) => String(photo).trim()).filter(Boolean).slice(0, 6) : undefined;
     const network = body.network;
     const status = body.status;
+    const effectiveAvailableAmount = availableAmount ?? existingListing?.availableAmount;
+    const effectiveMinimumTrade = minimumTrade ?? existingListing?.minimumTrade ?? "0";
+    const effectiveMaximumTrade = maximumTrade ?? existingListing?.maximumTrade ?? effectiveAvailableAmount;
 
     if (availableAmount !== undefined && (!availableAmount || toNumber(availableAmount) <= 0)) {
       return NextResponse.json({ error: "Available amount must be greater than zero." }, { status: 400 });
@@ -92,16 +93,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Price must be greater than zero." }, { status: 400 });
     }
     const marketRate = await fetchUsdIlsMarketRate();
-    // Validate the price being set, OR the existing price if being re-activated.
-    let effectivePrice = price;
-    if (!effectivePrice && status === "active") {
-      // Seller is reactivating without changing price — validate the stored price.
-      const { getMarketplaceListings } = await import("@/lib/alpha-exchange-store");
-      const allListings = await getMarketplaceListings();
-      const stored = allListings.find((l) => l.id === listingId);
-      if (stored) effectivePrice = stored.price;
-    }
-    const priceValidationError = getListingPriceValidationError({ price: effectivePrice ?? "", currency: currency ?? "ILS", marketRate });
+    const effectiveCurrency = (currency ?? existingListing?.currency ?? "ILS").trim().toUpperCase();
+    const shouldValidateStoredPrice = status === "active" || currency !== undefined;
+    const effectivePrice = price ?? (shouldValidateStoredPrice ? existingListing?.price : undefined) ?? "";
+    const priceValidationError = getListingPriceValidationError({ price: effectivePrice, currency: effectiveCurrency, marketRate });
     if (priceValidationError) {
       return NextResponse.json({ error: priceValidationError }, { status: 400 });
     }
@@ -120,11 +115,14 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (minimumTrade !== undefined && toNumber(minimumTrade) < 0) {
       return NextResponse.json({ error: "Minimum trade cannot be negative." }, { status: 400 });
     }
-    if (maximumTrade !== undefined && toNumber(maximumTrade) <= 0) {
+    if (effectiveMaximumTrade !== undefined && toNumber(effectiveMaximumTrade) <= 0) {
       return NextResponse.json({ error: "Maximum trade must be greater than zero." }, { status: 400 });
     }
-    if (minimumTrade !== undefined && maximumTrade !== undefined && toNumber(maximumTrade) < toNumber(minimumTrade)) {
+    if (effectiveMaximumTrade !== undefined && toNumber(effectiveMaximumTrade) < toNumber(effectiveMinimumTrade)) {
       return NextResponse.json({ error: "Maximum trade must be greater than or equal to minimum trade." }, { status: 400 });
+    }
+    if (effectiveMaximumTrade !== undefined && effectiveAvailableAmount !== undefined && toNumber(effectiveMaximumTrade) > toNumber(effectiveAvailableAmount)) {
+      return NextResponse.json({ error: "Maximum trade must be less than or equal to available amount." }, { status: 400 });
     }
     if (expiresAt !== undefined && expiresAt) {
       const expiresMs = new Date(expiresAt).getTime();
