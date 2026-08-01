@@ -3030,6 +3030,12 @@ export async function findUserByEmail(email: string) {
   return db.users.find((user) => normalizeEmail(user.email) === normalized) ?? null;
 }
 
+export async function findUsersByEmail(email: string) {
+  const db = await readDb();
+  const normalized = normalizeEmail(email);
+  return db.users.filter((user) => normalizeEmail(user.email) === normalized);
+}
+
 export async function findUserById(userId: string) {
   const db = await readDb();
   return db.users.find((user) => user.id === userId) ?? null;
@@ -6293,14 +6299,15 @@ export async function clearSellerQaCommissionDues(input: {
 }
 
 export async function clearSellerCommissionDuesByAdmin(input: {
-  sellerUserId: string;
+  sellerUserIds: string[];
   adminUserId: string;
 }) {
   const db = await readDb();
   const now = nowIso();
+  const sellerUserIdSet = new Set(input.sellerUserIds.filter(Boolean));
   const sellerPendingCommissions = db.commissionRecords.filter(
     (record) =>
-      record.sellerId === input.sellerUserId &&
+      sellerUserIdSet.has(record.sellerId) &&
       normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid",
   );
 
