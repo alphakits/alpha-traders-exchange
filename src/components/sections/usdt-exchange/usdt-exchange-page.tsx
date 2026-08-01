@@ -1027,7 +1027,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
-      setSellerWorkspaceMessage(`${shortListingRef(listing)} ${nextStatus === "paused" ? "paused" : "resumed"} successfully.`);
+      setSellerWorkspaceMessage(nextStatus === "paused" ? "⏸ Listing paused. It is no longer visible to buyers until you resume it." : "▶ Listing resumed. Your listing is now live in the marketplace.");
       await refreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing"));
@@ -1046,7 +1046,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
-      setSellerWorkspaceMessage(`Listing ${shortListingRef(listing)} deleted.`);
+      setSellerWorkspaceMessage("🗑 Listing removed successfully.");
       await refreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing"));
@@ -1079,7 +1079,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
-      setSellerWorkspaceMessage(`${shortListingRef(listing)} duplicated successfully.`);
+      setSellerWorkspaceMessage("📋 Listing duplicated successfully. Review and publish it when ready.");
       setEditingListingId(null);
       await refreshSellerWorkspace();
     } catch {
@@ -1101,7 +1101,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
-      setSellerWorkspaceMessage(`${shortListingRef(listing)} renewed and reactivated.`);
+      setSellerWorkspaceMessage("🔄 Listing renewed. Your listing is now live with a refreshed expiry.");
       await refreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing"));
@@ -1149,7 +1149,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         sellerDescription: "",
       }));
       setListingCommissionAgreement(false);
-      setSellerWorkspaceMessage("Listing published successfully.");
+      setSellerWorkspaceMessage("✅ Listing published successfully. Buyers can now see your listing in the marketplace.");
       await refreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing"));
@@ -1187,7 +1187,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         return;
       }
       setEditingListingId(null);
-      setSellerWorkspaceMessage("Listing saved successfully.");
+      setSellerWorkspaceMessage("✅ Listing updated successfully. Changes are now visible to buyers.");
       await refreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing"));
@@ -1388,7 +1388,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#9CA3AF]">Loading notifications...</div>
           ) : null}
           {!notificationsLoading && notifications.length === 0 ? (
-            <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#9CA3AF]">No notifications found.</div>
+            <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-center text-xs text-[#9CA3AF]">
+              <BellRing className="mx-auto mb-2 h-4 w-4 text-[#9CA3AF]" />
+              No notifications yet. You&apos;ll be notified here about trades, listings, reviews, and account activity.
+            </div>
           ) : null}
           {notifications.slice(0, 10).map((notification) => (
             <div key={notification.id} className={`rounded-xl border p-3 text-xs ${notification.isRead ? "border-white/10 bg-black/20 text-[#9CA3AF]" : "border-[#C9A227]/35 bg-[#C9A227]/10 text-[#F3F4F6]"}`}>
@@ -1727,7 +1730,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 </Card>
               ))
             : filteredListings.map((listing) => (
-                <Card key={listing.id} className="group border-white/10 bg-[#0B0B0B]/90 transition duration-300 hover:-translate-y-1 hover:border-[#C9A227]/30 hover:shadow-[0_22px_60px_rgba(0,0,0,0.35)]">
+                <Card key={listing.id} className="group border-white/10 bg-[#0B0B0B]/90 transition duration-300 hover:-translate-y-1 hover:border-[#C9A227]/30 hover:shadow-[0_22px_60px_rgba(0,0,0,0.35)]" style={{ borderLeft: `2px solid ${listing.sellerReputation?.level === "gold" || listing.sellerReputation?.level === "diamond" ? "#C9A227" : "rgba(255,255,255,0.1)"}` }}>
                   <CardHeader>
                     <div className={`flex items-center justify-between ${isAr ? "flex-row-reverse" : ""}`}>
                       <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
@@ -1769,7 +1772,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <div className="rounded-xl border border-[#C9A227]/25 bg-[#C9A227]/10 p-3">
                       <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "سعر العرض" : "Listing Price"}</p>
                       <div className="mt-2 flex items-end justify-between">
-                        <p className="text-xl font-semibold text-white">{formatIls(toNumber(listing.price))}</p>
+                        <p className="text-2xl font-semibold text-white">{formatIls(toNumber(listing.price))}</p>
                         <p className="text-xs text-[#E5E7EB]">{toNumber(listing.availableAmount).toLocaleString("en-IL")} USDT</p>
                       </div>
                     </div>
@@ -1783,7 +1786,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <p>{isAr ? "آخر نشاط" : "Last active"}: <span className="text-white">{formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt)}</span></p>
                       <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{safeText(listing.network)}</span></p>
                       <p>{isAr ? "الدفع" : "Payment"}: <span className="text-white">{(listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod]).join(", ")}</span></p>
-                      <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{safeText(listing.minimumTrade)} / {safeText(listing.maximumTrade)}</span></p>
+                      <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{toNumber(listing.minimumTrade).toLocaleString("en-IL")} – {toNumber(listing.maximumTrade).toLocaleString("en-IL")} USDT</span></p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {(listing.sellerReputation?.badges ?? []).slice(0, 2).map((badge) => (
@@ -1791,6 +1794,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           {sellerBadgeLabel(badge)}
                         </span>
                       ))}
+                      {listing.bankName ? (
+                        <span className="rounded-full border border-white/15 bg-white/[0.03] px-2 py-1 text-[11px] text-[#D1D5DB]">
+                          🏦 {listing.bankName}
+                        </span>
+                      ) : null}
                     </div>
                     <Button className="w-full transition-transform group-hover:scale-[1.01]" onClick={() => openListingModal(listing)} aria-label={`Open listing from ${safeText(listing.sellerDisplayName, "seller")}`}>
                       {isAr ? "شراء USDT الآن" : "Buy USDT"}
@@ -1922,23 +1930,27 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form
-              className="grid gap-3"
-              onSubmit={(event) => {
-                event.preventDefault();
-              }}
-            >
-              <Input placeholder={isAr ? "الكمية المطلوبة" : "Desired Amount"} type="number" min="0" step="any" />
-              <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
-                <option>TRC20</option>
-                <option>ERC20</option>
-                <option>BEP20</option>
-                <option>SOL</option>
-              </select>
-              <Input placeholder={isAr ? "رقم الواتساب" : "WhatsApp Number"} />
-              <Textarea placeholder={isAr ? "ملاحظات إضافية" : "Additional Notes"} />
-              <Button type="submit">{isAr ? "ابحث عن البائعين المتاحين" : "Find Available Sellers"}</Button>
-            </form>
+            <div className="space-y-4">
+              <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
+                <p className="mb-2 font-medium text-white">How to buy USDT:</p>
+                <ol className="list-inside list-decimal space-y-2">
+                  <li>Browse the <a href="#marketplace" className="text-[#93C5FD] hover:underline">Live Marketplace</a> above</li>
+                  <li>Choose a verified seller that fits your needs</li>
+                  <li>Click <strong className="text-white">Buy USDT</strong> on their listing</li>
+                  <li>Fill in your trade details and submit</li>
+                  <li>Alpha Traders coordinates the rest</li>
+                </ol>
+              </div>
+              <a href="#marketplace">
+                <Button className="w-full">{isAr ? "ابدأ صفقة" : "Browse Sellers"}</Button>
+              </a>
+              <p className="text-center text-xs text-[#9CA3AF]">
+                Need help?{" "}
+                <a href={WHATSAPP_URL} target="_blank" rel="noreferrer" className="text-[#93C5FD] hover:underline">
+                  Contact Alpha Traders on WhatsApp
+                </a>
+              </p>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -1946,6 +1958,44 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
       {isApprovedSeller ? (
         <div className="mt-8 space-y-6">
+          {/* Seller Dashboard Hero */}
+          <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#0D0D0D] via-[#0A0A0A] to-[#111827]/60 p-6 shadow-[0_24px_60px_rgba(0,0,0,0.4)]">
+            <div className="pointer-events-none absolute inset-0 opacity-30">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_20%,rgba(201,162,39,0.18),transparent_40%),radial-gradient(circle_at_90%_80%,rgba(147,197,253,0.1),transparent_40%)]" />
+            </div>
+            <div className="relative z-10 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-[#9CA3AF]">Seller Workspace</p>
+                <h2 className="mt-1 text-2xl font-semibold text-white">
+                  Welcome back, {sessionUser?.fullName?.split(" ")[0] ?? "Seller"} 👋
+                </h2>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[#C9A227]/40 bg-[#C9A227]/10 px-3 py-1 text-xs font-medium text-[#F4D87A]">
+                    <Trophy className="h-3 w-3" />
+                    {sellerLevelLabel(sellerOverviewStats.reputation?.level)} Seller
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[#93C5FD]/30 bg-[#93C5FD]/10 px-3 py-1 text-xs text-[#93C5FD]">
+                    <ShieldCheck className="h-3 w-3" />
+                    Trust {(sellerOverviewStats.reputation?.trustScore ?? 0).toFixed(1)}
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[#22C55E]/25 bg-[#22C55E]/10 px-3 py-1 text-xs text-[#86EFAC]">
+                    <Star className="h-3 w-3" />
+                    {(sellerOverviewStats.reputation?.rating ?? 0).toFixed(2)} Rating
+                  </span>
+                </div>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-black/25 p-4 text-xs text-[#D1D5DB] sm:min-w-[180px]">
+                <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">Today&apos;s Market</p>
+                <p className="mt-1 text-base font-semibold text-white">USD/ILS {formatIls(marketPricePerUsdt)}</p>
+                <div className="mt-2 space-y-0.5">
+                  {sellerOverviewStats.activeListings > 0 && <p>• {sellerOverviewStats.activeListings} Active Listing{sellerOverviewStats.activeListings !== 1 ? "s" : ""}</p>}
+                  {sellerOverviewStats.pendingRequests > 0 && <p>• {sellerOverviewStats.pendingRequests} Purchase Request{sellerOverviewStats.pendingRequests !== 1 ? "s" : ""}</p>}
+                  {sellerOverviewStats.reputation?.completedTrades !== undefined && <p className="text-[#9CA3AF]">• {sellerOverviewStats.reputation.completedTrades} Total Trades</p>}
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {isLoadingListings
               ? Array.from({ length: 6 }).map((_, index) => (
@@ -2182,6 +2232,20 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               </form>
             </CardContent>
           </Card>
+
+          {sellerWorkspaceMessage ? (
+            <div className="flex items-start justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-100 shadow-[0_0_0_1px_rgba(16,185,129,0.08)]">
+              <span>{sellerWorkspaceMessage}</span>
+              <button
+                type="button"
+                aria-label="Dismiss"
+                onClick={() => setSellerWorkspaceMessage(null)}
+                className="shrink-0 rounded-full p-0.5 text-emerald-300 transition hover:text-white"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ) : null}
 
           <Card className="border-white/10 bg-[#0B0B0B]/90">
             <CardHeader>
@@ -2634,11 +2698,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               )}
             </CardContent>
           </Card>
-            {sellerWorkspaceMessage ? (
-              <Card className="border-[#C9A227]/30 bg-[#C9A227]/10">
-                <CardContent className="p-3 text-xs text-white">{sellerWorkspaceMessage}</CardContent>
-              </Card>
-            ) : null}
         </div>
       ) : (
         <div className="mt-8 grid gap-4 md:grid-cols-2">
@@ -2735,7 +2794,18 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   </select>
                 </div>
                 {!filteredBuyerRequests.length ? (
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-[#9CA3AF]">No trades found for current filters.</div>
+                  buyerRequests.length === 0 ? (
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-5 text-center">
+                      <HandCoins className="mx-auto h-5 w-5 text-[#C9A227]" />
+                      <p className="mt-2 text-sm font-medium text-white">No trades yet</p>
+                      <p className="mt-1 text-xs text-[#9CA3AF]">Browse verified sellers and start your first trade.</p>
+                      <a href="#marketplace" className="mt-3 inline-flex items-center gap-1 text-xs text-[#93C5FD] hover:underline">
+                        Browse Marketplace →
+                      </a>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-[#9CA3AF]">No trades found for current filters.</div>
+                  )
                 ) : null}
                 {filteredBuyerRequests.map((request) => (
                   <div key={request.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
