@@ -518,7 +518,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   const [buyerInfo, setBuyerInfo] = useState({ name: "", whatsapp: "", notes: "", usdtAmount: "" });
   const [sellerForm, setSellerForm] = useState({
-    fullName: "",
+    firstName: "",
+    lastName: "",
     email: "",
     whatsappNumber: "",
     expectedMonthlyTradingVolume: "",
@@ -684,8 +685,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           const user = meJson.user;
           setSellerForm((prev) => ({
             ...prev,
-            fullName: user.fullName,
-            email: user.email,
+            firstName: user.fullName?.split(" ")[0] ?? prev.firstName,
+            lastName: user.fullName?.split(" ").slice(1).join(" ") ?? prev.lastName,
+            email: user.email ?? prev.email,
             whatsappNumber: user.whatsappNumber || prev.whatsappNumber,
           }));
           setBuyerInfo((prev) => ({
@@ -1042,10 +1044,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...sellerForm,
-          preferredNetworks: sellerApplicationMethods,
-          additionalNotes: sellerForm.additionalNotes.trim(),
-        }),
+            fullName: [sellerForm.firstName, sellerForm.lastName].filter(Boolean).join(" ").trim(),
+            email: sellerForm.email,
+            whatsappNumber: sellerForm.whatsappNumber,
+            expectedMonthlyTradingVolume: sellerForm.expectedMonthlyTradingVolume,
+            preferredNetworks: sellerApplicationMethods,
+            additionalNotes: sellerForm.additionalNotes.trim(),
+          }),
       });
       if (!response.ok) {
         setStatusMessage(await readApiErrorMessage(response, fallbackMessage));
@@ -2565,130 +2570,250 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       </div>
 
       {!isApprovedSeller ? (
-      <div className="mt-12 grid gap-6 xl:grid-cols-2">
+      <div className="mt-10 grid gap-6 xl:grid-cols-2">
+        {/* ── Seller Application ── */}
         <Card className="border-white/10 bg-[#0B0B0B]/90">
-          <CardHeader>
-            <CardTitle>{isAr ? "Become an Approved Seller" : "Become an Approved Seller"}</CardTitle>
-            <CardDescription>
-              {isAr ? "التقديم كبائع يتم مراجعته يدويًا قبل منح صلاحية النشر." : "Seller access is granted only after manual review and approval."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="mb-4 rounded-xl border border-white/10 bg-black/20 p-4">
-              <div className="flex items-center justify-between text-xs uppercase tracking-[0.18em] text-[#9CA3AF]">
-                <span>{isAr ? "Application" : "Application"}</span>
-                <span>↓</span>
-                <span>{isAr ? "Review" : "Review"}</span>
-                <span>↓</span>
-                <span>{isAr ? "Approval" : "Approval"}</span>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#C9A227]/35 bg-[#C9A227]/10 text-[#C9A227]">
+                <ShieldCheck className="h-5 w-5" />
               </div>
-              <p className="mt-3 text-sm text-[#D1D5DB]">
-                {isAr ? "Current Status:" : "Current Status:"}{" "}
-                <span className="font-medium text-[#C9A227]">
-                  {sellerApplication?.status === "approved"
-                    ? "Approved"
-                    : sellerApplication?.status === "rejected"
-                      ? "Rejected"
-                      : "Pending Review"}
-                </span>
-              </p>
+              <div>
+                <CardTitle className="text-lg">{isAr ? "انضم كبائع معتمد" : "Become an Approved Seller"}</CardTitle>
+                <CardDescription className="mt-0.5 text-xs">
+                  {isAr ? "يتم مراجعة الطلبات يدويًا قبل منح صلاحية النشر." : "Applications are reviewed manually before marketplace access is granted."}
+                </CardDescription>
+              </div>
             </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
 
-            <form className="grid gap-3" onSubmit={handleSellerApplicationSubmit}>
-              <Input placeholder={isAr ? "الاسم الكامل" : "Full Name"} value={sellerForm.fullName} onChange={(event) => setSellerForm((prev) => ({ ...prev, fullName: event.target.value }))} />
-              <Input placeholder={isAr ? "البريد الإلكتروني" : "Email"} type="email" value={sellerForm.email} onChange={(event) => setSellerForm((prev) => ({ ...prev, email: event.target.value }))} />
-              <Input placeholder={isAr ? "رقم الواتساب" : "WhatsApp Number"} value={sellerForm.whatsappNumber} onChange={(event) => setSellerForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} />
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "إعدادات الطلب" : "Application Setup"}</p>
-                <p className="mt-2 text-xs text-[#D1D5DB]">
-                  {isAr ? "اختر طريقة أو أكثر لاستلام المدفوعات وتسوية صفقاتك." : "Select one or more methods for how you want to receive funds and settle trades."}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "طرق البيع المدعومة" : "Supported Selling Methods"}</p>
-                <div className="mt-3 grid gap-4 lg:grid-cols-2">
-                  {(["Crypto", "Fiat"] as const).map((group) => (
-                    <div key={group} className="space-y-2">
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{group}</p>
-                      <div className="grid gap-2">
-                        {SELLER_APPLICATION_METHOD_OPTIONS.filter((method) => method.group === group).map((method) => {
-                          const selected = sellerApplicationMethods.includes(method.id);
-                          return (
-                            <button
-                              key={method.id}
-                              type="button"
-                              onClick={() => setSellerApplicationMethods((prev) => prev.includes(method.id) ? prev.filter((item) => item !== method.id) : [...prev, method.id])}
-                              className={`rounded-xl border px-3 py-2 text-left text-sm transition ${
-                                selected
-                                  ? "border-[#C9A227]/60 bg-[#C9A227]/12 text-white"
-                                  : "border-white/10 bg-black/25 text-[#D1D5DB] hover:border-[#C9A227]/35 hover:text-white"
-                              }`}
-                            >
-                              <div className="flex items-center justify-between gap-3">
-                                <span>{method.id}</span>
-                                {method.recommended ? <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#D4AF37]">Recommended</span> : null}
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
+            {/* ── State 1: Buyer verification not complete ── */}
+            {sessionUser && sessionUser.isPhotoVerified !== true ? (
+              <div className="rounded-2xl border border-amber-500/35 bg-amber-500/10 p-5">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
+                  <div>
+                    <p className="font-semibold text-white">{isAr ? "إكمال التحقق من المشتري أولاً" : "Complete Buyer Verification First"}</p>
+                    <p className="mt-2 text-sm text-[#E5E7EB]">
+                      {isAr
+                        ? "يجب عليك إكمال التحقق من رقم هاتفك كمشترٍ قبل التقديم كبائع. التحقق يحمي السوق ويضمن الثقة للجميع."
+                        : "You must complete phone verification as a buyer before applying as a seller. Verification protects the marketplace and ensures trust for everyone."}
+                    </p>
+                    <Button
+                      type="button"
+                      className="mt-4 w-full"
+                      onClick={goToVerificationGate}
+                      disabled={isRedirectingToVerification}
+                    >
+                      {isRedirectingToVerification ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      {isRedirectingToVerification ? (isAr ? "جاري التوجيه..." : "Redirecting...") : (isAr ? "إكمال التحقق الآن" : "Complete Verification Now")}
+                    </Button>
+                  </div>
                 </div>
               </div>
-              <Input placeholder={isAr ? "حجم التداول الشهري المتوقع" : "Expected Monthly Trading Volume"} value={sellerForm.expectedMonthlyTradingVolume} onChange={(event) => setSellerForm((prev) => ({ ...prev, expectedMonthlyTradingVolume: event.target.value }))} />
-              <Textarea placeholder={isAr ? "ملاحظات إضافية" : "Additional Notes"} value={sellerForm.additionalNotes} onChange={(event) => setSellerForm((prev) => ({ ...prev, additionalNotes: event.target.value }))} />
-              <Button type="submit">{isAr ? "قدّم طلب الاعتماد" : "Apply for Approval"}</Button>
-            </form>
-            {applicationSubmitted ? (
-              <div className="mt-4 rounded-xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-4 text-sm">
-                <p className="font-medium text-white">{isAr ? "تم إرسال الطلب" : "Application Submitted"}</p>
-                <p className="mt-1 text-[#D1D5DB]">
-                  {isAr
-                    ? "طلبك قيد المراجعة حاليًا من فريق Alpha Traders."
-                    : "Your application is currently under review by Alpha Traders."}
+            ) : (sellerApplication?.status === "pending" || applicationSubmitted) ? (
+              /* ── State 2: Application pending ── */
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-[#C9A227]/35 bg-[#C9A227]/10 p-5">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[#C9A227]/50 bg-[#C9A227]/20">
+                      <Clock3 className="h-5 w-5 text-[#F4D87A]" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-white">{isAr ? "الطلب قيد المراجعة" : "Application Pending Review"}</p>
+                      <p className="mt-0.5 text-xs text-[#D1D5DB]">
+                        {sellerApplication?.createdAt
+                          ? `${isAr ? "تاريخ التقديم" : "Submitted"}: ${new Date(sellerApplication.createdAt).toLocaleDateString("en-IL")}`
+                          : (isAr ? "تم إرسال الطلب" : "Application submitted")}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/25 p-4 text-sm text-[#D1D5DB]">
+                  <p className="mb-3 text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "ماذا يحدث بعد ذلك" : "What Happens Next"}</p>
+                  <div className="space-y-2">
+                    {[
+                      isAr ? "سيراجع فريق Alpha Traders طلبك." : "The Alpha Traders team will review your application.",
+                      isAr ? "سيتواصل معك المالك عبر WhatsApp على رقمك المحقق." : "The owner will contact you via WhatsApp using your verified phone number.",
+                      isAr ? "قد تُطلب منك معلومات أو تحقق إضافي." : "Additional verification or information may be requested.",
+                      isAr ? "بعد الموافقة ستحصل على شارة البائع المعتمد." : "Upon approval, you receive the Approved Seller badge and marketplace access.",
+                    ].map((step, index) => (
+                      <div key={index} className="flex items-start gap-2">
+                        <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[#C9A227]/40 bg-[#C9A227]/10 text-[10px] font-semibold text-[#F4D87A]">{index + 1}</span>
+                        <p>{step}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <p className="rounded-xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-4 py-3 text-xs text-[#BFDBFE]">
+                  {isAr ? "سنتواصل معك عبر WhatsApp على رقم هاتفك المحقق." : "We'll contact you via WhatsApp using your verified phone number."}
                 </p>
               </div>
-            ) : null}
-            {statusMessage ? (
-              <Card className="mt-3 border-amber-500/30 bg-black/30">
-                <CardContent className="flex items-center gap-2 p-3 text-xs text-[#FDE68A]">
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  <span>{statusMessage}</span>
-                </CardContent>
-              </Card>
-            ) : null}
+            ) : (
+              /* ── State 3: Application form ── */
+              <>
+                {/* Approval process info panel */}
+                <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
+                  <p className="mb-3 text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "عملية الموافقة" : "Approval Process"}</p>
+                  <div className="space-y-2">
+                    {[
+                      isAr ? "يدخل طلبك في مراجعة يدوية." : "Your application enters manual review.",
+                      isAr ? "سيتواصل معك مالك Alpha Traders عبر WhatsApp على رقمك المحقق." : "The Alpha Traders owner will contact you via WhatsApp using your verified phone number.",
+                      isAr ? "قد تُطلب منك معلومات إضافية." : "Additional verification or information may be requested.",
+                      isAr ? "بعد الموافقة تحصل على شارة البائع المعتمد وصلاحيات النشر." : "Once approved, you receive the Approved Seller badge and marketplace selling privileges.",
+                    ].map((step, index) => (
+                      <div key={index} className="flex items-start gap-2">
+                        <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 text-[10px] font-semibold text-[#F4D87A]">{index + 1}</span>
+                        <p>{step}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {statusMessage ? (
+                  <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-[#FDE68A]">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    <span>{statusMessage}</span>
+                  </div>
+                ) : null}
+
+                <form className="space-y-3" onSubmit={handleSellerApplicationSubmit}>
+                  {/* Personal Information */}
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "المعلومات الشخصية" : "Personal Information"}</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Input
+                      placeholder={isAr ? "الاسم الأول (مطلوب)" : "First Name (required)"}
+                      value={sellerForm.firstName}
+                      required
+                      onChange={(event) => setSellerForm((prev) => ({ ...prev, firstName: event.target.value }))}
+                    />
+                    <Input
+                      placeholder={isAr ? "اسم العائلة (مطلوب)" : "Last Name (required)"}
+                      value={sellerForm.lastName}
+                      required
+                      onChange={(event) => setSellerForm((prev) => ({ ...prev, lastName: event.target.value }))}
+                    />
+                  </div>
+                  <div className="relative">
+                    <Input
+                      type="email"
+                      value={sellerForm.email || (sessionUser?.email ?? "")}
+                      readOnly
+                      aria-label={isAr ? "البريد الإلكتروني" : "Email"}
+                      className="cursor-default opacity-75"
+                    />
+                    <span className="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-2 py-0.5 text-[10px] font-medium text-[#D4AF37]">
+                      {isAr ? "من الحساب" : "From account"}
+                    </span>
+                  </div>
+                  <Input
+                    placeholder={isAr ? "رقم الهاتف / WhatsApp (مطلوب)" : "WhatsApp / Phone Number (required)"}
+                    value={sellerForm.whatsappNumber}
+                    required
+                    onChange={(event) => setSellerForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))}
+                  />
+
+                  {/* Selling methods */}
+                  <p className="pt-1 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "طرق البيع المدعومة" : "Supported Selling Methods"}</p>
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                    <p className="mb-3 text-xs text-[#9CA3AF]">
+                      {isAr ? "اختر طريقة أو أكثر." : "Select one or more methods."}
+                    </p>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      {(["Crypto", "Fiat"] as const).map((group) => (
+                        <div key={group} className="space-y-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#9CA3AF]">{group}</p>
+                          <div className="grid gap-2">
+                            {SELLER_APPLICATION_METHOD_OPTIONS.filter((m) => m.group === group).map((method) => {
+                              const selected = sellerApplicationMethods.includes(method.id);
+                              return (
+                                <button
+                                  key={method.id}
+                                  type="button"
+                                  onClick={() => setSellerApplicationMethods((prev) => prev.includes(method.id) ? prev.filter((item) => item !== method.id) : [...prev, method.id])}
+                                  className={`rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                                    selected
+                                      ? "border-[#C9A227]/60 bg-[#C9A227]/10 text-white ring-1 ring-[#C9A227]/30"
+                                      : "border-white/10 bg-black/25 text-[#D1D5DB] hover:border-[#C9A227]/30 hover:text-white"
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span>{method.id}</span>
+                                    <span className="flex items-center gap-1.5">
+                                      {method.recommended ? <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#D4AF37]">⭐ Recommended</span> : null}
+                                      {selected ? <CheckCircle2 className="h-4 w-4 text-[#C9A227]" /> : <div className="h-4 w-4 rounded-full border border-white/20" />}
+                                    </span>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Expected Monthly Volume */}
+                  <p className="pt-1 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "التداول الشهري المتوقع" : "Expected Monthly Trading Volume"}</p>
+                  <Input
+                    placeholder={isAr ? "مثال: 5,000 USDT شهريًا" : "e.g. 5,000 USDT per month"}
+                    value={sellerForm.expectedMonthlyTradingVolume}
+                    onChange={(event) => setSellerForm((prev) => ({ ...prev, expectedMonthlyTradingVolume: event.target.value }))}
+                  />
+
+                  {/* Additional notes */}
+                  <Textarea
+                    placeholder={isAr ? "ملاحظات إضافية (اختياري)" : "Additional notes (optional)"}
+                    value={sellerForm.additionalNotes}
+                    onChange={(event) => setSellerForm((prev) => ({ ...prev, additionalNotes: event.target.value }))}
+                  />
+
+                  <Button type="submit" className="w-full" disabled={!sellerForm.firstName || !sellerForm.lastName || !sellerForm.whatsappNumber || sellerApplicationMethods.length === 0}>
+                    {isAr ? "قدّم طلب الاعتماد" : "Apply for Approval"}
+                  </Button>
+                </form>
+
+                {/* Trust notice */}
+                <p className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-xs text-[#9CA3AF]">
+                  {isAr
+                    ? "تتم الموافقة على البائعين يدويًا لحماية المشترين والحفاظ على سوق موثوق. تُراجَع الطلبات بشكل فردي وقد يُطلب تحقق إضافي."
+                    : "Seller approval is performed manually to protect buyers and maintain a trusted marketplace. Applications are reviewed individually and additional verification may be requested before approval."}
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
 
+        {/* ── Find a Seller ── */}
         <Card className="border-white/10 bg-[#0B0B0B]/90">
           <CardHeader>
-            <CardTitle>{isAr ? "Find an Approved Seller" : "Find an Approved Seller"}</CardTitle>
+            <CardTitle>{isAr ? "ابحث عن بائع معتمد" : "Find an Approved Seller"}</CardTitle>
             <CardDescription>
               {isAr
-                ? "أخبرنا بالكمية التي تحتاجها من USDT وسيساعدك فريق Alpha Traders على التواصل مع بائع معتمد متاح."
-                : "Tell us how much USDT you need and Alpha Traders will help connect you with an available Approved Seller."}
+                ? "تصفح البائعين المعتمدين وابدأ صفقة USDT آمنة ومُنسَّقة من خلال Alpha Exchange."
+                : "Browse verified sellers and start a secure USDT trade coordinated through Alpha Exchange."}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
-                <p className="mb-2 font-medium text-white">How to buy USDT:</p>
+                <p className="mb-2 font-medium text-white">{isAr ? "كيف تشتري USDT:" : "How to buy USDT:"}</p>
                 <ol className="list-inside list-decimal space-y-2">
-                  <li>Browse the <a href="#marketplace" className="text-[#93C5FD] hover:underline">Live Marketplace</a> above</li>
-                  <li>Choose a verified seller that fits your needs</li>
-                  <li>Click <strong className="text-white">Buy USDT</strong> on their listing</li>
-                  <li>Fill in your trade details and submit</li>
-                  <li>Alpha Traders coordinates the rest</li>
+                  <li>{isAr ? "تصفح" : "Browse the"} <a href="#marketplace" className="text-[#93C5FD] hover:underline">{isAr ? "السوق المباشر" : "Live Marketplace"}</a> {isAr ? "أعلاه" : "above"}</li>
+                  <li>{isAr ? "اختر بائعًا موثقًا يناسب احتياجاتك" : "Choose a verified seller that fits your needs"}</li>
+                  <li>{isAr ? "اضغط" : "Click"} <strong className="text-white">{isAr ? "شراء USDT" : "Buy USDT"}</strong> {isAr ? "على عرضه" : "on their listing"}</li>
+                  <li>{isAr ? "أدخل تفاصيل الصفقة وأرسلها" : "Fill in your trade details and submit"}</li>
+                  <li>{isAr ? "Alpha Traders تنسق الباقي" : "Alpha Traders coordinates the rest"}</li>
                 </ol>
               </div>
               <a href="#marketplace">
-                <Button className="w-full">{isAr ? "ابدأ صفقة" : "Browse Sellers"}</Button>
+                <Button className="w-full">{isAr ? "تصفح البائعين" : "Browse Sellers"}</Button>
               </a>
               <p className="text-center text-xs text-[#9CA3AF]">
-                Need help?{" "}
+                {isAr ? "هل تحتاج مساعدة؟" : "Need help?"}{" "}
                 <a href={WHATSAPP_URL} target="_blank" rel="noreferrer" className="text-[#93C5FD] hover:underline">
-                  Contact Alpha Traders on WhatsApp
+                  {isAr ? "تواصل مع Alpha Traders على WhatsApp" : "Contact Alpha Traders on WhatsApp"}
                 </a>
               </p>
             </div>

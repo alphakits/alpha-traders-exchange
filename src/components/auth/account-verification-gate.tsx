@@ -256,6 +256,7 @@ export function AccountVerificationGate({ locale, redirectTo, initialEmail, init
                 />
                 <Button
                   type="button"
+                  className="w-full"
                   loading={sendingOtp}
                   loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
                   disabled={!phoneForm.firstName || !phoneForm.lastName || !phoneForm.phone}
@@ -271,6 +272,7 @@ export function AccountVerificationGate({ locale, redirectTo, initialEmail, init
                 />
                 <Button
                   type="button"
+                  className="w-full"
                   variant="secondary"
                   loading={verifyingOtp}
                   loadingLabel={isAr ? "جارٍ التحقق..." : "Verifying..."}
