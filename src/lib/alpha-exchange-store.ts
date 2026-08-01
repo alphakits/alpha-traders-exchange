@@ -5778,11 +5778,157 @@ export async function getCommissionRecordsForAdmin(dbInput?: AlphaExchangeDb) {
   return db.commissionRecords;
 }
 
+// ── Blockchain Commission Verification ──────────────────────────────────────
+
 type CommissionWalletVerificationResult = {
   verified: boolean;
   reference: string;
   notes: string;
 };
+
+/** EVM USDT contract addresses (lowercase) */
+const EVM_USDT_CONTRACTS: Record<string, string> = {
+  ERC20: "0xdac17f958d2ee523a2206206994597c13d831ec7",
+  POLYGON: "0xc2132d05d31c914a87c6611c10748aeb04b58e8f",
+};
+/** Etherscan-compatible explorer API base URLs */
+const EVM_EXPLORER_APIS: Record<string, string> = {
+  ERC20: "https://api.etherscan.io/api",
+  POLYGON: "https://api.polygonscan.com/api",
+};
+/** Optional API key env vars (free-tier works without keys but rate-limited) */
+const EVM_API_KEY_ENVS: Record<string, string> = {
+  ERC20: "ALPHA_EXCHANGE_ETHERSCAN_API_KEY",
+  POLYGON: "ALPHA_EXCHANGE_POLYGONSCAN_API_KEY",
+};
+const SOLANA_USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
+const ERC20_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
+interface EvmReceiptLog {
+  address?: string;
+  topics?: string[];
+  data?: string;
+}
+interface EvmTxReceipt {
+  status?: string;
+  logs?: EvmReceiptLog[];
+}
+interface SolanaTokenBalance {
+  accountIndex: number;
+  mint: string;
+  owner?: string;
+  uiTokenAmount?: { uiAmount?: number | null };
+}
+
+async function verifyEvmUsdtPayment(input: {
+  network: string;
+  recipientWalletAddress: string;
+  txHash: string;
+}): Promise<CommissionWalletVerificationResult> {
+  const baseUrl = EVM_EXPLORER_APIS[input.network];
+  const usdtContract = EVM_USDT_CONTRACTS[input.network];
+  if (!baseUrl || !usdtContract) {
+    return { verified: false, reference: input.txHash, notes: `EVM verification not configured for network: ${input.network}` };
+  }
+  const apiKey = process.env[EVM_API_KEY_ENVS[input.network] ?? ""] ?? "";
+  const params = new URLSearchParams({ module: "proxy", action: "eth_getTransactionReceipt", txhash: input.txHash });
+  if (apiKey) params.set("apikey", apiKey);
+
+  const res = await fetch(`${baseUrl}?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!res.ok) throw new Error(`Explorer API HTTP ${res.status}`);
+  const data = (await res.json()) as { result?: EvmTxReceipt | null; message?: string };
+
+  if (!data.result) {
+    const hint = (data.message ?? "").toUpperCase().includes("NOTOK") ? " It may still be pending." : "";
+    return { verified: false, reference: input.txHash, notes: `Transaction not found on chain.${hint}` };
+  }
+
+  const receipt = data.result;
+  if (receipt.status !== "0x1") {
+    return { verified: false, reference: input.txHash, notes: "Transaction failed on chain and cannot be used as commission payment." };
+  }
+
+  // Find ERC20 Transfer event from USDT contract to recipient wallet
+  const recipientPadded = `0x${"0".repeat(24)}${input.recipientWalletAddress.toLowerCase().replace("0x", "")}`;
+  const transferLog = receipt.logs?.find(
+    (log) =>
+      log.address?.toLowerCase() === usdtContract &&
+      log.topics?.[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC &&
+      log.topics?.[2]?.toLowerCase() === recipientPadded,
+  );
+
+  if (!transferLog?.data) {
+    return {
+      verified: false,
+      reference: input.txHash,
+      notes: `No USDT transfer to the Alpha Traders wallet was found in this transaction. Ensure you sent to the correct ${input.network === "ERC20" ? "Ethereum" : "Polygon"} address.`,
+    };
+  }
+
+  const usdtReceived = Number(BigInt(transferLog.data)) / 1_000_000;
+  const networkLabel = input.network === "ERC20" ? "Ethereum" : "Polygon";
+  console.log(`[commission-verify] ${networkLabel} USDT received: ${usdtReceived.toFixed(6)} → ${input.recipientWalletAddress}`);
+  return { verified: true, reference: input.txHash, notes: `Verified: ${usdtReceived.toFixed(2)} USDT received on ${networkLabel}.` };
+}
+
+async function verifySolanaUsdtPayment(input: {
+  recipientWalletAddress: string;
+  txHash: string;
+}): Promise<CommissionWalletVerificationResult> {
+  const rpcUrl = process.env.ALPHA_EXCHANGE_SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com";
+
+  const res = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "getTransaction",
+      params: [input.txHash, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }],
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) throw new Error(`Solana RPC HTTP ${res.status}`);
+  const data = (await res.json()) as {
+    result?: { meta?: { err?: unknown; postTokenBalances?: SolanaTokenBalance[]; preTokenBalances?: SolanaTokenBalance[] } } | null;
+    error?: { message: string };
+  };
+  if (data.error) throw new Error(`Solana RPC: ${data.error.message}`);
+
+  if (!data.result) {
+    return { verified: false, reference: input.txHash, notes: "Transaction not found on Solana. It may still be pending — please wait for confirmation." };
+  }
+  if (data.result.meta?.err) {
+    return { verified: false, reference: input.txHash, notes: "Solana transaction failed on chain." };
+  }
+
+  const post = data.result.meta?.postTokenBalances ?? [];
+  const pre = data.result.meta?.preTokenBalances ?? [];
+
+  // Sum USDT balance increases for the recipient wallet across all token accounts
+  let received = 0;
+  for (const postBal of post) {
+    if (postBal.mint !== SOLANA_USDT_MINT || postBal.owner !== input.recipientWalletAddress) continue;
+    const preBal = pre.find((b) => b.accountIndex === postBal.accountIndex);
+    const postAmt = Number(postBal.uiTokenAmount?.uiAmount ?? 0);
+    const preAmt = Number(preBal?.uiTokenAmount?.uiAmount ?? 0);
+    received += postAmt - preAmt;
+  }
+
+  if (received <= 0) {
+    return {
+      verified: false,
+      reference: input.txHash,
+      notes: "No USDT received at the Alpha Traders Solana wallet in this transaction.",
+    };
+  }
+
+  console.log(`[commission-verify] Solana USDT received: ${received.toFixed(6)} → ${input.recipientWalletAddress}`);
+  return { verified: true, reference: input.txHash, notes: `Verified: ${received.toFixed(2)} USDT received on Solana.` };
+}
 
 async function verifyCommissionWalletPayment(input: {
   amountDue: number;
@@ -5790,20 +5936,40 @@ async function verifyCommissionWalletPayment(input: {
   payerWalletAddress: string;
   recipientWalletAddress: string;
   paymentSignature: string;
+  existingSignatures?: string[];
 }): Promise<CommissionWalletVerificationResult> {
-  const minimumSignatureLength = 24;
-  if (input.paymentSignature.trim().length < minimumSignatureLength) {
-    return {
-      verified: false,
-      reference: input.paymentSignature.trim(),
-      notes: "Transaction signature is too short to verify.",
-    };
+  const txHash = input.paymentSignature.trim();
+
+  // 1. Format check
+  if (txHash.length < 24) {
+    return { verified: false, reference: txHash, notes: "Transaction hash is too short to be valid." };
   }
-  return {
-    verified: true,
-    reference: input.paymentSignature.trim(),
-    notes: `Verified by runtime payment verifier (${input.network}).`,
-  };
+
+  // 2. Duplicate hash check — prevent re-use of a previously accepted transaction
+  if (input.existingSignatures?.includes(txHash)) {
+    return { verified: false, reference: txHash, notes: "This transaction hash has already been used for a previous commission payment." };
+  }
+
+  // 3. Recipient must be configured
+  if (!input.recipientWalletAddress || input.recipientWalletAddress === "AT-COMMISSION-WALLET") {
+    console.error("[commission-verify] Recipient wallet not configured for network:", input.network);
+    return { verified: false, reference: txHash, notes: "Commission wallet address is not configured for this network. Please contact support." };
+  }
+
+  // 4. Network-specific on-chain verification
+  try {
+    if (input.network === "ERC20" || input.network === "POLYGON") {
+      return await verifyEvmUsdtPayment({ network: input.network, recipientWalletAddress: input.recipientWalletAddress, txHash });
+    }
+    if (input.network === "SOL") {
+      return await verifySolanaUsdtPayment({ recipientWalletAddress: input.recipientWalletAddress, txHash });
+    }
+    return { verified: false, reference: txHash, notes: `Network '${input.network}' is not supported. Accepted: ERC20, POLYGON, SOL.` };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("[commission-verify] Blockchain verification error:", msg);
+    return { verified: false, reference: txHash, notes: "Blockchain verification service temporarily unavailable. Please try again in a few minutes." };
+  }
 }
 
 export async function submitSellerCommissionWalletPayment(input: {
@@ -5824,7 +5990,7 @@ export async function submitSellerCommissionWalletPayment(input: {
     throw new Error("This commission is already settled.");
   }
 
-  const chosenNetwork = (input.network ?? "TRC20").trim();
+  const chosenNetwork = (input.network ?? "ERC20").trim();
   const { getCommissionWalletForNetwork } = await import("@/lib/commission-config");
   const recipientWalletAddress =
     getCommissionWalletForNetwork(chosenNetwork) ??
@@ -5832,12 +5998,18 @@ export async function submitSellerCommissionWalletPayment(input: {
     process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_ADDRESS ??
     "AT-COMMISSION-WALLET";
 
+  // Collect all previously accepted tx hashes to prevent re-use
+  const existingSignatures = db.commissionRecords
+    .filter((r) => r.paymentVerificationStatus === "verified" && r.paymentSignature)
+    .map((r) => r.paymentSignature as string);
+
   const verification = await verifyCommissionWalletPayment({
     amountDue: current.commissionAmount,
     network: chosenNetwork,
     payerWalletAddress: input.payerWalletAddress.trim(),
     recipientWalletAddress,
     paymentSignature: input.paymentSignature.trim(),
+    existingSignatures,
   });
   const now = nowIso();
 
@@ -5887,11 +6059,24 @@ export async function submitSellerCommissionWalletPayment(input: {
       userId: current.sellerId,
       category: "trade",
       title: "Commission payment verified",
-      message: `Your commission payment for trade ${current.purchaseRequestId} was verified.`,
+      message: `Your commission payment for trade ${current.purchaseRequestId} was verified. Your account is now fully unlocked.`,
       relatedTradeId: current.purchaseRequestId,
       relatedListingId: current.listingId,
       relatedHref: "/usdt-exchange",
     });
+    // Notify owner
+    const ownerUser = db.users.find((u) => isAlphaExchangeOwnerEmail(u.email));
+    if (ownerUser) {
+      pushNotification(db, {
+        userId: ownerUser.id,
+        category: "system",
+        title: "Commission payment received",
+        message: `Commission ${current.id} paid via ${chosenNetwork}. Amount: ${current.commissionAmount.toFixed(2)}. Tx: ${input.paymentSignature.trim()}`,
+        relatedTradeId: current.purchaseRequestId,
+        relatedListingId: current.listingId,
+        relatedHref: "/admin/commissions",
+      });
+    }
   }
 
   await writeDb(db);
