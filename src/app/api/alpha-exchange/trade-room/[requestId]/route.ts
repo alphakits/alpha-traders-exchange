@@ -13,6 +13,11 @@ export async function GET(_request: NextRequest, context: RouteContext) {
   const { requestId } = await context.params;
   const startedAt = Date.now();
   const debug = process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
+  console.log("[trade-consistency] GET request", {
+    requestId,
+    userId: user.id,
+    role: user.role,
+  });
   if (debug) console.log("[trade-room-open] api request", {
     requestId,
     userId: user.id,
@@ -35,6 +40,14 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       tradeId: room.request.tradeId ?? null,
     });
     const routeMs = Date.now() - startedAt;
+    console.log("[trade-consistency] GET status returned", {
+      requestId,
+      userId: user.id,
+      statusReturned: room.request.status,
+      messageCount: room.messages.length,
+      timelineCount: room.request.timeline?.length ?? 0,
+      routeMs,
+    });
     return NextResponse.json(room, {
       headers: {
         "X-Trade-Route-Ms": String(routeMs),

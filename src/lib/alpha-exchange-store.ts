@@ -1669,7 +1669,14 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
   return normalized;
 }
 
-async function readDb(): Promise<AlphaExchangeDb> {
+async function readDb(options?: { bypassCache?: boolean }): Promise<AlphaExchangeDb> {
+  if (options?.bypassCache) {
+    const repository = await getAlphaExchangeRepository();
+    const parsed = await repository.loadSnapshot();
+    const normalized = normalizeDb(parsed);
+    ensureDisplayNumbers(normalized);
+    return normalized;
+  }
   const now = Date.now();
   if (dbCache && now - dbCache.updatedAt <= DB_CACHE_TTL_MS) {
     return structuredClone(dbCache.value);
@@ -4447,7 +4454,9 @@ export async function getTradeRoomData(input: {
   markMessagesRead?: boolean;
 }): Promise<TradeRoomData> {
   const debug = process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
-  const db = await readDb();
+  // Trade room reads must be strongly consistent in production so the first
+  // GET after a mutation never returns stale pre-commit status/messages.
+  const db = await readDb({ bypassCache: true });
   const lookupCandidates = buildPurchaseRequestLookupCandidates(input.purchaseRequestId);
   const requestIndex = db.purchaseRequests.findIndex((item) => lookupCandidates.includes(item.id));
   if (requestIndex === -1) {
@@ -5167,12 +5176,19 @@ export async function updatePurchaseRequestStatus(input: {
       actorRole: input.actorRole,
     });
   }
-  const db = await readDb();
+  const db = await readDb({ bypassCache: true });
   const readDbMs = Date.now() - startedAt;
   const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.requestId);
   if (requestIndex === -1) throw new Error("Purchase request not found.");
   const request = db.purchaseRequests[requestIndex];
   const stateBefore = request.status;
+  console.log("[trade-consistency] mutation db-read", {
+    requestId: input.requestId,
+    actorUserId: input.actorUserId,
+    actorRole: input.actorRole,
+    nextStatus: input.nextStatus,
+    statusBefore: stateBefore,
+  });
 
   const isSeller = request.sellerId === input.actorUserId;
   const isBuyer = request.buyerId === input.actorUserId;
@@ -5580,6 +5596,12 @@ export async function updatePurchaseRequestStatus(input: {
     next.status = input.nextStatus;
   }
   db.purchaseRequests[requestIndex] = next;
+  console.log("[trade-consistency] mutation status-after", {
+    requestId: input.requestId,
+    actorUserId: input.actorUserId,
+    nextStatus: input.nextStatus,
+    statusAfter: next.status,
+  });
   if (input.nextStatus === "accepted" && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") {
     console.log("[trade-room-open] state transition after accept", {
       requestId: next.id,
@@ -5606,8 +5628,20 @@ export async function updatePurchaseRequestStatus(input: {
     console.log("[usdt-sent-trace] before DB write", { traceId: input.traceId ?? null, requestId: input.requestId });
   }
   const beforeWriteMs = Date.now();
+  console.log("[trade-consistency] mutation db-write-start", {
+    requestId: input.requestId,
+    actorUserId: input.actorUserId,
+    nextStatus: input.nextStatus,
+  });
   await writeDb(db, { traceTag: debugTradeRoom && isUsdtSentTrace ? input.traceId : undefined });
   const writeDbMs = Date.now() - beforeWriteMs;
+  console.log("[trade-consistency] mutation commit-complete", {
+    requestId: input.requestId,
+    actorUserId: input.actorUserId,
+    nextStatus: input.nextStatus,
+    statusAfter: next.status,
+    writeDbMs,
+  });
   if (debugTradeRoom && isUsdtSentTrace) {
     console.log("[usdt-sent-trace] after DB write", { traceId: input.traceId ?? null, requestId: input.requestId });
   }
@@ -5621,6 +5655,12 @@ export async function updatePurchaseRequestStatus(input: {
       timeline: next.timeline,
       publishedAtEpochMs: Date.now(),
     },
+  });
+  console.log("[trade-consistency] mutation sse-publish", {
+    requestId: input.requestId,
+    actorUserId: input.actorUserId,
+    nextStatus: input.nextStatus,
+    statusAfter: next.status,
   });
   const totalMs = Date.now() - startedAt;
   if (debugTradeRoom) {

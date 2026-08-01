@@ -35,6 +35,13 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const safetyAcknowledged = body.safetyAcknowledged === true;
     const isUsdtSent = status === "usdt_sent";
     const traceId = debug && isUsdtSent ? `usdt-sent:${requestId}:${Date.now()}` : undefined;
+    console.log("[trade-consistency] PATCH received", {
+      requestId,
+      actorUserId: user.id,
+      actorRole: user.role,
+      nextStatus: status,
+      safetyAcknowledged,
+    });
     if (debug && isUsdtSent) {
       console.log("[usdt-sent-trace] route entry", { traceId, requestId, actorUserId: user.id });
     }
@@ -98,6 +105,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       actorUserId: user.id,
       actorRole: user.role,
       message,
+      stack: error instanceof Error ? error.stack : undefined,
     });
     if (debug) {
       console.log("[trade-room-action] response", {
