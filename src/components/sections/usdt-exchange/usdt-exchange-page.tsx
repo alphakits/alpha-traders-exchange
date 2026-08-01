@@ -22,6 +22,8 @@ const ALLOWED_EVIDENCE_TYPES = new Set(["image/png", "image/jpeg", "image/webp",
 const MAX_PRICE_MARKUP_ILS = 0.35;
 const DEFAULT_MARKET_PRICE_PER_USDT = 3.05;
 const DEFAULT_RESPONSE_TIME = "5 min";
+const COMMISSION_PAYMENT_NETWORK = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_NETWORK ?? "Solana Mainnet";
+const COMMISSION_PAYMENT_WALLET = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_ADDRESS ?? "AT-COMMISSION-WALLET";
 
 const ISRAELI_BANKS = [
   { id: "hapoalim", name: "Bank Hapoalim", code: "בנק הפועלים", brandPrimary: "#E31C23", brandSecondary: "#B01016", accent: "#FCA5A5" },
@@ -394,6 +396,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     relatedTradeId?: string;
     relatedTradeDisplayNumber?: number;
   } | null>(null);
+  const [commissionPayOpen, setCommissionPayOpen] = useState(false);
+  const [commissionPayerWallet, setCommissionPayerWallet] = useState("");
+  const [commissionTxSignature, setCommissionTxSignature] = useState("");
+  const [commissionPayBusy, setCommissionPayBusy] = useState(false);
+  const [commissionPayMessage, setCommissionPayMessage] = useState<string | null>(null);
+  const [requestActionKey, setRequestActionKey] = useState<string | null>(null);
   const [listingCreateForm, setListingCreateForm] = useState({
     availableAmount: "",
     price: "",
@@ -1545,25 +1553,68 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     nextStatus: "accepted" | "declined" | "funds_received" | "usdt_release_pending" | "usdt_sent",
     options?: { safetyAcknowledged?: boolean },
   ) {
+    const actionKey = `${requestId}:${nextStatus}`;
+    if (requestActionKey) return;
+    setRequestActionKey(actionKey);
     const safetyAcknowledged = nextStatus === "accepted"
       ? true
       : options?.safetyAcknowledged === true;
-    const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: nextStatus, safetyAcknowledged }),
-    });
-    const payload = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("request"));
+    try {
+      const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus, safetyAcknowledged }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("request"));
+        return;
+      }
+      if (nextStatus === "accepted") setSellerWorkspaceMessage("Request accepted and trade created.");
+      else if (nextStatus === "funds_received") setSellerWorkspaceMessage("Funds received confirmed.");
+      else if (nextStatus === "usdt_release_pending") setSellerWorkspaceMessage("USDT release started.");
+      else if (nextStatus === "usdt_sent") setSellerWorkspaceMessage("USDT sent marked.");
+      else setSellerWorkspaceMessage("Request declined.");
+      await refreshSellerWorkspace();
+    } finally {
+      setRequestActionKey(null);
+    }
+  }
+
+  async function handleCommissionPayNow() {
+    if (!sellerCommissionStatus?.commissionId) {
+      setCommissionPayMessage("No payable commission record was found.");
       return;
     }
-    if (nextStatus === "accepted") setSellerWorkspaceMessage("Request accepted and trade created.");
-    else if (nextStatus === "funds_received") setSellerWorkspaceMessage("Funds received confirmed.");
-    else if (nextStatus === "usdt_release_pending") setSellerWorkspaceMessage("USDT release started.");
-    else if (nextStatus === "usdt_sent") setSellerWorkspaceMessage("USDT sent marked.");
-    else setSellerWorkspaceMessage("Request declined.");
-    await refreshSellerWorkspace();
+    if (!commissionPayerWallet.trim() || !commissionTxSignature.trim()) {
+      setCommissionPayMessage("Wallet address and transaction signature are required.");
+      return;
+    }
+    setCommissionPayBusy(true);
+    setCommissionPayMessage(null);
+    try {
+      const response = await fetch("/api/alpha-exchange/commissions/pay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          commissionId: sellerCommissionStatus.commissionId,
+          payerWalletAddress: commissionPayerWallet.trim(),
+          paymentSignature: commissionTxSignature.trim(),
+        }),
+      });
+      const payload = (await response.json()) as { error?: string; verification?: { verified: boolean; notes: string } };
+      if (!response.ok) {
+        setCommissionPayMessage(payload.error ?? "Unable to verify commission payment.");
+        return;
+      }
+      setCommissionPayMessage(payload.verification?.verified ? "Commission payment verified. Seller access has been unlocked." : (payload.verification?.notes ?? "Verification failed."));
+      setCommissionTxSignature("");
+      await refreshSellerWorkspace();
+    } catch {
+      setCommissionPayMessage("Unable to verify commission payment.");
+    } finally {
+      setCommissionPayBusy(false);
+    }
   }
 
   async function handleBuyerTradeStatus(request: PurchaseRequest, nextStatus: "payment_sent" | "completed" | "cancelled") {
@@ -2530,17 +2581,45 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-100">{sellerWorkspaceSummary.blockedReason}</p>
               ) : null}
               {sellerCommissionStatus?.status !== "clear" ? (
-                <a
-                  href={`${WHATSAPP_URL}?text=${encodeURIComponent("Hi Alpha Traders, I need to settle my pending platform commission.")}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex h-10 items-center justify-center rounded-xl border border-[#6CAEFF]/45 bg-[#6CAEFF]/10 px-4 text-sm font-medium text-[#93C5FD] transition hover:border-[#6CAEFF]/70 hover:bg-[#6CAEFF]/15"
+                <Button
+                  type="button"
+                  onClick={() => setCommissionPayOpen(true)}
+                  className="h-10 px-4"
                 >
-                  Pay Commission
-                </a>
+                  Pay Now
+                </Button>
               ) : null}
             </CardContent>
           </Card>
+          {commissionPayOpen ? (
+            <Card className="border-[#C9A227]/35 bg-[#0B0B0B]/95">
+              <CardHeader>
+                <CardTitle>Commission Payment</CardTitle>
+                <CardDescription>Connect Phantom Wallet and submit the transaction signature to settle your commission instantly.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
+                  <p>Amount: <span className="text-white">{formatIls(sellerCommissionStatus?.amountDue ?? 0)}</span></p>
+                  <p>Network: <span className="text-white">{COMMISSION_PAYMENT_NETWORK}</span></p>
+                  <p>Recipient wallet: <span className="text-white break-all">{COMMISSION_PAYMENT_WALLET}</span></p>
+                  <p>Trade reference: <span className="text-white">{sellerCommissionStatus?.relatedTradeDisplayNumber ? `Trade #${sellerCommissionStatus.relatedTradeDisplayNumber}` : sellerCommissionStatus?.relatedTradeId ?? "Pending"}</span></p>
+                </div>
+                <Input placeholder="Your Phantom wallet address" value={commissionPayerWallet} onChange={(event) => setCommissionPayerWallet(event.target.value)} />
+                <Input placeholder="Transaction signature" value={commissionTxSignature} onChange={(event) => setCommissionTxSignature(event.target.value)} />
+                {commissionPayMessage ? (
+                  <p className="rounded-lg border border-white/10 bg-black/20 p-2 text-xs text-[#D1D5DB]">{commissionPayMessage}</p>
+                ) : null}
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" disabled={commissionPayBusy} onClick={() => void handleCommissionPayNow()}>
+                    {commissionPayBusy ? "Verifying..." : "Confirm Payment"}
+                  </Button>
+                  <Button type="button" variant="secondary" onClick={() => setCommissionPayOpen(false)}>
+                    Close
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card id="create-listing-form" className="border-white/10 bg-[#0B0B0B]/90">
             <CardHeader>
@@ -2566,14 +2645,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       </Button>
                     ) : null}
                     {listingBlockedByCommission ? (
-                      <a
-                        href={`${WHATSAPP_URL}?text=${encodeURIComponent("Hi Alpha Traders, I need to settle my pending platform commission.")}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex h-9 items-center justify-center rounded-xl border border-[#6CAEFF]/45 bg-[#6CAEFF]/10 px-3 text-xs font-medium text-[#93C5FD] transition hover:border-[#6CAEFF]/70 hover:bg-[#6CAEFF]/15"
-                      >
-                        Pay Commission
-                      </a>
+                      <Button type="button" size="sm" variant="secondary" onClick={() => setCommissionPayOpen(true)}>
+                        Pay Now
+                      </Button>
                     ) : null}
                   </div>
                 </div>
@@ -3079,32 +3153,41 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <Button
                         type="button"
                         size="sm"
-                        disabled={request.status !== "pending" || (normalizeMarketplacePaymentMethod(request.paymentMethod) === "Face-to-Face (Meet in Person)" && !(sellerSafetyAcknowledgements[request.id] ?? false))}
+                        disabled={
+                          request.status !== "pending"
+                          || Boolean(sellerWorkspaceSummary?.pendingCommissionCount)
+                          || requestActionKey === `${request.id}:accepted`
+                          || (normalizeMarketplacePaymentMethod(request.paymentMethod) === "Face-to-Face (Meet in Person)" && !(sellerSafetyAcknowledgements[request.id] ?? false))
+                        }
                         onClick={() => handleSellerRequestAction(request.id, "accepted", { safetyAcknowledged: sellerSafetyAcknowledgements[request.id] ?? false })}
                       >
-                        Accept
+                        {requestActionKey === `${request.id}:accepted` ? "Processing..." : "Accept"}
                       </Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "pending"} onClick={() => handleSellerRequestAction(request.id, "declined")}>Decline</Button>
+                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "pending" || requestActionKey === `${request.id}:declined`} onClick={() => handleSellerRequestAction(request.id, "declined")}>
+                        {requestActionKey === `${request.id}:declined` ? "Processing..." : "Decline"}
+                      </Button>
                       <Button
                         type="button"
                         size="sm"
                         variant="secondary"
-                        disabled={request.status !== "payment_sent"}
+                        disabled={request.status !== "payment_sent" || requestActionKey === `${request.id}:funds_received`}
                         onClick={() => handleSellerRequestAction(request.id, "funds_received")}
                       >
-                        {normalizeMarketplacePaymentMethod(request.paymentMethod) === "Cardless ATM Withdrawal" ? "Confirm Cash Collected" : "Confirm Funds Received"}
+                        {requestActionKey === `${request.id}:funds_received`
+                          ? "Processing..."
+                          : normalizeMarketplacePaymentMethod(request.paymentMethod) === "Cardless ATM Withdrawal" ? "Confirm Cash Collected" : "Confirm Funds Received"}
                       </Button>
                       <Button
                         type="button"
                         size="sm"
                         variant="secondary"
-                        disabled={request.status !== "funds_received"}
+                        disabled={request.status !== "funds_received" || requestActionKey === `${request.id}:usdt_release_pending`}
                         onClick={() => handleSellerRequestAction(request.id, "usdt_release_pending")}
                       >
-                        Start USDT Release
+                        {requestActionKey === `${request.id}:usdt_release_pending` ? "Processing..." : "Start USDT Release"}
                       </Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_release_pending" || !request.sellerEvidence} onClick={() => handleSellerRequestAction(request.id, "usdt_sent")}>
-                        Mark USDT Sent
+                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_release_pending" || !request.sellerEvidence || requestActionKey === `${request.id}:usdt_sent`} onClick={() => handleSellerRequestAction(request.id, "usdt_sent")}>
+                        {requestActionKey === `${request.id}:usdt_sent` ? "Processing..." : "Mark USDT Sent"}
                       </Button>
                       <Button type="button" size="sm" variant="secondary" onClick={() => handleMessageBuyer(request)}>
                         <MessageCircle className="h-4 w-4" />

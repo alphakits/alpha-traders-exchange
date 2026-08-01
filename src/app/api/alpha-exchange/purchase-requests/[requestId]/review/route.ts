@@ -39,7 +39,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         rating,
         comment,
       });
-      return NextResponse.json({ request: updated });
+      return NextResponse.json(updated);
     }
 
     if (mode === "seller_response") {

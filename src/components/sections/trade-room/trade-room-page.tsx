@@ -539,6 +539,7 @@ export function TradeRoomPage({
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
+  const [reviewDeferred, setReviewDeferred] = useState(false);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const actionNoticeTimeoutRef = useRef<number | null>(null);
   const actionAbortTimeoutRef = useRef<number | null>(null);
@@ -1068,12 +1069,34 @@ export function TradeRoomPage({
           comment: reviewComment.trim(),
         }),
       });
-      const payload = (await response.json()) as { error?: string; message?: string };
+      const payload = (await response.json()) as {
+        error?: string;
+        message?: string;
+        sellerProgress?: {
+          promoted?: boolean;
+          previousRank?: string;
+          newRank?: string;
+          nextRank?: string;
+          remainingVolumeToNextRank?: number;
+          progressPercent?: number;
+        };
+      };
       if (!response.ok) {
         throw new Error(readApiErrorFallback(payload, isAr ? "تعذر إرسال التقييم." : "Failed to submit review."));
       }
       setReviewComment("");
-      setStatusMessage(isAr ? "تم إرسال تقييم البائع." : "Seller rating submitted.");
+      setReviewDeferred(false);
+      if (payload.sellerProgress?.promoted) {
+        const previous = payload.sellerProgress.previousRank ?? "previous";
+        const current = payload.sellerProgress.newRank ?? "current";
+        setStatusMessage(
+          isAr
+            ? `تم إرسال التقييم. 🎉 ترقية البائع من ${previous} إلى ${current}.`
+            : `Feedback submitted. 🎉 Seller promoted from ${previous} to ${current}.`,
+        );
+      } else {
+        setStatusMessage(isAr ? "تم إرسال تقييم البائع." : "Seller rating submitted.");
+      }
       await fetchRoom(true);
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : (isAr ? "تعذر إرسال التقييم." : "Failed to submit review."));
@@ -1262,9 +1285,9 @@ export function TradeRoomPage({
                   <p className="text-xs">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
                 </div>
               ) : null}
-              {isActorBuyer && !request.buyerReview ? (
+              {isActorBuyer && !request.buyerReview && !reviewDeferred ? (
                 <div className="rounded-xl border border-emerald-400/30 bg-black/20 p-3">
-                  <p className="mb-2 font-medium text-white">{isAr ? "★★★★★ قيّم البائع واترك ملاحظتك" : "★★★★★ Rate Seller & Leave Feedback"}</p>
+                  <p className="mb-2 font-medium text-white">{isAr ? "مطلوب قبل الصفقة التالية: قيّم البائع" : "Required before your next trade: Rate Seller & Leave Feedback"}</p>
                   <div className="grid gap-2 md:grid-cols-[120px_1fr]">
                     <select
                       value={reviewRating}
@@ -1285,6 +1308,35 @@ export function TradeRoomPage({
                   </div>
                   <Button type="button" className="mt-2" disabled={reviewBusy} onClick={() => void handleSubmitBuyerReview()}>
                     {reviewBusy ? (isAr ? "جاري الإرسال..." : "Submitting...") : (isAr ? "إرسال التقييم" : "Submit Rating")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="mt-2 ms-2"
+                    disabled={reviewBusy}
+                    onClick={() => {
+                      setReviewDeferred(true);
+                      setStatusMessage(
+                        isAr
+                          ? "يمكنك المتابعة الآن، لكن يجب إكمال تقييم الصفقة السابقة قبل بدء صفقة جديدة."
+                          : "You can continue now, but you must complete this feedback before starting a new trade.",
+                      );
+                    }}
+                  >
+                    {isAr ? "ذكرني لاحقًا" : "Remind Me Later"}
+                  </Button>
+                </div>
+              ) : null}
+              {isActorBuyer && !request.buyerReview && reviewDeferred ? (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
+                  <p className="font-medium">{isAr ? "تم تأجيل التقييم" : "Feedback deferred"}</p>
+                  <p className="mt-1 text-xs">
+                    {isAr
+                      ? "قبل إنشاء طلب شراء جديد، ستحتاج إلى إكمال تقييم هذه الصفقة."
+                      : "Before creating another purchase request, you will need to complete feedback for this trade."}
+                  </p>
+                  <Button type="button" variant="secondary" className="mt-2" onClick={() => setReviewDeferred(false)}>
+                    {isAr ? "إكمال التقييم الآن" : "Complete Feedback Now"}
                   </Button>
                 </div>
               ) : null}

@@ -596,6 +596,14 @@ export interface CommissionRecord {
   grossAmount: number;
   commissionAmount: number;
   paymentStatus: CommissionPaymentStatus;
+  paymentProvider?: "phantom";
+  paymentNetwork?: string;
+  payerWalletAddress?: string;
+  recipientWalletAddress?: string;
+  paymentSignature?: string;
+  paymentVerificationStatus?: "pending_verification" | "verified" | "failed";
+  paymentVerificationNotes?: string;
+  paymentSubmittedAt?: string;
   dueAt?: string;
   paidAt?: string;
   overdueNotifiedAt?: string;

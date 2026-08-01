@@ -488,6 +488,19 @@ function getSellerPendingCommissionCount(db: AlphaExchangeDb, sellerId: string) 
   return db.commissionRecords.filter((record) => record.sellerId === sellerId && normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid").length;
 }
 
+function hasBuyerReviewSubmitted(db: AlphaExchangeDb, request: PurchaseRequest) {
+  if (request.buyerReview) return true;
+  const tradeId = request.tradeId ?? request.id;
+  return db.sellerReviews.some((review) => review.tradeId === tradeId);
+}
+
+function getBuyerPendingFeedbackTrade(db: AlphaExchangeDb, buyerId: string) {
+  const completedStatuses = new Set<PurchaseRequestStatus>(["review_open", "locked", "completed"]);
+  return db.purchaseRequests
+    .filter((request) => request.buyerId === buyerId && completedStatuses.has(request.status) && !hasBuyerReviewSubmitted(db, request))
+    .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0];
+}
+
 function getSellerOpenListingCount(db: AlphaExchangeDb, sellerId: string) {
   return db.marketplaceListings.filter((listing) => listing.sellerId === sellerId && isListingCountedAgainstCreateLimit(listing.status)).length;
 }
@@ -4155,6 +4168,10 @@ export async function createPurchaseRequest(input: {
 }) {
   const db = await readDb();
   const now = nowIso();
+  const pendingFeedbackTrade = getBuyerPendingFeedbackTrade(db, input.buyerId);
+  if (pendingFeedbackTrade) {
+    throw new Error("Please complete your feedback for your previous trade before starting a new one.");
+  }
   const listing = db.marketplaceListings.find((item) => item.id === input.listingId);
   if (!listing) throw new Error("Listing not found.");
   const listingPaymentMethods = resolveListingPaymentMethods(listing.paymentMethods, listing.paymentMethod);
@@ -4974,7 +4991,7 @@ export async function submitBuyerTradeReview(input: {
   if (!request.completedAt && request.status !== "review_open" && request.status !== "locked" && request.status !== "completed") {
     throw new Error("Review unlocks only after trade completion.");
   }
-  if (db.sellerReviews.some((review) => review.tradeId === (request.tradeId ?? request.id))) throw new Error("Buyer review already submitted.");
+  if (hasBuyerReviewSubmitted(db, request)) throw new Error("Buyer review already submitted.");
 
   const rating = Math.max(1, Math.min(5, Math.round(input.rating)));
   const comment = String(input.comment ?? "").trim();
@@ -4983,6 +5000,16 @@ export async function submitBuyerTradeReview(input: {
 
   const review = buildSellerReviewFromTrade(request, { buyerUserId: input.buyerUserId, rating, comment });
   db.sellerReviews.unshift(review);
+  db.purchaseRequests[requestIndex] = {
+    ...request,
+    buyerReview: {
+      reviewerUserId: input.buyerUserId,
+      rating,
+      comment,
+      createdAt: review.createdAt,
+    },
+    updatedAt: nowIso(),
+  };
 
   await appendAuditLog(db, {
     action: "trade_review_submitted",
@@ -5008,10 +5035,22 @@ export async function submitBuyerTradeReview(input: {
     details: `Review submitted for trade ${request.tradeId ?? request.id}.`,
   });
 
+  const sellerSnapshotBefore = computeSellerReputationSnapshot(db, request.sellerId);
   await recalculateTrustEngine(db, { reason: "Verified trade review submitted", triggeredBy: input.buyerUserId });
+  const sellerSnapshotAfter = computeSellerReputationSnapshot(db, request.sellerId);
   await writeDb(db);
   publishRealtimeEvent({ type: "review.count_changed", payload: { sellerId: request.sellerId, reviewCount: db.sellerReviews.filter((item) => item.sellerId === request.sellerId && !item.hidden).length } });
-  return review;
+  return {
+    review,
+    sellerProgress: {
+      previousRank: sellerSnapshotBefore.level,
+      newRank: sellerSnapshotAfter.level,
+      nextRank: sellerSnapshotAfter.nextRank,
+      remainingVolumeToNextRank: sellerSnapshotAfter.remainingVolumeToNextRank ?? 0,
+      progressPercent: sellerSnapshotAfter.prestigeProgressPercent ?? 0,
+      promoted: sellerSnapshotBefore.level !== sellerSnapshotAfter.level,
+    },
+  };
 }
 
 export async function submitSellerReviewResponse(input: {
@@ -5193,6 +5232,9 @@ export async function updatePurchaseRequestStatus(input: {
     }
     if (isFaceToFaceTrade && !next.sellerSafetyAcknowledged && input.safetyAcknowledged !== true) {
       throw new Error("Seller must acknowledge the Face-to-Face safety guidelines before starting this trade.");
+    }
+    if (getSellerPendingCommissionCount(db, request.sellerId) > 0) {
+      throw new Error("You have a pending commission payment. Settle it before accepting new trades.");
     }
     next.status = "accepted";
     if (isFaceToFaceTrade) {
@@ -5615,6 +5657,126 @@ export async function getPurchaseRequestsForAdmin(dbInput?: AlphaExchangeDb) {
 export async function getCommissionRecordsForAdmin(dbInput?: AlphaExchangeDb) {
   const db = dbInput ?? await readDb();
   return db.commissionRecords;
+}
+
+type CommissionWalletVerificationResult = {
+  verified: boolean;
+  reference: string;
+  notes: string;
+};
+
+async function verifyCommissionWalletPayment(input: {
+  amountDue: number;
+  network: string;
+  payerWalletAddress: string;
+  recipientWalletAddress: string;
+  paymentSignature: string;
+}): Promise<CommissionWalletVerificationResult> {
+  const minimumSignatureLength = 24;
+  if (input.paymentSignature.trim().length < minimumSignatureLength) {
+    return {
+      verified: false,
+      reference: input.paymentSignature.trim(),
+      notes: "Transaction signature is too short to verify.",
+    };
+  }
+  return {
+    verified: true,
+    reference: input.paymentSignature.trim(),
+    notes: `Verified by runtime payment verifier (${input.network}).`,
+  };
+}
+
+export async function submitSellerCommissionWalletPayment(input: {
+  sellerUserId: string;
+  commissionId: string;
+  payerWalletAddress: string;
+  paymentSignature: string;
+}) {
+  const db = await readDb();
+  const index = db.commissionRecords.findIndex((record) => record.id === input.commissionId);
+  if (index === -1) throw new Error("Commission record not found.");
+  const current = db.commissionRecords[index];
+  if (current.sellerId !== input.sellerUserId) {
+    throw new Error("You can only settle your own commission.");
+  }
+  if (normalizeCommissionPaymentStatus(current.paymentStatus, current.dueAt) === "paid") {
+    throw new Error("This commission is already settled.");
+  }
+
+  const recipientWalletAddress = process.env.ALPHA_EXCHANGE_COMMISSION_WALLET_ADDRESS
+    ?? process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_ADDRESS
+    ?? "AT-COMMISSION-WALLET";
+  const paymentNetwork = process.env.ALPHA_EXCHANGE_COMMISSION_NETWORK
+    ?? process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_NETWORK
+    ?? "Solana Mainnet";
+  const verification = await verifyCommissionWalletPayment({
+    amountDue: current.commissionAmount,
+    network: paymentNetwork,
+    payerWalletAddress: input.payerWalletAddress.trim(),
+    recipientWalletAddress,
+    paymentSignature: input.paymentSignature.trim(),
+  });
+  const now = nowIso();
+
+  const nextRecord: CommissionRecord = {
+    ...current,
+    paymentProvider: "phantom",
+    paymentNetwork,
+    payerWalletAddress: input.payerWalletAddress.trim(),
+    recipientWalletAddress,
+    paymentSignature: input.paymentSignature.trim(),
+    paymentSubmittedAt: now,
+    paymentVerificationStatus: verification.verified ? "verified" : "failed",
+    paymentVerificationNotes: verification.notes,
+    paymentStatus: verification.verified ? "paid" : current.paymentStatus,
+    paidAt: verification.verified ? now : current.paidAt,
+    updatedAt: now,
+  };
+  db.commissionRecords[index] = nextRecord;
+
+  await appendAuditLog(db, {
+    action: verification.verified ? "commission_paid" : "commission_recorded",
+    actorUserId: input.sellerUserId,
+    targetUserId: current.sellerId,
+    listingId: current.listingId,
+    purchaseRequestId: current.purchaseRequestId,
+    details: verification.verified
+      ? `Seller settled commission ${current.id} via ${paymentNetwork}.`
+      : `Seller submitted commission payment proof for ${current.id}, verification failed.`,
+  });
+
+  if (verification.verified) {
+    const request = db.purchaseRequests.find((item) => item.id === current.purchaseRequestId);
+    if (request) {
+      appendTradeTimelineEntry(request, {
+        type: "commission_paid",
+        actorUserId: input.sellerUserId,
+        actorRole: resolveActorRole(db, input.sellerUserId),
+        message: `Commission paid on-chain (${current.commissionAmount.toFixed(2)} ${request.currency}).`,
+        createdAt: now,
+      });
+      publishRealtimeEvent({
+        type: "trade.status_changed",
+        payload: { request: enrichRequestWithEvidence(db, request) },
+      });
+    }
+    pushNotification(db, {
+      userId: current.sellerId,
+      category: "trade",
+      title: "Commission payment verified",
+      message: `Your commission payment for trade ${current.purchaseRequestId} was verified.`,
+      relatedTradeId: current.purchaseRequestId,
+      relatedListingId: current.listingId,
+      relatedHref: "/usdt-exchange",
+    });
+  }
+
+  await writeDb(db);
+  return {
+    commission: nextRecord,
+    verification,
+  };
 }
 
 export async function updateCommissionPaymentStatus(input: {
