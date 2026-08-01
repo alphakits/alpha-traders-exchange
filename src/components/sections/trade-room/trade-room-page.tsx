@@ -560,7 +560,6 @@ export function TradeRoomPage({
   const [reviewDeferred, setReviewDeferred] = useState(false);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const actionNoticeTimeoutRef = useRef<number | null>(null);
-  const actionAbortTimeoutRef = useRef<number | null>(null);
   const actionInFlightRef = useRef<string | null>(null);
   const completedActionTimeoutRef = useRef<number | null>(null);
   const buyerEvidenceInputRef = useRef<HTMLInputElement | null>(null);
@@ -657,9 +656,6 @@ export function TradeRoomPage({
     }
     if (actionNoticeTimeoutRef.current) {
       window.clearTimeout(actionNoticeTimeoutRef.current);
-    }
-    if (actionAbortTimeoutRef.current) {
-      window.clearTimeout(actionAbortTimeoutRef.current);
     }
   }, []);
 
@@ -840,13 +836,9 @@ export function TradeRoomPage({
         streamConnected,
       });
     }
-    const controller = new AbortController();
     actionNoticeTimeoutRef.current = window.setTimeout(() => {
       setActionNotice(isAr ? "ما زال التنفيذ جاريًا... ننتظر الخادم." : "Still processing... we're waiting for the server.");
     }, 8000);
-    actionAbortTimeoutRef.current = window.setTimeout(() => {
-      controller.abort();
-    }, 20000);
     try {
       // T1: request sent
       const responseStartedAt = performance.now();
@@ -861,7 +853,6 @@ export function TradeRoomPage({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
-        signal: controller.signal,
       });
       const responsePayload = (await response.json()) as { error?: string; message?: string; request?: PurchaseRequest; metrics?: { totalMs?: number } };
       const apiLatencyMs = Math.round(performance.now() - responseStartedAt);
@@ -941,10 +932,6 @@ export function TradeRoomPage({
       if (actionNoticeTimeoutRef.current) {
         window.clearTimeout(actionNoticeTimeoutRef.current);
         actionNoticeTimeoutRef.current = null;
-      }
-      if (actionAbortTimeoutRef.current) {
-        window.clearTimeout(actionAbortTimeoutRef.current);
-        actionAbortTimeoutRef.current = null;
       }
       actionInFlightRef.current = null;
       setActionBusy(false);
