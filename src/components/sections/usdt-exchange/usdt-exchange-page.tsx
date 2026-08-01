@@ -400,6 +400,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     relatedTradeDisplayNumber?: number;
   } | null>(null);
   const [qaCommissionModeEnabled, setQaCommissionModeEnabled] = useState(false);
+  const [qaCommissionResetEnabled, setQaCommissionResetEnabled] = useState(false);
   const [commissionPayOpen, setCommissionPayOpen] = useState(false);
   const [commissionNetwork, setCommissionNetwork] = useState<CommissionNetworkId>("ERC20");
   const [commissionTxSignature, setCommissionTxSignature] = useState("");
@@ -524,11 +525,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             relatedTradeDisplayNumber?: number;
           };
           qaCommissionModeEnabled?: boolean;
+          qaCommissionResetEnabled?: boolean;
         };
         setMyListings((myListingsJson.listings ?? []).filter((listing) => listing.status !== "closed" && listing.status !== "cancelled"));
         setSellerWorkspaceSummary(myListingsJson.summary ?? null);
         setSellerCommissionStatus(myListingsJson.commissionStatus ?? null);
         setQaCommissionModeEnabled(Boolean(myListingsJson.qaCommissionModeEnabled));
+        setQaCommissionResetEnabled(Boolean(myListingsJson.qaCommissionResetEnabled));
       }
       setWorkspaceError(null);
     } catch {
@@ -733,7 +736,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   }, [isLoadingListings, listings, selectedListing, sessionUser, updateListingSelectionQuery]);
 
   useEffect(() => {
-    if (!qaCommissionModeEnabled) return;
+    if (!qaCommissionModeEnabled || !qaCommissionResetEnabled) return;
     if (!sellerCommissionStatus || sellerCommissionStatus.status === "clear") return;
     if (sellerCommissionStatus.amountDue <= 1) return;
     if (qaCommissionResetAttemptedRef.current) return;
@@ -751,7 +754,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         // Keep normal commission flow available if QA cleanup fails.
       }
     })();
-  }, [qaCommissionModeEnabled, refreshSellerWorkspace, sellerCommissionStatus]);
+  }, [qaCommissionModeEnabled, qaCommissionResetEnabled, refreshSellerWorkspace, sellerCommissionStatus]);
 
   // Generate QR code when commission modal opens or network changes
   useEffect(() => {

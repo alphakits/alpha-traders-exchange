@@ -433,6 +433,10 @@ function isQaCommissionModeEnabled() {
   return process.env.ALPHA_EXCHANGE_QA_COMMISSION_MODE === "1";
 }
 
+function isQaResetModeEnabled() {
+  return process.env.ALPHA_EXCHANGE_QA_MODE === "1";
+}
+
 function getCommissionAmountDueUsdt(db: AlphaExchangeDb, record: CommissionRecord) {
   const request = db.purchaseRequests.find((item) => item.id === record.purchaseRequestId);
   if (request) {
@@ -4184,6 +4188,10 @@ export async function getSellerCommissionStatus(sellerId: string) {
 
 export function getCommissionQaModeStatus() {
   return isQaCommissionModeEnabled();
+}
+
+export function getCommissionQaResetStatus() {
+  return isQaResetModeEnabled();
 }
 
 export async function createPurchaseRequest(input: {
