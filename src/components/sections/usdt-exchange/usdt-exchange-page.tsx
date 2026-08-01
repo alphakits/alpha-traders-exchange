@@ -135,8 +135,9 @@ function formatRelativeMinutesLabel(value?: string) {
 }
 
 function sellerLevelLabel(level?: SellerLevel) {
-  if (level === "elite") return "Elite";
+  if (level === "legendary") return "Legendary";
   if (level === "diamond") return "Diamond";
+  if (level === "platinum") return "Platinum";
   if (level === "gold") return "Gold";
   if (level === "silver") return "Silver";
   return "Bronze";
@@ -761,7 +762,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     const estimatedCommissionPaid = grossSales * 0.01;
     const selfReputation = myListings.find((listing) => Boolean(listing.sellerReputation))?.sellerReputation ?? null;
     return {
-      activeListings: myListings.filter((listing) => listing.status === "available").length,
+      activeListings: myListings.filter((listing) => listing.status === "active").length,
       pendingRequests: pendingSellerRequests.length,
       completedTrades: completedSellerRequests.length,
       totalUsdtSold,
@@ -781,7 +782,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     };
   }, [completedSellerRequests, myListings, myListingsById, pendingSellerRequests.length, sellerRequests]);
 
-  async function handleSellerListingStatus(listing: MarketplaceListing, nextStatus: "available" | "paused") {
+  async function handleSellerListingStatus(listing: MarketplaceListing, nextStatus: "active" | "paused") {
     const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -1762,11 +1763,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         Edit
                       </Button>
                       {listing.status === "paused" ? (
-                        <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingStatus(listing, "available")}>
+                        <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingStatus(listing, "active")}>
                           <PlayCircle className="h-4 w-4" />
                           Resume
                         </Button>
-                      ) : listing.status === "available" ? (
+                      ) : listing.status === "active" ? (
                         <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingStatus(listing, "paused")}>
                           <PauseCircle className="h-4 w-4" />
                           Pause
@@ -2141,7 +2142,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               <p className="text-[#D1D5DB]">
                 {sessionUser ? sessionUser.fullName : (isAr ? "غير مسجل الدخول" : "Not logged in")}
               </p>
-              {sessionUser ? <RoleBadge variant={roleBadgeVariantFromSession(sessionUser)} /> : <RoleBadge variant="member" />}
+              {sessionUser ? <RoleBadge variant={roleBadgeVariantFromSession(sessionUser)} /> : <RoleBadge variant="guest" />}
               <div className="flex flex-wrap gap-2">
                 {!sessionUser ? (
                   <>
