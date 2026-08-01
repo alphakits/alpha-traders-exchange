@@ -4452,11 +4452,10 @@ export async function getTradeRoomData(input: {
   actorUserId: string;
   actorRole: UserRole;
   markMessagesRead?: boolean;
+  strongConsistency?: boolean;
 }): Promise<TradeRoomData> {
   const debug = process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
-  // Trade room reads must be strongly consistent in production so the first
-  // GET after a mutation never returns stale pre-commit status/messages.
-  const db = await readDb({ bypassCache: true });
+  const db = await readDb({ bypassCache: input.strongConsistency === true });
   const lookupCandidates = buildPurchaseRequestLookupCandidates(input.purchaseRequestId);
   const requestIndex = db.purchaseRequests.findIndex((item) => lookupCandidates.includes(item.id));
   if (requestIndex === -1) {

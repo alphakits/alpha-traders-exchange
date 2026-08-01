@@ -29,7 +29,8 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       purchaseRequestId: requestId,
       actorUserId: user.id,
       actorRole: user.role,
-      markMessagesRead: true,
+      markMessagesRead: false,
+      strongConsistency: true,
     });
     if (debug) console.log("[trade-room-open] api response", {
       requestId,

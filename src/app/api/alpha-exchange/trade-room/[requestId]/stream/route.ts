@@ -40,6 +40,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
             actorUserId: user.id,
             actorRole: user.role,
             markMessagesRead: false,
+            strongConsistency: false,
           });
           const snapshotMs = Date.now() - snapshotStartMs;
           const sentAtEpochMs = Date.now();

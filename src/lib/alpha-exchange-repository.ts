@@ -336,9 +336,7 @@ const SNAPSHOT_TABLE_NAMES = new Set([
 ]);
 
 function shouldLogRepoVersionFlow() {
-  if (process.env.ALPHA_EXCHANGE_REPO_TRACE === "1") return true;
-  // Always log DB mode in production so Vercel logs reveal memory vs Postgres usage.
-  return true;
+  return process.env.ALPHA_EXCHANGE_REPO_TRACE === "1";
 }
 
 function shouldPersistRepoVersionTrace() {
