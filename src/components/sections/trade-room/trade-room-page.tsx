@@ -107,14 +107,14 @@ function getPrimaryAction(request: PurchaseRequest, isSeller: boolean, isAr: boo
   }
   if (request.status === "accepted" && !isSeller) {
     return {
-      label: isAr ? "لقد أرسلت الدفعة" : "I've Sent The Money",
+      label: isAr ? "إرسال الدفع" : "Submit Payment",
       nextStatus: "payment_sent",
       requiresEvidenceSide: "buyer",
     };
   }
   if (request.status === "payment_sent" && isSeller) {
     return {
-      label: isAr ? "تأكيد استلام الدفعة" : "Confirm Payment Received",
+      label: isAr ? "تأكيد استلام الأموال" : "Confirm Money Received",
       nextStatus: "funds_received",
     };
   }
@@ -168,12 +168,12 @@ function getTurnPanel(request: PurchaseRequest, isSeller: boolean, isAr: boolean
       ? {
           isYourTurn: false,
           title: isAr ? "بانتظار المشتري" : "WAITING FOR BUYER",
-          detail: isAr ? "المشتري سيقوم بإرسال الدفعة ورفع الإثبات." : "Buyer will send payment and upload evidence.",
+          detail: isAr ? "المشتري سيرفع إيصال الدفع ثم يرسل تأكيد الدفع." : "Buyer will upload the payment receipt, then submit payment.",
         }
       : {
           isYourTurn: true,
           title: isAr ? "دورك الآن" : "YOUR TURN",
-          detail: isAr ? "أرسل الدفعة ثم أكد أنك أرسلتها." : "Send payment, upload proof, then confirm.",
+          detail: isAr ? "ارفع إيصال الدفع ثم أرسل تأكيد الدفع." : "Upload the payment receipt, then submit payment.",
         };
   }
 
@@ -398,7 +398,7 @@ export function TradeRoomPage({
   const primaryActionDisabledReason = useMemo(() => {
     if (!primaryAction || !request) return null;
     if (primaryAction.requiresEvidenceSide === "buyer" && !request.buyerEvidence) {
-      return isAr ? "ارفع إثبات الدفع أولًا." : "Upload buyer evidence before confirming payment.";
+      return isAr ? "ارفع إيصال الدفع أولًا." : "Upload the payment receipt before submitting payment.";
     }
     if (primaryAction.requiresEvidenceSide === "seller" && !request.sellerEvidence) {
       return isAr ? "ارفع إثبات البائع أولًا." : "Upload seller evidence before marking USDT sent.";
@@ -484,9 +484,30 @@ export function TradeRoomPage({
       if (!response.ok) {
         throw new Error(readApiErrorFallback(payload, isAr ? "تعذر رفع الإثبات." : "Failed to upload evidence."));
       }
+      const shouldAutoSubmitBuyerPayment = side === "buyer" && request.status === "accepted";
+      if (shouldAutoSubmitBuyerPayment) {
+        const statusResponse = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "payment_sent" }),
+        });
+        const statusPayload = (await statusResponse.json()) as { error?: string; message?: string };
+        if (!statusResponse.ok) {
+          throw new Error(readApiErrorFallback(
+            statusPayload,
+            isAr
+              ? "تم رفع الإيصال، لكن تعذر إرسال تأكيد الدفع. استخدم زر إرسال الدفع لإكمال الخطوة."
+              : "Receipt uploaded, but submitting payment failed. Use Submit Payment to complete the step.",
+          ));
+        }
+      }
       if (side === "buyer") setBuyerEvidenceFile(null);
       else setSellerEvidenceFile(null);
-      setStatusMessage(isAr ? "تم رفع الإثبات بنجاح." : "Evidence uploaded.");
+      setStatusMessage(
+        side === "buyer" && request.status === "accepted"
+          ? (isAr ? "تم رفع إيصال الدفع وإبلاغ البائع." : "Payment receipt uploaded and seller notified.")
+          : (isAr ? "تم رفع الإثبات بنجاح." : "Evidence uploaded."),
+      );
       await fetchRoom(true);
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : (isAr ? "تعذر رفع الإثبات." : "Failed to upload evidence."));
@@ -770,6 +791,11 @@ export function TradeRoomPage({
                       {actionBusy ? (isAr ? "جاري التنفيذ..." : "Processing...") : primaryAction.label}
                     </Button>
                     {primaryActionDisabledReason ? <p className="text-xs text-amber-300">{primaryActionDisabledReason}</p> : null}
+                    {!isSeller && request.status === "accepted" ? (
+                      <p className="text-xs text-[#9CA3AF]">
+                        {isAr ? "ابدأ برفع إيصال الدفع. سيتحول الطلب مباشرة إلى انتظار البائع." : "Start by uploading the payment receipt. The trade will move directly to Waiting for Seller."}
+                      </p>
+                    ) : null}
                   </div>
                 ) : (
                   <p className="text-sm text-[#9CA3AF]">{isAr ? "لا يوجد إجراء مطلوب الآن." : "No required action at this moment."}</p>
@@ -846,7 +872,7 @@ export function TradeRoomPage({
               </CardHeader>
               <CardContent className="grid gap-3 text-sm md:grid-cols-2">
                 <div className="rounded-xl border border-white/10 bg-black/25 p-3">
-                  <p className="font-medium text-white">{isAr ? "إثبات المشتري" : "Buyer Evidence"}</p>
+                  <p className="font-medium text-white">{isAr ? "إيصال دفع المشتري" : "Buyer Payment Receipt"}</p>
                   {request.buyerEvidence ? (
                     <a href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.buyerEvidence.id}`} target="_blank" rel="noreferrer" className="mt-2 inline-block text-[#C9A227] hover:underline">
                       {request.buyerEvidence.fileName}
@@ -856,15 +882,18 @@ export function TradeRoomPage({
                   )}
                   {actorSide === "buyer" ? (
                     <div className="mt-3 space-y-2">
+                      <p className="text-xs text-[#9CA3AF]">
+                        {isAr ? "هذه الخطوة مطلوبة قبل إرسال تأكيد الدفع." : "This receipt is required before payment confirmation."}
+                      </p>
                       <Input type="file" accept=".png,.jpg,.jpeg,.webp,.pdf" onChange={(event) => setBuyerEvidenceFile(event.target.files?.[0] ?? null)} />
                       <Button type="button" size="sm" variant="secondary" disabled={!buyerEvidenceFile || evidenceBusy === "buyer"} onClick={() => void handleUploadEvidence("buyer")}>
-                        <Upload className="h-4 w-4" /> {evidenceBusy === "buyer" ? (isAr ? "جارٍ الرفع..." : "Uploading...") : (isAr ? "رفع الإثبات" : "Upload Evidence")}
+                        <Upload className="h-4 w-4" /> {evidenceBusy === "buyer" ? (isAr ? "جارٍ رفع الإيصال..." : "Uploading receipt...") : (isAr ? "رفع إيصال الدفع" : "Upload Payment Receipt")}
                       </Button>
                     </div>
                   ) : null}
                 </div>
                 <div className="rounded-xl border border-white/10 bg-black/25 p-3">
-                  <p className="font-medium text-white">{isAr ? "إثبات البائع" : "Seller Evidence"}</p>
+                  <p className="font-medium text-white">{isAr ? "إثبات البائع" : "Seller Release Proof"}</p>
                   {request.sellerEvidence ? (
                     <a href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.sellerEvidence.id}`} target="_blank" rel="noreferrer" className="mt-2 inline-block text-[#C9A227] hover:underline">
                       {request.sellerEvidence.fileName}

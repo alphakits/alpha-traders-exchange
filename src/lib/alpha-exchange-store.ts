@@ -2244,6 +2244,26 @@ function appendTradeTimelineEntry(
   ];
 }
 
+function appendSystemTradeMessage(
+  db: AlphaExchangeDb,
+  request: PurchaseRequest,
+  input: { senderUserId: string; senderRole: UserRole; message: string; createdAt?: string },
+) {
+  const createdAt = input.createdAt ?? nowIso();
+  const nextMessage: TradeChatMessage = {
+    id: `trade-msg-${randomUUID()}`,
+    purchaseRequestId: request.id,
+    kind: "system",
+    senderUserId: input.senderUserId,
+    senderRole: input.senderRole,
+    message: input.message,
+    createdAt,
+    readByUserIds: [],
+  };
+  request.messages = [nextMessage, ...(request.messages ?? [])];
+  db.tradeMessages = [nextMessage, ...(db.tradeMessages ?? [])];
+}
+
 function enrichRequestWithEvidence(db: AlphaExchangeDb, request: PurchaseRequest): PurchaseRequest {
   const buyerEvidence = db.tradeEvidenceFiles.find((item) => item.purchaseRequestId === request.id && item.side === "buyer");
   const sellerEvidence = db.tradeEvidenceFiles.find((item) => item.purchaseRequestId === request.id && item.side === "seller");
@@ -4540,6 +4560,7 @@ export async function postTradeRoomMessage(input: {
   request.messages = [nextMessage, ...(request.messages ?? [])];
   db.purchaseRequests[requestIndex] = request;
   db.tradeMessages = [nextMessage, ...(db.tradeMessages ?? [])];
+  await writeDb(db);
   publishRealtimeEvent({
     type: "trade.message_created",
     payload: {
@@ -4547,7 +4568,6 @@ export async function postTradeRoomMessage(input: {
       messageId: nextMessage.id,
     },
   });
-  await writeDb(db);
   return nextMessage;
 }
 
@@ -4730,6 +4750,7 @@ export async function uploadTradeEvidence(input: {
   contentBase64: string;
 }) {
   const db = await readDb();
+  const actorRole = resolveActorRole(db, input.actorUserId);
   const lookupId = String(input.purchaseRequestId ?? "");
   const requestById = db.purchaseRequests.find((item) => item.id === lookupId) ?? null;
   const requestByTradeId = db.purchaseRequests.find((item) => item.tradeId === lookupId) ?? null;
@@ -4816,18 +4837,28 @@ export async function uploadTradeEvidence(input: {
 
   if (existingIndex >= 0) db.tradeEvidenceFiles.splice(existingIndex, 1);
   db.tradeEvidenceFiles.unshift(evidence);
+  const updatedAt = nowIso();
 
   const nextRequest: PurchaseRequest = {
     ...request,
     buyerEvidence: input.side === "buyer" ? evidence : request.buyerEvidence,
     sellerEvidence: input.side === "seller" ? evidence : request.sellerEvidence,
-    updatedAt: nowIso(),
+    updatedAt,
   };
   appendTradeTimelineEntry(nextRequest, {
     type: input.side === "buyer" ? "buyer_evidence_uploaded" : "seller_evidence_uploaded",
     actorUserId: input.actorUserId,
-    actorRole: resolveActorRole(db, input.actorUserId),
+    actorRole,
     message: input.side === "buyer" ? "Buyer uploaded payment evidence" : "Seller uploaded USDT evidence",
+    createdAt: updatedAt,
+  });
+  appendSystemTradeMessage(db, nextRequest, {
+    senderUserId: input.actorUserId,
+    senderRole: actorRole,
+    message: input.side === "buyer"
+      ? "Buyer uploaded the payment receipt."
+      : "Seller uploaded USDT release proof.",
+    createdAt: updatedAt,
   });
   db.purchaseRequests[requestIndex] = nextRequest;
 
@@ -4845,8 +4876,16 @@ export async function uploadTradeEvidence(input: {
     title: "Trade evidence uploaded",
     details: `${input.side === "buyer" ? "Payment" : "USDT"} evidence uploaded for trade ${request.tradeId ?? request.id}.`,
   });
-
   await writeDb(db, { evidenceOverrides: new Map([[evidenceId, raw]]) });
+  publishRealtimeEvent({
+    type: "trade.status_changed",
+    payload: {
+      requestId: nextRequest.id,
+      request: enrichRequestWithEvidence(db, nextRequest),
+      status: nextRequest.status,
+      timeline: nextRequest.timeline,
+    },
+  });
   return enrichRequestWithEvidence(db, db.purchaseRequests[requestIndex]);
 }
 
@@ -5161,6 +5200,12 @@ export async function updatePurchaseRequestStatus(input: {
     listing.lockedAt = now;
     listing.updatedAt = now;
     appendTradeTimelineEntry(next, { type: "request_accepted", actorUserId: input.actorUserId, actorRole, message: "Seller accepted request", createdAt: now });
+    appendSystemTradeMessage(db, next, {
+      senderUserId: input.actorUserId,
+      senderRole: actorRole,
+      message: "Seller accepted the trade request. Buyer can now upload the payment receipt.",
+      createdAt: now,
+    });
     for (let siblingIndex = 0; siblingIndex < db.purchaseRequests.length; siblingIndex += 1) {
       const sibling = db.purchaseRequests[siblingIndex];
       if (sibling.id === request.id || sibling.listingId !== request.listingId || sibling.status !== "pending") continue;
@@ -5236,6 +5281,12 @@ export async function updatePurchaseRequestStatus(input: {
       listing.updatedAt = now;
     }
     appendTradeTimelineEntry(next, { type: "payment_sent", actorUserId: input.actorUserId, actorRole, message: "Buyer marked payment sent", createdAt: now });
+    appendSystemTradeMessage(db, next, {
+      senderUserId: input.actorUserId,
+      senderRole: actorRole,
+      message: "Buyer submitted payment. Seller should now confirm the money was received.",
+      createdAt: now,
+    });
     pushNotification(db, {
       userId: request.sellerId,
       category: "trade",
@@ -5253,6 +5304,12 @@ export async function updatePurchaseRequestStatus(input: {
     next.status = "funds_received";
     next.fundsReceivedAt = now;
     appendTradeTimelineEntry(next, { type: "seller_confirmed_funds", actorUserId: input.actorUserId, actorRole, message: "Seller confirmed funds received", createdAt: now });
+    appendSystemTradeMessage(db, next, {
+      senderUserId: input.actorUserId,
+      senderRole: actorRole,
+      message: "Seller confirmed the funds were received. USDT release is now unlocked.",
+      createdAt: now,
+    });
     pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
@@ -5271,6 +5328,12 @@ export async function updatePurchaseRequestStatus(input: {
     next.usdtReleaseStartedAt = now;
     next.usdtReleaseDeadlineAt = addMinutesIso(now, 45);
     appendTradeTimelineEntry(next, { type: "usdt_release_started", actorUserId: input.actorUserId, actorRole, message: "Seller started USDT release", createdAt: now });
+    appendSystemTradeMessage(db, next, {
+      senderUserId: input.actorUserId,
+      senderRole: actorRole,
+      message: "Seller started the 45-minute USDT release window.",
+      createdAt: now,
+    });
     pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
@@ -5287,6 +5350,12 @@ export async function updatePurchaseRequestStatus(input: {
     next.sellerEvidence = sellerEvidence;
     next.usdtSentAt = now;
     appendTradeTimelineEntry(next, { type: "usdt_sent", actorUserId: input.actorUserId, actorRole, message: "Seller marked USDT sent", createdAt: now });
+    appendSystemTradeMessage(db, next, {
+      senderUserId: input.actorUserId,
+      senderRole: actorRole,
+      message: "Seller marked USDT as sent. Buyer should now confirm receipt.",
+      createdAt: now,
+    });
     pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
@@ -5304,6 +5373,12 @@ export async function updatePurchaseRequestStatus(input: {
     next.reviewUnlockedAt = now;
     next.status = "review_open";
     appendTradeTimelineEntry(next, { type: "review_unlocked", actorUserId: input.actorUserId, actorRole, message: "Review window unlocked", createdAt: now });
+    appendSystemTradeMessage(db, next, {
+      senderUserId: input.actorUserId,
+      senderRole: actorRole,
+      message: "Buyer confirmed USDT receipt. The trade is complete and has moved to history.",
+      createdAt: now,
+    });
 
     const remainingAmount = Math.max(0, toNumber(listing.availableAmount) - toNumber(next.usdtAmount));
     listing.availableAmount = remainingAmount.toFixed(2).replace(/\.00$/, "");
@@ -5364,6 +5439,12 @@ export async function updatePurchaseRequestStatus(input: {
         actorUserId: input.actorUserId,
         actorRole,
         message: `Commission created (${commission.commissionAmount.toFixed(2)} ${next.currency}).`,
+        createdAt: now,
+      });
+      appendSystemTradeMessage(db, next, {
+        senderUserId: input.actorUserId,
+        senderRole: actorRole,
+        message: `Commission due was created for the seller (${commission.commissionAmount.toFixed(2)} ${next.currency}).`,
         createdAt: now,
       });
       await appendAuditLog(db, {
@@ -5460,11 +5541,6 @@ export async function updatePurchaseRequestStatus(input: {
       buyerId: next.buyerId,
     });
   }
-  publishRealtimeEvent({
-    type: "trade.status_changed",
-    payload: { request: enrichRequestWithEvidence(db, next) },
-  });
-
   await recalculateTrustEngine(db, { reason: input.nextStatus === "completed" ? "Trade completed" : "Trade lifecycle updated", triggeredBy: input.actorUserId });
 
   if (isUsdtSentTrace) {
@@ -5474,6 +5550,15 @@ export async function updatePurchaseRequestStatus(input: {
   if (isUsdtSentTrace) {
     console.log("[usdt-sent-trace] after DB write", { traceId: input.traceId ?? null, requestId: input.requestId });
   }
+  publishRealtimeEvent({
+    type: "trade.status_changed",
+    payload: {
+      requestId: next.id,
+      request: enrichRequestWithEvidence(db, next),
+      status: next.status,
+      timeline: next.timeline,
+    },
+  });
   return enrichRequestWithEvidence(db, db.purchaseRequests[requestIndex]);
 }
 
