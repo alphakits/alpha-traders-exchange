@@ -529,10 +529,65 @@ textarea {
   color: var(--muted-secondary);
 }
 
+.profile-identity-name {
+  @apply text-2xl font-semibold text-white md:text-3xl;
+}
+
+.profile-identity-name--seller {
+  background-image: linear-gradient(120deg, #f4d87a 0%, #ffffff 40%, #c9a227 60%, #f4d87a 100%);
+  background-size: 220% auto;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: seller-name-shimmer 5.5s linear infinite;
+}
+
+.profile-identity-name--admin {
+  background-image: linear-gradient(120deg, #fecaca 0%, #ffffff 42%, #f87171 62%, #fecaca 100%);
+  background-size: 220% auto;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: seller-name-shimmer 5.5s linear infinite;
+}
+
+.profile-identity-name--buyer {
+  background-image: linear-gradient(120deg, #bfdbfe 0%, #ffffff 45%, #6caeff 65%, #bfdbfe 100%);
+  background-size: 220% auto;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: seller-name-shimmer 6s linear infinite;
+}
+
+.profile-seller-frame,
+.profile-member-frame {
+  @apply h-24 w-24 overflow-hidden rounded-2xl border bg-black/80 md:h-28 md:w-28;
+}
+
+.profile-seller-frame {
+  border-color: rgba(212, 175, 55, 0.5);
+  box-shadow: 0 0 40px rgba(212, 175, 55, 0.2);
+}
+
+.profile-member-frame {
+  border-color: rgba(108, 174, 255, 0.4);
+  box-shadow: 0 0 30px rgba(108, 174, 255, 0.14);
+}
+
 @keyframes page-fade-up {
   from {
     opacity: 0;
     transform: translateY(8px);
+  }
+
+  @keyframes seller-name-shimmer {
+    0% {
+      background-position: 0% 50%;
+    }
+    100% {
+      background-position: 200% 50%;
+    }
   }
 
   @keyframes role-badge-shimmer {
@@ -780,6 +835,12 @@ textarea {
   .global-chain-bg__network-lines path,
   .global-chain-bg__network-nodes circle,
   .global-chain-bg__pulse-line::after {
+    animation: none !important;
+  }
+
+  .profile-identity-name--seller,
+  .profile-identity-name--admin,
+  .profile-identity-name--buyer {
     animation: none !important;
   }
 }
