@@ -21,6 +21,13 @@ type Props = {
   initialName: string;
 };
 
+type ApiErrorPayload = {
+  error?: string;
+  supportCode?: string;
+  requestId?: string;
+  message?: string;
+};
+
 function normalizeRedirectPath(rawRedirect: string | undefined, locale: "ar" | "en") {
   if (!rawRedirect) return "/usdt-exchange";
   if (!rawRedirect.startsWith("/") || rawRedirect.startsWith("//")) return "/usdt-exchange";
@@ -100,8 +107,8 @@ export function AccountVerificationGate({ locale, redirectTo, initialEmail, init
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(phoneForm),
       });
-      const payload = (await res.json()) as { error?: string; message?: string };
-      if (!res.ok) throw new Error(payload.error ?? "Failed to send verification code.");
+      const payload = (await res.json()) as ApiErrorPayload;
+      if (!res.ok) throw new Error(withSupportDetails(payload, "Failed to send verification code."));
       setStatus(payload.message ?? (isAr ? "تم إرسال رمز التحقق." : "Verification code sent."));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send verification code.");
@@ -120,8 +127,8 @@ export function AccountVerificationGate({ locale, redirectTo, initialEmail, init
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: phoneForm.phone, token: phoneForm.token }),
       });
-      const payload = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(payload.error ?? "Verification failed.");
+      const payload = (await res.json()) as ApiErrorPayload;
+      if (!res.ok) throw new Error(withSupportDetails(payload, "Verification failed."));
       setStatus(isAr ? "تم تفعيل رقم الهاتف بنجاح." : "Phone verification completed.");
       await refreshUser();
     } catch (err) {
@@ -289,3 +296,9 @@ export function AccountVerificationGate({ locale, redirectTo, initialEmail, init
     </section>
   );
 }
+  function withSupportDetails(payload: ApiErrorPayload, fallback: string) {
+    const message = payload.error ?? fallback;
+    if (!payload.supportCode && !payload.requestId) return message;
+    const suffix = [payload.supportCode, payload.requestId].filter(Boolean).join(" • ");
+    return `${message} (${suffix})`;
+  }

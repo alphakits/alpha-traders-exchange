@@ -17,6 +17,13 @@ type Props = {
   sellerStatus?: string;
 };
 
+type ApiErrorPayload = {
+  error?: string;
+  supportCode?: string;
+  requestId?: string;
+  message?: string;
+};
+
 function consumePostOnboardingRedirect(): string | null {
   try {
     const stored = sessionStorage.getItem(POST_ONBOARDING_KEY);
@@ -85,6 +92,13 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
     [isAr],
   );
 
+  function withSupportDetails(payload: ApiErrorPayload, fallback: string) {
+    const message = payload.error ?? fallback;
+    if (!payload.supportCode && !payload.requestId) return message;
+    const suffix = [payload.supportCode, payload.requestId].filter(Boolean).join(" • ");
+    return `${message} (${suffix})`;
+  }
+
   function toggleNetwork(net: Network) {
     setSeller((prev) => ({
       ...prev,
@@ -120,8 +134,8 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buyer),
       });
-      const payload = (await res.json()) as { error?: string; message?: string };
-      if (!res.ok) throw new Error(payload.error ?? "Failed to send verification code.");
+      const payload = (await res.json()) as ApiErrorPayload;
+      if (!res.ok) throw new Error(withSupportDetails(payload, "Failed to send verification code."));
       setStatus(payload.message ?? "Verification code sent.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send verification code.");
@@ -140,8 +154,8 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: buyer.phone, token: buyer.token }),
       });
-      const payload = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(payload.error ?? "Verification failed.");
+      const payload = (await res.json()) as ApiErrorPayload;
+      if (!res.ok) throw new Error(withSupportDetails(payload, "Verification failed."));
       router.replace((consumePostOnboardingRedirect() ?? "/usdt-exchange") as "/usdt-exchange");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Verification failed.");
@@ -180,8 +194,8 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
           phone: seller.phone,
         }),
       });
-      const payload = (await res.json()) as { error?: string; message?: string };
-      if (!res.ok) throw new Error(payload.error ?? "Failed to send verification code.");
+      const payload = (await res.json()) as ApiErrorPayload;
+      if (!res.ok) throw new Error(withSupportDetails(payload, "Failed to send verification code."));
       setSellerStep("otp_sent");
       setSellerStatus2(payload.message ?? "Verification code sent.");
     } catch (err) {
@@ -227,8 +241,8 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: seller.phone, token: seller.token }),
       });
-      const verifyPayload = (await verifyRes.json()) as { error?: string };
-      if (!verifyRes.ok) throw new Error(verifyPayload.error ?? "Verification failed.");
+      const verifyPayload = (await verifyRes.json()) as ApiErrorPayload;
+      if (!verifyRes.ok) throw new Error(withSupportDetails(verifyPayload, "Verification failed."));
       await submitSellerApplication();
     } catch (err) {
       setSellerError(err instanceof Error ? err.message : "Verification failed.");

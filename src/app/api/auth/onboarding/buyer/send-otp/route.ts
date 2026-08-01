@@ -3,9 +3,10 @@ import { requireApiUser } from "@/lib/api-auth";
 import { beginBuyerVerification } from "@/lib/alpha-exchange-store";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
-import { getSmsProvider } from "@/lib/sms-provider";
+import { getSmsProvider, OtpProviderError } from "@/lib/sms-provider";
 
 export async function POST(request: NextRequest) {
+  const requestId = crypto.randomUUID();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
   const rate = checkRateLimit({
@@ -36,6 +37,21 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    logEvent("info", {
+      event: "buyer_verification_otp_send_start",
+      actorUserId: user.id,
+      actorRole: user.role,
+      outcome: "success",
+      metadata: {
+        requestId,
+        hasFirstName: Boolean(firstName),
+        hasLastName: Boolean(lastName),
+        hasDisplayName: Boolean(displayName),
+        phonePrefix: phone.startsWith("+972") ? "+972" : phone.startsWith("05") ? "05" : "other",
+        phoneLength: phone.length,
+      },
+    });
+
     const started = await beginBuyerVerification({
       userId: user.id,
       firstName,
@@ -43,6 +59,19 @@ export async function POST(request: NextRequest) {
       displayName: displayName || undefined,
       phone,
     });
+
+    logEvent("info", {
+      event: "buyer_verification_otp_send_pre_provider",
+      actorUserId: user.id,
+      actorRole: user.role,
+      outcome: "success",
+      metadata: {
+        requestId,
+        normalizedPhonePrefix: started.phone.startsWith("+972") ? "+972" : "other",
+        normalizedPhoneLength: started.phone.length,
+      },
+    });
+
     const smsProvider = getSmsProvider();
     await smsProvider.sendOtp({ phone: started.phone });
     logEvent("info", {
@@ -50,17 +79,52 @@ export async function POST(request: NextRequest) {
       actorUserId: user.id,
       actorRole: user.role,
       outcome: "success",
-      metadata: { phoneSuffix: started.phone.slice(-4) },
+      metadata: { requestId, phoneSuffix: started.phone.slice(-4) },
     });
     return NextResponse.json({ ok: true, message: "Verification code sent." });
   } catch (error) {
+    if (error instanceof OtpProviderError) {
+      logEvent("error", {
+        event: "buyer_verification_otp_send_provider_failed",
+        actorUserId: user.id,
+        actorRole: user.role,
+        outcome: "failed",
+        reason: error.message,
+        metadata: {
+          requestId,
+          supportCode: error.supportCode,
+          stage: error.stage,
+          provider: error.provider,
+          rawCode: error.rawCode ?? null,
+          rawStatus: error.rawStatus ?? null,
+          rawMessage: error.rawMessage,
+        },
+      });
+      return NextResponse.json(
+        {
+          error: error.message,
+          supportCode: error.supportCode,
+          requestId,
+        },
+        { status: 503 },
+      );
+    }
+
     logEvent("error", {
       event: "buyer_verification_otp_send",
       actorUserId: user.id,
       actorRole: user.role,
       outcome: "failed",
       reason: error instanceof Error ? error.message : "Unknown error",
+      metadata: { requestId },
     });
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to send OTP." }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to send OTP.",
+        supportCode: "OTP_PROVIDER_UNKNOWN",
+        requestId,
+      },
+      { status: 400 },
+    );
   }
 }

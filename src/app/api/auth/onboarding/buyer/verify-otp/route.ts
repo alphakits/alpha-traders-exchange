@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { requireApiUser } from "@/lib/api-auth";
 import { completeBuyerVerification, findUserById, recordBuyerVerificationAttempt } from "@/lib/alpha-exchange-store";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { getSmsProvider } from "@/lib/sms-provider";
+import { getSmsProvider, OtpProviderError } from "@/lib/sms-provider";
 import { logEvent } from "@/lib/structured-logging";
 import { AUTH_PHONE_VERIFIED_COOKIE_NAME } from "@/lib/auth";
 import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
@@ -11,6 +11,7 @@ import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
 const OTP_EXPIRY_MINUTES = Number(process.env.BUYER_OTP_EXPIRY_MINUTES ?? "10");
 
 export async function POST(request: NextRequest) {
+  const requestId = crypto.randomUUID();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
   const rate = checkRateLimit({
@@ -67,14 +68,48 @@ export async function POST(request: NextRequest) {
     await smsProvider.verifyOtp({ phone, token });
   } catch (error) {
     await recordBuyerVerificationAttempt(user.id);
+    if (error instanceof OtpProviderError) {
+      logEvent("warn", {
+        event: "buyer_verification_otp_verify_provider_failed",
+        actorUserId: user.id,
+        actorRole: user.role,
+        outcome: "failed",
+        reason: error.message,
+        metadata: {
+          requestId,
+          supportCode: error.supportCode,
+          stage: error.stage,
+          provider: error.provider,
+          rawCode: error.rawCode ?? null,
+          rawStatus: error.rawStatus ?? null,
+          rawMessage: error.rawMessage,
+        },
+      });
+      return NextResponse.json(
+        {
+          error: error.message,
+          supportCode: error.supportCode,
+          requestId,
+        },
+        { status: 400 },
+      );
+    }
     logEvent("warn", {
       event: "buyer_verification_otp_verify",
       actorUserId: user.id,
       actorRole: user.role,
       outcome: "failed",
       reason: error instanceof Error ? error.message : "OTP verify provider failure",
+      metadata: { requestId },
     });
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to verify OTP." }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to verify OTP.",
+        supportCode: "OTP_PROVIDER_UNKNOWN",
+        requestId,
+      },
+      { status: 400 },
+    );
   }
 
   try {
@@ -92,7 +127,7 @@ export async function POST(request: NextRequest) {
       actorUserId: user.id,
       actorRole: user.role,
       outcome: "success",
-      metadata: { phoneSuffix: phone.slice(-4) },
+      metadata: { requestId, phoneSuffix: phone.slice(-4) },
     });
     return NextResponse.json({
       ok: true,
@@ -111,6 +146,7 @@ export async function POST(request: NextRequest) {
       actorRole: user.role,
       outcome: "failed",
       reason: error instanceof Error ? error.message : "Unknown completion failure",
+      metadata: { requestId },
     });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to complete buyer verification." }, { status: 400 });
   }
