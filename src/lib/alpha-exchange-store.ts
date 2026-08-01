@@ -4778,7 +4778,7 @@ export async function uploadTradeEvidence(input: {
 }) {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
-  const db = await readDb({ bypassCache: true });
+  const db = await readDb();
   const dbReadMs = Date.now() - dbReadStartedAt;
   const validationStartedAt = Date.now();
   const actorRole = resolveActorRole(db, input.actorUserId);
@@ -5235,7 +5235,7 @@ export async function updatePurchaseRequestStatus(input: {
       actorRole: input.actorRole,
     });
   }
-  const db = await readDb({ bypassCache: true });
+  const db = await readDb();
   const readDbMs = Date.now() - startedAt;
   let timelineMs = 0;
   let chatMs = 0;
