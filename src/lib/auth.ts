@@ -35,6 +35,9 @@ export async function createUserSession(userId: string, durationDays = 14) {
 }
 
 export async function authenticateLocalUser(email: string, password: string) {
+  if (process.env.NODE_ENV === "production" && process.env.ENABLE_LOCAL_AUTH_FALLBACK !== "1") {
+    return null;
+  }
   const cwd = process.cwd();
   const dbPath = path.join(cwd, "data", "alpha-exchange-db.json");
   try {
