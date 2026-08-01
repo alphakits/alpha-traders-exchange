@@ -577,6 +577,7 @@ export interface PurchaseRequest {
   sellerEvidence?: TradeEvidenceFile;
   buyerReview?: TradeReview;
   sellerResponse?: TradeReviewResponse;
+  messages?: TradeChatMessage[];
   status: PurchaseRequestStatus;
   createdAt: string;
   updatedAt: string;

@@ -115,7 +115,7 @@ export async function POST(request: NextRequest) {
         secureCookies,
         rememberMe,
         expiresAt,
-        isVerified(user),
+        process.env.ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION === "1" || isVerified(user),
       );
       return NextResponse.json({
         user: {
@@ -190,7 +190,7 @@ export async function POST(request: NextRequest) {
       secureCookies,
       rememberMe,
       expiresAt,
-      isVerified(user),
+      process.env.ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION === "1" || isVerified(user),
     );
     return NextResponse.json({
       user: {

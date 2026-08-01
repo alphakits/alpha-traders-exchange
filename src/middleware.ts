@@ -11,7 +11,10 @@ export default function middleware(request: Parameters<typeof intlMiddleware>[0]
   const isExchangeRoute = /^\/(ar|en)\/(?:dashboard\/seller|trade-room)(?:\/|$)/.test(pathname);
   const hasSession = Boolean(request.cookies.get(AUTH_COOKIE_NAME)?.value);
   const hasVerifiedEmail = request.cookies.get(AUTH_VERIFIED_COOKIE_NAME)?.value === "1";
-  const hasVerifiedPhone = request.cookies.get(AUTH_PHONE_VERIFIED_COOKIE_NAME)?.value === "1";
+  // When ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION=1 is set (pre-Twilio operation),
+  // bypass the phone cookie check entirely so the Trade Room remains accessible.
+  const skipPhoneVerification = process.env.ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION === "1";
+  const hasVerifiedPhone = skipPhoneVerification || request.cookies.get(AUTH_PHONE_VERIFIED_COOKIE_NAME)?.value === "1";
 
   if (isProtectedRoute && !hasSession) {
     const locale = pathname.startsWith("/ar/") ? "ar" : "en";

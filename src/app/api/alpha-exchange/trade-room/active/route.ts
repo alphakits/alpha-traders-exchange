@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     });
     const resolvedRequestId = resolved.request?.id ?? null;
     const destination = resolvedRequestId ? `/trade-room/${resolvedRequestId}` : null;
-    console.log("[trade-room-open] notification resolution", {
+    if (process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") console.log("[trade-room-open] notification resolution", {
       userId: user.id,
       role: user.role,
       notificationId: sourceNotificationId,
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
   const activeTrade = includePending
     ? await getFirstActionableTradeForUser(user.id, user.role)
     : await getFirstActiveTradeForUser(user.id, user.role);
-  console.log("[trade-room-open] active trade lookup", {
+  if (process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") console.log("[trade-room-open] active trade lookup", {
     userId: user.id,
     role: user.role,
     includePending,

@@ -11,7 +11,8 @@ export async function GET(_request: NextRequest, context: RouteContext) {
   if (!user) return unauthorized;
 
   const { requestId } = await context.params;
-  console.log("[trade-room-open] api request", {
+  const debug = process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
+  if (debug) console.log("[trade-room-open] api request", {
     requestId,
     userId: user.id,
     role: user.role,
@@ -24,7 +25,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       actorRole: user.role,
       markMessagesRead: true,
     });
-    console.log("[trade-room-open] api response", {
+    if (debug) console.log("[trade-room-open] api response", {
       requestId,
       userId: user.id,
       status: 200,

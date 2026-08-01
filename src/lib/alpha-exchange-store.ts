@@ -4234,6 +4234,7 @@ export async function createPurchaseRequest(input: {
     category: "trade",
     title: "New trade request",
     message: `${request.buyerName} submitted a ${primaryPaymentMethod} trade request.`,
+    relatedRequestId: request.id,
     relatedTradeId: request.tradeId,
     relatedListingId: request.listingId,
     relatedHref: requestDetailsHref(request.id),
@@ -4407,22 +4408,23 @@ export async function getTradeRoomData(input: {
   actorRole: UserRole;
   markMessagesRead?: boolean;
 }): Promise<TradeRoomData> {
+  const debug = process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
   const db = await readDb();
   const lookupCandidates = buildPurchaseRequestLookupCandidates(input.purchaseRequestId);
   const requestIndex = db.purchaseRequests.findIndex((item) => lookupCandidates.includes(item.id));
   if (requestIndex === -1) {
-    console.log("[trade-room-open] store lookup failed", {
+    if (debug) console.log("[trade-room-open] store lookup failed", {
       incomingRequestId: input.purchaseRequestId,
       lookupCandidates,
       reason: "request_not_found",
+      totalRequests: db.purchaseRequests.length,
     });
     throw new Error("Trade not found.");
   }
   const request = db.purchaseRequests[requestIndex];
-  console.log("[trade-room-open] store lookup success", {
+  if (debug) console.log("[trade-room-open] store lookup success", {
     incomingRequestId: input.purchaseRequestId,
     resolvedRequestId: request.id,
-    lookupCandidates,
     tradeStatus: request.status,
     listingId: request.listingId,
     tradeId: request.tradeId ?? null,
@@ -4431,9 +4433,12 @@ export async function getTradeRoomData(input: {
   });
   assertTradeParticipantOrAdmin(request, input.actorUserId, input.actorRole);
 
-  const messages = (db.tradeMessages ?? [])
-    .filter((message) => message.purchaseRequestId === request.id)
-    .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+  // Messages are stored in request.messages (persisted in purchase_requests.payload JSON).
+  // Fall back to db.tradeMessages for backward compatibility with older records.
+  const allMessages = request.messages?.length
+    ? request.messages
+    : (db.tradeMessages ?? []).filter((message) => message.purchaseRequestId === request.id);
+  const messages = [...allMessages].sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
 
   let changed = false;
   if (input.markMessagesRead !== false) {
@@ -4443,6 +4448,11 @@ export async function getTradeRoomData(input: {
       message.readByUserIds.push(input.actorUserId);
       changed = true;
     }
+    if (changed) {
+      // Persist read-receipt updates back onto the request.messages array
+      request.messages = messages;
+      db.purchaseRequests[requestIndex] = request;
+    }
   }
   if (changed) {
     await writeDb(db);
@@ -4451,7 +4461,7 @@ export async function getTradeRoomData(input: {
   const listing = db.marketplaceListings.find((item) => item.id === request.listingId) ?? null;
   const buyer = db.users.find((item) => item.id === request.buyerId) ?? null;
   const seller = db.users.find((item) => item.id === request.sellerId) ?? null;
-  console.log("[trade-room-open] store related entities", {
+  if (debug) console.log("[trade-room-open] store related entities", {
     requestId: request.id,
     foundListing: Boolean(listing),
     foundTradeId: request.tradeId ?? null,
@@ -4494,8 +4504,9 @@ export async function postTradeRoomMessage(input: {
   message: string;
 }) {
   const db = await readDb();
-  const request = db.purchaseRequests.find((item) => item.id === input.purchaseRequestId);
-  if (!request) throw new Error("Trade not found.");
+  const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.purchaseRequestId);
+  if (requestIndex === -1) throw new Error("Trade not found.");
+  const request = db.purchaseRequests[requestIndex];
   assertTradeParticipantOrAdmin(request, input.actorUserId, input.actorRole);
 
   const message = input.message.trim();
@@ -4513,6 +4524,10 @@ export async function postTradeRoomMessage(input: {
     createdAt: nowIso(),
     readByUserIds: [input.actorUserId],
   };
+  // Store messages in request.messages (persisted inside purchase_requests.payload JSON).
+  // Also keep db.tradeMessages in sync for backward compatibility.
+  request.messages = [nextMessage, ...(request.messages ?? [])];
+  db.purchaseRequests[requestIndex] = request;
   db.tradeMessages = [nextMessage, ...(db.tradeMessages ?? [])];
   publishRealtimeEvent({
     type: "trade.message_created",
@@ -5422,7 +5437,7 @@ export async function updatePurchaseRequestStatus(input: {
     next.status = input.nextStatus;
   }
   db.purchaseRequests[requestIndex] = next;
-  if (input.nextStatus === "accepted") {
+  if (input.nextStatus === "accepted" && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") {
     console.log("[trade-room-open] state transition after accept", {
       requestId: next.id,
       tradeId: next.tradeId ?? null,

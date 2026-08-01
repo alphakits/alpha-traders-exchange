@@ -18,7 +18,7 @@ export async function GET() {
   }
   const cookieStore = await cookies();
   const verificationBypassed = isPhotoVerificationBypassed(user.email);
-  const verified = isVerified(user);
+  const verified = process.env.ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION === "1" || isVerified(user);
   const effectiveVerifiedPhone = verificationBypassed ? user.verifiedPhone || "bypassed" : user.verifiedPhone ?? "";
   const effectivePhoneVerifiedAt = verificationBypassed ? user.phoneVerifiedAt || new Date(0).toISOString() : user.phoneVerifiedAt ?? "";
   if (verified) {

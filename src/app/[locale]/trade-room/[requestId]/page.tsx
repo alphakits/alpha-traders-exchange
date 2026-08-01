@@ -22,7 +22,7 @@ export default async function TradeRoomRoute({
 }) {
   const { locale, requestId } = await params;
   const user = await getCurrentSessionUser();
-  console.log("[trade-room-open] route entry", {
+  if (process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") console.log("[trade-room-open] route entry", {
     locale,
     requestId,
     userId: user?.id ?? null,
@@ -31,7 +31,7 @@ export default async function TradeRoomRoute({
   });
 
   if (!user) {
-    console.log("[trade-room-open] route redirect unauthenticated", {
+    if (process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") console.log("[trade-room-open] route redirect unauthenticated", {
       locale,
       requestId,
       destination: `/${locale}/login?redirectTo=/${locale}/trade-room/${requestId}`,
