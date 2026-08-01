@@ -854,8 +854,13 @@ export function TradeRoomPage({
       const apiLatencyMs = Math.round(performance.now() - responseStartedAt);
       // T2+T3: server timings from response headers
       const routeMs = Number(response.headers.get("X-Trade-Route-Ms") ?? "0");
+      const queueMs = Number(response.headers.get("X-Trade-Queue-Ms") ?? "0");
       const dbMs = Number(response.headers.get("X-Trade-Db-Ms") ?? routeMs);
       const readMs = Number(response.headers.get("X-Trade-Read-Ms") ?? "0");
+      const timelineMs = Number(response.headers.get("X-Trade-Timeline-Ms") ?? "0");
+      const chatMs = Number(response.headers.get("X-Trade-Chat-Ms") ?? "0");
+      const notificationMs = Number(response.headers.get("X-Trade-Notification-Ms") ?? "0");
+      const sseMs = Number(response.headers.get("X-Trade-Sse-Ms") ?? "0");
       const writeMs = Number(response.headers.get("X-Trade-Write-Ms") ?? "0");
       const trustMs = Number(response.headers.get("X-Trade-Trust-Ms") ?? "0");
       if (PERF_LOG) {
@@ -865,7 +870,12 @@ export function TradeRoomPage({
           "T0→T1 clickToFetchMs": Math.round(responseStartedAt - startedAt),
           "T1→response apiLatencyMs": apiLatencyMs,
           "  server routeMs (T1 arrival→response)": routeMs,
+          "  server queueMs": queueMs,
           "  server readDbMs": readMs,
+          "  server timelineMs": timelineMs,
+          "  server chatMs": chatMs,
+          "  server notificationMs": notificationMs,
+          "  server sseMs": sseMs,
           "  server writeDbMs": writeMs,
           "  server trustMs": trustMs,
           "  server totalDbMs": dbMs,
@@ -985,9 +995,7 @@ export function TradeRoomPage({
     setActionNotice(null);
     setActionError(null);
     setStatusMessage(null);
-    const autoAdvanceStatus = side === "buyer" && request.status === "accepted"
-      ? "payment_sent"
-      : side === "seller" && request.status === "usdt_release_pending"
+    const autoAdvanceStatus = side === "seller" && request.status === "usdt_release_pending"
         ? "usdt_sent"
         : undefined;
     const previousRoom = room;
@@ -1017,27 +1025,7 @@ export function TradeRoomPage({
         throw new Error(readApiErrorFallback(payload, isAr ? "تعذر رفع الإثبات." : "Failed to upload evidence."));
       }
       let nextRoom = payload.request ? applyRequestToRoom(previousRoom, payload.request) : optimisticRoom;
-      const shouldAutoSubmitBuyerPayment = autoAdvanceStatus === "payment_sent";
       const shouldAutoSubmitSellerRelease = autoAdvanceStatus === "usdt_sent";
-      if (shouldAutoSubmitBuyerPayment) {
-        const statusResponse = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "payment_sent" }),
-        });
-        const statusPayload = (await statusResponse.json()) as { error?: string; message?: string; request?: PurchaseRequest };
-        if (!statusResponse.ok) {
-          throw new Error(readApiErrorFallback(
-            statusPayload,
-            isAr
-              ? "تم رفع الإيصال، لكن تعذر إرسال تأكيد الدفع. استخدم زر إرسال الدفع لإكمال الخطوة."
-              : "Receipt uploaded, but submitting payment failed. Use Submit Payment to complete the step.",
-          ));
-        }
-        if (statusPayload.request) {
-          nextRoom = applyRequestToRoom(nextRoom, statusPayload.request);
-        }
-      }
       if (shouldAutoSubmitSellerRelease) {
         const statusResponse = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}`, {
           method: "PATCH",
@@ -1065,7 +1053,7 @@ export function TradeRoomPage({
         window.clearTimeout(completedActionTimeoutRef.current);
       }
       setCompletedActionLabel(
-        side === "buyer" && request.status === "accepted"
+        side === "buyer" && (request.status === "accepted" || nextRoom.request.status === "payment_sent")
           ? (isAr ? "تم إرسال الدفع" : "Payment Submitted")
           : side === "seller" && request.status === "usdt_release_pending"
             ? (isAr ? "تم إصدار USDT" : "USDT Released")
@@ -1076,7 +1064,7 @@ export function TradeRoomPage({
         completedActionTimeoutRef.current = null;
       }, 2000);
       setStatusMessage(
-        side === "buyer" && request.status === "accepted"
+        side === "buyer" && (request.status === "accepted" || nextRoom.request.status === "payment_sent")
           ? (isAr ? "تم رفع إيصال الدفع وإبلاغ البائع." : "Payment receipt uploaded and seller notified.")
           : side === "seller" && request.status === "usdt_release_pending"
             ? (isAr ? "تم إصدار USDT وإبلاغ المشتري." : "USDT released and buyer notified.")

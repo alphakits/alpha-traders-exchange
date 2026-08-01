@@ -1161,11 +1161,9 @@ export class AlphaExchangeRepository {
         client = await pool.connect();
         try {
           const logProfile = createRepositoryProfileLogger("saveSnapshot");
-          console.log("[alpha-exchange-repository] saveSnapshot begin");
           await queryWithLogging(client, "begin");
           logProfile("begin");
           try {
-            console.log("[alpha-exchange-repository] saveSnapshot advisory lock");
             await queryWithLogging(client, "select pg_advisory_xact_lock(61422917)");
             logProfile("advisory_lock");
           } catch {
@@ -1173,13 +1171,11 @@ export class AlphaExchangeRepository {
           }
 
           const loadedVersion = getVersion(db);
-          console.log("[alpha-exchange-repository] saveSnapshot reading runtime meta");
           const currentMeta = await queryWithLogging(client,
             "select version::text as version from alpha_exchange.runtime_meta where singleton = true",
           );
           logProfile("read_runtime_meta");
           const currentVersion = Number(currentMeta?.rows?.[0]?.version ?? "0");
-          console.log("[alpha-exchange-repository] saveSnapshot reading purchase request count");
           const currentRequestCount = await queryWithLogging(client,
             "select count(*)::text as count from alpha_exchange.purchase_requests",
           );
@@ -1208,23 +1204,19 @@ export class AlphaExchangeRepository {
             const mergedSnapshot = mergeSnapshotWithLatest(latestSnapshot, db);
             const mergedVersion = getVersion(mergedSnapshot);
             const nextVersion = currentVersion + 1;
-            console.log("[alpha-exchange-repository] saveSnapshot loading evidence rows for merge");
             const evidenceRows = await queryWithLogging(client, "select id, content from alpha_exchange.evidence") as { rows?: Array<{ id: string; content: Buffer | null }> };
             logProfile("load_evidence_rows_merge");
             const evidenceContentById = new Map((evidenceRows.rows ?? []).map((row) => [row.id, row.content]));
             const persistedSnapshot = attachVersion(mergedSnapshot, nextVersion);
-            console.log("[alpha-exchange-repository] saveSnapshot truncating tables for merge");
             await queryWithLogging(client, TRUNCATE_SQL);
             logProfile("truncate_tables_merge");
             for (const table of tables.filter((entry) => SNAPSHOT_TABLE_NAMES.has(entry.name))) {
-              console.log("[alpha-exchange-repository] saveSnapshot inserting table", table.name);
               await table.insert(client, table.values(persistedSnapshot), {
                 evidenceContentById,
                 evidenceOverrides: options?.evidenceOverrides,
               });
             }
             logProfile("insert_tables_merge");
-            console.log("[alpha-exchange-repository] saveSnapshot updating runtime meta for merge");
             await queryWithLogging(client,
               "update alpha_exchange.runtime_meta set version = $1, updated_at = now() where singleton = true",
               [nextVersion],
@@ -1243,7 +1235,6 @@ export class AlphaExchangeRepository {
             return;
           }
 
-          console.log("[alpha-exchange-repository] saveSnapshot loading evidence rows");
           const evidenceRows = await client.query<{ id: string; content: Buffer | null }>("select id, content from alpha_exchange.evidence");
           logProfile("load_evidence_rows");
           const evidenceContentById = new Map((evidenceRows?.rows ?? []).map((row) => [row.id, row.content]));
@@ -1257,11 +1248,9 @@ export class AlphaExchangeRepository {
             authSessions: fromPayloadRows(currentSessionRows),
           };
 
-          console.log("[alpha-exchange-repository] saveSnapshot truncating tables");
           await client.query(TRUNCATE_SQL);
           logProfile("truncate_tables");
           for (const table of tables.filter((entry) => SNAPSHOT_TABLE_NAMES.has(entry.name))) {
-            console.log("[alpha-exchange-repository] saveSnapshot inserting table", table.name);
             await table.insert(client, table.values(persistedSnapshot), {
               evidenceContentById,
               evidenceOverrides: options?.evidenceOverrides,
@@ -1270,7 +1259,6 @@ export class AlphaExchangeRepository {
           logProfile("insert_tables");
 
           const writtenVersion = currentVersion + 1;
-          console.log("[alpha-exchange-repository] saveSnapshot updating runtime meta");
           await queryWithLogging(client,
             "update alpha_exchange.runtime_meta set version = $1, updated_at = now() where singleton = true",
             [writtenVersion],

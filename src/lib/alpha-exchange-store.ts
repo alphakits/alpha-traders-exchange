@@ -4776,7 +4776,11 @@ export async function uploadTradeEvidence(input: {
   sizeBytes: number;
   contentBase64: string;
 }) {
-  const db = await readDb();
+  const startedAt = Date.now();
+  const dbReadStartedAt = Date.now();
+  const db = await readDb({ bypassCache: true });
+  const dbReadMs = Date.now() - dbReadStartedAt;
+  const validationStartedAt = Date.now();
   const actorRole = resolveActorRole(db, input.actorUserId);
   const lookupId = String(input.purchaseRequestId ?? "");
   const requestById = db.purchaseRequests.find((item) => item.id === lookupId) ?? null;
@@ -4837,6 +4841,7 @@ export async function uploadTradeEvidence(input: {
   if (!raw.length || raw.length > maxBytes) {
     throw new Error("Invalid evidence file payload.");
   }
+  const validationMs = Date.now() - validationStartedAt;
 
   const extension = extensionForEvidenceMimeType(mimeType);
   const evidenceId = `evidence-${randomUUID()}`;
@@ -4865,6 +4870,10 @@ export async function uploadTradeEvidence(input: {
   if (existingIndex >= 0) db.tradeEvidenceFiles.splice(existingIndex, 1);
   db.tradeEvidenceFiles.unshift(evidence);
   const updatedAt = nowIso();
+  const requestPaymentMethod = normalizeMarketplacePaymentMethod(request.paymentMethod) ?? "Bank Transfer";
+  const isAtmTrade = isCardlessAtmPaymentMethod(requestPaymentMethod);
+  const isBankTransferTrade = isBankTransferPaymentMethod(requestPaymentMethod);
+  const shouldAutoSubmitPayment = input.side === "buyer" && request.status === "accepted";
 
   const nextRequest: PurchaseRequest = {
     ...request,
@@ -4887,6 +4896,41 @@ export async function uploadTradeEvidence(input: {
       : "Seller uploaded USDT release proof.",
     createdAt: updatedAt,
   });
+  if (shouldAutoSubmitPayment) {
+    nextRequest.status = "payment_sent";
+    nextRequest.paymentSentAt = updatedAt;
+    const listing = getListingByIdOrThrow(db, request.listingId);
+    if (listing.activeTradeRequestId === request.id) {
+      listing.status = "in_trade";
+      listing.updatedAt = updatedAt;
+    }
+    appendTradeTimelineEntry(nextRequest, {
+      type: "payment_sent",
+      actorUserId: input.actorUserId,
+      actorRole,
+      message: "Buyer marked payment sent",
+      createdAt: updatedAt,
+    });
+    appendSystemTradeMessage(db, nextRequest, {
+      senderUserId: input.actorUserId,
+      senderRole: actorRole,
+      message: "Buyer submitted payment. Seller should now confirm the money was received.",
+      createdAt: updatedAt,
+    });
+    pushNotification(db, {
+      userId: request.sellerId,
+      category: "trade",
+      title: isAtmTrade ? "Withdrawal ready" : "Buyer marked payment sent",
+      message: isBankTransferTrade
+        ? "Buyer marked payment as sent. Please verify the funds in your bank account."
+        : isAtmTrade
+          ? "Buyer has prepared the cardless withdrawal. Confirm after collecting the cash."
+          : "Buyer marked payment as sent. Confirm funds in person after following safety guidelines.",
+      relatedTradeId: nextRequest.tradeId,
+      relatedListingId: request.listingId,
+      relatedHref: requestDetailsHref(request.id),
+    });
+  }
   db.purchaseRequests[requestIndex] = nextRequest;
 
   await appendAuditLog(db, {
@@ -4903,7 +4947,11 @@ export async function uploadTradeEvidence(input: {
     title: "Trade evidence uploaded",
     details: `${input.side === "buyer" ? "Payment" : "USDT"} evidence uploaded for trade ${request.tradeId ?? request.id}.`,
   });
+  const storageStartedAt = Date.now();
+  const dbWriteStartedAt = Date.now();
   await writeDb(db, { evidenceOverrides: new Map([[evidenceId, raw]]) });
+  const dbWriteMs = Date.now() - dbWriteStartedAt;
+  const storageMs = Date.now() - storageStartedAt;
   publishRealtimeEvent({
     type: "trade.status_changed",
     payload: {
@@ -4911,9 +4959,20 @@ export async function uploadTradeEvidence(input: {
       request: enrichRequestWithEvidence(db, nextRequest),
       status: nextRequest.status,
       timeline: nextRequest.timeline,
+      publishedAtEpochMs: Date.now(),
     },
   });
-  return enrichRequestWithEvidence(db, db.purchaseRequests[requestIndex]);
+  return {
+    request: enrichRequestWithEvidence(db, db.purchaseRequests[requestIndex]),
+    metrics: {
+      dbReadMs,
+      validationMs,
+      storageMs,
+      dbWriteMs,
+      routeMs: Date.now() - startedAt,
+      autoAdvancedToPaymentSent: shouldAutoSubmitPayment,
+    },
+  };
 }
 
 export async function getTradeEvidenceForRequest(input: {
@@ -5178,6 +5237,9 @@ export async function updatePurchaseRequestStatus(input: {
   }
   const db = await readDb({ bypassCache: true });
   const readDbMs = Date.now() - startedAt;
+  let timelineMs = 0;
+  let chatMs = 0;
+  let notificationMs = 0;
   const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.requestId);
   if (requestIndex === -1) throw new Error("Purchase request not found.");
   const request = db.purchaseRequests[requestIndex];
@@ -5343,13 +5405,18 @@ export async function updatePurchaseRequestStatus(input: {
       listing.status = "in_trade";
       listing.updatedAt = now;
     }
+    const timelineStartedAt = Date.now();
     appendTradeTimelineEntry(next, { type: "payment_sent", actorUserId: input.actorUserId, actorRole, message: "Buyer marked payment sent", createdAt: now });
+    timelineMs += Date.now() - timelineStartedAt;
+    const chatStartedAt = Date.now();
     appendSystemTradeMessage(db, next, {
       senderUserId: input.actorUserId,
       senderRole: actorRole,
       message: "Buyer submitted payment. Seller should now confirm the money was received.",
       createdAt: now,
     });
+    chatMs += Date.now() - chatStartedAt;
+    const notificationStartedAt = Date.now();
     pushNotification(db, {
       userId: request.sellerId,
       category: "trade",
@@ -5363,6 +5430,7 @@ export async function updatePurchaseRequestStatus(input: {
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
     });
+    notificationMs += Date.now() - notificationStartedAt;
   } else if (input.nextStatus === "funds_received") {
     next.status = "funds_received";
     next.fundsReceivedAt = now;
@@ -5646,6 +5714,7 @@ export async function updatePurchaseRequestStatus(input: {
     console.log("[usdt-sent-trace] after DB write", { traceId: input.traceId ?? null, requestId: input.requestId });
   }
   const enriched = enrichRequestWithEvidence(db, db.purchaseRequests[requestIndex]);
+  const sseStartedAt = Date.now();
   publishRealtimeEvent({
     type: "trade.status_changed",
     payload: {
@@ -5656,6 +5725,7 @@ export async function updatePurchaseRequestStatus(input: {
       publishedAtEpochMs: Date.now(),
     },
   });
+  const sseMs = Date.now() - sseStartedAt;
   console.log("[trade-consistency] mutation sse-publish", {
     requestId: input.requestId,
     actorUserId: input.actorUserId,
@@ -5673,6 +5743,10 @@ export async function updatePurchaseRequestStatus(input: {
       shouldRecalculateTrust,
       metrics: {
         readDbMs,
+        timelineMs,
+        chatMs,
+        notificationMs,
+        sseMs,
         trustMs,
         writeDbMs,
         totalMs,
@@ -5683,6 +5757,10 @@ export async function updatePurchaseRequestStatus(input: {
     request: enriched,
     metrics: {
       readDbMs,
+      timelineMs,
+      chatMs,
+      notificationMs,
+      sseMs,
       trustMs,
       writeDbMs,
       totalMs,

@@ -73,14 +73,19 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
     const routeMs = Date.now() - startedAt;
     const responseBody = { request: updated, metrics };
+    const queueMs = Math.max(0, routeMs - metrics.totalMs);
     // Always log server-side timings so production performance is visible in Vercel logs.
     console.log("[trade-room-perf] server timings", {
       requestId,
       actorUserId: user.id,
       nextStatus: status,
       stateAfter: updated.status,
-      "queueMs (route arrival → store entry)": metrics.readDbMs > 0 ? routeMs - metrics.totalMs : null,
+      "queueMs (route arrival → store entry)": queueMs,
       "readDbMs": metrics.readDbMs,
+      "timelineMs": metrics.timelineMs,
+      "chatMs": metrics.chatMs,
+      "notificationMs": metrics.notificationMs,
+      "sseMs": metrics.sseMs,
       "writeDbMs": metrics.writeDbMs,
       "trustMs": metrics.trustMs,
       "totalDbMs": metrics.totalMs,
@@ -89,11 +94,16 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     return NextResponse.json(responseBody, {
       headers: {
         "X-Trade-Route-Ms": String(routeMs),
+        "X-Trade-Queue-Ms": String(queueMs),
         "X-Trade-Db-Ms": String(metrics.totalMs),
         "X-Trade-Read-Ms": String(metrics.readDbMs),
+        "X-Trade-Timeline-Ms": String(metrics.timelineMs ?? 0),
+        "X-Trade-Chat-Ms": String(metrics.chatMs ?? 0),
+        "X-Trade-Notification-Ms": String(metrics.notificationMs ?? 0),
+        "X-Trade-Sse-Ms": String(metrics.sseMs ?? 0),
         "X-Trade-Write-Ms": String(metrics.writeDbMs),
         "X-Trade-Trust-Ms": String(metrics.trustMs),
-        "Server-Timing": `route;dur=${routeMs}, db;dur=${metrics.totalMs}, read;dur=${metrics.readDbMs}, write;dur=${metrics.writeDbMs}, trust;dur=${metrics.trustMs}`,
+        "Server-Timing": `route;dur=${routeMs}, queue;dur=${queueMs}, db;dur=${metrics.totalMs}, read;dur=${metrics.readDbMs}, timeline;dur=${metrics.timelineMs ?? 0}, chat;dur=${metrics.chatMs ?? 0}, notify;dur=${metrics.notificationMs ?? 0}, sse;dur=${metrics.sseMs ?? 0}, write;dur=${metrics.writeDbMs}, trust;dur=${metrics.trustMs}`,
       },
     });
   } catch (error) {
