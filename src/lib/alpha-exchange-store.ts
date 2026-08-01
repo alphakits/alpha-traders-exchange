@@ -5811,6 +5811,7 @@ export async function submitSellerCommissionWalletPayment(input: {
   commissionId: string;
   payerWalletAddress: string;
   paymentSignature: string;
+  network?: string;
 }) {
   const db = await readDb();
   const index = db.commissionRecords.findIndex((record) => record.id === input.commissionId);
@@ -5823,15 +5824,17 @@ export async function submitSellerCommissionWalletPayment(input: {
     throw new Error("This commission is already settled.");
   }
 
-  const recipientWalletAddress = process.env.ALPHA_EXCHANGE_COMMISSION_WALLET_ADDRESS
-    ?? process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_ADDRESS
-    ?? "AT-COMMISSION-WALLET";
-  const paymentNetwork = process.env.ALPHA_EXCHANGE_COMMISSION_NETWORK
-    ?? process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_NETWORK
-    ?? "Solana Mainnet";
+  const chosenNetwork = (input.network ?? "TRC20").trim();
+  const { getCommissionWalletForNetwork } = await import("@/lib/commission-config");
+  const recipientWalletAddress =
+    getCommissionWalletForNetwork(chosenNetwork) ??
+    process.env.ALPHA_EXCHANGE_COMMISSION_WALLET_ADDRESS ??
+    process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_ADDRESS ??
+    "AT-COMMISSION-WALLET";
+
   const verification = await verifyCommissionWalletPayment({
     amountDue: current.commissionAmount,
-    network: paymentNetwork,
+    network: chosenNetwork,
     payerWalletAddress: input.payerWalletAddress.trim(),
     recipientWalletAddress,
     paymentSignature: input.paymentSignature.trim(),
@@ -5840,9 +5843,9 @@ export async function submitSellerCommissionWalletPayment(input: {
 
   const nextRecord: CommissionRecord = {
     ...current,
-    paymentProvider: "phantom",
-    paymentNetwork,
-    payerWalletAddress: input.payerWalletAddress.trim(),
+    paymentProvider: "crypto_wallet",
+    paymentNetwork: chosenNetwork,
+    payerWalletAddress: input.payerWalletAddress.trim() || undefined,
     recipientWalletAddress,
     paymentSignature: input.paymentSignature.trim(),
     paymentSubmittedAt: now,
@@ -5861,7 +5864,7 @@ export async function submitSellerCommissionWalletPayment(input: {
     listingId: current.listingId,
     purchaseRequestId: current.purchaseRequestId,
     details: verification.verified
-      ? `Seller settled commission ${current.id} via ${paymentNetwork}.`
+      ? `Seller settled commission ${current.id} via ${chosenNetwork}.`
       : `Seller submitted commission payment proof for ${current.id}, verification failed.`,
   });
 

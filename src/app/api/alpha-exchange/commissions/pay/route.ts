@@ -20,21 +20,21 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const commissionId = String(body.commissionId ?? "").trim();
-    const payerWalletAddress = String(body.payerWalletAddress ?? "").trim();
     const paymentSignature = String(body.paymentSignature ?? "").trim();
+    const network = String(body.network ?? "TRC20").trim();
+    // payerWalletAddress is optional — auto-extracted from tx hash during verification
+    const payerWalletAddress = String(body.payerWalletAddress ?? "").trim();
     if (!commissionId) {
       return NextResponse.json({ error: "Commission ID is required." }, { status: 400 });
     }
-    if (!payerWalletAddress) {
-      return NextResponse.json({ error: "Wallet address is required." }, { status: 400 });
-    }
     if (!paymentSignature) {
-      return NextResponse.json({ error: "Payment signature is required." }, { status: 400 });
+      return NextResponse.json({ error: "Transaction hash is required." }, { status: 400 });
     }
 
     const result = await submitSellerCommissionWalletPayment({
       sellerUserId: user.id,
       commissionId,
+      network,
       payerWalletAddress,
       paymentSignature,
     });

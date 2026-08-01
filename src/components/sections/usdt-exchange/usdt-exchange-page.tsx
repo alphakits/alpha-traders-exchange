@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Activity, AlertTriangle, ArrowRight, BadgePercent, BellRing, CheckCircle2, Clock3, Copy, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Users, WalletCards, X, Zap } from "lucide-react";
+import { Activity, AlertTriangle, ArrowRight, BadgePercent, BellRing, CheckCircle2, Check, Clock3, Copy, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Users, WalletCards, X, Zap } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +13,7 @@ import { AlphaMarketCenter } from "@/components/market/alpha-market-center";
 import { useMarketFeed } from "@/components/market/use-market-feed";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { MARKETPLACE_PAYMENT_METHODS, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { CLIENT_COMMISSION_WALLETS, COMMISSION_NETWORKS, getDefaultCommissionNetwork, type CommissionNetworkId } from "@/lib/commission-config";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
@@ -22,8 +23,6 @@ const ALLOWED_EVIDENCE_TYPES = new Set(["image/png", "image/jpeg", "image/webp",
 const MAX_PRICE_MARKUP_ILS = 0.35;
 const DEFAULT_MARKET_PRICE_PER_USDT = 3.05;
 const DEFAULT_RESPONSE_TIME = "5 min";
-const COMMISSION_PAYMENT_NETWORK = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_NETWORK ?? "Solana Mainnet";
-const COMMISSION_PAYMENT_WALLET = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_ADDRESS ?? "AT-COMMISSION-WALLET";
 
 const ISRAELI_BANKS = [
   { id: "hapoalim", name: "Bank Hapoalim", code: "בנק הפועלים", brandPrimary: "#E31C23", brandSecondary: "#B01016", accent: "#FCA5A5" },
@@ -397,10 +396,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     relatedTradeDisplayNumber?: number;
   } | null>(null);
   const [commissionPayOpen, setCommissionPayOpen] = useState(false);
-  const [commissionPayerWallet, setCommissionPayerWallet] = useState("");
+  const [commissionNetwork, setCommissionNetwork] = useState<CommissionNetworkId>(getDefaultCommissionNetwork());
   const [commissionTxSignature, setCommissionTxSignature] = useState("");
   const [commissionPayBusy, setCommissionPayBusy] = useState(false);
   const [commissionPayMessage, setCommissionPayMessage] = useState<string | null>(null);
+  const [commissionCopied, setCommissionCopied] = useState(false);
+  const [commissionQrDataUrl, setCommissionQrDataUrl] = useState<string | null>(null);
   const [requestActionKey, setRequestActionKey] = useState<string | null>(null);
   const [listingCreateForm, setListingCreateForm] = useState({
     availableAmount: "",
@@ -722,6 +723,20 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     }));
     void fetchSellerProfileData(listing.sellerId);
   }, [isLoadingListings, listings, selectedListing, sessionUser, updateListingSelectionQuery]);
+
+  // Generate QR code when commission modal opens or network changes
+  useEffect(() => {
+    if (!commissionPayOpen) return;
+    const address = CLIENT_COMMISSION_WALLETS[commissionNetwork];
+    if (!address) { setCommissionQrDataUrl(null); return; }
+    let cancelled = false;
+    void import("qrcode").then((QRCode) => {
+      void QRCode.toDataURL(address, { width: 160, margin: 1, color: { dark: "#000000", light: "#ffffff" } }).then((url) => {
+        if (!cancelled) setCommissionQrDataUrl(url);
+      });
+    });
+    return () => { cancelled = true; };
+  }, [commissionPayOpen, commissionNetwork]);
 
   const features: FeatureCard[] = [
     {
@@ -1586,8 +1601,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       setCommissionPayMessage("No payable commission record was found.");
       return;
     }
-    if (!commissionPayerWallet.trim() || !commissionTxSignature.trim()) {
-      setCommissionPayMessage("Wallet address and transaction signature are required.");
+    if (!commissionTxSignature.trim()) {
+      setCommissionPayMessage("Please paste your transaction hash before confirming.");
+      return;
+    }
+    const walletAddress = CLIENT_COMMISSION_WALLETS[commissionNetwork];
+    if (!walletAddress) {
+      setCommissionPayMessage(`No wallet address configured for ${commissionNetwork}. Please contact support.`);
       return;
     }
     setCommissionPayBusy(true);
@@ -1598,7 +1618,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           commissionId: sellerCommissionStatus.commissionId,
-          payerWalletAddress: commissionPayerWallet.trim(),
+          network: commissionNetwork,
           paymentSignature: commissionTxSignature.trim(),
         }),
       });
@@ -1607,7 +1627,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         setCommissionPayMessage(payload.error ?? "Unable to verify commission payment.");
         return;
       }
-      setCommissionPayMessage(payload.verification?.verified ? "Commission payment verified. Seller access has been unlocked." : (payload.verification?.notes ?? "Verification failed."));
+      setCommissionPayMessage(payload.verification?.verified ? "✅ Commission payment verified. Seller access has been unlocked." : (payload.verification?.notes ?? "Verification failed."));
       setCommissionTxSignature("");
       await refreshSellerWorkspace();
     } catch {
@@ -2544,7 +2564,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             )) : null}
           </div>
 
-          <Card className="border-white/10 bg-[#0B0B0B]/90">
+          <Card className={`border-white/10 bg-[#0B0B0B]/90 ${sellerCommissionStatus?.status === "overdue" ? "border-red-600/60" : sellerCommissionStatus?.status === "pending" ? "border-amber-500/40" : ""}`}>
             <CardHeader>
               <CardTitle className="inline-flex items-center gap-2">
                 <LockKeyhole className="h-4 w-4 text-[#C9A227]" />
@@ -2555,36 +2575,49 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className={`rounded-2xl border p-4 text-sm ${
-                sellerCommissionStatus?.status === "overdue"
-                  ? "border-red-500/50 bg-red-500/10 text-red-100"
-                  : sellerCommissionStatus?.status === "pending"
-                    ? "border-amber-500/40 bg-amber-500/10 text-amber-100"
-                    : "border-emerald-500/40 bg-emerald-500/10 text-emerald-100"
-              }`}>
-                <p className="font-semibold">
-                  {sellerCommissionStatus?.status === "overdue"
-                    ? "🔴 Overdue"
-                    : sellerCommissionStatus?.status === "pending"
-                      ? "🟡 Pending payment"
-                      : "🟢 No commission due"}
-                </p>
-                {sellerCommissionStatus?.status !== "clear" ? (
-                  <div className="mt-2 space-y-1 text-xs text-[#E5E7EB]">
-                    <p>Amount due: <span className="font-medium text-white">{formatIls(sellerCommissionStatus?.amountDue ?? 0)}</span></p>
-                    <p>Related trade: <span className="font-medium text-white">{sellerCommissionStatus?.relatedTradeDisplayNumber ? `Trade #${sellerCommissionStatus.relatedTradeDisplayNumber}` : sellerCommissionStatus?.relatedTradeId ?? "Pending reference"}</span></p>
-                    {sellerCommissionStatus?.dueAt ? <p>Due date: <span className="font-medium text-white">{new Date(sellerCommissionStatus.dueAt).toLocaleDateString("en-IL")}</span></p> : null}
+              {sellerCommissionStatus?.status === "overdue" || sellerCommissionStatus?.status === "pending" ? (
+                <div className={`rounded-2xl border p-4 text-sm ${sellerCommissionStatus.status === "overdue" ? "border-red-600/60 bg-red-950/60 text-red-100" : "border-amber-500/40 bg-amber-950/40 text-amber-100"}`}>
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className={`mt-0.5 h-5 w-5 shrink-0 ${sellerCommissionStatus.status === "overdue" ? "text-red-400" : "text-amber-400"}`} />
+                    <div className="flex-1 space-y-2">
+                      <p className="font-semibold text-base">{sellerCommissionStatus.status === "overdue" ? "Commission Overdue" : "Commission Due"}</p>
+                      <div className="space-y-1 text-xs">
+                        <div className="flex justify-between">
+                          <span className={sellerCommissionStatus.status === "overdue" ? "text-red-300" : "text-amber-300"}>Amount outstanding</span>
+                          <span className="font-bold text-white text-sm">{formatIls(sellerCommissionStatus.amountDue)}</span>
+                        </div>
+                        {sellerCommissionStatus.relatedTradeDisplayNumber ? (
+                          <div className="flex justify-between">
+                            <span className={sellerCommissionStatus.status === "overdue" ? "text-red-300" : "text-amber-300"}>Trade reference</span>
+                            <span className="font-medium text-white">Trade #{sellerCommissionStatus.relatedTradeDisplayNumber}</span>
+                          </div>
+                        ) : null}
+                        {sellerCommissionStatus.dueAt ? (
+                          <div className="flex justify-between">
+                            <span className={sellerCommissionStatus.status === "overdue" ? "text-red-300" : "text-amber-300"}>Due date</span>
+                            <span className="font-medium text-white">{new Date(sellerCommissionStatus.dueAt).toLocaleDateString("en-IL")}</span>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
                   </div>
-                ) : null}
-              </div>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-emerald-500/40 bg-emerald-950/30 p-4 text-sm text-emerald-100">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                    <span className="font-medium">No commission due — you&apos;re all clear.</span>
+                  </div>
+                </div>
+              )}
               {sellerWorkspaceSummary?.blockedReason ? (
                 <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-100">{sellerWorkspaceSummary.blockedReason}</p>
               ) : null}
               {sellerCommissionStatus?.status !== "clear" ? (
                 <Button
                   type="button"
-                  onClick={() => setCommissionPayOpen(true)}
-                  className="h-10 px-4"
+                  onClick={() => { setCommissionPayOpen(true); setCommissionPayMessage(null); setCommissionTxSignature(""); }}
+                  className="h-10 px-4 bg-red-600 hover:bg-red-700 text-white border-red-600"
                 >
                   Pay Now
                 </Button>
@@ -2592,29 +2625,134 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </CardContent>
           </Card>
           {commissionPayOpen ? (
-            <Card className="border-[#C9A227]/35 bg-[#0B0B0B]/95">
+            <Card className="border-red-600/40 bg-[#0B0B0B]/98">
               <CardHeader>
-                <CardTitle>Commission Payment</CardTitle>
-                <CardDescription>Connect Phantom Wallet and submit the transaction signature to settle your commission instantly.</CardDescription>
+                <CardTitle className="flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-red-400" />
+                  Commission Payment
+                </CardTitle>
+                <CardDescription>
+                  Send USDT from any wallet or exchange to the address below. Works with Phantom, Trust Wallet, MetaMask, Binance, Bybit, OKX, and any compatible wallet.
+                </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                  <p>Amount: <span className="text-white">{formatIls(sellerCommissionStatus?.amountDue ?? 0)}</span></p>
-                  <p>Network: <span className="text-white">{COMMISSION_PAYMENT_NETWORK}</span></p>
-                  <p>Recipient wallet: <span className="text-white break-all">{COMMISSION_PAYMENT_WALLET}</span></p>
-                  <p>Trade reference: <span className="text-white">{sellerCommissionStatus?.relatedTradeDisplayNumber ? `Trade #${sellerCommissionStatus.relatedTradeDisplayNumber}` : sellerCommissionStatus?.relatedTradeId ?? "Pending"}</span></p>
+              <CardContent className="space-y-4">
+                {/* Payment summary */}
+                <div className="rounded-xl border border-red-500/30 bg-red-950/40 p-4 space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[#9CA3AF]">Amount Due</span>
+                    <span className="font-bold text-white text-xl">{formatIls(sellerCommissionStatus?.amountDue ?? 0)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[#9CA3AF]">Token</span>
+                    <span className="text-white font-medium">USDT</span>
+                  </div>
+                  {sellerCommissionStatus?.relatedTradeDisplayNumber ? (
+                    <div className="flex items-center justify-between">
+                      <span className="text-[#9CA3AF]">Trade</span>
+                      <span className="text-white">Trade #{sellerCommissionStatus.relatedTradeDisplayNumber}</span>
+                    </div>
+                  ) : null}
                 </div>
-                <Input placeholder="Your Phantom wallet address" value={commissionPayerWallet} onChange={(event) => setCommissionPayerWallet(event.target.value)} />
-                <Input placeholder="Transaction signature" value={commissionTxSignature} onChange={(event) => setCommissionTxSignature(event.target.value)} />
+
+                {/* Network selector */}
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">Select Network</p>
+                  <div className="flex flex-wrap gap-2">
+                    {COMMISSION_NETWORKS.map((net) => (
+                      <button
+                        key={net.id}
+                        type="button"
+                        onClick={() => setCommissionNetwork(net.id)}
+                        className={`rounded-full border px-3 py-1 text-xs font-medium transition-all ${
+                          commissionNetwork === net.id
+                            ? "border-[#C9A227] bg-[#C9A227]/20 text-[#C9A227]"
+                            : "border-white/20 text-[#9CA3AF] hover:border-white/40 hover:text-white"
+                        }`}
+                      >
+                        {net.id}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-[#6B7280]">
+                    {COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.label ?? commissionNetwork} · USDT
+                  </p>
+                </div>
+
+                {/* Recipient address + QR */}
+                {CLIENT_COMMISSION_WALLETS[commissionNetwork] ? (
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">Recipient Address</p>
+                      <div className="flex items-center gap-2">
+                        <code className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-xs font-mono text-white break-all">
+                          {CLIENT_COMMISSION_WALLETS[commissionNetwork]}
+                        </code>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="shrink-0 h-8 w-8 p-0"
+                          onClick={() => {
+                            void navigator.clipboard.writeText(CLIENT_COMMISSION_WALLETS[commissionNetwork]);
+                            setCommissionCopied(true);
+                            window.setTimeout(() => setCommissionCopied(false), 2000);
+                          }}
+                        >
+                          {commissionCopied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                        </Button>
+                      </div>
+                    </div>
+                    {commissionQrDataUrl ? (
+                      <div className="flex justify-center">
+                        <div className="rounded-xl bg-white p-3 shadow-lg">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={commissionQrDataUrl} alt={`QR code for ${commissionNetwork} USDT address`} className="h-36 w-36" />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex justify-center">
+                        <div className="flex h-[168px] w-[168px] items-center justify-center rounded-xl border border-white/10 bg-black/30">
+                          <Loader2 className="h-6 w-6 animate-spin text-[#C9A227]" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="rounded-xl border border-amber-500/30 bg-amber-950/30 p-3 text-xs text-amber-300">
+                    No wallet address configured for {commissionNetwork}. Please contact Alpha Traders support.
+                  </p>
+                )}
+
+                {/* Transaction hash input */}
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">Transaction Hash</p>
+                  <Input
+                    placeholder="Paste your transaction ID / hash after sending"
+                    value={commissionTxSignature}
+                    onChange={(event) => setCommissionTxSignature(event.target.value)}
+                  />
+                  <p className="text-xs text-[#6B7280]">
+                    Find this in your wallet&apos;s &quot;Activity&quot; or &quot;Transaction History&quot; after sending.
+                  </p>
+                </div>
+
                 {commissionPayMessage ? (
-                  <p className="rounded-lg border border-white/10 bg-black/20 p-2 text-xs text-[#D1D5DB]">{commissionPayMessage}</p>
+                  <p className={`rounded-lg border p-2 text-xs ${commissionPayMessage.startsWith("✅") ? "border-emerald-500/30 bg-emerald-950/30 text-emerald-200" : "border-red-500/30 bg-red-950/30 text-red-200"}`}>
+                    {commissionPayMessage}
+                  </p>
                 ) : null}
+
                 <div className="flex flex-wrap gap-2">
-                  <Button type="button" disabled={commissionPayBusy} onClick={() => void handleCommissionPayNow()}>
-                    {commissionPayBusy ? "Verifying..." : "Confirm Payment"}
+                  <Button
+                    type="button"
+                    disabled={commissionPayBusy || !commissionTxSignature.trim() || !CLIENT_COMMISSION_WALLETS[commissionNetwork]}
+                    onClick={() => void handleCommissionPayNow()}
+                    className="bg-red-600 hover:bg-red-700 text-white border-red-600"
+                  >
+                    {commissionPayBusy ? <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />Verifying...</> : "I've Sent the Payment"}
                   </Button>
                   <Button type="button" variant="secondary" onClick={() => setCommissionPayOpen(false)}>
-                    Close
+                    Cancel
                   </Button>
                 </div>
               </CardContent>
