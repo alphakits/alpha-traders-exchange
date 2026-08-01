@@ -50,6 +50,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Trade amount is required." }, { status: 400 });
     }
     const bankName = String(body.bankName ?? "").trim();
+    const safetyAcknowledged = body.safetyAcknowledged === true;
 
     const purchase = await createPurchaseRequest({
       buyerId: user.id,
@@ -59,6 +60,7 @@ export async function POST(request: NextRequest) {
       buyerWhatsapp,
       buyerNotes,
       bankName: bankName || undefined,
+      safetyAcknowledged,
       actorUserId: user.id,
     });
 

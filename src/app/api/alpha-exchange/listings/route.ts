@@ -65,6 +65,7 @@ export async function POST(request: NextRequest) {
     const notes = String(body.notes ?? "").trim().slice(0, 2000);
     const sellerDescription = String(body.sellerDescription ?? "").trim().slice(0, 2000);
     const photos = Array.isArray(body.photos) ? body.photos.map((photo: unknown) => String(photo).trim()).filter(Boolean).slice(0, 6) : [];
+    const acceptedCommissionPolicy = body.acceptedCommissionPolicy === true;
     const network = body.network;
 
     if (!availableAmount || toNumber(availableAmount) <= 0) {
@@ -87,6 +88,9 @@ export async function POST(request: NextRequest) {
     }
     if (!bankName) {
       return NextResponse.json({ error: "Please choose a receiving bank before publishing the listing." }, { status: 400 });
+    }
+    if (!acceptedCommissionPolicy) {
+      return NextResponse.json({ error: "You must confirm Alpha Traders 1% commission policy before publishing this listing." }, { status: 400 });
     }
     if (toNumber(minimumTrade) < 0) {
       return NextResponse.json({ error: "Minimum trade cannot be negative." }, { status: 400 });
@@ -121,6 +125,7 @@ export async function POST(request: NextRequest) {
       notes,
       sellerDescription,
       responseTime,
+      acceptedCommissionPolicy,
       actorUserId: user.id,
     });
     logProfile("createMarketplaceListing");

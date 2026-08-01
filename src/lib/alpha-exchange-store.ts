@@ -479,7 +479,7 @@ function getSellerOpenListingCount(db: AlphaExchangeDb, sellerId: string) {
 function getSellerListingBlockReason(db: AlphaExchangeDb, sellerId: string) {
   const pendingCommissionCount = getSellerPendingCommissionCount(db, sellerId);
   if (pendingCommissionCount > 0) {
-    return "You have commission payments pending. Clear them before creating a new listing.";
+    return "You have commission payments pending. Clear them before creating or renewing listings.";
   }
   const openListingCount = getSellerOpenListingCount(db, sellerId);
   if (openListingCount >= MAX_ACTIVE_LISTINGS_PER_SELLER) {
@@ -3382,11 +3382,15 @@ export async function createMarketplaceListing(input: {
   notes?: string;
   sellerDescription?: string;
   responseTime: string;
+  acceptedCommissionPolicy?: boolean;
   actorUserId: string;
 }) {
   const logProfile = createStoreProfileLogger("createMarketplaceListing");
   const { db, fromCache } = await readDbForListingCreation();
   logProfile("readDb");
+  if (!input.acceptedCommissionPolicy) {
+    throw new Error("You must confirm Alpha Traders 1% commission policy before publishing a listing.");
+  }
   const blockReason = getSellerListingBlockReason(db, input.sellerId);
   if (blockReason) throw new Error(blockReason);
   logProfile("getSellerListingBlockReason");
@@ -3583,6 +3587,12 @@ export async function renewMarketplaceListing(input: {
   if (index === -1) throw new Error("Listing not found.");
   const listing = db.marketplaceListings[index];
   if (input.sellerId && listing.sellerId !== input.sellerId) throw new Error("You can renew only your own listings.");
+  if (input.sellerId) {
+    const pendingCommissionCount = getSellerPendingCommissionCount(db, input.sellerId);
+    if (pendingCommissionCount > 0) {
+      throw new Error("You have commission payments pending. Clear them before renewing this listing.");
+    }
+  }
   if (isListingLocked(listing.status)) throw new Error("This listing is locked by an active trade and cannot be renewed.");
   if (listing.status === "completed" || listing.status === "cancelled" || listing.status === "closed") {
     throw new Error("This listing can no longer be renewed.");
@@ -3932,6 +3942,39 @@ export async function getSellerListingWorkspaceSummary(sellerId: string) {
   };
 }
 
+export async function getSellerCommissionStatus(sellerId: string) {
+  const db = await readDb();
+  const pendingRecords = db.commissionRecords
+    .filter((record) => record.sellerId === sellerId)
+    .map((record) => ({
+      ...record,
+      paymentStatus: normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt),
+    }))
+    .filter((record) => record.paymentStatus !== "paid")
+    .sort((left, right) => {
+      const leftDue = left.dueAt ? new Date(left.dueAt).getTime() : Number.POSITIVE_INFINITY;
+      const rightDue = right.dueAt ? new Date(right.dueAt).getTime() : Number.POSITIVE_INFINITY;
+      return leftDue - rightDue;
+    });
+  const primaryRecord = pendingRecords[0];
+  const amountDue = pendingRecords.reduce((sum, record) => sum + record.commissionAmount, 0);
+  const hasOverdue = pendingRecords.some((record) => record.paymentStatus === "overdue");
+  const primaryRequest = primaryRecord
+    ? db.purchaseRequests.find((request) => request.id === primaryRecord.purchaseRequestId)
+    : undefined;
+
+  return {
+    status: pendingRecords.length === 0 ? "clear" as const : hasOverdue ? "overdue" as const : "pending" as const,
+    pendingCount: pendingRecords.length,
+    amountDue,
+    dueAt: primaryRecord?.dueAt,
+    commissionId: primaryRecord?.id,
+    relatedRequestId: primaryRecord?.purchaseRequestId,
+    relatedTradeId: primaryRequest?.tradeId,
+    relatedTradeDisplayNumber: primaryRequest?.displayNumber,
+  };
+}
+
 export async function createPurchaseRequest(input: {
   buyerId: string;
   listingId: string;
@@ -3940,12 +3983,18 @@ export async function createPurchaseRequest(input: {
   buyerWhatsapp: string;
   buyerNotes: string;
   bankName?: string;
+  safetyAcknowledged?: boolean;
   actorUserId: string;
 }) {
   const db = await readDb();
   const now = nowIso();
   const listing = db.marketplaceListings.find((item) => item.id === input.listingId);
   if (!listing) throw new Error("Listing not found.");
+  const listingPaymentMethods = listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod];
+  const requiresFaceToFaceSafetyNotice = listingPaymentMethods.some((method) => /face\s*[- ]?\s*to\s*[- ]?\s*face|cash/i.test(method ?? ""));
+  if (requiresFaceToFaceSafetyNotice && !input.safetyAcknowledged) {
+    throw new Error("Please acknowledge the Face-to-Face privacy and safety notice before continuing.");
+  }
   if (!canListingReceiveRequests(listing)) {
     pushNotification(db, {
       userId: input.buyerId,

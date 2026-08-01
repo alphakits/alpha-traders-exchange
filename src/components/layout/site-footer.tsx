@@ -113,6 +113,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
                 <li><Link href="/about-founder" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "عن المؤسس" : "About Founder"}</Link></li>
                 <li><Link href="/founder" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "قصة Alpha Traders" : "Founder Story"}</Link></li>
                 <li><Link href="/contact" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "تواصل معنا" : "Contact"}</Link></li>
+                <li><Link href="/help-center" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "مركز المساعدة" : "Help Center"}</Link></li>
               </ul>
             </div>
 
@@ -136,6 +137,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
                 <li><Link href="/privacy-policy" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "سياسة الخصوصية" : "Privacy Policy"}</Link></li>
                 <li><Link href="/terms" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "الشروط والأحكام" : "Terms of Service"}</Link></li>
                 <li><Link href="/cookies" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "سياسة ملفات الارتباط" : "Cookie Policy"}</Link></li>
+                <li><Link href="/safety-trust" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "مركز الأمان والثقة" : "Safety & Trust Center"}</Link></li>
               </ul>
             </div>
           </div>

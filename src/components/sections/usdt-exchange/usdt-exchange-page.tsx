@@ -221,6 +221,12 @@ function roleBadgeVariantFromSession(user: SessionUser) {
   return "buyer" as const;
 }
 
+function listingRequiresFaceToFaceSafetyNotice(listing: MarketplaceListing | null) {
+  if (!listing) return false;
+  const methods = listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod];
+  return methods.some((method) => /face\s*[- ]?\s*to\s*[- ]?\s*face|cash/i.test(String(method ?? "")));
+}
+
 export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const isAr = locale === "ar";
   const router = useRouter();
@@ -254,6 +260,26 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     maximumTrade: "",
     sellerDescription: "",
   });
+  const [listingCommissionAgreement, setListingCommissionAgreement] = useState(false);
+  const [faceToFaceSafetyAcknowledged, setFaceToFaceSafetyAcknowledged] = useState(false);
+  const [sellerWorkspaceSummary, setSellerWorkspaceSummary] = useState<{
+    activeListingLimit: number;
+    openListingCount: number;
+    openTradeCount: number;
+    pendingCommissionCount: number;
+    canCreateListing: boolean;
+    blockedReason: string | null;
+  } | null>(null);
+  const [sellerCommissionStatus, setSellerCommissionStatus] = useState<{
+    status: "clear" | "pending" | "overdue";
+    pendingCount: number;
+    amountDue: number;
+    dueAt?: string;
+    commissionId?: string;
+    relatedRequestId?: string;
+    relatedTradeId?: string;
+    relatedTradeDisplayNumber?: number;
+  } | null>(null);
   const [listingCreateForm, setListingCreateForm] = useState({
     availableAmount: "",
     price: "",
@@ -314,8 +340,30 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         setMyRequests(requestsJson.requests ?? []);
       }
       if (myListingsRes.ok) {
-        const myListingsJson = (await myListingsRes.json()) as { listings: MarketplaceListing[] };
+        const myListingsJson = (await myListingsRes.json()) as {
+          listings: MarketplaceListing[];
+          summary?: {
+            activeListingLimit: number;
+            openListingCount: number;
+            openTradeCount: number;
+            pendingCommissionCount: number;
+            canCreateListing: boolean;
+            blockedReason: string | null;
+          };
+          commissionStatus?: {
+            status: "clear" | "pending" | "overdue";
+            pendingCount: number;
+            amountDue: number;
+            dueAt?: string;
+            commissionId?: string;
+            relatedRequestId?: string;
+            relatedTradeId?: string;
+            relatedTradeDisplayNumber?: number;
+          };
+        };
         setMyListings((myListingsJson.listings ?? []).filter((listing) => listing.status !== "closed" && listing.status !== "cancelled"));
+        setSellerWorkspaceSummary(myListingsJson.summary ?? null);
+        setSellerCommissionStatus(myListingsJson.commissionStatus ?? null);
       }
       setWorkspaceError(null);
     } catch {
@@ -668,6 +716,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     void fetchSellerProfileData(listing.sellerId);
     setPurchaseSubmitted(false);
     setStatusMessage(null);
+    setFaceToFaceSafetyAcknowledged(false);
     setBuyerInfo((prev) => ({
       ...prev,
       usdtAmount: formatIntegerForInput(listing.minimumTrade || listing.availableAmount),
@@ -705,6 +754,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   async function submitPurchaseRequest(notesOverride?: string) {
     if (!selectedListing) return;
+    if (listingRequiresFaceToFaceSafetyNotice(selectedListing) && !faceToFaceSafetyAcknowledged) {
+      setStatusMessage("Please acknowledge the Face-to-Face privacy and safety guidelines before continuing.");
+      return;
+    }
     const tradeAmount = String(buyerInfo.usdtAmount ?? "").trim();
     if (!tradeAmount || toNumber(tradeAmount) <= 0) {
       setStatusMessage("Enter a valid USDT trade amount to continue.");
@@ -726,6 +779,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         buyerName: buyerInfo.name,
         buyerWhatsapp: buyerInfo.whatsapp,
         buyerNotes: notesOverride ?? buyerInfo.notes,
+        safetyAcknowledged: faceToFaceSafetyAcknowledged,
       }),
     });
     const data = (await response.json()) as { error?: string; purchase?: PurchaseRequest };
@@ -765,7 +819,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const listingCreatePriceInvalid = listingCreateCurrency === "ILS" && listingCreatePrice > maxAllowedListingPrice;
   const listingCreatePriceValid = listingCreatePrice > 0 && !listingCreatePriceInvalid;
   const listingCreateTradeRangeInvalid = listingCreateMaxTrade <= 0 || listingCreateMaxTrade > listingCreateAmount || listingCreateMaxTrade < listingCreateMinTrade;
-  const listingCreateMissingRequired = !listingCreateAmount || !listingCreatePrice || !listingCreateForm.bankName.trim();
+  const listingCreateMissingRequired = !listingCreateAmount || !listingCreatePrice || !listingCreateForm.bankName.trim() || !listingCommissionAgreement;
   const listingCreateTotalIls = listingCreateAmount * listingCreatePrice;
   const isListingCreateSubmitDisabled = listingCreateMissingRequired || listingCreatePriceInvalid || listingCreateTradeRangeInvalid;
   const listingCreateGuardCardTone = listingCreatePriceInvalid
@@ -797,6 +851,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const selectedMinTrade = selectedListing ? Math.max(0, toNumber(selectedListing.minimumTrade)) : 0;
   const selectedMaxTrade = selectedListing ? toNumber(selectedListing.maximumTrade || selectedListing.availableAmount) : 0;
   const buyerTradeAmountInvalid = !!selectedListing && (buyerTradeAmount < selectedMinTrade || buyerTradeAmount > selectedMaxTrade);
+  const selectedListingRequiresSafetyNotice = listingRequiresFaceToFaceSafetyNotice(selectedListing);
   const todayDateKey = new Date().toISOString().slice(0, 10);
 
   const sellerRequests = useMemo(() => myRequests.filter((request) => request.sellerId === sessionUser?.id), [myRequests, sessionUser?.id]);
@@ -1017,6 +1072,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           minimumTrade: listing.minimumTrade ?? "0",
           maximumTrade: listing.maximumTrade ?? listing.availableAmount,
           sellerDescription: listing.sellerDescription ?? "",
+          acceptedCommissionPolicy: true,
         }),
       });
       if (!response.ok) {
@@ -1076,6 +1132,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           maximumTrade: listingCreateForm.maximumTrade || listingCreateForm.availableAmount,
           sellerDescription: listingCreateForm.sellerDescription,
           responseTime: DEFAULT_RESPONSE_TIME,
+          acceptedCommissionPolicy: listingCommissionAgreement,
         }),
       });
       if (!response.ok) {
@@ -1091,6 +1148,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         maximumTrade: "",
         sellerDescription: "",
       }));
+      setListingCommissionAgreement(false);
       setSellerWorkspaceMessage("Listing published successfully.");
       await refreshSellerWorkspace();
     } catch {
@@ -1293,7 +1351,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const unreadNotificationsCount = notifications.filter((item) => !item.isRead).length;
 
   const notificationCenterCard = sessionUser ? (
-    <Card id="create-listing-form" className="border-white/10 bg-[#0B0B0B]/90">
+    <Card className="border-white/10 bg-[#0B0B0B]/90">
       <CardHeader>
         <CardTitle className="inline-flex items-center gap-2">
           <BellRing className="h-4 w-4 text-[#C9A227]" />
@@ -1310,6 +1368,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             <option value="listing">Listing</option>
             <option value="application">Application</option>
             <option value="trust">Trust</option>
+            <option value="review">Review</option>
             <option value="account">Account</option>
             <option value="dispute">Dispute</option>
             <option value="report">Report</option>
@@ -1901,16 +1960,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             {!isLoadingListings
               ? [
               { label: "Active Listings", value: sellerOverviewStats.activeListings.toLocaleString("en-IL"), icon: TrendingUp },
-              { label: "Pending Requests", value: sellerOverviewStats.pendingRequests.toLocaleString("en-IL"), icon: MessageCircle },
-              { label: "Trade Requests", value: sellerOverviewStats.tradeRequests.toLocaleString("en-IL"), icon: MessageCircle },
-              { label: "Completed Trades", value: sellerOverviewStats.completedTrades.toLocaleString("en-IL"), icon: Trophy },
-              { label: "Success Rate", value: `${sellerOverviewStats.successRate.toFixed(1)}%`, icon: ShieldCheck },
-              { label: "Estimated Commission Paid", value: `₪${sellerOverviewStats.estimatedCommissionPaid.toFixed(2)}`, icon: BadgePercent },
-              { label: "Revenue Generated", value: `₪${sellerOverviewStats.revenueGenerated.toFixed(2)}`, icon: WalletCards },
-              { label: "Repeat Buyers", value: sellerOverviewStats.repeatBuyers.toLocaleString("en-IL"), icon: Users },
-              { label: "Average Trade Size", value: `₪${sellerOverviewStats.averageTradeSize.toFixed(2)}`, icon: HandCoins },
-              { label: "Response Time", value: sellerOverviewStats.averageResponseTime, icon: Clock3 },
-              { label: "Seller Level", value: sellerLevelLabel(sellerOverviewStats.reputation?.level), icon: Star },
+              { label: "Pending Trades", value: sellerOverviewStats.pendingRequests.toLocaleString("en-IL"), icon: MessageCircle },
+              { label: "Rating", value: (sellerOverviewStats.reputation?.rating ?? 0).toFixed(2), icon: Star },
+              { label: "Lifetime Volume", value: `₪${sellerOverviewStats.revenueGenerated.toFixed(2)}`, icon: WalletCards },
+              { label: "Profile Views", value: (sellerOverviewStats.reputation?.profileViews ?? 0).toLocaleString("en-IL"), icon: Users },
+              { label: "Average Response Time", value: sellerOverviewStats.averageResponseTime, icon: Clock3 },
+              { label: "Seller Level", value: sellerLevelLabel(sellerOverviewStats.reputation?.level), icon: Trophy },
+              { label: "Trust Score", value: (sellerOverviewStats.reputation?.trustScore ?? 0).toFixed(1), icon: ShieldCheck },
             ].map((stat) => (
               <Card key={stat.label} className="border-white/10 bg-[#0B0B0B]/90">
                 <CardHeader className="pb-2">
@@ -1925,6 +1981,55 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           </div>
 
           <Card className="border-white/10 bg-[#0B0B0B]/90">
+            <CardHeader>
+              <CardTitle className="inline-flex items-center gap-2">
+                <LockKeyhole className="h-4 w-4 text-[#C9A227]" />
+                Commission Status
+              </CardTitle>
+              <CardDescription>
+                Alpha Traders charges a 1% commission on completed trades. Pending commission payments block new listing creation and renewals.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className={`rounded-2xl border p-4 text-sm ${
+                sellerCommissionStatus?.status === "overdue"
+                  ? "border-red-500/50 bg-red-500/10 text-red-100"
+                  : sellerCommissionStatus?.status === "pending"
+                    ? "border-amber-500/40 bg-amber-500/10 text-amber-100"
+                    : "border-emerald-500/40 bg-emerald-500/10 text-emerald-100"
+              }`}>
+                <p className="font-semibold">
+                  {sellerCommissionStatus?.status === "overdue"
+                    ? "🔴 Overdue"
+                    : sellerCommissionStatus?.status === "pending"
+                      ? "🟡 Pending payment"
+                      : "🟢 No commission due"}
+                </p>
+                {sellerCommissionStatus?.status !== "clear" ? (
+                  <div className="mt-2 space-y-1 text-xs text-[#E5E7EB]">
+                    <p>Amount due: <span className="font-medium text-white">{formatIls(sellerCommissionStatus?.amountDue ?? 0)}</span></p>
+                    <p>Related trade: <span className="font-medium text-white">{sellerCommissionStatus?.relatedTradeDisplayNumber ? `Trade #${sellerCommissionStatus.relatedTradeDisplayNumber}` : sellerCommissionStatus?.relatedTradeId ?? "Pending reference"}</span></p>
+                    {sellerCommissionStatus?.dueAt ? <p>Due date: <span className="font-medium text-white">{new Date(sellerCommissionStatus.dueAt).toLocaleDateString("en-IL")}</span></p> : null}
+                  </div>
+                ) : null}
+              </div>
+              {sellerWorkspaceSummary?.blockedReason ? (
+                <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-100">{sellerWorkspaceSummary.blockedReason}</p>
+              ) : null}
+              {sellerCommissionStatus?.status !== "clear" ? (
+                <a
+                  href={`${WHATSAPP_URL}?text=${encodeURIComponent("Hi Alpha Traders, I need to settle my pending platform commission.")}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex h-10 items-center justify-center rounded-xl border border-[#6CAEFF]/45 bg-[#6CAEFF]/10 px-4 text-sm font-medium text-[#93C5FD] transition hover:border-[#6CAEFF]/70 hover:bg-[#6CAEFF]/15"
+                >
+                  Pay Commission
+                </a>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card id="create-listing-form" className="border-white/10 bg-[#0B0B0B]/90">
             <CardHeader>
               <CardTitle>{isAr ? "إنشاء عرض جديد" : "Create Listing"}</CardTitle>
               <CardDescription>
@@ -2039,6 +2144,20 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <p className="mt-1">{listingCreateAmount.toLocaleString("en-IL")} USDT</p>
                   <p className="mt-1">× {formatIls(listingCreatePrice || 0)} = <span className="font-semibold text-white">{formatIls(listingCreateTotalIls)}</span></p>
                 </div>
+                <div className="md:col-span-2 rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-4 text-sm text-[#F3F4F6]">
+                  <p className="text-xs uppercase tracking-[0.12em] text-[#F4D87A]">Platform Commission</p>
+                  <p className="mt-1">Alpha Traders charges a 1% commission on completed trades. By publishing this listing, you agree to pay the platform commission after a successful trade.</p>
+                  <label className="mt-3 inline-flex cursor-pointer items-start gap-2 text-xs text-[#E5E7EB]">
+                    <input
+                      type="checkbox"
+                      checked={listingCommissionAgreement}
+                      onChange={(event) => setListingCommissionAgreement(event.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-white/25 bg-black/40 text-[#C9A227] focus:ring-[#C9A227]"
+                    />
+                    <span>I understand and agree to Alpha Traders&apos; 1% commission policy.</span>
+                  </label>
+                  <p className="mt-2 text-xs text-[#D1D5DB]">Read full policy in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link>.</p>
+                </div>
                 <div className={`md:col-span-2 rounded-2xl border p-4 transition-all duration-200 ${listingCreateGuardTone}`}>
                   <div className="flex items-start gap-2">
                     {listingCreatePriceInvalid ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
@@ -2050,6 +2169,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <p>Maximum allowed: {formatIls(maxAllowedListingPrice)}</p>
                       {listingCreateTradeRangeInvalid ? <p className="text-amber-200">Maximum trade must be greater than minimum trade and less than or equal to available USDT.</p> : null}
                       {!listingCreateForm.bankName.trim() ? <p className="text-amber-200">Select a receiving bank before submitting.</p> : null}
+                      {!listingCommissionAgreement ? <p className="text-amber-200">You must accept the 1% commission policy before publishing.</p> : null}
                       {listingCreateAmount > 0 ? <p>{listingCreateAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingCreateAmount * marketPricePerUsdt)}</p> : null}
                     </div>
                   </div>
@@ -3063,14 +3183,30 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <Input placeholder="WhatsApp" value={buyerInfo.whatsapp} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, whatsapp: event.target.value }))} />
                       <Textarea placeholder="Notes" value={buyerInfo.notes} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, notes: event.target.value }))} />
                     </div>
+                    {selectedListingRequiresSafetyNotice ? (
+                      <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-xs text-amber-100">
+                        <p className="font-semibold text-[#FDE68A]">Privacy &amp; Safety Notice</p>
+                        <p className="mt-1 text-[#E5E7EB]">Alpha Traders protects the privacy of buyers and sellers. Share only required details, meet in safe public locations, and never move payments outside the official trade flow.</p>
+                        <label className="mt-2 inline-flex cursor-pointer items-start gap-2 text-[#E5E7EB]">
+                          <input
+                            type="checkbox"
+                            checked={faceToFaceSafetyAcknowledged}
+                            onChange={(event) => setFaceToFaceSafetyAcknowledged(event.target.checked)}
+                            className="mt-0.5 h-4 w-4 rounded border-white/25 bg-black/40 text-[#C9A227] focus:ring-[#C9A227]"
+                          />
+                          <span>I have read and understand the privacy and safety guidelines.</span>
+                        </label>
+                        <p className="mt-1 text-[#D1D5DB]">Read full guidance in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link>.</p>
+                      </div>
+                    ) : null}
                     <div className="sticky bottom-0 z-10 rounded-xl border border-[#C9A227]/30 bg-[#0B0B0B]/95 p-3">
                       <div className="grid gap-2 md:grid-cols-2">
-                        <Button type="submit" className="w-full" disabled={buyerTradeAmountInvalid}>Start Trade</Button>
+                        <Button type="submit" className="w-full" disabled={buyerTradeAmountInvalid || (selectedListingRequiresSafetyNotice && !faceToFaceSafetyAcknowledged)}>Start Trade</Button>
                         <Button
                           type="button"
                           variant="secondary"
                           className="w-full"
-                          disabled={buyerTradeAmountInvalid}
+                          disabled={buyerTradeAmountInvalid || (selectedListingRequiresSafetyNotice && !faceToFaceSafetyAcknowledged)}
                           onClick={() => void submitPurchaseRequest("Please proceed with this trade.")}
                         >
                           Quick Buy
