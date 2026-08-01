@@ -498,6 +498,14 @@ function isSellerUnavailableForNewBuyers(availabilityStatus: SellerAvailabilityS
   return availabilityStatus === "vacation";
 }
 
+function isRequestStatusLockingListing(status: PurchaseRequestStatus) {
+  return status === "accepted"
+    || status === "payment_sent"
+    || status === "funds_received"
+    || status === "usdt_release_pending"
+    || status === "usdt_sent";
+}
+
 function getSellerOpenTradeCount(db: AlphaExchangeDb, sellerId: string) {
   return db.purchaseRequests.filter((request) => request.sellerId === sellerId && (
     request.status === "accepted"
@@ -2255,6 +2263,50 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
     publishRealtimeEvent({
       type: "trade.status_changed",
       payload: { request: enrichRequestWithEvidence(db, request) },
+    });
+  }
+
+  for (const listing of db.marketplaceListings) {
+    if (!isListingLocked(listing.status) && !listing.activeTradeRequestId) continue;
+    const linkedRequest = listing.activeTradeRequestId
+      ? db.purchaseRequests.find((request) => request.id === listing.activeTradeRequestId)
+      : undefined;
+    if (linkedRequest && isRequestStatusLockingListing(linkedRequest.status)) continue;
+
+    changed = true;
+    const now = nowIso();
+    const previousStatus = listing.status;
+    const previousActiveTradeRequestId = listing.activeTradeRequestId;
+    listing.activeTradeRequestId = undefined;
+    listing.lockedAt = undefined;
+    listing.updatedAt = now;
+
+    const remainingAmount = toNumber(listing.availableAmount);
+    if (remainingAmount <= 0) {
+      listing.status = "completed";
+      listing.completedAt = listing.completedAt ?? now;
+    } else {
+      const expiresMs = listing.expiresAt ? new Date(listing.expiresAt).getTime() : 0;
+      const shouldExpire = Boolean(expiresMs && !Number.isNaN(expiresMs) && expiresMs <= nowMs);
+      listing.status = shouldExpire ? "expired" : "active";
+      listing.expiredAt = shouldExpire ? (listing.expiredAt ?? now) : undefined;
+    }
+
+    await appendAuditLog(db, {
+      action: listing.status === "expired" ? "listing_expired" : listing.status === "completed" ? "listing_completed" : "listing_reopened",
+      actorUserId: SYSTEM_ACTOR_USER_ID,
+      targetUserId: listing.sellerId,
+      listingId: listing.id,
+      details: `Recovered stale trade lock on listing ${listing.id}.`,
+      oldValue: {
+        status: previousStatus,
+        activeTradeRequestId: previousActiveTradeRequestId,
+      },
+      newValue: {
+        status: listing.status,
+        activeTradeRequestId: listing.activeTradeRequestId,
+      },
+      reason: "Stale listing lock had no active trade request.",
     });
   }
 
