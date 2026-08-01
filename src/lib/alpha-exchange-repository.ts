@@ -337,7 +337,8 @@ const SNAPSHOT_TABLE_NAMES = new Set([
 
 function shouldLogRepoVersionFlow() {
   if (process.env.ALPHA_EXCHANGE_REPO_TRACE === "1") return true;
-  return process.env.NODE_ENV !== "production";
+  // Always log DB mode in production so Vercel logs reveal memory vs Postgres usage.
+  return true;
 }
 
 function logRepoVersionFlow(event: string, payload: Record<string, unknown>) {
@@ -1015,7 +1016,7 @@ export class AlphaExchangeRepository {
             await this.saveSnapshot(DEFAULT_DB, { skipReadyCheck: true });
           }
         } catch (error) {
-          console.warn("[alpha-exchange-repository] Falling back to the in-memory snapshot because the database is unavailable:", error instanceof Error ? error.message : error);
+          console.error("[alpha-exchange-repository] CRITICAL: Falling back to in-memory snapshot because the database is unavailable. All data created during this session will be lost on the next invocation. Ensure SUPABASE_DB_URL uses the Transaction Mode pooler URL (pooler.supabase.com:6543), NOT the direct host (db.<ref>.supabase.co). Error:", error instanceof Error ? error.message : error);
           ensureMemorySeed();
           this.usesMemoryFallback = true;
         }
@@ -1064,7 +1065,7 @@ export class AlphaExchangeRepository {
       });
       return withVersion;
     } catch (error) {
-      console.warn("[alpha-exchange-repository] Falling back to the in-memory snapshot because loading the database snapshot failed:", error instanceof Error ? error.message : error);
+      console.error("[alpha-exchange-repository] CRITICAL: Falling back to in-memory snapshot because loading the database snapshot failed. All data created during this session will be lost on the next invocation. Error:", error instanceof Error ? error.message : error);
       ensureMemorySeed();
       const fallback = attachVersion(
         cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),

@@ -4419,6 +4419,17 @@ export async function getTradeRoomData(input: {
       reason: "request_not_found",
       totalRequests: db.purchaseRequests.length,
     });
+    // Always log this as an error so it surfaces in Vercel logs even without debug mode.
+    // If totalRequests is 0, the system is running on the in-memory fallback (Postgres not connected).
+    console.error("[trade-room-open] TRADE_NOT_FOUND", {
+      incomingRequestId: input.purchaseRequestId,
+      lookupCandidates,
+      totalRequestsInDb: db.purchaseRequests.length,
+      firstFiveRequestIds: db.purchaseRequests.slice(0, 5).map((r) => r.id),
+      note: db.purchaseRequests.length === 0
+        ? "DB is empty — system is using in-memory fallback (Postgres not connected or using wrong URL)"
+        : "DB has data but request ID not found — possible ID mismatch",
+    });
     throw new Error("Trade not found.");
   }
   const request = db.purchaseRequests[requestIndex];
