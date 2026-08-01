@@ -93,6 +93,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const debug = process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
     const { requestId } = await context.params;
     const message = error instanceof Error ? error.message : "Failed to update request.";
+    console.error("[trade-room-action] mutation failed", {
+      requestId,
+      actorUserId: user.id,
+      actorRole: user.role,
+      message,
+    });
     if (debug) {
       console.log("[trade-room-action] response", {
         requestId,

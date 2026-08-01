@@ -730,7 +730,9 @@ export function TradeRoomPage({
     actionInFlightRef.current = mutationKey;
     const previousRoom = room;
     const optimisticRoom = buildOptimisticRoom(room, nextStatus);
-    const payload = { status: nextStatus };
+    const payload = nextStatus === "accepted"
+      ? { status: nextStatus, safetyAcknowledged: true }
+      : { status: nextStatus };
     const startedAt = performance.now();
     const optimisticStartedAt = performance.now();
     setRoom(optimisticRoom);
