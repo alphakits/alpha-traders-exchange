@@ -22,8 +22,20 @@ export default async function TradeRoomRoute({
 }) {
   const { locale, requestId } = await params;
   const user = await getCurrentSessionUser();
+  console.log("[trade-room-open] route entry", {
+    locale,
+    requestId,
+    userId: user?.id ?? null,
+    role: user?.role ?? null,
+    authenticated: Boolean(user),
+  });
 
   if (!user) {
+    console.log("[trade-room-open] route redirect unauthenticated", {
+      locale,
+      requestId,
+      destination: `/${locale}/login?redirectTo=/${locale}/trade-room/${requestId}`,
+    });
     redirect(`/${locale}/login?redirectTo=/${locale}/trade-room/${requestId}`);
   }
 

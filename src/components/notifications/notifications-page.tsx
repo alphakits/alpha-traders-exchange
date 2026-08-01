@@ -132,11 +132,16 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
     return null;
   }
 
-  async function resolveActiveTradeHref() {
+  async function resolveActiveTradeHref(input?: { notificationId?: string; includePending?: boolean }) {
     try {
-      const response = await fetch("/api/alpha-exchange/trade-room/active", { cache: "no-store" });
+      const query = new URLSearchParams();
+      if (input?.notificationId) query.set("notificationId", input.notificationId);
+      if (input?.includePending) query.set("includePending", "1");
+      const suffix = query.size ? `?${query.toString()}` : "";
+      const response = await fetch(`/api/alpha-exchange/trade-room/active${suffix}`, { cache: "no-store" });
       if (!response.ok) return null;
-      const payload = (await response.json()) as { activeRequestId?: string | null };
+      const payload = (await response.json()) as { activeRequestId?: string | null; destination?: string | null };
+      if (payload.destination?.trim()) return payload.destination.trim();
       if (!payload.activeRequestId) return null;
       return `/trade-room/${payload.activeRequestId}`;
     } catch {
@@ -146,19 +151,30 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
 
   async function openTradeRoomFromNotification(notification: AlphaExchangeNotification) {
     const resolvedDestination = resolveTradeRoomHref(notification);
-    const destination = resolvedDestination ?? await resolveActiveTradeHref();
-    if (!destination) {
+    const destination = resolvedDestination
+      ?? await resolveActiveTradeHref({ notificationId: notification.id, includePending: true });
+    const localizedDestination = destination
+      ? (destination.startsWith(`/${locale}/`) ? destination : `/${locale}${destination.startsWith("/") ? destination : `/${destination}`}`)
+      : null;
+    console.log("[trade-room-open] notification click", {
+      notificationId: notification.id,
+      relatedRequestId: notification.relatedRequestId ?? null,
+      relatedListingId: notification.relatedListingId ?? null,
+      relatedTradeId: notification.relatedTradeId ?? null,
+      destination: localizedDestination,
+    });
+    if (!localizedDestination) {
       setError("Could not resolve this trade room.");
       return;
     }
-    const requestId = extractRequestIdFromTradeRoomHref(destination);
+    const requestId = extractRequestIdFromTradeRoomHref(localizedDestination);
     if (requestId) {
       prefetchTradeRoom(router, requestId);
     }
     if (!notification.isRead) {
       void handleMarkOneRead(notification.id);
     }
-    router.push(destination);
+    router.push(localizedDestination);
   }
 
   async function handleMarkOneRead(notificationId: string) {

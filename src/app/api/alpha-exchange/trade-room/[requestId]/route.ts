@@ -10,19 +10,51 @@ export async function GET(_request: NextRequest, context: RouteContext) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
 
+  const { requestId } = await context.params;
+  console.log("[trade-room-open] api request", {
+    requestId,
+    userId: user.id,
+    role: user.role,
+  });
+
   try {
-    const { requestId } = await context.params;
     const room = await getTradeRoomData({
       purchaseRequestId: requestId,
       actorUserId: user.id,
       actorRole: user.role,
       markMessagesRead: true,
     });
+    console.log("[trade-room-open] api response", {
+      requestId,
+      userId: user.id,
+      status: 200,
+      tradeStatus: room.request.status,
+      listingId: room.request.listingId,
+      tradeId: room.request.tradeId ?? null,
+    });
     return NextResponse.json(room);
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load trade room.";
+    const status = message === "Trade not found."
+      ? 404
+      : message === "You are not allowed to access trade evidence."
+        ? 403
+        : 400;
+    const code = status === 404
+      ? "TRADE_NOT_FOUND"
+      : status === 403
+        ? "TRADE_FORBIDDEN"
+        : "TRADE_ROOM_LOAD_FAILED";
+    console.log("[trade-room-open] api error", {
+      requestId,
+      userId: user.id,
+      status,
+      code,
+      error: message,
+    });
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to load trade room." },
-      { status: 400 },
+      { error: message, code },
+      { status },
     );
   }
 }

@@ -4261,24 +4261,117 @@ export async function getMyPurchaseRequests(userId: string, role: UserRole) {
     .map((request) => enrichRequestWithEvidence(db, request));
 }
 
+const ACTIVE_TRADE_STATUSES: PurchaseRequestStatus[] = [
+  "accepted",
+  "payment_sent",
+  "funds_received",
+  "usdt_release_pending",
+  "usdt_sent",
+];
+
+const ACTIONABLE_TRADE_STATUSES: PurchaseRequestStatus[] = ["pending", ...ACTIVE_TRADE_STATUSES];
+
 function isActiveTradeStatus(status: PurchaseRequestStatus) {
-  return status === "accepted"
-    || status === "payment_sent"
-    || status === "funds_received"
-    || status === "usdt_release_pending"
-    || status === "usdt_sent";
+  return ACTIVE_TRADE_STATUSES.includes(status);
+}
+
+function isActionableTradeStatus(status: PurchaseRequestStatus) {
+  return ACTIONABLE_TRADE_STATUSES.includes(status);
+}
+
+function sortTradesByUpdatedAtDesc(left: PurchaseRequest, right: PurchaseRequest) {
+  return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+}
+
+function filterTradesForUser(db: AlphaExchangeDb, userId: string, role: UserRole) {
+  return db.purchaseRequests.filter((request) => {
+    if (role === "admin" || role === "owner") return true;
+    return request.buyerId === userId || request.sellerId === userId;
+  });
 }
 
 export async function getFirstActiveTradeForUser(userId: string, role: UserRole) {
   const db = await readDb();
-  const activeTrades = db.purchaseRequests
-    .filter((request) => {
-      if (!isActiveTradeStatus(request.status)) return false;
-      if (role === "admin" || role === "owner") return true;
-      return request.buyerId === userId || request.sellerId === userId;
-    })
-    .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
+  const activeTrades = filterTradesForUser(db, userId, role)
+    .filter((request) => isActiveTradeStatus(request.status))
+    .sort(sortTradesByUpdatedAtDesc);
   return activeTrades[0] ? enrichRequestWithEvidence(db, activeTrades[0]) : null;
+}
+
+export async function getFirstActionableTradeForUser(userId: string, role: UserRole) {
+  const db = await readDb();
+  const actionableTrades = filterTradesForUser(db, userId, role)
+    .filter((request) => isActionableTradeStatus(request.status))
+    .sort(sortTradesByUpdatedAtDesc);
+  return actionableTrades[0] ? enrichRequestWithEvidence(db, actionableTrades[0]) : null;
+}
+
+export async function resolveTradeRoomRequestForNotification(input: {
+  userId: string;
+  role: UserRole;
+  notificationId: string;
+  includePendingFallback?: boolean;
+}) {
+  const db = await readDb();
+  const notification = db.notifications.find((item) => item.id === input.notificationId && item.userId === input.userId);
+  if (!notification) {
+    return {
+      request: null,
+      reason: "notification_not_found" as const,
+      notification: null,
+      consideredStatuses: input.includePendingFallback ? ACTIONABLE_TRADE_STATUSES : ACTIVE_TRADE_STATUSES,
+      participantTradeStatuses: [],
+    };
+  }
+
+  const enrichedNotification = enrichNotification(db, notification);
+  const relatedRequest = resolveTradeContextForNotification(db, {
+    userId: input.userId,
+    relatedRequestId: enrichedNotification.relatedRequestId,
+    relatedTradeId: enrichedNotification.relatedTradeId,
+    relatedListingId: enrichedNotification.relatedListingId,
+  });
+  if (relatedRequest) {
+    return {
+      request: enrichRequestWithEvidence(db, relatedRequest),
+      reason: "notification_related_request" as const,
+      notification: enrichedNotification,
+      consideredStatuses: input.includePendingFallback ? ACTIONABLE_TRADE_STATUSES : ACTIVE_TRADE_STATUSES,
+      participantTradeStatuses: [],
+    };
+  }
+
+  const snapshotRequestId = enrichedNotification.tradeSnapshot?.requestId;
+  if (snapshotRequestId) {
+    const snapshotRequest = db.purchaseRequests.find((request) => request.id === snapshotRequestId);
+    if (snapshotRequest) {
+      return {
+        request: enrichRequestWithEvidence(db, snapshotRequest),
+        reason: "trade_snapshot_request" as const,
+        notification: enrichedNotification,
+        consideredStatuses: input.includePendingFallback ? ACTIONABLE_TRADE_STATUSES : ACTIVE_TRADE_STATUSES,
+        participantTradeStatuses: [],
+      };
+    }
+  }
+
+  const statusFilter = input.includePendingFallback ? isActionableTradeStatus : isActiveTradeStatus;
+  const userTrades = filterTradesForUser(db, input.userId, input.role).sort(sortTradesByUpdatedAtDesc);
+  const fallbackTrade = userTrades
+    .filter((request) => statusFilter(request.status))
+    [0];
+
+  return {
+    request: fallbackTrade ? enrichRequestWithEvidence(db, fallbackTrade) : null,
+    reason: fallbackTrade ? "fallback_user_trade" as const : "no_trade_match" as const,
+    notification: enrichedNotification,
+    consideredStatuses: input.includePendingFallback ? ACTIONABLE_TRADE_STATUSES : ACTIVE_TRADE_STATUSES,
+    participantTradeStatuses: userTrades.slice(0, 10).map((request) => ({
+      requestId: request.id,
+      status: request.status,
+      updatedAt: request.updatedAt,
+    })),
+  };
 }
 
 export interface TradeRoomData {
@@ -5293,6 +5386,18 @@ export async function updatePurchaseRequestStatus(input: {
     next.status = input.nextStatus;
   }
   db.purchaseRequests[requestIndex] = next;
+  if (input.nextStatus === "accepted") {
+    console.log("[trade-room-open] state transition after accept", {
+      requestId: next.id,
+      tradeId: next.tradeId ?? null,
+      purchaseRequestStatus: next.status,
+      listingId: listing.id,
+      listingStatus: listing.status,
+      listingActiveTradeRequestId: listing.activeTradeRequestId ?? null,
+      sellerId: next.sellerId,
+      buyerId: next.buyerId,
+    });
+  }
   publishRealtimeEvent({
     type: "trade.status_changed",
     payload: { request: enrichRequestWithEvidence(db, next) },

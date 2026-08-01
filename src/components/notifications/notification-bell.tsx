@@ -148,18 +148,33 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   }
 
   async function handleOpenNotification(notification: AlphaExchangeNotification) {
-    const tradeRoomHref = resolveTradeRoomHref(notification) ?? await resolveActiveTradeHref();
+    const tradeRoomHref = resolveTradeRoomHref(notification)
+      ?? await resolveActiveTradeHref({ notificationId: notification.id, includePending: true });
+    const localizedTradeRoomHref = tradeRoomHref
+      ? (tradeRoomHref.startsWith(`/${locale}/`) ? tradeRoomHref : `/${locale}${tradeRoomHref.startsWith("/") ? tradeRoomHref : `/${tradeRoomHref}`}`)
+      : null;
+    console.log("[trade-room-open] notification click", {
+      notificationId: notification.id,
+      relatedRequestId: notification.relatedRequestId ?? null,
+      relatedListingId: notification.relatedListingId ?? null,
+      relatedTradeId: notification.relatedTradeId ?? null,
+      destination: localizedTradeRoomHref,
+    });
     if (!notification.isRead) {
       void handleMarkOneRead(notification.id);
     }
-    if (tradeRoomHref) {
-      const requestId = extractRequestIdFromTradeRoomHref(tradeRoomHref);
+    if (localizedTradeRoomHref) {
+      const requestId = extractRequestIdFromTradeRoomHref(localizedTradeRoomHref);
       if (requestId) prefetchTradeRoom(router, requestId);
-      router.push(tradeRoomHref);
+      router.push(localizedTradeRoomHref);
       setIsOpen(false);
       return;
     }
     if (notification.relatedHref) {
+      console.log("[trade-room-open] fallback related href", {
+        notificationId: notification.id,
+        destination: notification.relatedHref,
+      });
       router.push(notification.relatedHref);
       setIsOpen(false);
     }
@@ -170,11 +185,16 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
     return extractTradeRoomHrefFromRelatedHref(notification.relatedHref ?? notification.actionHref);
   }
 
-  async function resolveActiveTradeHref() {
+  async function resolveActiveTradeHref(input?: { notificationId?: string; includePending?: boolean }) {
     try {
-      const response = await fetch("/api/alpha-exchange/trade-room/active", { cache: "no-store" });
+      const query = new URLSearchParams();
+      if (input?.notificationId) query.set("notificationId", input.notificationId);
+      if (input?.includePending) query.set("includePending", "1");
+      const suffix = query.size ? `?${query.toString()}` : "";
+      const response = await fetch(`/api/alpha-exchange/trade-room/active${suffix}`, { cache: "no-store" });
       if (!response.ok) return null;
-      const payload = (await response.json()) as { activeRequestId?: string | null };
+      const payload = (await response.json()) as { activeRequestId?: string | null; destination?: string | null };
+      if (payload.destination?.trim()) return payload.destination.trim();
       if (!payload.activeRequestId) return null;
       return `/trade-room/${payload.activeRequestId}`;
     } catch {
