@@ -717,6 +717,9 @@ export function TradeRoomPage({
     stream.addEventListener("open", onOpen as EventListener);
     stream.addEventListener("error", onError as EventListener);
 
+    const handleBeforeUnload = () => stream.close();
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
     return () => {
       closed = true;
       stream.close();
@@ -724,6 +727,7 @@ export function TradeRoomPage({
         window.clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
+      window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, [requestId, streamCycle]);
 

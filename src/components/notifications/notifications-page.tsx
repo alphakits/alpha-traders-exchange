@@ -126,7 +126,10 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
       }
     };
     stream.addEventListener("notifications", onNotifications);
+    const handleBeforeUnload = () => stream.close();
+    window.addEventListener("beforeunload", handleBeforeUnload);
     return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
       stream.close();
     };
   }, []);

@@ -129,7 +129,13 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
     };
     stream.addEventListener("notifications", onNotifications);
     stream.addEventListener("error", onError as EventListener);
+    // Close the stream explicitly before page unload (e.g. logout via window.location.replace).
+    // Without this, hard navigations terminate the connection abruptly and the browser logs
+    // "The connection has terminated unexpectedly" in the DevTools console.
+    const handleBeforeUnload = () => stream.close();
+    window.addEventListener("beforeunload", handleBeforeUnload);
     return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
       stream.close();
     };
   }, []);
