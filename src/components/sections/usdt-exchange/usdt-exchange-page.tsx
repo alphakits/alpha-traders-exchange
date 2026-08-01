@@ -1,30 +1,23 @@
 "use client";
 
-import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, BadgePercent, BellRing, CheckCircle2, ChevronDown, Clock3, Copy, Edit3, HandCoins, Layers3, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Users, WalletCards, X } from "lucide-react";
+import { AlertTriangle, BadgePercent, BellRing, CheckCircle2, Clock3, Copy, Edit3, HandCoins, Layers3, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Users, WalletCards, X } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RoleBadge } from "@/components/ui/role-badge";
-import { UsdtIcon } from "@/components/ui/usdt-icon";
-import { ExchangeMarketStats } from "@/components/sections/usdt-exchange/exchange-market-stats";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
-import { getSellerPrestigeProgress, getSellerPublicVolumeLabel } from "@/lib/seller-prestige";
-import { hasRole } from "@/lib/roles";
-import { createDefaultSellerListingDraft, persistSellerListingDraft, readSellerListingDraft } from "@/lib/seller-listing-draft";
-import { getListingPriceValidationError } from "@/lib/listing-price-validation";
-import { getIsraeliBankOption, getIsraeliBankOptions } from "@/lib/israeli-banks";
-import { getSellerWorkspaceHighlights, type SellerWorkspaceTab } from "@/lib/premium-seller-dashboard";
-import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, BetaAnnouncement, BetaFeedbackCategory, BetaFeedbackEntry, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerAvailabilityStatus, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
+import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, BetaAnnouncement, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
 const WHATSAPP_URL = "https://wa.me/972525967649";
 const MAX_EVIDENCE_SIZE_BYTES = 8 * 1024 * 1024;
 const ALLOWED_EVIDENCE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
+const MARKET_PRICE_PER_USDT = 3.92;
+const MAX_PRICE_MARKUP_ILS = 0.35;
+const MAX_ALLOWED_LISTING_PRICE = MARKET_PRICE_PER_USDT + MAX_PRICE_MARKUP_ILS;
 
 type Locale = "ar" | "en";
 
@@ -33,7 +26,6 @@ type SessionUser = {
   fullName: string;
   email: string;
   role: UserRole;
-  roles?: UserRole[];
   sellerStatus: SellerStatus;
   whatsappNumber: string;
   preferredNetworks: SupportedNetwork[];
@@ -47,16 +39,11 @@ type SessionUser = {
   country?: string;
   city?: string;
   onlineStatus: "online" | "offline";
-  availabilityStatus: SellerAvailabilityStatus;
   lastActiveAt?: string;
   isFeaturedSeller?: boolean;
   isProfileHidden?: boolean;
   isFoundingMember?: boolean;
   isFoundingSeller?: boolean;
-  lifetimeCompletedVolumeUsdt?: number;
-  sellerPrestigeRank?: SellerLevel;
-  sellerRankOverride?: { rank: SellerLevel; reason: string; setAt: string; setByUserId: string };
-  sellerPromotionHistory?: Array<{ id: string; rank: SellerLevel; promotedAt: string; source: "automatic" | "admin_override"; reason?: string }>;
   notificationPreferences?: { inApp: boolean; email: boolean; sms: boolean };
   createdAt: string;
 };
@@ -71,32 +58,6 @@ type TimelineStep = {
   title: string;
   body: string;
 };
-
-type SellerListingWorkspaceSummary = {
-  activeListingLimit: number;
-  openListingCount: number;
-  openTradeCount: number;
-  pendingCommissionCount: number;
-  canCreateListing: boolean;
-  blockedReason: string | null;
-};
-
-type TradeMilestone = {
-  key: "request_submitted" | "request_accepted" | "payment_sent" | "seller_confirmed_funds" | "usdt_release_started" | "usdt_sent" | "trade_completed" | "review_unlocked";
-  titleEn: string;
-  titleAr: string;
-};
-
-const TRADE_MILESTONES: TradeMilestone[] = [
-  { key: "request_submitted", titleEn: "Request submitted", titleAr: "تم إرسال الطلب" },
-  { key: "request_accepted", titleEn: "Seller accepted", titleAr: "البائع قبل الطلب" },
-  { key: "payment_sent", titleEn: "Bank transfer sent", titleAr: "تم إرسال التحويل البنكي" },
-  { key: "seller_confirmed_funds", titleEn: "Seller confirmed funds", titleAr: "البائع أكد استلام الأموال" },
-  { key: "usdt_release_started", titleEn: "USDT release pending", titleAr: "إصدار USDT معلق" },
-  { key: "usdt_sent", titleEn: "Seller USDT sent", titleAr: "البائع أكد إرسال USDT" },
-  { key: "trade_completed", titleEn: "Buyer completed trade", titleAr: "المشتري أكد إتمام الصفقة" },
-  { key: "review_unlocked", titleEn: "Review unlocked", titleAr: "نافذة المراجعة مفتوحة" },
-];
 
 function toNumber(value: string | number | null | undefined) {
   const normalized = String(value ?? "");
@@ -115,6 +76,9 @@ function safeText(value: unknown, fallback = "—") {
   return fallback;
 }
 
+function formatIls(value: number) {
+  return `₪${value.toFixed(2)}`;
+}
 
 function safeErrorMessage(context: "application" | "purchase" | "listing" | "request" | "settings" | "password" | "workspace" | "review" | "evidence") {
   const map = {
@@ -151,17 +115,10 @@ async function readApiErrorMessage(response: Response, fallback: string) {
 }
 
 function tradeStatusLabel(status: PurchaseRequest["status"]) {
-  if (status === "payment_sent") return "Bank Transfer Sent";
-  if (status === "funds_received") return "Funds Received";
-  if (status === "usdt_release_pending") return "USDT Release Pending";
+  if (status === "payment_sent") return "Payment Sent";
   if (status === "usdt_sent") return "USDT Sent";
   if (status === "review_open") return "Review Open";
   return status[0].toUpperCase() + status.slice(1);
-}
-
-function listingStatusLabel(status: MarketplaceListing["status"]) {
-  if (status === "in_trade") return "In Trade";
-  return status.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function formatRelativeMinutesLabel(value?: string) {
@@ -178,42 +135,15 @@ function formatRelativeMinutesLabel(value?: string) {
 }
 
 function sellerLevelLabel(level?: SellerLevel) {
-  if (level === "legendary") return "Alpha Legendary Seller";
-  if (level === "diamond") return "Alpha Diamond Seller";
-  if (level === "platinum") return "Alpha Platinum Seller";
-  if (level === "gold") return "Alpha Gold Seller";
-  if (level === "silver") return "Alpha Silver Seller";
-  return "Alpha Bronze Seller";
-}
-
-function sellerLevelDisplayName(level?: SellerLevel) {
-  return sellerLevelLabel(level).replace(/ Seller$/i, "");
-}
-
-function sellerRankTheme(level?: SellerLevel) {
-  if (level === "legendary") return "from-[#F8E7A0] via-[#FFFFFF] to-[#C9A227] text-transparent bg-clip-text";
-  if (level === "diamond") return "text-[#7CC9FF]";
-  if (level === "platinum") return "text-[#C8D1DF]";
-  if (level === "gold") return "text-[#E8C547]";
-  if (level === "silver") return "text-[#C9CED9]";
-  return "text-[#B8824B]";
-}
-
-function summarizePromotionBenefits(rank: SellerLevel) {
-  if (rank === "silver") return "Higher marketplace visibility and stronger buyer trust.";
-  if (rank === "gold") return "Priority placement and stronger trust signaling on seller cards.";
-  if (rank === "platinum") return "Premium placement and increased visibility with serious buyers.";
-  if (rank === "diamond") return "Top-tier visibility and premium reputation with buyers.";
-  if (rank === "legendary") return "Legendary recognition across Alpha Exchange and maximum buyer trust.";
-  return "Starter prestige level unlocked.";
-}
-
-function prestigeBadgeLabel(rank?: SellerLevel) {
-  return rank ? sellerLevelLabel(rank) : "Alpha Bronze Seller";
+  if (level === "elite") return "Elite";
+  if (level === "diamond") return "Diamond";
+  if (level === "gold") return "Gold";
+  if (level === "silver") return "Silver";
+  return "Bronze";
 }
 
 function sellerBadgeLabel(badge: SellerBadge) {
-  if (badge === "elite_seller") return "✨ Legendary Seller";
+  if (badge === "elite_seller") return "🥇 Elite Seller";
   if (badge === "top_rated") return "💎 Top Rated";
   if (badge === "fast_responder") return "⚡ Fast Responder";
   if (badge === "trusted_seller") return "🛡 Trusted Seller";
@@ -222,119 +152,16 @@ function sellerBadgeLabel(badge: SellerBadge) {
   return "🚀 1000+ Trades";
 }
 
-function betaFeedbackCategoryLabel(category: BetaFeedbackCategory) {
-  if (category === "bug") return "Bug";
-  if (category === "suggestion") return "Suggestion";
-  if (category === "confusing_ux") return "Confusing UX";
-  if (category === "feature_request") return "Feature Request";
-  if (category === "performance") return "Performance";
-  return "Other";
-}
-
-function roleBadgeVariantsFromSession(user: SessionUser) {
-  const badges: Array<"guest" | "student" | "buyer" | "pending_seller" | "approved_seller" | "administrator" | "owner"> = [];
-  const roles = user.roles ?? [];
-  if (roles.includes("owner") || (user.role === "admin" && isAlphaExchangeOwnerEmail(user.email))) badges.push("owner");
-  if (roles.includes("admin") || user.role === "admin") badges.push("administrator");
-  if (roles.includes("approved_seller") || user.sellerStatus === "approved_seller") badges.push("approved_seller");
-  if (roles.includes("pending_seller_approval") || user.sellerStatus === "pending_seller_approval") badges.push("pending_seller");
-  if (roles.includes("buyer") || user.role === "buyer") badges.push("buyer");
-  if (roles.includes("student") || user.role === "student") badges.push("student");
-  if (roles.includes("guest") || user.role === "guest" || badges.length === 0) badges.push("guest");
-  return Array.from(new Set(badges));
-}
-
-function tradeProgressRank(request: PurchaseRequest) {
-  const timeline = request.timeline ?? [];
-  const acceptedSeen = timeline.some((event) => event.type === "request_accepted");
-  if (request.status === "pending") return 0;
-  if (request.status === "accepted") return 1;
-  if (request.status === "payment_sent") return 2;
-  if (request.status === "funds_received") return 3;
-  if (request.status === "usdt_release_pending") return 4;
-  if (request.status === "usdt_sent") return 5;
-  if (request.status === "completed" || request.status === "locked") return 6;
-  if (request.status === "review_open") return 7;
-  if (request.status === "cancelled") return acceptedSeen ? 1 : 0;
-  return 0;
-}
-
-function nextTradeActionHint(request: PurchaseRequest, isAr: boolean) {
-  if (request.status === "pending") {
-    return isAr ? "الإجراء التالي: البائع يقبل أو يرفض الطلب." : "Next action: seller accepts or declines the request.";
-  }
-  if (request.status === "accepted") {
-    return isAr ? "الإجراء التالي: المشتري يرفع إثبات التحويل البنكي ويؤكد الإرسال." : "Next action: buyer uploads bank transfer proof and marks the transfer as sent.";
-  }
-  if (request.status === "payment_sent") {
-    return isAr ? "الإجراء التالي: البائع يؤكد استلام الأموال ثم يبدأ إصدار USDT." : "Next action: seller confirms funds received and starts the USDT release.";
-  }
-  if (request.status === "funds_received") {
-    return isAr ? "الإجراء التالي: البائع يبدأ إصدار USDT." : "Next action: seller moves the trade to USDT release pending.";
-  }
-  if (request.status === "usdt_release_pending") {
-    return isAr ? "الإجراء التالي: البائع يؤكد إرسال USDT." : "Next action: seller marks USDT sent.";
-  }
-  if (request.status === "usdt_sent") {
-    return isAr ? "الإجراء التالي: المشتري يؤكد اكتمال الصفقة." : "Next action: buyer confirms trade completion.";
-  }
-  if (request.status === "review_open") {
-    return isAr ? "الإجراء التالي: يمكن للطرفين مراجعة نتيجة الصفقة." : "Next action: parties can leave/track the trade review.";
-  }
-  if (request.status === "declined") {
-    return isAr ? "تم إنهاء الصفقة: تم رفض الطلب من البائع." : "Trade ended: seller declined this request.";
-  }
-  return isAr ? "تم إنهاء الصفقة: تم إلغاء الطلب." : "Trade ended: request was cancelled.";
-}
-
-function tradeMilestoneTimestamp(request: PurchaseRequest, key: TradeMilestone["key"]) {
-  const timeline = request.timeline ?? [];
-  const event = timeline.find((item) => item.type === key);
-  return event?.createdAt;
-}
-
-function IsraeliBankSelector({
-  value,
-  onChange,
-  className,
-  placeholder,
-  descriptionClassName,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  className?: string;
-  placeholder?: string;
-  descriptionClassName?: string;
-}) {
-  const [query, setQuery] = useState("");
-  const filteredOptions = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    const options = getIsraeliBankOptions();
-    if (!normalizedQuery) return options;
-    return options.filter((bank) => `${bank.name} ${bank.description ?? ""}`.toLowerCase().includes(normalizedQuery));
-  }, [query]);
-
-  const selectedBank = getIsraeliBankOption(value);
-
-  return (
-    <div className="space-y-2">
-      <Input placeholder={placeholder ?? "Search bank"} value={query} onChange={(event) => setQuery(event.target.value)} />
-      <select className={className ?? "flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white"} value={value} onChange={(event) => onChange(event.target.value)}>
-        {filteredOptions.map((bank) => (
-          <option key={bank.code} value={bank.name}>
-            {bank.name}
-          </option>
-        ))}
-      </select>
-      <p className={descriptionClassName ?? "text-xs text-[#FDE68A]"}>{selectedBank.description ?? "Choose a receiving bank for the transfer."}</p>
-    </div>
-  );
+function roleBadgeVariantFromSession(user: SessionUser) {
+  if (user.role === "admin" && isAlphaExchangeOwnerEmail(user.email)) return "owner" as const;
+  if (user.role === "admin") return "administrator" as const;
+  if (user.role === "approved_seller") return "approved_seller" as const;
+  return "buyer" as const;
 }
 
 export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const isAr = locale === "ar";
   const router = useRouter();
-  const showLegacyNotificationCenter = false;
 
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
@@ -348,7 +175,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [sellerApplication, setSellerApplication] = useState<SellerApplication | null>(null);
   const [myRequests, setMyRequests] = useState<PurchaseRequest[]>([]);
   const [myListings, setMyListings] = useState<MarketplaceListing[]>([]);
-  const [listingWorkspaceSummary, setListingWorkspaceSummary] = useState<SellerListingWorkspaceSummary | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [sellerWorkspaceMessage, setSellerWorkspaceMessage] = useState<string | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
@@ -359,36 +185,27 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     currency: "ILS",
     network: "TRC20" as SupportedNetwork,
     paymentMethods: "Bank transfer",
-    bankName: "Bank transfer",
     minimumTrade: "0",
     maximumTrade: "",
-    expirationHours: "24",
+    expiresAt: "",
     notes: "",
   });
-  const [listingCreateForm, setListingCreateForm] = useState(() => readSellerListingDraft(null, createDefaultSellerListingDraft()));
-  const [marketRate, setMarketRate] = useState<number | null>(null);
-  const [sellerSettings, setSellerSettings] = useState({
-    fullName: "",
-    whatsappNumber: "",
-    preferredNetworks: ["TRC20"] as SupportedNetwork[],
-    profilePhotoUrl: "",
-    coverBannerUrl: "",
-    languages: ["English"],
-    bio: "",
-    tradingExperience: "",
-    workingHours: "",
-    preferredPaymentMethods: ["Bank transfer"],
-    country: "Israel",
-    city: "",
-    onlineStatus: "online" as "online" | "offline",
-    availabilityStatus: "available" as SellerAvailabilityStatus,
-    currentPassword: "",
-    newPassword: "",
+  const [listingCreateForm, setListingCreateForm] = useState({
+    availableAmount: "",
+    price: "",
+    currency: "ILS",
+    network: "TRC20" as SupportedNetwork,
+    paymentMethods: "Bank transfer",
+    minimumTrade: "0",
+    maximumTrade: "",
+    expiresAt: "",
+    notes: "",
+    sellerDescription: "",
+    responseTime: "5 min",
+    photos: "",
   });
-
   const [currencyFilter, setCurrencyFilter] = useState("all");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState("all");
-  const [bankFilter, setBankFilter] = useState("all");
   const [networkFilter, setNetworkFilter] = useState<"all" | SupportedNetwork>("all");
   const [minAmountFilter, setMinAmountFilter] = useState("");
   const [maxAmountFilter, setMaxAmountFilter] = useState("");
@@ -409,83 +226,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [notifications, setNotifications] = useState<AlphaExchangeNotification[]>([]);
   const [activityHistory, setActivityHistory] = useState<AlphaExchangeActivityLogEntry[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
-  const [isCreatingListing, setIsCreatingListing] = useState(false);
-  const [isSubmittingSellerApplication, setIsSubmittingSellerApplication] = useState(false);
-  const [isSubmittingPurchase, setIsSubmittingPurchase] = useState(false);
-  const [listingActionLoading, setListingActionLoading] = useState<Record<string, boolean>>({});
-  const [tradeActionLoading, setTradeActionLoading] = useState<Record<string, boolean>>({});
-  const [reviewActionLoading, setReviewActionLoading] = useState<Record<string, boolean>>({});
-  const [isSavingSellerSettings, setIsSavingSellerSettings] = useState(false);
-  const [isSavingSellerPassword, setIsSavingSellerPassword] = useState(false);
-  const [isSavingNotificationPreferences, setIsSavingNotificationPreferences] = useState(false);
-  const [isSubmittingBetaFeedback, setIsSubmittingBetaFeedback] = useState(false);
-  const [isMarkingAllNotificationsRead, setIsMarkingAllNotificationsRead] = useState(false);
-  const [notificationActionLoading, setNotificationActionLoading] = useState<Record<string, boolean>>({});
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [notificationQuery, setNotificationQuery] = useState("");
   const [notificationCategory, setNotificationCategory] = useState<"all" | NotificationCategory>("all");
   const [notificationUnreadOnly, setNotificationUnreadOnly] = useState(false);
   const [notificationPreferences, setNotificationPreferences] = useState<{ inApp: boolean; email: boolean; sms: boolean }>({ inApp: true, email: false, sms: false });
   const [betaAnnouncements, setBetaAnnouncements] = useState<BetaAnnouncement[]>([]);
-  const [myBetaFeedback, setMyBetaFeedback] = useState<BetaFeedbackEntry[]>([]);
-  const [betaFeedbackCategory, setBetaFeedbackCategory] = useState<BetaFeedbackCategory>("suggestion");
-  const [betaFeedbackMessage, setBetaFeedbackMessage] = useState("");
-  const [activeSellerWorkspaceTab, setActiveSellerWorkspaceTab] = useState<SellerWorkspaceTab>("overview");
-  const [promotionModalRank, setPromotionModalRank] = useState<SellerLevel | null>(null);
-  const [prestigeModalOpen, setPrestigeModalOpen] = useState(false);
-  const [prestigeModalStats, setPrestigeModalStats] = useState<{
-    currentRank: SellerLevel;
-    nextRank?: SellerLevel;
-    progressPercent: number;
-    remainingVolumeToNextRank: number;
-    publicVolumeRange: string;
-    publicVolumeLabel: string;
-    completedTrades: number;
-    totalVolumeUsdt: number;
-    averageRating: number;
-    responseTimeMinutes: number;
-    completionRate: number;
-    averageTradeSize: number;
-    repeatBuyersPercent: number;
-    totalReviews: number;
-    yearsOnPlatform: number;
-    promotionHistory: Array<{ id: string; rank: SellerLevel; promotedAt: string; source: string }>
-    achievements: Array<{ key: string; title: string; description: string; earnedAt: string }>;
-    canViewExactValues: boolean;
-  } | null>(null);
   const notificationsRequestIdRef = useRef(0);
-  const createListingFormRef = useRef<HTMLDivElement | null>(null);
-  const realtimeEventSourceRef = useRef<EventSource | null>(null);
 
-  useEffect(() => {
-    if (!sessionUser?.email) return;
-    persistSellerListingDraft(sessionUser.email, listingCreateForm);
-  }, [listingCreateForm, sessionUser?.email]);
-
-  useEffect(() => {
-    let active = true;
-    void (async () => {
-      try {
-        const response = await fetch("/api/alpha-exchange/market-rate");
-        if (response.ok) {
-          const data = (await response.json()) as { rate?: number };
-          if (typeof data.rate === "number" && active) {
-            setMarketRate(data.rate);
-            return;
-          }
-        }
-      } catch {
-        // fall through to default
-      }
-      if (active) setMarketRate(null);
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
-  const previousPrestigeRankRef = useRef<SellerLevel | null>(null);
-
-  const [buyerInfo, setBuyerInfo] = useState({ amount: "", name: "", whatsapp: "", notes: "", bankName: "Bank transfer" });
+  const [buyerInfo, setBuyerInfo] = useState({ name: "", whatsapp: "", notes: "" });
   const [sellerForm, setSellerForm] = useState({
     fullName: "",
     email: "",
@@ -498,33 +246,17 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const refreshSellerWorkspace = useCallback(async () => {
     try {
       const [requestsRes, myListingsRes] = await Promise.all([
-        fetch("/api/alpha-exchange/purchase-requests", { cache: "no-store", next: { revalidate: 0 } }),
-        fetch("/api/alpha-exchange/my-listings", { cache: "no-store", next: { revalidate: 0 } }),
+        fetch("/api/alpha-exchange/purchase-requests", { cache: "no-store" }),
+        fetch("/api/alpha-exchange/my-listings", { cache: "no-store" }),
       ]);
       if (requestsRes.ok) {
         const requestsJson = (await requestsRes.json()) as { requests: PurchaseRequest[] };
         setMyRequests(requestsJson.requests ?? []);
       }
       if (myListingsRes.ok) {
-        const myListingsJson = (await myListingsRes.json()) as { listings: MarketplaceListing[]; summary?: SellerListingWorkspaceSummary | null };
+        const myListingsJson = (await myListingsRes.json()) as { listings: MarketplaceListing[] };
         setMyListings(myListingsJson.listings ?? []);
-        setListingWorkspaceSummary(myListingsJson.summary ?? null);
       }
-      setWorkspaceError(null);
-    } catch {
-      setWorkspaceError(safeErrorMessage("workspace"));
-    }
-  }, []);
-
-  const refreshMarketplaceListings = useCallback(async () => {
-    try {
-      const listingsRes = await fetch("/api/alpha-exchange/listings", { cache: "no-store", next: { revalidate: 0 } });
-      if (!listingsRes.ok) {
-        setWorkspaceError(safeErrorMessage("workspace"));
-        return;
-      }
-      const listingsJson = (await listingsRes.json()) as { listings: MarketplaceListing[] };
-      setListings(listingsJson.listings ?? []);
       setWorkspaceError(null);
     } catch {
       setWorkspaceError(safeErrorMessage("workspace"));
@@ -544,7 +276,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       if (category !== "all") params.set("category", category);
       if (query.trim()) params.set("q", query.trim());
       if (unreadOnly) params.set("unreadOnly", "1");
-      const response = await fetch(`/api/alpha-exchange/notifications?${params.toString()}`, { cache: "no-store", next: { revalidate: 0 } });
+      const response = await fetch(`/api/alpha-exchange/notifications?${params.toString()}`, { cache: "no-store" });
       if (!response.ok) throw new Error("failed");
       const payload = (await response.json()) as { notifications: AlphaExchangeNotification[]; activity: AlphaExchangeActivityLogEntry[] };
       if (requestId !== notificationsRequestIdRef.current) return;
@@ -559,7 +291,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   const refreshNotificationPreferences = useCallback(async () => {
     try {
-      const response = await fetch("/api/alpha-exchange/notification-preferences", { cache: "no-store", next: { revalidate: 0 } });
+      const response = await fetch("/api/alpha-exchange/notification-preferences", { cache: "no-store" });
       if (!response.ok) return;
       const payload = (await response.json()) as { preferences: { inApp: boolean; email: boolean; sms: boolean } };
       if (payload.preferences) setNotificationPreferences(payload.preferences);
@@ -569,128 +301,69 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   }, []);
 
   async function handleMarkAllNotificationsRead() {
-    if (isMarkingAllNotificationsRead) return;
-    setIsMarkingAllNotificationsRead(true);
-    try {
-      const response = await fetch("/api/alpha-exchange/notifications", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "mark_all_read" }),
-      });
-      await response.json();
-      if (!response.ok) {
-        setStatusMessage(safeErrorMessage("workspace"));
-        return;
-      }
-      await refreshNotifications();
-    } finally {
-      setIsMarkingAllNotificationsRead(false);
+    const response = await fetch("/api/alpha-exchange/notifications", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "mark_all_read" }),
+    });
+    await response.json();
+    if (!response.ok) {
+      setStatusMessage(safeErrorMessage("workspace"));
+      return;
     }
+    await refreshNotifications();
   }
 
   async function handleNotificationReadState(notificationId: string, isRead: boolean) {
-    const actionKey = `read:${notificationId}`;
-    if (notificationActionLoading[actionKey]) return;
-    setNotificationActionLoading((prev) => ({ ...prev, [actionKey]: true }));
-    try {
-      const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isRead }),
-      });
-      await response.json();
-      if (!response.ok) {
-        setStatusMessage(safeErrorMessage("workspace"));
-        return;
-      }
-      await refreshNotifications();
-    } finally {
-      setNotificationActionLoading((prev) => ({ ...prev, [actionKey]: false }));
+    const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isRead }),
+    });
+    await response.json();
+    if (!response.ok) {
+      setStatusMessage(safeErrorMessage("workspace"));
+      return;
     }
+    await refreshNotifications();
   }
 
   async function handleDeleteNotification(notificationId: string) {
-    const actionKey = `delete:${notificationId}`;
-    if (notificationActionLoading[actionKey]) return;
-    setNotificationActionLoading((prev) => ({ ...prev, [actionKey]: true }));
-    try {
-      const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, { method: "DELETE" });
-      await response.json();
-      if (!response.ok) {
-        setStatusMessage(safeErrorMessage("workspace"));
-        return;
-      }
-      await refreshNotifications();
-    } finally {
-      setNotificationActionLoading((prev) => ({ ...prev, [actionKey]: false }));
+    const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, { method: "DELETE" });
+    await response.json();
+    if (!response.ok) {
+      setStatusMessage(safeErrorMessage("workspace"));
+      return;
     }
+    await refreshNotifications();
   }
 
   async function handleNotificationPreferencesSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isSavingNotificationPreferences) return;
-    setIsSavingNotificationPreferences(true);
-    try {
-      const response = await fetch("/api/alpha-exchange/notification-preferences", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(notificationPreferences),
-      });
-      await response.json();
-      if (!response.ok) {
-        setSellerWorkspaceMessage(safeErrorMessage("settings"));
-        return;
-      }
-      setSellerWorkspaceMessage("Notification preferences updated.");
-    } finally {
-      setIsSavingNotificationPreferences(false);
+    const response = await fetch("/api/alpha-exchange/notification-preferences", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(notificationPreferences),
+    });
+    await response.json();
+    if (!response.ok) {
+      setSellerWorkspaceMessage(safeErrorMessage("settings"));
+      return;
     }
+    setSellerWorkspaceMessage("Notification preferences updated.");
   }
 
   const refreshBetaChannels = useCallback(async () => {
     try {
-      const [announcementsRes, feedbackRes] = await Promise.all([
-        fetch("/api/alpha-exchange/private-beta/announcements", { cache: "no-store", next: { revalidate: 0 } }),
-        fetch("/api/alpha-exchange/private-beta/feedback", { cache: "no-store", next: { revalidate: 0 } }),
-      ]);
+      const announcementsRes = await fetch("/api/alpha-exchange/private-beta/announcements", { cache: "no-store" });
       if (announcementsRes.ok) {
         const announcementsJson = (await announcementsRes.json()) as { announcements: BetaAnnouncement[] };
         setBetaAnnouncements(announcementsJson.announcements ?? []);
-      }
-      if (feedbackRes.ok) {
-        const feedbackJson = (await feedbackRes.json()) as { feedback: BetaFeedbackEntry[] };
-        setMyBetaFeedback(feedbackJson.feedback ?? []);
       }
     } catch {
       setStatusMessage(safeErrorMessage("workspace"));
     }
   }, []);
-
-  async function handleSubmitBetaFeedback(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (isSubmittingBetaFeedback) return;
-    setIsSubmittingBetaFeedback(true);
-    try {
-      const response = await fetch("/api/alpha-exchange/private-beta/feedback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          category: betaFeedbackCategory,
-          message: betaFeedbackMessage,
-        }),
-      });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        setStatusMessage(payload.error ?? safeErrorMessage("workspace"));
-        return;
-      }
-      setBetaFeedbackMessage("");
-      setStatusMessage("Beta feedback submitted.");
-      await refreshBetaChannels();
-    } finally {
-      setIsSubmittingBetaFeedback(false);
-    }
-  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -699,8 +372,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     async function bootstrap() {
       try {
         const [meRes, listingsRes] = await Promise.all([
-          fetch("/api/auth/me", { cache: "no-store", next: { revalidate: 0 }, signal: controller.signal }),
-          fetch("/api/alpha-exchange/listings", { cache: "no-store", next: { revalidate: 0 }, signal: controller.signal }),
+          fetch("/api/auth/me", { cache: "no-store", signal: controller.signal }),
+          fetch("/api/alpha-exchange/listings", { cache: "no-store", signal: controller.signal }),
         ]);
         if (cancelled) return;
         const meJson = (await meRes.json()) as { user: SessionUser | null };
@@ -717,40 +390,19 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             email: user.email,
             whatsappNumber: user.whatsappNumber || prev.whatsappNumber,
           }));
-          setSellerSettings({
-            fullName: user.fullName,
-            whatsappNumber: user.whatsappNumber || "",
-            preferredNetworks: user.preferredNetworks?.length ? user.preferredNetworks : ["TRC20"],
-            profilePhotoUrl: user.profilePhotoUrl || "",
-            coverBannerUrl: user.coverBannerUrl || "",
-            languages: user.languages?.length ? user.languages : ["English"],
-            bio: user.bio || "",
-            tradingExperience: user.tradingExperience || "",
-            workingHours: user.workingHours || "",
-            preferredPaymentMethods: user.preferredPaymentMethods?.length ? user.preferredPaymentMethods : ["Bank transfer"],
-            country: user.country || "Israel",
-            city: user.city || "",
-            onlineStatus: user.onlineStatus || "online",
-            availabilityStatus: user.availabilityStatus || "available",
-            currentPassword: "",
-            newPassword: "",
-          });
           setBuyerInfo((prev) => ({
             ...prev,
             name: user.fullName,
             whatsapp: user.whatsappNumber || prev.whatsapp,
           }));
-          const shouldLoadSellerWorkspace = user.sellerStatus === "approved_seller" || user.sellerStatus === "pending_seller_approval" || user.sellerStatus === "suspended";
           const [applicationRes] = await Promise.all([
-            shouldLoadSellerWorkspace
-              ? fetch("/api/alpha-exchange/seller-application", { cache: "no-store", next: { revalidate: 0 }, signal: controller.signal })
-              : Promise.resolve(null),
-            shouldLoadSellerWorkspace ? refreshSellerWorkspace() : Promise.resolve(undefined),
+            fetch("/api/alpha-exchange/seller-application", { cache: "no-store", signal: controller.signal }),
+            refreshSellerWorkspace(),
             refreshNotificationPreferences(),
             refreshBetaChannels(),
           ]);
           if (cancelled) return;
-          if (applicationRes?.ok) {
+          if (applicationRes.ok) {
             const applicationJson = (await applicationRes.json()) as { application: SellerApplication | null };
             if (cancelled) return;
             setSellerApplication(applicationJson.application);
@@ -771,75 +423,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   }, [refreshBetaChannels, refreshNotificationPreferences, refreshSellerWorkspace]);
 
   useEffect(() => {
-    if (!showLegacyNotificationCenter || !sessionUser) return;
+    if (!sessionUser) return;
     void refreshNotifications();
-  }, [notificationCategory, notificationQuery, notificationUnreadOnly, refreshNotifications, sessionUser, showLegacyNotificationCenter]);
-
-  useEffect(() => {
-    if (!sessionUser?.id) return;
-    if (realtimeEventSourceRef.current) {
-      realtimeEventSourceRef.current.close();
-      realtimeEventSourceRef.current = null;
-    }
-    const eventSource = new EventSource("/api/alpha-exchange/realtime");
-    realtimeEventSourceRef.current = eventSource;
-    eventSource.onmessage = (event) => {
-      try {
-        const parsed = JSON.parse(event.data) as { type?: string; payload?: unknown };
-        if (!parsed.type) return;
-        const nextEvent = parsed as { type: string; payload: unknown };
-        if (nextEvent.type === "listing.created") {
-          setListings((current) => current.some((item) => item.id === (nextEvent.payload as { listing: MarketplaceListing }).listing.id) ? current : [...current, (nextEvent.payload as { listing: MarketplaceListing }).listing]);
-        }
-        if (nextEvent.type === "listing.removed") {
-          setListings((current) => current.filter((item) => item.id !== (nextEvent.payload as { listingId: string }).listingId));
-        }
-        if (nextEvent.type === "listing.quantity_changed") {
-          setListings((current) => current.map((item) => (item.id === (nextEvent.payload as { listingId: string; availableAmount: string }).listingId ? { ...item, availableAmount: (nextEvent.payload as { listingId: string; availableAmount: string }).availableAmount, updatedAt: new Date().toISOString() } : item)));
-        }
-        if (nextEvent.type === "listing.status_changed") {
-          setListings((current) => current.map((item) => (item.id === (nextEvent.payload as { listingId: string; status: MarketplaceListing["status"] }).listingId ? { ...item, status: (nextEvent.payload as { listingId: string; status: MarketplaceListing["status"] }).status, updatedAt: new Date().toISOString() } : item)));
-        }
-        if (nextEvent.type === "trade.status_changed") {
-          setMyRequests((current) => current.map((request) => (request.id === (nextEvent.payload as { requestId: string; status: PurchaseRequest["status"]; timeline?: PurchaseRequest["timeline"] }).requestId ? {
-            ...request,
-            status: (nextEvent.payload as { requestId: string; status: PurchaseRequest["status"]; timeline?: PurchaseRequest["timeline"] }).status,
-            timeline: (nextEvent.payload as { requestId: string; status: PurchaseRequest["status"]; timeline?: PurchaseRequest["timeline"] }).timeline ?? request.timeline,
-            updatedAt: new Date().toISOString(),
-          } : request)));
-        }
-        if (nextEvent.type === "notification.created") {
-          setNotifications((current) => [((nextEvent.payload as { notification: AlphaExchangeNotification }).notification), ...current.filter((item) => item.id !== ((nextEvent.payload as { notification: AlphaExchangeNotification }).notification).id)]);
-        }
-        if (nextEvent.type === "seller.status_changed") {
-          setSellerProfileData((current) => current && current.profile.sellerId === (nextEvent.payload as { sellerId: string; onlineStatus: "online" | "offline" }).sellerId ? { ...current, profile: { ...current.profile, onlineStatus: (nextEvent.payload as { sellerId: string; onlineStatus: "online" | "offline" }).onlineStatus } } : current);
-        }
-        if (nextEvent.type === "reputation.updated" || nextEvent.type === "review.count_changed") {
-          setSellerProfileData((current) => {
-            if (!current || current.sellerId !== (nextEvent.payload as { sellerId: string }).sellerId) return current;
-            return {
-              ...current,
-              trustScore: nextEvent.type === "reputation.updated" && typeof (nextEvent.payload as { trustScore?: number }).trustScore === "number" ? (nextEvent.payload as { trustScore?: number }).trustScore! : current.trustScore,
-              totalReviews: nextEvent.type === "reputation.updated" && typeof (nextEvent.payload as { reviewCount?: number }).reviewCount === "number" ? (nextEvent.payload as { reviewCount?: number }).reviewCount! : nextEvent.type === "review.count_changed" ? (nextEvent.payload as { reviewCount: number }).reviewCount : current.totalReviews,
-            };
-          });
-        }
-      } catch {
-        // Ignore invalid realtime payloads.
-      }
-    };
-    eventSource.onerror = () => {
-      eventSource.close();
-      realtimeEventSourceRef.current = null;
-    };
-
-    return () => {
-      eventSource.close();
-      if (realtimeEventSourceRef.current === eventSource) {
-        realtimeEventSourceRef.current = null;
-      }
-    };
-  }, [sessionUser?.id]);
+  }, [sessionUser, notificationCategory, notificationQuery, notificationUnreadOnly, refreshNotifications]);
 
   const features: FeatureCard[] = [
     {
@@ -937,15 +523,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       const currencyPass = currencyFilter === "all" || listing.currency.toLowerCase() === currencyFilter.toLowerCase();
       const methods = listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod];
       const paymentMethodPass = paymentMethodFilter === "all" || methods.some((method) => method.toLowerCase() === paymentMethodFilter.toLowerCase());
-      const listingBank = getIsraeliBankOption(listing.bankName ?? listing.paymentMethod);
-      const bankPass = bankFilter === "all" || listingBank.code === bankFilter;
       const minAmountPass = !minAmount || amount >= minAmount;
       const maxAmountPass = !maxAmount || amount <= maxAmount;
       const minPricePass = !minPrice || price >= minPrice;
       const maxPricePass = !maxPrice || price <= maxPrice;
       const trustPass = !trustScoreThreshold || (listing.sellerReputation?.trustScore ?? 0) >= trustScoreThreshold;
       const onlinePass = !onlineOnlyFilter || listing.sellerProfile?.onlineStatus === "online";
-      return networkPass && currencyPass && paymentMethodPass && bankPass && minAmountPass && maxAmountPass && minPricePass && maxPricePass && trustPass && onlinePass;
+      return networkPass && currencyPass && paymentMethodPass && minAmountPass && maxAmountPass && minPricePass && maxPricePass && trustPass && onlinePass;
     });
 
     const sorted = [...filtered];
@@ -961,29 +545,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       sorted.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     }
     return sorted;
-  }, [listings, networkFilter, currencyFilter, paymentMethodFilter, bankFilter, minAmountFilter, maxAmountFilter, minPriceFilter, maxPriceFilter, trustScoreFilter, onlineOnlyFilter, sortBy]);
-
-  const marketStats = useMemo(() => {
-    const uniqueSellers = new Set(listings.map((l) => l.sellerId ?? l.sellerDisplayName));
-    const onlineSellers = new Set(
-      listings
-        .filter((l) => l.sellerProfile?.onlineStatus === "online")
-        .map((l) => l.sellerId ?? l.sellerDisplayName)
-    );
-    const responseMins = listings
-      .map((l) => parseMinutes(l.responseTime))
-      .filter((v) => v > 0);
-    const avgMins =
-      responseMins.length > 0
-        ? Math.round(responseMins.reduce((sum, v) => sum + v, 0) / responseMins.length)
-        : null;
-    return {
-      activeSellers: uniqueSellers.size,
-      onlineNow: onlineSellers.size,
-      averageResponse: avgMins !== null ? `${avgMins} min` : undefined,
-      openListings: listings.length,
-    };
-  }, [listings]);
+  }, [listings, networkFilter, currencyFilter, paymentMethodFilter, minAmountFilter, maxAmountFilter, minPriceFilter, maxPriceFilter, trustScoreFilter, onlineOnlyFilter, sortBy]);
 
   function requireAuth() {
     if (!sessionUser) {
@@ -996,7 +558,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   async function fetchSellerProfileData(sellerId: string) {
     setIsSellerProfileLoading(true);
     try {
-      const response = await fetch(`/api/alpha-exchange/sellers/${sellerId}/profile`, { cache: "no-store", next: { revalidate: 0 } });
+      const response = await fetch(`/api/alpha-exchange/sellers/${sellerId}/profile`, { cache: "no-store" });
       const payload = (await response.json()) as { profile?: PremiumSellerProfileData; error?: string };
       if (!response.ok || !payload.profile) {
         setSellerProfileData(null);
@@ -1052,13 +614,20 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     }
   }
 
+  function openListingModal(listing: MarketplaceListing) {
+    if (!requireAuth()) return;
+    setSelectedListing(listing);
+    setSellerProfileData(null);
+    void fetchSellerProfileData(listing.sellerId);
+    setPurchaseSubmitted(false);
+    setStatusMessage(null);
+  }
+
   async function handleSellerApplicationSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isSubmittingSellerApplication) return;
     if (!requireAuth()) return;
     setStatusMessage(null);
     const fallbackMessage = safeErrorMessage("application");
-    setIsSubmittingSellerApplication(true);
     try {
       const response = await fetch("/api/alpha-exchange/seller-application", {
         method: "POST",
@@ -1080,81 +649,64 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     } catch (error) {
       const message = error instanceof Error && error.message.trim() ? error.message : fallbackMessage;
       setStatusMessage(message);
-    } finally {
-      setIsSubmittingSellerApplication(false);
     }
   }
 
   async function handlePurchaseSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isSubmittingPurchase) return;
     if (!selectedListing) return;
-    const fallbackMessage = safeErrorMessage("purchase");
-    setIsSubmittingPurchase(true);
-    try {
-      const response = await fetch("/api/alpha-exchange/purchase-requests", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          listingId: selectedListing.id,
-          usdtAmount: buyerInfo.amount,
-          buyerName: buyerInfo.name,
-          buyerWhatsapp: buyerInfo.whatsapp,
-          buyerNotes: buyerInfo.notes,
-          bankName: buyerInfo.bankName,
-        }),
-      });
-      const data = (await response.json()) as { error?: string; purchase?: PurchaseRequest };
-      if (!response.ok) {
-        setStatusMessage(data.error ?? fallbackMessage);
-        return;
-      }
-      if (data.purchase) {
-        setMyRequests((prev) => [data.purchase as PurchaseRequest, ...prev]);
-        setPurchaseSubmitted(true);
-        setStatusMessage(null);
-      }
-    } finally {
-      setIsSubmittingPurchase(false);
+    const response = await fetch("/api/alpha-exchange/purchase-requests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        listingId: selectedListing.id,
+        buyerName: buyerInfo.name,
+        buyerWhatsapp: buyerInfo.whatsapp,
+        buyerNotes: buyerInfo.notes,
+      }),
+    });
+    const data = (await response.json()) as { error?: string; purchase?: PurchaseRequest };
+    if (!response.ok) {
+      setStatusMessage(safeErrorMessage("purchase"));
+      return;
+    }
+    if (data.purchase) {
+      setMyRequests((prev) => [data.purchase as PurchaseRequest, ...prev]);
+      setPurchaseSubmitted(true);
+      setStatusMessage(null);
     }
   }
 
-  const selectedAmount = toNumber(buyerInfo.amount || selectedListing?.minimumTrade || selectedListing?.availableAmount);
+  const selectedAmount = selectedListing ? toNumber(selectedListing.availableAmount) : 0;
   const selectedPrice = selectedListing ? toNumber(selectedListing.price) : 0;
   const commission = selectedAmount * selectedPrice * 0.01;
   const estimatedTotal = selectedAmount * selectedPrice + commission;
 
   const buyerMenu = ["Profile", "My Requests", "Settings"];
-  const sellerMenu = ["Profile", "My Listings", "Create Listing", "My Requests", "Settings"];
-  const isApprovedSeller = Boolean(sessionUser && !hasRole(sessionUser, "admin") && hasRole(sessionUser, "approved_seller"));
-  const isOwnerViewer = Boolean(sessionUser && (hasRole(sessionUser, "owner") || (hasRole(sessionUser, "admin") && isAlphaExchangeOwnerEmail(sessionUser.email))));
+  const sellerMenu = ["Profile", "My Listings", "Create Listing", "My Requests", "Notifications"];
+  const isApprovedSeller = sessionUser?.role === "approved_seller" && sessionUser?.sellerStatus === "approved_seller";
+  const isOwnerViewer = sessionUser?.role === "admin" && isAlphaExchangeOwnerEmail(sessionUser.email);
   const menuItems = isApprovedSeller ? sellerMenu : buyerMenu;
+  const listingCreatePrice = toNumber(listingCreateForm.price);
+  const listingCreateAmount = toNumber(listingCreateForm.availableAmount);
+  const listingCreatePriceInvalid = listingCreatePrice > MAX_ALLOWED_LISTING_PRICE;
+  const listingCreatePriceValid = listingCreatePrice > 0 && !listingCreatePriceInvalid;
+  const listingCreateGuardTone = listingCreatePriceInvalid
+    ? "border-red-500/60 bg-red-500/10 text-red-200"
+    : listingCreatePriceValid
+      ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-200"
+      : "border-white/10 bg-black/20 text-[#D1D5DB]";
+  const listingEditPrice = toNumber(listingEditForm.price);
+  const listingEditPriceInvalid = listingEditPrice > MAX_ALLOWED_LISTING_PRICE;
+  const listingEditPriceValid = listingEditPrice > 0 && !listingEditPriceInvalid;
+  const listingEditGuardTone = listingEditPriceInvalid
+    ? "border-red-500/60 bg-red-500/10 text-red-200"
+    : listingEditPriceValid
+      ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-200"
+      : "border-white/10 bg-black/20 text-[#D1D5DB]";
 
   const sellerRequests = useMemo(() => myRequests.filter((request) => request.sellerId === sessionUser?.id), [myRequests, sessionUser?.id]);
   const buyerRequests = useMemo(() => myRequests.filter((request) => request.buyerId === sessionUser?.id), [myRequests, sessionUser?.id]);
-  const sellerActiveListingsCount = myListings.filter((listing) => ["active", "paused", "expired"].includes(listing.status)).length;
-  const sellerPendingActionCount = sellerRequests.filter((request) => ["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending"].includes(request.status)).length;
-  const sellerBankReadyCount = sellerRequests.filter((request) => ["payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(request.status)).length;
-  const sellerWorkspaceTabs = useMemo<Array<{ key: SellerWorkspaceTab; label: string; description: string }>>(
-    () => [
-      { key: "overview", label: isAr ? "نظرة عامة" : "Overview", description: isAr ? "ملخص سريع" : "Quick pulse" },
-      { key: "listings", label: isAr ? "العروض" : "Listings", description: isAr ? "إدارة العروض" : "Manage listings" },
-      { key: "trades", label: isAr ? "الصفقات" : "Trades", description: isAr ? "متابعة الطلبات" : "Track requests" },
-      { key: "settings", label: isAr ? "الإعدادات" : "Settings", description: isAr ? "الملف الشخصي" : "Profile & settings" },
-    ],
-    [isAr],
-  );
-  const sellerWorkspaceHighlights = useMemo(() => {
-    const fallbackCompletedTrades = sellerRequests.filter((request) => request.status === "completed" || request.status === "review_open" || Boolean(request.completedAt)).length;
-    const fallbackSuccessRate = sellerRequests.length ? 100 : 0;
-    return getSellerWorkspaceHighlights({
-      openListings: sellerActiveListingsCount,
-      pendingActions: sellerPendingActionCount,
-      bankReadyTrades: sellerBankReadyCount,
-      completedTrades: fallbackCompletedTrades,
-      successRate: fallbackSuccessRate,
-    });
-  }, [sellerActiveListingsCount, sellerBankReadyCount, sellerPendingActionCount, sellerRequests]);
   const filteredBuyerRequests = useMemo(() => {
     return buyerRequests.filter((request) => {
       if (buyerTradeStatus !== "all" && request.status !== buyerTradeStatus) return false;
@@ -1180,20 +732,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   );
   const myListingsById = useMemo(() => new Map(myListings.map((listing) => [listing.id, listing])), [myListings]);
 
-  const createListingPriceValidationError = useMemo(() => {
-    return getListingPriceValidationError({ price: listingCreateForm.price, currency: listingCreateForm.currency, marketRate });
-  }, [listingCreateForm.price, listingCreateForm.currency, marketRate]);
-
-  const editListingPriceValidationError = useMemo(() => {
-    if (!editingListingId) return null;
-    return getListingPriceValidationError({ price: listingEditForm.price, currency: listingEditForm.currency, marketRate });
-  }, [editingListingId, listingEditForm.price, listingEditForm.currency, marketRate]);
-
   const sellerOverviewStats = useMemo(() => {
     const completedByListing = completedSellerRequests.map((request) => {
       const listing = myListingsById.get(request.listingId);
       return {
-        amount: toNumber(request.usdtAmount),
+        amount: toNumber(listing?.availableAmount ?? "0"),
         price: toNumber(listing?.price ?? "0"),
       };
     });
@@ -1217,10 +760,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     const averageTradeSize = completedSellerRequests.length ? grossSales / completedSellerRequests.length : 0;
     const estimatedCommissionPaid = grossSales * 0.01;
     const selfReputation = myListings.find((listing) => Boolean(listing.sellerReputation))?.sellerReputation ?? null;
-    const currentPrestigeRank = sessionUser?.sellerPrestigeRank ?? selfReputation?.level ?? "bronze";
-    const prestigeProgress = getSellerPrestigeProgress(totalUsdtSold, currentPrestigeRank);
     return {
-      activeListings: myListings.filter((listing) => listing.status === "active" || listing.status === "matched" || listing.status === "in_trade").length,
+      activeListings: myListings.filter((listing) => listing.status === "available").length,
       pendingRequests: pendingSellerRequests.length,
       completedTrades: completedSellerRequests.length,
       totalUsdtSold,
@@ -1237,260 +778,141 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       repeatBuyers: repeatBuyersCount,
       averageTradeSize,
       reputation: selfReputation,
-      currentPrestigeRank,
-      nextPrestigeRank: prestigeProgress.nextRank,
-      prestigeProgressPercent: prestigeProgress.progressPercent,
-      remainingVolumeToNextRank: prestigeProgress.remainingUsdt,
-      publicVolumeRange: getSellerPublicVolumeLabel(currentPrestigeRank),
-      promotionHistory: sessionUser?.sellerPromotionHistory ?? [],
     };
-  }, [completedSellerRequests, myListings, myListingsById, pendingSellerRequests.length, sellerRequests, sessionUser?.sellerPrestigeRank, sessionUser?.sellerPromotionHistory]);
+  }, [completedSellerRequests, myListings, myListingsById, pendingSellerRequests.length, sellerRequests]);
 
-  useEffect(() => {
-    if (!isApprovedSeller) return;
-    const currentRank = sellerOverviewStats.currentPrestigeRank;
-    const previousRank = previousPrestigeRankRef.current;
-    if (previousRank && previousRank !== currentRank) {
-      const rankOrder: SellerLevel[] = ["bronze", "silver", "gold", "platinum", "diamond", "legendary"];
-      if (rankOrder.indexOf(currentRank) > rankOrder.indexOf(previousRank)) {
-        setPromotionModalRank(currentRank);
-      }
-    }
-    previousPrestigeRankRef.current = currentRank;
-  }, [isApprovedSeller, sellerOverviewStats.currentPrestigeRank]);
-
-  useEffect(() => {
-    if (!isApprovedSeller || !sessionUser) return;
-    setPrestigeModalStats({
-      currentRank: sellerOverviewStats.currentPrestigeRank,
-      nextRank: sellerOverviewStats.nextPrestigeRank,
-      progressPercent: sellerOverviewStats.prestigeProgressPercent,
-      remainingVolumeToNextRank: sellerOverviewStats.remainingVolumeToNextRank,
-      publicVolumeRange: sellerOverviewStats.publicVolumeRange,
-      publicVolumeLabel: sellerOverviewStats.publicVolumeRange,
-      completedTrades: sellerOverviewStats.completedTrades,
-      totalVolumeUsdt: sellerOverviewStats.totalUsdtSold,
-      averageRating: sellerOverviewStats.reputation?.rating ?? 4.5,
-      responseTimeMinutes: parseMinutes(sellerOverviewStats.averageResponseTime),
-      completionRate: sellerOverviewStats.completionRate,
-      averageTradeSize: sellerOverviewStats.averageTradeSize,
-      repeatBuyersPercent: sellerOverviewStats.repeatBuyers,
-      totalReviews: sellerOverviewStats.completedTrades,
-      yearsOnPlatform: 0,
-      promotionHistory: (sellerOverviewStats.promotionHistory ?? []).slice(0, 6).map((entry) => ({ id: entry.id, rank: entry.rank, promotedAt: entry.promotedAt, source: entry.source })),
-      achievements: [
-        { key: "first_trade", title: "First Trade", description: "Completed the first successful trade.", earnedAt: new Date().toISOString() },
-        { key: "fast_responder", title: "Fast Responder", description: "Maintained an average response time under 2 minutes.", earnedAt: new Date().toISOString() },
-      ],
-      canViewExactValues: true,
+  async function handleSellerListingStatus(listing: MarketplaceListing, nextStatus: "available" | "paused") {
+    const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: nextStatus }),
     });
-  }, [isApprovedSeller, sessionUser, sellerOverviewStats]);
-
-  async function handleSellerListingStatus(listing: MarketplaceListing, nextStatus: "active" | "paused") {
-    const actionKey = `${listing.id}:${nextStatus}`;
-    if (listingActionLoading[actionKey]) return;
-    setListingActionLoading((prev) => ({ ...prev, [actionKey]: true }));
-    try {
-      const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: nextStatus }),
-      });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
-        return;
-      }
-      setSellerWorkspaceMessage(nextStatus === "paused" ? "Listing paused." : "Listing resumed.");
-      await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
-    } finally {
-      setListingActionLoading((prev) => ({ ...prev, [actionKey]: false }));
+    await response.json();
+    if (!response.ok) {
+      setSellerWorkspaceMessage(safeErrorMessage("listing"));
+      return;
     }
+    setSellerWorkspaceMessage(nextStatus === "paused" ? "Listing paused." : "Listing resumed.");
+    await refreshSellerWorkspace();
   }
 
   async function handleSellerListingDelete(listingId: string) {
-    const actionKey = `${listingId}:delete`;
-    if (listingActionLoading[actionKey]) return;
-    setListingActionLoading((prev) => ({ ...prev, [actionKey]: true }));
-    try {
-      const response = await fetch(`/api/alpha-exchange/listings/${listingId}`, { method: "DELETE" });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
-        return;
-      }
-      setSellerWorkspaceMessage("Listing closed.");
-      await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
-    } finally {
-      setListingActionLoading((prev) => ({ ...prev, [actionKey]: false }));
+    const response = await fetch(`/api/alpha-exchange/listings/${listingId}`, { method: "DELETE" });
+    await response.json();
+    if (!response.ok) {
+      setSellerWorkspaceMessage(safeErrorMessage("listing"));
+      return;
     }
-  }
-
-  async function handleSellerListingRenew(listingId: string, expirationHours = "24") {
-    const actionKey = `${listingId}:renew`;
-    if (listingActionLoading[actionKey]) return;
-    setListingActionLoading((prev) => ({ ...prev, [actionKey]: true }));
-    try {
-      const response = await fetch(`/api/alpha-exchange/listings/${listingId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "renew", expirationHours }),
-      });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
-        return;
-      }
-      setSellerWorkspaceMessage("Listing renewed and visible to buyers again.");
-      await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
-    } finally {
-      setListingActionLoading((prev) => ({ ...prev, [actionKey]: false }));
-    }
+    setSellerWorkspaceMessage("Listing deleted.");
+    await refreshSellerWorkspace();
   }
 
   async function handleSellerListingDuplicate(listing: MarketplaceListing) {
-    const actionKey = `${listing.id}:duplicate`;
-    if (listingActionLoading[actionKey]) return;
-    const duplicatePriceValidationError = getListingPriceValidationError({ price: listing.price, currency: listing.currency ?? "ILS", marketRate });
-    if (duplicatePriceValidationError) {
-      setSellerWorkspaceMessage(duplicatePriceValidationError);
+    const response = await fetch("/api/alpha-exchange/listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        photos: listing.photos ?? [],
+        availableAmount: listing.availableAmount,
+        price: listing.price,
+        currency: listing.currency ?? "ILS",
+        network: listing.network,
+        paymentMethods: listing.paymentMethods ?? [listing.paymentMethod ?? ""],
+        minimumTrade: listing.minimumTrade ?? "0",
+        maximumTrade: listing.maximumTrade ?? listing.availableAmount,
+        expiresAt: listing.expiresAt ?? "",
+        notes: listing.notes ?? "",
+        sellerDescription: listing.sellerDescription ?? "",
+        responseTime: listing.responseTime,
+      }),
+    });
+    await response.json();
+    if (!response.ok) {
+      setSellerWorkspaceMessage(safeErrorMessage("listing"));
       return;
     }
-    setListingActionLoading((prev) => ({ ...prev, [actionKey]: true }));
-    try {
-      const response = await fetch("/api/alpha-exchange/listings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          photos: listing.photos ?? [],
-          availableAmount: listing.availableAmount,
-          price: listing.price,
-          currency: listing.currency ?? "ILS",
-          network: listing.network,
-          paymentMethods: listing.paymentMethods ?? [listing.paymentMethod ?? ""],
-          minimumTrade: listing.minimumTrade ?? "0",
-          maximumTrade: listing.maximumTrade ?? listing.availableAmount,
-          expirationHours: "24",
-          notes: listing.notes ?? "",
-          sellerDescription: listing.sellerDescription ?? "",
-          responseTime: listing.responseTime,
-        }),
-      });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
-        return;
-      }
-      setSellerWorkspaceMessage("Listing duplicated.");
-      await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
-    } finally {
-      setListingActionLoading((prev) => ({ ...prev, [actionKey]: false }));
-    }
+    setSellerWorkspaceMessage("Listing duplicated.");
+    await refreshSellerWorkspace();
   }
 
   async function handleSellerListingCreateSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isCreatingListing) return;
-
-    const createPriceValidationError = getListingPriceValidationError({ price: listingCreateForm.price, currency: listingCreateForm.currency, marketRate });
-    if (createPriceValidationError) {
-      setSellerWorkspaceMessage(createPriceValidationError);
+    const response = await fetch("/api/alpha-exchange/listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        availableAmount: listingCreateForm.availableAmount,
+        price: listingCreateForm.price,
+        currency: listingCreateForm.currency,
+        network: listingCreateForm.network,
+        paymentMethods: listingCreateForm.paymentMethods
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean)
+          .slice(0, 8),
+        minimumTrade: listingCreateForm.minimumTrade,
+        maximumTrade: listingCreateForm.maximumTrade || listingCreateForm.availableAmount,
+        expiresAt: listingCreateForm.expiresAt,
+        notes: listingCreateForm.notes,
+        sellerDescription: listingCreateForm.sellerDescription,
+        responseTime: listingCreateForm.responseTime,
+        photos: listingCreateForm.photos
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean)
+          .slice(0, 6),
+      }),
+    });
+    await response.json();
+    if (!response.ok) {
+      setSellerWorkspaceMessage(safeErrorMessage("listing"));
       return;
     }
-
-    setIsCreatingListing(true);
-    setSellerWorkspaceMessage(null);
-    try {
-      const response = await fetch("/api/alpha-exchange/listings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          availableAmount: listingCreateForm.availableAmount,
-          price: listingCreateForm.price,
-          currency: listingCreateForm.currency,
-          network: listingCreateForm.network,
-          paymentMethods: listingCreateForm.paymentMethods
-            .split(",")
-            .map((value) => value.trim())
-            .filter(Boolean)
-            .slice(0, 8),
-          bankName: listingCreateForm.bankName,
-          minimumTrade: listingCreateForm.minimumTrade,
-          maximumTrade: listingCreateForm.maximumTrade || listingCreateForm.availableAmount,
-          expirationHours: 24,
-          notes: "",
-          sellerDescription: "",
-          responseTime: "5 min",
-          photos: [],
-        }),
-      });
-      const payload = (await response.json()) as { error?: string; listing?: MarketplaceListing };
-      if (!response.ok) {
-        setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
-        return;
-      }
-      setListingCreateForm((prev) => ({
-        ...prev,
-        availableAmount: "",
-        price: "",
-        minimumTrade: "0",
-        maximumTrade: "",
-      }));
-      setSellerWorkspaceMessage(payload.listing ? "Listing is now live." : "Listing is now live.");
-      await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
-    } catch {
-      setSellerWorkspaceMessage(safeErrorMessage("listing"));
-    } finally {
-      setIsCreatingListing(false);
-    }
+    setListingCreateForm((prev) => ({
+      ...prev,
+      availableAmount: "",
+      price: "",
+      minimumTrade: "0",
+      maximumTrade: "",
+      expiresAt: "",
+      notes: "",
+      sellerDescription: "",
+      photos: "",
+    }));
+    setSellerWorkspaceMessage("Listing submitted for owner approval.");
+    await refreshSellerWorkspace();
   }
 
   async function handleSellerListingEditSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editingListingId) return;
-    const actionKey = `edit:${editingListingId}`;
-    if (listingActionLoading[actionKey]) return;
-
-    const editPriceValidationError = getListingPriceValidationError({ price: listingEditForm.price, currency: listingEditForm.currency, marketRate });
-    if (editPriceValidationError) {
-      setSellerWorkspaceMessage(editPriceValidationError);
+    const response = await fetch(`/api/alpha-exchange/listings/${editingListingId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        availableAmount: listingEditForm.availableAmount,
+        price: listingEditForm.price,
+        currency: listingEditForm.currency,
+        network: listingEditForm.network,
+        paymentMethods: listingEditForm.paymentMethods
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean)
+          .slice(0, 8),
+        minimumTrade: listingEditForm.minimumTrade,
+        maximumTrade: listingEditForm.maximumTrade || listingEditForm.availableAmount,
+        expiresAt: listingEditForm.expiresAt,
+        notes: listingEditForm.notes,
+      }),
+    });
+    await response.json();
+    if (!response.ok) {
+      setSellerWorkspaceMessage(safeErrorMessage("listing"));
       return;
     }
-
-    setListingActionLoading((prev) => ({ ...prev, [actionKey]: true }));
-    try {
-      const response = await fetch(`/api/alpha-exchange/listings/${editingListingId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          availableAmount: listingEditForm.availableAmount,
-          price: listingEditForm.price,
-          currency: listingEditForm.currency,
-          network: listingEditForm.network,
-          paymentMethods: listingEditForm.paymentMethods
-            .split(",")
-            .map((value) => value.trim())
-            .filter(Boolean)
-            .slice(0, 8),
-          bankName: listingEditForm.bankName,
-          minimumTrade: listingEditForm.minimumTrade,
-          maximumTrade: listingEditForm.maximumTrade || listingEditForm.availableAmount,
-          expirationHours: listingEditForm.expirationHours,
-          notes: listingEditForm.notes,
-          status: myListings.find((listing) => listing.id === editingListingId)?.status === "expired" ? "active" : undefined,
-        }),
-      });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("listing"));
-        return;
-      }
-      setEditingListingId(null);
-      setSellerWorkspaceMessage("Listing updated.");
-      await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
-    } finally {
-      setListingActionLoading((prev) => ({ ...prev, [actionKey]: false }));
-    }
+    setEditingListingId(null);
+    setSellerWorkspaceMessage("Listing updated.");
+    await refreshSellerWorkspace();
   }
 
   async function fileToDataUrl(file: File) {
@@ -1559,221 +981,90 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     }
   }
 
-  async function handleSellerRequestAction(requestId: string, nextStatus: "accepted" | "declined" | "funds_received" | "usdt_release_pending" | "usdt_sent") {
-    const actionKey = `${requestId}:${nextStatus}`;
-    if (tradeActionLoading[actionKey]) return;
-    setTradeActionLoading((prev) => ({ ...prev, [actionKey]: true }));
-    try {
-      const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: nextStatus }),
-      });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("request"));
-        return;
-      }
-      if (nextStatus === "accepted") setSellerWorkspaceMessage("Request accepted and trade created.");
-      else if (nextStatus === "funds_received") setSellerWorkspaceMessage("Funds received confirmed.");
-      else if (nextStatus === "usdt_release_pending") setSellerWorkspaceMessage("USDT release process started.");
-      else if (nextStatus === "usdt_sent") setSellerWorkspaceMessage("USDT sent marked.");
-      else setSellerWorkspaceMessage("Request declined.");
-      await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
-    } finally {
-      setTradeActionLoading((prev) => ({ ...prev, [actionKey]: false }));
+  async function handleSellerRequestAction(requestId: string, nextStatus: "accepted" | "declined" | "usdt_sent") {
+    const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: nextStatus }),
+    });
+    const payload = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("request"));
+      return;
     }
+    if (nextStatus === "accepted") setSellerWorkspaceMessage("Request accepted and trade created.");
+    else if (nextStatus === "usdt_sent") setSellerWorkspaceMessage("USDT sent marked.");
+    else setSellerWorkspaceMessage("Request declined.");
+    await refreshSellerWorkspace();
   }
 
   async function handleBuyerTradeStatus(requestId: string, nextStatus: "payment_sent" | "completed" | "cancelled") {
-    const actionKey = `${requestId}:${nextStatus}`;
-    if (tradeActionLoading[actionKey]) return;
-    setTradeActionLoading((prev) => ({ ...prev, [actionKey]: true }));
-    try {
-      const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: nextStatus }),
-      });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        setStatusMessage(payload.error ?? safeErrorMessage("request"));
-        return;
-      }
-      setStatusMessage(
-        nextStatus === "payment_sent"
-          ? "Bank transfer sent confirmed."
-          : nextStatus === "completed"
-            ? "Trade completed. Review window is open."
-            : "Request cancelled.",
-      );
-      await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
-    } finally {
-      setTradeActionLoading((prev) => ({ ...prev, [actionKey]: false }));
+    const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: nextStatus }),
+    });
+    const payload = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      setStatusMessage(payload.error ?? safeErrorMessage("request"));
+      return;
     }
+    setStatusMessage(
+      nextStatus === "payment_sent"
+        ? "Payment sent confirmed."
+        : nextStatus === "completed"
+          ? "Trade completed. Review window is open."
+          : "Request cancelled.",
+    );
+    await refreshSellerWorkspace();
   }
 
   async function handleSubmitBuyerReview(request: PurchaseRequest) {
-    const actionKey = `${request.id}:buyer-review`;
-    if (reviewActionLoading[actionKey]) return;
     const comment = String(tradeReviewDrafts[request.id] ?? "").trim();
     if (!comment) {
       setStatusMessage(safeErrorMessage("review"));
       return;
     }
-    setReviewActionLoading((prev) => ({ ...prev, [actionKey]: true }));
-    try {
-      const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}/review`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "buyer_review", rating: 5, comment }),
-      });
-      await response.json();
-      if (!response.ok) {
-        setStatusMessage(safeErrorMessage("review"));
-        return;
-      }
-      setTradeReviewDrafts((prev) => ({ ...prev, [request.id]: "" }));
-      setStatusMessage("Review submitted.");
-      await refreshSellerWorkspace();
-    } finally {
-      setReviewActionLoading((prev) => ({ ...prev, [actionKey]: false }));
+    const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}/review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "buyer_review", rating: 5, comment }),
+    });
+    await response.json();
+    if (!response.ok) {
+      setStatusMessage(safeErrorMessage("review"));
+      return;
     }
+    setTradeReviewDrafts((prev) => ({ ...prev, [request.id]: "" }));
+    setStatusMessage("Review submitted.");
+    await refreshSellerWorkspace();
   }
 
   async function handleSubmitSellerResponse(request: PurchaseRequest) {
-    const actionKey = `${request.id}:seller-review`;
-    if (reviewActionLoading[actionKey]) return;
     const message = String(sellerResponseDrafts[request.id] ?? "").trim();
     if (!message) {
       setSellerWorkspaceMessage(safeErrorMessage("review"));
       return;
     }
-    setReviewActionLoading((prev) => ({ ...prev, [actionKey]: true }));
-    try {
-      const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}/review`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "seller_response", message }),
-      });
-      await response.json();
-      if (!response.ok) {
-        setSellerWorkspaceMessage(safeErrorMessage("review"));
-        return;
-      }
-      setSellerResponseDrafts((prev) => ({ ...prev, [request.id]: "" }));
-      setSellerWorkspaceMessage("Review response submitted.");
-      await refreshSellerWorkspace();
-    } finally {
-      setReviewActionLoading((prev) => ({ ...prev, [actionKey]: false }));
+    const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}/review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "seller_response", message }),
+    });
+    await response.json();
+    if (!response.ok) {
+      setSellerWorkspaceMessage(safeErrorMessage("review"));
+      return;
     }
+    setSellerResponseDrafts((prev) => ({ ...prev, [request.id]: "" }));
+    setSellerWorkspaceMessage("Review response submitted.");
+    await refreshSellerWorkspace();
   }
 
   function handleMessageBuyer(request: PurchaseRequest) {
     const number = request.buyerWhatsapp.replace(/[^\d]/g, "");
     if (!number) return;
     window.open(`https://wa.me/${number}`, "_blank", "noopener,noreferrer");
-  }
-
-  async function handleSellerSettingsSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (isSavingSellerSettings) return;
-    setIsSavingSellerSettings(true);
-    try {
-      const response = await fetch("/api/alpha-exchange/seller-settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fullName: sellerSettings.fullName,
-          whatsappNumber: sellerSettings.whatsappNumber,
-          preferredNetworks: sellerSettings.preferredNetworks,
-          profilePhotoUrl: sellerSettings.profilePhotoUrl,
-          coverBannerUrl: sellerSettings.coverBannerUrl,
-          languages: sellerSettings.languages,
-          bio: sellerSettings.bio,
-          tradingExperience: sellerSettings.tradingExperience,
-          workingHours: sellerSettings.workingHours,
-          preferredPaymentMethods: sellerSettings.preferredPaymentMethods,
-          country: sellerSettings.country,
-          city: sellerSettings.city,
-          onlineStatus: sellerSettings.onlineStatus,
-          availabilityStatus: sellerSettings.availabilityStatus,
-        }),
-      });
-      const payload = (await response.json()) as {
-        error?: string;
-        profile?: {
-          fullName: string;
-          whatsappNumber: string;
-          preferredNetworks: SupportedNetwork[];
-          profilePhotoUrl: string;
-          coverBannerUrl: string;
-          languages: string[];
-          bio: string;
-          tradingExperience: string;
-          workingHours: string;
-          preferredPaymentMethods: string[];
-          country: string;
-          city: string;
-          onlineStatus: "online" | "offline";
-          availabilityStatus: SellerAvailabilityStatus;
-        };
-      };
-      if (!response.ok || !payload.profile) {
-        setSellerWorkspaceMessage(safeErrorMessage("settings"));
-        return;
-      }
-      setSessionUser((prev) =>
-        prev
-          ? {
-              ...prev,
-              fullName: payload.profile!.fullName,
-              whatsappNumber: payload.profile!.whatsappNumber,
-              preferredNetworks: payload.profile!.preferredNetworks,
-              profilePhotoUrl: payload.profile!.profilePhotoUrl,
-              coverBannerUrl: payload.profile!.coverBannerUrl,
-              languages: payload.profile!.languages,
-              bio: payload.profile!.bio,
-              tradingExperience: payload.profile!.tradingExperience,
-              workingHours: payload.profile!.workingHours,
-              preferredPaymentMethods: payload.profile!.preferredPaymentMethods,
-              country: payload.profile!.country,
-              city: payload.profile!.city,
-              onlineStatus: payload.profile!.onlineStatus,
-              availabilityStatus: payload.profile!.availabilityStatus,
-            }
-          : prev,
-      );
-      setSellerWorkspaceMessage("Seller profile updated.");
-      await Promise.all([refreshSellerWorkspace(), refreshMarketplaceListings()]);
-    } finally {
-      setIsSavingSellerSettings(false);
-    }
-  }
-
-  async function handleSellerPasswordSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (isSavingSellerPassword) return;
-    setIsSavingSellerPassword(true);
-    try {
-      const response = await fetch("/api/alpha-exchange/seller-settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          currentPassword: sellerSettings.currentPassword,
-          newPassword: sellerSettings.newPassword,
-        }),
-      });
-      await response.json();
-      if (!response.ok) {
-        setSellerWorkspaceMessage(safeErrorMessage("password"));
-        return;
-      }
-      setSellerSettings((prev) => ({ ...prev, currentPassword: "", newPassword: "" }));
-      setSellerWorkspaceMessage("Password updated.");
-    } finally {
-      setIsSavingSellerPassword(false);
-    }
   }
 
   const unreadNotificationsCount = notifications.filter((item) => !item.isRead).length;
@@ -1806,14 +1097,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           <Button type="button" size="sm" variant="secondary" onClick={() => setNotificationUnreadOnly((prev) => !prev)}>
             {notificationUnreadOnly ? "Showing unread only" : "Show unread only"}
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            loading={isMarkingAllNotificationsRead}
-            loadingLabel="Marking..."
-            onClick={() => void handleMarkAllNotificationsRead()}
-          >
+          <Button type="button" size="sm" variant="secondary" onClick={() => void handleMarkAllNotificationsRead()}>
             Mark All Read
           </Button>
         </div>
@@ -1834,24 +1118,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   {notification.relatedHref ? <a href={notification.relatedHref} className="mt-1 inline-block text-[#C9A227]">Open related</a> : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    loading={Boolean(notificationActionLoading[`read:${notification.id}`])}
-                    loadingLabel="Saving..."
-                    onClick={() => void handleNotificationReadState(notification.id, !notification.isRead)}
-                  >
+                  <Button type="button" size="sm" variant="secondary" onClick={() => void handleNotificationReadState(notification.id, !notification.isRead)}>
                     {notification.isRead ? "Unread" : "Read"}
                   </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    loading={Boolean(notificationActionLoading[`delete:${notification.id}`])}
-                    loadingLabel="Deleting..."
-                    onClick={() => void handleDeleteNotification(notification.id)}
-                  >
+                  <Button type="button" size="sm" variant="secondary" onClick={() => void handleDeleteNotification(notification.id)}>
                     Delete
                   </Button>
                 </div>
@@ -1866,17 +1136,31 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const betaChannelsCard = sessionUser ? (
     <Card className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
       <CardHeader>
-        <CardTitle>Private Beta Center</CardTitle>
-        <CardDescription>Founding badges, beta announcements, and product feedback.</CardDescription>
+        <CardTitle>Marketplace Insights</CardTitle>
+        <CardDescription>Daily signals to help you trade faster and build seller trust.</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 md:grid-cols-2">
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            {sessionUser.isFoundingMember ? <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2.5 py-1 text-xs text-[#C9A227]">Founding Member</span> : null}
-            {sessionUser.isFoundingSeller ? <span className="rounded-full border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 px-2.5 py-1 text-xs text-[#93C5FD]">Founding Seller</span> : null}
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
+              <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Today&apos;s Views</p>
+              <p className="mt-1 text-lg font-semibold text-white">{sellerOverviewStats.profileViews.toLocaleString("en-IL")}</p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
+              <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Active Listings</p>
+              <p className="mt-1 text-lg font-semibold text-white">{sellerOverviewStats.activeListings.toLocaleString("en-IL")}</p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
+              <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Trade Success Rate</p>
+              <p className="mt-1 text-lg font-semibold text-white">{sellerOverviewStats.successRate.toFixed(1)}%</p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
+              <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Avg. Response</p>
+              <p className="mt-1 text-lg font-semibold text-white">{sellerOverviewStats.averageResponseTime}</p>
+            </div>
           </div>
           <div className="space-y-2">
-            <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Announcements</p>
+            <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Alpha News</p>
             {!betaAnnouncements.length ? <p className="text-xs text-[#9CA3AF]">No active announcements.</p> : null}
             {betaAnnouncements.slice(0, 6).map((announcement) => (
               <div key={announcement.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
@@ -1888,28 +1172,23 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           </div>
         </div>
         <div className="space-y-3">
-          <form className="grid gap-2" onSubmit={handleSubmitBetaFeedback}>
-            <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Submit Beta Feedback</p>
-            <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={betaFeedbackCategory} onChange={(event) => setBetaFeedbackCategory(event.target.value as BetaFeedbackCategory)}>
-              <option value="bug">Bug</option>
-              <option value="suggestion">Suggestion</option>
-              <option value="confusing_ux">Confusing UX</option>
-              <option value="feature_request">Feature Request</option>
-              <option value="performance">Performance</option>
-              <option value="other">Other</option>
-            </select>
-            <Textarea placeholder="Share your feedback..." value={betaFeedbackMessage} onChange={(event) => setBetaFeedbackMessage(event.target.value)} />
-            <Button type="submit" size="sm" variant="secondary" loading={isSubmittingBetaFeedback} loadingLabel="Submitting...">Submit Feedback</Button>
-          </form>
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">My Feedback</p>
-            {!myBetaFeedback.length ? <p className="text-xs text-[#9CA3AF]">No feedback submitted yet.</p> : null}
-            {myBetaFeedback.slice(0, 4).map((entry) => (
-              <div key={entry.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                <p className="font-medium text-white">{betaFeedbackCategoryLabel(entry.category)} • {entry.status}</p>
-                <p className="mt-1">{entry.message}</p>
-              </div>
-            ))}
+          <div className="rounded-2xl border border-[#C9A227]/25 bg-[#C9A227]/10 p-4 text-sm text-[#E5E7EB]">
+            <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">Seller Level Progress</p>
+            <p className="mt-2 text-white">
+              Current level: <span className="font-semibold text-[#F3D979]">{sellerLevelLabel(sellerOverviewStats.reputation?.level)}</span>
+            </p>
+            <p className="mt-1 text-xs">
+              {Math.max(0, 12 - sellerOverviewStats.completedTrades)} more completed trades to unlock your next tier.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
+            <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Quick Actions</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <Button type="button" size="sm" variant="secondary" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Create Listing</Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/dashboard/seller")}>Seller Dashboard</Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/profile")}>Public Profile</Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/settings")}>Account Settings</Button>
+            </div>
           </div>
         </div>
       </CardContent>
@@ -1939,23 +1218,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               : "A premium marketplace connecting buyers and sellers looking to exchange USDT. Alpha Traders coordinates every transaction through a transparent, professional, and community-driven process while charging a simple 1% service fee."}
           </p>
           <div className={`mt-7 flex flex-wrap gap-3 ${isAr ? "md:justify-end" : ""}`}>
-            <a href="#marketplace" className={buttonVariants()}>
-              {isAr ? "ابدأ صفقة" : "Start a Trade"}
+            <a href="#marketplace">
+              <Button>{isAr ? "ابدأ صفقة" : "Start a Trade"}</Button>
             </a>
-            <a href="#how-it-works" className={buttonVariants({ variant: "secondary" })}>
-              {isAr ? "تعرّف على آلية العمل" : "Learn How It Works"}
+            <a href="#how-it-works">
+              <Button variant="secondary">{isAr ? "تعرّف على آلية العمل" : "Learn How It Works"}</Button>
             </a>
           </div>
         </div>
-      </div>
-
-      <div className="mt-6">
-        <ExchangeMarketStats
-          activeSellers={isLoadingListings ? undefined : marketStats.activeSellers}
-          onlineNow={isLoadingListings ? undefined : marketStats.onlineNow}
-          averageResponse={isLoadingListings ? undefined : marketStats.averageResponse}
-          openListings={isLoadingListings ? undefined : marketStats.openListings}
-        />
       </div>
 
       <Card className="mt-8 border-white/10 bg-[#0B0B0B]/90">
@@ -1970,7 +1240,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       </Card>
 
       <div className="mt-6">
-        <p className="mb-2 text-xs uppercase tracking-[0.2em] text-[#C9A227]">{isAr ? "الأمان أولاً" : "Security First"}</p>
         <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "مركز الثقة والأمان" : "Trust & Security"}</h2>
         <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {[
@@ -1997,7 +1266,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           ].map((item) => {
             const Icon = item.icon;
             return (
-              <Card key={item.title} className="border-white/10 bg-[#0B0B0B]/90 transition duration-300 hover:-translate-y-1 hover:border-[#C9A227]/30 hover:shadow-[0_12px_36px_rgba(201,162,39,0.10)]">
+              <Card key={item.title} className="border-white/10 bg-[#0B0B0B]/90">
                 <CardHeader>
                   <div className="inline-flex items-center gap-2">
                     <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 text-[#C9A227]">
@@ -2025,7 +1294,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       ) : null}
 
       <div id="how-it-works" className="mt-12">
-        <p className="mb-2 text-xs uppercase tracking-[0.2em] text-[#C9A227]">{isAr ? "خطوة بخطوة" : "Step by Step"}</p>
         <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "كيف يعمل Alpha Exchange" : "How It Works"}</h2>
         <div className="mt-6 space-y-3">
           {timelineSteps.map((step, index) => (
@@ -2051,12 +1319,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       </div>
 
       <div id="marketplace" className="mt-12">
-        <p className="mb-2 text-xs uppercase tracking-[0.2em] text-[#C9A227]">{isAr ? "متاح الآن" : "Available Now"}</p>
         <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "السوق المباشر" : "Live Marketplace"}</h2>
 
         <Card className="mt-5 border-white/10 bg-[#0B0B0B]/90">
           <CardContent className="p-4">
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <select value={currencyFilter} onChange={(event) => setCurrencyFilter(event.target.value)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
                 <option value="all">{isAr ? "Currency: الكل" : "Currency: All"}</option>
                 {Array.from(new Set(listings.map((listing) => listing.currency))).sort().map((currency) => (
@@ -2087,363 +1354,111 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               </select>
               <Input placeholder={isAr ? "Min Amount" : "Min Amount"} value={minAmountFilter} onChange={(event) => setMinAmountFilter(event.target.value)} />
               <Input placeholder={isAr ? "Max Amount" : "Max Amount"} value={maxAmountFilter} onChange={(event) => setMaxAmountFilter(event.target.value)} />
-              <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={bankFilter} onChange={(event) => setBankFilter(event.target.value)}>
-                <option value="all">{isAr ? "كل البنوك" : "All Banks"}</option>
-                {getIsraeliBankOptions().map((bank) => (
-                  <option key={bank.code} value={bank.code}>
-                    {bank.name}
-                  </option>
-                ))}
-              </select>
               <Input placeholder={isAr ? "Min Price" : "Min Price"} value={minPriceFilter} onChange={(event) => setMinPriceFilter(event.target.value)} />
               <Input placeholder={isAr ? "Max Price" : "Max Price"} value={maxPriceFilter} onChange={(event) => setMaxPriceFilter(event.target.value)} />
               <Input placeholder={isAr ? "Min Trust Score" : "Min Trust Score"} value={trustScoreFilter} onChange={(event) => setTrustScoreFilter(event.target.value)} />
-              <Button type="button" className="w-full" variant={onlineOnlyFilter ? "default" : "secondary"} onClick={() => setOnlineOnlyFilter((prev) => !prev)}>
-                <span className={`mr-1.5 inline-block h-2 w-2 rounded-full ${onlineOnlyFilter ? "bg-[#22C55E]" : "bg-[#9CA3AF]"}`} />
-                {isAr ? (onlineOnlyFilter ? "المتاحون الآن فقط" : "إظهار المتاحين الآن") : (onlineOnlyFilter ? "Online Sellers Only" : "Show Online Sellers Only")}
+              <Button type="button" variant={onlineOnlyFilter ? "default" : "secondary"} onClick={() => setOnlineOnlyFilter((prev) => !prev)}>
+                {onlineOnlyFilter ? "Online Sellers Only" : "Show Online Sellers Only"}
               </Button>
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => {
-                  setCurrencyFilter("all");
-                  setPaymentMethodFilter("all");
-                  setBankFilter("all");
-                  setNetworkFilter("all");
-                  setMinAmountFilter("");
-                  setMaxAmountFilter("");
-                  setMinPriceFilter("");
-                  setMaxPriceFilter("");
-                  setTrustScoreFilter("");
-                  setOnlineOnlyFilter(false);
-                  setSortBy("trust-desc");
-                }}
-              >
-                {isAr ? "إعادة تعيين الفلاتر" : "Reset Filters"}
-              </Button>
-              {filteredListings.length !== listings.length ? (
-                <p className="text-xs text-[#9CA3AF]">
-                  {isAr ? `${filteredListings.length} نتيجة` : `${filteredListings.length} of ${listings.length} listings`}
-                </p>
-              ) : null}
             </div>
           </CardContent>
         </Card>
 
-        <div className="mt-5 grid gap-5 md:grid-cols-2">
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
           {isLoadingListings
             ? Array.from({ length: 4 }).map((_, index) => (
-                <Card key={`skeleton-${index}`} className="overflow-hidden border-white/10 bg-[#0B0B0B]/95">
-                  <CardContent className="space-y-4 p-5">
-                    <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
-                      <div className="h-14 w-14 animate-pulse rounded-full bg-white/10" />
-                      <div className="space-y-2">
-                        <div className="h-4 w-32 animate-pulse rounded bg-white/10" />
-                        <div className="h-3 w-20 animate-pulse rounded bg-white/10" />
-                      </div>
-                      <div className="ms-auto h-6 w-16 animate-pulse rounded-full bg-white/10" />
-                    </div>
-                    <div className="h-20 w-full animate-pulse rounded-2xl bg-white/10" />
-                    <div className="space-y-2">
-                      <div className={`flex justify-between ${isAr ? "flex-row-reverse" : ""}`}>
-                        <div className="h-3 w-24 animate-pulse rounded bg-white/10" />
-                        <div className="h-3 w-12 animate-pulse rounded bg-white/10" />
-                      </div>
-                      <div className="h-2 w-full animate-pulse rounded-full bg-white/10" />
-                    </div>
-                    <div className={`flex gap-2 ${isAr ? "flex-row-reverse" : ""}`}>
-                      {[0, 1, 2].map((i) => (
-                        <div key={i} className="h-8 w-24 animate-pulse rounded-lg bg-white/10" />
-                      ))}
-                    </div>
-                    <div className="h-11 w-full animate-pulse rounded-full bg-white/10" />
+                <Card key={`skeleton-${index}`} className="border-white/10 bg-[#0B0B0B]/90">
+                  <CardContent className="space-y-3 p-6">
+                    <div className="h-4 w-40 animate-pulse rounded bg-white/10" />
+                    <div className="h-10 w-full animate-pulse rounded-xl bg-white/10" />
+                    <div className="h-4 w-28 animate-pulse rounded bg-white/10" />
+                    <div className="h-4 w-32 animate-pulse rounded bg-white/10" />
+                    <div className="h-10 w-28 animate-pulse rounded-full bg-white/10" />
                   </CardContent>
                 </Card>
               ))
-            : filteredListings.map((listing) => {
-                const trustScore = listing.sellerReputation?.trustScore ?? 0;
-                const completedTrades = listing.sellerReputation?.completedTrades ?? 0;
-                const completionRate = listing.sellerReputation?.completionRate ?? 0;
-                const rating = listing.sellerReputation?.rating ?? 0;
-                const responseTimeMinutes = listing.sellerReputation?.responseTimeMinutes ?? parseMinutes(listing.responseTime);
-                const sellerRank = listing.sellerReputation?.level ?? "bronze";
-                const publicVolumeRange = listing.sellerReputation?.publicVolumeRange ?? getSellerPublicVolumeLabel(sellerRank);
-                const isOnline = listing.sellerProfile?.onlineStatus === "online";
-                const trustTier =
-                  trustScore >= 90 ? (isAr ? "ممتاز" : "Excellent")
-                  : trustScore >= 75 ? (isAr ? "جيد" : "Good")
-                  : trustScore >= 60 ? (isAr ? "متوسط" : "Fair")
-                  : (isAr ? "مبتدئ" : "New");
-                const trustTierColor =
-                  trustScore >= 90 ? "text-[#4ADE80]"
-                  : trustScore >= 75 ? "text-[#C9A227]"
-                  : trustScore >= 60 ? "text-[#FB923C]"
-                  : "text-[#9CA3AF]";
-
-                return (
-                  <Card
-                    key={listing.id}
-                    className="group relative overflow-hidden border-white/10 bg-[#0B0B0B]/95 transition-all duration-300 hover:-translate-y-1 hover:border-[#C9A227]/35 hover:shadow-[0_20px_60px_rgba(0,0,0,0.45),0_0_0_1px_rgba(201,162,39,0.08)]"
-                  >
-                    {/* Top gold accent bar — appears on hover */}
-                    <div
-                      className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#C9A227]/70 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-                      aria-hidden="true"
-                    />
-
-                    <CardHeader className="pb-3 pt-5">
-                      <div className={`flex items-start justify-between gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
-                        {/* Avatar + seller info */}
-                        <div className={`flex items-start gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
-                          {/* Avatar with online ring + status dot */}
-                          <div className="relative flex-shrink-0">
-                            {listing.sellerProfile?.profilePhotoUrl ? (
-                              <Image
-                                src={listing.sellerProfile.profilePhotoUrl}
-                                alt={`${safeText(listing.sellerDisplayName, "Seller")} profile`}
-                                width={56}
-                                height={56}
-                                unoptimized
-                                className={`h-14 w-14 rounded-full object-cover ring-2 transition-all duration-300 ${isOnline ? "ring-[#22C55E]/45 group-hover:ring-[#22C55E]/70" : "ring-white/10"}`}
-                              />
-                            ) : (
-                              <div className={`inline-flex h-14 w-14 items-center justify-center rounded-full text-base font-bold text-[#D1D5DB] ring-2 transition-all duration-300 ${isOnline ? "bg-[#C9A227]/8 ring-[#22C55E]/45" : "bg-white/[0.04] ring-white/10"}`}>
-                                {safeText(listing.sellerDisplayName, "S")
-                                  .split(" ")
-                                  .map((p) => p[0])
-                                  .join("")
-                                  .slice(0, 2)}
-                              </div>
-                            )}
-                            {/* Online indicator dot */}
-                            <span
-                              className={`absolute bottom-0.5 end-0.5 h-3 w-3 rounded-full border-2 border-[#0B0B0B] ${isOnline ? "bg-[#22C55E]" : "bg-[#6B7280]"}`}
-                              title={isOnline ? (isAr ? "متاح الآن" : "Online now") : (isAr ? "غير متاح" : "Offline")}
-                            />
-                          </div>
-                          {/* Name + level + badges */}
-                          <div>
-                            <CardTitle className={`text-lg leading-tight ${isAr ? "text-right" : ""}`}>
-                              <span className={sellerRankTheme(sellerRank)}>{safeText(listing.sellerDisplayName, "Seller")}</span>
-                            </CardTitle>
-                            <p className={`mt-0.5 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF] ${isAr ? "text-right" : ""}`}>
-                              {sellerLevelLabel(sellerRank)} Seller
-                            </p>
-                            <div className={`mt-1.5 flex flex-wrap gap-1.5 ${isAr ? "flex-row-reverse" : ""}`}>
-                              <RoleBadge variant="approved_seller" />
-                              {listing.sellerProfile?.isFoundingSeller ? (
-                                <span className="rounded-full border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 px-2 py-0.5 text-[11px] text-[#93C5FD]">
-                                  {isAr ? "مؤسس" : "Founding"}
-                                </span>
-                              ) : null}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Online / Offline status pill */}
-                        <span
-                          className={`mt-0.5 flex-shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium ${isOnline ? "border-[#22C55E]/30 bg-[#22C55E]/10 text-[#86EFAC]" : "border-white/12 bg-white/[0.04] text-[#9CA3AF]"}`}
-                        >
-                          {isOnline ? (isAr ? "متاح" : "Online") : (isAr ? "غير متاح" : "Offline")}
-                        </span>
-                      </div>
-                    </CardHeader>
-
-                    <CardContent className="space-y-4 pb-5 pt-0">
-                      {/* ── Price + USDT hero panel ── */}
-                      <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-black/40 to-[#C9A227]/[0.04]">
-                        <div className={`border-e border-white/10 p-3.5 ${isAr ? "text-right" : ""}`}>
-                          <p className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] text-[#9CA3AF]">
-                            <UsdtIcon />
-                            {isAr ? "USDT متاح" : "Available"}
-                          </p>
-                          <p className="mt-1 text-2xl font-bold leading-none text-[#C9A227]">
-                            {safeText(listing.availableAmount)}
-                          </p>
-                          <p className="mt-0.5 text-[11px] text-[#9CA3AF]">USDT</p>
-                        </div>
-                        <div className={`p-3.5 ${isAr ? "text-right" : ""}`}>
-                          <p className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] text-[#9CA3AF]">
-                            <UsdtIcon />
-                            {isAr ? "سعر USDT" : "USDT price"}
-                          </p>
-                          <p className="mt-1 text-2xl font-bold leading-none text-white">
-                            {safeText(listing.price)}
-                          </p>
-                          <p className="mt-0.5 text-[11px] text-[#9CA3AF]">{safeText(listing.currency, "ILS")} / USDT</p>
-                        </div>
-                      </div>
-
-                      {/* ── Trust score bar ── */}
-                      <div>
-                        <div className={`mb-1.5 flex items-center justify-between text-xs ${isAr ? "flex-row-reverse" : ""}`}>
-                          <span className="text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust Score"}</span>
-                          <span className={`flex items-center gap-1.5 ${isAr ? "flex-row-reverse" : ""}`}>
-                            <span className={`text-[11px] font-medium ${trustTierColor}`}>{trustTier}</span>
-                            <span className="font-semibold text-white">{trustScore.toFixed(1)}</span>
-                            <span className="text-[#9CA3AF]">/100</span>
-                          </span>
-                        </div>
-                        <div className="h-2 overflow-hidden rounded-full bg-white/8">
-                          <div
-                            className="h-full rounded-full bg-gradient-to-r from-[#B8942A] via-[#C9A227] to-[#E8C547] shadow-[0_0_8px_rgba(201,162,39,0.35)] transition-all duration-700"
-                            style={{ width: `${Math.min(trustScore, 100)}%` }}
+            : filteredListings.map((listing) => (
+                <Card key={listing.id} className="group border-white/10 bg-[#0B0B0B]/90 transition duration-300 hover:-translate-y-1 hover:border-[#C9A227]/30 hover:shadow-[0_22px_60px_rgba(0,0,0,0.35)]">
+                  <CardHeader>
+                    <div className={`flex items-center justify-between ${isAr ? "flex-row-reverse" : ""}`}>
+                      <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
+                        {listing.sellerProfile?.profilePhotoUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={listing.sellerProfile.profilePhotoUrl}
+                            alt={`${safeText(listing.sellerDisplayName, "Seller")} profile`}
+                            className="h-11 w-11 rounded-full border border-white/15 object-cover"
                           />
+                        ) : (
+                          <div className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-white/[0.04] text-sm font-semibold text-[#D1D5DB]">
+                            {safeText(listing.sellerDisplayName, "Seller")
+                              .split(" ")
+                              .map((part) => part[0])
+                              .join("")
+                              .slice(0, 2)}
+                          </div>
+                        )}
+                        <div>
+                          <CardTitle className="text-lg">{safeText(listing.sellerDisplayName, "Seller")}</CardTitle>
+                          <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">
+                            {sellerLevelLabel(listing.sellerReputation?.level)} Seller
+                            {listing.sellerProfile?.onlineStatus === "online" ? " • Online" : " • Offline"}
+                          </p>
+                          <div className="mt-1 flex flex-wrap gap-2">
+                            <RoleBadge variant="approved_seller" />
+                            {listing.sellerProfile?.isFoundingSeller ? (
+                              <span className="rounded-full border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 px-2 py-0.5 text-[11px] text-[#93C5FD]">Founding Seller</span>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
-
-                      {/* ── Metric chips: response time, trades, success rate, network ── */}
-                      <div className={`flex flex-wrap gap-2 ${isAr ? "flex-row-reverse" : ""}`}>
-                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-xs text-white">
-                          <Clock3 className="h-3.5 w-3.5 flex-shrink-0 text-[#C9A227]" aria-hidden="true" />
-                          {responseTimeMinutes > 0 ? `${Math.round(responseTimeMinutes)} min response` : safeText(listing.responseTime, "—")}
+                      <span className="rounded-full border border-[#22C55E]/25 bg-[#22C55E]/10 px-3 py-1 text-xs text-[#86EFAC]">{isAr ? "متاح" : "Available"}</span>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <p className="text-sm text-[#9CA3AF]">Trust Score: <span className="text-white">{(listing.sellerReputation?.trustScore ?? 0).toFixed(1)}</span></p>
+                    <p className="text-sm text-[#9CA3AF]">Completed Trades: <span className="text-white">{(listing.sellerReputation?.completedTrades ?? 0).toLocaleString("en-IL")}</span></p>
+                    <p className="text-sm text-[#9CA3AF]">Average Rating: <span className="text-white">{(listing.sellerReputation?.rating ?? 0).toFixed(2)}</span></p>
+                    <p className="text-sm text-[#9CA3AF]">Response Time: <span className="text-white">{safeText(listing.responseTime, "5 min")}</span></p>
+                    <p className="text-sm text-[#9CA3AF]">Last Active: <span className="text-white">{formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt)}</span></p>
+                    <p className="text-sm text-[#9CA3AF]">USDT Available: <span className="text-white">{safeText(listing.availableAmount)}</span></p>
+                    <p className="text-sm text-[#9CA3AF]">Price: <span className="text-white">{safeText(listing.price)} {listing.currency}</span></p>
+                    <p className="text-sm text-[#9CA3AF]">Payment Methods: <span className="text-white">{(listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod]).join(", ")}</span></p>
+                    <p className="text-sm text-[#9CA3AF]">Networks: <span className="text-white">{safeText(listing.network)}</span></p>
+                    <p className="text-sm text-[#9CA3AF]">Min/Max Trade: <span className="text-white">{safeText(listing.minimumTrade)} / {safeText(listing.maximumTrade)}</span></p>
+                    <p className="text-sm text-[#9CA3AF]">Updated: <span className="text-white">{new Date(listing.updatedAt).toLocaleString("en-IL")}</span></p>
+                    <div className="grid gap-1 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
+                      <p>⭐ {listing.sellerReputation?.rating.toFixed(2) ?? "4.50"} Rating</p>
+                      <p>{(listing.sellerReputation?.completedTrades ?? 0).toLocaleString("en-IL")} Successful Trades</p>
+                      <p>{Math.round(listing.sellerReputation?.successRate ?? 95)}% Success Rate</p>
+                      <p>Member Since {new Date(listing.sellerProfile?.memberSince ?? listing.createdAt).getFullYear()}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {(listing.sellerReputation?.badges ?? []).slice(0, 2).map((badge) => (
+                        <span key={`${listing.id}-${badge}`} className="rounded-full border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-2 py-1 text-[11px] text-[#93C5FD]">
+                          {sellerBadgeLabel(badge)}
                         </span>
-                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-xs text-white">
-                          <Trophy className="h-3.5 w-3.5 flex-shrink-0 text-[#C9A227]" aria-hidden="true" />
-                          {completedTrades.toLocaleString("en-IL")}+ {isAr ? "صفقة" : "trades"}
-                        </span>
-                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#22C55E]/20 bg-[#22C55E]/[0.06] px-2.5 py-1.5 text-xs text-[#86EFAC]">
-                          <ShieldCheck className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
-                          {completionRate.toFixed(1)}% completion
-                        </span>
-                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#C9A227]/20 bg-[#C9A227]/[0.06] px-2.5 py-1.5 text-xs text-[#FDE68A]">
-                          <Star className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
-                          {rating.toFixed(2)}★
-                        </span>
-                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-xs text-[#9CA3AF]">
-                          <Network className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
-                          {safeText(listing.network)}
-                        </span>
-                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#C9A227]/20 bg-[#C9A227]/[0.08] px-2.5 py-1.5 text-xs text-[#FDE68A]">
-                          <WalletCards className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
-                          {getIsraeliBankOption(listing.bankName ?? listing.paymentMethod).name}
-                        </span>
-                      </div>
-
-                      {/* ── Payment + range + last active ── */}
-                      <div className={`space-y-1 text-xs text-[#9CA3AF] ${isAr ? "text-right" : ""}`}>
-                        <p>
-                          <span className="text-white/45">{isAr ? "الدفع: " : "Payment: "}</span>
-                          {(listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod])
-                            .slice(0, 3)
-                            .join(" • ")}
-                        </p>
-                        <p>
-                          <span className="text-white/45">{isAr ? "البنك: " : "Bank: "}</span>
-                          {getIsraeliBankOption(listing.bankName ?? listing.paymentMethod).name}
-                        </p>
-                        <p>
-                          <span className="text-white/45">{isAr ? "الحد: " : "Range: "}</span>
-                          {safeText(listing.minimumTrade, "—")} – {safeText(listing.maximumTrade, "—")} USDT
-                          <span className="mx-2 text-white/20">·</span>
-                          {formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt)}
-                        </p>
-                        <p className="inline-flex items-center gap-1.5">
-                          <UsdtIcon />
-                          <span className="text-white/45">{isAr ? "الحجم العام: " : "Public Volume: "}</span>
-                          {publicVolumeRange}
-                          <span className="mx-2 text-white/20">·</span>
-                          {isAr ? "موثّق من Alpha Traders" : "Verified by Alpha Traders"}
-                        </p>
-                      </div>
-
-                      {/* ── Seller achievement badges ── */}
-                      {(listing.sellerReputation?.badges ?? []).length > 0 ? (
-                        <div className={`flex flex-wrap gap-1.5 ${isAr ? "flex-row-reverse" : ""}`}>
-                          {(listing.sellerReputation?.badges ?? []).slice(0, 3).map((badge) => (
-                            <span
-                              key={`${listing.id}-${badge}`}
-                              className="rounded-full border border-[#C9A227]/20 bg-[#C9A227]/[0.06] px-2.5 py-0.5 text-[11px] text-[#C9A227]"
-                            >
-                              {sellerBadgeLabel(badge)}
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
-
-                      {/* ── CTA ── */}
-                      {(() => {
-                        const isOwnListing = sessionUser && listing.sellerId === sessionUser.id;
-                        const listingPurchasable = listing.status === "active" && Number(listing.availableAmount) > 0;
-                        if (isOwnListing) {
-                          return (
-                            <Button
-                              className="w-full gap-2 opacity-50"
-                              variant="secondary"
-                              disabled
-                              aria-label={isAr ? "عرضك الخاص" : "Your listing"}
-                            >
-                              {isAr ? "عرضك الخاص" : "Your Listing"}
-                            </Button>
-                          );
-                        }
-                        if (!sessionUser) {
-                          return (
-                            <Button
-                              className="w-full gap-2 transition-all group-hover:scale-[1.01] group-hover:shadow-[0_8px_24px_rgba(201,162,39,0.22)]"
-                              onClick={() => router.push(`/login?redirectTo=/${locale}/usdt-exchange` as Parameters<typeof router.push>[0])}
-                              aria-label={isAr ? "سجّل الدخول لشراء USDT" : "Sign in to Buy USDT"}
-                            >
-                              {isAr ? "سجّل الدخول للشراء" : "Sign In to Buy"}
-                            </Button>
-                          );
-                        }
-                        if (!listingPurchasable) {
-                          return (
-                            <Button
-                              className="w-full gap-2 opacity-50"
-                              variant="secondary"
-                              disabled
-                              aria-label={isAr ? "غير متاح للشراء" : "Not available for purchase"}
-                            >
-                              {listing.status === "expired"
-                                ? (isAr ? "انتهت صلاحية العرض" : "Listing Expired")
-                                : listing.status === "paused"
-                                  ? (isAr ? "العرض موقوف مؤقتاً" : "Listing Paused")
-                                  : (isAr ? "غير متاح" : "Unavailable")}
-                            </Button>
-                          );
-                        }
-                        return (
-                          <Button
-                            className="w-full gap-2 transition-all group-hover:scale-[1.01] group-hover:shadow-[0_8px_24px_rgba(201,162,39,0.22)]"
-                            onClick={() => {
-                              setSelectedListing(listing);
-                              setPurchaseSubmitted(false);
-                              if (listing.sellerId) void fetchSellerProfileData(listing.sellerId);
-                            }}
-                            aria-label={`${isAr ? "شراء USDT من" : "Buy USDT from"} ${safeText(listing.sellerDisplayName, "seller")}`}
-                          >
-                            <HandCoins className="h-4 w-4" aria-hidden="true" />
-                            {isAr ? "شراء USDT" : "Buy USDT"}
-                          </Button>
-                        );
-                      })()}
-                    </CardContent>
-                  </Card>
-                );
-              })}
+                      ))}
+                    </div>
+                    <Button className="mt-3 transition-transform group-hover:scale-[1.02]" onClick={() => openListingModal(listing)} aria-label={`Open seller profile for ${safeText(listing.sellerDisplayName, "seller")}`}>
+                      {isAr ? "ملف البائع" : "View Seller Profile"}
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
         </div>
 
         {!isLoadingListings && filteredListings.length === 0 ? (
           <Card className="mt-4 border-white/10 bg-[#0B0B0B]/90">
-            <CardContent className="p-10 text-center">
-              <div className="mx-auto mb-4 inline-flex h-16 w-16 items-center justify-center rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10">
-                <Store className="h-7 w-7 text-[#C9A227]" />
-              </div>
-              <p className="text-lg font-semibold text-white">
-                {isAr ? "لا توجد عروض USDT نشطة متاحة الآن." : "No active USDT listings right now"}
+            <CardContent className="p-6 text-center">
+              <p className="text-base font-medium text-white">
+                {isAr ? "لا توجد عروض USDT نشطة متاحة الآن." : "No active USDT listings are available right now."}
               </p>
-              <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[#9CA3AF]">
-                {isAr
-                  ? "يمكن للبائعين المعتمدين إنشاء عرض من لوحة البائع."
-                  : "Approved sellers can create a listing from their Seller Dashboard. Check back soon."}
+              <p className="mt-2 text-sm text-[#9CA3AF]">
+                {isAr ? "يمكن للبائعين المعتمدين إنشاء عرض من لوحة البائع." : "Approved sellers can create a listing from their Seller Dashboard."}
               </p>
               {isApprovedSeller ? (
-                <Button type="button" className="mt-6 gap-2" onClick={() => router.push("/dashboard/seller")}>
-                  <Sparkles className="h-4 w-4" aria-hidden="true" />
+                <Button type="button" className="mt-4" onClick={() => router.push("/dashboard/seller")}>
                   {isAr ? "إنشاء عرض" : "Create Listing"}
                 </Button>
               ) : null}
@@ -2453,13 +1468,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       </div>
 
       <div className="mt-12">
-        <p className="mb-2 text-xs uppercase tracking-[0.2em] text-[#C9A227]">{isAr ? "المزايا" : "Why Choose Us"}</p>
         <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "لماذا Alpha Exchange" : "Why Alpha Exchange"}</h2>
         <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {features.map((feature) => {
             const Icon = feature.icon;
             return (
-              <Card key={feature.title} className="h-full border-white/10 bg-[#0B0B0B]/90 transition duration-300 hover:-translate-y-1 hover:border-[#C9A227]/30 hover:shadow-[0_12px_36px_rgba(201,162,39,0.10)]">
+              <Card key={feature.title} className="h-full border-white/10 bg-[#0B0B0B]/90 transition hover:-translate-y-0.5">
                 <CardHeader>
                   <div className={`inline-flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                     <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 text-[#C9A227]">
@@ -2477,6 +1491,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         </div>
       </div>
 
+      {!isApprovedSeller ? (
       <div className="mt-12 grid gap-6 xl:grid-cols-2">
         <Card className="border-white/10 bg-[#0B0B0B]/90">
           <CardHeader>
@@ -2522,13 +1537,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               </select>
               <Input placeholder={isAr ? "حجم التداول الشهري المتوقع" : "Expected Monthly Trading Volume"} value={sellerForm.expectedMonthlyTradingVolume} onChange={(event) => setSellerForm((prev) => ({ ...prev, expectedMonthlyTradingVolume: event.target.value }))} />
               <Textarea placeholder={isAr ? "ملاحظات إضافية" : "Additional Notes"} value={sellerForm.additionalNotes} onChange={(event) => setSellerForm((prev) => ({ ...prev, additionalNotes: event.target.value }))} />
-              <Button
-                type="submit"
-                loading={isSubmittingSellerApplication}
-                loadingLabel={isAr ? "جاري الإرسال..." : "Submitting..."}
-              >
-                {isAr ? "قدّم طلب الاعتماد" : "Apply for Approval"}
-              </Button>
+              <Button type="submit">{isAr ? "قدّم طلب الاعتماد" : "Apply for Approval"}</Button>
             </form>
             {applicationSubmitted ? (
               <div className="mt-4 rounded-xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-4 text-sm">
@@ -2581,64 +1590,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           </CardContent>
         </Card>
       </div>
+      ) : null}
 
       {isApprovedSeller ? (
         <div className="mt-8 space-y-6">
-          <div className="rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top_left,_rgba(201,162,39,0.2),_transparent_30%),linear-gradient(135deg,_rgba(10,10,10,0.98),_rgba(16,16,16,0.94))] p-4 shadow-[0_22px_55px_rgba(0,0,0,0.26)]">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div className="max-w-2xl">
-                <p className="text-[11px] uppercase tracking-[0.24em] text-[#C9A227]">Premium seller workspace</p>
-                <h2 className="mt-1 text-xl font-semibold text-white">Bank-transfer momentum, all in one place</h2>
-                <p className="mt-1 text-sm text-[#9CA3AF]">Keep your listings live, review buyer requests, and confirm the right bank step without switching context.</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" variant="secondary" className="border-[#6CAEFF]/30 bg-[#6CAEFF]/10 text-[#93C5FD] hover:bg-[#6CAEFF]/20 hover:text-[#BFDBFE]" onClick={() => setActiveSellerWorkspaceTab("listings")}>Create listing</Button>
-                <Button type="button" size="sm" variant="secondary" className="border-[#C9A227]/30 bg-[#C9A227]/10 text-[#FDE68A] hover:bg-[#C9A227]/20 hover:text-[#FDE68A]" onClick={() => setActiveSellerWorkspaceTab("trades")}>Review trades</Button>
-                <Button type="button" size="sm" variant="secondary" className="text-[#E5E7EB]" onClick={() => setActiveSellerWorkspaceTab("settings")}>Update profile</Button>
-              </div>
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {sellerWorkspaceTabs.map((tab) => {
-                const active = activeSellerWorkspaceTab === tab.key;
-                return (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    onClick={() => setActiveSellerWorkspaceTab(tab.key)}
-                    className={`rounded-full border px-3 py-1.5 text-sm transition ${active ? "border-[#C9A227]/40 bg-[#C9A227]/15 text-white" : "border-white/10 bg-black/20 text-[#9CA3AF] hover:border-white/20 hover:text-[#E5E7EB]"}`}
-                  >
-                    <span className="font-medium">{tab.label}</span>
-                    <span className="ml-2 text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{tab.description}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <div className="mt-5 grid gap-3 lg:grid-cols-[1.15fr_0.85fr]">
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-[#9CA3AF]">Focus for today</p>
-                <p className="mt-2 text-sm text-white">
-                  {isAr
-                    ? `لديك ${sellerPendingActionCount} إجراءات معلقة و${sellerBankReadyCount} صفقة جاهزة للتأكيد البنكي.`
-                    : `You have ${sellerPendingActionCount} pending actions and ${sellerBankReadyCount} trade(s) ready for bank confirmation.`}
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <span className="rounded-full border border-[#6CAEFF]/20 bg-[#6CAEFF]/10 px-3 py-1 text-xs text-[#93C5FD]">{sellerActiveListingsCount} active listings</span>
-                  <span className="rounded-full border border-[#C9A227]/20 bg-[#C9A227]/10 px-3 py-1 text-xs text-[#FDE68A]">{sellerOverviewStats.completedTrades} completed trades</span>
-                </div>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {sellerWorkspaceHighlights.map((item) => (
-                  <div key={item.label} className={`rounded-2xl border p-3 ${item.tone === "accent" ? "border-[#C9A227]/20 bg-[#C9A227]/10" : item.tone === "success" ? "border-[#22C55E]/20 bg-[#22C55E]/10" : item.tone === "warning" ? "border-[#F59E0B]/20 bg-[#F59E0B]/10" : "border-white/10 bg-black/20"}`}>
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{item.label}</p>
-                    <p className="mt-2 text-xl font-semibold text-white">{item.value}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {activeSellerWorkspaceTab === "overview" ? (
-            <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {isLoadingListings
               ? Array.from({ length: 6 }).map((_, index) => (
                   <Card key={`seller-stat-skeleton-${index}`} className="border-white/10 bg-[#0B0B0B]/90">
@@ -2657,12 +1613,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               { label: "Completed Trades", value: sellerOverviewStats.completedTrades.toLocaleString("en-IL"), icon: Trophy },
               { label: "Success Rate", value: `${sellerOverviewStats.successRate.toFixed(1)}%`, icon: ShieldCheck },
               { label: "Monthly Growth", value: `${sellerOverviewStats.monthlyGrowth >= 0 ? "+" : ""}${sellerOverviewStats.monthlyGrowth.toFixed(1)}%`, icon: TrendingUp },
-              { label: "Commission Paid", value: `₪${sellerOverviewStats.estimatedCommissionPaid.toFixed(2)}`, icon: BadgePercent },
-              { label: "Lifetime Volume (Private)", value: `${sellerOverviewStats.totalUsdtSold.toLocaleString("en-IL")} USDT`, icon: WalletCards },
+              { label: "Estimated Commission Paid", value: `₪${sellerOverviewStats.estimatedCommissionPaid.toFixed(2)}`, icon: BadgePercent },
+              { label: "Revenue Generated", value: `₪${sellerOverviewStats.revenueGenerated.toFixed(2)}`, icon: WalletCards },
               { label: "Repeat Buyers", value: sellerOverviewStats.repeatBuyers.toLocaleString("en-IL"), icon: Users },
               { label: "Average Trade Size", value: `₪${sellerOverviewStats.averageTradeSize.toFixed(2)}`, icon: HandCoins },
               { label: "Response Time", value: sellerOverviewStats.averageResponseTime, icon: Clock3 },
-              { label: "Current Prestige Rank", value: sellerLevelLabel(sellerOverviewStats.currentPrestigeRank), icon: Star },
+              { label: "Seller Level", value: sellerLevelLabel(sellerOverviewStats.reputation?.level), icon: Star },
             ].map((stat) => (
               <Card key={stat.label} className="border-white/10 bg-[#0B0B0B]/90">
                 <CardHeader className="pb-2">
@@ -2675,180 +1631,182 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               </Card>
             )) : null}
           </div>
-          ) : null}
 
-          {(activeSellerWorkspaceTab === "overview" || activeSellerWorkspaceTab === "listings") ? (
-            <>
-              <div ref={createListingFormRef}>
-            <Card className="border-white/10 bg-[#0B0B0B]/90">
-              <CardHeader>
-                <CardTitle>{isAr ? "إنشاء عرض جديد" : "Create Listing"}</CardTitle>
-                <CardDescription>
-                  {isAr ? "أنشئ عرضًا سريعًا مع حد أقصى عرضين نشطين. ستنتهي كل عروضك تلقائيًا خلال 24 ساعة." : "Create a fast listing with a maximum of 2 active listings. Every listing expires automatically after 24 hours."}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {listingWorkspaceSummary ? (
-                  <div className={`rounded-2xl border p-3 text-sm ${listingWorkspaceSummary.canCreateListing ? "border-[#6CAEFF]/20 bg-[#6CAEFF]/8 text-[#D1D5DB]" : "border-[#C9A227]/25 bg-[#C9A227]/10 text-[#FDE68A]"}`}>
-                    <p>
-                      Active listings: <span className="text-white">{listingWorkspaceSummary.openListingCount}/{listingWorkspaceSummary.activeListingLimit}</span>
-                    </p>
-                    {listingWorkspaceSummary.blockedReason ? <p className="mt-1 text-[#FDE68A]">{listingWorkspaceSummary.blockedReason}</p> : null}
-                  </div>
-                ) : null}
-                <form className="grid gap-4 md:grid-cols-2" onSubmit={handleSellerListingCreateSubmit}>
-                  <div className="space-y-1.5">
-                    <label className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
-                      <UsdtIcon />
-                      {isAr ? "الكمية المتاحة (USDT)" : "Available amount (USDT)"}
-                    </label>
-                    <Input placeholder="500" value={listingCreateForm.availableAmount} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, availableAmount: event.target.value }))} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
-                      <UsdtIcon />
-                      {isAr ? "السعر لكل USDT" : "Price per USDT"}
-                    </label>
-                    <Input placeholder="39.50" value={listingCreateForm.price} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, price: event.target.value }))} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "عملة التسعير" : "Pricing currency"}</label>
-                    <Input placeholder="ILS" value={listingCreateForm.currency} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, currency: event.target.value }))} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "الشبكة" : "Network"}</label>
-                    <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={listingCreateForm.network} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
-                    <option value="TRC20">TRC20</option>
-                    <option value="ERC20">ERC20</option>
-                    <option value="BEP20">BEP20</option>
-                    <option value="SOL">SOL</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "طرق الدفع" : "Payment methods"}</label>
-                    <Input placeholder="Bank transfer, PayBox" value={listingCreateForm.paymentMethods} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, paymentMethods: event.target.value }))} />
-                  </div>
-                  <IsraeliBankSelector
-                    value={listingCreateForm.bankName}
-                    onChange={(value) => setListingCreateForm((prev) => ({ ...prev, bankName: value }))}
-                    className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white"
-                    placeholder={isAr ? "ابحث عن البنك المستلم" : "Search receiving bank"}
-                    descriptionClassName="text-xs text-[#FDE68A]"
-                  />
-                  <Input placeholder={isAr ? "الحد الأدنى للصفقة (USDT)" : "Minimum trade (USDT)"} value={listingCreateForm.minimumTrade} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, minimumTrade: event.target.value }))} />
-                  <Input placeholder={isAr ? "الحد الأعلى للصفقة (USDT)" : "Maximum trade (USDT)"} value={listingCreateForm.maximumTrade} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, maximumTrade: event.target.value }))} />
-                  <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-[#D1D5DB]">
-                    <p className="font-medium text-white">Auto-expiration</p>
-                    <p className="mt-1">All new listings are set to expire automatically after 24 hours. No manual expiration step is needed.</p>
-                  </div>
-                  <div className="md:col-span-2 rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10 p-3 text-sm text-[#FDE68A]">
-                    <p className="inline-flex items-center gap-2 font-medium text-white"><UsdtIcon />Live price guard</p>
-                    <p className="mt-1">USD/ILS market rate: <span className="font-semibold text-white">₪{(marketRate ?? 39.2).toFixed(2)}</span> • max allowed ILS price per USDT: <span className="font-semibold text-white">₪{((marketRate ?? 39.2) + 0.35).toFixed(2)}</span></p>
-                    {createListingPriceValidationError ? <p className="mt-2 text-xs text-[#FDE68A]">{createListingPriceValidationError}</p> : null}
-                  </div>
-                  <div className="md:col-span-2">
-                    <Button
-                      type="submit"
-                      className="w-full md:w-auto"
-                      loading={isCreatingListing}
-                      loadingLabel="Creating listing..."
-                      disabled={Boolean(listingWorkspaceSummary && !listingWorkspaceSummary.canCreateListing) || Boolean(createListingPriceValidationError)}
-                    >
-                      Create Live Listing
-                    </Button>
-                  </div>
-                </form>
-              </CardContent>
-            </Card>
-              </div>
-            </>
-          ) : null}
-
-          {(activeSellerWorkspaceTab === "overview" || activeSellerWorkspaceTab === "listings") ? (
-            <Card className="border-white/10 bg-[#0B0B0B]/90">
+          <Card className="border-white/10 bg-[#0B0B0B]/90">
             <CardHeader>
-              <CardTitle>{isAr ? "عروضي النشطة" : "My Active Listings"}</CardTitle>
-              <CardDescription>{isAr ? "أدِر عروضك النشطة بسرعة من مكان واحد." : "Manage your active listings quickly from one place."}</CardDescription>
+              <CardTitle>{isAr ? "إنشاء عرض جديد" : "Create Listing"}</CardTitle>
+              <CardDescription>
+                {isAr ? "يتم إرسال العرض للمراجعة أولًا قبل نشره في السوق." : "Listings are submitted to owner review before publishing live."}
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {listingWorkspaceSummary ? (
-                <div className="rounded-2xl border border-[#6CAEFF]/20 bg-[#6CAEFF]/10 p-4 text-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-white">{isAr ? "العروض النشطة" : "Active Listings"}</p>
-                      <p className="text-[#D1D5DB]">{listingWorkspaceSummary.openListingCount}/{listingWorkspaceSummary.activeListingLimit}</p>
-                    </div>
-                    <div className="rounded-full border border-white/10 bg-black/30 px-3 py-1 text-xs text-[#D1D5DB]">
-                      {listingWorkspaceSummary.canCreateListing ? (isAr ? "متاح إنشاء عرض جديد" : "You can create another listing") : (isAr ? "تم بلوغ الحد الأقصى" : "Limit reached")}
+            <CardContent>
+              <div className="mb-4 rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-4 text-sm text-[#E5E7EB]">
+                <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">Live Market Price Guard</p>
+                <div className="mt-2 space-y-1">
+                  <p>1 USDT = <span className="font-semibold text-white">{formatIls(MARKET_PRICE_PER_USDT)}</span></p>
+                  <p>Maximum listing price: <span className="font-semibold text-white">{formatIls(MAX_ALLOWED_LISTING_PRICE)}</span></p>
+                  {listingCreateAmount > 0 ? <p>{listingCreateAmount.toLocaleString("en-IL")} USDT ≈ <span className="font-semibold text-white">{formatIls(listingCreateAmount * MARKET_PRICE_PER_USDT)}</span></p> : null}
+                </div>
+              </div>
+              <form className="grid gap-3 md:grid-cols-2" onSubmit={handleSellerListingCreateSubmit}>
+                <Input placeholder="Available Amount" value={listingCreateForm.availableAmount} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, availableAmount: event.target.value }))} />
+                <div className="space-y-2">
+                  <Input
+                    placeholder="Price"
+                    value={listingCreateForm.price}
+                    onChange={(event) => setListingCreateForm((prev) => ({ ...prev, price: event.target.value }))}
+                    className={`transition-all duration-300 ${
+                      listingCreatePriceInvalid
+                        ? "border-red-500/85 shadow-[0_0_0_3px_rgba(239,68,68,0.2)]"
+                        : listingCreatePriceValid
+                          ? "border-emerald-500/80 shadow-[0_0_0_3px_rgba(16,185,129,0.16)]"
+                          : ""
+                    }`}
+                  />
+                  <p className={`text-xs transition-colors duration-300 ${
+                    listingCreatePriceInvalid ? "text-red-300" : listingCreatePriceValid ? "text-emerald-300" : "text-[#9CA3AF]"
+                  }`}>
+                    {listingCreatePriceInvalid
+                      ? `Price exceeds maximum allowed (${formatIls(MAX_ALLOWED_LISTING_PRICE)}).`
+                      : listingCreatePriceValid
+                        ? `Valid price. Maximum allowed is ${formatIls(MAX_ALLOWED_LISTING_PRICE)}.`
+                        : `Enter a price up to ${formatIls(MAX_ALLOWED_LISTING_PRICE)}.`}
+                  </p>
+                </div>
+                <Input placeholder="Currency (e.g. ILS)" value={listingCreateForm.currency} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, currency: event.target.value }))} />
+                <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={listingCreateForm.network} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
+                  <option value="TRC20">TRC20</option>
+                  <option value="ERC20">ERC20</option>
+                  <option value="BEP20">BEP20</option>
+                  <option value="SOL">SOL</option>
+                </select>
+                <Input placeholder="Payment Methods (comma separated)" value={listingCreateForm.paymentMethods} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, paymentMethods: event.target.value }))} />
+                <Input placeholder="Minimum Trade" value={listingCreateForm.minimumTrade} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, minimumTrade: event.target.value }))} />
+                <Input placeholder="Maximum Trade" value={listingCreateForm.maximumTrade} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, maximumTrade: event.target.value }))} />
+                <Input placeholder="Expiry (YYYY-MM-DDTHH:mm)" value={listingCreateForm.expiresAt} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, expiresAt: event.target.value }))} />
+                <Input placeholder="Response Time (e.g. 5 min)" value={listingCreateForm.responseTime} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, responseTime: event.target.value }))} />
+                <Input className="md:col-span-2" placeholder="Photo URLs (comma separated)" value={listingCreateForm.photos} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, photos: event.target.value }))} />
+                <Textarea className="md:col-span-2" placeholder="Optional Notes" value={listingCreateForm.notes} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, notes: event.target.value }))} />
+                <Textarea className="md:col-span-2" placeholder="Seller Description" value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
+                <div className={`md:col-span-2 rounded-2xl border p-4 transition-all duration-300 ${listingCreateGuardTone}`}>
+                  <div className="flex items-start gap-2">
+                    {listingCreatePriceInvalid ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
+                    <div className="space-y-1 text-sm">
+                      <p className="font-medium">
+                        {listingCreatePriceInvalid ? `Price exceeds maximum allowed (${formatIls(MAX_ALLOWED_LISTING_PRICE)})` : "Market guard active"}
+                      </p>
+                      <p>Current market: {formatIls(MARKET_PRICE_PER_USDT)} per 1 USDT</p>
+                      <p>Maximum allowed: {formatIls(MAX_ALLOWED_LISTING_PRICE)}</p>
+                      {listingCreateAmount > 0 ? <p>{listingCreateAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingCreateAmount * MARKET_PRICE_PER_USDT)}</p> : null}
                     </div>
                   </div>
                 </div>
-              ) : null}
+                <div className="md:col-span-2">
+                  <Button type="submit" disabled={listingCreatePriceInvalid}>Submit Listing</Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+
+          <Card className="border-white/10 bg-[#0B0B0B]/90">
+            <CardHeader>
+              <CardTitle>{isAr ? "قائمتي" : "My Listings"}</CardTitle>
+              <CardDescription>{isAr ? "إدارة جميع عروضك كبائع معتمد." : "Manage all of your approved seller listings."}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
               {!isLoadingListings && myListings.length === 0 ? (
-                <div className="empty-state-panel p-5 text-center">
+                <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center">
                   <Store className="mx-auto h-5 w-5 text-[#C9A227]" />
                   <p className="mt-2 text-sm font-medium text-white">{isAr ? "لا توجد عروض بعد" : "No Listings Yet"}</p>
                   <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "أنشئ أول عرض لتظهر للمشترين المعتمدين." : "Create your first listing to start receiving buyer requests."}</p>
+                  <Button type="button" size="sm" className="mt-3" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+                    {isAr ? "إنشاء عرض" : "Create Listing"}
+                  </Button>
                 </div>
               ) : null}
               {myListings.map((listing) => {
                 const requestsCount = sellerRequests.filter((request) => request.listingId === listing.id).length;
                 const views = 120 + String(listing.id ?? "").split("").reduce((acc, char) => acc + char.charCodeAt(0), 0) % 900;
-                const isLockedListing = listing.status === "matched" || listing.status === "in_trade";
                 return (
                   <div key={listing.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <p className="inline-flex items-center gap-1.5 text-sm font-medium text-white">
-                          <UsdtIcon />
-                          {safeText(listing.availableAmount)} USDT • {safeText(listing.price)} {safeText(listing.currency)}
-                        </p>
-                        <p className="mt-1 text-xs text-[#9CA3AF]">{listingStatusLabel(listing.status)} • {safeText(listing.network)} • {safeText(listing.paymentMethods?.[0] ?? listing.paymentMethod)}</p>
-                        <p className="mt-1 text-xs text-[#C9A227]">Receiving bank: {getIsraeliBankOption(listing.bankName ?? listing.paymentMethod).name}</p>
-                      </div>
-                      <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-[#D1D5DB]">{views} views</div>
+                    <div className="grid gap-2 text-sm md:grid-cols-4">
+                      <p>Status: <span className="text-white">{safeText(listing.status)}</span></p>
+                      <p>Available Amount: <span className="text-white">{safeText(listing.availableAmount)}</span></p>
+                      <p>Price: <span className="text-white">{safeText(listing.price)}</span></p>
+                      <p>Network: <span className="text-white">{safeText(listing.network)}</span></p>
+                      <p>Views: <span className="text-white">{views}</span></p>
+                      <p>Purchase Requests: <span className="text-white">{requestsCount}</span></p>
+                      <p>Created Date: <span className="text-white">{new Date(listing.createdAt).toLocaleDateString("en-IL")}</span></p>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Button type="button" size="sm" variant="secondary" disabled={isLockedListing || listing.status === "completed" || listing.status === "closed" || listing.status === "cancelled"} onClick={() => { setEditingListingId(listing.id); setListingEditForm({ availableAmount: listing.availableAmount, price: listing.price, currency: listing.currency, network: listing.network, paymentMethods: (listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod]).join(", "), bankName: listing.bankName ?? "Bank transfer", minimumTrade: listing.minimumTrade ?? "0", maximumTrade: listing.maximumTrade ?? listing.availableAmount, expirationHours: "24", notes: listing.notes ?? "", }); }}>
-                        <Edit3 className="h-4 w-4" />
-                        Edit
-                      </Button>
                       <Button
                         type="button"
                         size="sm"
                         variant="secondary"
-                        loading={Boolean(listingActionLoading[`${listing.id}:duplicate`])}
-                        loadingLabel="Duplicating..."
-                        onClick={() => { if (listingWorkspaceSummary?.blockedReason) { setSellerWorkspaceMessage(listingWorkspaceSummary.blockedReason); return; } void handleSellerListingDuplicate(listing); }}
+                        onClick={() => {
+                          setEditingListingId(listing.id);
+                          setListingEditForm({
+                            availableAmount: listing.availableAmount,
+                            price: listing.price,
+                            currency: listing.currency,
+                            network: listing.network,
+                            paymentMethods: (listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod]).join(", "),
+                            minimumTrade: listing.minimumTrade ?? "0",
+                            maximumTrade: listing.maximumTrade ?? listing.availableAmount,
+                            expiresAt: listing.expiresAt ? new Date(listing.expiresAt).toISOString().slice(0, 16) : "",
+                            notes: listing.notes ?? "",
+                          });
+                        }}
                       >
-                        <Copy className="h-4 w-4" />
-                        Duplicate
+                        <Edit3 className="h-4 w-4" />
+                        Edit
                       </Button>
-                      {listing.status === "active" ? (
-                        <Button type="button" size="sm" variant="secondary" loading={Boolean(listingActionLoading[`${listing.id}:paused`])} loadingLabel="Pausing..." onClick={() => handleSellerListingStatus(listing, "paused")}> <PauseCircle className="h-4 w-4" /> Pause </Button>
-                      ) : listing.status === "paused" ? (
-                        <Button type="button" size="sm" variant="secondary" loading={Boolean(listingActionLoading[`${listing.id}:active`])} loadingLabel="Resuming..." onClick={() => handleSellerListingStatus(listing, "active")}> <PlayCircle className="h-4 w-4" /> Resume </Button>
-                      ) : null}
-                      {(listing.status === "expired" || listing.status === "paused" || listing.status === "active") ? (
-                        <Button type="button" size="sm" variant="secondary" loading={Boolean(listingActionLoading[`${listing.id}:renew`])} loadingLabel="Renewing..." onClick={() => handleSellerListingRenew(listing.id)}>
+                      {listing.status === "paused" ? (
+                        <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingStatus(listing, "available")}>
                           <PlayCircle className="h-4 w-4" />
-                          Renew
+                          Resume
+                        </Button>
+                      ) : listing.status === "available" ? (
+                        <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingStatus(listing, "paused")}>
+                          <PauseCircle className="h-4 w-4" />
+                          Pause
                         </Button>
                       ) : null}
-                      <Button type="button" size="sm" variant="secondary" loading={Boolean(listingActionLoading[`${listing.id}:delete`])} loadingLabel="Closing..." disabled={isLockedListing || listing.status === "completed" || listing.status === "closed" || listing.status === "cancelled"} onClick={() => handleSellerListingDelete(listing.id)}>
+                      <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingDelete(listing.id)}>
                         <Trash2 className="h-4 w-4" />
-                        Close
+                        Delete
                       </Button>
-                    </div>
-                    <div className="mt-3 grid gap-2 text-xs text-[#9CA3AF] sm:grid-cols-3">
-                      <p>Requests: <span className="text-white">{requestsCount}</span></p>
-                      <p>Min: <span className="text-white">{safeText(listing.minimumTrade)}</span></p>
-                      <p>Max: <span className="text-white">{safeText(listing.maximumTrade)}</span></p>
+                      <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerListingDuplicate(listing)}>
+                        <Copy className="h-4 w-4" />
+                        Duplicate Listing
+                      </Button>
                     </div>
                     {editingListingId === listing.id ? (
                       <form className="mt-3 grid gap-2 md:grid-cols-4" onSubmit={handleSellerListingEditSubmit}>
                         <Input value={listingEditForm.availableAmount} onChange={(event) => setListingEditForm((prev) => ({ ...prev, availableAmount: event.target.value }))} placeholder="Available Amount" />
-                        <Input value={listingEditForm.price} onChange={(event) => setListingEditForm((prev) => ({ ...prev, price: event.target.value }))} placeholder="Price" />
+                        <div className="space-y-2">
+                          <Input
+                            value={listingEditForm.price}
+                            onChange={(event) => setListingEditForm((prev) => ({ ...prev, price: event.target.value }))}
+                            placeholder="Price"
+                            className={`transition-all duration-300 ${
+                              listingEditPriceInvalid
+                                ? "border-red-500/85 shadow-[0_0_0_3px_rgba(239,68,68,0.2)]"
+                                : listingEditPriceValid
+                                  ? "border-emerald-500/80 shadow-[0_0_0_3px_rgba(16,185,129,0.16)]"
+                                  : ""
+                            }`}
+                          />
+                          <p className={`text-xs transition-colors duration-300 ${
+                            listingEditPriceInvalid ? "text-red-300" : listingEditPriceValid ? "text-emerald-300" : "text-[#9CA3AF]"
+                          }`}>
+                            {listingEditPriceInvalid
+                              ? `Price exceeds maximum allowed (${formatIls(MAX_ALLOWED_LISTING_PRICE)}).`
+                              : listingEditPriceValid
+                                ? `Valid price. Maximum allowed is ${formatIls(MAX_ALLOWED_LISTING_PRICE)}.`
+                                : `Enter a price up to ${formatIls(MAX_ALLOWED_LISTING_PRICE)}.`}
+                          </p>
+                        </div>
                         <Input value={listingEditForm.currency} onChange={(event) => setListingEditForm((prev) => ({ ...prev, currency: event.target.value }))} placeholder="Currency" />
                         <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={listingEditForm.network} onChange={(event) => setListingEditForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
                           <option value="TRC20">TRC20</option>
@@ -2858,23 +1816,23 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         </select>
                         <Input value={listingEditForm.minimumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, minimumTrade: event.target.value }))} placeholder="Minimum Trade" />
                         <Input value={listingEditForm.maximumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, maximumTrade: event.target.value }))} placeholder="Maximum Trade" />
+                        <Input value={listingEditForm.expiresAt} onChange={(event) => setListingEditForm((prev) => ({ ...prev, expiresAt: event.target.value }))} placeholder="Expiry (YYYY-MM-DDTHH:mm)" />
                         <Input className="md:col-span-2" value={listingEditForm.paymentMethods} onChange={(event) => setListingEditForm((prev) => ({ ...prev, paymentMethods: event.target.value }))} placeholder="Payment Methods (comma separated)" />
-                        <div className="md:col-span-2">
-                          <IsraeliBankSelector
-                            value={listingEditForm.bankName}
-                            onChange={(value) => setListingEditForm((prev) => ({ ...prev, bankName: value }))}
-                            className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white"
-                            placeholder="Search receiving bank"
-                            descriptionClassName="text-xs text-[#FDE68A]"
-                          />
-                        </div>
-                        {editListingPriceValidationError ? (
-                          <div className="md:col-span-4 rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10 p-3 text-xs text-[#FDE68A]">
-                            {editListingPriceValidationError}
+                        <Input className="md:col-span-2" value={listingEditForm.notes} onChange={(event) => setListingEditForm((prev) => ({ ...prev, notes: event.target.value }))} placeholder="Optional Notes" />
+                        <div className={`md:col-span-4 rounded-2xl border p-3 text-xs transition-all duration-300 ${listingEditGuardTone}`}>
+                          <div className="flex items-start gap-2">
+                            {listingEditPriceInvalid ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
+                            <div className="space-y-1">
+                              <p className="font-medium">
+                                {listingEditPriceInvalid ? `Price exceeds maximum allowed (${formatIls(MAX_ALLOWED_LISTING_PRICE)})` : "Market guard active"}
+                              </p>
+                              <p>Current market: {formatIls(MARKET_PRICE_PER_USDT)} per 1 USDT</p>
+                              <p>Maximum allowed: {formatIls(MAX_ALLOWED_LISTING_PRICE)}</p>
+                            </div>
                           </div>
-                        ) : null}
+                        </div>
                         <div className="md:col-span-4 flex gap-2">
-                          <Button type="submit" size="sm" loading={Boolean(listingActionLoading[`edit:${listing.id}`])} loadingLabel="Saving..." disabled={Boolean(editListingPriceValidationError)}>Save</Button>
+                          <Button type="submit" size="sm" disabled={listingEditPriceInvalid}>Save</Button>
                           <Button type="button" size="sm" variant="secondary" onClick={() => setEditingListingId(null)}>Cancel</Button>
                         </div>
                       </form>
@@ -2883,11 +1841,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 );
               })}
             </CardContent>
-            </Card>
-          ) : null}
+          </Card>
 
-          {(activeSellerWorkspaceTab === "overview" || activeSellerWorkspaceTab === "trades") ? (
-            <Card className="border-white/10 bg-[#0B0B0B]/90">
+          <Card className="border-white/10 bg-[#0B0B0B]/90">
             <CardHeader>
               <CardTitle>{isAr ? "طلبات الشراء" : "Purchase Requests"}</CardTitle>
               <CardDescription>{isAr ? "إدارة طلبات المشترين الواردة لك." : "Manage incoming buyer purchase requests."}</CardDescription>
@@ -2899,9 +1855,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <option value="all">Status: All</option>
                   <option value="pending">Pending</option>
                   <option value="accepted">Accepted</option>
-                  <option value="payment_sent">Bank Transfer Sent</option>
-                  <option value="funds_received">Funds Received</option>
-                  <option value="usdt_release_pending">USDT Release Pending</option>
+                  <option value="payment_sent">Payment Sent</option>
                   <option value="usdt_sent">USDT Sent</option>
                   <option value="review_open">Review Open</option>
                   <option value="declined">Declined</option>
@@ -2909,7 +1863,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 </select>
               </div>
               {!isLoadingListings && sellerRequests.length === 0 ? (
-                <div className="empty-state-panel p-5 text-center">
+                <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center">
                   <MessageCircle className="mx-auto h-5 w-5 text-[#C9A227]" />
                   <p className="mt-2 text-sm font-medium text-white">{isAr ? "لا توجد طلبات شراء" : "No Purchase Requests"}</p>
                   <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "ستظهر طلبات المشترين هنا عند وصولها." : "Incoming buyer requests will appear here."}</p>
@@ -2922,7 +1876,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <p>Trade ID: <span className="text-white">{request.tradeId ?? "Pending Creation"}</span></p>
                       <p>Buyer Name: <span className="text-white">{request.buyerName}</span></p>
                       <p>WhatsApp: <span className="text-white">{request.buyerWhatsapp}</span></p>
-                      <p className="inline-flex items-center gap-1.5">USDT Amount: <UsdtIcon /> <span className="text-white">{request.usdtAmount}</span></p>
+                      <p>USDT Amount: <span className="text-white">{request.usdtAmount}</span></p>
                       <p>Fiat Amount: <span className="text-white">{request.fiatAmount} {request.currency}</span></p>
                       <p>Network: <span className="text-white">{request.network}</span></p>
                       <p>Payment Method: <span className="text-white">{request.paymentMethod}</span></p>
@@ -2933,50 +1887,15 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       {request.reviewUnlockedAt ? <p>Review Unlocked: <span className="text-white">{new Date(request.reviewUnlockedAt).toLocaleString("en-IL")}</span></p> : null}
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Button type="button" size="sm" loading={Boolean(tradeActionLoading[`${request.id}:accepted`])} loadingLabel="Accepting..." disabled={request.status !== "pending"} onClick={() => handleSellerRequestAction(request.id, "accepted")}>Accept</Button>
-                      <Button type="button" size="sm" variant="secondary" loading={Boolean(tradeActionLoading[`${request.id}:declined`])} loadingLabel="Declining..." disabled={request.status !== "pending"} onClick={() => handleSellerRequestAction(request.id, "declined")}>Decline</Button>
-                      <Button type="button" size="sm" variant="secondary" loading={Boolean(tradeActionLoading[`${request.id}:funds_received`])} loadingLabel="Confirming..." disabled={request.status !== "payment_sent"} onClick={() => handleSellerRequestAction(request.id, "funds_received")}>Confirm Funds Received</Button>
-                      <Button type="button" size="sm" variant="secondary" loading={Boolean(tradeActionLoading[`${request.id}:usdt_release_pending`])} loadingLabel="Starting..." disabled={request.status !== "funds_received"} onClick={() => handleSellerRequestAction(request.id, "usdt_release_pending")}>Start USDT Release</Button>
-                      <Button type="button" size="sm" variant="secondary" loading={Boolean(tradeActionLoading[`${request.id}:usdt_sent`])} loadingLabel="Submitting..." disabled={request.status !== "usdt_release_pending" || !request.sellerEvidence} onClick={() => handleSellerRequestAction(request.id, "usdt_sent")}>
+                      <Button type="button" size="sm" disabled={request.status !== "pending"} onClick={() => handleSellerRequestAction(request.id, "accepted")}>Accept</Button>
+                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "pending"} onClick={() => handleSellerRequestAction(request.id, "declined")}>Decline</Button>
+                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "payment_sent" || !request.sellerEvidence} onClick={() => handleSellerRequestAction(request.id, "usdt_sent")}>
                         Mark USDT Sent
                       </Button>
                       <Button type="button" size="sm" variant="secondary" onClick={() => handleMessageBuyer(request)}>
                         <MessageCircle className="h-4 w-4" />
                         Message Buyer
                       </Button>
-                    </div>
-                    <div className="mt-3 rounded-xl border border-white/10 bg-black/25 p-3">
-                      <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">
-                        {isAr ? "حالة الصفقة اللحظية" : "Live Trade Status"}
-                      </p>
-                      <p className="mt-1 text-xs text-[#D1D5DB]">{nextTradeActionHint(request, isAr)}</p>
-                      <div className="mt-3 space-y-2">
-                        {TRADE_MILESTONES.map((step, index) => {
-                          const rank = tradeProgressRank(request);
-                          const terminal = request.status === "declined" || request.status === "cancelled";
-                          const stepTimestamp = tradeMilestoneTimestamp(request, step.key);
-                          const done = index <= rank || Boolean(stepTimestamp);
-                          const current = !terminal && request.status !== "review_open" && index === Math.min(rank + 1, TRADE_MILESTONES.length - 1);
-                          const reviewCurrent = !terminal && request.status === "review_open" && step.key === "review_unlocked";
-                          return (
-                            <div key={`${request.id}-${step.key}`} className="flex items-center justify-between gap-3 text-xs">
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={`inline-flex h-4 w-4 rounded-full border ${
-                                    done ? "border-[#C9A227]/40 bg-[#C9A227]/25" : current || reviewCurrent ? "border-[#6CAEFF]/50 bg-[#6CAEFF]/25" : "border-white/15 bg-transparent"
-                                  }`}
-                                />
-                                <span className={done || current || reviewCurrent ? "text-[#F3F4F6]" : "text-[#9CA3AF]"}>
-                                  {isAr ? step.titleAr : step.titleEn}
-                                </span>
-                              </div>
-                              <span className="text-[11px] text-[#9CA3AF]">
-                                {stepTimestamp ? new Date(stepTimestamp).toLocaleTimeString("en-IL", { hour: "2-digit", minute: "2-digit" }) : done ? "✓" : current || reviewCurrent ? "•" : "—"}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
                     </div>
                     <div className="mt-3 grid gap-2 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB] md:grid-cols-2">
                       <div>
@@ -3026,16 +1945,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                               type="button"
                               size="sm"
                               variant="secondary"
-                              loading={Boolean(evidenceUploading[`${request.id}:seller`])}
-                              loadingLabel="Uploading..."
-                              disabled={!sellerEvidenceFiles[request.id]}
+                              disabled={!sellerEvidenceFiles[request.id] || evidenceUploading[`${request.id}:seller`]}
                               onClick={() => {
                                 const file = sellerEvidenceFiles[request.id];
                                 if (!file) return;
                                 void uploadTradeEvidenceFile(request.id, "seller", file);
                               }}
                             >
-                              Upload Evidence
+                              {evidenceUploading[`${request.id}:seller`] ? "Uploading..." : "Upload Evidence"}
                             </Button>
                           </div>
                         </div>
@@ -3067,7 +1984,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       >
                         <Textarea placeholder="Respond to buyer review" value={sellerResponseDrafts[request.id] ?? ""} onChange={(event) => setSellerResponseDrafts((prev) => ({ ...prev, [request.id]: event.target.value }))} />
                         <div>
-                          <Button type="submit" size="sm" variant="secondary" loading={Boolean(reviewActionLoading[`${request.id}:seller-review`])} loadingLabel="Submitting...">Submit Seller Response</Button>
+                          <Button type="submit" size="sm" variant="secondary">Submit Seller Response</Button>
                         </div>
                       </form>
                     ) : null}
@@ -3081,222 +1998,123 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 );
               })}
             </CardContent>
-            </Card>
-          ) : null}
+          </Card>
 
-          {(activeSellerWorkspaceTab === "overview" || activeSellerWorkspaceTab === "settings") ? (
-            <>
-              <div className="grid gap-4 xl:grid-cols-3">
-                <Card className="border-white/10 bg-[#0B0B0B]/90">
-                  <CardHeader>
-                    <CardTitle>{isAr ? "ملف البائع" : "Seller Profile"}</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2 text-sm text-[#D1D5DB]">
-                    <div className="flex items-center gap-3">
-                      {sessionUser?.profilePhotoUrl ? (
-                        <Image src={sessionUser.profilePhotoUrl} alt={`${sessionUser.fullName} profile`} width={52} height={52} unoptimized className="h-13 w-13 rounded-full border border-white/15 object-cover" />
-                      ) : (
-                        <div className="inline-flex h-13 w-13 items-center justify-center rounded-full border border-white/15 bg-white/[0.04] text-sm font-semibold text-[#D1D5DB]">
-                          {safeText(sessionUser?.fullName, "Seller")
-                            .split(" ")
-                            .map((part) => part[0])
-                            .join("")
-                            .slice(0, 2)}
-                        </div>
-                      )}
-                      <div>
-                        <p className="text-base font-semibold text-white">{safeText(sessionUser?.fullName, "Seller")}</p>
-                        <RoleBadge variant="approved_seller" />
-                      </div>
+          <div className="grid gap-4 xl:grid-cols-3">
+            <Card className="border-white/10 bg-[#0B0B0B]/90">
+              <CardHeader>
+                <CardTitle>{isAr ? "ملف البائع" : "Seller Profile"}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm text-[#D1D5DB]">
+                <div className="flex items-center gap-3">
+                  {sessionUser?.profilePhotoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={sessionUser.profilePhotoUrl} alt={`${sessionUser.fullName} profile`} className="h-13 w-13 rounded-full border border-white/15 object-cover" />
+                  ) : (
+                    <div className="inline-flex h-13 w-13 items-center justify-center rounded-full border border-white/15 bg-white/[0.04] text-sm font-semibold text-[#D1D5DB]">
+                      {safeText(sessionUser?.fullName, "Seller")
+                        .split(" ")
+                        .map((part) => part[0])
+                        .join("")
+                        .slice(0, 2)}
                     </div>
-                    <p>Member Since: <span className="text-white">{sessionUser?.createdAt ? new Date(sessionUser.createdAt).toLocaleDateString("en-IL") : "—"}</span></p>
-                    <p>Languages: <span className="text-white">{sessionUser?.languages?.join(", ") || "English"}</span></p>
-                    <p>Preferred Networks: <span className="text-white">{sessionUser?.preferredNetworks?.join(", ") || "TRC20"}</span></p>
-                    <div className="rounded-2xl border border-[#C9A227]/20 bg-gradient-to-br from-[#C9A227]/10 via-black/20 to-[#6CAEFF]/10 p-3">
-                      <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">
-                        <Sparkles className="h-3.5 w-3.5 text-[#C9A227]" />
-                        Premium Prestige
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPrestigeModalOpen(true);
-                          setPrestigeModalStats((prev) => prev ?? {
-                            currentRank: sellerOverviewStats.currentPrestigeRank,
-                            nextRank: sellerOverviewStats.nextPrestigeRank,
-                            progressPercent: sellerOverviewStats.prestigeProgressPercent,
-                            remainingVolumeToNextRank: sellerOverviewStats.remainingVolumeToNextRank,
-                            publicVolumeRange: sellerOverviewStats.publicVolumeRange,
-                            publicVolumeLabel: sellerOverviewStats.publicVolumeRange,
-                            completedTrades: sellerOverviewStats.completedTrades,
-                            totalVolumeUsdt: sellerOverviewStats.totalUsdtSold,
-                            averageRating: sellerOverviewStats.reputation?.rating ?? 4.5,
-                            responseTimeMinutes: parseMinutes(sellerOverviewStats.averageResponseTime),
-                            completionRate: sellerOverviewStats.completionRate,
-                            averageTradeSize: sellerOverviewStats.averageTradeSize,
-                            repeatBuyersPercent: sellerOverviewStats.repeatBuyers,
-                            totalReviews: sellerOverviewStats.completedTrades,
-                            yearsOnPlatform: 0,
-                            promotionHistory: (sellerOverviewStats.promotionHistory ?? []).slice(0, 6).map((entry) => ({ id: entry.id, rank: entry.rank, promotedAt: entry.promotedAt, source: entry.source })),
-                            achievements: [
-                              { key: "first_trade", title: "First Trade", description: "Completed the first successful trade.", earnedAt: new Date().toISOString() },
-                              { key: "fast_responder", title: "Fast Responder", description: "Maintained an average response time under 2 minutes.", earnedAt: new Date().toISOString() },
-                            ],
-                            canViewExactValues: true,
-                          });
-                        }}
-                        className="mt-2 text-left text-sm font-semibold text-white transition hover:text-[#E8C547]"
-                      >
-                        Current Rank: <span className={cn("font-semibold capitalize", sellerRankTheme(sellerOverviewStats.currentPrestigeRank))}>{sellerLevelDisplayName(sellerOverviewStats.currentPrestigeRank)}</span>
-                      </button>
-                      <p className="mt-1 text-xs text-[#D1D5DB]">
-                        Next Rank: {sellerOverviewStats.nextPrestigeRank ? sellerLevelDisplayName(sellerOverviewStats.nextPrestigeRank) : "Top tier reached"}
-                        {sellerOverviewStats.nextPrestigeRank ? ` • ${sellerOverviewStats.remainingVolumeToNextRank.toLocaleString("en-IL")} USDT remaining` : ""}
-                      </p>
-                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
-                        <div className="h-full rounded-full bg-gradient-to-r from-[#B8942A] via-[#C9A227] to-[#E8C547]" style={{ width: `${Math.min(100, sellerOverviewStats.prestigeProgressPercent)}%` }} />
-                      </div>
-                      <p className="mt-1 text-[11px] text-[#9CA3AF]">Public volume label: {sellerOverviewStats.publicVolumeRange}</p>
-                    </div>
-                    <p>Rating: <span className="text-white">{(sellerOverviewStats.reputation?.rating ?? 4.5).toFixed(2)}</span></p>
-                    <p>Success Rate: <span className="text-white">{sellerOverviewStats.successRate.toFixed(1)}%</span></p>
-                    <p>Completed Trades: <span className="text-white">{sellerOverviewStats.completedTrades}</span></p>
-                    <p>Total USDT Volume: <span className="text-white">{sellerOverviewStats.totalUsdtSold.toLocaleString("en-IL")}</span></p>
-                    <p>Current Listings: <span className="text-white">{sellerOverviewStats.activeListings}</span></p>
-                    <p>Average Response Time: <span className="text-white">{sellerOverviewStats.averageResponseTime}</span></p>
-                    <p>Status: <span className="text-white">{sessionUser?.onlineStatus === "online" ? "Online" : "Offline"}</span></p>
-                    <p>Availability: <span className="text-white capitalize">{sessionUser?.availabilityStatus ?? "available"}</span></p>
-                    <p>Last Active: <span className="text-white">{formatRelativeMinutesLabel(sessionUser?.lastActiveAt)}</span></p>
-                    <p>Bio: <span className="text-white">{safeText(sessionUser?.bio, "Professional USDT seller on Alpha Exchange.")}</span></p>
-                    <p>Trading Experience: <span className="text-white">{safeText(sessionUser?.tradingExperience, "Professional trading experience")}</span></p>
-                    <p>Working Hours: <span className="text-white">{safeText(sessionUser?.workingHours, "Sun-Thu, 09:00-21:00")}</span></p>
-                    <p>Account Status: <span className="text-white">{sessionUser?.sellerStatus ?? "buyer"}</span></p>
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      {(sellerOverviewStats.reputation?.badges ?? []).map((badge) => (
-                        <span key={badge} className="rounded-full border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-2 py-1 text-[11px] text-[#93C5FD]">
-                          {sellerBadgeLabel(badge)}
-                        </span>
-                      ))}
-                    </div>
-                    {(sellerOverviewStats.promotionHistory ?? []).length ? (
-                      <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs">
-                        <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Promotion History</p>
-                        <div className="mt-2 space-y-1 text-[#D1D5DB]">
-                          {(sellerOverviewStats.promotionHistory ?? []).slice(0, 4).map((entry) => (
-                            <p key={entry.id}>
-                              <span className="capitalize text-white">{sellerLevelLabel(entry.rank)}</span> • {new Date(entry.promotedAt).toLocaleDateString("en-IL")}
-                            </p>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                    {sellerOverviewStats.completedTrades === 0 ? (
-                      <div className="mt-2 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#9CA3AF]">
-                        {isAr ? "لا توجد صفقات مكتملة بعد. أكمل أول صفقة لبناء سجل ثقة قوي." : "No Trades Yet. Complete your first trade to start building trust history."}
-                      </div>
-                    ) : null}
-                  </CardContent>
-                </Card>
-
-                {showLegacyNotificationCenter ? notificationCenterCard : null}
-                {betaChannelsCard}
-
-                <Card className="border-white/10 bg-[#0B0B0B]/90">
-                  <CardHeader>
-                    <CardTitle>{isAr ? "الإعدادات" : "Settings"}</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {isLoadingListings ? (
-                      <div className="space-y-2">
-                        <div className="h-10 animate-pulse rounded-xl bg-white/10" />
-                        <div className="h-10 animate-pulse rounded-xl bg-white/10" />
-                      </div>
-                    ) : null}
-                    <form className="grid gap-2" onSubmit={handleSellerSettingsSubmit}>
-                      <Input placeholder="Profile" value={sellerSettings.fullName} onChange={(event) => setSellerSettings((prev) => ({ ...prev, fullName: event.target.value }))} />
-                      <Input placeholder="WhatsApp" value={sellerSettings.whatsappNumber} onChange={(event) => setSellerSettings((prev) => ({ ...prev, whatsappNumber: event.target.value }))} />
-                      <Input placeholder="Languages (comma separated)" value={sellerSettings.languages.join(", ")} onChange={(event) => setSellerSettings((prev) => ({ ...prev, languages: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) }))} />
-                      <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={sellerSettings.preferredNetworks[0] ?? "TRC20"} onChange={(event) => setSellerSettings((prev) => ({ ...prev, preferredNetworks: [event.target.value as SupportedNetwork] }))}>
-                        <option value="TRC20">Preferred Network: TRC20</option>
-                        <option value="ERC20">Preferred Network: ERC20</option>
-                        <option value="BEP20">Preferred Network: BEP20</option>
-                        <option value="SOL">Preferred Network: SOL</option>
-                      </select>
-                      <Input placeholder="Profile Photo URL" value={sellerSettings.profilePhotoUrl} onChange={(event) => setSellerSettings((prev) => ({ ...prev, profilePhotoUrl: event.target.value }))} />
-                      <Input placeholder="Cover Banner URL" value={sellerSettings.coverBannerUrl} onChange={(event) => setSellerSettings((prev) => ({ ...prev, coverBannerUrl: event.target.value }))} />
-                      <Textarea placeholder="Bio" value={sellerSettings.bio} onChange={(event) => setSellerSettings((prev) => ({ ...prev, bio: event.target.value }))} />
-                      <Input placeholder="Trading Experience" value={sellerSettings.tradingExperience} onChange={(event) => setSellerSettings((prev) => ({ ...prev, tradingExperience: event.target.value }))} />
-                      <Input placeholder="Working Hours" value={sellerSettings.workingHours} onChange={(event) => setSellerSettings((prev) => ({ ...prev, workingHours: event.target.value }))} />
-                      <Input placeholder="Preferred Payment Methods (comma separated)" value={sellerSettings.preferredPaymentMethods.join(", ")} onChange={(event) => setSellerSettings((prev) => ({ ...prev, preferredPaymentMethods: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) }))} />
-                      <Input placeholder="Country" value={sellerSettings.country} onChange={(event) => setSellerSettings((prev) => ({ ...prev, country: event.target.value }))} />
-                      <Input placeholder="City (optional)" value={sellerSettings.city} onChange={(event) => setSellerSettings((prev) => ({ ...prev, city: event.target.value }))} />
-                      <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={sellerSettings.onlineStatus} onChange={(event) => setSellerSettings((prev) => ({ ...prev, onlineStatus: event.target.value as "online" | "offline" }))}>
-                        <option value="online">Status: Online</option>
-                        <option value="offline">Status: Offline</option>
-                      </select>
-                      <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={sellerSettings.availabilityStatus} onChange={(event) => setSellerSettings((prev) => ({ ...prev, availabilityStatus: event.target.value as SellerAvailabilityStatus }))}>
-                        <option value="available">Availability: Available</option>
-                        <option value="away">Availability: Away</option>
-                        <option value="vacation">Availability: Vacation Mode</option>
-                      </select>
-                      {sellerSettings.availabilityStatus === "vacation" ? (
-                        <p className="text-xs text-[#FDE68A]">Vacation Mode hides your active listings from buyers and blocks new matches until you switch back.</p>
-                      ) : null}
-                      <Button type="submit" size="sm" loading={isSavingSellerSettings} loadingLabel="Saving...">Save Profile</Button>
-                    </form>
-                    <form className="grid gap-2" onSubmit={handleSellerPasswordSubmit}>
-                      <Input type="password" placeholder="Current Password" value={sellerSettings.currentPassword} onChange={(event) => setSellerSettings((prev) => ({ ...prev, currentPassword: event.target.value }))} />
-                      <Input type="password" placeholder="New Password" value={sellerSettings.newPassword} onChange={(event) => setSellerSettings((prev) => ({ ...prev, newPassword: event.target.value }))} />
-                      <Button type="submit" size="sm" variant="secondary" loading={isSavingSellerPassword} loadingLabel="Updating...">Update Password</Button>
-                    </form>
-                    <form className="grid gap-2 border-t border-white/10 pt-3" onSubmit={handleNotificationPreferencesSave}>
-                      <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Notification Preferences</p>
-                      <label className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-[#D1D5DB]">
-                        <span>In-app</span>
-                        <input type="checkbox" checked={notificationPreferences.inApp} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, inApp: event.target.checked }))} />
-                      </label>
-                      <label className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-[#D1D5DB]">
-                        <span>Email (future-ready)</span>
-                        <input type="checkbox" checked={notificationPreferences.email} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, email: event.target.checked }))} />
-                      </label>
-                      <label className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-[#D1D5DB]">
-                        <span>SMS (future-ready)</span>
-                        <input type="checkbox" checked={notificationPreferences.sms} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, sms: event.target.checked }))} />
-                      </label>
-                      <div>
-                        <Button type="submit" size="sm" variant="secondary" loading={isSavingNotificationPreferences} loadingLabel="Saving...">Save Notification Preferences</Button>
-                      </div>
-                    </form>
-                  </CardContent>
-                </Card>
-              </div>
-              <div className="mt-4 space-y-3">
-                <Card className="border-white/10 bg-[#0B0B0B]/90">
-                  <CardHeader>
-                    <CardTitle>Private Activity History</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {!activityHistory.length ? (
-                      <p className="text-xs text-[#9CA3AF]">No activity entries yet.</p>
-                    ) : (
-                      activityHistory.slice(0, 12).map((entry) => (
-                        <div key={entry.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                          <p className="font-medium text-white">{entry.title}</p>
-                          <p className="mt-1">{entry.details}</p>
-                          <p className="mt-1 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleString("en-IL")}</p>
-                        </div>
-                      ))
-                    )}
-                  </CardContent>
-                </Card>
-                {sellerWorkspaceMessage ? (
-                  <Card className="border-[#C9A227]/30 bg-[#C9A227]/10">
-                    <CardContent className="p-3 text-xs text-white">{sellerWorkspaceMessage}</CardContent>
-                  </Card>
+                  )}
+                  <div>
+                    <p className="text-base font-semibold text-white">{safeText(sessionUser?.fullName, "Seller")}</p>
+                    <RoleBadge variant="approved_seller" />
+                  </div>
+                </div>
+                <p>Member Since: <span className="text-white">{sessionUser?.createdAt ? new Date(sessionUser.createdAt).toLocaleDateString("en-IL") : "—"}</span></p>
+                <p>Languages: <span className="text-white">{sessionUser?.languages?.join(", ") || "English"}</span></p>
+                <p>Preferred Networks: <span className="text-white">{sessionUser?.preferredNetworks?.join(", ") || "TRC20"}</span></p>
+                <p>Rating: <span className="text-white">{(sellerOverviewStats.reputation?.rating ?? 4.5).toFixed(2)}</span></p>
+                <p>Success Rate: <span className="text-white">{sellerOverviewStats.successRate.toFixed(1)}%</span></p>
+                <p>Completed Trades: <span className="text-white">{sellerOverviewStats.completedTrades}</span></p>
+                <p>Total USDT Volume: <span className="text-white">{sellerOverviewStats.totalUsdtSold.toLocaleString("en-IL")}</span></p>
+                <p>Current Listings: <span className="text-white">{sellerOverviewStats.activeListings}</span></p>
+                <p>Average Response Time: <span className="text-white">{sellerOverviewStats.averageResponseTime}</span></p>
+                <p>Status: <span className="text-white">{sessionUser?.onlineStatus === "online" ? "Online" : "Offline"}</span></p>
+                <p>Last Active: <span className="text-white">{formatRelativeMinutesLabel(sessionUser?.lastActiveAt)}</span></p>
+                <p>Bio: <span className="text-white">{safeText(sessionUser?.bio, "Professional USDT seller on Alpha Exchange.")}</span></p>
+                <p>Trading Experience: <span className="text-white">{safeText(sessionUser?.tradingExperience, "Professional trading experience")}</span></p>
+                <p>Working Hours: <span className="text-white">{safeText(sessionUser?.workingHours, "Sun-Thu, 09:00-21:00")}</span></p>
+                <p>Account Status: <span className="text-white">{sessionUser?.sellerStatus ?? "buyer"}</span></p>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {(sellerOverviewStats.reputation?.badges ?? []).map((badge) => (
+                    <span key={badge} className="rounded-full border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-2 py-1 text-[11px] text-[#93C5FD]">
+                      {sellerBadgeLabel(badge)}
+                    </span>
+                  ))}
+                </div>
+                {sellerOverviewStats.completedTrades === 0 ? (
+                  <div className="mt-2 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#9CA3AF]">
+                    {isAr ? "لا توجد صفقات مكتملة بعد. أكمل أول صفقة لبناء سجل ثقة قوي." : "No Trades Yet. Complete your first trade to start building trust history."}
+                  </div>
                 ) : null}
-              </div>
-            </>
-          ) : null}
+              </CardContent>
+            </Card>
+
+            {notificationCenterCard}
+            {betaChannelsCard}
+
+            <Card className="border-white/10 bg-[#0B0B0B]/90">
+              <CardHeader>
+                <CardTitle>{isAr ? "لوحة البائع" : "Seller Command Center"}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
+                    <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Lifetime Trade Volume</p>
+                    <p className="mt-1 text-lg font-semibold text-white">{sellerOverviewStats.totalUsdtSold.toLocaleString("en-IL")} USDT</p>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
+                    <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Average Rating</p>
+                    <p className="mt-1 text-lg font-semibold text-white">{(sellerOverviewStats.reputation?.rating ?? 4.5).toFixed(2)}★</p>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
+                    <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Completed Trades</p>
+                    <p className="mt-1 text-lg font-semibold text-white">{sellerOverviewStats.completedTrades.toLocaleString("en-IL")}</p>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
+                    <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Seller Level</p>
+                    <p className="mt-1 text-lg font-semibold text-white">{sellerLevelLabel(sellerOverviewStats.reputation?.level)}</p>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-[#D1D5DB]">
+                  <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Quick Actions</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/dashboard/seller")}>Open Seller Dashboard</Button>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/profile")}>Update Public Profile</Button>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/settings")}>Account & Security</Button>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Create New Listing</Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+          <Card className="border-white/10 bg-[#0B0B0B]/90">
+            <CardHeader>
+              <CardTitle>Private Activity History</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {!activityHistory.length ? (
+                <p className="text-xs text-[#9CA3AF]">No activity entries yet.</p>
+              ) : (
+                activityHistory.slice(0, 12).map((entry) => (
+                  <div key={entry.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
+                    <p className="font-medium text-white">{entry.title}</p>
+                    <p className="mt-1">{entry.details}</p>
+                    <p className="mt-1 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleString("en-IL")}</p>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+            {sellerWorkspaceMessage ? (
+              <Card className="border-[#C9A227]/30 bg-[#C9A227]/10">
+                <CardContent className="p-3 text-xs text-white">{sellerWorkspaceMessage}</CardContent>
+              </Card>
+            ) : null}
         </div>
       ) : (
         <div className="mt-8 grid gap-4 md:grid-cols-2">
@@ -3323,35 +2141,27 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               <p className="text-[#D1D5DB]">
                 {sessionUser ? sessionUser.fullName : (isAr ? "غير مسجل الدخول" : "Not logged in")}
               </p>
-              {sessionUser ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  {roleBadgeVariantsFromSession(sessionUser).map((badge) => (
-                    <RoleBadge key={badge} variant={badge} />
-                  ))}
-                </div>
-              ) : <RoleBadge variant="guest" />}
+              {sessionUser ? <RoleBadge variant={roleBadgeVariantFromSession(sessionUser)} /> : <RoleBadge variant="member" />}
               <div className="flex flex-wrap gap-2">
                 {!sessionUser ? (
                   <>
-                    <Link href="/login" className={buttonVariants({ variant: "secondary" })}>Login</Link>
-                    <Link href="/register" className={buttonVariants({ variant: "secondary" })}>Register</Link>
+                    <Link href="/login">
+                      <Button variant="secondary">Login</Button>
+                    </Link>
+                    <Link href="/register">
+                      <Button variant="secondary">Register</Button>
+                    </Link>
                   </>
                 ) : (
                   <>
-                    <Link href="/profile" className={buttonVariants({ variant: "secondary" })}>Profile</Link>
+                    <Link href="/profile">
+                      <Button variant="secondary">Profile</Button>
+                    </Link>
                     <Button
                       variant="secondary"
-                      loading={isLoggingOut}
-                      loadingLabel="Logging out..."
                       onClick={async () => {
-                        if (isLoggingOut) return;
-                        setIsLoggingOut(true);
-                        try {
-                          await fetch("/api/auth/logout", { method: "POST" });
-                          router.push("/login");
-                        } finally {
-                          setIsLoggingOut(false);
-                        }
+                        await fetch("/api/auth/logout", { method: "POST" });
+                        router.push("/login");
                       }}
                     >
                       Logout
@@ -3374,7 +2184,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <span>SMS (future-ready)</span>
                     <input type="checkbox" checked={notificationPreferences.sms} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, sms: event.target.checked }))} />
                   </label>
-                  <Button type="submit" size="sm" variant="secondary" loading={isSavingNotificationPreferences} loadingLabel="Saving...">Save Preferences</Button>
+                  <Button type="submit" size="sm" variant="secondary">Save Preferences</Button>
                 </form>
               ) : null}
             </CardContent>
@@ -3393,23 +2203,23 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <option value="all">Status: All</option>
                     <option value="pending">Pending</option>
                     <option value="accepted">Accepted</option>
-                    <option value="payment_sent">Bank Transfer Sent</option>
-                    <option value="funds_received">Funds Received</option>
-                    <option value="usdt_release_pending">USDT Release Pending</option>
+                    <option value="payment_sent">Payment Sent</option>
                     <option value="usdt_sent">USDT Sent</option>
                     <option value="review_open">Review Open</option>
                     <option value="declined">Declined</option>
                     <option value="cancelled">Cancelled</option>
                   </select>
                 </div>
-                {!filteredBuyerRequests.length ? <div className="empty-state-panel">No trades found for current filters.</div> : null}
+                {!filteredBuyerRequests.length ? (
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-[#9CA3AF]">No trades found for current filters.</div>
+                ) : null}
                 {filteredBuyerRequests.map((request) => (
                   <div key={request.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <div className="grid gap-2 text-sm md:grid-cols-3">
                       <p>Trade ID: <span className="text-white">{request.tradeId ?? "Pending Creation"}</span></p>
                       <p>Listing: <span className="text-white">{request.listingId}</span></p>
                       <p>Status: <span className="text-white">{tradeStatusLabel(request.status)}</span></p>
-                      <p className="inline-flex items-center gap-1.5">USDT Amount: <UsdtIcon /> <span className="text-white">{request.usdtAmount}</span></p>
+                      <p>USDT Amount: <span className="text-white">{request.usdtAmount}</span></p>
                       <p>Fiat Amount: <span className="text-white">{request.fiatAmount} {request.currency}</span></p>
                       <p>Network: <span className="text-white">{request.network}</span></p>
                       <p>Payment Method: <span className="text-white">{request.paymentMethod}</span></p>
@@ -3417,48 +2227,15 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       {request.completedAt ? <p>Completed: <span className="text-white">{new Date(request.completedAt).toLocaleString("en-IL")}</span></p> : null}
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Button type="button" size="sm" loading={Boolean(tradeActionLoading[`${request.id}:payment_sent`])} loadingLabel="Submitting..." disabled={request.status !== "accepted" || !request.buyerEvidence} onClick={() => handleBuyerTradeStatus(request.id, "payment_sent")}>
-                        Mark Bank Transfer Sent
+                      <Button type="button" size="sm" disabled={request.status !== "accepted" || !request.buyerEvidence} onClick={() => handleBuyerTradeStatus(request.id, "payment_sent")}>
+                        Mark Payment Sent
                       </Button>
-                      <Button type="button" size="sm" variant="secondary" loading={Boolean(tradeActionLoading[`${request.id}:completed`])} loadingLabel="Confirming..." disabled={request.status !== "usdt_sent"} onClick={() => handleBuyerTradeStatus(request.id, "completed")}>
+                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_sent"} onClick={() => handleBuyerTradeStatus(request.id, "completed")}>
                         Confirm Trade Completed
                       </Button>
-                      <Button type="button" size="sm" variant="secondary" loading={Boolean(tradeActionLoading[`${request.id}:cancelled`])} loadingLabel="Cancelling..." disabled={request.status !== "pending" && request.status !== "accepted"} onClick={() => handleBuyerTradeStatus(request.id, "cancelled")}>
+                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "pending" && request.status !== "accepted"} onClick={() => handleBuyerTradeStatus(request.id, "cancelled")}>
                         Cancel
                       </Button>
-                    </div>
-                    <div className="mt-3 rounded-xl border border-white/10 bg-black/25 p-3">
-                      <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">
-                        {isAr ? "حالة الصفقة اللحظية" : "Live Trade Status"}
-                      </p>
-                      <p className="mt-1 text-xs text-[#D1D5DB]">{nextTradeActionHint(request, isAr)}</p>
-                      <div className="mt-3 space-y-2">
-                        {TRADE_MILESTONES.map((step, index) => {
-                          const rank = tradeProgressRank(request);
-                          const terminal = request.status === "declined" || request.status === "cancelled";
-                          const stepTimestamp = tradeMilestoneTimestamp(request, step.key);
-                          const done = index <= rank || Boolean(stepTimestamp);
-                          const current = !terminal && request.status !== "review_open" && index === Math.min(rank + 1, TRADE_MILESTONES.length - 1);
-                          const reviewCurrent = !terminal && request.status === "review_open" && step.key === "review_unlocked";
-                          return (
-                            <div key={`${request.id}-buyer-${step.key}`} className="flex items-center justify-between gap-3 text-xs">
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={`inline-flex h-4 w-4 rounded-full border ${
-                                    done ? "border-[#C9A227]/40 bg-[#C9A227]/25" : current || reviewCurrent ? "border-[#6CAEFF]/50 bg-[#6CAEFF]/25" : "border-white/15 bg-transparent"
-                                  }`}
-                                />
-                                <span className={done || current || reviewCurrent ? "text-[#F3F4F6]" : "text-[#9CA3AF]"}>
-                                  {isAr ? step.titleAr : step.titleEn}
-                                </span>
-                              </div>
-                              <span className="text-[11px] text-[#9CA3AF]">
-                                {stepTimestamp ? new Date(stepTimestamp).toLocaleTimeString("en-IL", { hour: "2-digit", minute: "2-digit" }) : done ? "✓" : current || reviewCurrent ? "•" : "—"}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
                     </div>
                     <div className="mt-3 grid gap-2 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB] md:grid-cols-2">
                       <div>
@@ -3508,16 +2285,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                               type="button"
                               size="sm"
                               variant="secondary"
-                              loading={Boolean(evidenceUploading[`${request.id}:buyer`])}
-                              loadingLabel="Uploading..."
-                              disabled={!buyerEvidenceFiles[request.id]}
+                              disabled={!buyerEvidenceFiles[request.id] || evidenceUploading[`${request.id}:buyer`]}
                               onClick={() => {
                                 const file = buyerEvidenceFiles[request.id];
                                 if (!file) return;
                                 void uploadTradeEvidenceFile(request.id, "buyer", file);
                               }}
                             >
-                              Upload Evidence
+                              {evidenceUploading[`${request.id}:buyer`] ? "Uploading..." : "Upload Evidence"}
                             </Button>
                           </div>
                         </div>
@@ -3543,7 +2318,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       >
                         <Textarea placeholder="Leave one review after completed trade" value={tradeReviewDrafts[request.id] ?? ""} onChange={(event) => setTradeReviewDrafts((prev) => ({ ...prev, [request.id]: event.target.value }))} />
                         <div>
-                          <Button type="submit" size="sm" variant="secondary" loading={Boolean(reviewActionLoading[`${request.id}:buyer-review`])} loadingLabel="Submitting...">Submit Buyer Review</Button>
+                          <Button type="submit" size="sm" variant="secondary">Submit Buyer Review</Button>
                         </div>
                       </form>
                     ) : null}
@@ -3564,7 +2339,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               </CardContent>
             </Card>
           ) : null}
-          {showLegacyNotificationCenter && sessionUser ? notificationCenterCard : null}
+          {sessionUser ? notificationCenterCard : null}
           {sessionUser ? betaChannelsCard : null}
           {sessionUser ? (
             <Card className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
@@ -3612,14 +2387,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       </div>
 
       <div className="mt-12">
-        <p className="mb-2 text-xs uppercase tracking-[0.2em] text-[#C9A227]">{isAr ? "أسئلة شائعة" : "Frequently Asked"}</p>
         <h2 className="text-2xl font-semibold md:text-3xl">FAQ</h2>
         <div className="mt-5 space-y-3">
           {faqs.map((item) => (
-            <details key={item.q} className="group rounded-2xl border border-white/10 bg-[#0B0B0B]/85 p-5 transition-colors hover:border-white/20">
+            <details key={item.q} className="group rounded-2xl border border-white/10 bg-[#0B0B0B]/85 p-5">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-base font-medium text-white">
                 {item.q}
-                <ChevronDown className="h-4 w-4 flex-shrink-0 text-[#C9A227] transition-transform duration-200 group-open:rotate-180" />
+                <CheckCircle2 className="h-4 w-4 text-[#C9A227] transition group-open:rotate-12" />
               </summary>
               <p className="mt-3 text-sm leading-7 text-[#9CA3AF]">{item.a}</p>
             </details>
@@ -3638,12 +2412,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 : "Join the Alpha Traders community and experience a professional marketplace connecting buyers and sellers through Alpha Exchange."}
             </p>
             <div className={`mt-5 flex flex-wrap gap-3 ${isAr ? "md:justify-end" : ""}`}>
-              <a href="#marketplace" className={buttonVariants()}>
-                {isAr ? "ابدأ التداول" : "Start Trading"}
+              <a href="#marketplace">
+                <Button>{isAr ? "ابدأ التداول" : "Start Trading"}</Button>
               </a>
-              <a href={WHATSAPP_URL} target="_blank" rel="noreferrer" className={cn(buttonVariants({ variant: "secondary" }), "gap-2")}>
-                <MessageCircle className="h-4 w-4" />
-                {isAr ? "تواصل عبر واتساب" : "Contact on WhatsApp"}
+              <a href={WHATSAPP_URL} target="_blank" rel="noreferrer">
+                <Button variant="secondary" className="gap-2">
+                  <MessageCircle className="h-4 w-4" />
+                  {isAr ? "تواصل عبر واتساب" : "Contact on WhatsApp"}
+                </Button>
               </a>
             </div>
           </div>
@@ -3653,7 +2429,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       <AnimatePresence>
         {selectedListing ? (
           <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div className="modal-panel max-h-[90vh] w-full max-w-2xl overflow-y-auto" initial={{ opacity: 0, y: 24, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.97 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+            <motion.div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-white/10 bg-[#0B0B0B]/95 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.5)]" initial={{ opacity: 0, y: 24, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.97 }} transition={{ duration: 0.2, ease: "easeOut" }}>
               <div className={`mb-4 flex items-start justify-between gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                 <div>
                   <h3 className="text-2xl font-semibold">{isAr ? "ملف البائع" : "Seller Business Profile"}</h3>
@@ -3695,7 +2471,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <div className="grid gap-4 p-4 md:grid-cols-[auto_1fr]">
                         <div className="-mt-12">
                           {sellerProfileData?.profile.profilePhotoUrl ? (
-                            <Image src={sellerProfileData.profile.profilePhotoUrl} alt={`${sellerProfileData.profile.sellerName} profile`} width={80} height={80} unoptimized className="h-20 w-20 rounded-full border-2 border-[#0B0B0B] object-cover" />
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={sellerProfileData.profile.profilePhotoUrl} alt={`${sellerProfileData.profile.sellerName} profile`} className="h-20 w-20 rounded-full border-2 border-[#0B0B0B] object-cover" />
                           ) : (
                             <div className="inline-flex h-20 w-20 items-center justify-center rounded-full border-2 border-[#0B0B0B] bg-white/[0.06] text-xl font-semibold text-white">
                               {safeText(sellerProfileData?.profile.sellerName ?? selectedListing.sellerDisplayName, "Seller")
@@ -3716,7 +2493,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           <div className="grid gap-1 md:grid-cols-2">
                             <p>Seller Level: <span className="text-white">{sellerLevelLabel(sellerProfileData?.sellerLevel)}</span></p>
                             <p>Trust Score: <span className="text-white">{sellerProfileData?.trustScore.toFixed(1) ?? (selectedListing.sellerReputation?.trustScore ?? 0).toFixed(1)}</span></p>
-                            <p>Public Volume: <span className="text-white">{sellerProfileData?.publicVolumeRange ?? selectedListing.sellerReputation?.publicVolumeRange ?? "0+"}</span></p>
                             <p>Status: <span className="text-white">{sellerProfileData?.profile.onlineStatus === "online" ? "Online" : "Offline"}</span></p>
                             <p>Last Active: <span className="text-white">{formatRelativeMinutesLabel(sellerProfileData?.profile.lastActiveAt)}</span></p>
                             <p>Member Since: <span className="text-white">{new Date(sellerProfileData?.profile.memberSince ?? selectedListing.createdAt).toLocaleDateString("en-IL")}</span></p>
@@ -3729,9 +2505,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                     {[
                       { label: "Completed Trades", value: sellerProfileData?.completedTrades ?? selectedListing.sellerReputation?.completedTrades ?? 0 },
-                      { label: "Public Volume", value: sellerProfileData?.publicVolumeRange ?? selectedListing.sellerReputation?.publicVolumeRange ?? "0+" },
-                      { label: "Next Rank", value: sellerProfileData?.nextRank ? sellerLevelLabel(sellerProfileData.nextRank) : "Top tier reached" },
-                      { label: "Remaining to Next Rank", value: `${(sellerProfileData?.amountToNextRankUsdt ?? selectedListing.sellerReputation?.remainingVolumeToNextRank ?? 0).toLocaleString("en-IL")} USDT` },
+                      { label: "Trade Volume", value: `${(sellerProfileData?.tradeVolume ?? selectedListing.sellerReputation?.totalUsdtVolume ?? 0).toLocaleString("en-IL")} USDT` },
                       { label: "Average Rating", value: (sellerProfileData?.averageRating ?? selectedListing.sellerReputation?.rating ?? 0).toFixed(2) },
                       { label: "Response Time", value: `${(sellerProfileData?.responseTimeMinutes ?? selectedListing.sellerReputation?.responseTimeMinutes ?? 0).toFixed(1)} min` },
                       { label: "Completion Rate", value: `${(sellerProfileData?.completionRate ?? selectedListing.sellerReputation?.completionRate ?? 0).toFixed(1)}%` },
@@ -3745,14 +2519,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       </div>
                     ))}
                   </div>
-                  {sellerProfileData?.exactTradeVolume !== undefined ? (
-                    <div className="rounded-xl border border-[#C9A227]/25 bg-[#C9A227]/[0.06] p-3 text-xs text-[#D1D5DB]">
-                      <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Private Seller Metrics</p>
-                      <p className="mt-1">Exact Lifetime Volume: <span className="text-white">{sellerProfileData.exactTradeVolume.toLocaleString("en-IL")} USDT</span></p>
-                      <p>Commission Paid: <span className="text-white">₪{sellerProfileData.commissionPaid.toFixed(2)}</span></p>
-                      <p>Average Trade Size: <span className="text-white">₪{sellerProfileData.averageTradeSize.toFixed(2)}</span></p>
-                    </div>
-                  ) : null}
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
@@ -3767,22 +2533,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         <p>Country: <span className="text-white">{safeText(sellerProfileData?.profile.country, "Israel")}</span></p>
                         {sellerProfileData?.profile.city ? <p>City: <span className="text-white">{sellerProfileData.profile.city}</span></p> : null}
                       </div>
-                      <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB] md:col-span-2 xl:col-span-4">
-                        <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Prestige Progress</p>
-                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
-                          <div
-                            className="h-full rounded-full bg-gradient-to-r from-[#B8942A] via-[#C9A227] to-[#E8C547]"
-                            style={{ width: `${Math.min(100, sellerProfileData?.progressToNextRankPercent ?? selectedListing.sellerReputation?.prestigeProgressPercent ?? 0)}%` }}
-                          />
-                        </div>
-                      </div>
                     </div>
                     <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
                       <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Listing & Trade Quote</p>
                       <div className="mt-2 space-y-1 text-xs">
-                        <p>Remaining Amount: <span className="text-white">{selectedListing.availableAmount}</span></p>
-                        <p>Minimum Trade: <span className="text-white">{selectedListing.minimumTrade}</span></p>
-                        <p>Maximum Trade: <span className="text-white">{selectedListing.maximumTrade}</span></p>
+                        <p>Available Amount: <span className="text-white">{selectedListing.availableAmount}</span></p>
                         <p>Network: <span className="text-white">{selectedListing.network}</span></p>
                         <p>Price: <span className="text-white">{selectedListing.price}</span></p>
                         <p>Commission (1%): <span className="text-white">₪{commission.toFixed(2)}</span></p>
@@ -3798,18 +2553,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-1 text-[11px] text-[#C9A227]">🎖 Founding Seller</span>
                         ) : null}
                       </div>
-                      {(sellerProfileData?.promotionHistory ?? []).length ? (
-                        <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                          <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Promotion History</p>
-                          <div className="mt-2 space-y-1">
-                            {(sellerProfileData?.promotionHistory ?? []).slice(0, 4).map((entry) => (
-                              <p key={entry.id}>
-                                <span className="capitalize text-white">{sellerLevelLabel(entry.rank)}</span> • {new Date(entry.promotedAt).toLocaleDateString("en-IL")}
-                              </p>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
                     </div>
                   </div>
 
@@ -3900,34 +2643,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
                   <form className="grid gap-3" onSubmit={handlePurchaseSubmit}>
                     <div className="grid gap-3 md:grid-cols-3">
-                      <Input placeholder="Trade Amount (USDT)" value={buyerInfo.amount} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, amount: event.target.value }))} />
                       <Input placeholder="Name" value={buyerInfo.name} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, name: event.target.value }))} />
                       <Input placeholder="WhatsApp" value={buyerInfo.whatsapp} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, whatsapp: event.target.value }))} />
-                      <div className="md:col-span-3 rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10 p-3 text-sm text-[#FDE68A]">
-                        <p className="font-medium text-white">Receiving bank</p>
-                        <p className="mt-1">Please confirm the bank account the seller will use. This is required before the request is submitted.</p>
-                        <div className="mt-3">
-                          <IsraeliBankSelector
-                            value={buyerInfo.bankName}
-                            onChange={(value) => setBuyerInfo((prev) => ({ ...prev, bankName: value }))}
-                            className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white"
-                            placeholder="Search receiving bank"
-                            descriptionClassName="mt-2 text-xs text-[#FDE68A]"
-                          />
-                        </div>
-                        <div className="mt-3 rounded-2xl border border-[#6CAEFF]/20 bg-[#6CAEFF]/10 p-3 text-sm text-[#D1D5DB]">
-                          <p className="font-medium text-white">{isAr ? "إرشادات التحويل" : "Transfer guidance"}</p>
-                          <p className="mt-1">
-                            {isAr
-                              ? "عادةً تصل الأموال خلال 1–2 يوم عمل. لا يُطلق USDT إلا بعد أن يؤكد البائع استلام الأموال في حسابه البنكي."
-                              : "Transfers usually arrive within 1–2 business days. USDT is only released after the seller confirms the funds were received in their bank account."}
-                          </p>
-                        </div>
-                      </div>
-                      <Textarea className="md:col-span-3" placeholder="Notes" value={buyerInfo.notes} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, notes: event.target.value }))} />
+                      <Textarea placeholder="Notes" value={buyerInfo.notes} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, notes: event.target.value }))} />
                     </div>
                     <div className="sticky bottom-0 z-10 rounded-xl border border-[#C9A227]/30 bg-[#0B0B0B]/95 p-3">
-                      <Button type="submit" className="w-full" loading={isSubmittingPurchase} loadingLabel="Starting trade...">Start Trade</Button>
+                      <Button type="submit" className="w-full">Start Trade</Button>
                     </div>
                     {statusMessage ? (
                       <Card className="border-amber-500/30 bg-black/30">
@@ -3951,114 +2672,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   </div>
                 </div>
               )}
-            </motion.div>
-          </motion.div>
-        ) : null}
-        {prestigeModalOpen && prestigeModalStats ? (
-          <motion.div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8, scale: 0.98 }} className="w-full max-w-3xl overflow-hidden rounded-3xl border border-[#C9A227]/30 bg-[#090909]/95 shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
-              <div className="border-b border-white/10 bg-[linear-gradient(135deg,rgba(201,162,39,0.18),rgba(255,255,255,0.02))] p-6">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-[#C9A227]">Prestige Overview</p>
-                    <h3 className="mt-2 text-2xl font-semibold text-white">{prestigeBadgeLabel(prestigeModalStats.currentRank)}</h3>
-                    <p className="mt-2 text-sm text-[#D1D5DB]">A refined view of your current prestige standing, progress, and unlocked achievements.</p>
-                  </div>
-                  <button type="button" aria-label="Close prestige overview" onClick={() => setPrestigeModalOpen(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227]">
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-              <div className="grid gap-4 p-6 lg:grid-cols-[1.2fr_0.8fr]">
-                <div className="space-y-4 rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <div className="rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Current Prestige Rank</p>
-                        <p className={cn("mt-1 text-xl font-semibold capitalize", sellerRankTheme(prestigeModalStats.currentRank))}>{sellerLevelLabel(prestigeModalStats.currentRank)}</p>
-                      </div>
-                      <div className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/15 px-3 py-1 text-xs font-medium text-[#FDE68A]">{prestigeModalStats.publicVolumeRange}</div>
-                    </div>
-                    <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
-                      <div className="h-full rounded-full bg-gradient-to-r from-[#B8942A] via-[#C9A227] to-[#E8C547]" style={{ width: `${Math.min(100, prestigeModalStats.progressPercent)}%` }} />
-                    </div>
-                    <div className="mt-3 flex items-center justify-between text-sm text-[#D1D5DB]">
-                      <span>{prestigeModalStats.nextRank ? `Next: ${sellerLevelLabel(prestigeModalStats.nextRank)}` : "Top tier reached"}</span>
-                      <span>{prestigeModalStats.nextRank ? `${prestigeModalStats.remainingVolumeToNextRank.toLocaleString("en-IL")} USDT` : "Fully unlocked"}</span>
-                    </div>
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-[#D1D5DB]">
-                      <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">Achivements</p>
-                      <div className="mt-2 space-y-2">
-                        {prestigeModalStats.achievements.map((achievement) => (
-                          <div key={achievement.key} className="rounded-xl border border-white/10 bg-black/25 p-2">
-                            <p className="font-medium text-white">{achievement.title}</p>
-                            <p className="mt-1 text-xs text-[#D1D5DB]">{achievement.description}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-[#D1D5DB]">
-                      <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">Promotion History</p>
-                      <div className="mt-2 space-y-2">
-                        {prestigeModalStats.promotionHistory.length ? prestigeModalStats.promotionHistory.map((entry) => (
-                          <div key={entry.id} className="rounded-xl border border-white/10 bg-black/25 p-2">
-                            <p className="text-white">{sellerLevelLabel(entry.rank)}</p>
-                            <p className="mt-1 text-[11px] text-[#9CA3AF]">{new Date(entry.promotedAt).toLocaleDateString("en-IL")}</p>
-                          </div>
-                        )) : <p className="text-xs text-[#9CA3AF]">No promotions yet.</p>}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="space-y-4 rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">Statistics</p>
-                    <div className="mt-2 grid gap-2 text-sm text-[#D1D5DB]">
-                      <p>Completed Trades: <span className="text-white">{prestigeModalStats.completedTrades}</span></p>
-                      <p>Lifetime Volume: <span className="text-white">{prestigeModalStats.totalVolumeUsdt.toLocaleString("en-IL")} USDT</span></p>
-                      <p>Average Rating: <span className="text-white">{prestigeModalStats.averageRating.toFixed(2)}</span></p>
-                      <p>Response Time: <span className="text-white">{prestigeModalStats.responseTimeMinutes.toFixed(1)} min</span></p>
-                      <p>Completion Rate: <span className="text-white">{prestigeModalStats.completionRate.toFixed(1)}%</span></p>
-                      <p>Average Trade Size: <span className="text-white">{prestigeModalStats.averageTradeSize.toFixed(2)} USDT</span></p>
-                      <p>Repeat Buyers: <span className="text-white">{prestigeModalStats.repeatBuyersPercent.toFixed(1)}%</span></p>
-                    </div>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-black/25 p-3 text-sm text-[#D1D5DB]">
-                    <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">Visibility</p>
-                    <p className="mt-2">Public viewers see the rank, badge, and progress state. Exact trade volume and private metrics remain visible only to you and Alpha admin.</p>
-                  </div>
-                  <Button type="button" className="w-full" onClick={() => setPrestigeModalOpen(false)}>Close</Button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        ) : null}
-        {promotionModalRank ? (
-          <motion.div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 12, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 8, scale: 0.98 }}
-              className="modal-panel w-full max-w-md border-[#C9A227]/35 text-center"
-            >
-              <p className="text-xs uppercase tracking-[0.16em] text-[#9CA3AF]">Congratulations!</p>
-              <p className="mt-2 text-2xl font-semibold text-white">You reached:</p>
-              <p className={cn("mt-1 text-3xl font-bold capitalize", sellerRankTheme(promotionModalRank))}>
-                {sellerLevelLabel(promotionModalRank)} Seller
-              </p>
-              <p className="mt-3 text-sm text-[#D1D5DB]">{summarizePromotionBenefits(promotionModalRank)}</p>
-              <div className="mt-6">
-                <Button type="button" className="w-full" onClick={() => setPromotionModalRank(null)}>
-                  Continue
-                </Button>
-              </div>
             </motion.div>
           </motion.div>
         ) : null}
