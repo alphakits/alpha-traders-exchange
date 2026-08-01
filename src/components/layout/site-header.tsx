@@ -1,16 +1,16 @@
 import { Menu } from "lucide-react";
 import Image from "next/image";
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
-import { AUTH_COOKIE_NAME, clearUserSession, expireAuthCookies, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
+import { AUTH_COOKIE_NAME, getCurrentSessionUser } from "@/lib/auth";
 import { getFirstActiveTradeForUser } from "@/lib/alpha-exchange-store";
 import { hasRole } from "@/lib/roles";
 import { cn } from "@/lib/utils";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { NotificationBell } from "@/components/notifications/notification-bell";
+import { LogoutButton } from "@/components/auth/logout-button";
 import { LocaleSwitcher } from "./locale-switcher";
 
 export async function SiteHeader({ locale }: { locale: AppLocale }) {
@@ -29,15 +29,6 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
     sessionUser && (hasRole(sessionUser, "approved_seller") || hasRole(sessionUser, "admin") || hasRole(sessionUser, "owner")),
   );
   const canAccessAdminDashboard = Boolean(sessionUser && hasRole(sessionUser, "admin"));
-
-  async function logoutAction() {
-    "use server";
-    const token = await getCurrentSessionToken();
-    await clearUserSession(token);
-    const cookieStore = await cookies();
-    expireAuthCookies(cookieStore, process.env.NODE_ENV === "production");
-    redirect(`/${locale}/login`);
-  }
 
   const nav = [
     { href: "/", label: t("home") },
@@ -107,11 +98,13 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
           ) : null}
           {sessionUser ? <NotificationBell locale={locale} /> : null}
           {sessionUser ? (
-            <form action={logoutAction} className="hidden sm:inline-flex">
-              <Button size="sm" variant="secondary" className="text-[#D1D5DB] hover:bg-white/10 hover:text-white">
-                {t("signOut")}
-              </Button>
-            </form>
+            <LogoutButton
+              locale={locale}
+              size="sm"
+              variant="secondary"
+              className="hidden text-[#D1D5DB] hover:bg-white/10 hover:text-white sm:inline-flex"
+              idleLabel={t("signOut")}
+            />
           ) : null}
           <details className="group relative lg:hidden">
             <summary className="inline-flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-full border border-white/20 text-[#9CA3AF] hover:border-[#C9A227] hover:text-[#C9A227]">
@@ -166,14 +159,12 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
                     </Link>
                   ) : null}
                   {sessionUser ? (
-                    <form action={logoutAction}>
-                      <button
-                        type="submit"
-                        className="mt-1 block w-full rounded-xl px-3 py-2 text-start text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white"
-                      >
-                        {t("signOut")}
-                      </button>
-                    </form>
+                    <LogoutButton
+                      locale={locale}
+                      variant="ghost"
+                      className="mt-1 block w-full justify-start rounded-xl px-3 py-2 text-start text-sm text-[#D1D5DB] hover:bg-white/5 hover:text-white"
+                      idleLabel={t("signOut")}
+                    />
                   ) : null}
                 </div>
               </nav>

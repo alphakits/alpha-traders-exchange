@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RoleBadge } from "@/components/ui/role-badge";
+import { LogoutButton } from "@/components/auth/logout-button";
 import { AlphaMarketCenter } from "@/components/market/alpha-market-center";
 import { useMarketFeed } from "@/components/market/use-market-feed";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
@@ -3688,17 +3689,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <Link href="/profile">
                       <Button variant="secondary">Profile</Button>
                     </Link>
-                    <Button
+                    <LogoutButton
+                      locale={locale}
                       variant="secondary"
-                      onClick={async () => {
-                        const response = await fetch("/api/auth/logout", { method: "POST" });
-                        if (!response.ok) return;
-                        setSessionUser(null);
-                        window.location.replace(`/${locale}/login`);
-                      }}
-                    >
-                      Logout
-                    </Button>
+                      idleLabel="Logout"
+                      pendingLabel="Signing out..."
+                      onSignedOut={() => setSessionUser(null)}
+                    />
                   </>
                 )}
               </div>
