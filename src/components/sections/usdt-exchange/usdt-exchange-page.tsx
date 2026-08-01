@@ -43,14 +43,15 @@ const PAYMENT_METHOD_META: Record<string, { emoji: string; shortLabel: string }>
 };
 
 const SELLER_APPLICATION_METHOD_OPTIONS = [
-  "TRC20",
-  "ERC20",
-  "Polygon",
-  "Solana",
-  "Face-to-Face",
-  "Cardless Withdrawal",
-  "Bank Transfer",
+  { id: "USDT (ERC20 / Ethereum)", group: "Crypto", recommended: true },
+  { id: "USDT (Polygon)", group: "Crypto", recommended: false },
+  { id: "USDT (Solana SPL / Phantom)", group: "Crypto", recommended: false },
+  { id: "Face-to-Face", group: "Fiat", recommended: false },
+  { id: "Cardless Withdrawal", group: "Fiat", recommended: false },
+  { id: "Bank Transfer", group: "Fiat", recommended: false },
 ] as const;
+
+type SellerApplicationMethod = (typeof SELLER_APPLICATION_METHOD_OPTIONS)[number]["id"];
 
 type Locale = "ar" | "en";
 
@@ -520,11 +521,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     fullName: "",
     email: "",
     whatsappNumber: "",
-    preferredNetwork: "TRC20",
     expectedMonthlyTradingVolume: "",
     additionalNotes: "",
   });
-  const [sellerApplicationMethods, setSellerApplicationMethods] = useState<string[]>(["Bank Transfer"]);
+  const [sellerApplicationMethods, setSellerApplicationMethods] = useState<SellerApplicationMethod[]>(["USDT (ERC20 / Ethereum)"]);
 
   const refreshSellerWorkspace = useCallback(async () => {
     try {
@@ -1043,11 +1043,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...sellerForm,
-          preferredNetworks: [sellerForm.preferredNetwork],
-          additionalNotes: [
-            sellerForm.additionalNotes.trim(),
-            sellerApplicationMethods.length ? `Preferred selling methods: ${sellerApplicationMethods.join(", ")}` : "",
-          ].filter(Boolean).join("\n\n"),
+          preferredNetworks: sellerApplicationMethods,
+          additionalNotes: sellerForm.additionalNotes.trim(),
         }),
       });
       if (!response.ok) {
@@ -1334,7 +1331,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       createdAt: notification.createdAt,
     }));
   }, [activityHistory, notifications]);
-  const groupedActivityHistory = useMemo(() => groupActivityEntriesByDay(activityHistory).slice(0, 5), [activityHistory]);
+  const groupedActivityHistory = useMemo(() => groupActivityEntriesByDay(activityHistory).slice(0, 4), [activityHistory]);
   const buyerOverviewStats = useMemo(() => {
     const completed = buyerRequests.filter((request) => request.status === "completed" || request.status === "review_open" || Boolean(request.completedAt));
     const pending = buyerRequests.filter((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status));
@@ -1364,6 +1361,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       averagePurchasePrice,
       favoritePaymentMethods: favoritePaymentMethods || "—",
       recentTrades: sortedBuyerRequests.slice(0, 3),
+      recentPurchases: sortedBuyerRequests.slice(0, 3).length,
       uniqueTrustedSellers: uniqueTrustedSellers.size,
       totalUsdtBought,
       activeDays: new Set(buyerRequests.map((request) => (request.completedAt ?? request.updatedAt ?? request.createdAt).slice(0, 10))).size,
@@ -1981,9 +1979,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {[
             { label: isAr ? "إجمالي المشتريات" : "Total Purchases", value: buyerOverviewStats.total.toLocaleString("en-IL") },
-            { label: isAr ? "المشتريات المكتملة" : "Completed Purchases", value: buyerOverviewStats.completed.toLocaleString("en-IL") },
             { label: isAr ? "المشتريات المعلقة" : "Pending Purchases", value: buyerOverviewStats.pending.toLocaleString("en-IL") },
-            { label: isAr ? "متوسط سعر الشراء" : "Average Purchase Price", value: formatIls(buyerOverviewStats.averagePurchasePrice) },
+            { label: isAr ? "المشتريات المكتملة" : "Completed Purchases", value: buyerOverviewStats.completed.toLocaleString("en-IL") },
+            { label: isAr ? "المشتريات الأخيرة" : "Recent Purchases", value: buyerOverviewStats.recentPurchases.toLocaleString("en-IL") },
             { label: isAr ? "طرق الدفع المفضلة" : "Favorite Payment Methods", value: buyerOverviewStats.favoritePaymentMethods },
             { label: isAr ? "البائعون الموثوقون" : "Trusted Sellers", value: buyerOverviewStats.uniqueTrustedSellers.toLocaleString("en-IL") },
           ].map((item) => (
@@ -1995,7 +1993,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         </div>
         <div className="grid gap-4 xl:grid-cols-[1.35fr_0.65fr]">
           <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-            <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "أحدث الصفقات" : "Recent Trades"}</p>
+            <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "أحدث المشتريات" : "Recent Purchases"}</p>
             {!buyerOverviewStats.recentTrades.length ? <p className="mt-3 text-sm text-[#9CA3AF]">{isAr ? "ابدأ أول صفقة لرؤية نشاطك هنا." : "Start your first trade to populate this feed."}</p> : null}
             <div className="mt-3 space-y-2">
               {buyerOverviewStats.recentTrades.map((request) => (
@@ -2010,7 +2008,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </div>
           </div>
           <div className="rounded-2xl border border-[#C9A227]/20 bg-[#C9A227]/10 p-4">
-            <p className="text-[11px] uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "نشاط التداول" : "Trading Activity"}</p>
+            <p className="text-[11px] uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "ملخص التداول" : "Trading Summary"}</p>
             <p className="mt-3 text-3xl font-semibold text-white">{buyerOverviewStats.totalUsdtBought.toLocaleString("en-IL")} USDT</p>
             <p className="mt-1 text-sm text-[#E5E7EB]">{isAr ? "إجمالي USDT الذي اشتريته عبر المنصة." : "Total USDT purchased through Alpha Exchange."}</p>
             <div className="mt-4 space-y-2 text-xs text-[#E5E7EB]">
@@ -2021,6 +2019,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
                 <span>{isAr ? "المشتريات المكتملة" : "Completed Orders"}</span>
                 <span className="font-semibold text-white">{buyerOverviewStats.completed}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                <span>{isAr ? "متوسط سعر الشراء" : "Average Purchase Price"}</span>
+                <span className="font-semibold text-white">{formatIls(buyerOverviewStats.averagePurchasePrice)}</span>
               </div>
             </div>
           </div>
@@ -2597,38 +2599,41 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               <Input placeholder={isAr ? "البريد الإلكتروني" : "Email"} type="email" value={sellerForm.email} onChange={(event) => setSellerForm((prev) => ({ ...prev, email: event.target.value }))} />
               <Input placeholder={isAr ? "رقم الواتساب" : "WhatsApp Number"} value={sellerForm.whatsappNumber} onChange={(event) => setSellerForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} />
               <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "الشبكة الأساسية" : "Primary Network"}</p>
-                <select
-                  value={sellerForm.preferredNetwork}
-                  onChange={(event) => setSellerForm((prev) => ({ ...prev, preferredNetwork: event.target.value }))}
-                  className="mt-2 flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]"
-                >
-                  <option>TRC20</option>
-                  <option>ERC20</option>
-                  <option>BEP20</option>
-                  <option>SOL</option>
-                </select>
+                <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "إعدادات الطلب" : "Application Setup"}</p>
+                <p className="mt-2 text-xs text-[#D1D5DB]">
+                  {isAr ? "اختر طريقة أو أكثر لاستلام المدفوعات وتسوية صفقاتك." : "Select one or more methods for how you want to receive funds and settle trades."}
+                </p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "طريقة البيع المفضلة" : "Preferred Selling Method"}</p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {SELLER_APPLICATION_METHOD_OPTIONS.map((method) => {
-                    const selected = sellerApplicationMethods.includes(method);
-                    return (
-                      <button
-                        key={method}
-                        type="button"
-                        onClick={() => setSellerApplicationMethods((prev) => prev.includes(method) ? prev.filter((item) => item !== method) : [...prev, method])}
-                        className={`rounded-xl border px-3 py-2 text-left text-sm transition ${
-                          selected
-                            ? "border-[#C9A227]/60 bg-[#C9A227]/12 text-white"
-                            : "border-white/10 bg-black/25 text-[#D1D5DB] hover:border-[#C9A227]/35 hover:text-white"
-                        }`}
-                      >
-                        {method}
-                      </button>
-                    );
-                  })}
+                <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "طرق البيع المدعومة" : "Supported Selling Methods"}</p>
+                <div className="mt-3 grid gap-4 lg:grid-cols-2">
+                  {(["Crypto", "Fiat"] as const).map((group) => (
+                    <div key={group} className="space-y-2">
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{group}</p>
+                      <div className="grid gap-2">
+                        {SELLER_APPLICATION_METHOD_OPTIONS.filter((method) => method.group === group).map((method) => {
+                          const selected = sellerApplicationMethods.includes(method.id);
+                          return (
+                            <button
+                              key={method.id}
+                              type="button"
+                              onClick={() => setSellerApplicationMethods((prev) => prev.includes(method.id) ? prev.filter((item) => item !== method.id) : [...prev, method.id])}
+                              className={`rounded-xl border px-3 py-2 text-left text-sm transition ${
+                                selected
+                                  ? "border-[#C9A227]/60 bg-[#C9A227]/12 text-white"
+                                  : "border-white/10 bg-black/25 text-[#D1D5DB] hover:border-[#C9A227]/35 hover:text-white"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <span>{method.id}</span>
+                                {method.recommended ? <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#D4AF37]">Recommended</span> : null}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
               <Input placeholder={isAr ? "حجم التداول الشهري المتوقع" : "Expected Monthly Trading Volume"} value={sellerForm.expectedMonthlyTradingVolume} onChange={(event) => setSellerForm((prev) => ({ ...prev, expectedMonthlyTradingVolume: event.target.value }))} />
@@ -2741,7 +2746,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               </div>
               <div className="rounded-xl border border-white/10 bg-black/25 p-4 text-xs text-[#D1D5DB] sm:min-w-[180px]">
                 <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">Today&apos;s Market</p>
-                <p className="mt-1 text-base font-semibold text-white">USD/ILS {formatIls(marketPricePerUsdt)}</p>
+                <p className="mt-1 text-base font-semibold text-white">USDT/ILS {formatIls(marketPricePerUsdt)}</p>
                 <div className="mt-2 space-y-0.5">
                   {sellerOverviewStats.activeListings > 0 && <p>• {sellerOverviewStats.activeListings} Active Listing{sellerOverviewStats.activeListings !== 1 ? "s" : ""}</p>}
                   {sellerOverviewStats.pendingRequests > 0 && <p>• {sellerOverviewStats.pendingRequests} Purchase Request{sellerOverviewStats.pendingRequests !== 1 ? "s" : ""}</p>}
@@ -2785,7 +2790,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             )) : null}
           </div>
 
-          <Card className={`order-5 border-white/10 bg-[#0B0B0B]/90 ${sellerCommissionStatus?.status === "overdue" ? "border-red-600/60" : sellerCommissionStatus?.status === "pending" ? "border-amber-500/40" : ""}`}>
+          <Card className={`order-15 border-white/10 bg-[#0B0B0B]/90 ${sellerCommissionStatus?.status === "overdue" ? "border-red-600/60" : sellerCommissionStatus?.status === "pending" ? "border-amber-500/40" : ""}`}>
             <CardHeader>
               <CardTitle className="inline-flex items-center gap-2">
                 <LockKeyhole className="h-4 w-4 text-[#C9A227]" />
@@ -2846,7 +2851,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </CardContent>
           </Card>
           {commissionPayOpen ? (
-            <Card className="order-6 border-red-600/40 bg-[#0B0B0B]/98">
+            <Card className="order-16 border-red-600/40 bg-[#0B0B0B]/98">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <AlertTriangle className="h-5 w-5 text-red-400" />
@@ -3402,7 +3407,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </CardContent>
           </Card>
 
-          <Card className="order-10 border-white/10 bg-[#0B0B0B]/90">
+          <Card className="order-5 border-white/10 bg-[#0B0B0B]/90">
             <CardHeader>
               <CardTitle>{isAr ? "طلبات الشراء" : "Purchase Requests"}</CardTitle>
               <CardDescription>{isAr ? "إدارة طلبات المشترين الواردة لك." : "Manage incoming buyer purchase requests."}</CardDescription>
@@ -3713,7 +3718,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </CardContent>
           </Card>
 
-          <div className="order-40 grid gap-4 xl:grid-cols-3">
+          <div className="order-40 grid gap-4 xl:grid-cols-3 2xl:grid-cols-4">
             <Card className="order-50 border-white/10 bg-[#0B0B0B]/90">
               <CardHeader>
                 <CardTitle>{isAr ? "ملف البائع" : "Seller Profile"}</CardTitle>
@@ -3811,32 +3816,35 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 </div>
               </CardContent>
             </Card>
-          </div>
-          <Card className="order-50 border-white/10 bg-[#0B0B0B]/90">
-            <CardHeader>
-              <CardTitle>Activity Timeline</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {!activityHistory.length ? (
-                <p className="text-xs text-[#9CA3AF]">Your timeline updates automatically as you trade, review, and manage listings.</p>
-              ) : (
-                groupedActivityHistory.map((group) => (
-                  <div key={group.dayKey} className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{group.label}</p>
-                    <div className="mt-3 grid gap-2 md:grid-cols-2">
-                      {group.items.slice(0, 4).map((entry) => (
-                        <div key={entry.id} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
-                          <p className="font-medium text-white">{entry.title}</p>
-                          <p className="mt-1 line-clamp-2">{entry.details}</p>
-                          <p className="mt-1 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleTimeString("en-IL", { hour: "2-digit", minute: "2-digit" })}</p>
-                        </div>
-                      ))}
+            <Card className="border-white/10 bg-[#0B0B0B]/90 xl:col-span-2">
+              <CardHeader>
+                <CardTitle>Activity Timeline</CardTitle>
+                <CardDescription>Newest first, grouped by date, with compact activity cards.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {!activityHistory.length ? (
+                  <p className="text-xs text-[#9CA3AF]">Your timeline updates automatically as you trade, review, and manage listings.</p>
+                ) : (
+                  groupedActivityHistory.map((group) => (
+                    <div key={group.dayKey} className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{group.label}</p>
+                      <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
+                        {group.items.slice(0, 3).map((entry) => (
+                          <div key={entry.id} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
+                            <div className="flex items-start justify-between gap-3">
+                              <p className="font-medium text-white">{entry.title}</p>
+                              <p className="shrink-0 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleTimeString("en-IL", { hour: "2-digit", minute: "2-digit" })}</p>
+                            </div>
+                            <p className="mt-1 line-clamp-2 text-[#9CA3AF]">{entry.details}</p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </div>
       ) : (
         <div className="mt-8 grid gap-4 md:grid-cols-2">
@@ -4096,25 +4104,27 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </Card>
           ) : null}
           {sessionUser ? notificationCenterCard : null}
-          {sessionUser ? marketInsightsCard : null}
           {sessionUser ? (
             <Card className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
               <CardHeader>
                 <CardTitle>Activity Timeline</CardTitle>
+                <CardDescription>Newest first, grouped by date, with compact activity cards.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-2">
+              <CardContent className="space-y-3">
                 {!activityHistory.length ? (
                   <p className="text-xs text-[#9CA3AF]">Your timeline updates automatically as you trade, review, and manage listings.</p>
                 ) : (
                   groupedActivityHistory.map((group) => (
                     <div key={group.dayKey} className="rounded-2xl border border-white/10 bg-black/20 p-3">
                       <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{group.label}</p>
-                      <div className="mt-3 grid gap-2 md:grid-cols-2">
-                        {group.items.slice(0, 4).map((entry) => (
+                      <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
+                        {group.items.slice(0, 3).map((entry) => (
                           <div key={entry.id} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
-                            <p className="font-medium text-white">{entry.title}</p>
-                            <p className="mt-1 line-clamp-2">{entry.details}</p>
-                            <p className="mt-1 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleTimeString("en-IL", { hour: "2-digit", minute: "2-digit" })}</p>
+                            <div className="flex items-start justify-between gap-3">
+                              <p className="font-medium text-white">{entry.title}</p>
+                              <p className="shrink-0 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleTimeString("en-IL", { hour: "2-digit", minute: "2-digit" })}</p>
+                            </div>
+                            <p className="mt-1 line-clamp-2 text-[#9CA3AF]">{entry.details}</p>
                           </div>
                         ))}
                       </div>

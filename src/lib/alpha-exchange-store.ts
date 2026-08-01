@@ -1039,7 +1039,7 @@ export async function getPremiumSellerProfile(input: {
   const completedStatuses = new Set<PurchaseRequestStatus>(["completed", "locked", "review_open"]);
   const completedTrades = sellerRequests.filter((request) => completedStatuses.has(request.status) || Boolean(request.completedAt));
   const reviews = completedTrades
-    .filter((request) => request.buyerReview)
+    .filter((request) => request.buyerReview && (viewerIsOwner || viewerIsSellerOwner || request.buyerReview.hidden !== true))
     .map((request) => ({
       id: `review-${request.id}`,
       tradeId: request.tradeId ?? request.id,
@@ -1467,13 +1467,18 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       reviewUnlockedAt:
         typeof (request as { reviewUnlockedAt?: string }).reviewUnlockedAt === "string" ? (request as { reviewUnlockedAt: string }).reviewUnlockedAt : undefined,
       buyerReview:
-        (request as { buyerReview?: { reviewerUserId?: string; rating?: number; comment?: string; createdAt?: string } }).buyerReview &&
+        (request as { buyerReview?: { reviewerUserId?: string; rating?: number; comment?: string; createdAt?: string; hidden?: boolean; hiddenReason?: string } }).buyerReview &&
         typeof (request as { buyerReview: { reviewerUserId?: string } }).buyerReview.reviewerUserId === "string"
           ? {
               reviewerUserId: (request as { buyerReview: { reviewerUserId: string } }).buyerReview.reviewerUserId,
               rating: Number((request as { buyerReview: { rating?: number } }).buyerReview.rating ?? 5),
               comment: String((request as { buyerReview: { comment?: string } }).buyerReview.comment ?? "").trim(),
               createdAt: String((request as { buyerReview: { createdAt?: string } }).buyerReview.createdAt ?? request.updatedAt),
+              hidden: (request as { buyerReview: { hidden?: boolean } }).buyerReview.hidden === true,
+              hiddenReason:
+                typeof (request as { buyerReview: { hiddenReason?: string } }).buyerReview.hiddenReason === "string"
+                  ? (request as { buyerReview: { hiddenReason: string } }).buyerReview.hiddenReason.trim()
+                  : undefined,
             }
           : undefined,
       sellerResponse:
@@ -1737,19 +1742,32 @@ async function readDb(options?: { bypassCache?: boolean }): Promise<AlphaExchang
 }
 
 const USER_PROFILE_TABLES = ["users", "seller_profiles", "seller_settings"] as const satisfies readonly SnapshotTableName[];
+const TRUST_INIT_TABLES = [...USER_PROFILE_TABLES, "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
 const LISTING_WRITE_TABLES = ["listings", "audit_logs", "notifications"] as const satisfies readonly SnapshotTableName[];
 const LISTING_TRUST_WRITE_TABLES = [...USER_PROFILE_TABLES, "listings", "audit_logs", "notifications", "activity_logs", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
+const SELLER_APPLICATION_REVIEW_TABLES = [...USER_PROFILE_TABLES, "seller_applications", "notifications", "audit_logs", "activity_logs", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
+const SELLER_STATUS_TRUST_TABLES = [...USER_PROFILE_TABLES, "audit_logs", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
+const SELLER_STATUS_NOTIFICATION_TABLES = [...USER_PROFILE_TABLES, "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
+const SELLER_PROFILE_STATE_TABLES = [...USER_PROFILE_TABLES, "audit_logs"] as const satisfies readonly SnapshotTableName[];
+const SELLER_PRESTIGE_TABLES = [...USER_PROFILE_TABLES, "notifications", "audit_logs", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
 const PURCHASE_REQUEST_CREATE_TABLES = ["purchase_requests", "notifications", "audit_logs", "activity_logs"] as const satisfies readonly SnapshotTableName[];
 const TRADE_STATUS_BASE_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const TRADE_STATUS_TRUST_TABLES = [...USER_PROFILE_TABLES, "purchase_requests", "listings", "notifications", "audit_logs", "activity_logs", "commissions", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
 const TRADE_EVIDENCE_BASE_TABLES = ["purchase_requests", "audit_logs", "activity_logs", "evidence"] as const satisfies readonly SnapshotTableName[];
 const TRADE_EVIDENCE_PAYMENT_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "activity_logs", "evidence"] as const satisfies readonly SnapshotTableName[];
+const TRADE_REVIEW_TABLES = ["purchase_requests", "notifications", "audit_logs", "activity_logs"] as const satisfies readonly SnapshotTableName[];
 const COMMISSION_PAYMENT_TABLES = ["purchase_requests", "commissions", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const PURCHASE_REQUEST_ONLY_TABLES = ["purchase_requests"] as const satisfies readonly SnapshotTableName[];
 const COMMISSION_RESET_TABLES = ["purchase_requests", "commissions", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const COMMISSION_STATUS_TABLES = ["purchase_requests", "commissions", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const AUDIT_LOG_ONLY_TABLES = ["audit_logs"] as const satisfies readonly SnapshotTableName[];
 const NOTIFICATION_ONLY_TABLES = ["notifications"] as const satisfies readonly SnapshotTableName[];
+const NOTIFICATION_PREFERENCES_TABLES = [...USER_PROFILE_TABLES, "activity_logs"] as const satisfies readonly SnapshotTableName[];
+const DISPUTE_WRITE_TABLES = ["purchase_requests", "disputes", "notifications", "activity_logs"] as const satisfies readonly SnapshotTableName[];
+const SELLER_REPORT_TABLES = ["seller_reports", "notifications", "activity_logs"] as const satisfies readonly SnapshotTableName[];
+const BETA_ANNOUNCEMENT_TABLES = ["beta_announcements", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
+const BETA_ANNOUNCEMENT_STATE_TABLES = ["beta_announcements", "audit_logs"] as const satisfies readonly SnapshotTableName[];
+const ADMIN_LISTING_OVERRIDE_TABLES = ["listings", "purchase_requests", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 
 async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<string, Buffer>; traceTag?: string; selectedTables?: readonly SnapshotTableName[] }) {
   const normalized = normalizeDb(db);
@@ -3309,11 +3327,12 @@ export async function createSellerApplication(input: {
   const whatsappNumber = input.whatsappNumber.trim();
   const preferredNetworks = input.preferredNetworks
     .map((network) => String(network))
-    .filter(isSupportedNetwork);
+    .map((network) => network.trim())
+    .filter(Boolean);
 
   if (!fullName) throw new Error("Full name is required.");
   if (!whatsappNumber) throw new Error("WhatsApp number is required.");
-  if (preferredNetworks.length === 0) throw new Error("At least one preferred network is required.");
+  if (preferredNetworks.length === 0) throw new Error("At least one selling method is required.");
 
   const db = await readDb();
   const now = nowIso();
@@ -3445,7 +3464,7 @@ export async function approveSellerApplicationByAdmin(applicationId: string, adm
   });
   await recalculateTrustEngine(db, { reason: "Seller approved", triggeredBy: adminUserId });
 
-  await writeDb(db);
+  await writeDb(db, { selectedTables: SELLER_APPLICATION_REVIEW_TABLES });
   return db.sellerApplications[applicationIndex];
 }
 
@@ -3494,7 +3513,7 @@ export async function rejectSellerApplicationByAdmin(applicationId: string, admi
   });
   await recalculateTrustEngine(db, { reason: "Seller application rejected", triggeredBy: adminUserId });
 
-  await writeDb(db);
+  await writeDb(db, { selectedTables: SELLER_APPLICATION_REVIEW_TABLES });
   return db.sellerApplications[applicationIndex];
 }
 
@@ -3518,7 +3537,7 @@ export async function suspendApprovedSellerByAdmin(userId: string, adminUserId: 
   });
   await recalculateTrustEngine(db, { reason: "Seller suspended", triggeredBy: adminUserId });
 
-  await writeDb(db);
+  await writeDb(db, { selectedTables: SELLER_STATUS_TRUST_TABLES });
   return db.users[userIndex];
 }
 
@@ -3545,7 +3564,7 @@ export async function reactivateSellerByAdmin(userId: string, adminUserId: strin
   });
   await recalculateTrustEngine(db, { reason: "Seller reactivated", triggeredBy: adminUserId });
 
-  await writeDb(db);
+  await writeDb(db, { selectedTables: SELLER_STATUS_TRUST_TABLES });
   return db.users[userIndex];
 }
 
@@ -3635,7 +3654,7 @@ export async function overrideSellerPrestigeByAdmin(input: {
       : `Your prestige rank was set to ${input.rank} by Alpha Traders admin.`,
   });
   await recalculateTrustEngine(db, { reason: "Admin prestige override", triggeredBy: input.adminUserId });
-  await writeDb(db);
+  await writeDb(db, { selectedTables: SELLER_PRESTIGE_TABLES });
   return db.users[sellerIndex];
 }
 
@@ -3714,7 +3733,7 @@ export async function updateSellerProfileStateByAdmin(input: {
     });
   }
 
-  await writeDb(db);
+  await writeDb(db, { selectedTables: SELLER_PROFILE_STATE_TABLES });
   return db.users[index];
 }
 
@@ -4081,7 +4100,7 @@ export async function updateSellerAvailabilityStatus(input: {
       relatedHref: "/admin/alpha-exchange",
     });
   }
-  await writeDb(db);
+  await writeDb(db, { selectedTables: SELLER_STATUS_NOTIFICATION_TABLES });
   publishRealtimeEvent({ type: "seller.status_changed", payload: { sellerId: input.sellerId, onlineStatus: db.users[index].onlineStatus } });
   return db.users[index];
 }
@@ -4211,7 +4230,7 @@ export async function adminOverrideMarketplaceListing(input: {
       relatedHref: "/admin/alpha-exchange",
     });
   }
-  await writeDb(db);
+  await writeDb(db, { selectedTables: ADMIN_LISTING_OVERRIDE_TABLES });
   return listing;
 }
 
@@ -4285,7 +4304,7 @@ export async function reviewMarketplaceListingByOwner(input: {
       input.decision === "approve" ? "Listing activated" : input.decision === "reject" ? "Listing cancelled" : "Listing returned to draft",
     triggeredBy: input.ownerUserId,
   });
-  await writeDb(db);
+  await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
   return db.marketplaceListings[index];
 }
 
@@ -4423,7 +4442,7 @@ export async function createPurchaseRequest(input: {
       relatedListingId: input.listingId,
       relatedHref: "/usdt-exchange",
     });
-    await writeDb(db);
+    await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
     throw new Error("Listing is not available for a new buyer right now.");
   }
   if (listing.sellerId === input.buyerId) throw new Error("You cannot submit a purchase request to your own listing.");
@@ -4437,7 +4456,7 @@ export async function createPurchaseRequest(input: {
       relatedListingId: input.listingId,
       relatedHref: "/usdt-exchange",
     });
-    await writeDb(db);
+    await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
     throw new Error("Seller is currently unavailable for new buyer matches.");
   }
   const requestedUsdtAmount = String(input.usdtAmount ?? "").trim();
@@ -4755,7 +4774,7 @@ export async function getTradeRoomData(input: {
     }
   }
   if (changed) {
-    await writeDb(db);
+    await writeDb(db, { selectedTables: AUDIT_LOG_ONLY_TABLES });
   }
 
   const listing = db.marketplaceListings.find((item) => item.id === request.listingId) ?? null;
@@ -5311,6 +5330,26 @@ function buildSellerReviewFromTrade(request: PurchaseRequest, input: { buyerUser
   } satisfies SellerReviewRecord;
 }
 
+function buildSellerReviewRecordFromRequest(request: PurchaseRequest): SellerReviewRecord | null {
+  if (!request.buyerReview) return null;
+  return {
+    id: `review-${request.id}`,
+    tradeId: request.tradeId ?? request.id,
+    buyerId: request.buyerId,
+    sellerId: request.sellerId,
+    rating: request.buyerReview.rating,
+    comment: request.buyerReview.comment,
+    sellerReply: request.sellerResponse?.message,
+    createdAt: request.buyerReview.createdAt,
+    updatedAt: request.updatedAt,
+    hidden: request.buyerReview.hidden === true,
+    hiddenReason: request.buyerReview.hidden === true ? request.buyerReview.hiddenReason : undefined,
+    verifiedTrade: true,
+    tradeAmount: request.usdtAmount,
+    network: request.network,
+  };
+}
+
 export async function submitBuyerTradeReview(input: {
   requestId: string;
   buyerUserId: string;
@@ -5333,7 +5372,6 @@ export async function submitBuyerTradeReview(input: {
   if (comment.length > 500) throw new Error("Review comment is too long.");
 
   const review = buildSellerReviewFromTrade(request, { buyerUserId: input.buyerUserId, rating, comment });
-  db.sellerReviews.unshift(review);
   db.purchaseRequests[requestIndex] = {
     ...request,
     buyerReview: {
@@ -5341,6 +5379,8 @@ export async function submitBuyerTradeReview(input: {
       rating,
       comment,
       createdAt: review.createdAt,
+      hidden: false,
+      hiddenReason: undefined,
     },
     updatedAt: nowIso(),
   };
@@ -5371,8 +5411,14 @@ export async function submitBuyerTradeReview(input: {
 
   const sellerSnapshotBefore = computeSellerReputationSnapshot(db, request.sellerId);
   const sellerSnapshotAfter = computeSellerReputationSnapshot(db, request.sellerId);
-  await writeDb(db);
-  publishRealtimeEvent({ type: "review.count_changed", payload: { sellerId: request.sellerId, reviewCount: db.sellerReviews.filter((item) => item.sellerId === request.sellerId && !item.hidden).length } });
+  await writeDb(db, { selectedTables: TRADE_REVIEW_TABLES });
+  publishRealtimeEvent({
+    type: "review.count_changed",
+    payload: {
+      sellerId: request.sellerId,
+      reviewCount: db.purchaseRequests.filter((item) => item.sellerId === request.sellerId && item.buyerReview && item.buyerReview.hidden !== true).length,
+    },
+  });
   return {
     review,
     sellerProgress: {
@@ -5393,15 +5439,12 @@ export async function submitSellerReviewResponse(input: {
   message: string;
 }) {
   const db = await readDb();
-  const review = input.reviewId
-    ? db.sellerReviews.find((item) => item.id === input.reviewId)
-    : undefined;
-  const request = review
-    ? db.purchaseRequests.find((item) => (item.tradeId ?? item.id) === review.tradeId)
-    : db.purchaseRequests.find((item) => item.id === input.requestId);
-  if (!request) throw new Error("Trade not found.");
-  const matchedReview = review ?? db.sellerReviews.find((item) => item.tradeId === (request.tradeId ?? request.id));
-  const reviewRecord = matchedReview;
+  const requestIndex = input.reviewId
+    ? db.purchaseRequests.findIndex((item) => `review-${item.id}` === input.reviewId || (item.tradeId ? `review-${item.tradeId}` === input.reviewId : false))
+    : db.purchaseRequests.findIndex((item) => item.id === input.requestId);
+  if (requestIndex === -1) throw new Error("Trade not found.");
+  const request = db.purchaseRequests[requestIndex];
+  const reviewRecord = buildSellerReviewRecordFromRequest(request);
   if (!reviewRecord) throw new Error("Seller response is available only after buyer review.");
   if (request.sellerId !== input.sellerUserId) throw new Error("Only the seller can respond.");
   if (reviewRecord.hidden) throw new Error("Cannot reply to a hidden review.");
@@ -5410,12 +5453,17 @@ export async function submitSellerReviewResponse(input: {
   if (!message) throw new Error("Response message is required.");
   if (message.length > 500) throw new Error("Response message is too long.");
 
-  const updatedReview = {
-    ...reviewRecord,
-    sellerReply: message,
+  db.purchaseRequests[requestIndex] = {
+    ...request,
+    sellerResponse: {
+      responderUserId: input.sellerUserId,
+      message,
+      createdAt: nowIso(),
+    },
     updatedAt: nowIso(),
   };
-  db.sellerReviews = db.sellerReviews.map((item) => (item.id === reviewRecord.id ? updatedReview : item));
+  const updatedReview = buildSellerReviewRecordFromRequest(db.purchaseRequests[requestIndex]);
+  if (!updatedReview) throw new Error("Updated review could not be built.");
 
   await appendAuditLog(db, {
     action: "trade_review_responded",
@@ -5441,7 +5489,7 @@ export async function submitSellerReviewResponse(input: {
     details: `Response sent for trade ${request.tradeId ?? request.id}.`,
   });
 
-  await writeDb(db);
+  await writeDb(db, { selectedTables: TRADE_REVIEW_TABLES });
   return updatedReview;
 }
 
@@ -5451,7 +5499,11 @@ export async function getSellerReviews(input: {
   actorRole?: UserRole;
 }) {
   const db = await readDb();
-  const reviews = db.sellerReviews.filter((review) => review.sellerId === input.sellerId);
+  const reviews = db.purchaseRequests
+    .filter((request) => request.sellerId === input.sellerId)
+    .map((request) => buildSellerReviewRecordFromRequest(request))
+    .filter((review): review is SellerReviewRecord => Boolean(review))
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
   const canViewHidden = input.actorRole === "admin" || input.actorRole === "owner" || input.actorUserId === input.sellerId;
   return canViewHidden ? reviews : reviews.filter((review) => !review.hidden);
 }
@@ -5465,17 +5517,29 @@ export async function moderateSellerReview(input: {
 }) {
   const db = await readDb();
   if (input.actorRole !== "admin" && input.actorRole !== "owner") throw new Error("Only admins can moderate reviews.");
-  const review = db.sellerReviews.find((item) => item.id === input.reviewId);
-  if (!review) throw new Error("Review not found.");
-  const nextReview = {
-    ...review,
-    hidden: input.hidden,
-    hiddenReason: input.hidden ? input.hiddenReason?.trim() || "moderated" : undefined,
+  const requestIndex = db.purchaseRequests.findIndex((item) => `review-${item.id}` === input.reviewId || (item.tradeId ? `review-${item.tradeId}` === input.reviewId : false));
+  if (requestIndex === -1) throw new Error("Review not found.");
+  const request = db.purchaseRequests[requestIndex];
+  if (!request.buyerReview) throw new Error("Review not found.");
+  db.purchaseRequests[requestIndex] = {
+    ...request,
+    buyerReview: {
+      ...request.buyerReview,
+      hidden: input.hidden,
+      hiddenReason: input.hidden ? input.hiddenReason?.trim() || "moderated" : undefined,
+    },
     updatedAt: nowIso(),
   };
-  db.sellerReviews = db.sellerReviews.map((item) => (item.id === review.id ? nextReview : item));
-  await writeDb(db);
-  publishRealtimeEvent({ type: "review.count_changed", payload: { sellerId: review.sellerId, reviewCount: db.sellerReviews.filter((item) => item.sellerId === review.sellerId && !item.hidden).length } });
+  const nextReview = buildSellerReviewRecordFromRequest(db.purchaseRequests[requestIndex]);
+  if (!nextReview) throw new Error("Updated review could not be built.");
+  await writeDb(db, { selectedTables: PURCHASE_REQUEST_ONLY_TABLES });
+  publishRealtimeEvent({
+    type: "review.count_changed",
+    payload: {
+      sellerId: request.sellerId,
+      reviewCount: db.purchaseRequests.filter((item) => item.sellerId === request.sellerId && item.buyerReview && item.buyerReview.hidden !== true).length,
+    },
+  });
   return nextReview;
 }
 
@@ -6824,7 +6888,7 @@ export async function createBetaAnnouncement(input: {
     actorUserId: input.ownerUserId,
     details: `Published marketplace announcement ${announcement.id}.`,
   });
-  await writeDb(db);
+  await writeDb(db, { selectedTables: BETA_ANNOUNCEMENT_TABLES });
   return announcement;
 }
 
@@ -6846,7 +6910,7 @@ export async function updateBetaAnnouncementState(input: {
     actorUserId: input.ownerUserId,
     details: `${input.isActive ? "Activated" : "Deactivated"} announcement ${input.announcementId}.`,
   });
-  await writeDb(db);
+  await writeDb(db, { selectedTables: BETA_ANNOUNCEMENT_STATE_TABLES });
   return db.betaAnnouncements[index];
 }
 
@@ -6898,7 +6962,7 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
   const db = dbInput ?? await readDb();
   const trustInitialized = await ensureTrustSnapshots(db);
   if (trustInitialized && !dbInput) {
-    await writeDb(db);
+    await writeDb(db, { selectedTables: TRUST_INIT_TABLES });
   }
 
   const now = new Date();
@@ -7197,7 +7261,7 @@ export async function getNotificationsForUser(input: {
     });
   });
   if (changed) {
-    await writeDb(db);
+    await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
   }
   const category = input.category;
   const centerCategory = input.centerCategory;
@@ -7247,7 +7311,7 @@ export async function markNotificationReadState(input: { userId: string; notific
     updatedAt: nowIso(),
   });
   publishRealtimeEvent({ type: "notification.updated", payload: { notification: db.notifications[index] } });
-  await writeDb(db);
+  await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
   return db.notifications[index];
 }
 
@@ -7265,7 +7329,7 @@ export async function updateNotificationState(input: { userId: string; notificat
     updatedAt: now,
   });
   publishRealtimeEvent({ type: "notification.updated", payload: { notification: db.notifications[index] } });
-  await writeDb(db);
+  await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
   return db.notifications[index];
 }
 
@@ -7276,7 +7340,7 @@ export async function markAllNotificationsRead(userId: string) {
     if (item.userId !== userId || item.state === "archived") return item;
     return enrichNotification(db, { ...item, isRead: true, state: "read", updatedAt: now });
   });
-  await writeDb(db);
+  await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
 }
 
 export async function archiveReadNotifications(userId: string) {
@@ -7286,7 +7350,7 @@ export async function archiveReadNotifications(userId: string) {
     if (item.userId !== userId || item.state === "archived" || item.state === "unread") return item;
     return enrichNotification(db, { ...item, state: "archived", isRead: true, archivedAt: now, updatedAt: now });
   });
-  await writeDb(db);
+  await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
 }
 
 export async function deleteNotification(input: { userId: string; notificationId: string }) {
@@ -7294,7 +7358,7 @@ export async function deleteNotification(input: { userId: string; notificationId
   const exists = db.notifications.some((item) => item.id === input.notificationId && item.userId === input.userId);
   if (!exists) throw new Error("Notification not found.");
   db.notifications = db.notifications.filter((item) => !(item.id === input.notificationId && item.userId === input.userId));
-  await writeDb(db);
+  await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
 }
 
 export async function updateNotificationPreferences(
@@ -7320,7 +7384,7 @@ export async function updateNotificationPreferences(
     title: "Notification preferences updated",
     details: `inApp=${next.inApp}, email=${next.email}, sms=${next.sms}`,
   });
-  await writeDb(db);
+  await writeDb(db, { selectedTables: NOTIFICATION_PREFERENCES_TABLES });
   return next;
 }
 
@@ -7402,7 +7466,7 @@ export async function openTradeDispute(input: {
     type: "trade.status_changed",
     payload: { request: enrichRequestWithEvidence(db, request) },
   });
-  await writeDb(db);
+  await writeDb(db, { selectedTables: DISPUTE_WRITE_TABLES });
   return dispute;
 }
 
@@ -7463,7 +7527,7 @@ export async function reportSeller(input: {
     title: "Seller reported",
     details: `Report submitted against seller ${seller.fullName}.`,
   });
-  await writeDb(db);
+  await writeDb(db, { selectedTables: SELLER_REPORT_TABLES });
   return report;
 }
 
@@ -7471,7 +7535,7 @@ export async function getAlphaExchangeSummaryForAdmin(dbInput?: AlphaExchangeDb)
   const db = dbInput ?? await readDb();
   const trustInitialized = await ensureTrustSnapshots(db);
   if (trustInitialized && !dbInput) {
-    await writeDb(db);
+    await writeDb(db, { selectedTables: TRUST_INIT_TABLES });
   }
   return {
     usersCount: db.users.length,
@@ -7491,7 +7555,7 @@ export async function getTrustEngineOverviewForAdmin(dbInput?: AlphaExchangeDb) 
   const db = dbInput ?? await readDb();
   const trustInitialized = await ensureTrustSnapshots(db);
   if (trustInitialized && !dbInput) {
-    await writeDb(db);
+    await writeDb(db, { selectedTables: TRUST_INIT_TABLES });
   }
   const snapshots = db.trustSnapshots.map((entry) => entry.snapshot);
   const byScoreDesc = [...snapshots].sort((a, b) => b.trustScore - a.trustScore);
@@ -7571,7 +7635,7 @@ export async function getAdminPrepDashboardData() {
   const db = await readDb();
   const trustInitialized = await ensureTrustSnapshots(db);
   if (trustInitialized) {
-    await writeDb(db);
+    await writeDb(db, { selectedTables: TRUST_INIT_TABLES });
   }
 
   const [summary, applications, approvedSellers, listings, purchaseRequests, commissionRecords, auditLogs, trustEngine, ownerBusiness, privateBeta] = await Promise.all([

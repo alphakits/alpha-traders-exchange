@@ -868,7 +868,7 @@ export function AlphaExchangeAdminDashboard() {
                               <tr>
                                 <th className="px-4 py-3">Applicant</th>
                                 <th className="px-4 py-3">WhatsApp</th>
-                                <th className="px-4 py-3">Preferred Networks</th>
+                                <th className="px-4 py-3">Selling Methods</th>
                                 <th className="px-4 py-3">Submitted Date</th>
                                 <th className="px-4 py-3">Status</th>
                                 <th className="px-4 py-3">Actions</th>
