@@ -3,6 +3,7 @@ import { canPublishListings, deleteMarketplaceListingForSeller, getMarketplaceLi
 import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
+import { isBankTransferPaymentMethod, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
 
 function toNumber(value: unknown) {
@@ -68,10 +69,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const price = body.price !== undefined ? String(body.price).trim() : undefined;
     const responseTime = body.responseTime !== undefined ? String(body.responseTime).trim() : undefined;
     const currency = body.currency !== undefined ? String(body.currency).trim() : undefined;
-    const paymentMethod = body.paymentMethod !== undefined ? String(body.paymentMethod).trim() : undefined;
-    const paymentMethods = Array.isArray(body.paymentMethods)
-      ? body.paymentMethods.map((method: unknown) => String(method).trim()).filter(Boolean).slice(0, 8)
+    const paymentMethods = body.paymentMethods !== undefined || body.paymentMethod !== undefined
+      ? resolveListingPaymentMethods(body.paymentMethods, body.paymentMethod).slice(0, 1)
       : undefined;
+    const paymentMethod = paymentMethods?.[0];
     const bankName = body.bankName !== undefined ? String(body.bankName).trim() : undefined;
     const minimumTrade = body.minimumTrade !== undefined ? String(body.minimumTrade).trim() : undefined;
     const maximumTrade = body.maximumTrade !== undefined ? String(body.maximumTrade).trim() : undefined;
@@ -107,9 +108,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Invalid listing status." }, { status: 400 });
     }
     if (paymentMethods && !paymentMethods.length) {
-      return NextResponse.json({ error: "At least one payment method is required." }, { status: 400 });
+      return NextResponse.json({ error: "A valid payment method is required (Bank Transfer, Face-to-Face, or Cardless ATM Withdrawal)." }, { status: 400 });
     }
-    if (bankName !== undefined && !bankName) {
+    const effectivePaymentMethod = paymentMethod ?? existingListing?.paymentMethod;
+    if (isBankTransferPaymentMethod(effectivePaymentMethod) && bankName !== undefined && !bankName) {
       return NextResponse.json({ error: "Please choose a receiving bank before saving the listing." }, { status: 400 });
     }
     if (minimumTrade !== undefined && toNumber(minimumTrade) < 0) {
@@ -142,7 +144,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       network,
       paymentMethod,
       paymentMethods,
-      bankName,
+      bankName: isBankTransferPaymentMethod(effectivePaymentMethod) ? bankName : undefined,
       minimumTrade,
       maximumTrade,
       expiresAt,

@@ -3,6 +3,7 @@ import { canPublishListings, createMarketplaceListing, getMarketplaceListings } 
 import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
+import { isBankTransferPaymentMethod, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
 
 function toNumber(value: unknown) {
@@ -50,13 +51,7 @@ export async function POST(request: NextRequest) {
     const price = String(body.price ?? "").trim();
     const responseTime = String(body.responseTime ?? "").trim().slice(0, 100) || "5 min";
     const currency = String(body.currency ?? "ILS").trim().slice(0, 10) || "ILS";
-    const paymentMethods = Array.isArray(body.paymentMethods)
-      ? body.paymentMethods.map((method: unknown) => String(method).trim()).filter(Boolean).slice(0, 8)
-      : String(body.paymentMethod ?? "")
-          .split(",")
-          .map((method) => method.trim())
-          .filter(Boolean)
-          .slice(0, 8);
+    const paymentMethods = resolveListingPaymentMethods(body.paymentMethods, body.paymentMethod).slice(0, 1);
     const bankName = String(body.bankName ?? "").trim();
     const minimumTrade = String(body.minimumTrade ?? "0").trim();
     const maximumTrade = String(body.maximumTrade ?? availableAmount).trim();
@@ -84,9 +79,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid network." }, { status: 400 });
     }
     if (!paymentMethods.length) {
-      return NextResponse.json({ error: "At least one payment method is required." }, { status: 400 });
+      return NextResponse.json({ error: "A valid payment method is required (Bank Transfer, Face-to-Face, or Cardless ATM Withdrawal)." }, { status: 400 });
     }
-    if (!bankName) {
+    if (isBankTransferPaymentMethod(paymentMethods[0]) && !bankName) {
       return NextResponse.json({ error: "Please choose a receiving bank before publishing the listing." }, { status: 400 });
     }
     if (!acceptedCommissionPolicy) {
@@ -117,7 +112,7 @@ export async function POST(request: NextRequest) {
       currency,
       network,
       paymentMethods,
-      bankName: bankName || undefined,
+      bankName: isBankTransferPaymentMethod(paymentMethods[0]) ? (bankName || undefined) : undefined,
       minimumTrade,
       maximumTrade,
       expiresAt: expiresAt || undefined,

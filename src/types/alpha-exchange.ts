@@ -543,6 +543,8 @@ export interface PurchaseRequest {
   currency: string;
   network: SupportedNetwork;
   paymentMethod: string;
+  buyerSafetyAcknowledged?: boolean;
+  sellerSafetyAcknowledged?: boolean;
   bankName?: string;
   timeline: TradeTimelineEntry[];
   tradeCreatedAt?: string;

@@ -30,6 +30,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const { requestId } = await context.params;
     const body = await request.json();
     const status = String(body.status ?? "").trim();
+    const safetyAcknowledged = body.safetyAcknowledged === true;
     const traceId = `usdt-sent:${requestId}:${Date.now()}`;
     const isUsdtSent = status === "usdt_sent";
     if (isUsdtSent) {
@@ -47,6 +48,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       actorUserId: user.id,
       actorRole: user.role,
       nextStatus: status,
+      safetyAcknowledged,
       traceId: isUsdtSent ? traceId : undefined,
     });
     if (isUsdtSent) {

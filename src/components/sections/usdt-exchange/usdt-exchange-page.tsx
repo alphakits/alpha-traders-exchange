@@ -12,6 +12,7 @@ import { RoleBadge } from "@/components/ui/role-badge";
 import { AlphaMarketCenter } from "@/components/market/alpha-market-center";
 import { useMarketFeed } from "@/components/market/use-market-feed";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
+import { MARKETPLACE_PAYMENT_METHODS, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
 const WHATSAPP_URL = "https://wa.me/972525967649";
@@ -31,6 +32,12 @@ const ISRAELI_BANKS = [
   { id: "yahav", name: "Yahav", code: "יהב", brandPrimary: "#2563EB", brandSecondary: "#1E40AF", accent: "#BFDBFE" },
   { id: "jerusalem", name: "Bank Jerusalem", code: "בנק ירושלים", brandPrimary: "#1F2937", brandSecondary: "#111827", accent: "#D1D5DB" },
 ] as const;
+
+const PAYMENT_METHOD_META: Record<string, { emoji: string; shortLabel: string }> = {
+  "Bank Transfer": { emoji: "🏦", shortLabel: "Bank Transfer" },
+  "Face-to-Face (Meet in Person)": { emoji: "🤝", shortLabel: "Meet in Person" },
+  "Cardless ATM Withdrawal": { emoji: "🏧", shortLabel: "Cardless ATM" },
+};
 
 type Locale = "ar" | "en";
 
@@ -177,6 +184,8 @@ async function readApiErrorMessage(response: Response, fallback: string) {
 
 function tradeStatusLabel(status: PurchaseRequest["status"]) {
   if (status === "payment_sent") return "Payment Sent";
+  if (status === "funds_received") return "Funds Received";
+  if (status === "usdt_release_pending") return "USDT Release Pending";
   if (status === "usdt_sent") return "USDT Sent";
   if (status === "review_open") return "Review Open";
   return status[0].toUpperCase() + status.slice(1);
@@ -223,8 +232,48 @@ function roleBadgeVariantFromSession(user: SessionUser) {
 
 function listingRequiresFaceToFaceSafetyNotice(listing: MarketplaceListing | null) {
   if (!listing) return false;
-  const methods = listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod];
-  return methods.some((method) => /face\s*[- ]?\s*to\s*[- ]?\s*face|cash/i.test(String(method ?? "")));
+  const method = normalizeMarketplacePaymentMethod(listing.paymentMethods?.[0] ?? listing.paymentMethod);
+  return method === "Face-to-Face (Meet in Person)";
+}
+
+function normalizePaymentMethodList(methods: string[] | undefined, fallback: string | undefined) {
+  const normalized = normalizeMarketplacePaymentMethod(methods?.[0] ?? fallback);
+  return normalized ? [normalized] : [];
+}
+
+function paymentMethodLabel(method: string) {
+  const normalized = normalizeMarketplacePaymentMethod(method) ?? method;
+  return PAYMENT_METHOD_META[normalized]?.shortLabel ?? normalized;
+}
+
+function paymentMethodEmoji(method: string) {
+  const normalized = normalizeMarketplacePaymentMethod(method) ?? method;
+  return PAYMENT_METHOD_META[normalized]?.emoji ?? "💳";
+}
+
+function paymentMethodTradeInstruction(method: string, actor: "buyer" | "seller") {
+  const normalized = normalizeMarketplacePaymentMethod(method);
+  if (normalized === "Bank Transfer") {
+    return actor === "seller"
+      ? "Bank Transfer Instructions: verify funds directly in your bank account before continuing."
+      : "Bank Transfer Instructions: after marking Payment Sent, wait for seller bank confirmation.";
+  }
+  if (normalized === "Face-to-Face (Meet in Person)") {
+    return "Face-to-Face Safety: meet in a public place, protect private information, and confirm USDT transfer before leaving.";
+  }
+  if (normalized === "Cardless ATM Withdrawal") {
+    return actor === "seller"
+      ? "Cardless ATM Withdrawal: confirm only after you collect cash from the ATM."
+      : "Cardless ATM Withdrawal: mark Withdrawal Ready only after generating the ATM withdrawal code.";
+  }
+  return "Follow the trade timeline and complete each verification step before moving forward.";
+}
+
+function shouldRevealFaceToFaceContact(request: PurchaseRequest) {
+  const method = normalizeMarketplacePaymentMethod(request.paymentMethod);
+  if (method !== "Face-to-Face (Meet in Person)") return true;
+  if (request.status === "pending") return false;
+  return Boolean(request.buyerSafetyAcknowledged && request.sellerSafetyAcknowledged);
 }
 
 export function UsdtExchangePage({ locale }: { locale: Locale }) {
@@ -256,7 +305,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     price: "",
     currency: "ILS",
     network: "TRC20" as SupportedNetwork,
-    paymentMethods: "Bank transfer",
+    paymentMethods: "Bank Transfer",
     bankName: "",
     minimumTrade: "0",
     maximumTrade: "",
@@ -287,7 +336,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     price: "",
     currency: "ILS",
     network: "TRC20" as SupportedNetwork,
-    paymentMethods: "Bank transfer",
+    paymentMethods: "Bank Transfer",
     bankName: "",
     minimumTrade: "0",
     maximumTrade: "",
@@ -311,6 +360,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [sellerResponseDrafts, setSellerResponseDrafts] = useState<Record<string, string>>({});
   const [buyerEvidenceFiles, setBuyerEvidenceFiles] = useState<Record<string, File | null>>({});
   const [sellerEvidenceFiles, setSellerEvidenceFiles] = useState<Record<string, File | null>>({});
+  const [sellerSafetyAcknowledgements, setSellerSafetyAcknowledgements] = useState<Record<string, boolean>>({});
   const [evidenceUploading, setEvidenceUploading] = useState<Record<string, boolean>>({});
   const [notifications, setNotifications] = useState<AlphaExchangeNotification[]>([]);
   const [activityHistory, setActivityHistory] = useState<AlphaExchangeActivityLogEntry[]>([]);
@@ -867,7 +917,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const listingCreatePriceInvalid = listingCreateCurrency === "ILS" && listingCreatePrice > maxAllowedListingPrice;
   const listingCreatePriceValid = listingCreatePrice > 0 && !listingCreatePriceInvalid;
   const listingCreateTradeRangeInvalid = listingCreateMaxTrade <= 0 || listingCreateMaxTrade > listingCreateAmount || listingCreateMaxTrade < listingCreateMinTrade;
-  const listingCreateMissingRequired = !listingCreateAmount || !listingCreatePrice || !listingCreateForm.bankName.trim() || !listingCommissionAgreement;
+  const listingCreatePrimaryPaymentMethod = normalizeMarketplacePaymentMethod(listingCreateForm.paymentMethods);
+  const listingCreateRequiresBank = listingCreatePrimaryPaymentMethod === "Bank Transfer";
+  const listingCreateMissingRequired = !listingCreateAmount
+    || !listingCreatePrice
+    || !listingCreatePrimaryPaymentMethod
+    || (listingCreateRequiresBank && !listingCreateForm.bankName.trim())
+    || !listingCommissionAgreement;
   const listingCreateTotalIls = listingCreateAmount * listingCreatePrice;
   const isListingCreateSubmitDisabled = listingCreateMissingRequired || listingCreatePriceInvalid || listingCreateTradeRangeInvalid;
   const listingCreateGuardCardTone = listingCreatePriceInvalid
@@ -888,7 +944,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const listingEditPriceInvalid = listingEditCurrency === "ILS" && listingEditPrice > maxAllowedListingPrice;
   const listingEditPriceValid = listingEditPrice > 0 && !listingEditPriceInvalid;
   const listingEditTradeRangeInvalid = listingEditMaxTrade <= 0 || listingEditMaxTrade > listingEditAmount || listingEditMaxTrade < listingEditMinTrade;
-  const listingEditMissingRequired = !listingEditAmount || !listingEditPrice || !listingEditForm.bankName.trim();
+  const listingEditPrimaryPaymentMethod = normalizeMarketplacePaymentMethod(listingEditForm.paymentMethods);
+  const listingEditRequiresBank = listingEditPrimaryPaymentMethod === "Bank Transfer";
+  const listingEditMissingRequired = !listingEditAmount
+    || !listingEditPrice
+    || !listingEditPrimaryPaymentMethod
+    || (listingEditRequiresBank && !listingEditForm.bankName.trim());
   const isListingEditSubmitDisabled = listingEditMissingRequired || listingEditPriceInvalid || listingEditTradeRangeInvalid;
   const listingEditGuardTone = listingEditPriceInvalid
     ? "border-red-500/60 bg-red-500/10 text-red-200"
@@ -1029,12 +1090,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     const paymentMethodCounts = sourceListings.reduce<Record<string, number>>((acc, listing) => {
       const methods = listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod];
       methods.forEach((method) => {
-        const normalized = safeText(method, "Bank transfer");
+        const normalized = paymentMethodLabel(String(method ?? "Bank Transfer"));
         acc[normalized] = (acc[normalized] ?? 0) + 1;
       });
       return acc;
     }, {});
-    const topPaymentMethod = Object.entries(paymentMethodCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "Bank transfer";
+    const topPaymentMethod = Object.entries(paymentMethodCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "Bank Transfer";
     const newestSellers = [...sourceListings]
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
       .reduce<string[]>((acc, listing) => {
@@ -1170,11 +1231,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           price: listingCreateForm.price,
           currency: listingCreateForm.currency,
           network: listingCreateForm.network,
-          paymentMethods: listingCreateForm.paymentMethods
-            .split(",")
-            .map((value) => value.trim())
-            .filter(Boolean)
-            .slice(0, 8),
+          paymentMethods: listingCreatePrimaryPaymentMethod ? [listingCreatePrimaryPaymentMethod] : [],
           bankName: listingCreateForm.bankName,
           minimumTrade: listingCreateForm.minimumTrade,
           maximumTrade: listingCreateForm.maximumTrade || listingCreateForm.availableAmount,
@@ -1219,11 +1276,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           price: listingEditForm.price,
           currency: listingEditForm.currency,
           network: listingEditForm.network,
-          paymentMethods: listingEditForm.paymentMethods
-            .split(",")
-            .map((value) => value.trim())
-            .filter(Boolean)
-            .slice(0, 8),
+          paymentMethods: listingEditPrimaryPaymentMethod ? [listingEditPrimaryPaymentMethod] : [],
           bankName: listingEditForm.bankName,
           minimumTrade: listingEditForm.minimumTrade,
           maximumTrade: listingEditForm.maximumTrade || listingEditForm.availableAmount,
@@ -1310,11 +1363,15 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     }
   }
 
-  async function handleSellerRequestAction(requestId: string, nextStatus: "accepted" | "declined" | "usdt_sent") {
+  async function handleSellerRequestAction(
+    requestId: string,
+    nextStatus: "accepted" | "declined" | "funds_received" | "usdt_release_pending" | "usdt_sent",
+    options?: { safetyAcknowledged?: boolean },
+  ) {
     const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: nextStatus }),
+      body: JSON.stringify({ status: nextStatus, safetyAcknowledged: options?.safetyAcknowledged === true }),
     });
     const payload = (await response.json()) as { error?: string };
     if (!response.ok) {
@@ -1322,13 +1379,15 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       return;
     }
     if (nextStatus === "accepted") setSellerWorkspaceMessage("Request accepted and trade created.");
+    else if (nextStatus === "funds_received") setSellerWorkspaceMessage("Funds received confirmed.");
+    else if (nextStatus === "usdt_release_pending") setSellerWorkspaceMessage("USDT release started.");
     else if (nextStatus === "usdt_sent") setSellerWorkspaceMessage("USDT sent marked.");
     else setSellerWorkspaceMessage("Request declined.");
     await refreshSellerWorkspace();
   }
 
-  async function handleBuyerTradeStatus(requestId: string, nextStatus: "payment_sent" | "completed" | "cancelled") {
-    const response = await fetch(`/api/alpha-exchange/purchase-requests/${requestId}`, {
+  async function handleBuyerTradeStatus(request: PurchaseRequest, nextStatus: "payment_sent" | "completed" | "cancelled") {
+    const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: nextStatus }),
@@ -1338,9 +1397,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       setStatusMessage(payload.error ?? safeErrorMessage("request"));
       return;
     }
+    const paymentMethod = normalizeMarketplacePaymentMethod(request.paymentMethod) ?? request.paymentMethod;
     setStatusMessage(
       nextStatus === "payment_sent"
-        ? "Payment sent confirmed."
+        ? (paymentMethod === "Cardless ATM Withdrawal" ? "Withdrawal marked as ready." : "Payment sent confirmed.")
         : nextStatus === "completed"
           ? "Trade completed. Review window is open."
           : "Request cancelled.",
@@ -1903,7 +1963,16 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <div className="space-y-1.5 text-xs text-[#9CA3AF]">
                       <p>{isAr ? "آخر نشاط" : "Last active"}: <span className="text-white">{formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt)}</span></p>
                       <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{safeText(listing.network)}</span></p>
-                      <p>{isAr ? "الدفع" : "Payment"}: <span className="text-white">{(listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod]).join(", ")}</span></p>
+                      <div>
+                        <p>{isAr ? "الدفع" : "Payment"}:</p>
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                          {normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).map((method) => (
+                            <span key={`${listing.id}-${method}`} className="rounded-full border border-white/15 bg-white/[0.03] px-2 py-0.5 text-[11px] text-[#D1D5DB]">
+                              {paymentMethodEmoji(method)} {paymentMethodLabel(method)}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
                       <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{toNumber(listing.minimumTrade).toLocaleString("en-IL")} – {toNumber(listing.maximumTrade).toLocaleString("en-IL")} USDT</span></p>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -2288,7 +2357,29 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <option value="BEP20">BEP20</option>
                   <option value="SOL">SOL</option>
                 </select>
-                <Input placeholder="Payment Methods (comma separated)" value={listingCreateForm.paymentMethods} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, paymentMethods: event.target.value }))} />
+                <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
+                  <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Payment Method *</p>
+                  <div className="mt-3 grid gap-2 md:grid-cols-3">
+                    {MARKETPLACE_PAYMENT_METHODS.map((method) => {
+                      const selected = normalizeMarketplacePaymentMethod(listingCreateForm.paymentMethods) === method;
+                      return (
+                        <button
+                          key={`create-method-${method}`}
+                          type="button"
+                          onClick={() => setListingCreateForm((prev) => ({ ...prev, paymentMethods: method, bankName: method === "Bank Transfer" ? prev.bankName : "" }))}
+                          className={`rounded-xl border p-3 text-left transition-all duration-200 ${
+                            selected
+                              ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]"
+                              : "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]"
+                          }`}
+                        >
+                          <p className="text-sm font-medium text-white">{paymentMethodEmoji(method)} {paymentMethodLabel(method)}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-2 text-xs text-[#D1D5DB]">Review payment safety guidance in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link>.</p>
+                </div>
                 <div className="space-y-2">
                   <Input
                     placeholder="Minimum Trade (Required)"
@@ -2308,6 +2399,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <p className="text-xs text-[#9CA3AF]">The largest amount a buyer can purchase in a single transaction.</p>
                 </div>
                 <Textarea className="md:col-span-2" placeholder="Seller Description" value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
+                {listingCreateRequiresBank ? (
                 <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
                   <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Bank selection *</p>
                   <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
@@ -2339,6 +2431,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     })}
                   </div>
                 </div>
+                ) : null}
                 <div className="md:col-span-2 rounded-2xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-4 text-sm text-[#E5E7EB]">
                   <p className="text-xs uppercase tracking-[0.14em] text-[#93C5FD]">Live total value</p>
                   <p className="mt-1">{listingCreateAmount.toLocaleString("en-IL")} USDT</p>
@@ -2368,7 +2461,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <p>Current market: {formatIls(marketPricePerUsdt)} per 1 USDT</p>
                       <p>Maximum allowed: {formatIls(maxAllowedListingPrice)}</p>
                       {listingCreateTradeRangeInvalid ? <p className="text-amber-200">Maximum trade must be greater than minimum trade and less than or equal to available USDT.</p> : null}
-                      {!listingCreateForm.bankName.trim() ? <p className="text-amber-200">Select a receiving bank before submitting.</p> : null}
+                      {listingCreateRequiresBank && !listingCreateForm.bankName.trim() ? <p className="text-amber-200">Select a receiving bank before submitting.</p> : null}
                       {!listingCommissionAgreement ? <p className="text-amber-200">You must accept the 1% commission policy before publishing.</p> : null}
                       {listingCreateAmount > 0 ? <p>{listingCreateAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingCreateAmount * marketPricePerUsdt)}</p> : null}
                     </div>
@@ -2441,7 +2534,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                             price: listing.price,
                             currency: listing.currency,
                             network: listing.network,
-                            paymentMethods: (listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod]).join(", "),
+                            paymentMethods: normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod)[0] ?? "Bank Transfer",
                             bankName: listing.bankName ?? "",
                             minimumTrade: listing.minimumTrade ?? "0",
                             maximumTrade: listing.maximumTrade ?? listing.availableAmount,
@@ -2511,8 +2604,30 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         </select>
                         <Input value={listingEditForm.minimumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, minimumTrade: formatIntegerForInput(event.target.value) }))} placeholder="Minimum Trade" />
                         <Input value={listingEditForm.maximumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, maximumTrade: formatIntegerForInput(event.target.value) }))} placeholder="Maximum Trade" />
-                        <Input className="md:col-span-2" value={listingEditForm.paymentMethods} onChange={(event) => setListingEditForm((prev) => ({ ...prev, paymentMethods: event.target.value }))} placeholder="Payment Methods (comma separated)" />
+                        <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
+                          <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Payment Method *</p>
+                          <div className="mt-2 grid gap-2 md:grid-cols-3">
+                            {MARKETPLACE_PAYMENT_METHODS.map((method) => {
+                              const selected = normalizeMarketplacePaymentMethod(listingEditForm.paymentMethods) === method;
+                              return (
+                                <button
+                                  key={`${listing.id}-method-${method}`}
+                                  type="button"
+                                  onClick={() => setListingEditForm((prev) => ({ ...prev, paymentMethods: method, bankName: method === "Bank Transfer" ? prev.bankName : "" }))}
+                                  className={`rounded-xl border p-2.5 text-left transition-all duration-200 ${
+                                    selected
+                                      ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]"
+                                      : "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]"
+                                  }`}
+                                >
+                                  <p className="text-xs font-medium text-white">{paymentMethodEmoji(method)} {paymentMethodLabel(method)}</p>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
                         <Textarea className="md:col-span-2" value={listingEditForm.sellerDescription} onChange={(event) => setListingEditForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} placeholder="Seller Description" />
+                        {listingEditRequiresBank ? (
                         <div className="md:col-span-4 rounded-2xl border border-white/10 bg-black/20 p-3">
                           <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Receiving bank *</p>
                           <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
@@ -2544,6 +2659,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                             })}
                           </div>
                         </div>
+                        ) : null}
                         <div className={`md:col-span-4 rounded-2xl border p-3 text-xs transition-all duration-200 ${listingEditGuardTone}`}>
                           <div className="flex items-start gap-2">
                             {listingEditPriceInvalid ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
@@ -2554,7 +2670,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                               <p>Current market: {formatIls(marketPricePerUsdt)} per 1 USDT</p>
                               <p>Maximum allowed: {formatIls(maxAllowedListingPrice)}</p>
                               {listingEditTradeRangeInvalid ? <p className="text-amber-200">Maximum trade must be greater than minimum trade and less than or equal to available USDT.</p> : null}
-                              {!listingEditForm.bankName.trim() ? <p className="text-amber-200">Select a receiving bank before saving.</p> : null}
+                              {listingEditRequiresBank && !listingEditForm.bankName.trim() ? <p className="text-amber-200">Select a receiving bank before saving.</p> : null}
                               {listingEditAmount > 0 ? <p>{listingEditAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingEditAmount * marketPricePerUsdt)}</p> : null}
                             </div>
                           </div>
@@ -2586,6 +2702,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <option value="pending">Pending</option>
                   <option value="accepted">Accepted</option>
                   <option value="payment_sent">Payment Sent</option>
+                  <option value="funds_received">Funds Received</option>
+                  <option value="usdt_release_pending">USDT Release Pending</option>
                   <option value="usdt_sent">USDT Sent</option>
                   <option value="review_open">Review Open</option>
                   <option value="declined">Declined</option>
@@ -2606,21 +2724,66 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <div className="grid gap-2 text-sm md:grid-cols-3">
                       <p>Trade Ref: <span className="text-white">{shortTradeRef(request)}</span></p>
                       <p>Buyer Name: <span className="text-white">{request.buyerName}</span></p>
-                      <p>WhatsApp: <span className="text-white">{request.buyerWhatsapp}</span></p>
+                      <p>WhatsApp: <span className="text-white">{shouldRevealFaceToFaceContact(request) ? request.buyerWhatsapp : "Hidden until safety acknowledgment is completed."}</span></p>
                       <p>USDT Amount: <span className="text-white">{toNumber(request.usdtAmount).toLocaleString("en-IL")}</span></p>
                       <p>Fiat Amount: <span className="text-white">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</span></p>
                       <p>Network: <span className="text-white">{request.network}</span></p>
-                      <p>Payment Method: <span className="text-white">{request.paymentMethod}</span></p>
+                      <p>Payment Method: <span className="text-white">{paymentMethodEmoji(request.paymentMethod)} {paymentMethodLabel(request.paymentMethod)}</span></p>
                       <p>Listing: <span className="text-white">{shortListingRef({ id: request.listingId, displayNumber: myListingsById.get(request.listingId)?.displayNumber })}</span></p>
                       <p>Submitted: <span className="text-white">{new Date(request.createdAt).toLocaleString("en-IL")}</span></p>
                       <p>Status: <span className="text-white">{tradeStatusLabel(request.status)}</span></p>
                       {request.completedAt ? <p>Completed: <span className="text-white">{new Date(request.completedAt).toLocaleString("en-IL")}</span></p> : null}
                       {request.reviewUnlockedAt ? <p>Review Unlocked: <span className="text-white">{new Date(request.reviewUnlockedAt).toLocaleString("en-IL")}</span></p> : null}
                     </div>
+                    <div className="mt-3 rounded-xl border border-[#6CAEFF]/25 bg-[#6CAEFF]/10 p-3 text-xs text-[#D1D5DB]">
+                      <p className="font-medium text-white">{paymentMethodEmoji(request.paymentMethod)} Trade Instructions</p>
+                      <p className="mt-1">{paymentMethodTradeInstruction(request.paymentMethod, "seller")}</p>
+                    </div>
+                    {normalizeMarketplacePaymentMethod(request.paymentMethod) === "Face-to-Face (Meet in Person)" && request.status === "pending" ? (
+                      <div className="mt-3 rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-xs text-amber-100">
+                        <p className="font-semibold text-[#FDE68A]">Safety Guidelines</p>
+                        <p className="mt-1 text-[#E5E7EB]">Meet only in public places, prefer camera-covered locations, avoid sharing unnecessary personal details, and confirm USDT transfer before leaving.</p>
+                        <label className="mt-2 inline-flex cursor-pointer items-start gap-2 text-[#E5E7EB]">
+                          <input
+                            type="checkbox"
+                            checked={sellerSafetyAcknowledgements[request.id] ?? false}
+                            onChange={(event) => setSellerSafetyAcknowledgements((prev) => ({ ...prev, [request.id]: event.target.checked }))}
+                            className="mt-0.5 h-4 w-4 rounded border-white/25 bg-black/40 text-[#C9A227] focus:ring-[#C9A227]"
+                          />
+                          <span>I have read and agree to these safety guidelines.</span>
+                        </label>
+                        <p className="mt-1 text-[#D1D5DB]">Read full guidance in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link>.</p>
+                      </div>
+                    ) : null}
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Button type="button" size="sm" disabled={request.status !== "pending"} onClick={() => handleSellerRequestAction(request.id, "accepted")}>Accept</Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={request.status !== "pending" || (normalizeMarketplacePaymentMethod(request.paymentMethod) === "Face-to-Face (Meet in Person)" && !(sellerSafetyAcknowledgements[request.id] ?? false))}
+                        onClick={() => handleSellerRequestAction(request.id, "accepted", { safetyAcknowledged: sellerSafetyAcknowledgements[request.id] ?? false })}
+                      >
+                        Accept
+                      </Button>
                       <Button type="button" size="sm" variant="secondary" disabled={request.status !== "pending"} onClick={() => handleSellerRequestAction(request.id, "declined")}>Decline</Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "payment_sent" || !request.sellerEvidence} onClick={() => handleSellerRequestAction(request.id, "usdt_sent")}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={request.status !== "payment_sent"}
+                        onClick={() => handleSellerRequestAction(request.id, "funds_received")}
+                      >
+                        {normalizeMarketplacePaymentMethod(request.paymentMethod) === "Cardless ATM Withdrawal" ? "Confirm Cash Collected" : "Confirm Funds Received"}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={request.status !== "funds_received"}
+                        onClick={() => handleSellerRequestAction(request.id, "usdt_release_pending")}
+                      >
+                        Start USDT Release
+                      </Button>
+                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_release_pending" || !request.sellerEvidence} onClick={() => handleSellerRequestAction(request.id, "usdt_sent")}>
                         Mark USDT Sent
                       </Button>
                       <Button type="button" size="sm" variant="secondary" onClick={() => handleMessageBuyer(request)}>
@@ -2937,6 +3100,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <option value="pending">Pending</option>
                     <option value="accepted">Accepted</option>
                     <option value="payment_sent">Payment Sent</option>
+                    <option value="funds_received">Funds Received</option>
+                    <option value="usdt_release_pending">USDT Release Pending</option>
                     <option value="usdt_sent">USDT Sent</option>
                     <option value="review_open">Review Open</option>
                     <option value="declined">Declined</option>
@@ -2967,18 +3132,23 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <p>USDT Amount: <span className="text-white">{toNumber(request.usdtAmount).toLocaleString("en-IL")}</span></p>
                       <p>Fiat Amount: <span className="text-white">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</span></p>
                       <p>Network: <span className="text-white">{request.network}</span></p>
-                      <p>Payment Method: <span className="text-white">{request.paymentMethod}</span></p>
+                      <p>Payment Method: <span className="text-white">{paymentMethodEmoji(request.paymentMethod)} {paymentMethodLabel(request.paymentMethod)}</span></p>
                       <p>Submitted: <span className="text-white">{new Date(request.createdAt).toLocaleString("en-IL")}</span></p>
                       {request.completedAt ? <p>Completed: <span className="text-white">{new Date(request.completedAt).toLocaleString("en-IL")}</span></p> : null}
                     </div>
+                    <div className="mt-3 rounded-xl border border-[#6CAEFF]/25 bg-[#6CAEFF]/10 p-3 text-xs text-[#D1D5DB]">
+                      <p className="font-medium text-white">{paymentMethodEmoji(request.paymentMethod)} Trade Instructions</p>
+                      <p className="mt-1">{paymentMethodTradeInstruction(request.paymentMethod, "buyer")}</p>
+                      <p className="mt-1">Review details in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link>.</p>
+                    </div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Button type="button" size="sm" disabled={request.status !== "accepted" || !request.buyerEvidence} onClick={() => handleBuyerTradeStatus(request.id, "payment_sent")}>
-                        Mark Payment Sent
+                      <Button type="button" size="sm" disabled={request.status !== "accepted" || !request.buyerEvidence} onClick={() => handleBuyerTradeStatus(request, "payment_sent")}>
+                        {normalizeMarketplacePaymentMethod(request.paymentMethod) === "Cardless ATM Withdrawal" ? "Mark Withdrawal Ready" : "Mark Payment Sent"}
                       </Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_sent"} onClick={() => handleBuyerTradeStatus(request.id, "completed")}>
+                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_sent"} onClick={() => handleBuyerTradeStatus(request, "completed")}>
                         Confirm Trade Completed
                       </Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "pending" && request.status !== "accepted"} onClick={() => handleBuyerTradeStatus(request.id, "cancelled")}>
+                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "pending" && request.status !== "accepted"} onClick={() => handleBuyerTradeStatus(request, "cancelled")}>
                         Cancel
                       </Button>
                     </div>
@@ -3273,7 +3443,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         <p>Trading Experience: <span className="text-white">{safeText(sellerProfileData?.profile.tradingExperience, "Not provided yet.")}</span></p>
                         <p>Languages: <span className="text-white">{(sellerProfileData?.profile.languages ?? []).join(", ") || "Not provided yet."}</span></p>
                         <p>Working Hours: <span className="text-white">{safeText(sellerProfileData?.profile.workingHours, "Not provided yet.")}</span></p>
-                        <p>Payment Methods: <span className="text-white">{(sellerProfileData?.profile.preferredPaymentMethods ?? [selectedListing.paymentMethod]).join(", ")}</span></p>
+                        <p>Payment Methods: <span className="text-white">{normalizePaymentMethodList(sellerProfileData?.profile.preferredPaymentMethods, selectedListing.paymentMethod).map((method) => `${paymentMethodEmoji(method)} ${paymentMethodLabel(method)}`).join(", ")}</span></p>
                         <p>Supported Networks: <span className="text-white">{(sellerProfileData?.profile.preferredNetworks ?? [selectedListing.network]).join(", ")}</span></p>
                         <p>Country: <span className="text-white">{safeText(sellerProfileData?.profile.country, "Not provided yet.")}</span></p>
                         {sellerProfileData?.profile.city ? <p>City: <span className="text-white">{sellerProfileData.profile.city}</span></p> : null}
@@ -3287,6 +3457,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         <p>Price: <span className="text-white">{selectedListing.price}</span></p>
                         <p>Commission (1%): <span className="text-white">₪{commission.toFixed(2)}</span></p>
                         <p className="font-medium">Estimated Total: <span className="text-[#C9A227]">₪{estimatedTotal.toFixed(2)}</span></p>
+                        <p>Trade Instructions: <span className="text-white">{paymentMethodTradeInstruction(selectedListing.paymentMethod, "buyer")}</span></p>
+                        <p>Safety Guidance: <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link></p>
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
                         {(sellerProfileData?.badges ?? selectedListing.sellerReputation?.badges ?? []).map((badge) => (
@@ -3405,8 +3577,15 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     </div>
                     {selectedListingRequiresSafetyNotice ? (
                       <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-xs text-amber-100">
-                        <p className="font-semibold text-[#FDE68A]">Privacy &amp; Safety Notice</p>
-                        <p className="mt-1 text-[#E5E7EB]">Alpha Traders protects the privacy of buyers and sellers. Share only required details, meet in safe public locations, and never move payments outside the official trade flow.</p>
+                        <p className="font-semibold text-[#FDE68A]">Safety Guidelines</p>
+                        <ul className="mt-1 list-disc space-y-1 pl-4 text-[#E5E7EB]">
+                          <li>Meet only in public places.</li>
+                          <li>Prefer locations with security cameras.</li>
+                          <li>Meet during daylight when possible.</li>
+                          <li>Do not reveal unnecessary personal information.</li>
+                          <li>Confirm the USDT transfer before leaving.</li>
+                          <li>Report suspicious behavior immediately.</li>
+                        </ul>
                         <label className="mt-2 inline-flex cursor-pointer items-start gap-2 text-[#E5E7EB]">
                           <input
                             type="checkbox"
@@ -3416,6 +3595,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           />
                           <span>I have read and understand the privacy and safety guidelines.</span>
                         </label>
+                        <p className="mt-1 text-[#D1D5DB]">Both buyer and seller must acknowledge these guidelines before the trade can begin.</p>
                         <p className="mt-1 text-[#D1D5DB]">Read full guidance in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link>.</p>
                       </div>
                     ) : null}

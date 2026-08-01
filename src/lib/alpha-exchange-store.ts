@@ -10,6 +10,13 @@ import { runEnvValidation } from "@/lib/env-validation";
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import { addRole, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
 import { publishRealtimeEvent } from "@/lib/realtime";
+import {
+  isBankTransferPaymentMethod,
+  isCardlessAtmPaymentMethod,
+  isFaceToFacePaymentMethod,
+  normalizeMarketplacePaymentMethod,
+  resolveListingPaymentMethods,
+} from "@/lib/marketplace-payment-methods";
 import type {
   AlphaExchangeActivityLogEntry,
   BetaAnnouncement,
@@ -1355,9 +1362,19 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
          ? ((request as { network: SupportedNetwork }).network)
           : "TRC20",
       paymentMethod:
-        typeof (request as { paymentMethod?: string }).paymentMethod === "string" && (request as { paymentMethod: string }).paymentMethod.trim()
-          ? (request as { paymentMethod: string }).paymentMethod.trim()
-          : "Bank transfer",
+        normalizeMarketplacePaymentMethod((request as { paymentMethod?: string }).paymentMethod) ??
+        "Bank Transfer",
+      buyerSafetyAcknowledged:
+        typeof (request as { buyerSafetyAcknowledged?: unknown }).buyerSafetyAcknowledged === "boolean"
+          ? (request as { buyerSafetyAcknowledged: boolean }).buyerSafetyAcknowledged
+          : !isFaceToFacePaymentMethod((request as { paymentMethod?: string }).paymentMethod),
+      sellerSafetyAcknowledged:
+        typeof (request as { sellerSafetyAcknowledged?: unknown }).sellerSafetyAcknowledged === "boolean"
+          ? (request as { sellerSafetyAcknowledged: boolean }).sellerSafetyAcknowledged
+          : (
+            !isFaceToFacePaymentMethod((request as { paymentMethod?: string }).paymentMethod) ||
+            (isValidPurchaseStatus(request.status) ? request.status !== "pending" : true)
+          ),
       timeline: Array.isArray((request as { timeline?: unknown[] }).timeline)
         ? (request as { timeline: unknown[] }).timeline
             .filter((entry) => entry && typeof entry === "object")
@@ -1544,17 +1561,17 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         typeof (listing as { maximumTrade?: string }).maximumTrade === "string" && (listing as { maximumTrade: string }).maximumTrade.trim()
           ? (listing as { maximumTrade: string }).maximumTrade.trim()
           : (typeof (listing as { availableAmount?: string }).availableAmount === "string" ? (listing as { availableAmount: string }).availableAmount.trim() : "0"),
-      paymentMethods: Array.isArray((listing as { paymentMethods?: string[] }).paymentMethods)
-        ? (listing as { paymentMethods: string[] }).paymentMethods.map((method) => String(method).trim()).filter(Boolean).slice(0, 8)
-        : (typeof (listing as { paymentMethod?: string }).paymentMethod === "string" && (listing as { paymentMethod: string }).paymentMethod.trim()
-            ? [(listing as { paymentMethod: string }).paymentMethod.trim()]
-            : ["Bank transfer"]),
+      paymentMethods: (() => {
+        const methods = resolveListingPaymentMethods(
+          (listing as { paymentMethods?: string[] }).paymentMethods,
+          (listing as { paymentMethod?: string }).paymentMethod,
+        );
+        return methods.length ? methods : ["Bank Transfer"];
+      })(),
       paymentMethod:
-        typeof (listing as { paymentMethod?: string }).paymentMethod === "string" && (listing as { paymentMethod: string }).paymentMethod.trim()
-          ? (listing as { paymentMethod: string }).paymentMethod.trim()
-          : (Array.isArray((listing as { paymentMethods?: string[] }).paymentMethods) && (listing as { paymentMethods: string[] }).paymentMethods.length
-              ? String((listing as { paymentMethods: string[] }).paymentMethods[0]).trim()
-              : "Bank transfer"),
+        normalizeMarketplacePaymentMethod((listing as { paymentMethod?: string }).paymentMethod) ??
+        resolveListingPaymentMethods((listing as { paymentMethods?: string[] }).paymentMethods)[0] ??
+        "Bank Transfer",
       sellerDescription: typeof (listing as { sellerDescription?: string }).sellerDescription === "string"
         ? (listing as { sellerDescription: string }).sellerDescription.trim()
         : "",
@@ -3398,6 +3415,14 @@ export async function createMarketplaceListing(input: {
   logProfile("getSellerListingBlockReason");
   const now = nowIso();
   const expiresAt = input.expiresAt?.trim() || getListingExpirationIso(now, input.expirationHours);
+  const listingPaymentMethods = resolveListingPaymentMethods(input.paymentMethods, input.paymentMethod).slice(0, 1);
+  if (!listingPaymentMethods.length) {
+    throw new Error("A valid payment method is required (Bank Transfer, Face-to-Face, or Cardless ATM Withdrawal).");
+  }
+  const primaryPaymentMethod = listingPaymentMethods[0];
+  if (isBankTransferPaymentMethod(primaryPaymentMethod) && !input.bankName?.trim()) {
+    throw new Error("Please choose a receiving bank before publishing the listing.");
+  }
   const listing: MarketplaceListing = {
     id: `listing-${randomUUID()}`,
     sellerId: input.sellerId,
@@ -3408,9 +3433,9 @@ export async function createMarketplaceListing(input: {
     price: input.price.trim(),
     currency: input.currency?.trim() || "ILS",
     network: input.network,
-    paymentMethods: (input.paymentMethods ?? [input.paymentMethod ?? "Bank transfer"]).map((method) => String(method).trim()).filter(Boolean).slice(0, 8),
-    paymentMethod: "",
-    bankName: input.bankName?.trim() || undefined,
+    paymentMethods: listingPaymentMethods,
+    paymentMethod: primaryPaymentMethod,
+    bankName: isBankTransferPaymentMethod(primaryPaymentMethod) ? (input.bankName?.trim() || undefined) : undefined,
     minimumTrade: input.minimumTrade?.trim() || "0",
     maximumTrade: input.maximumTrade?.trim() || input.availableAmount.trim(),
     expiresAt,
@@ -3421,7 +3446,7 @@ export async function createMarketplaceListing(input: {
     createdAt: now,
     updatedAt: now,
   };
-  listing.paymentMethod = listing.paymentMethods[0] ?? "Bank transfer";
+  listing.paymentMethod = listing.paymentMethods[0] ?? "Bank Transfer";
   db.marketplaceListings.push(listing);
   // Assign display numbers for the new listing (ensureDisplayNumbers is idempotent
   // for items that already have a number, so existing listings are unaffected).
@@ -3520,6 +3545,16 @@ export async function updateMarketplaceListingForSeller(input: {
     throw new Error("Sellers can only switch listings between active and paused.");
   }
   const updatedAt = nowIso();
+  const normalizedPaymentMethods = input.paymentMethods
+    ? resolveListingPaymentMethods(input.paymentMethods, input.paymentMethod).slice(0, 1)
+    : (input.paymentMethod ? resolveListingPaymentMethods(undefined, input.paymentMethod).slice(0, 1) : undefined);
+  const nextPaymentMethods = normalizedPaymentMethods?.length
+    ? normalizedPaymentMethods
+    : (current.paymentMethods?.length ? current.paymentMethods : resolveListingPaymentMethods(undefined, current.paymentMethod));
+  const nextPaymentMethod = nextPaymentMethods[0] ?? normalizeMarketplacePaymentMethod(current.paymentMethod) ?? "Bank Transfer";
+  if (isBankTransferPaymentMethod(nextPaymentMethod) && input.bankName !== undefined && !input.bankName.trim()) {
+    throw new Error("Please choose a receiving bank before saving the listing.");
+  }
 
   const next: MarketplaceListing = {
     ...current,
@@ -3528,11 +3563,11 @@ export async function updateMarketplaceListingForSeller(input: {
     price: input.price?.trim() || current.price,
     currency: input.currency?.trim() || current.currency,
     network: input.network || current.network,
-    paymentMethods: input.paymentMethods
-      ? input.paymentMethods.map((method) => String(method).trim()).filter(Boolean).slice(0, 8)
-      : (input.paymentMethod?.trim() ? [input.paymentMethod.trim()] : current.paymentMethods),
-    paymentMethod: input.paymentMethod?.trim() || current.paymentMethod,
-    bankName: input.bankName !== undefined ? input.bankName.trim() || undefined : current.bankName,
+    paymentMethods: nextPaymentMethods,
+    paymentMethod: nextPaymentMethod,
+    bankName: isBankTransferPaymentMethod(nextPaymentMethod)
+      ? (input.bankName !== undefined ? input.bankName.trim() || undefined : current.bankName)
+      : undefined,
     minimumTrade: input.minimumTrade?.trim() || current.minimumTrade,
     maximumTrade: input.maximumTrade?.trim() || current.maximumTrade,
     expiresAt: input.expiresAt?.trim() || (input.expirationHours !== undefined ? getListingExpirationIso(updatedAt, input.expirationHours) : current.expiresAt),
@@ -3992,9 +4027,11 @@ export async function createPurchaseRequest(input: {
   const now = nowIso();
   const listing = db.marketplaceListings.find((item) => item.id === input.listingId);
   if (!listing) throw new Error("Listing not found.");
-  const listingPaymentMethods = listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod];
-  const requiresFaceToFaceSafetyNotice = listingPaymentMethods.some((method) => /face\s*[- ]?\s*to\s*[- ]?\s*face|cash/i.test(method ?? ""));
-  if (requiresFaceToFaceSafetyNotice && !input.safetyAcknowledged) {
+  const listingPaymentMethods = resolveListingPaymentMethods(listing.paymentMethods, listing.paymentMethod);
+  const primaryPaymentMethod = listingPaymentMethods[0] ?? "Bank Transfer";
+  const requiresFaceToFaceSafetyNotice = isFaceToFacePaymentMethod(primaryPaymentMethod);
+  const buyerSafetyAcknowledged = !requiresFaceToFaceSafetyNotice || input.safetyAcknowledged === true;
+  if (requiresFaceToFaceSafetyNotice && !buyerSafetyAcknowledged) {
     throw new Error("Please acknowledge the Face-to-Face privacy and safety notice before continuing.");
   }
   if (!canListingReceiveRequests(listing)) {
@@ -4048,8 +4085,10 @@ export async function createPurchaseRequest(input: {
     fiatAmount,
     currency: listing.currency,
     network: listing.network,
-    paymentMethod: listing.paymentMethod,
-    bankName: input.bankName?.trim() || listing.bankName,
+    paymentMethod: primaryPaymentMethod,
+    buyerSafetyAcknowledged,
+    sellerSafetyAcknowledged: !requiresFaceToFaceSafetyNotice,
+    bankName: isBankTransferPaymentMethod(primaryPaymentMethod) ? (input.bankName?.trim() || listing.bankName) : undefined,
     timeline: [
       {
         id: `timeline-purchase-${randomUUID()}-1`,
@@ -4085,7 +4124,7 @@ export async function createPurchaseRequest(input: {
     userId: sellerId,
     category: "trade",
     title: "New trade request",
-    message: `${request.buyerName} submitted a trade request.`,
+    message: `${request.buyerName} submitted a ${primaryPaymentMethod} trade request.`,
     relatedTradeId: request.tradeId,
     relatedListingId: request.listingId,
     relatedHref: requestDetailsHref(request.id),
@@ -4636,6 +4675,7 @@ export async function updatePurchaseRequestStatus(input: {
   actorUserId: string;
   actorRole: UserRole;
   nextStatus: PurchaseRequestStatus;
+  safetyAcknowledged?: boolean;
   traceId?: string;
 }) {
   const isUsdtSentTrace = input.nextStatus === "usdt_sent";
@@ -4669,6 +4709,10 @@ export async function updatePurchaseRequestStatus(input: {
 
   const currentStatus = request.status;
   const listing = getListingByIdOrThrow(db, request.listingId);
+  const requestPaymentMethod = normalizeMarketplacePaymentMethod(request.paymentMethod) ?? "Bank Transfer";
+  const isFaceToFaceTrade = isFaceToFacePaymentMethod(requestPaymentMethod);
+  const isAtmTrade = isCardlessAtmPaymentMethod(requestPaymentMethod);
+  const isBankTransferTrade = isBankTransferPaymentMethod(requestPaymentMethod);
   const allowedByStatus: Record<PurchaseRequestStatus, PurchaseRequestStatus[]> = {
     pending: ["accepted", "declined", "cancelled"],
     accepted: ["payment_sent", "cancelled"],
@@ -4704,7 +4748,13 @@ export async function updatePurchaseRequestStatus(input: {
     if (listing.status !== "active" && !(listing.activeTradeRequestId === request.id && isListingLocked(listing.status))) {
       throw new Error("This listing is not open for matching.");
     }
+    if (isFaceToFaceTrade && !next.sellerSafetyAcknowledged && input.safetyAcknowledged !== true) {
+      throw new Error("Seller must acknowledge the Face-to-Face safety guidelines before starting this trade.");
+    }
     next.status = "accepted";
+    if (isFaceToFaceTrade) {
+      next.sellerSafetyAcknowledged = true;
+    }
     next.tradeId = next.tradeId ?? `trade-${randomUUID()}`;
     next.tradeCreatedAt = now;
     listing.status = "matched";
@@ -4751,7 +4801,9 @@ export async function updatePurchaseRequestStatus(input: {
       userId: request.buyerId,
       category: "trade",
       title: "Trade request accepted",
-      message: `Your request ${request.id} was accepted.`,
+      message: isFaceToFaceTrade
+        ? "Your meeting is ready. Review the safety guidelines before meeting."
+        : `Your request ${request.id} was accepted.`,
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
@@ -4788,8 +4840,12 @@ export async function updatePurchaseRequestStatus(input: {
     pushNotification(db, {
       userId: request.sellerId,
       category: "trade",
-      title: "Buyer paid",
-      message: `Buyer marked payment sent for trade ${next.tradeId ?? request.id}.`,
+      title: isAtmTrade ? "Withdrawal ready" : "Buyer marked payment sent",
+      message: isBankTransferTrade
+        ? "Buyer marked payment as sent. Please verify the funds in your bank account."
+        : isAtmTrade
+          ? "Buyer has prepared the cardless withdrawal. Confirm after collecting the cash."
+          : "Buyer marked payment as sent. Confirm funds in person after following safety guidelines.",
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
@@ -4801,8 +4857,12 @@ export async function updatePurchaseRequestStatus(input: {
     pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
-      title: "Seller confirmed funds received",
-      message: `Seller confirmed funds received for trade ${next.tradeId ?? request.id}.`,
+      title: isAtmTrade ? "Seller confirmed cash collected" : "Seller confirmed funds received",
+      message: isBankTransferTrade
+        ? "Seller verified the bank transfer and confirmed funds received."
+        : isAtmTrade
+          ? "Seller confirmed cash was collected from the cardless ATM."
+          : "Seller confirmed in-person payment was received.",
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),

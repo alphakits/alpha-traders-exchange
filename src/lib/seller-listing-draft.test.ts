@@ -4,15 +4,15 @@ import { createDefaultSellerListingDraft, normalizeSellerListingDraft, readSelle
 describe("seller listing draft helpers", () => {
   it("normalizes values and preserves a safe default", () => {
     const fallback = createDefaultSellerListingDraft();
-    const draft = normalizeSellerListingDraft({ availableAmount: "100", price: "1.25", currency: "ILS", network: "TRC20", paymentMethods: "Bank transfer", minimumTrade: "10", maximumTrade: "100" }, fallback);
+    const draft = normalizeSellerListingDraft({ availableAmount: "100", price: "1.25", currency: "ILS", network: "TRC20", paymentMethods: "Bank Transfer", minimumTrade: "10", maximumTrade: "100" }, fallback);
 
     expect(draft).toEqual({
       availableAmount: "100",
       price: "1.25",
       currency: "ILS",
       network: "TRC20",
-      paymentMethods: "Bank transfer",
-      bankName: "Bank transfer",
+      paymentMethods: "Bank Transfer",
+      bankName: "",
       minimumTrade: "10",
       maximumTrade: "100",
     });
