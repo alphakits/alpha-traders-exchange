@@ -1232,11 +1232,11 @@ export function TradeRoomPage({
   const actorSide: "buyer" | "seller" = isActorBuyer ? "buyer" : "seller";
 
   return (
-    <main className="min-h-screen bg-[#050505] px-3 py-4 text-white md:px-6 md:py-6">
-      <div className="mx-auto flex max-w-7xl flex-col gap-4">
+    <main className="min-h-screen bg-[#050505] px-3 py-4 text-white md:px-5 md:py-5 xl:px-6">
+      <div className="mx-auto flex max-w-[1500px] flex-col gap-4 xl:gap-5">
         <Card className="border-[#C9A227]/35 bg-gradient-to-br from-[#141414] via-[#0E0E0E] to-[#050505]">
-          <CardHeader className="space-y-4">
-            <div className="flex flex-col justify-between gap-2 md:flex-row md:items-end">
+          <CardHeader className="space-y-3 xl:space-y-4">
+            <div className="grid gap-3 xl:grid-cols-[minmax(0,1.45fr)_320px] xl:items-end">
               <div>
                 <p className="text-xs uppercase tracking-[0.14em] text-[#C9A227]">{isAr ? "غرفة التداول" : "Trade Room"}</p>
                 <CardTitle className="mt-1 text-2xl font-semibold">{request.displayNumber ? `Trade #${request.displayNumber}` : request.tradeId ?? `Trade #${request.id.slice(-6)}`}</CardTitle>
@@ -1324,7 +1324,7 @@ export function TradeRoomPage({
                     <p className="mt-2 text-sm text-[#E5E7EB]">{statusBanner.detail}</p>
                   </div>
                 </div>
-                <div className="grid gap-2 text-sm md:min-w-[300px]">
+                <div className="grid gap-2 text-sm xl:min-w-[300px]">
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "إجراك الحالي" : "Your action"}</p>
                     <p className="mt-1 text-white">{statusBanner.yourAction}</p>
@@ -1427,7 +1427,7 @@ export function TradeRoomPage({
           </Card>
         ) : null}
 
-        {!showSuccessScreen ? <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+        {!showSuccessScreen ? <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_380px] xl:items-start">
           <div className="space-y-4">
             <Card className="border-white/10 bg-[#0B0B0B]/90">
               <CardHeader>
@@ -1508,50 +1508,53 @@ export function TradeRoomPage({
               </CardContent>
             </Card>
 
-            <Card ref={evidenceSectionRef} className="border-white/10 bg-[#0B0B0B]/90">
-              <CardHeader>
-                <CardTitle className="text-lg">{isAr ? "مهلة إصدار USDT" : "USDT Release Deadline"}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm text-[#D1D5DB]">
-                {room.releaseDeadlineActive && timeRemainingSeconds !== null ? (
-                  <div className={`rounded-xl border p-4 ${
-                    deadlineCritical
-                      ? "border-red-500/40 bg-red-500/15 text-red-100"
-                      : deadlineWarning
-                        ? "border-amber-500/45 bg-amber-500/15 text-amber-100"
-                        : "border-[#C9A227]/35 bg-[#C9A227]/10 text-[#FDE68A]"
-                  }`}>
-                    <p className="text-xs uppercase tracking-[0.14em]">{isAr ? "الوقت المتبقي" : "Time Remaining"}</p>
-                    <p className="mt-1 text-3xl font-bold">{formatDuration(timeRemainingSeconds)}</p>
-                    {(room.releaseDeadlineOverdue || room.isOverdue) ? <p className="mt-2 text-sm text-red-200">{isAr ? "انتهت المهلة — تم وضع الصفقة كمتأخرة." : "Deadline reached — trade is overdue."}</p> : null}
-                  </div>
-                ) : (
-                  <p>{isAr ? "سيبدأ عداد 45 دقيقة بعد تأكيد استلام الدفع وبدء مرحلة إصدار USDT." : "The 45-minute timer starts when seller confirms funds and enters USDT release stage."}</p>
-                )}
-                <p className="rounded-xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-3">
-                  {isAr ? "التذكير: لن يتم تحرير USDT إلا بعد تأكيد الدفع داخل Alpha Exchange." : "Escrow reminder: USDT is released only after payment confirmation inside Alpha Exchange."}
-                </p>
-              </CardContent>
-            </Card>
+            <div className="grid gap-4 2xl:grid-cols-2">
+              <Card ref={evidenceSectionRef} className="border-white/10 bg-[#0B0B0B]/90">
+                <CardHeader>
+                  <CardTitle className="text-lg">{isAr ? "مهلة إصدار USDT" : "USDT Release Deadline"}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm text-[#D1D5DB]">
+                  {room.releaseDeadlineActive && timeRemainingSeconds !== null ? (
+                    <div className={`rounded-xl border p-4 ${
+                      deadlineCritical
+                        ? "border-red-500/40 bg-red-500/15 text-red-100"
+                        : deadlineWarning
+                          ? "border-amber-500/45 bg-amber-500/15 text-amber-100"
+                          : "border-[#C9A227]/35 bg-[#C9A227]/10 text-[#FDE68A]"
+                    }`}>
+                      <p className="text-xs uppercase tracking-[0.14em]">{isAr ? "الوقت المتبقي" : "Time Remaining"}</p>
+                      <p className="mt-1 text-3xl font-bold">{formatDuration(timeRemainingSeconds)}</p>
+                      {(room.releaseDeadlineOverdue || room.isOverdue) ? <p className="mt-2 text-sm text-red-200">{isAr ? "انتهت المهلة — تم وضع الصفقة كمتأخرة." : "Deadline reached — trade is overdue."}</p> : null}
+                    </div>
+                  ) : (
+                    <p>{isAr ? "سيبدأ عداد 45 دقيقة بعد تأكيد استلام الدفع وبدء مرحلة إصدار USDT." : "The 45-minute timer starts when seller confirms funds and enters USDT release stage."}</p>
+                  )}
+                  <p className="rounded-xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-3">
+                    {isAr ? "التذكير: لن يتم تحرير USDT إلا بعد تأكيد الدفع داخل Alpha Exchange." : "Escrow reminder: USDT is released only after payment confirmation inside Alpha Exchange."}
+                  </p>
+                </CardContent>
+              </Card>
 
-            <Card className="border-white/10 bg-[#0B0B0B]/90">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-lg"><WalletCards className="h-4 w-4 text-[#C9A227]" />{isAr ? "حالة الضمان" : "Escrow Visualization"}</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-2 text-sm md:grid-cols-4">
-                {[
-                  { label: isAr ? "USDT مقفول" : "USDT Locked", active: request.status !== "review_open" && request.status !== "completed" && request.status !== "locked" },
-                  { label: isAr ? "بانتظار الدفع" : "Waiting Payment", active: request.status === "accepted" || request.status === "payment_sent" },
-                  { label: isAr ? "قيد التحرير" : "Released", active: request.status === "funds_received" || request.status === "usdt_release_pending" || request.status === "usdt_sent" },
-                  { label: isAr ? "مكتمل" : "Completed", active: request.status === "review_open" || request.status === "completed" || request.status === "locked" },
-                ].map((item) => (
-                  <div key={item.label} className={`rounded-xl border px-3 py-2 ${item.active ? "border-[#C9A227]/40 bg-[#C9A227]/10 text-white" : "border-white/10 bg-black/20 text-[#9CA3AF]"}`}>
-                    {item.label}
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
+              <Card className="border-white/10 bg-[#0B0B0B]/90">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-lg"><WalletCards className="h-4 w-4 text-[#C9A227]" />{isAr ? "حالة الضمان" : "Escrow Visualization"}</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-2 text-sm md:grid-cols-2 2xl:grid-cols-2">
+                  {[
+                    { label: isAr ? "USDT مقفول" : "USDT Locked", active: request.status !== "review_open" && request.status !== "completed" && request.status !== "locked" },
+                    { label: isAr ? "بانتظار الدفع" : "Waiting Payment", active: request.status === "accepted" || request.status === "payment_sent" },
+                    { label: isAr ? "قيد التحرير" : "Released", active: request.status === "funds_received" || request.status === "usdt_release_pending" || request.status === "usdt_sent" },
+                    { label: isAr ? "مكتمل" : "Completed", active: request.status === "review_open" || request.status === "completed" || request.status === "locked" },
+                  ].map((item) => (
+                    <div key={item.label} className={`rounded-xl border px-3 py-2 ${item.active ? "border-[#C9A227]/40 bg-[#C9A227]/10 text-white" : "border-white/10 bg-black/20 text-[#9CA3AF]"}`}>
+                      {item.label}
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
 
+            <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
             <Card className="border-white/10 bg-[#0B0B0B]/90">
               <CardHeader>
                 <CardTitle className="text-lg">{isAr ? "قسم الإثبات" : "Evidence"}</CardTitle>
@@ -1663,9 +1666,10 @@ export function TradeRoomPage({
                 )}
               </CardContent>
             </Card>
+            </div>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-4 xl:sticky xl:top-28">
             <Card className="border-white/10 bg-[#0B0B0B]/90">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg"><MessageCircle className="h-4 w-4 text-[#C9A227]" />{isAr ? "الدردشة المباشرة" : "Live Chat"}</CardTitle>

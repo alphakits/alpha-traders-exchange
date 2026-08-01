@@ -286,7 +286,7 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
 
   return (
     <section className="section-container page-shell">
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="mx-auto max-w-7xl space-y-5 xl:space-y-6">
         <Card className="overflow-hidden border-white/10 bg-[#0B0B0B]/95 p-0">
           <div className={cn("relative h-44 border-b border-white/10 bg-gradient-to-r md:h-52", theme.coverTone)}>
             {coverUrl ? <Image src={coverUrl} alt="Cover" fill unoptimized className="object-cover opacity-90" /> : null}
@@ -359,7 +359,7 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
               </div>
             </div>
 
-            <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "حالة الحساب" : "Account status"}</p>
                 <p className="mt-2 text-sm font-medium text-white">{statusCopy}</p>
@@ -410,8 +410,8 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
         {photoError ? <p className="text-xs text-red-400">{photoError}</p> : null}
         {coverError ? <p className="text-xs text-red-400">{coverError}</p> : null}
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          <Card className="border-white/10 bg-[#0B0B0B]/95 lg:col-span-2">
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_360px] xl:items-start">
+          <Card className="border-white/10 bg-[#0B0B0B]/95">
             <CardHeader>
               <CardTitle>{isAr ? "هوية التداول العامة" : "Public trading identity"}</CardTitle>
               <CardDescription>
@@ -421,14 +421,14 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <form className="grid gap-3 md:grid-cols-2" onSubmit={(event) => void handleSave(event)}>
+              <form className="grid gap-3 md:grid-cols-2 xl:gap-4" onSubmit={(event) => void handleSave(event)}>
                 <Input value={form.fullName} onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))} placeholder={isAr ? "الاسم الكامل" : "Full name"} />
                 <Input value={form.country} onChange={(event) => setForm((prev) => ({ ...prev, country: event.target.value }))} placeholder={isAr ? "الدولة" : "Country"} />
                 <Input value={form.language} onChange={(event) => setForm((prev) => ({ ...prev, language: event.target.value }))} placeholder={isAr ? "اللغة" : "Language"} />
                 <Input value={form.whatsappNumber} onChange={(event) => setForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} placeholder={isAr ? "رقم التواصل" : "Contact phone"} />
                 <Textarea className="md:col-span-2" value={form.bio} onChange={(event) => setForm((prev) => ({ ...prev, bio: event.target.value }))} placeholder={isAr ? "نبذة احترافية تبني الثقة" : "Write a professional bio that builds trust"} />
 
-                <div className="md:col-span-2 grid gap-2 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
+                <div className="md:col-span-2 grid gap-2 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB] xl:grid-cols-2">
                   <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "عناصر الخصوصية" : "Privacy controls"}</p>
                   {[
                     { key: "showTradeStats", labelAr: "عرض إحصائيات التداول", label: "Show trading statistics" },
@@ -497,7 +497,7 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
                     </p>
                   </div>
 
-                  <div className="grid gap-2 text-sm">
+                  <div className="grid gap-2 text-sm sm:grid-cols-2">
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust score"}</p><p className="mt-1 font-semibold text-white">{payload.stats.trustScore.toFixed(1)}/100</p></div>
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "الحجم مدى الحياة" : "Lifetime volume"}</p><p className="mt-1 font-semibold text-white">{payload.stats.lifetimeCompletedVolumeUsdt.toLocaleString("en-IL")} USDT</p></div>
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "الصفقات المكتملة" : "Completed trades"}</p><p className="mt-1 font-semibold text-white">{payload.stats.completedTrades.toLocaleString("en-IL")}</p></div>
@@ -540,7 +540,7 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
           </Card>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-4">
           {[
             { icon: ShieldCheck, title: isAr ? "هوية موثقة" : "Verified identity", body: isAr ? "الملف مرتبط بسجل حساب حقيقي ونشاط فعلي." : "Profile signals are tied to real account and platform history." },
             { icon: TrendingUp, title: isAr ? "تقدم مستمر" : "Progressive growth", body: isAr ? "المستويات والإحصاءات تعكس الأداء الفعلي." : "Tiers and stats reflect real trade performance." },

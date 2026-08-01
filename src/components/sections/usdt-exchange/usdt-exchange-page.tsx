@@ -2698,7 +2698,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       ) : null}
 
       {isApprovedSeller ? (
-        <div className="mt-8 flex flex-col gap-6">
+        <div className="mt-6 flex flex-col gap-5 xl:gap-6">
           <Card className="border-white/10 bg-[#0B0B0B]/90">
             <CardContent className="grid gap-4 p-5 md:grid-cols-3">
               <div>
@@ -2756,7 +2756,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {isLoadingListings
               ? Array.from({ length: 6 }).map((_, index) => (
                   <Card key={`seller-stat-skeleton-${index}`} className="border-white/10 bg-[#0B0B0B]/90">
@@ -3718,7 +3718,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </CardContent>
           </Card>
 
-          <div className="order-40 grid gap-4 xl:grid-cols-3 2xl:grid-cols-4">
+          <div className="order-40 grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
             <Card className="order-50 border-white/10 bg-[#0B0B0B]/90">
               <CardHeader>
                 <CardTitle>{isAr ? "ملف البائع" : "Seller Profile"}</CardTitle>
@@ -3847,7 +3847,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           </div>
         </div>
       ) : (
-        <div className="mt-8 grid gap-4 md:grid-cols-2">
+        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)] xl:items-start">
           {buyerOverviewCard}
           <Card className="border-white/10 bg-[#0B0B0B]/85">
             <CardHeader>

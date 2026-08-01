@@ -589,8 +589,8 @@ export function AlphaExchangeAdminDashboard() {
 
   return (
     <section className="section-container page-shell">
-      <div className="grid gap-6 xl:grid-cols-[280px_1fr]">
-        <aside className="h-fit rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-4 backdrop-blur-sm">
+      <div className="grid gap-5 xl:grid-cols-[260px_minmax(0,1fr)] xl:items-start">
+        <aside className="h-fit rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-4 backdrop-blur-sm xl:sticky xl:top-4">
           <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-[#C9A227]">
             <ShieldCheck className="h-3.5 w-3.5" />
             Alpha Exchange Admin
@@ -639,7 +639,7 @@ export function AlphaExchangeAdminDashboard() {
               {!loading && !error && data ? (
                 <>
                   {activeSection === "overview" ? (
-                    <div className="space-y-6">
+                    <div className="space-y-5 xl:space-y-6">
                       <Card className="border-white/10 bg-[#0B0B0B]/90">
                         <CardHeader>
                           <CardTitle>Owner Business Dashboard</CardTitle>
@@ -676,7 +676,7 @@ export function AlphaExchangeAdminDashboard() {
                             <CardTitle>Today</CardTitle>
                             <CardDescription>Operational metrics for the current day.</CardDescription>
                           </CardHeader>
-                          <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2">
+                          <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-3">
                             <p>Completed Trades: <span className="text-white">{data.ownerBusiness.today.completedTrades}</span></p>
                             <p>Trade Volume: <span className="text-white">{formatUsdt(data.ownerBusiness.today.tradeVolumeUsdt)}</span></p>
                             <p>Estimated Commission: <span className="text-white">{formatCurrency(data.ownerBusiness.today.estimatedCommission)}</span></p>
@@ -702,7 +702,7 @@ export function AlphaExchangeAdminDashboard() {
                             <CardTitle>This Week</CardTitle>
                             <CardDescription>Weekly business momentum and trust movement.</CardDescription>
                           </CardHeader>
-                          <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2">
+                          <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-3">
                             <p>Trade Volume: <span className="text-white">{formatUsdt(data.ownerBusiness.thisWeek.tradeVolumeUsdt)}</span></p>
                             <p>Revenue: <span className="text-white">{formatCurrency(data.ownerBusiness.thisWeek.revenue)}</span></p>
                             <p>Top Seller: <span className="text-white">{data.ownerBusiness.thisWeek.topSeller}</span></p>
@@ -745,7 +745,7 @@ export function AlphaExchangeAdminDashboard() {
                             <CardTitle>Marketplace Health</CardTitle>
                             <CardDescription>Core performance, risk, and participation indicators.</CardDescription>
                           </CardHeader>
-                          <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2">
+                          <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-2">
                             <p>Completion Rate: <span className="text-white">{formatPercent(data.ownerBusiness.marketplaceHealth.completionRatePercent)}</span></p>
                             <p>Cancellation Rate: <span className="text-white">{formatPercent(data.ownerBusiness.marketplaceHealth.cancellationRatePercent)}</span></p>
                             <p>Dispute Rate: <span className="text-white">{formatPercent(data.ownerBusiness.marketplaceHealth.disputeRatePercent)}</span></p>
@@ -764,7 +764,7 @@ export function AlphaExchangeAdminDashboard() {
                             <CardTitle>Financial Overview</CardTitle>
                             <CardDescription>Commission and trade-value performance snapshot.</CardDescription>
                           </CardHeader>
-                          <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2">
+                          <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-2">
                             <p>Commission Today: <span className="text-white">{formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionToday)}</span></p>
                             <p>Commission This Week: <span className="text-white">{formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek)}</span></p>
                             <p>Commission This Month: <span className="text-white">{formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth)}</span></p>
@@ -780,7 +780,7 @@ export function AlphaExchangeAdminDashboard() {
                             <CardTitle>Live Activity</CardTitle>
                             <CardDescription>Recent marketplace events for owner oversight.</CardDescription>
                           </CardHeader>
-                          <CardContent className="space-y-2 text-sm text-[#D1D5DB]">
+                          <CardContent className="max-h-[360px] space-y-2 overflow-y-auto text-sm text-[#D1D5DB]">
                             {data.ownerBusiness.liveActivity.slice(0, 10).map((entry) => (
                               <div key={entry.id} className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2">
                                 <p className="text-white">{entry.message}</p>
@@ -801,7 +801,7 @@ export function AlphaExchangeAdminDashboard() {
                             Marketplace trust average: {data.trustEngine.marketplaceHealth.averageTrustScore}/100 across {data.trustEngine.marketplaceHealth.sellerCount} sellers.
                           </CardDescription>
                         </CardHeader>
-                        <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                           <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
                             <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Highest Trust Sellers</p>
                             <div className="mt-3 space-y-2 text-sm text-[#D1D5DB]">
