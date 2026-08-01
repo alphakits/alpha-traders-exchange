@@ -369,8 +369,12 @@ export type TradeTimelineEventType =
   | "usdt_release_started"
   | "usdt_sent"
   | "trade_completed"
+  | "trade_timed_out"
   | "trade_locked"
   | "review_unlocked"
+  | "dispute_opened"
+  | "commission_recorded"
+  | "commission_paid"
   | "buyer_evidence_uploaded"
   | "seller_evidence_uploaded"
   | "request_declined"
@@ -413,6 +417,17 @@ export interface TradeEvidenceFile {
   sizeBytes: number;
   storagePath: string;
   status: TradeEvidenceStatus;
+}
+
+export interface TradeChatMessage {
+  id: string;
+  purchaseRequestId: string;
+  kind: "user" | "system";
+  senderUserId: string;
+  senderRole: UserRole;
+  message: string;
+  createdAt: string;
+  readByUserIds: string[];
 }
 
 export type NotificationCategory = "trade" | "listing" | "account" | "trust" | "application" | "dispute" | "report" | "system" | "review";
@@ -695,6 +710,7 @@ export interface AlphaExchangeDb {
   trustSnapshots: TrustSnapshotRecord[];
   trustScoreHistory: TrustScoreChangeLog[];
   tradeEvidenceFiles: TradeEvidenceFile[];
+  tradeMessages?: TradeChatMessage[];
   privateBetaInvites: PrivateBetaInviteCode[];
   privateBetaInviteUses: PrivateBetaInviteUse[];
   betaFeedback: BetaFeedbackEntry[];

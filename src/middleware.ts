@@ -7,8 +7,8 @@ const intlMiddleware = createMiddleware(routing);
 
 export default function middleware(request: Parameters<typeof intlMiddleware>[0]) {
   const { pathname } = request.nextUrl;
-  const isProtectedRoute = /^\/(ar|en)\/(?:academy|lessons|usdt-exchange|dashboard|profile|settings|admin)(?:\/|$)/.test(pathname);
-  const isExchangeRoute = /^\/(ar|en)\/(?:dashboard\/seller)(?:\/|$)/.test(pathname);
+  const isProtectedRoute = /^\/(ar|en)\/(?:academy|lessons|usdt-exchange|trade-room|dashboard|profile|settings|admin)(?:\/|$)/.test(pathname);
+  const isExchangeRoute = /^\/(ar|en)\/(?:dashboard\/seller|trade-room)(?:\/|$)/.test(pathname);
   const hasSession = Boolean(request.cookies.get(AUTH_COOKIE_NAME)?.value);
   const hasVerifiedEmail = request.cookies.get(AUTH_VERIFIED_COOKIE_NAME)?.value === "1";
   const hasVerifiedPhone = request.cookies.get(AUTH_PHONE_VERIFIED_COOKIE_NAME)?.value === "1";

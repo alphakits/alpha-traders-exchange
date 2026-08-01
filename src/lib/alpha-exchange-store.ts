@@ -60,6 +60,7 @@ import type {
   TradeDisputeCase,
   TradeEvidenceFile,
   TradeEvidenceSide,
+  TradeChatMessage,
   TradeTimelineEventType,
   OwnerPrivateBetaDashboardData,
   OnboardingSelection,
@@ -148,6 +149,7 @@ const defaultDb: AlphaExchangeDb = {
   trustSnapshots: [],
   trustScoreHistory: [],
   tradeEvidenceFiles: [],
+  tradeMessages: [],
   privateBetaInvites: [],
   privateBetaInviteUses: [],
   betaFeedback: [],
@@ -472,7 +474,13 @@ function isSellerUnavailableForNewBuyers(availabilityStatus: SellerAvailabilityS
 }
 
 function getSellerOpenTradeCount(db: AlphaExchangeDb, sellerId: string) {
-  return db.purchaseRequests.filter((request) => request.sellerId === sellerId && (request.status === "accepted" || request.status === "payment_sent" || request.status === "usdt_sent")).length;
+  return db.purchaseRequests.filter((request) => request.sellerId === sellerId && (
+    request.status === "accepted"
+    || request.status === "payment_sent"
+    || request.status === "funds_received"
+    || request.status === "usdt_release_pending"
+    || request.status === "usdt_sent"
+  )).length;
 }
 
 function getSellerPendingCommissionCount(db: AlphaExchangeDb, sellerId: string) {
@@ -1144,8 +1152,12 @@ function isValidTradeTimelineType(value: string): value is TradeTimelineEventTyp
     value === "usdt_release_started" ||
     value === "usdt_sent" ||
     value === "trade_completed" ||
+    value === "trade_timed_out" ||
     value === "trade_locked" ||
     value === "review_unlocked" ||
+    value === "dispute_opened" ||
+    value === "commission_recorded" ||
+    value === "commission_paid" ||
     value === "buyer_evidence_uploaded" ||
     value === "seller_evidence_uploaded" ||
     value === "request_declined" ||
@@ -1501,6 +1513,27 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         sizeBytes: Math.max(0, Number((entry as { sizeBytes?: number }).sizeBytes ?? 0)),
         storagePath: String((entry as { storagePath?: string }).storagePath ?? ""),
       })),
+    tradeMessages: (db.tradeMessages ?? [])
+      .filter((entry) => entry && typeof entry.id === "string" && typeof entry.purchaseRequestId === "string")
+      .map((entry) => {
+        const senderRoleRaw = typeof (entry as { senderRole?: string }).senderRole === "string"
+          ? (entry as { senderRole: string }).senderRole
+          : "buyer";
+        return {
+          ...entry,
+          kind: (entry as { kind?: string }).kind === "system" ? "system" : "user",
+          senderRole: isUserRole(senderRoleRaw) ? senderRoleRaw : "buyer",
+          message: String((entry as { message?: string }).message ?? "").trim(),
+          createdAt: String((entry as { createdAt?: string }).createdAt ?? nowIso()),
+          readByUserIds: Array.from(
+            new Set(
+              Array.isArray((entry as { readByUserIds?: string[] }).readByUserIds)
+                ? (entry as { readByUserIds: string[] }).readByUserIds.map((id) => String(id).trim()).filter(Boolean)
+                : [],
+            ),
+          ),
+        } satisfies TradeChatMessage;
+      }),
     privateBetaInvites: (db.privateBetaInvites ?? []).map((invite) => ({
       ...invite,
       status: isValidInviteStatus(String((invite as { status?: string }).status ?? "")) ? (invite as { status: "active" | "expired" | "disabled" }).status : "active",
@@ -1776,6 +1809,10 @@ async function appendAuditLog(db: AlphaExchangeDb, input: {
 
 function getOwnerUser(db: AlphaExchangeDb) {
   return db.users.find((user) => hasRole(user, "owner")) ?? null;
+}
+
+function getAdminNotificationRecipients(db: AlphaExchangeDb) {
+  return db.users.filter((user) => hasRole(user, "owner") || hasRole(user, "admin"));
 }
 
 function pushNotification(
@@ -2108,6 +2145,72 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
         relatedHref: "/admin/alpha-exchange",
       });
     }
+  }
+
+  for (const request of db.purchaseRequests) {
+    if (request.status !== "usdt_release_pending") continue;
+    if (!request.usdtReleaseDeadlineAt) continue;
+    if (request.usdtSentAt || request.completedAt) continue;
+    if (request.timeoutReason === "USDT release SLA expired.") continue;
+    const deadlineMs = new Date(request.usdtReleaseDeadlineAt).getTime();
+    if (!deadlineMs || Number.isNaN(deadlineMs) || deadlineMs > nowMs) continue;
+
+    const now = nowIso();
+    changed = true;
+    request.timedOutAt = now;
+    request.timeoutReason = "USDT release SLA expired.";
+    request.updatedAt = now;
+    appendTradeTimelineEntry(request, {
+      type: "trade_timed_out",
+      actorUserId: SYSTEM_ACTOR_USER_ID,
+      actorRole: "admin",
+      message: "USDT release window expired — trade marked overdue.",
+      createdAt: now,
+    });
+    await appendAuditLog(db, {
+      action: "trade_timed_out",
+      actorUserId: SYSTEM_ACTOR_USER_ID,
+      targetUserId: request.sellerId,
+      listingId: request.listingId,
+      purchaseRequestId: request.id,
+      details: `Trade ${request.tradeId ?? request.id} exceeded the 45-minute USDT release SLA.`,
+      oldValue: { status: "usdt_release_pending", usdtReleaseDeadlineAt: request.usdtReleaseDeadlineAt },
+      newValue: { status: "usdt_release_pending", timedOutAt: now, overdue: true },
+      reason: request.timeoutReason,
+    });
+    pushNotification(db, {
+      userId: request.buyerId,
+      category: "trade",
+      title: "Trade overdue",
+      message: `Trade ${request.tradeId ?? request.id} exceeded the USDT release deadline. You can open a dispute now.`,
+      relatedTradeId: request.tradeId ?? request.id,
+      relatedListingId: request.listingId,
+      relatedHref: requestDetailsHref(request.id),
+    });
+    pushNotification(db, {
+      userId: request.sellerId,
+      category: "trade",
+      title: "USDT release overdue",
+      message: `Trade ${request.tradeId ?? request.id} exceeded the 45-minute release window and is now overdue.`,
+      relatedTradeId: request.tradeId ?? request.id,
+      relatedListingId: request.listingId,
+      relatedHref: requestDetailsHref(request.id),
+    });
+    for (const adminUser of getAdminNotificationRecipients(db)) {
+      pushNotification(db, {
+        userId: adminUser.id,
+        category: "trade",
+        title: "Trade overdue alert",
+        message: `Trade ${request.tradeId ?? request.id} exceeded the 45-minute USDT release SLA.`,
+        relatedTradeId: request.tradeId ?? request.id,
+        relatedListingId: request.listingId,
+        relatedHref: "/admin/alpha-exchange",
+      });
+    }
+    publishRealtimeEvent({
+      type: "trade.status_changed",
+      payload: { request: enrichRequestWithEvidence(db, request) },
+    });
   }
 
   for (const listing of db.marketplaceListings) {
@@ -3285,6 +3388,11 @@ export async function getMarketplaceListings(status?: string) {
   const db = await readDb();
   const nowMs = Date.now();
   const sellerById = new Map(db.users.map((user) => [user.id, user]));
+  const sellersBlockedByCommission = new Set(
+    db.commissionRecords
+      .filter((record) => normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid")
+      .map((record) => record.sellerId),
+  );
   const hiddenSellerIds = new Set(
     db.users
       .filter((user) => user.isProfileHidden === true || user.sellerStatus === "suspended")
@@ -3295,6 +3403,7 @@ export async function getMarketplaceListings(status?: string) {
       ? db.marketplaceListings.filter((listing) => {
           if (!canListingReceiveRequests(listing)) return false;
           if (hiddenSellerIds.has(listing.sellerId)) return false;
+          if (sellersBlockedByCommission.has(listing.sellerId)) return false;
           const seller = sellerById.get(listing.sellerId);
           if (!seller || seller.sellerStatus !== "approved_seller") return false;
           if (isSellerUnavailableForNewBuyers(seller.availabilityStatus)) return false;
@@ -4152,6 +4261,141 @@ export async function getMyPurchaseRequests(userId: string, role: UserRole) {
     .map((request) => enrichRequestWithEvidence(db, request));
 }
 
+function isActiveTradeStatus(status: PurchaseRequestStatus) {
+  return status === "accepted"
+    || status === "payment_sent"
+    || status === "funds_received"
+    || status === "usdt_release_pending"
+    || status === "usdt_sent";
+}
+
+export async function getFirstActiveTradeForUser(userId: string, role: UserRole) {
+  const db = await readDb();
+  const activeTrades = db.purchaseRequests
+    .filter((request) => {
+      if (!isActiveTradeStatus(request.status)) return false;
+      if (role === "admin" || role === "owner") return true;
+      return request.buyerId === userId || request.sellerId === userId;
+    })
+    .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
+  return activeTrades[0] ? enrichRequestWithEvidence(db, activeTrades[0]) : null;
+}
+
+export interface TradeRoomData {
+  request: PurchaseRequest;
+  listing: MarketplaceListing | null;
+  counterpart: { buyerName: string; sellerName: string };
+  messages: TradeChatMessage[];
+  deadlineAt: string | null;
+  timeRemainingSeconds: number | null;
+  releaseDeadlineActive: boolean;
+  releaseDeadlineOverdue: boolean;
+  hasOpenDispute: boolean;
+  canOpenDispute: boolean;
+  isOverdue: boolean;
+  sellerCommissionDueAmount: number;
+  sellerCommissionDueCount: number;
+}
+
+export async function getTradeRoomData(input: {
+  purchaseRequestId: string;
+  actorUserId: string;
+  actorRole: UserRole;
+  markMessagesRead?: boolean;
+}): Promise<TradeRoomData> {
+  const db = await readDb();
+  const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.purchaseRequestId);
+  if (requestIndex === -1) throw new Error("Trade not found.");
+  const request = db.purchaseRequests[requestIndex];
+  assertTradeParticipantOrAdmin(request, input.actorUserId, input.actorRole);
+
+  const messages = (db.tradeMessages ?? [])
+    .filter((message) => message.purchaseRequestId === request.id)
+    .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+
+  let changed = false;
+  if (input.markMessagesRead !== false) {
+    for (const message of messages) {
+      if (message.senderUserId === input.actorUserId) continue;
+      if (message.readByUserIds.includes(input.actorUserId)) continue;
+      message.readByUserIds.push(input.actorUserId);
+      changed = true;
+    }
+  }
+  if (changed) {
+    await writeDb(db);
+  }
+
+  const listing = db.marketplaceListings.find((item) => item.id === request.listingId) ?? null;
+  const buyer = db.users.find((item) => item.id === request.buyerId) ?? null;
+  const seller = db.users.find((item) => item.id === request.sellerId) ?? null;
+  const openDispute = db.disputes.find((item) => item.purchaseRequestId === request.id && item.status === "open");
+  const deadlineAt = request.usdtReleaseDeadlineAt ?? null;
+  const timeRemainingSeconds = deadlineAt ? Math.max(0, Math.floor((new Date(deadlineAt).getTime() - Date.now()) / 1000)) : null;
+  const releaseDeadlineActive = request.status === "usdt_release_pending";
+  const releaseDeadlineOverdue = Boolean(releaseDeadlineActive && timeRemainingSeconds !== null && timeRemainingSeconds <= 0);
+  const isBuyerActor = request.buyerId === input.actorUserId;
+  const isOverdue = releaseDeadlineOverdue || request.timeoutReason === "USDT release SLA expired.";
+  const sellerPendingCommissions = db.commissionRecords.filter((record) => record.sellerId === request.sellerId && normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid");
+
+  return {
+    request: enrichRequestWithEvidence(db, request),
+    listing,
+    counterpart: {
+      buyerName: buyer?.fullName ?? request.buyerName,
+      sellerName: seller?.fullName ?? listing?.sellerDisplayName ?? request.sellerId,
+    },
+    messages,
+    deadlineAt,
+    timeRemainingSeconds,
+    releaseDeadlineActive,
+    releaseDeadlineOverdue,
+    isOverdue,
+    hasOpenDispute: Boolean(openDispute),
+    canOpenDispute: isBuyerActor && (request.status === "payment_sent" || request.status === "funds_received" || request.status === "usdt_release_pending" || request.status === "usdt_sent"),
+    sellerCommissionDueAmount: Number(sellerPendingCommissions.reduce((sum, record) => sum + record.commissionAmount, 0).toFixed(2)),
+    sellerCommissionDueCount: sellerPendingCommissions.length,
+  };
+}
+
+export async function postTradeRoomMessage(input: {
+  purchaseRequestId: string;
+  actorUserId: string;
+  actorRole: UserRole;
+  message: string;
+}) {
+  const db = await readDb();
+  const request = db.purchaseRequests.find((item) => item.id === input.purchaseRequestId);
+  if (!request) throw new Error("Trade not found.");
+  assertTradeParticipantOrAdmin(request, input.actorUserId, input.actorRole);
+
+  const message = input.message.trim();
+  if (!message) throw new Error("Message is required.");
+  if (message.length > 1200) throw new Error("Message is too long.");
+
+  const senderRole = resolveActorRole(db, input.actorUserId);
+  const nextMessage: TradeChatMessage = {
+    id: `trade-msg-${randomUUID()}`,
+    purchaseRequestId: request.id,
+    kind: "user",
+    senderUserId: input.actorUserId,
+    senderRole,
+    message,
+    createdAt: nowIso(),
+    readByUserIds: [input.actorUserId],
+  };
+  db.tradeMessages = [nextMessage, ...(db.tradeMessages ?? [])];
+  publishRealtimeEvent({
+    type: "trade.message_created",
+    payload: {
+      requestId: request.id,
+      messageId: nextMessage.id,
+    },
+  });
+  await writeDb(db);
+  return nextMessage;
+}
+
 export interface AccountProfileSummary {
   id: string;
   profilePhotoUrl: string;
@@ -4960,6 +5204,13 @@ export async function updatePurchaseRequestStatus(input: {
         updatedAt: now,
       };
       db.commissionRecords.push(commission);
+      appendTradeTimelineEntry(next, {
+        type: "commission_recorded",
+        actorUserId: input.actorUserId,
+        actorRole,
+        message: `Commission created (${commission.commissionAmount.toFixed(2)} ${next.currency}).`,
+        createdAt: now,
+      });
       await appendAuditLog(db, {
         action: "commission_recorded",
         actorUserId: input.actorUserId,
@@ -5079,6 +5330,7 @@ export async function updateCommissionPaymentStatus(input: {
   if (index === -1) throw new Error("Commission record not found.");
   const now = nowIso();
   const current = db.commissionRecords[index];
+  const request = db.purchaseRequests.find((item) => item.id === current.purchaseRequestId);
   db.commissionRecords[index] = {
     ...current,
     paymentStatus: input.paymentStatus,
@@ -5095,6 +5347,15 @@ export async function updateCommissionPaymentStatus(input: {
     details: `Commission ${current.id} marked ${input.paymentStatus}.`,
   });
   if (input.paymentStatus === "paid") {
+    if (request) {
+      appendTradeTimelineEntry(request, {
+        type: "commission_paid",
+        actorUserId: input.actorUserId,
+        actorRole: resolveActorRole(db, input.actorUserId),
+        message: `Commission marked paid (${current.commissionAmount.toFixed(2)}).`,
+        createdAt: now,
+      });
+    }
     pushNotification(db, {
       userId: current.sellerId,
       category: "trade",
@@ -5103,6 +5364,12 @@ export async function updateCommissionPaymentStatus(input: {
       relatedTradeId: current.purchaseRequestId,
       relatedListingId: current.listingId,
       relatedHref: "/usdt-exchange",
+    });
+  }
+  if (request) {
+    publishRealtimeEvent({
+      type: "trade.status_changed",
+      payload: { request: enrichRequestWithEvidence(db, request) },
     });
   }
   await writeDb(db);
@@ -5778,11 +6045,17 @@ export async function openTradeDispute(input: {
     updatedAt: nowIso(),
   };
   db.disputes.unshift(dispute);
+  appendTradeTimelineEntry(request, {
+    type: "dispute_opened",
+    actorUserId: input.openedByUserId,
+    actorRole: resolveActorRole(db, input.openedByUserId),
+    message: "Dispute opened for this trade.",
+    createdAt: dispute.createdAt,
+  });
 
-  const owner = getOwnerUser(db);
-  if (owner) {
+  for (const adminUser of getAdminNotificationRecipients(db)) {
     pushNotification(db, {
-      userId: owner.id,
+      userId: adminUser.id,
       category: "dispute",
       title: "Dispute opened",
       message: `Dispute opened for trade ${dispute.tradeId}.`,
@@ -5790,11 +6063,31 @@ export async function openTradeDispute(input: {
       relatedHref: "/admin/alpha-exchange",
     });
   }
+  pushNotification(db, {
+    userId: request.buyerId,
+    category: "dispute",
+    title: "Dispute opened",
+    message: `A dispute was opened for trade ${dispute.tradeId}.`,
+    relatedTradeId: dispute.tradeId,
+    relatedHref: requestDetailsHref(request.id),
+  });
+  pushNotification(db, {
+    userId: request.sellerId,
+    category: "dispute",
+    title: "Dispute opened",
+    message: `A dispute was opened for trade ${dispute.tradeId}.`,
+    relatedTradeId: dispute.tradeId,
+    relatedHref: requestDetailsHref(request.id),
+  });
   pushActivityLog(db, {
     userId: input.openedByUserId,
     category: "dispute",
     title: "Dispute opened",
     details: `Dispute opened for trade ${dispute.tradeId}.`,
+  });
+  publishRealtimeEvent({
+    type: "trade.status_changed",
+    payload: { request: enrichRequestWithEvidence(db, request) },
   });
   await writeDb(db);
   return dispute;

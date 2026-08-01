@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { hasRole } from "@/lib/roles";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
+import { getFirstActiveTradeForUser } from "@/lib/alpha-exchange-store";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,11 @@ export default async function DashboardPage({ params }: { params: Promise<{ loca
 
   if (hasRole(user, "owner") || hasRole(user, "admin")) {
     redirect(`/${locale}/admin/alpha-exchange`);
+  }
+
+  const activeTrade = await getFirstActiveTradeForUser(user.id, user.role);
+  if (activeTrade) {
+    redirect(`/${locale}/trade-room/${activeTrade.id}`);
   }
 
   if (hasRole(user, "approved_seller")) {
