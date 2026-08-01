@@ -5619,6 +5619,7 @@ export async function updatePurchaseRequestStatus(input: {
       request: enriched,
       status: next.status,
       timeline: next.timeline,
+      publishedAtEpochMs: Date.now(),
     },
   });
   const totalMs = Date.now() - startedAt;

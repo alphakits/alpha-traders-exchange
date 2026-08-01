@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AlertTriangle, CheckCircle2, Clock3, LoaderCircle, MessageCircle, ShieldCheck, WalletCards } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,13 @@ type TradeRoomData = {
   canOpenDispute: boolean;
   sellerCommissionDueAmount: number;
   sellerCommissionDueCount: number;
+  _timing?: {
+    trigger?: string;
+    publishedAtEpochMs?: number | null;
+    snapshotMs?: number;
+    sentAtEpochMs?: number;
+    publishToSentMs?: number | null;
+  };
 };
 
 type ActorSession = {
@@ -550,6 +557,11 @@ export function TradeRoomPage({
   const statusBannerRef = useRef<HTMLDivElement | null>(null);
   const evidenceSectionRef = useRef<HTMLDivElement | null>(null);
   const previousStatusRef = useRef<PurchaseRequest["status"] | null>(null);
+  // Performance timing refs — record timestamps so useLayoutEffect can log render latency.
+  const perfClickTsRef = useRef<number | null>(null);
+  const perfFetchStartTsRef = useRef<number | null>(null);
+  const perfSseReceivedTsRef = useRef<number | null>(null);
+  const perfSsePublishedAtRef = useRef<number | null>(null);
 
   const fetchRoom = useCallback(async (silent = false) => {
     if (!silent) {
@@ -608,6 +620,26 @@ export function TradeRoomPage({
     setStepPulse(false);
   }, [room?.request]);
 
+  // Measure T4→T5: SSE received → UI rendered (useLayoutEffect fires synchronously after DOM paint).
+  useLayoutEffect(() => {
+    if (!TRADE_ROOM_DEBUG) return;
+    const sseTs = perfSseReceivedTsRef.current;
+    const publishedAt = perfSsePublishedAtRef.current;
+    if (!sseTs) return;
+    const renderTs = performance.now();
+    const sseToRenderMs = Math.round(renderTs - sseTs);
+    perfSseReceivedTsRef.current = null;
+    console.log("[trade-room-perf] sse→render", {
+      requestId,
+      publishedAtEpochMs: publishedAt,
+      sseReceivedTs: sseTs,
+      renderTs: Math.round(renderTs),
+      sseToRenderMs,
+      publishToRenderMs: publishedAt ? Math.round(Date.now() - publishedAt) : null,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room]);
+
   useEffect(() => () => {
     if (completedActionTimeoutRef.current) {
       window.clearTimeout(completedActionTimeoutRef.current);
@@ -638,6 +670,23 @@ export function TradeRoomPage({
         // The confirmed state arrives from the HTTP response; the SSE snapshot
         // here may be stale (e.g. a keepalive fired before the DB write).
         if (actionInFlightRef.current) return;
+        if (TRADE_ROOM_DEBUG) {
+          const sseReceivedTs = performance.now();
+          perfSseReceivedTsRef.current = sseReceivedTs;
+          perfSsePublishedAtRef.current = payload._timing?.publishedAtEpochMs ?? null;
+          console.log("[trade-room-perf] sse-received", {
+            requestId,
+            trigger: payload._timing?.trigger ?? "unknown",
+            publishedAtEpochMs: payload._timing?.publishedAtEpochMs ?? null,
+            snapshotMs: payload._timing?.snapshotMs ?? null,
+            publishToSentMs: payload._timing?.publishToSentMs ?? null,
+            clientReceivedTs: Math.round(sseReceivedTs),
+            // T4 = publishedAtEpochMs (server epoch), T4→received = can't compare directly
+            // (server epoch vs. client performance.now()); use sentAtEpochMs instead:
+            sentAtEpochMs: payload._timing?.sentAtEpochMs ?? null,
+            sentToReceivedMs: payload._timing?.sentAtEpochMs ? Date.now() - payload._timing.sentAtEpochMs : null,
+          });
+        }
         writeTradeRoomCache(requestId, payload);
         setRoom(payload);
         setStreamConnected(true);
@@ -753,7 +802,10 @@ export function TradeRoomPage({
     const payload = nextStatus === "accepted"
       ? { status: nextStatus, safetyAcknowledged: true }
       : { status: nextStatus };
-    const startedAt = performance.now();
+    // T0: click timestamp
+    const clickTs = performance.now();
+    perfClickTsRef.current = clickTs;
+    const startedAt = clickTs;
     const optimisticStartedAt = performance.now();
     setRoom(optimisticRoom);
     writeTradeRoomCache(requestId, optimisticRoom);
@@ -763,12 +815,12 @@ export function TradeRoomPage({
     setActionError(null);
     setStatusMessage(null);
     if (TRADE_ROOM_DEBUG) {
-      console.log("[trade-room-action] client request", {
+      console.log("[trade-room-perf] T0 click", {
         requestId: request.id,
-        payload,
+        nextStatus,
         stateBefore: request.status,
-        optimisticStateAfter: optimisticRoom.request.status,
-        frontendRenderMs: optimisticUiMs,
+        clickTs: Math.round(clickTs),
+        optimisticUiMs,
         streamConnected,
       });
     }
@@ -780,7 +832,15 @@ export function TradeRoomPage({
       controller.abort();
     }, 20000);
     try {
+      // T1: request sent
       const responseStartedAt = performance.now();
+      perfFetchStartTsRef.current = responseStartedAt;
+      if (TRADE_ROOM_DEBUG) {
+        console.log("[trade-room-perf] T1 fetch-start", {
+          requestId: request.id,
+          clickToFetchMs: Math.round(responseStartedAt - startedAt),
+        });
+      }
       const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -789,20 +849,18 @@ export function TradeRoomPage({
       });
       const responsePayload = (await response.json()) as { error?: string; message?: string; request?: PurchaseRequest; metrics?: { totalMs?: number } };
       const apiLatencyMs = Math.round(performance.now() - responseStartedAt);
+      // T2+T3: server timings from response headers
       const routeMs = Number(response.headers.get("X-Trade-Route-Ms") ?? "0");
       const dbMs = Number(response.headers.get("X-Trade-Db-Ms") ?? routeMs);
       if (TRADE_ROOM_DEBUG) {
-        console.log("[trade-room-action] client response", {
+        console.log("[trade-room-perf] T2+T3 server timings", {
           requestId: request.id,
-          payload,
-          responseStatus: response.status,
-          responseBody: responsePayload,
-          stateBefore: request.status,
           stateAfter: responsePayload.request?.status ?? optimisticRoom.request.status,
-          apiLatencyMs,
-          routeMs,
-          dbMs,
-          totalClientMs: Math.round(performance.now() - startedAt),
+          "T0→T1 clickToFetchMs": Math.round(responseStartedAt - startedAt),
+          "T1→response apiLatencyMs": apiLatencyMs,
+          "  server routeMs (T1 arrival→response)": routeMs,
+          "  server dbMs (readDb+writeDb)": dbMs,
+          "T0→response totalClientMs": Math.round(performance.now() - startedAt),
         });
       }
       if (!response.ok) {
