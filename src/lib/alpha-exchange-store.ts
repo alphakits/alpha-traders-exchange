@@ -5634,20 +5634,20 @@ export async function updatePurchaseRequestStatus(input: {
       actorRole: input.actorRole,
     });
   }
-  const db = await readDb();
+  let db = await readDb();
   const readDbMs = Date.now() - startedAt;
   let timelineMs = 0;
   let chatMs = 0;
   let notificationMs = 0;
-  const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.requestId);
+  let requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.requestId);
   if (requestIndex === -1) {
     throw new TradeBlockedError("purchase-request-not-found", "Purchase request not found.", input.requestId, {
       guard: "request-exists",
       nextStatus: input.nextStatus,
     });
   }
-  const request = db.purchaseRequests[requestIndex];
-  const stateBefore = request.status;
+  let request = db.purchaseRequests[requestIndex];
+  let stateBefore = request.status;
   console.log("[trade-consistency] mutation db-read", {
     requestId: input.requestId,
     actorUserId: input.actorUserId,
@@ -5685,7 +5685,54 @@ export async function updatePurchaseRequestStatus(input: {
     });
   }
 
-  const currentStatus = request.status;
+  let currentStatus = request.status;
+  if (input.nextStatus === "completed" && (currentStatus === "review_open" || currentStatus === "completed" || currentStatus === "locked")) {
+    const enriched = enrichRequestWithEvidence(db, request);
+    return {
+      request: enriched,
+      metrics: {
+        totalMs: Date.now() - startedAt,
+        readDbMs,
+        timelineMs,
+        chatMs,
+        notificationMs,
+        writeDbMs: 0,
+        sseMs: 0,
+        trustMs: 0,
+      },
+    };
+  }
+  if (input.nextStatus === "completed" && currentStatus !== "usdt_sent") {
+    const strongDb = await readDb({ bypassCache: true });
+    const strongIndex = strongDb.purchaseRequests.findIndex((item) => item.id === input.requestId);
+    if (strongIndex !== -1) {
+      const strongRequest = strongDb.purchaseRequests[strongIndex];
+      const strongStatus = strongRequest.status;
+      if (strongStatus === "review_open" || strongStatus === "completed" || strongStatus === "locked") {
+        const enriched = enrichRequestWithEvidence(strongDb, strongRequest);
+        return {
+          request: enriched,
+          metrics: {
+            totalMs: Date.now() - startedAt,
+            readDbMs,
+            timelineMs,
+            chatMs,
+            notificationMs,
+            writeDbMs: 0,
+            sseMs: 0,
+            trustMs: 0,
+          },
+        };
+      }
+      if (strongStatus === "usdt_sent") {
+        db = strongDb;
+        requestIndex = strongIndex;
+        request = strongRequest;
+        stateBefore = strongStatus;
+        currentStatus = strongStatus;
+      }
+    }
+  }
   const listing = getListingByIdOrThrow(db, request.listingId);
   const requestPaymentMethod = normalizeMarketplacePaymentMethod(request.paymentMethod) ?? "Bank Transfer";
   const isFaceToFaceTrade = isFaceToFacePaymentMethod(requestPaymentMethod);
