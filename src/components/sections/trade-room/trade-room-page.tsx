@@ -67,6 +67,7 @@ type PrimaryAction = StatusPrimaryAction | UploadPrimaryAction;
 const ALLOWED_EVIDENCE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
 const MAX_EVIDENCE_SIZE_BYTES = 8 * 1024 * 1024;
 const TRADE_ROOM_DEBUG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
+const COMPLETED_TRADE_STATUSES = new Set<PurchaseRequest["status"]>(["review_open", "completed", "locked"]);
 // Performance timing logs are always-on during RC5 QA so timings are visible in
 // the browser console without needing a special env var set on production.
 const PERF_LOG = true;
@@ -527,6 +528,32 @@ function buildOptimisticEvidenceRoom(
   return applyRequestToRoom(room, nextRequest);
 }
 
+function shouldIgnoreRegressiveSnapshot(currentRoom: TradeRoomData, incomingRoom: TradeRoomData, completionLocked: boolean) {
+  const currentStatus = currentRoom.request.status;
+  const incomingStatus = incomingRoom.request.status;
+  const currentIsCompleted = COMPLETED_TRADE_STATUSES.has(currentStatus);
+  const incomingIsCompleted = COMPLETED_TRADE_STATUSES.has(incomingStatus);
+
+  if (completionLocked && currentIsCompleted && !incomingIsCompleted) {
+    return true;
+  }
+
+  if (currentIsCompleted && !incomingIsCompleted) {
+    const currentCompletedAtMs = currentRoom.request.completedAt ? new Date(currentRoom.request.completedAt).getTime() : NaN;
+    const incomingCompletedAtMs = incomingRoom.request.completedAt ? new Date(incomingRoom.request.completedAt).getTime() : NaN;
+    if (!Number.isNaN(currentCompletedAtMs) && (Number.isNaN(incomingCompletedAtMs) || incomingCompletedAtMs < currentCompletedAtMs)) {
+      return true;
+    }
+    const currentUpdatedAtMs = new Date(currentRoom.request.updatedAt).getTime();
+    const incomingUpdatedAtMs = new Date(incomingRoom.request.updatedAt).getTime();
+    if (!Number.isNaN(currentUpdatedAtMs) && !Number.isNaN(incomingUpdatedAtMs) && incomingUpdatedAtMs < currentUpdatedAtMs) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function TradeRoomPage({
   locale,
   requestId,
@@ -582,6 +609,8 @@ export function TradeRoomPage({
   const perfFetchStartTsRef = useRef<number | null>(null);
   const perfSseReceivedTsRef = useRef<number | null>(null);
   const perfSsePublishedAtRef = useRef<number | null>(null);
+  const roomRef = useRef<TradeRoomData | null>(null);
+  const buyerCompletionLockRef = useRef(false);
 
   const fetchRoom = useCallback(async (silent = false) => {
     if (!silent) {
@@ -601,9 +630,18 @@ export function TradeRoomPage({
       if (TRADE_ROOM_DEBUG) {
         console.log("[trade-room-load] fetch", { requestId, apiLatencyMs, routeMs, dbMs, stateAfter: payload.request.status });
       }
-      writeTradeRoomCache(requestId, payload);
-      setRoom(payload);
-      return payload;
+      const currentRoom = roomRef.current;
+      const shouldIgnore = currentRoom
+        ? shouldIgnoreRegressiveSnapshot(currentRoom, payload, buyerCompletionLockRef.current)
+        : false;
+      const nextRoom = shouldIgnore ? currentRoom : payload;
+      if (!nextRoom) {
+        return null;
+      }
+      roomRef.current = nextRoom;
+      writeTradeRoomCache(requestId, nextRoom);
+      setRoom(nextRoom);
+      return nextRoom;
     } catch (error) {
       const message = error instanceof Error ? error.message : (isAr ? "تعذر تحميل غرفة الصفقة." : "Failed to load trade room.");
       setErrorMessage(message);
@@ -616,12 +654,17 @@ export function TradeRoomPage({
   useEffect(() => {
     const cached = readTradeRoomCache<TradeRoomData>(requestId);
     if (cached) {
+      roomRef.current = cached;
       setRoom(cached);
       setIsLoading(false);
       return;
     }
     void fetchRoom();
   }, [fetchRoom, requestId]);
+
+  useEffect(() => {
+    roomRef.current = room;
+  }, [room]);
 
   useEffect(() => {
     const currentRequest = room?.request;
@@ -706,6 +749,7 @@ export function TradeRoomPage({
   }, []);
 
   const startBuyerCompletionSuccessFlow = useCallback((purchaseRequestId: string) => {
+    buyerCompletionLockRef.current = true;
     setBuyerCompletionSuccessActive(true);
     setBuyerRedirectPending(true);
     setBuyerSuccessFadingOut(false);
@@ -761,8 +805,15 @@ export function TradeRoomPage({
             sentToReceivedMs: payload._timing?.sentAtEpochMs ? Date.now() - payload._timing.sentAtEpochMs : null,
           });
         }
-        writeTradeRoomCache(requestId, payload);
-        setRoom(payload);
+        const currentRoom = roomRef.current;
+        const shouldIgnore = currentRoom
+          ? shouldIgnoreRegressiveSnapshot(currentRoom, payload, buyerCompletionLockRef.current)
+          : false;
+        if (!shouldIgnore) {
+          roomRef.current = payload;
+          writeTradeRoomCache(requestId, payload);
+          setRoom(payload);
+        }
         setStreamConnected(true);
         setErrorMessage(null);
       } catch {
