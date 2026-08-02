@@ -12,6 +12,8 @@ type AdminContentSnapshot = {
   media: MediaItem[];
 };
 
+type AdminContentTableName = "lessons" | "versions" | "media";
+
 const DEFAULT_SNAPSHOT: AdminContentSnapshot = {
   lessons: lessonsSeed as Lesson[],
   versions: versionsSeed as LessonVersion[],
@@ -59,11 +61,6 @@ const SCHEMA_SQL = [
   "create index if not exists idx_admin_cms_media_updated_at on admin_cms.media_items (updated_at desc)",
   "create index if not exists idx_admin_cms_media_storage on admin_cms.media_items (storage_bucket, storage_key)",
 ];
-
-const TRUNCATE_SQL = `truncate table
-  admin_cms.media_items,
-  admin_cms.lesson_versions,
-  admin_cms.lessons`;
 
 declare global {
   var __adminContentRepositoryPromise: Promise<AdminContentRepository> | undefined;
@@ -153,7 +150,7 @@ export class AdminContentRepository {
     };
   }
 
-  async saveSnapshot(snapshot: AdminContentSnapshot, options?: { skipReadyCheck?: boolean }) {
+  async saveSnapshot(snapshot: AdminContentSnapshot, options?: { skipReadyCheck?: boolean; selectedTables?: readonly AdminContentTableName[] }) {
     const pool = this.pool;
     if (this.usesMemoryFallback || !pool) {
       globalThis.__adminContentMemorySnapshot = cloneSnapshot(snapshot);
@@ -175,63 +172,72 @@ export class AdminContentRepository {
         // Advisory locks are not available in all local database setups.
       }
 
-      await client.query(TRUNCATE_SQL);
+      const selectedTables = options?.selectedTables ?? ["lessons", "versions", "media"];
 
-      for (const [index, lesson] of snapshot.lessons.entries()) {
-        await client.query(
-          `insert into admin_cms.lessons
-            (id, slug, course_id, category, status, lesson_order, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
-          [
-            lesson.id,
-            lesson.slug,
-            lesson.courseId,
-            lesson.category ?? "beginner",
-            lesson.status ?? "published",
-            lesson.order,
-            lesson.updatedAt ? new Date(lesson.updatedAt) : null,
-            index,
-            JSON.stringify(lesson),
-          ],
-        );
+      if (selectedTables.includes("lessons")) {
+        await client.query("truncate table admin_cms.lessons");
+        for (const [index, lesson] of snapshot.lessons.entries()) {
+          await client.query(
+            `insert into admin_cms.lessons
+              (id, slug, course_id, category, status, lesson_order, updated_at, sort_index, payload)
+             values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
+            [
+              lesson.id,
+              lesson.slug,
+              lesson.courseId,
+              lesson.category ?? "beginner",
+              lesson.status ?? "published",
+              lesson.order,
+              lesson.updatedAt ? new Date(lesson.updatedAt) : null,
+              index,
+              JSON.stringify(lesson),
+            ],
+          );
+        }
       }
 
-      for (const [index, version] of snapshot.versions.entries()) {
-        await client.query(
-          `insert into admin_cms.lesson_versions
-            (id, lesson_id, action, role, version_timestamp, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
-          [
-            version.id,
-            version.lessonId,
-            version.action,
-            version.role,
-            new Date(version.timestamp),
-            index,
-            JSON.stringify(version),
-          ],
-        );
+      if (selectedTables.includes("versions")) {
+        await client.query("truncate table admin_cms.lesson_versions");
+        for (const [index, version] of snapshot.versions.entries()) {
+          await client.query(
+            `insert into admin_cms.lesson_versions
+              (id, lesson_id, action, role, version_timestamp, sort_index, payload)
+             values ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
+            [
+              version.id,
+              version.lessonId,
+              version.action,
+              version.role,
+              new Date(version.timestamp),
+              index,
+              JSON.stringify(version),
+            ],
+          );
+        }
       }
 
-      for (const [index, item] of snapshot.media.entries()) {
-        await client.query(
-          `insert into admin_cms.media_items
-            (id, type, provider, name, url, storage_bucket, storage_key, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
-          [
-            item.id,
-            item.type,
-            item.provider,
-            item.name,
-            item.url,
-            item.storageBucket ?? null,
-            item.storageKey ?? null,
-            new Date(item.createdAt),
-            new Date(item.updatedAt),
-            index,
-            JSON.stringify(item),
-          ],
-        );
+      if (selectedTables.includes("media")) {
+        await client.query("truncate table admin_cms.media_items");
+        for (const [index, item] of snapshot.media.entries()) {
+          await client.query(
+            `insert into admin_cms.media_items
+              (id, type, provider, name, url, storage_bucket, storage_key, created_at, updated_at, sort_index, payload)
+             values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
+            [
+              item.id,
+              item.type,
+              item.provider,
+              item.name,
+              item.url,
+              item.storageBucket ?? null,
+              item.storageKey ?? null,
+              new Date(item.createdAt),
+              new Date(item.updatedAt),
+              index,
+              JSON.stringify(item),
+            ],
+          );
+        }
       }
 
       await client.query("commit");
@@ -250,7 +256,7 @@ export class AdminContentRepository {
 
   async saveLessons(lessons: Lesson[]) {
     const snapshot = await this.loadSnapshot();
-    await this.saveSnapshot({ ...snapshot, lessons });
+    await this.saveSnapshot({ ...snapshot, lessons }, { selectedTables: ["lessons"] });
   }
 
   async loadVersions() {
@@ -260,7 +266,7 @@ export class AdminContentRepository {
 
   async saveVersions(versions: LessonVersion[]) {
     const snapshot = await this.loadSnapshot();
-    await this.saveSnapshot({ ...snapshot, versions });
+    await this.saveSnapshot({ ...snapshot, versions }, { selectedTables: ["versions"] });
   }
 
   async loadMedia() {
@@ -270,7 +276,7 @@ export class AdminContentRepository {
 
   async saveMedia(media: MediaItem[]) {
     const snapshot = await this.loadSnapshot();
-    await this.saveSnapshot({ ...snapshot, media });
+    await this.saveSnapshot({ ...snapshot, media }, { selectedTables: ["media"] });
   }
 }
 

@@ -8118,6 +8118,183 @@ export async function getTrustEngineOverviewForAdmin(dbInput?: AlphaExchangeDb) 
   };
 }
 
+export async function forceCompleteTradeByAdmin(input: { requestId: string; reason: string; actorUserId: string }) {
+  const db = await readDb();
+  const index = db.purchaseRequests.findIndex((r) => r.id === input.requestId);
+  if (index === -1) throw new Error("Purchase request not found.");
+  const request = db.purchaseRequests[index];
+  const now = nowIso();
+  db.purchaseRequests[index] = { ...request, status: "completed", completedAt: now, updatedAt: now };
+  appendTradeTimelineEntry(db.purchaseRequests[index], {
+    type: "trade_completed",
+    actorUserId: input.actorUserId,
+    actorRole: resolveActorRole(db, input.actorUserId),
+    message: "Admin force-completed this trade",
+  });
+  await appendAuditLog(db, {
+    action: "admin_override",
+    actorUserId: input.actorUserId,
+    purchaseRequestId: input.requestId,
+    details: "Admin force-completed trade",
+    reason: input.reason,
+  });
+  await writeDb(db, { selectedTables: TRADE_REVIEW_TABLES });
+}
+
+export async function forceCancelTradeByAdmin(input: { requestId: string; reason: string; actorUserId: string }) {
+  const db = await readDb();
+  const index = db.purchaseRequests.findIndex((r) => r.id === input.requestId);
+  if (index === -1) throw new Error("Purchase request not found.");
+  const request = db.purchaseRequests[index];
+  const now = nowIso();
+  db.purchaseRequests[index] = { ...request, status: "cancelled", updatedAt: now };
+  appendTradeTimelineEntry(db.purchaseRequests[index], {
+    type: "request_cancelled",
+    actorUserId: input.actorUserId,
+    actorRole: resolveActorRole(db, input.actorUserId),
+    message: "Admin cancelled this trade",
+  });
+  await appendAuditLog(db, {
+    action: "admin_override",
+    actorUserId: input.actorUserId,
+    purchaseRequestId: input.requestId,
+    details: "Admin force-cancelled trade",
+    reason: input.reason,
+  });
+  await writeDb(db, { selectedTables: TRADE_REVIEW_TABLES });
+}
+
+export async function unlockTradeReviewByAdmin(input: { requestId: string; reason: string; actorUserId: string }) {
+  const db = await readDb();
+  const index = db.purchaseRequests.findIndex((r) => r.id === input.requestId);
+  if (index === -1) throw new Error("Purchase request not found.");
+  const request = db.purchaseRequests[index];
+  const now = nowIso();
+  db.purchaseRequests[index] = { ...request, reviewUnlockedAt: now, updatedAt: now };
+  appendTradeTimelineEntry(db.purchaseRequests[index], {
+    type: "review_unlocked",
+    actorUserId: input.actorUserId,
+    actorRole: resolveActorRole(db, input.actorUserId),
+    message: "Admin unlocked review window",
+  });
+  await appendAuditLog(db, {
+    action: "admin_override",
+    actorUserId: input.actorUserId,
+    purchaseRequestId: input.requestId,
+    details: "Admin unlocked review window",
+    reason: input.reason,
+  });
+  await writeDb(db, { selectedTables: PURCHASE_REQUEST_ONLY_TABLES });
+}
+
+export async function changeUserRoleByAdmin(input: { userId: string; role: AlphaExchangeUser["role"]; reason: string; actorUserId: string }) {
+  const db = await readDb();
+  const index = db.users.findIndex((u) => u.id === input.userId);
+  if (index === -1) throw new Error("User not found.");
+  const user = db.users[index];
+  if (hasRole(user, "owner")) throw new Error("Owner account role cannot be changed.");
+  const oldRole = user.role;
+  db.users[index] = { ...user, role: input.role, updatedAt: nowIso() };
+  await appendAuditLog(db, {
+    action: "admin_override",
+    actorUserId: input.actorUserId,
+    targetUserId: input.userId,
+    details: `User role changed from ${oldRole} to ${input.role}`,
+    oldValue: oldRole,
+    newValue: input.role,
+    reason: input.reason,
+  });
+  await writeDb(db, { selectedTables: SELLER_PROFILE_STATE_TABLES });
+}
+
+export async function disableUserAccountByAdmin(input: { userId: string; disabled: boolean; reason: string; actorUserId: string }) {
+  const db = await readDb();
+  const index = db.users.findIndex((u) => u.id === input.userId);
+  if (index === -1) throw new Error("User not found.");
+  const user = db.users[index];
+  if (hasRole(user, "owner")) throw new Error("Owner account cannot be disabled.");
+  db.users[index] = { ...user, disabled: input.disabled, updatedAt: nowIso() };
+  await appendAuditLog(db, {
+    action: "admin_override",
+    actorUserId: input.actorUserId,
+    targetUserId: input.userId,
+    details: `User account ${input.disabled ? "disabled" : "enabled"}`,
+    reason: input.reason,
+  });
+  await writeDb(db, { selectedTables: SELLER_PROFILE_STATE_TABLES });
+}
+
+export async function setSellerVacationModeByAdmin(input: { userId: string; enabled: boolean; actorUserId: string }) {
+  const db = await readDb();
+  const index = db.users.findIndex((u) => u.id === input.userId);
+  if (index === -1) throw new Error("User not found.");
+  const user = db.users[index];
+  const nextStatus: SellerAvailabilityStatus = input.enabled ? "vacation" : "available";
+  db.users[index] = { ...user, availabilityStatus: nextStatus, updatedAt: nowIso() };
+  await appendAuditLog(db, {
+    action: input.enabled ? "seller_vacation_enabled" : "seller_vacation_disabled",
+    actorUserId: input.actorUserId,
+    targetUserId: input.userId,
+    details: `Admin ${input.enabled ? "enabled" : "disabled"} vacation mode for seller`,
+  });
+  await writeDb(db, { selectedTables: SELLER_PROFILE_STATE_TABLES });
+}
+
+export async function broadcastNotificationByAdmin(input: { title: string; body: string; type: "info" | "warning" | "success"; actorUserId: string }) {
+  const db = await readDb();
+  for (const user of db.users) {
+    pushNotification(db, {
+      userId: user.id,
+      category: "system",
+      title: input.title,
+      message: input.body,
+      priority: input.type === "warning" ? "high" : "normal",
+    });
+  }
+  await appendAuditLog(db, {
+    action: "admin_override",
+    actorUserId: input.actorUserId,
+    details: `Broadcast notification sent: ${input.title}`,
+  });
+  await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
+}
+
+export async function reverifyCommissionByAdmin(input: { commissionId: string; actorUserId: string }) {
+  const db = await readDb();
+  const index = db.commissionRecords.findIndex((r) => r.id === input.commissionId);
+  if (index === -1) throw new Error("Commission record not found.");
+  const record = db.commissionRecords[index];
+  if (!record.paymentSignature || !record.payerWalletAddress || !record.recipientWalletAddress || !record.paymentNetwork) {
+    throw new Error("Commission has no payment details to reverify.");
+  }
+  const existingSignatures = db.commissionRecords
+    .filter((r) => r.id !== input.commissionId && r.paymentVerificationStatus === "verified")
+    .map((r) => r.paymentSignature)
+    .filter((s): s is string => Boolean(s));
+  const result = await verifyCommissionWalletPayment({
+    amountDue: record.commissionAmount,
+    network: record.paymentNetwork,
+    payerWalletAddress: record.payerWalletAddress,
+    recipientWalletAddress: record.recipientWalletAddress,
+    paymentSignature: record.paymentSignature,
+    existingSignatures,
+  });
+  db.commissionRecords[index] = {
+    ...record,
+    paymentVerificationStatus: result.verified ? "verified" : "failed",
+    paymentVerificationNotes: result.notes,
+    updatedAt: nowIso(),
+  };
+  await appendAuditLog(db, {
+    action: "admin_override",
+    actorUserId: input.actorUserId,
+    purchaseRequestId: record.purchaseRequestId,
+    details: `Commission ${input.commissionId} reverified: ${result.verified ? "verified" : "failed"} — ${result.notes}`,
+  });
+  await writeDb(db, { selectedTables: COMMISSION_STATUS_TABLES });
+  return result;
+}
+
 export async function getAdminPrepDashboardData() {
   const db = await readDb();
   const trustInitialized = await ensureTrustSnapshots(db);
@@ -8139,6 +8316,9 @@ export async function getAdminPrepDashboardData() {
   ]);
   const notifications = [...db.notifications].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250);
   const activityLog = [...db.activityLog].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const users = db.users.map(({ passwordHash: _ph, ...rest }) => rest);
+  const sellerReviews = db.sellerReviews ?? [];
 
   return {
     summary,
@@ -8153,6 +8333,8 @@ export async function getAdminPrepDashboardData() {
     trustEngine,
     ownerBusiness,
     privateBeta,
+    users,
+    sellerReviews,
   };
 }
 

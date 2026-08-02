@@ -120,6 +120,7 @@ export interface AlphaExchangeUser {
   sellerRankOverride?: SellerRankOverride;
   sellerPromotionHistory?: SellerPromotionHistoryEntry[];
   sellerAchievements?: SellerAchievement[];
+  disabled?: boolean;
   createdAt: string;
   updatedAt: string;
 }

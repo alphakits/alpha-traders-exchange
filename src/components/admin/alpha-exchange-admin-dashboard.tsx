@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Search, Settings, ShieldCheck, Store, Users, WalletCards, X } from "lucide-react";
+import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Search, Settings, ShieldCheck, Star, Store, TrendingUp, Users, Users2, WalletCards, X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { RoleBadge } from "@/components/ui/role-badge";
-import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, AuditLogEntry, BetaAnnouncement, BetaAnnouncementType, BetaFeedbackCategory, CommissionRecord, MarketplaceListing, OwnerBusinessDashboardMetrics, OwnerPrivateBetaDashboardData, PurchaseRequest, SellerApplication, SellerAvailabilityStatus, SellerLevel, SupportedNetwork } from "@/types/alpha-exchange";
+import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, AuditLogEntry, BetaAnnouncement, BetaAnnouncementType, BetaFeedbackCategory, CommissionRecord, MarketplaceListing, OwnerBusinessDashboardMetrics, OwnerPrivateBetaDashboardData, PurchaseRequest, SellerApplication, SellerAvailabilityStatus, SellerLevel, SellerReviewRecord, SupportedNetwork } from "@/types/alpha-exchange";
 
 type AdminSummary = {
   usersCount: number;
@@ -64,6 +64,8 @@ type AdminPayload = {
     };
   };
   privateBeta: OwnerPrivateBetaDashboardData;
+  users: Array<{ id: string; fullName: string; email: string; role: string; roles?: string[]; disabled?: boolean; createdAt: string }>;
+  sellerReviews: SellerReviewRecord[];
 };
 
 type SectionKey =
@@ -75,7 +77,11 @@ type SectionKey =
   | "commissions"
   | "audit-logs"
   | "private-beta"
-  | "settings";
+  | "settings"
+  | "users"
+  | "reviews"
+  | "analytics"
+  | "emergency";
 
 const pageSize = 8;
 
@@ -88,6 +94,10 @@ const sectionItems: Array<{ key: SectionKey; label: string; icon: typeof BarChar
   { key: "commissions", label: "Commissions", icon: Coins },
   { key: "audit-logs", label: "Audit Logs", icon: FileClock },
   { key: "private-beta", label: "Access Control", icon: ShieldCheck },
+  { key: "analytics", label: "Analytics", icon: TrendingUp },
+  { key: "users", label: "User Management", icon: Users2 },
+  { key: "reviews", label: "Reviews", icon: Star },
+  { key: "emergency", label: "Emergency", icon: Zap },
   { key: "settings", label: "Settings", icon: Settings },
 ];
 
@@ -200,6 +210,15 @@ export function AlphaExchangeAdminDashboard() {
   const [announcementTitle, setAnnouncementTitle] = useState("");
   const [announcementMessage, setAnnouncementMessage] = useState("");
   const toastTimeoutRef = useRef<number | null>(null);
+
+  const [usersQuery, setUsersQuery] = useState("");
+  const [usersPage, setUsersPage] = useState(1);
+  const [usersRoleFilter, setUsersRoleFilter] = useState<"all" | string>("all");
+  const [reviewsQuery, setReviewsQuery] = useState("");
+  const [reviewsPage, setReviewsPage] = useState(1);
+  const [broadcastTitle, setBroadcastTitle] = useState("");
+  const [broadcastBody, setBroadcastBody] = useState("");
+  const [broadcastType, setBroadcastType] = useState<"info" | "warning" | "success">("info");
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -388,6 +407,26 @@ export function AlphaExchangeAdminDashboard() {
     return items.slice(0, 20);
   }, [betaFeedbackStatusFilter, data?.privateBeta.feedback]);
 
+  const usersRows = useMemo(() => {
+    const items = (data?.users ?? []).filter((user) => {
+      if (usersRoleFilter !== "all" && user.role !== usersRoleFilter) return false;
+      const query = usersQuery.trim().toLowerCase();
+      if (!query) return true;
+      return `${user.fullName} ${user.email} ${user.role}`.toLowerCase().includes(query);
+    });
+    return paginate(items, usersPage);
+  }, [data?.users, usersPage, usersQuery, usersRoleFilter]);
+
+  const reviewsRows = useMemo(() => {
+    const items = (data?.sellerReviews ?? []).filter((review) => {
+      const query = reviewsQuery.trim().toLowerCase();
+      if (!query) return true;
+      const seller = sellersById.get(review.sellerId);
+      return `${seller?.fullName ?? review.sellerId} ${review.buyerId} ${review.comment}`.toLowerCase().includes(query);
+    });
+    return paginate(items, reviewsPage);
+  }, [data?.sellerReviews, reviewsPage, reviewsQuery, sellersById]);
+
   async function runAction(request: Promise<Response>, successMessage: string) {
     try {
       const response = await request;
@@ -500,6 +539,81 @@ export function AlphaExchangeAdminDashboard() {
       }),
       isActive ? "Announcement enabled." : "Announcement disabled.",
     );
+  }
+
+  async function handleForceComplete(requestId: string) {
+    const reason = window.prompt("Reason for force-completing this trade:");
+    if (!reason) return;
+    const r = await fetch(`/api/alpha-exchange/admin/purchase-requests/${requestId}/force-complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
+    const p = await r.json() as { error?: string };
+    pushToast(r.ok ? "Trade force-completed." : (p.error ?? "Error"));
+    if (r.ok) { setSelectedRequest(null); await fetchData(); }
+  }
+
+  async function handleForceCancel(requestId: string) {
+    const reason = window.prompt("Reason for cancelling this trade:");
+    if (!reason) return;
+    const r = await fetch(`/api/alpha-exchange/admin/purchase-requests/${requestId}/force-cancel`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
+    const p = await r.json() as { error?: string };
+    pushToast(r.ok ? "Trade cancelled." : (p.error ?? "Error"));
+    if (r.ok) { setSelectedRequest(null); await fetchData(); }
+  }
+
+  async function handleUnlockReview(requestId: string) {
+    const reason = window.prompt("Reason for unlocking review:");
+    if (!reason) return;
+    const r = await fetch(`/api/alpha-exchange/admin/purchase-requests/${requestId}/unlock-review`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
+    const p = await r.json() as { error?: string };
+    pushToast(r.ok ? "Review window unlocked." : (p.error ?? "Error"));
+    if (r.ok) await fetchData();
+  }
+
+  async function handleReverifyCommission(commissionId: string) {
+    const r = await fetch(`/api/alpha-exchange/admin/commissions/${commissionId}/reverify`, { method: "POST" });
+    const p = await r.json() as { error?: string; notes?: string };
+    pushToast(r.ok ? `Reverification: ${p.notes ?? "complete"}` : (p.error ?? "Error"));
+    if (r.ok) await fetchData();
+  }
+
+  async function handleChangeUserRole(userId: string, currentRole: string) {
+    const newRole = window.prompt(`Change role for user (current: ${currentRole})\nOptions: buyer, approved_seller, admin, owner`);
+    if (!newRole) return;
+    const reason = window.prompt("Reason for role change:");
+    if (!reason) return;
+    const r = await fetch(`/api/alpha-exchange/admin/users/${userId}/role`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: newRole, reason }) });
+    const p = await r.json() as { error?: string };
+    pushToast(r.ok ? "Role updated." : (p.error ?? "Error"));
+    if (r.ok) await fetchData();
+  }
+
+  async function handleDisableUser(userId: string, disabled: boolean) {
+    const reason = window.prompt(`Reason for ${disabled ? "disabling" : "enabling"} this account:`);
+    if (!reason) return;
+    const r = await fetch(`/api/alpha-exchange/admin/users/${userId}/disable`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ disabled, reason }) });
+    const p = await r.json() as { error?: string };
+    pushToast(r.ok ? `Account ${disabled ? "disabled" : "enabled"}.` : (p.error ?? "Error"));
+    if (r.ok) await fetchData();
+  }
+
+  async function handleModerateReview(reviewId: string, hide: boolean) {
+    const reason = window.prompt(`Reason for ${hide ? "hiding" : "restoring"} this review:`);
+    if (!reason) return;
+    const r = await fetch(`/api/alpha-exchange/admin/reviews/${reviewId}/moderate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hide, reason }) });
+    const p = await r.json() as { error?: string };
+    pushToast(r.ok ? `Review ${hide ? "hidden" : "restored"}.` : (p.error ?? "Error"));
+    if (r.ok) await fetchData();
+  }
+
+  async function handleBroadcast() {
+    if (!broadcastTitle.trim() || !broadcastBody.trim()) { pushToast("Title and body are required."); return; }
+    const r = await fetch("/api/alpha-exchange/admin/notifications/broadcast", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: broadcastTitle, body: broadcastBody, type: broadcastType }) });
+    const p = await r.json() as { error?: string };
+    pushToast(r.ok ? "Broadcast sent." : (p.error ?? "Error"));
+    if (r.ok) { setBroadcastTitle(""); setBroadcastBody(""); }
   }
 
   function exportCommissionsCsv() {
@@ -1426,18 +1540,23 @@ export function AlphaExchangeAdminDashboard() {
                                     </td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(record.createdAt)}</td>
                                     <td className="px-4 py-3">
-                                      {record.paymentStatus !== "paid" ? (
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          variant="secondary"
-                                          onClick={() => runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "paid" }) }), "Commission marked paid.")}
-                                        >
-                                          Mark Paid
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        {record.paymentStatus !== "paid" ? (
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="secondary"
+                                            onClick={() => runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "paid" }) }), "Commission marked paid.")}
+                                          >
+                                            Mark Paid
+                                          </Button>
+                                        ) : (
+                                          <span className="text-xs text-[#9CA3AF]">Settled</span>
+                                        )}
+                                        <Button type="button" size="sm" variant="secondary" onClick={() => void handleReverifyCommission(record.id)}>
+                                          Reverify
                                         </Button>
-                                      ) : (
-                                        <span className="text-xs text-[#9CA3AF]">Settled</span>
-                                      )}
+                                      </div>
                                     </td>
                                   </tr>
                                 );
@@ -1712,6 +1831,234 @@ export function AlphaExchangeAdminDashboard() {
                     </div>
                   ) : null}
 
+                  {activeSection === "analytics" ? (
+                    <div className="space-y-5 xl:space-y-6">
+                      <Card className="border-white/10 bg-[#0B0B0B]/90">
+                        <CardHeader>
+                          <CardTitle>Analytics</CardTitle>
+                          <CardDescription>Key marketplace metrics at a glance.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                          {[
+                            { label: "Active Trades", value: (data.purchaseRequests ?? []).filter((r) => r.status !== "completed" && r.status !== "cancelled" && r.status !== "declined").length },
+                            { label: "Completed Trades", value: (data.purchaseRequests ?? []).filter((r) => r.status === "completed").length },
+                            { label: "Open Listings", value: (data.listings ?? []).filter((l) => l.status === "active").length },
+                            { label: "Revenue Today (est.)", value: formatCurrency(data.ownerBusiness.today.estimatedCommission) },
+                            { label: "Revenue This Week", value: formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek) },
+                            { label: "Revenue This Month", value: formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth) },
+                            { label: "Volume Today", value: formatUsdt(data.ownerBusiness.today.tradeVolumeUsdt) },
+                            { label: "Top Seller (Week)", value: data.ownerBusiness.thisWeek.topSeller || "—" },
+                          ].map((stat) => (
+                            <Card key={stat.label} className="border-white/10 bg-black/20">
+                              <CardHeader className="pb-2">
+                                <CardDescription className="text-xs uppercase tracking-[0.15em] text-[#9CA3AF]">{stat.label}</CardDescription>
+                                <CardTitle className="text-xl">{stat.value}</CardTitle>
+                              </CardHeader>
+                            </Card>
+                          ))}
+                        </CardContent>
+                      </Card>
+                    </div>
+                  ) : null}
+
+                  {activeSection === "users" ? (
+                    <Card className="border-white/10 bg-[#0B0B0B]/90">
+                      <CardHeader>
+                        <CardTitle>User Management</CardTitle>
+                        <CardDescription>Manage all platform users, roles, and account states.</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid gap-3 md:grid-cols-3">
+                          <div className="relative md:col-span-2">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
+                            <Input className="pl-9" placeholder="Search name, email, role..." value={usersQuery} onChange={(event) => { setUsersQuery(event.target.value); setUsersPage(1); }} />
+                          </div>
+                          <select value={usersRoleFilter} onChange={(event) => { setUsersRoleFilter(event.target.value); setUsersPage(1); }} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white">
+                            <option value="all">Role: All</option>
+                            <option value="buyer">Buyer</option>
+                            <option value="approved_seller">Approved Seller</option>
+                            <option value="pending_seller_approval">Pending Seller</option>
+                            <option value="admin">Admin</option>
+                            <option value="owner">Owner</option>
+                            <option value="guest">Guest</option>
+                            <option value="student">Student</option>
+                          </select>
+                        </div>
+                        <div className="mt-5 overflow-x-auto rounded-xl border border-white/10">
+                          <table className="w-full min-w-[860px] text-sm">
+                            <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
+                              <tr>
+                                <th className="px-4 py-3">Name</th>
+                                <th className="px-4 py-3">Email</th>
+                                <th className="px-4 py-3">Role</th>
+                                <th className="px-4 py-3">Status</th>
+                                <th className="px-4 py-3">Joined</th>
+                                <th className="px-4 py-3">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {usersRows.rows.map((user) => (
+                                <tr key={user.id} className="border-t border-white/10">
+                                  <td className="px-4 py-3 font-medium text-white">{user.fullName}</td>
+                                  <td className="px-4 py-3 text-[#D1D5DB]">{user.email}</td>
+                                  <td className="px-4 py-3 text-[#D1D5DB] capitalize">{user.role}</td>
+                                  <td className="px-4 py-3">
+                                    {user.disabled ? (
+                                      <span className="rounded-full border border-red-500/35 bg-red-500/10 px-2.5 py-1 text-xs text-red-300">Disabled</span>
+                                    ) : (
+                                      <span className="rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-300">Active</span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(user.createdAt)}</td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <Button type="button" size="sm" variant="secondary" onClick={() => void handleChangeUserRole(user.id, user.role)}>
+                                        Change Role
+                                      </Button>
+                                      <Button type="button" size="sm" variant="secondary" onClick={() => void handleDisableUser(user.id, !user.disabled)} className={user.disabled ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20" : "border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20"}>
+                                        {user.disabled ? "Enable" : "Disable"}
+                                      </Button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                              {usersRows.rows.length === 0 ? renderEmptyTableRow("No users match your filters.", 6) : null}
+                            </tbody>
+                          </table>
+                        </div>
+                        {renderPagination(usersRows.safePage, usersRows.totalPages, setUsersPage)}
+                      </CardContent>
+                    </Card>
+                  ) : null}
+
+                  {activeSection === "reviews" ? (
+                    <Card className="border-white/10 bg-[#0B0B0B]/90">
+                      <CardHeader>
+                        <CardTitle>Reviews</CardTitle>
+                        <CardDescription>Moderate buyer reviews submitted after completed trades.</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="relative">
+                          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
+                          <Input className="pl-9" placeholder="Search seller, buyer, comment..." value={reviewsQuery} onChange={(event) => { setReviewsQuery(event.target.value); setReviewsPage(1); }} />
+                        </div>
+                        <div className="mt-5 overflow-x-auto rounded-xl border border-white/10">
+                          <table className="w-full min-w-[860px] text-sm">
+                            <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
+                              <tr>
+                                <th className="px-4 py-3">Seller</th>
+                                <th className="px-4 py-3">Buyer</th>
+                                <th className="px-4 py-3">Rating</th>
+                                <th className="px-4 py-3">Comment</th>
+                                <th className="px-4 py-3">Status</th>
+                                <th className="px-4 py-3">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {reviewsRows.rows.map((review) => {
+                                const seller = sellersById.get(review.sellerId);
+                                return (
+                                  <tr key={review.id} className="border-t border-white/10">
+                                    <td className="px-4 py-3 text-white">{seller?.fullName ?? review.sellerId}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{review.buyerId}</td>
+                                    <td className="px-4 py-3 text-[#C9A227]">{"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}</td>
+                                    <td className="px-4 py-3 max-w-[260px] truncate text-[#D1D5DB]">{review.comment}</td>
+                                    <td className="px-4 py-3">
+                                      {review.hidden ? (
+                                        <span className="rounded-full border border-red-500/35 bg-red-500/10 px-2.5 py-1 text-xs text-red-300">Hidden</span>
+                                      ) : (
+                                        <span className="rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-300">Visible</span>
+                                      )}
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <Button type="button" size="sm" variant="secondary" onClick={() => void handleModerateReview(review.id, !review.hidden)}>
+                                        {review.hidden ? "Restore" : "Hide"}
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                              {reviewsRows.rows.length === 0 ? renderEmptyTableRow("No reviews found.", 6) : null}
+                            </tbody>
+                          </table>
+                        </div>
+                        {renderPagination(reviewsRows.safePage, reviewsRows.totalPages, setReviewsPage)}
+                      </CardContent>
+                    </Card>
+                  ) : null}
+
+                  {activeSection === "emergency" ? (
+                    <div className="space-y-5">
+                      <Card className="border-amber-500/30 bg-[#0B0B0B]/90">
+                        <CardHeader>
+                          <div className="flex items-center gap-2">
+                            <Zap className="h-5 w-5 text-amber-400" />
+                            <CardTitle className="text-amber-300">Emergency Controls</CardTitle>
+                          </div>
+                          <CardDescription>Owner-only controls. These actions affect all users and cannot be undone.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                            <p className="mb-3 text-sm font-medium text-amber-300">Broadcast Notification to All Users</p>
+                            <div className="space-y-3">
+                              <select value={broadcastType} onChange={(event) => setBroadcastType(event.target.value as typeof broadcastType)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white">
+                                <option value="info">Info</option>
+                                <option value="warning">Warning</option>
+                                <option value="success">Success</option>
+                              </select>
+                              <Input placeholder="Notification title" value={broadcastTitle} onChange={(event) => setBroadcastTitle(event.target.value)} />
+                              <textarea
+                                placeholder="Notification body"
+                                value={broadcastBody}
+                                onChange={(event) => setBroadcastBody(event.target.value)}
+                                rows={3}
+                                className="flex w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white placeholder:text-[#9CA3AF] focus:outline-none focus:ring-1 focus:ring-[#C9A227]/40"
+                              />
+                              <Button type="button" onClick={() => void handleBroadcast()} className="border-amber-500/40 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30">
+                                Broadcast to All Users
+                              </Button>
+                            </div>
+                          </div>
+
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+                              <p className="mb-2 text-sm font-medium text-red-300">Force Expire Listings</p>
+                              <p className="mb-3 text-xs text-[#9CA3AF]">Immediately expire all listings that are past their expiry date.</p>
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20"
+                                onClick={() => {
+                                  if (!window.confirm("Force-expire all overdue listings? This cannot be undone.")) return;
+                                  void runAction(fetch("/api/alpha-exchange/admin/listings/force-expire", { method: "POST" }), "Expired listings force-closed.");
+                                }}
+                              >
+                                Run Now
+                              </Button>
+                            </div>
+                            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                              <p className="mb-2 text-sm font-medium text-amber-300">Recalculate All Trust Scores</p>
+                              <p className="mb-3 text-xs text-[#9CA3AF]">Trigger a full trust engine recalculation for all sellers.</p>
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                className="border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
+                                onClick={() => {
+                                  if (!window.confirm("Recalculate all trust scores? This may take a moment.")) return;
+                                  void runAction(fetch("/api/alpha-exchange/admin/trust/recalculate-all", { method: "POST" }), "Trust score recalculation triggered.");
+                                }}
+                              >
+                                Run Now
+                              </Button>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  ) : null}
+
                   {activeSection === "settings" ? (
                     <Card className="border-white/10 bg-[#0B0B0B]/90">
                       <CardHeader>
@@ -1899,6 +2246,22 @@ export function AlphaExchangeAdminDashboard() {
                 <div className="mt-3 rounded-xl border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 p-3 text-xs text-[#D1D5DB]">
                   <p className="text-sm font-medium text-white">Seller Response</p>
                   <p className="mt-2">{selectedRequest.sellerResponse.message}</p>
+                </div>
+              ) : null}
+              {selectedRequest.status !== "completed" && selectedRequest.status !== "cancelled" && selectedRequest.status !== "declined" ? (
+                <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                  <p className="mb-3 text-sm font-medium text-amber-300">Admin Actions</p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" size="sm" onClick={() => void handleForceComplete(selectedRequest.id)} className="border-[#C9A227]/40 bg-[#C9A227]/20 text-[#C9A227] hover:bg-[#C9A227]/30">
+                      Force Complete
+                    </Button>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => void handleForceCancel(selectedRequest.id)} className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20">
+                      Force Cancel
+                    </Button>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => void handleUnlockReview(selectedRequest.id)}>
+                      Unlock Review
+                    </Button>
+                  </div>
                 </div>
               ) : null}
             </motion.div>
