@@ -16,6 +16,7 @@ import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { MARKETPLACE_PAYMENT_METHODS, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { CLIENT_COMMISSION_WALLETS, COMMISSION_NETWORKS, type CommissionNetworkId } from "@/lib/commission-config";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
+import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
 const WHATSAPP_URL = "https://wa.me/972525967649";
@@ -3220,22 +3221,30 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                               placeholder="0x… or Solana signature"
                               value={commissionTxSignature}
                               onChange={(event) => setCommissionTxSignature(event.target.value)}
-                              className="font-mono text-xs"
-                            />
-                            <p className="text-xs text-[#6B7280]">
-                              Find this in your wallet&apos;s Activity or Transaction History. It must be the USDT send transaction — not a swap, trade, or other interaction.
-                            </p>
-                          </div>
+                             onPaste={(event) => {
+                               event.preventDefault();
+                               setCommissionTxSignature(normalizeTransactionHash(event.clipboardData.getData("text")));
+                             }}
+                             className="font-mono text-xs"
+                           />
+                           <p className="text-xs text-[#6B7280]">
+                             Find this in your wallet&apos;s Activity or Transaction History. It must be the USDT send transaction — not a swap, trade, or other interaction.
+                           </p>
+                         </div>
                         ) : null}
                       </div>
                     ) : (
                       <div className="space-y-1">
                         <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">Transaction Hash</p>
                         <Input
-                          placeholder="0x… or Solana signature"
-                          value={commissionTxSignature}
-                          onChange={(event) => setCommissionTxSignature(event.target.value)}
-                          className="font-mono text-xs"
+                         placeholder="0x… or Solana signature"
+                         value={commissionTxSignature}
+                         onChange={(event) => setCommissionTxSignature(event.target.value)}
+                         onPaste={(event) => {
+                           event.preventDefault();
+                           setCommissionTxSignature(normalizeTransactionHash(event.clipboardData.getData("text")));
+                         }}
+                         className="font-mono text-xs"
                         />
                         <p className="text-xs text-[#6B7280]">Copy this from your exchange withdrawal history after the transaction is confirmed.</p>
                       </div>

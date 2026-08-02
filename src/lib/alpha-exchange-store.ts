@@ -1,6 +1,7 @@
                   import { appendFileSync, mkdirSync } from "fs";
 import path from "path";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "crypto";
+import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { createExchangeDisplayLookup, normalizeDisplayNumber, replaceExchangeEntityIds } from "./alpha-exchange-display";
 import { calculateSellerTrustSnapshot, rankTrustSnapshots } from "@/lib/trust-engine";
@@ -6353,6 +6354,8 @@ const EVM_RPC_FALLBACKS: Record<string, string> = {
 const SOLANA_USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
 const ERC20_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
+export { normalizeTransactionHash } from "@/lib/tx-hash-utils";
+
 interface EvmReceiptLog {
   address?: string;
   topics?: string[];
@@ -6841,7 +6844,7 @@ async function verifyCommissionWalletPayment(input: {
   paymentSignature: string;
   existingSignatures?: string[];
 }): Promise<CommissionWalletVerificationResult> {
-  const txHash = input.paymentSignature.trim();
+  const txHash = normalizeTransactionHash(input.paymentSignature);
   const logCtx = { txHash, network: input.network, amountDue: input.amountDue, payerWallet: input.payerWalletAddress };
   console.log("[commission-verify] verification-started", logCtx);
 
