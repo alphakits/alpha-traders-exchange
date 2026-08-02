@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Globe, ShieldCheck, Sparkles, TrendingUp, Trophy } from "lucide-react";
+import { Crown, Globe, ShieldCheck, Sparkles, TrendingUp, Trophy } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { RoleBadge, type RoleBadgeVariant } from "@/components/ui/role-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -283,6 +283,9 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
   const isSeller = payload.stats.kind === "seller";
   const theme = profileTheme(payload.roleBadge);
   const statusCopy = isAr ? payload.accountStatuses.join(" • ") : payload.accountStatuses.join(" • ");
+  const roles = payload.profile.roles ?? [payload.profile.role];
+  const isOwner = roles.includes("owner") || payload.profile.role === "owner";
+  const hasAdminDashboardAccess = isOwner || roles.includes("admin") || payload.profile.role === "admin";
 
   return (
     <section className="section-container page-shell">
@@ -470,74 +473,105 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
             </CardContent>
           </Card>
 
-          <Card className="border-white/10 bg-[#0B0B0B]/95">
-            <CardHeader>
-              <CardTitle>{isAr ? "لوحة السمعة" : "Reputation board"}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {payload.stats.kind === "seller" ? (
-                <>
-                  <div className="rounded-2xl border border-[#C9A227]/25 bg-[#C9A227]/10 p-4">
-                    <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "مستوى البائع" : "Seller tier"}</p>
-                    <p className="mt-2 text-xl font-semibold text-white">{tierLabel(payload.stats.sellerLevel, isAr)}</p>
-                    <p className="mt-1 text-xs text-[#E5E7EB]">
-                      {payload.stats.nextLevel
-                        ? `${isAr ? "المستوى التالي" : "Next tier"}: ${tierLabel(payload.stats.nextLevel, isAr)}`
-                        : isAr
-                          ? "وصلت إلى أعلى مستوى."
-                          : "Top tier reached."}
+          <div className="space-y-5">
+            {hasAdminDashboardAccess ? (
+              <Card className="border-[#C9A227]/25 bg-[linear-gradient(180deg,rgba(201,162,39,0.12),rgba(11,11,11,0.95))]">
+                <CardHeader>
+                  <CardTitle>{isAr ? "الإدارة" : "Administration"}</CardTitle>
+                  <CardDescription>
+                    {isAr
+                      ? "إدارة منصة Alpha Traders والسوق والمستخدمين والصفقات والعمولات والمراجعات والثقة وعمليات النظام."
+                      : "Manage the Alpha Traders platform, marketplace, users, trades, commissions, moderation, trust, and system operations."}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="rounded-2xl border border-[#C9A227]/20 bg-black/30 p-4 text-sm text-[#E5E7EB]">
+                    <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">
+                      {isAr ? "وصول تشغيلي" : "Operational access"}
                     </p>
-                    <div className="mt-3 h-2.5 rounded-full bg-black/35">
-                      <div className="h-full rounded-full bg-gradient-to-r from-[#C9A227] via-[#F4D87A] to-[#C9A227]" style={{ width: `${Math.max(3, Math.min(100, payload.stats.progressToNextLevelPercent))}%` }} />
-                    </div>
-                    <p className="mt-2 text-xs text-[#E5E7EB]">
+                    <p className="mt-2 leading-6 text-[#D1D5DB]">
                       {isAr
-                        ? `${payload.stats.amountToNextLevelUsdt.toLocaleString("en-IL")} USDT للوصول للمستوى التالي`
-                        : `${payload.stats.amountToNextLevelUsdt.toLocaleString("en-IL")} USDT to unlock the next level`}
+                        ? "الوصول إلى أدوات الإدارة الداخلية يبقى مخفيًا عن المستخدمين العاديين ومتاحًا فقط للحسابات المصرح لها."
+                        : "Internal administration tools stay hidden from normal users and are only available to authorized platform accounts."}
                     </p>
                   </div>
-
-                  <div className="grid gap-2 text-sm sm:grid-cols-2">
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust score"}</p><p className="mt-1 font-semibold text-white">{payload.stats.trustScore.toFixed(1)}/100</p></div>
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "الحجم مدى الحياة" : "Lifetime volume"}</p><p className="mt-1 font-semibold text-white">{payload.stats.lifetimeCompletedVolumeUsdt.toLocaleString("en-IL")} USDT</p></div>
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "الصفقات المكتملة" : "Completed trades"}</p><p className="mt-1 font-semibold text-white">{payload.stats.completedTrades.toLocaleString("en-IL")}</p></div>
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "التقييم المتوسط" : "Average rating"}</p><p className="mt-1 font-semibold text-white">{payload.stats.averageRating.toFixed(2)} ★</p></div>
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "العروض النشطة" : "Active listings"}</p><p className="mt-1 font-semibold text-white">{payload.stats.activeListings.toLocaleString("en-IL")}</p></div>
-                  </div>
-
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-                    <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "إنجازات المستوى" : "Tier achievements"}</p>
-                    <div className="mt-2 space-y-1 text-xs text-[#D1D5DB]">
-                      {(payload.stats.promotionHistory.length ? payload.stats.promotionHistory.slice(0, 4) : [{ id: "start", rank: payload.stats.sellerLevel, promotedAt: payload.profile.memberSince }]).map((entry) => (
-                        <p key={entry.id} className="flex items-center gap-1.5">
-                          <Trophy className="h-3.5 w-3.5 text-[#C9A227]" />
-                          <span>{tierLabel(entry.rank, isAr)} • {new Date(entry.promotedAt).toLocaleDateString("en-IL")}</span>
-                        </p>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="rounded-2xl border border-[#6CAEFF]/25 bg-[#6CAEFF]/10 p-4">
-                    <p className="text-xs uppercase tracking-[0.14em] text-[#93C5FD]">{isAr ? "مسار المشتري" : "Buyer path"}</p>
-                    <p className="mt-2 text-base font-semibold text-white">{isAr ? "نمُ نحو بائع موثوق" : "Grow toward verified seller status"}</p>
-                    <p className="mt-1 text-xs text-[#D1D5DB]">
-                      {isAr
-                        ? "أكمل الصفقات، اكتب تقييمات ذات جودة، وابنِ سجل ثقة قوي للترقية."
-                        : "Complete trades, leave quality reviews, and build trust momentum to unlock seller progression."}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "صفقات نشطة" : "Active trades"}</p><p className="mt-1 font-semibold text-white">{payload.stats.activeTrades}</p></div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "صفقات مكتملة" : "Completed trades"}</p><p className="mt-1 font-semibold text-white">{payload.stats.completedTrades}</p></div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "تقييمات مكتوبة" : "Reviews written"}</p><p className="mt-1 font-semibold text-white">{payload.stats.reviewsGiven}</p></div>
-                  <Link href="/onboarding?mode=manage" className={buttonVariants({ variant: "outline", size: "sm" })}>
-                    {isAr ? "ابدأ مسار البائع" : "Start seller path"}
+                  <Link href="/admin/alpha-exchange" className={buttonVariants({ size: "sm", className: "w-full justify-center gap-2" })}>
+                    <Crown className="h-4 w-4" />
+                    <span>{isOwner ? (isAr ? "لوحة المالك" : "Owner Dashboard") : (isAr ? "لوحة الإدارة" : "Admin Dashboard")}</span>
                   </Link>
-                </>
-              )}
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            ) : null}
+
+            <Card className="border-white/10 bg-[#0B0B0B]/95">
+              <CardHeader>
+                <CardTitle>{isAr ? "لوحة السمعة" : "Reputation board"}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {payload.stats.kind === "seller" ? (
+                  <>
+                    <div className="rounded-2xl border border-[#C9A227]/25 bg-[#C9A227]/10 p-4">
+                      <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "مستوى البائع" : "Seller tier"}</p>
+                      <p className="mt-2 text-xl font-semibold text-white">{tierLabel(payload.stats.sellerLevel, isAr)}</p>
+                      <p className="mt-1 text-xs text-[#E5E7EB]">
+                        {payload.stats.nextLevel
+                          ? `${isAr ? "المستوى التالي" : "Next tier"}: ${tierLabel(payload.stats.nextLevel, isAr)}`
+                          : isAr
+                            ? "وصلت إلى أعلى مستوى."
+                            : "Top tier reached."}
+                      </p>
+                      <div className="mt-3 h-2.5 rounded-full bg-black/35">
+                        <div className="h-full rounded-full bg-gradient-to-r from-[#C9A227] via-[#F4D87A] to-[#C9A227]" style={{ width: `${Math.max(3, Math.min(100, payload.stats.progressToNextLevelPercent))}%` }} />
+                      </div>
+                      <p className="mt-2 text-xs text-[#E5E7EB]">
+                        {isAr
+                          ? `${payload.stats.amountToNextLevelUsdt.toLocaleString("en-IL")} USDT للوصول للمستوى التالي`
+                          : `${payload.stats.amountToNextLevelUsdt.toLocaleString("en-IL")} USDT to unlock the next level`}
+                      </p>
+                    </div>
+
+                    <div className="grid gap-2 text-sm sm:grid-cols-2">
+                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust score"}</p><p className="mt-1 font-semibold text-white">{payload.stats.trustScore.toFixed(1)}/100</p></div>
+                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "الحجم مدى الحياة" : "Lifetime volume"}</p><p className="mt-1 font-semibold text-white">{payload.stats.lifetimeCompletedVolumeUsdt.toLocaleString("en-IL")} USDT</p></div>
+                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "الصفقات المكتملة" : "Completed trades"}</p><p className="mt-1 font-semibold text-white">{payload.stats.completedTrades.toLocaleString("en-IL")}</p></div>
+                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "التقييم المتوسط" : "Average rating"}</p><p className="mt-1 font-semibold text-white">{payload.stats.averageRating.toFixed(2)} ★</p></div>
+                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "العروض النشطة" : "Active listings"}</p><p className="mt-1 font-semibold text-white">{payload.stats.activeListings.toLocaleString("en-IL")}</p></div>
+                    </div>
+
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                      <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "إنجازات المستوى" : "Tier achievements"}</p>
+                      <div className="mt-2 space-y-1 text-xs text-[#D1D5DB]">
+                        {(payload.stats.promotionHistory.length ? payload.stats.promotionHistory.slice(0, 4) : [{ id: "start", rank: payload.stats.sellerLevel, promotedAt: payload.profile.memberSince }]).map((entry) => (
+                          <p key={entry.id} className="flex items-center gap-1.5">
+                            <Trophy className="h-3.5 w-3.5 text-[#C9A227]" />
+                            <span>{tierLabel(entry.rank, isAr)} • {new Date(entry.promotedAt).toLocaleDateString("en-IL")}</span>
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="rounded-2xl border border-[#6CAEFF]/25 bg-[#6CAEFF]/10 p-4">
+                      <p className="text-xs uppercase tracking-[0.14em] text-[#93C5FD]">{isAr ? "مسار المشتري" : "Buyer path"}</p>
+                      <p className="mt-2 text-base font-semibold text-white">{isAr ? "نمُ نحو بائع موثوق" : "Grow toward verified seller status"}</p>
+                      <p className="mt-1 text-xs text-[#D1D5DB]">
+                        {isAr
+                          ? "أكمل الصفقات، اكتب تقييمات ذات جودة، وابنِ سجل ثقة قوي للترقية."
+                          : "Complete trades, leave quality reviews, and build trust momentum to unlock seller progression."}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "صفقات نشطة" : "Active trades"}</p><p className="mt-1 font-semibold text-white">{payload.stats.activeTrades}</p></div>
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "صفقات مكتملة" : "Completed trades"}</p><p className="mt-1 font-semibold text-white">{payload.stats.completedTrades}</p></div>
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "تقييمات مكتوبة" : "Reviews written"}</p><p className="mt-1 font-semibold text-white">{payload.stats.reviewsGiven}</p></div>
+                    <Link href="/onboarding?mode=manage" className={buttonVariants({ variant: "outline", size: "sm" })}>
+                      {isAr ? "ابدأ مسار البائع" : "Start seller path"}
+                    </Link>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-4">

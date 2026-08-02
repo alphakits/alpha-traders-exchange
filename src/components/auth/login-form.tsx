@@ -22,11 +22,13 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
     user: { role?: string; roles?: string[]; sellerStatus?: string; onboardingSelection?: string; onboardingCompletedAt?: string } | null | undefined,
   ) => {
     const roles = user?.roles ?? [];
-    const isOwnerOrAdmin = roles.includes("owner") || roles.includes("admin") || user?.role === "owner" || user?.role === "admin";
-    if (isOwnerOrAdmin) return "/admin/alpha-exchange";
+    const isOwner = roles.includes("owner") || user?.role === "owner";
+    const isAdmin = roles.includes("admin") || user?.role === "admin";
+    if (isOwner) return "/";
+    if (isAdmin) return "/admin/alpha-exchange";
     const hasOnboardingChoice = Boolean(user?.onboardingSelection || user?.onboardingCompletedAt);
     if (!hasOnboardingChoice && ((roles.length === 1 && roles[0] === "guest") || (roles.length === 0 && user?.role === "guest"))) return "/onboarding";
-    if (!isOwnerOrAdmin && user?.sellerStatus === "approved_seller") return "/dashboard/seller";
+    if (!isAdmin && user?.sellerStatus === "approved_seller") return "/dashboard/seller";
     return "/usdt-exchange";
   };
 
