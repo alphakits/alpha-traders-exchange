@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Activity, AlertTriangle, ArrowRight, BadgePercent, BellRing, CheckCircle2, Check, Clock3, Copy, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Users, WalletCards, X, Zap } from "lucide-react";
+import { Activity, AlertTriangle, ArrowRight, BadgePercent, BellRing, Building2, CheckCircle2, Check, ChevronDown, ChevronRight, Clock3, Copy, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Users, Wallet, WalletCards, X, Zap } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -439,6 +439,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [commissionPayMessage, setCommissionPayMessage] = useState<string | null>(null);
   const [commissionCopied, setCommissionCopied] = useState(false);
   const [commissionQrDataUrl, setCommissionQrDataUrl] = useState<string | null>(null);
+  const [commissionPayerType, setCommissionPayerType] = useState<"personal" | "exchange" | null>(null);
+  const [commissionAdvancedOpen, setCommissionAdvancedOpen] = useState(false);
   const [requestActionKey, setRequestActionKey] = useState<string | null>(null);
   const qaCommissionResetAttemptedRef = useRef(false);
   const [listingCreateForm, setListingCreateForm] = useState({
@@ -2990,7 +2992,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               {sellerCommissionStatus?.status !== "clear" ? (
                 <Button
                   type="button"
-                  onClick={() => { setCommissionPayOpen(true); setCommissionPayMessage(null); setCommissionTxSignature(""); }}
+                  onClick={() => { setCommissionPayOpen(true); setCommissionPayMessage(null); setCommissionTxSignature(""); setCommissionPayerType(null); setCommissionAdvancedOpen(false); }}
                   className="h-10 px-4 bg-red-600 hover:bg-red-700 text-white border-red-600"
                 >
                   Pay Now
@@ -2999,145 +3001,318 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </CardContent>
           </Card>
           {commissionPayOpen ? (
-            <Card className="order-16 border-red-600/40 bg-[#0B0B0B]/98">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <AlertTriangle className="h-5 w-5 text-red-400" />
-                  Commission Payment
-                </CardTitle>
-                <CardDescription>
-                  Send USDT from any wallet or exchange to the address below. Works with Phantom, Trust Wallet, MetaMask, Binance, Bybit, OKX, and any compatible wallet.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Payment summary */}
-                <div className="rounded-xl border border-red-500/30 bg-red-950/40 p-4 space-y-2 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[#9CA3AF]">Amount Due</span>
-                    <span className="font-bold text-white text-xl">{formatUsdt(sellerCommissionStatus?.amountDue ?? 0)}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[#9CA3AF]">Token</span>
-                    <span className="text-white font-medium">USDT</span>
+            <Card className="order-16 border-[#C9A227]/30 bg-[#0B0B0B]/98">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <LockKeyhole className="h-4 w-4 text-[#C9A227]" />
+                    Commission Payment
+                  </CardTitle>
+                  <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0 text-[#6B7280] hover:text-white" onClick={() => setCommissionPayOpen(false)}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+                {/* Amount badge */}
+                <div className="flex items-center gap-3 rounded-xl border border-[#C9A227]/20 bg-[#C9A227]/5 px-4 py-3 mt-1">
+                  <div className="flex-1">
+                    <p className="text-xs text-[#9CA3AF]">Amount Due</p>
+                    <p className="text-2xl font-bold text-white">{formatUsdt(sellerCommissionStatus?.amountDue ?? 0)}</p>
                   </div>
                   {sellerCommissionStatus?.relatedTradeDisplayNumber ? (
-                    <div className="flex items-center justify-between">
-                      <span className="text-[#9CA3AF]">Trade</span>
-                      <span className="text-white">Trade #{sellerCommissionStatus.relatedTradeDisplayNumber}</span>
+                    <div className="text-right">
+                      <p className="text-xs text-[#9CA3AF]">Trade</p>
+                      <p className="text-sm font-medium text-[#C9A227]">#{sellerCommissionStatus.relatedTradeDisplayNumber}</p>
                     </div>
                   ) : null}
                 </div>
+              </CardHeader>
+              <CardContent className="space-y-5">
 
-                {/* Network selector */}
-                <div className="space-y-2">
-                  <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">Choose Payment Network</p>
-                  <div className="space-y-2">
-                    {COMMISSION_NETWORKS.map((net) => {
-                      const selected = commissionNetwork === net.id;
-                      return (
-                        <button
-                          key={net.id}
-                          type="button"
-                          onClick={() => setCommissionNetwork(net.id)}
-                          className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all ${
-                            selected
-                              ? "border-[#C9A227] bg-[#C9A227]/10 text-white"
-                              : "border-white/15 bg-black/20 text-[#9CA3AF] hover:border-white/30 hover:text-white"
-                          }`}
-                        >
-                          <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${selected ? "border-[#C9A227]" : "border-white/30"}`}>
-                            {selected ? <div className="h-2 w-2 rounded-full bg-[#C9A227]" /> : null}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <span className="text-sm font-medium">{net.label}</span>
-                            {net.recommended ? <span className="ml-2 text-xs text-[#C9A227]">⭐ Recommended</span> : null}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Recipient address + QR */}
-                {CLIENT_COMMISSION_WALLETS[commissionNetwork] ? (
-                  <div className="space-y-3">
-                    <div className="space-y-1">
-                      <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">
-                        Recipient Address · {COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.sublabel ?? commissionNetwork}
-                      </p>
-                      <div className="flex items-center gap-2">
-                        <code className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-xs font-mono text-white break-all">
-                          {CLIENT_COMMISSION_WALLETS[commissionNetwork]}
-                        </code>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          className="shrink-0 h-8 w-8 p-0"
-                          onClick={() => {
-                            void navigator.clipboard.writeText(CLIENT_COMMISSION_WALLETS[commissionNetwork]);
-                            setCommissionCopied(true);
-                            window.setTimeout(() => setCommissionCopied(false), 2000);
-                          }}
-                        >
-                          {commissionCopied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-                        </Button>
-                      </div>
+                {/* ── Step 0: Payer type selection ── */}
+                {!commissionPayerType ? (
+                  <div className="space-y-4">
+                    <p className="text-sm font-medium text-white">How are you paying your commission?</p>
+                    <div className="grid gap-3">
+                      {/* Personal Wallet */}
+                      <button
+                        type="button"
+                        onClick={() => { setCommissionPayerType("personal"); setCommissionAdvancedOpen(false); }}
+                        className="group flex w-full items-start gap-4 rounded-2xl border border-white/12 bg-white/[0.03] px-4 py-4 text-left transition-all hover:border-[#C9A227]/50 hover:bg-[#C9A227]/5"
+                      >
+                        <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-950/40 group-hover:border-emerald-400/60">
+                          <Wallet className="h-5 w-5 text-emerald-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-white text-sm">Personal Wallet</p>
+                          <p className="text-xs text-[#6B7280] mt-0.5">MetaMask · Phantom · Trust Wallet · Rabby · Ledger · Trezor</p>
+                          <p className="text-xs text-[#9CA3AF] mt-2 leading-relaxed">Send directly from your wallet. Alpha Traders will attempt to detect your payment automatically.</p>
+                        </div>
+                        <ChevronRight className="mt-3 h-4 w-4 shrink-0 text-[#6B7280] group-hover:text-[#C9A227]" />
+                      </button>
+                      {/* Exchange / Broker */}
+                      <button
+                        type="button"
+                        onClick={() => { setCommissionPayerType("exchange"); setCommissionAdvancedOpen(false); }}
+                        className="group flex w-full items-start gap-4 rounded-2xl border border-white/12 bg-white/[0.03] px-4 py-4 text-left transition-all hover:border-[#C9A227]/50 hover:bg-[#C9A227]/5"
+                      >
+                        <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-blue-500/30 bg-blue-950/40 group-hover:border-blue-400/60">
+                          <Building2 className="h-5 w-5 text-blue-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-white text-sm">Crypto Exchange or Broker</p>
+                          <p className="text-xs text-[#6B7280] mt-0.5">Binance · Bybit · OKX · Coinbase · Kraken · Bitget · MEXC</p>
+                          <p className="text-xs text-[#9CA3AF] mt-2 leading-relaxed">After sending, paste the withdrawal transaction hash to verify your payment.</p>
+                        </div>
+                        <ChevronRight className="mt-3 h-4 w-4 shrink-0 text-[#6B7280] group-hover:text-[#C9A227]" />
+                      </button>
                     </div>
-                    {commissionQrDataUrl ? (
-                      <div className="flex justify-center">
-                        <div className="rounded-xl bg-white p-3 shadow-lg">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={commissionQrDataUrl} alt={`QR code for ${commissionNetwork} USDT address`} className="h-36 w-36" />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex justify-center">
-                        <div className="flex h-[168px] w-[168px] items-center justify-center rounded-xl border border-white/10 bg-black/30">
-                          <Loader2 className="h-6 w-6 animate-spin text-[#C9A227]" />
-                        </div>
-                      </div>
-                    )}
+                    <Button type="button" variant="ghost" className="w-full text-[#6B7280] hover:text-white text-xs" onClick={() => setCommissionPayOpen(false)}>
+                      Cancel
+                    </Button>
                   </div>
                 ) : (
-                  <p className="rounded-xl border border-amber-500/30 bg-amber-950/30 p-3 text-xs text-amber-300">
-                    No wallet address configured for {commissionNetwork}. Please contact Alpha Traders support.
-                  </p>
+                  <div className="space-y-4">
+                    {/* ── Back + payer type badge ── */}
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => { setCommissionPayerType(null); setCommissionPayMessage(null); }} className="flex items-center gap-1 text-xs text-[#6B7280] hover:text-white transition-colors">
+                        <ChevronRight className="h-3.5 w-3.5 rotate-180" />
+                        Back
+                      </button>
+                      <span className="text-[#6B7280]">·</span>
+                      <span className="flex items-center gap-1.5 text-xs text-[#9CA3AF]">
+                        {commissionPayerType === "personal" ? <><Wallet className="h-3.5 w-3.5 text-emerald-400" />Personal Wallet</> : <><Building2 className="h-3.5 w-3.5 text-blue-400" />Exchange / Broker</>}
+                      </span>
+                    </div>
+
+                    {/* ── Network selector ── */}
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">Payment Network</p>
+                      <div className="grid gap-2">
+                        {COMMISSION_NETWORKS.map((net) => {
+                          const selected = commissionNetwork === net.id;
+                          return (
+                            <button
+                              key={net.id}
+                              type="button"
+                              onClick={() => setCommissionNetwork(net.id)}
+                              className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all ${selected ? "border-[#C9A227] bg-[#C9A227]/10 text-white" : "border-white/12 bg-black/20 text-[#9CA3AF] hover:border-white/25 hover:text-white"}`}
+                            >
+                              <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${selected ? "border-[#C9A227]" : "border-white/30"}`}>
+                                {selected ? <div className="h-2 w-2 rounded-full bg-[#C9A227]" /> : null}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <span className="text-sm font-medium">{net.label}</span>
+                                {net.recommended ? <span className="ml-2 text-xs text-[#C9A227]">⭐ Recommended</span> : null}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* ── Recipient address + QR ── */}
+                    {CLIENT_COMMISSION_WALLETS[commissionNetwork] ? (
+                      <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+                        <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">
+                          Send To · {COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.sublabel ?? commissionNetwork}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <code className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-xs font-mono text-white break-all select-all">
+                            {CLIENT_COMMISSION_WALLETS[commissionNetwork]}
+                          </code>
+                          <Button
+                            type="button" size="sm" variant="secondary"
+                            className="shrink-0 h-8 w-8 p-0"
+                            onClick={() => { void navigator.clipboard.writeText(CLIENT_COMMISSION_WALLETS[commissionNetwork]); setCommissionCopied(true); window.setTimeout(() => setCommissionCopied(false), 2000); }}
+                          >
+                            {commissionCopied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                          </Button>
+                        </div>
+                        {commissionQrDataUrl ? (
+                          <div className="flex justify-center pt-1">
+                            <div className="rounded-xl bg-white p-3 shadow-lg">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={commissionQrDataUrl} alt={`QR code for ${commissionNetwork} USDT address`} className="h-36 w-36" />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex justify-center">
+                            <div className="flex h-[168px] w-[168px] items-center justify-center rounded-xl border border-white/10 bg-black/30">
+                              <Loader2 className="h-6 w-6 animate-spin text-[#C9A227]" />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="rounded-xl border border-amber-500/30 bg-amber-950/30 p-3 text-xs text-amber-300">
+                        No wallet address configured for {commissionNetwork}. Please contact Alpha Traders support.
+                      </p>
+                    )}
+
+                    {/* ── Instructions panel ── */}
+                    {commissionPayerType === "personal" ? (
+                      <div className="rounded-2xl border border-emerald-500/20 bg-emerald-950/20 p-4 space-y-3">
+                        <p className="flex items-center gap-2 text-xs font-semibold text-emerald-300 uppercase tracking-wider">
+                          <Wallet className="h-3.5 w-3.5" />
+                          Sending from a Personal Wallet
+                        </p>
+                        <ol className="space-y-2">
+                          {[
+                            "Open your wallet and tap Send or Transfer.",
+                            `Select the ${COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.sublabel ?? commissionNetwork} network.`,
+                            "Select USDT as the token.",
+                            "Paste the Alpha Traders commission address above.",
+                            `Enter the exact amount: ${formatUsdt(sellerCommissionStatus?.amountDue ?? 0)}.`,
+                            "Confirm and send. Wait for the transaction to be confirmed.",
+                          ].map((step, i) => (
+                            <li key={i} className="flex items-start gap-2.5 text-xs text-[#D1D5DB]">
+                              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-emerald-500/40 bg-emerald-950/60 text-emerald-400 text-[10px] font-bold">
+                                {i + 1}
+                              </span>
+                              {step}
+                            </li>
+                          ))}
+                        </ol>
+                        <p className="text-xs text-[#6B7280] pt-1">
+                          ⚠️ Make sure the transaction is a USDT send — not a swap, deposit, or any other contract interaction.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-blue-500/20 bg-blue-950/20 p-4 space-y-3">
+                        <p className="flex items-center gap-2 text-xs font-semibold text-blue-300 uppercase tracking-wider">
+                          <Building2 className="h-3.5 w-3.5" />
+                          Sending from an Exchange or Broker
+                        </p>
+                        <ol className="space-y-2">
+                          {[
+                            `Go to your exchange's Withdraw or Send page and select USDT on ${COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.sublabel ?? commissionNetwork}.`,
+                            "Paste the Alpha Traders commission address as the recipient.",
+                            `Enter the exact amount: ${formatUsdt(sellerCommissionStatus?.amountDue ?? 0)}.`,
+                            "Confirm the withdrawal and wait for blockchain confirmation.",
+                            "Copy the withdrawal transaction hash from your exchange history.",
+                            "Paste it below and click Verify.",
+                          ].map((step, i) => (
+                            <li key={i} className="flex items-start gap-2.5 text-xs text-[#D1D5DB]">
+                              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-blue-500/40 bg-blue-950/60 text-blue-400 text-[10px] font-bold">
+                                {i + 1}
+                              </span>
+                              {step}
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+
+                    {/* ── Transaction hash ── */}
+                    {commissionPayerType === "personal" ? (
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => setCommissionAdvancedOpen((v) => !v)}
+                          className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-xs text-[#9CA3AF] hover:text-white transition-colors"
+                        >
+                          <span className="font-medium">Manual Verification — paste transaction hash</span>
+                          {commissionAdvancedOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                        </button>
+                        {commissionAdvancedOpen ? (
+                          <div className="mt-2 space-y-1 rounded-xl border border-white/8 bg-black/20 px-4 py-3">
+                            <Input
+                              placeholder="0x… or Solana signature"
+                              value={commissionTxSignature}
+                              onChange={(event) => setCommissionTxSignature(event.target.value)}
+                              className="font-mono text-xs"
+                            />
+                            <p className="text-xs text-[#6B7280]">
+                              Find this in your wallet&apos;s Activity or Transaction History. It must be the USDT send transaction — not a swap, trade, or other interaction.
+                            </p>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">Transaction Hash</p>
+                        <Input
+                          placeholder="0x… or Solana signature"
+                          value={commissionTxSignature}
+                          onChange={(event) => setCommissionTxSignature(event.target.value)}
+                          className="font-mono text-xs"
+                        />
+                        <p className="text-xs text-[#6B7280]">Copy this from your exchange withdrawal history after the transaction is confirmed.</p>
+                      </div>
+                    )}
+
+                    {/* ── Error / success message ── */}
+                    {commissionPayMessage ? (
+                      (() => {
+                        const msg = commissionPayMessage;
+                        if (msg.startsWith("✅")) {
+                          return (
+                            <div className="flex items-start gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-950/30 p-3 text-xs text-emerald-200">
+                              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+                              <span>{msg.replace("✅ ", "")}</span>
+                            </div>
+                          );
+                        }
+                        const wrongNetwork = msg.match(/found on (\w+), not (\w+)/i);
+                        if (wrongNetwork) {
+                          return (
+                            <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 p-3 text-xs space-y-1 text-amber-100">
+                              <p className="flex items-center gap-1.5 font-semibold text-amber-300">
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                Transaction found on {wrongNetwork[1]}
+                              </p>
+                              <p>Please select <strong>{wrongNetwork[1]}</strong> as your payment network and submit the transaction again.</p>
+                            </div>
+                          );
+                        }
+                        if (msg.includes("but not the supported USDT contract") || msg.includes("send USDT (not USDC")) {
+                          return (
+                            <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 p-3 text-xs space-y-1 text-amber-100">
+                              <p className="flex items-center gap-1.5 font-semibold text-amber-300">
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                Wrong token detected
+                              </p>
+                              <p>This transaction transferred a different token. Commission must be paid in USDT.</p>
+                            </div>
+                          );
+                        }
+                        if (msg.includes("does not include any transfer to or from the Alpha Traders commission wallet") || msg.includes("Please verify you submitted the correct transaction hash")) {
+                          return (
+                            <div className="rounded-xl border border-red-500/30 bg-red-950/30 p-3 text-xs space-y-1 text-red-100">
+                              <p className="flex items-center gap-1.5 font-semibold text-red-300">
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                Transaction is not your commission payment
+                              </p>
+                              <p>We found this transaction, but it does not include a transfer to the Alpha Traders commission wallet. Please submit the exact transaction hash from when you sent the USDT payment above.</p>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div className="flex items-start gap-2.5 rounded-xl border border-red-500/30 bg-red-950/30 p-3 text-xs text-red-200">
+                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
+                            <span>{msg}</span>
+                          </div>
+                        );
+                      })()
+                    ) : null}
+
+                    {/* ── Actions ── */}
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <Button
+                        type="button"
+                        disabled={commissionPayBusy || !commissionTxSignature.trim() || !CLIENT_COMMISSION_WALLETS[commissionNetwork]}
+                        onClick={() => void handleCommissionPayNow()}
+                        className="bg-[#C9A227] hover:bg-[#B8911F] text-black font-semibold border-[#C9A227]"
+                      >
+                        {commissionPayBusy ? <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />Verifying…</> : "Verify Payment"}
+                      </Button>
+                      <Button type="button" variant="secondary" onClick={() => setCommissionPayOpen(false)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
                 )}
 
-                {/* Transaction hash input */}
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">Transaction Hash</p>
-                  <Input
-                    placeholder="Paste your transaction ID / hash after sending"
-                    value={commissionTxSignature}
-                    onChange={(event) => setCommissionTxSignature(event.target.value)}
-                  />
-                  <p className="text-xs text-[#6B7280]">
-                    After sending USDT, find the transaction hash in your wallet&apos;s &ldquo;Activity&rdquo; or &ldquo;Transaction History.&rdquo;
-                    {" "}Make sure the hash is from a USDT send — not a swap, trade, or other interaction.
-                  </p>
-                </div>
-
-                {commissionPayMessage ? (
-                  <p className={`rounded-lg border p-2 text-xs ${commissionPayMessage.startsWith("✅") ? "border-emerald-500/30 bg-emerald-950/30 text-emerald-200" : "border-red-500/30 bg-red-950/30 text-red-200"}`}>
-                    {commissionPayMessage}
-                  </p>
-                ) : null}
-
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    disabled={commissionPayBusy || !commissionTxSignature.trim() || !CLIENT_COMMISSION_WALLETS[commissionNetwork]}
-                    onClick={() => void handleCommissionPayNow()}
-                    className="bg-red-600 hover:bg-red-700 text-white border-red-600"
-                  >
-                    {commissionPayBusy ? <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />Verifying...</> : "I've Sent the Payment"}
-                  </Button>
-                  <Button type="button" variant="secondary" onClick={() => setCommissionPayOpen(false)}>
-                    Cancel
-                  </Button>
-                </div>
               </CardContent>
             </Card>
           ) : null}
