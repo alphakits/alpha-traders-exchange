@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { motion } from "framer-motion";
 import { AlertTriangle, CheckCircle2, Clock3, LoaderCircle, MessageCircle, ShieldCheck, WalletCards } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import type { MarketplaceListing, PurchaseRequest, TradeChatMessage, TradeEvidenceFile, TradeTimelineEntry, UserRole } from "@/types/alpha-exchange";
+import type { AlphaExchangeNotification, MarketplaceListing, PurchaseRequest, TradeChatMessage, TradeEvidenceFile, TradeTimelineEntry, UserRole } from "@/types/alpha-exchange";
 import { readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
 import { isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 
@@ -562,10 +563,15 @@ export function TradeRoomPage({
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
   const [reviewDeferred, setReviewDeferred] = useState(false);
+  const [buyerCompletionSuccessActive, setBuyerCompletionSuccessActive] = useState(false);
+  const [buyerRedirectPending, setBuyerRedirectPending] = useState(false);
+  const [buyerSuccessFadingOut, setBuyerSuccessFadingOut] = useState(false);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const actionNoticeTimeoutRef = useRef<number | null>(null);
   const actionInFlightRef = useRef<string | null>(null);
   const completedActionTimeoutRef = useRef<number | null>(null);
+  const buyerRedirectTimeoutRef = useRef<number | null>(null);
+  const buyerRedirectFadeTimeoutRef = useRef<number | null>(null);
   const buyerEvidenceInputRef = useRef<HTMLInputElement | null>(null);
   const sellerEvidenceInputRef = useRef<HTMLInputElement | null>(null);
   const statusBannerRef = useRef<HTMLDivElement | null>(null);
@@ -661,7 +667,64 @@ export function TradeRoomPage({
     if (actionNoticeTimeoutRef.current) {
       window.clearTimeout(actionNoticeTimeoutRef.current);
     }
+    if (buyerRedirectTimeoutRef.current) {
+      window.clearTimeout(buyerRedirectTimeoutRef.current);
+    }
+    if (buyerRedirectFadeTimeoutRef.current) {
+      window.clearTimeout(buyerRedirectFadeTimeoutRef.current);
+    }
   }, []);
+
+  const markOutstandingBuyerReminderCompleted = useCallback(async (purchaseRequestId: string) => {
+    try {
+      const response = await fetch("/api/alpha-exchange/notifications?category=trade&state=unread&limit=200", { cache: "no-store" });
+      if (!response.ok) return;
+      const payload = (await response.json()) as { notifications?: AlphaExchangeNotification[] };
+      const reminders = (payload.notifications ?? []).filter((notification) => {
+        if (notification.relatedRequestId !== purchaseRequestId) return false;
+        const title = notification.title.toLowerCase();
+        const message = notification.message.toLowerCase();
+        return (
+          title.includes("action required")
+          || title.includes("confirm usdt receipt")
+          || message.includes("confirm that you received your usdt")
+        );
+      });
+      if (!reminders.length) return;
+      await Promise.all(
+        reminders.map((notification) =>
+          fetch(`/api/alpha-exchange/notifications/${notification.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ isRead: true }),
+          }),
+        ),
+      );
+    } catch {
+      // Keep completion UX smooth even if notification cleanup is delayed.
+    }
+  }, []);
+
+  const startBuyerCompletionSuccessFlow = useCallback((purchaseRequestId: string) => {
+    setBuyerCompletionSuccessActive(true);
+    setBuyerRedirectPending(true);
+    setBuyerSuccessFadingOut(false);
+    if (buyerRedirectTimeoutRef.current) {
+      window.clearTimeout(buyerRedirectTimeoutRef.current);
+    }
+    if (buyerRedirectFadeTimeoutRef.current) {
+      window.clearTimeout(buyerRedirectFadeTimeoutRef.current);
+    }
+    buyerRedirectTimeoutRef.current = window.setTimeout(() => {
+      setBuyerSuccessFadingOut(true);
+      buyerRedirectFadeTimeoutRef.current = window.setTimeout(() => {
+        router.push("/usdt-exchange");
+        buyerRedirectFadeTimeoutRef.current = null;
+      }, 250);
+      buyerRedirectTimeoutRef.current = null;
+    }, 2000);
+    void markOutstandingBuyerReminderCompleted(purchaseRequestId);
+  }, [markOutstandingBuyerReminderCompleted, router]);
 
   useEffect(() => {
     const id = window.setInterval(() => setClockTick(Date.now()), 1000);
@@ -910,6 +973,10 @@ export function TradeRoomPage({
         setCompletedActionLabel(null);
         completedActionTimeoutRef.current = null;
       }, 2000);
+      const pendingBuyerReview = request.buyerId === actor.id && !request.buyerReview && !reviewDeferred;
+      if (nextStatus === "completed" && request.buyerId === actor.id && !pendingBuyerReview) {
+        startBuyerCompletionSuccessFlow(request.id);
+      }
       setActionNotice(null);
       setStatusMessage(isAr ? "تم تحديث حالة الصفقة." : "Trade status updated.");
     } catch (error) {
@@ -926,6 +993,10 @@ export function TradeRoomPage({
           setCompletedActionLabel(null);
           completedActionTimeoutRef.current = null;
         }, 2000);
+        const pendingBuyerReview = request.buyerId === actor.id && !request.buyerReview && !reviewDeferred;
+        if (nextStatus === "completed" && request.buyerId === actor.id && !pendingBuyerReview) {
+          startBuyerCompletionSuccessFlow(request.id);
+        }
         setStatusMessage(isAr ? "تم تحديث حالة الصفقة بعد تأكيد الخادم." : "Trade status updated after server confirmation.");
       } else {
         setRoom(previousRoom);
@@ -944,7 +1015,7 @@ export function TradeRoomPage({
       actionInFlightRef.current = null;
       setActionBusy(false);
     }
-  }, [fetchRoom, isAr, request, requestId, room, streamConnected]);
+  }, [actor.id, fetchRoom, isAr, request, requestId, reviewDeferred, room, startBuyerCompletionSuccessFlow, streamConnected]);
 
   const handleSendMessage = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1180,12 +1251,13 @@ export function TradeRoomPage({
         setStatusMessage(isAr ? "تم إرسال تقييم البائع." : "Seller rating submitted.");
       }
       await fetchRoom(true);
+      startBuyerCompletionSuccessFlow(request.id);
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : (isAr ? "تعذر إرسال التقييم." : "Failed to submit review."));
     } finally {
       setReviewBusy(false);
     }
-  }, [fetchRoom, isAr, request, reviewComment, reviewRating]);
+  }, [fetchRoom, isAr, request, reviewComment, reviewRating, startBuyerCompletionSuccessFlow]);
 
   if (isLoading) {
     return (
@@ -1351,6 +1423,45 @@ export function TradeRoomPage({
         ) : null}
 
         {showSuccessScreen ? (
+          isActorBuyer && buyerCompletionSuccessActive ? (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: buyerSuccessFadingOut ? 0 : 1, y: buyerSuccessFadingOut ? -6 : 0 }}
+              transition={{ duration: 0.25, ease: "easeOut" }}
+            >
+              <Card className="border-emerald-500/35 bg-emerald-500/10">
+                <CardHeader>
+                  <CardTitle className="text-2xl">{isAr ? "✅ اكتملت الصفقة بنجاح" : "✅ Trade Completed Successfully"}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm text-[#D1FAE5]">
+                  <p>
+                    {isAr
+                      ? "اكتملت صفقتك بالكامل وتم تسجيلها."
+                      : "Your trade has been fully completed and recorded."}
+                  </p>
+                  <p>
+                    {isAr
+                      ? "شكرًا لتأكيد استلام USDT."
+                      : "Thank you for confirming that you received your USDT."}
+                  </p>
+                  <p>
+                    {isAr
+                      ? "تم تحديث ملف المشتري الخاص بك."
+                      : "Your buyer profile has been updated."}
+                  </p>
+                  <p>
+                    {isAr
+                      ? "يمكنك الآن مواصلة التداول على Alpha Exchange."
+                      : "You can now continue trading on Alpha Exchange."}
+                  </p>
+                  <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/20 px-3 py-1.5 text-xs text-[#E5E7EB]">
+                    <LoaderCircle className={`h-4 w-4 ${buyerRedirectPending ? "animate-spin" : ""}`} />
+                    <span>{isAr ? "جاري الرجوع إلى السوق..." : "Returning to the marketplace..."}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          ) : (
           <Card className="border-emerald-500/35 bg-emerald-500/10">
             <CardHeader>
               <CardTitle className="text-2xl">{isAr ? "🎉 اكتملت الصفقة بنجاح" : "🎉 Trade Completed Successfully"}</CardTitle>
@@ -1429,6 +1540,7 @@ export function TradeRoomPage({
               </div>
             </CardContent>
           </Card>
+          )
         ) : null}
 
         {!showSuccessScreen ? <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_380px] xl:items-start">
