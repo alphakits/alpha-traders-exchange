@@ -250,6 +250,11 @@ export function AlphaExchangeAdminDashboard() {
     }, 1800);
   }
 
+  function requestReason(promptText: string, defaultValue = "") {
+    const reason = window.prompt(promptText, defaultValue);
+    return reason ? reason.trim() : "";
+  }
+
   useEffect(() => {
     return () => {
       if (toastTimeoutRef.current !== null) {
@@ -354,7 +359,8 @@ export function AlphaExchangeAdminDashboard() {
       const seller = sellersById.get(record.sellerId);
       const query = commissionsQuery.trim().toLowerCase();
       if (!query) return true;
-      const haystack = `${record.id} ${request?.buyerName ?? record.buyerId} ${seller?.fullName ?? record.sellerId}`.toLowerCase();
+      const tradeId = request?.tradeId ?? record.tradeId ?? record.purchaseRequestId;
+      const haystack = `${record.id} ${tradeId} ${request?.buyerName ?? record.buyerId} ${seller?.fullName ?? record.sellerId}`.toLowerCase();
       return haystack.includes(query);
     });
     const sorted = [...items].sort((a, b) => {
@@ -371,7 +377,8 @@ export function AlphaExchangeAdminDashboard() {
       const query = auditQuery.trim().toLowerCase();
       if (!query) return true;
       const actor = sellersById.get(entry.actorUserId)?.fullName ?? entry.actorUserId;
-      const haystack = `${entry.action} ${entry.details ?? ""} ${actor} ${entry.listingId ?? ""} ${entry.purchaseRequestId ?? ""}`.toLowerCase();
+      const tradeId = entry.purchaseRequestId ? (requestsById.get(entry.purchaseRequestId)?.tradeId ?? entry.purchaseRequestId) : "";
+      const haystack = `${entry.action} ${entry.details ?? ""} ${actor} ${entry.listingId ?? ""} ${tradeId}`.toLowerCase();
       return haystack.includes(query);
     });
     const sorted = [...items].sort((a, b) => {
@@ -379,7 +386,7 @@ export function AlphaExchangeAdminDashboard() {
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
     return paginate(sorted, auditPage);
-  }, [auditAction, auditPage, auditQuery, auditSort, data?.auditLogs, sellersById]);
+  }, [auditAction, auditPage, auditQuery, auditSort, data?.auditLogs, requestsById, sellersById]);
 
   const notificationRows = useMemo(() => {
     const items = (data?.notifications ?? []).filter((entry) => {
@@ -573,7 +580,10 @@ export function AlphaExchangeAdminDashboard() {
   }
 
   async function handleReverifyCommission(commissionId: string) {
-    const r = await fetch(`/api/alpha-exchange/admin/commissions/${commissionId}/reverify`, { method: "POST" });
+    if (!window.confirm("Reverify this commission against the blockchain now?")) return;
+    const reason = requestReason("Reason for reverifying this commission:", "Manual admin reverification");
+    if (!reason) return;
+    const r = await fetch(`/api/alpha-exchange/admin/commissions/${commissionId}/reverify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
     const p = await r.json() as { error?: string; notes?: string };
     pushToast(r.ok ? `Reverification: ${p.notes ?? "complete"}` : (p.error ?? "Error"));
     if (r.ok) await fetchData();
@@ -582,6 +592,7 @@ export function AlphaExchangeAdminDashboard() {
   async function handleChangeUserRole(userId: string, currentRole: string) {
     const newRole = window.prompt(`Change role for user (current: ${currentRole})\nOptions: buyer, approved_seller, admin, owner`);
     if (!newRole) return;
+    if (!window.confirm(`Change this user's role from ${currentRole} to ${newRole.trim()}?`)) return;
     const reason = window.prompt("Reason for role change:");
     if (!reason) return;
     const r = await fetch(`/api/alpha-exchange/admin/users/${userId}/role`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: newRole, reason }) });
@@ -591,6 +602,7 @@ export function AlphaExchangeAdminDashboard() {
   }
 
   async function handleDisableUser(userId: string, disabled: boolean) {
+    if (!window.confirm(`${disabled ? "Disable" : "Enable"} this account?`)) return;
     const reason = window.prompt(`Reason for ${disabled ? "disabling" : "enabling"} this account:`);
     if (!reason) return;
     const r = await fetch(`/api/alpha-exchange/admin/users/${userId}/disable`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ disabled, reason }) });
@@ -610,7 +622,10 @@ export function AlphaExchangeAdminDashboard() {
 
   async function handleBroadcast() {
     if (!broadcastTitle.trim() || !broadcastBody.trim()) { pushToast("Title and body are required."); return; }
-    const r = await fetch("/api/alpha-exchange/admin/notifications/broadcast", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: broadcastTitle, body: broadcastBody, type: broadcastType }) });
+    if (!window.confirm("Broadcast this notification to all users?")) return;
+    const reason = requestReason("Reason for this broadcast:", "Operational announcement");
+    if (!reason) return;
+    const r = await fetch("/api/alpha-exchange/admin/notifications/broadcast", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: broadcastTitle, body: broadcastBody, type: broadcastType, reason }) });
     const p = await r.json() as { error?: string };
     pushToast(r.ok ? "Broadcast sent." : (p.error ?? "Error"));
     if (r.ok) { setBroadcastTitle(""); setBroadcastBody(""); }
@@ -625,7 +640,8 @@ export function AlphaExchangeAdminDashboard() {
         const seller = sellersById.get(record.sellerId);
         const buyerName = request?.buyerName ?? record.buyerId;
         const sellerName = seller?.fullName ?? record.sellerId;
-        return [record.purchaseRequestId, buyerName, sellerName, record.grossAmount.toFixed(2), record.commissionAmount.toFixed(2), record.paymentStatus, record.createdAt].join(",");
+        const tradeId = request?.tradeId ?? record.tradeId ?? record.purchaseRequestId;
+        return [tradeId, buyerName, sellerName, record.grossAmount.toFixed(2), record.commissionAmount.toFixed(2), record.paymentStatus, record.createdAt].join(",");
       }),
     ];
     const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -1009,7 +1025,12 @@ export function AlphaExchangeAdminDashboard() {
                                         type="button"
                                         size="sm"
                                         disabled={application.status !== "pending"}
-                                        onClick={() => runAction(fetch(`/api/alpha-exchange/admin/seller-applications/${application.id}/approve`, { method: "POST" }), "Application approved.")}
+                                        onClick={() => {
+                                          if (!window.confirm("Approve this seller application?")) return;
+                                          const reason = requestReason("Reason for approving this seller application:", "Seller approved for launch");
+                                          if (!reason) return;
+                                          void runAction(fetch(`/api/alpha-exchange/admin/seller-applications/${application.id}/approve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), "Application approved.");
+                                        }}
                                       >
                                         Approve
                                       </Button>
@@ -1018,7 +1039,12 @@ export function AlphaExchangeAdminDashboard() {
                                         size="sm"
                                         variant="secondary"
                                         disabled={application.status !== "pending"}
-                                        onClick={() => runAction(fetch(`/api/alpha-exchange/admin/seller-applications/${application.id}/reject`, { method: "POST" }), "Application rejected.")}
+                                        onClick={() => {
+                                          if (!window.confirm("Reject this seller application?")) return;
+                                          const reason = requestReason("Reason for rejecting this seller application:", "Application rejected");
+                                          if (!reason) return;
+                                          void runAction(fetch(`/api/alpha-exchange/admin/seller-applications/${application.id}/reject`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), "Application rejected.");
+                                        }}
                                       >
                                         Reject
                                       </Button>
@@ -1127,20 +1153,40 @@ export function AlphaExchangeAdminDashboard() {
                                     <td className="px-4 py-3">
                                       <div className="flex flex-wrap items-center gap-2">
                                         {!isSuspended ? (
-                                          <Button type="button" size="sm" variant="secondary" onClick={() => runAction(fetch(`/api/alpha-exchange/admin/sellers/${seller.id}/suspend`, { method: "POST" }), "Seller suspended.")}>
+                                          <Button type="button" size="sm" variant="secondary" onClick={() => {
+                                            if (!window.confirm("Suspend this seller?")) return;
+                                            const reason = requestReason("Reason for suspending this seller:", "Seller suspended");
+                                            if (!reason) return;
+                                            void runAction(fetch(`/api/alpha-exchange/admin/sellers/${seller.id}/suspend`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), "Seller suspended.");
+                                          }}>
                                             Suspend
                                           </Button>
                                         ) : (
-                                          <Button type="button" size="sm" onClick={() => runAction(fetch(`/api/alpha-exchange/admin/sellers/${seller.id}/reactivate`, { method: "POST" }), "Seller reactivated.")}>
+                                          <Button type="button" size="sm" onClick={() => {
+                                            if (!window.confirm("Reactivate this seller?")) return;
+                                            const reason = requestReason("Reason for reactivating this seller:", "Seller reactivated");
+                                            if (!reason) return;
+                                            void runAction(fetch(`/api/alpha-exchange/admin/sellers/${seller.id}/reactivate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), "Seller reactivated.");
+                                          }}>
                                             Reactivate
                                           </Button>
                                         )}
                                         {isOnVacation ? (
-                                          <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerAvailabilityStatus(seller.id, "available", "Vacation Mode ended.")}>
+                                          <Button type="button" size="sm" variant="secondary" onClick={() => {
+                                            if (!window.confirm("End vacation mode for this seller?")) return;
+                                            const reason = requestReason("Reason for ending vacation mode:", "Vacation Mode ended.");
+                                            if (!reason) return;
+                                            void handleSellerAvailabilityStatus(seller.id, "available", "Vacation Mode ended.", reason);
+                                          }}>
                                             End Vacation
                                           </Button>
                                         ) : (
-                                          <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerAvailabilityStatus(seller.id, "vacation", "Vacation Mode enabled.")}>
+                                          <Button type="button" size="sm" variant="secondary" onClick={() => {
+                                            if (!window.confirm("Enable vacation mode for this seller?")) return;
+                                            const reason = requestReason("Reason for enabling vacation mode:", "Vacation Mode enabled.");
+                                            if (!reason) return;
+                                            void handleSellerAvailabilityStatus(seller.id, "vacation", "Vacation Mode enabled.", reason);
+                                          }}>
                                             Enable Vacation
                                           </Button>
                                         )}
@@ -1314,9 +1360,14 @@ export function AlphaExchangeAdminDashboard() {
                                           </Button>
                                         </>
                                       ) : null}
-                                      {(listing.status === "expired" || listing.status === "paused") ? (
-                                        <Button type="button" size="sm" variant="secondary" onClick={() => handleAdminListingAction(listing.id, "renew", "Listing renewed by admin.", 24)}>
-                                          Renew
+                                      {(listing.status === "expired" || listing.status === "paused" || listing.status === "closed") ? (
+                                        <Button type="button" size="sm" variant="secondary" onClick={() => {
+                                          if (!window.confirm(`${listing.status === "closed" ? "Reopen" : "Renew"} this listing?`)) return;
+                                          const reason = requestReason(`Reason for ${listing.status === "closed" ? "reopening" : "renewing"} this listing:`, listing.status === "closed" ? "Listing reopened by admin." : "Listing renewed by admin.");
+                                          if (!reason) return;
+                                          void handleAdminListingAction(listing.id, "renew", listing.status === "closed" ? "Listing reopened by admin." : "Listing renewed by admin.", 24, reason);
+                                        }}>
+                                          {listing.status === "closed" ? "Reopen" : "Renew"}
                                         </Button>
                                       ) : null}
                                       {listing.status !== "completed" && listing.status !== "cancelled" && listing.status !== "closed" ? (
@@ -1325,16 +1376,24 @@ export function AlphaExchangeAdminDashboard() {
                                           size="sm"
                                           variant="secondary"
                                           onClick={() => {
+                                            if (!window.confirm("Extend this listing expiration?")) return;
                                             const hours = window.prompt("Extend expiration by hours (1, 6, 12, 24)", "24");
                                             if (!hours) return;
-                                            void handleAdminListingAction(listing.id, "extend", "Listing expiration extended.", Number(hours));
+                                            const reason = requestReason("Reason for extending this listing:", "Listing expiration extended.");
+                                            if (!reason) return;
+                                            void handleAdminListingAction(listing.id, "extend", "Listing expiration extended.", Number(hours), reason);
                                           }}
                                         >
                                           Extend Expiration
                                         </Button>
                                       ) : null}
                                       {listing.status !== "closed" && listing.status !== "completed" && listing.status !== "cancelled" ? (
-                                        <Button type="button" size="sm" variant="secondary" onClick={() => handleAdminListingAction(listing.id, "close", "Listing closed by admin.")}>
+                                        <Button type="button" size="sm" variant="secondary" onClick={() => {
+                                          if (!window.confirm("Close this listing?")) return;
+                                          const reason = requestReason("Reason for closing this listing:", "Listing closed by admin.");
+                                          if (!reason) return;
+                                          void handleAdminListingAction(listing.id, "close", "Listing closed by admin.", undefined, reason);
+                                        }}>
                                           Close
                                         </Button>
                                       ) : null}
@@ -1442,7 +1501,7 @@ export function AlphaExchangeAdminDashboard() {
                                 const seller = sellersById.get(request.sellerId);
                                 return (
                                   <tr key={request.id} className="border-t border-white/10">
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{request.tradeId ?? "Pending"}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{request.tradeId ?? request.id}</td>
                                     <td className="px-4 py-3 text-white">{request.buyerName}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{seller?.fullName ?? request.sellerId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{request.usdtAmount ?? listing?.availableAmount ?? "—"}</td>
@@ -1528,7 +1587,7 @@ export function AlphaExchangeAdminDashboard() {
                                 const seller = sellersById.get(record.sellerId);
                                 return (
                                   <tr key={record.id} className="border-t border-white/10">
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{record.purchaseRequestId}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{request?.tradeId ?? record.tradeId ?? record.purchaseRequestId}</td>
                                     <td className="px-4 py-3 text-white">{request?.buyerName ?? record.buyerId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{seller?.fullName ?? record.sellerId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{formatCurrency(record.grossAmount)}</td>
@@ -1546,13 +1605,48 @@ export function AlphaExchangeAdminDashboard() {
                                             type="button"
                                             size="sm"
                                             variant="secondary"
-                                            onClick={() => runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "paid" }) }), "Commission marked paid.")}
+                                            onClick={() => {
+                                              if (!window.confirm("Mark this commission as paid?")) return;
+                                              const reason = requestReason("Reason for marking this commission paid:", "Commission manually marked paid.");
+                                              if (!reason) return;
+                                              void runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "paid", paymentVerificationStatus: "verified", reason }) }), "Commission marked paid.");
+                                            }}
                                           >
                                             Mark Paid
                                           </Button>
                                         ) : (
                                           <span className="text-xs text-[#9CA3AF]">Settled</span>
                                         )}
+                                        {record.paymentVerificationStatus !== "failed" ? (
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="secondary"
+                                            onClick={() => {
+                                              if (!window.confirm("Reject this commission payment verification?")) return;
+                                              const reason = requestReason("Reason for rejecting this commission:", "Commission verification rejected.");
+                                              if (!reason) return;
+                                              void runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "pending", paymentVerificationStatus: "failed", paymentVerificationNotes: reason, reason }) }), "Commission rejected.");
+                                            }}
+                                          >
+                                            Reject
+                                          </Button>
+                                        ) : null}
+                                        {record.paymentStatus !== "pending" || record.paymentVerificationStatus === "failed" ? (
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="secondary"
+                                            onClick={() => {
+                                              if (!window.confirm("Reset this commission to pending?")) return;
+                                              const reason = requestReason("Reason for resetting this commission to pending:", "Commission reset to pending.");
+                                              if (!reason) return;
+                                              void runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "pending", paymentVerificationStatus: "pending_verification", paymentVerificationNotes: reason, reason }) }), "Commission reset to pending.");
+                                            }}
+                                          >
+                                            Reset Pending
+                                          </Button>
+                                        ) : null}
                                         <Button type="button" size="sm" variant="secondary" onClick={() => void handleReverifyCommission(record.id)}>
                                           Reverify
                                         </Button>
@@ -1635,7 +1729,7 @@ export function AlphaExchangeAdminDashboard() {
                                     <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(entry.createdAt)}</td>
                                     <td className="px-4 py-3 text-white">{actor?.fullName ?? entry.actorUserId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{entry.action}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{entry.listingId ?? entry.purchaseRequestId ?? entry.targetUserId ?? "system"}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{entry.listingId ?? (entry.purchaseRequestId ? (requestsById.get(entry.purchaseRequestId)?.tradeId ?? entry.purchaseRequestId) : undefined) ?? entry.targetUserId ?? "system"}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{entry.reason ?? "—"}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{entry.details ?? "—"}</td>
                                   </tr>
@@ -2046,8 +2140,10 @@ export function AlphaExchangeAdminDashboard() {
                                 size="sm"
                                 className="border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
                                 onClick={() => {
-                                  if (!window.confirm("Recalculate all trust scores? This may take a moment.")) return;
-                                  void runAction(fetch("/api/alpha-exchange/admin/trust/recalculate-all", { method: "POST" }), "Trust score recalculation triggered.");
+                                  if (!window.confirm("Recalculate trust scores now? This may take a moment.")) return;
+                                  const reason = requestReason("Reason for recalculating trust scores:", "Launch trust recalculation");
+                                  if (!reason) return;
+                                  void runAction(fetch("/api/alpha-exchange/admin/trust/recalculate-all", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), "Trust score recalculation triggered.");
                                 }}
                               >
                                 Run Now
@@ -2118,11 +2214,21 @@ export function AlphaExchangeAdminDashboard() {
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 {selectedSeller.availabilityStatus === "vacation" ? (
-                  <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerAvailabilityStatus(selectedSeller.id, "available", "Vacation Mode ended.")}>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => {
+                    if (!window.confirm("End vacation mode for this seller?")) return;
+                    const reason = requestReason("Reason for ending vacation mode:", "Vacation Mode ended.");
+                    if (!reason) return;
+                    void handleSellerAvailabilityStatus(selectedSeller.id, "available", "Vacation Mode ended.", reason);
+                  }}>
                     End Vacation
                   </Button>
                 ) : (
-                  <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerAvailabilityStatus(selectedSeller.id, "vacation", "Vacation Mode enabled.")}>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => {
+                    if (!window.confirm("Enable vacation mode for this seller?")) return;
+                    const reason = requestReason("Reason for enabling vacation mode:", "Vacation Mode enabled.");
+                    if (!reason) return;
+                    void handleSellerAvailabilityStatus(selectedSeller.id, "vacation", "Vacation Mode enabled.", reason);
+                  }}>
                     Enable Vacation
                   </Button>
                 )}
@@ -2177,7 +2283,7 @@ export function AlphaExchangeAdminDashboard() {
               </div>
               <div className="mt-4 grid gap-2 text-sm text-[#D1D5DB]">
                 <p>Request ID: <span className="text-white">{selectedRequest.id}</span></p>
-                <p>Trade ID: <span className="text-white">{selectedRequest.tradeId ?? "Pending"}</span></p>
+                <p>Trade ID: <span className="text-white">{selectedRequest.tradeId ?? selectedRequest.id}</span></p>
                 <p>Buyer: <span className="text-white">{selectedRequest.buyerName}</span></p>
                 <p>WhatsApp: <span className="text-white">{selectedRequest.buyerWhatsapp}</span></p>
                 <p>Listing: <span className="text-white">{selectedRequest.listingId}</span></p>

@@ -848,7 +848,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     },
     {
       title: isAr ? "البائع يقبل الطلب" : "Seller accepts request and creates trade",
-      body: isAr ? "عند القبول يتم إنشاء Trade ID وتثبيت تفاصيل الصفقة." : "Accepting creates a Trade ID and locks in trade details.",
+      body: isAr ? "يبقى Trade ID ثابتًا من لحظة الطلب وحتى إكمال الصفقة." : "The Trade ID stays fixed from the moment the request is created through trade completion.",
     },
     {
       title: isAr ? "المشتري يحدد Payment Sent" : "Buyer marks Payment Sent",

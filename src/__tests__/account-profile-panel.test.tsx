@@ -13,6 +13,33 @@ vi.mock("@/i18n/navigation", () => ({
 }));
 
 type TestRole = "buyer" | "admin" | "owner";
+const eventSourceInstances: MockEventSource[] = [];
+
+class MockEventSource {
+  private listeners = new Map<string, Set<(event: Event & { data?: string }) => void>>();
+
+  constructor(public readonly url: string) {
+    eventSourceInstances.push(this);
+  }
+
+  addEventListener(type: string, listener: (event: Event & { data?: string }) => void) {
+    const bucket = this.listeners.get(type) ?? new Set();
+    bucket.add(listener);
+    this.listeners.set(type, bucket);
+  }
+
+  removeEventListener(type: string, listener: (event: Event & { data?: string }) => void) {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  emit(type: string, data = "{}") {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener({ data } as Event & { data?: string });
+    }
+  }
+
+  close() {}
+}
 
 function makePayload(role: TestRole) {
   return {
@@ -50,9 +77,56 @@ function makePayload(role: TestRole) {
   };
 }
 
+function makeSellerPayload(level: string, completedTrades: number) {
+  return {
+    profile: {
+      id: "seller-1",
+      profilePhotoUrl: "",
+      fullName: "Seller User",
+      username: "seller-user",
+      email: "seller@example.com",
+      role: "approved_seller",
+      roles: ["approved_seller"],
+      memberSince: "2026-01-01T00:00:00.000Z",
+      lastLogin: "2026-08-01T12:00:00.000Z",
+      onlineStatus: "online" as const,
+      bio: "",
+      country: "",
+      language: "English",
+      whatsappNumber: "",
+      showTradeStats: true,
+      showLastActive: true,
+      allowDirectMessages: true,
+      allowProfileSearch: true,
+      showPhonePublic: false,
+      showEmailPublic: false,
+    },
+    stats: {
+      kind: "seller" as const,
+      sellerLevel: level,
+      nextLevel: "gold",
+      progressToNextLevelPercent: 50,
+      amountToNextLevelUsdt: 1000,
+      lifetimeCompletedVolumeUsdt: completedTrades * 250,
+      commissionPaid: 25,
+      averageTradeSize: 250,
+      promotionHistory: [],
+      trustScore: 90,
+      completedTrades,
+      activeListings: 1,
+      pendingListings: 0,
+      averageRating: 4.8,
+    },
+    roleBadge: "approved_seller" as const,
+    roleLabel: "Approved Seller" as const,
+    accountStatuses: ["Active"],
+  };
+}
+
 describe("AccountProfilePanel", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    eventSourceInstances.length = 0;
   });
 
   afterEach(() => {
@@ -104,5 +178,32 @@ describe("AccountProfilePanel", () => {
 
     await waitFor(() => expect(screen.getByText("Failed to load identity.")).toBeTruthy());
     expect(screen.queryByText("Preparing trading identity...")).toBeNull();
+  });
+
+  it("refreshes live profile stats when a notifications stream event arrives", async () => {
+    vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ user: { role: "approved_seller", roles: ["approved_seller"] } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeSellerPayload("bronze", 1),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makeSellerPayload("silver", 2),
+      }));
+
+    render(<AccountProfilePanel locale="en" />);
+
+    await waitFor(() => expect(screen.getByText("Bronze")).toBeTruthy());
+    expect(eventSourceInstances).toHaveLength(1);
+
+    eventSourceInstances[0].emit("notifications", JSON.stringify({ notifications: [], unreadCount: 1 }));
+
+    await waitFor(() => expect(screen.getByText("Silver")).toBeTruthy());
+    expect(screen.getByText("2")).toBeTruthy();
   });
 });

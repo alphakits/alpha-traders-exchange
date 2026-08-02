@@ -2124,6 +2124,7 @@ function unlockListingAfterCancelledTrade(db: AlphaExchangeDb, listing: Marketpl
   const now = nowIso();
   const hadExpiredClock = Boolean(listing.expiresAt) && new Date(listing.expiresAt!).getTime() <= Date.now();
   const nextStatus: ListingStatus = hadExpiredClock ? "expired" : "active";
+  const previousActiveTradeRequestId = listing.activeTradeRequestId;
   listing.activeTradeRequestId = undefined;
   listing.lockedAt = undefined;
   listing.updatedAt = now;
@@ -2138,7 +2139,7 @@ function unlockListingAfterCancelledTrade(db: AlphaExchangeDb, listing: Marketpl
     listingId: listing.id,
     purchaseRequestId: request.id,
     details: nextStatus === "expired" ? `Listing ${listing.id} expired after trade unlock.` : `Listing ${listing.id} reopened after trade cancellation.`,
-    oldValue: { status: request.status, activeTradeRequestId: listing.activeTradeRequestId },
+    oldValue: { status: request.status, activeTradeRequestId: previousActiveTradeRequestId },
     newValue: { status: nextStatus },
     reason,
   });
@@ -2513,9 +2514,9 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
     else commissionsBySeller.set(record.sellerId, [record]);
   }
 
-  for (const review of db.sellerReviews) {
-    if (review.hidden) continue;
-    visibleReviewCountBySeller.set(review.sellerId, (visibleReviewCountBySeller.get(review.sellerId) ?? 0) + 1);
+  for (const request of db.purchaseRequests) {
+    if (!request.buyerReview || request.buyerReview.hidden === true) continue;
+    visibleReviewCountBySeller.set(request.sellerId, (visibleReviewCountBySeller.get(request.sellerId) ?? 0) + 1);
   }
 
   const computed = rankTrustSnapshots(
@@ -4021,6 +4022,7 @@ export async function updateMarketplaceListingForSeller(input: {
   const next: MarketplaceListing = {
     ...current,
     photos: input.photos ? input.photos.map((photo) => String(photo).trim()).filter(Boolean).slice(0, 6) : current.photos,
+    originalAmount: input.availableAmount?.trim() || current.originalAmount,
     availableAmount: input.availableAmount?.trim() || current.availableAmount,
     price: input.price?.trim() || current.price,
     currency: input.currency?.trim() || current.currency,
@@ -4563,12 +4565,13 @@ export async function createPurchaseRequest(input: {
   const sellerId = listing.sellerId;
   const usdtAmount = requestedUsdtAmount;
   const fiatAmount = (requestedAmount * toNumber(listing.price)).toFixed(2);
+  const tradeId = `trade-${randomUUID()}`;
   const request: PurchaseRequest = {
     id: `purchase-${randomUUID()}`,
     buyerId: input.buyerId,
     listingId: input.listingId,
     sellerId,
-    tradeId: undefined,
+    tradeId,
     buyerName: input.buyerName.trim(),
     buyerWhatsapp: input.buyerWhatsapp.trim(),
     buyerNotes: input.buyerNotes.trim(),
@@ -4609,7 +4612,7 @@ export async function createPurchaseRequest(input: {
     targetUserId: sellerId,
     listingId: input.listingId,
     purchaseRequestId: request.id,
-    details: `Submitted purchase request ${request.id}`,
+    details: `Submitted trade ${request.tradeId}`,
   });
   pushNotification(db, {
     userId: sellerId,
@@ -4625,7 +4628,7 @@ export async function createPurchaseRequest(input: {
     userId: input.buyerId,
     category: "trade",
     title: "Trade request submitted",
-    details: `Request ${request.id} was submitted.`,
+    details: `Trade ${request.tradeId} was submitted.`,
   });
   const businessMs = Date.now() - businessStartedAt;
   const writeStartedAt = Date.now();
@@ -5087,7 +5090,11 @@ export async function getAccountProfileData(userId: string): Promise<{
   const stats: BuyerAccountStats = {
     kind: "buyer",
     activeTrades: buyerRequests.filter(
-      (request) => request.status !== "completed" && request.status !== "declined" && request.status !== "cancelled",
+      (request) =>
+        request.status !== "completed"
+        && request.status !== "review_open"
+        && request.status !== "declined"
+        && request.status !== "cancelled",
     ).length,
     completedTrades: buyerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length,
     reviewsGiven: buyerRequests.filter((request) => Boolean(request.buyerReview)).length,
@@ -6078,6 +6085,7 @@ export async function updatePurchaseRequestStatus(input: {
       const commission: CommissionRecord = {
         id: `commission-${randomUUID()}`,
         purchaseRequestId: request.id,
+        tradeId: next.tradeId,
         listingId: request.listingId,
         sellerId: request.sellerId,
         buyerId: request.buyerId,

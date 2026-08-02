@@ -593,6 +593,7 @@ export type CommissionPaymentStatus = "pending" | "paid" | "overdue";
 export interface CommissionRecord {
   id: string;
   purchaseRequestId: string;
+  tradeId?: string;
   displayNumber?: number;
   listingId: string;
   sellerId: string;

@@ -8,10 +8,12 @@ vi.mock("@/lib/postgres-runtime", () => ({
 import {
   createMarketplaceListing,
   createPurchaseRequest,
+  getAccountProfileData,
   getCommissionRecordsForAdmin,
   getMyMarketplaceListings,
   invalidateAlphaExchangeStoreCache,
   updateCommissionPaymentStatus,
+  updateMarketplaceListingForSeller,
   updatePurchaseRequestStatus,
   uploadTradeEvidence,
 } from "@/lib/alpha-exchange-store";
@@ -202,6 +204,155 @@ describe("partial listing preservation", () => {
     invalidateAlphaExchangeStoreCache();
   });
 
+  it("assigns one canonical trade ID at request creation and keeps linked records aligned", async () => {
+    const listing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "1000",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "1000",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+
+    const created = await createPurchaseRequest({
+      buyerId: BUYER_ONE_ID,
+      listingId: listing.id,
+      usdtAmount: "250",
+      buyerName: "Buyer One",
+      buyerWhatsapp: "+972500000001",
+      buyerNotes: "Buying 250 USDT",
+      bankName: "Bank Hapoalim",
+      actorUserId: BUYER_ONE_ID,
+    });
+
+    const tradeId = created.request.tradeId;
+    expect(tradeId).toMatch(/^trade-/);
+
+    let snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb & { __runtimeVersion: number };
+    expect(snapshot.notifications.find((entry) => entry.relatedRequestId === created.request.id)?.relatedTradeId).toBe(tradeId);
+    expect(snapshot.auditLogs.find((entry) => entry.purchaseRequestId === created.request.id && entry.action === "purchase_request_submitted")).toBeDefined();
+
+    await updatePurchaseRequestStatus({
+      requestId: created.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "accepted",
+    });
+
+    await uploadTradeEvidence({
+      purchaseRequestId: created.request.id,
+      actorUserId: BUYER_ONE_ID,
+      actorRole: "buyer",
+      side: "buyer",
+      fileName: "buyer-proof.png",
+      mimeType: "image/png",
+      sizeBytes: 68,
+      contentBase64: PNG_BASE64,
+    });
+
+    await updatePurchaseRequestStatus({
+      requestId: created.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "funds_received",
+    });
+
+    await updatePurchaseRequestStatus({
+      requestId: created.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "usdt_release_pending",
+    });
+
+    await uploadTradeEvidence({
+      purchaseRequestId: created.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      side: "seller",
+      fileName: "seller-proof.png",
+      mimeType: "image/png",
+      sizeBytes: 68,
+      contentBase64: PNG_BASE64,
+    });
+
+    await updatePurchaseRequestStatus({
+      requestId: created.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "usdt_sent",
+    });
+
+    const completion = await updatePurchaseRequestStatus({
+      requestId: created.request.id,
+      actorUserId: BUYER_ONE_ID,
+      actorRole: "buyer",
+      nextStatus: "completed",
+    });
+    await completion.deferredTrustWrite?.();
+
+    snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb & { __runtimeVersion: number };
+    const request = snapshot.purchaseRequests.find((entry) => entry.id === created.request.id);
+    expect(request?.tradeId).toBe(tradeId);
+    expect(snapshot.notifications.filter((entry) => entry.relatedRequestId === created.request.id).every((entry) => entry.relatedTradeId === tradeId)).toBe(true);
+    expect(snapshot.commissionRecords.find((entry) => entry.purchaseRequestId === created.request.id)).toMatchObject({
+      tradeId,
+      listingId: listing.id,
+      sellerId: SELLER_ID,
+      buyerId: BUYER_ONE_ID,
+    });
+  });
+
+  it("returns updated seller and buyer profile stats immediately after trade completion", async () => {
+    const listing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "1000",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "1000",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+
+    const beforeSeller = await getAccountProfileData(SELLER_ID);
+    const beforeBuyer = await getAccountProfileData(BUYER_ONE_ID);
+    expect(beforeSeller.stats.kind).toBe("seller");
+    expect(beforeBuyer.stats.kind).toBe("buyer");
+
+    await completeTrade({
+      listingId: listing.id,
+      buyerId: BUYER_ONE_ID,
+      buyerName: "Buyer One",
+      amount: "250",
+    });
+
+    const afterSeller = await getAccountProfileData(SELLER_ID);
+    const afterBuyer = await getAccountProfileData(BUYER_ONE_ID);
+
+    expect(afterSeller.stats.kind).toBe("seller");
+    expect(afterBuyer.stats.kind).toBe("buyer");
+    if (afterSeller.stats.kind !== "seller" || afterBuyer.stats.kind !== "buyer") {
+      throw new Error("Expected seller and buyer profile stats.");
+    }
+    expect(afterSeller.stats.completedTrades).toBe(1);
+    expect(afterSeller.stats.activeListings).toBe(1);
+    expect(afterSeller.stats.lifetimeCompletedVolumeUsdt).toBe(250);
+    expect(afterBuyer.stats.activeTrades).toBe(0);
+    expect(afterBuyer.stats.completedTrades).toBe(1);
+  });
+
   it("keeps a partially sold listing active with the remaining quantity", async () => {
     const listing = await createMarketplaceListing({
       sellerId: SELLER_ID,
@@ -238,6 +389,38 @@ describe("partial listing preservation", () => {
         }),
       ]),
     );
+  });
+
+  it("keeps original and available listing amounts aligned after seller quantity edits", async () => {
+    const listing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "1000",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "1000",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+
+    await updateMarketplaceListingForSeller({
+      listingId: listing.id,
+      sellerId: SELLER_ID,
+      actorUserId: SELLER_ID,
+      availableAmount: "825",
+      maximumTrade: "825",
+    });
+
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb & { __runtimeVersion: number };
+    expect(snapshot.marketplaceListings.find((entry) => entry.id === listing.id)).toMatchObject({
+      originalAmount: "825",
+      availableAmount: "825",
+    });
   });
 
   it("preserves the same listing across multiple partial sales and completes only at sell-out", async () => {

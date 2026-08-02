@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Crown, Globe, ShieldCheck, Sparkles, TrendingUp, Trophy } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { RoleBadge, type RoleBadgeVariant } from "@/components/ui/role-badge";
@@ -170,6 +170,7 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
   const [coverError, setCoverError] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
+  const profileRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [form, setForm] = useState<ProfileFormState>({
     fullName: "",
     bio: "",
@@ -183,6 +184,37 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
     showPhonePublic: false,
     showEmailPublic: false,
   });
+
+  const applyProfilePayload = useCallback((data: AccountProfilePayload) => {
+    setPayload(data);
+    setAvatarUrl(data.profile.profilePhotoUrl ?? "");
+    setCoverUrl(data.profile.coverBannerUrl ?? "");
+    setForm({
+      fullName: data.profile.fullName ?? "",
+      bio: data.profile.bio ?? "",
+      country: data.profile.country ?? "",
+      language: data.profile.language ?? "",
+      whatsappNumber: data.profile.whatsappNumber ?? "",
+      showTradeStats: data.profile.showTradeStats !== false,
+      showLastActive: data.profile.showLastActive !== false,
+      allowDirectMessages: data.profile.allowDirectMessages !== false,
+      allowProfileSearch: data.profile.allowProfileSearch !== false,
+      showPhonePublic: data.profile.showPhonePublic === true,
+      showEmailPublic: data.profile.showEmailPublic === true,
+    });
+    const profileRoles = (data.profile as { roles?: string[] }).roles ?? [];
+    if (profileRoles.length) {
+      setSessionRoles(normalizeRoleValues(profileRoles));
+    }
+  }, []);
+
+  const refreshProfile = useCallback(async (signal?: AbortSignal) => {
+    const response = await fetch("/api/auth/profile", { cache: "no-store", signal });
+    if (!response.ok) throw new Error("PROFILE_FETCH_FAILED");
+    const data = (await response.json()) as AccountProfilePayload;
+    applyProfilePayload(data);
+    return data;
+  }, [applyProfilePayload]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -211,31 +243,8 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
 
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
-          const response = await fetch("/api/auth/profile", { cache: "no-store", signal: controller.signal });
-          if (!response.ok) throw new Error("PROFILE_FETCH_FAILED");
-          const data = (await response.json()) as AccountProfilePayload;
+          await refreshProfile(controller.signal);
           if (!mounted) return;
-          setPayload(data);
-          setAvatarUrl(data.profile.profilePhotoUrl ?? "");
-          setCoverUrl(data.profile.coverBannerUrl ?? "");
-          setForm({
-            fullName: data.profile.fullName ?? "",
-            bio: data.profile.bio ?? "",
-            country: data.profile.country ?? "",
-            language: data.profile.language ?? "",
-            whatsappNumber: data.profile.whatsappNumber ?? "",
-            showTradeStats: data.profile.showTradeStats !== false,
-            showLastActive: data.profile.showLastActive !== false,
-            allowDirectMessages: data.profile.allowDirectMessages !== false,
-            allowProfileSearch: data.profile.allowProfileSearch !== false,
-            showPhonePublic: data.profile.showPhonePublic === true,
-            showEmailPublic: data.profile.showEmailPublic === true,
-          });
-          // Also update session roles from the full profile payload (source of truth).
-          const profileRoles = (data.profile as { roles?: string[] }).roles ?? [];
-          if (profileRoles.length) {
-            setSessionRoles(normalizeRoleValues(profileRoles));
-          }
           setLoading(false);
           return;
         } catch {
@@ -251,7 +260,46 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
       mounted = false;
       controller.abort();
     };
-  }, [isAr]);
+  }, [isAr, refreshProfile]);
+
+  useEffect(() => {
+    if (!payload || typeof EventSource === "undefined") return;
+
+    const controller = new AbortController();
+    let active = true;
+    const scheduleRefresh = () => {
+      if (!active) return;
+      if (profileRefreshTimeoutRef.current) clearTimeout(profileRefreshTimeoutRef.current);
+      profileRefreshTimeoutRef.current = setTimeout(() => {
+        if (!active) return;
+        void refreshProfile(controller.signal).catch(() => undefined);
+      }, 150);
+    };
+
+    const stream = new EventSource("/api/alpha-exchange/notifications/stream");
+    const onNotifications = () => scheduleRefresh();
+    const onFocus = () => scheduleRefresh();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") scheduleRefresh();
+    };
+
+    stream.addEventListener("notifications", onNotifications);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      active = false;
+      controller.abort();
+      if (profileRefreshTimeoutRef.current) {
+        clearTimeout(profileRefreshTimeoutRef.current);
+        profileRefreshTimeoutRef.current = null;
+      }
+      stream.removeEventListener("notifications", onNotifications);
+      stream.close();
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [payload, refreshProfile]);
 
   async function handlePhotoUpload(file: File) {
     setPhotoUploading(true);

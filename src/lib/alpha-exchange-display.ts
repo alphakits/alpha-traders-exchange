@@ -12,7 +12,7 @@ type DisplayLookupInput = {
   applications?: DisplayEntity[];
 };
 
-const EXCHANGE_ID_PATTERN = /\b(listing|request|trade|commission|dispute|application)-[a-z0-9-]+\b/gi;
+const EXCHANGE_ID_PATTERN = /\b(listing|request|purchase|trade|commission|dispute|application)-[a-z0-9-]+\b/gi;
 
 function toDisplayNumber(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {

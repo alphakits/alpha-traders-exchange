@@ -312,8 +312,16 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                         <p className="mt-1 line-clamp-2">{notification.message}</p>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           {!notification.isRead ? <span className="inline-flex items-center rounded-full bg-[#C9A227]/20 px-2 py-0.5 text-[10px] text-[#C9A227]">Unread</span> : null}
-                          {notification.relatedTradeId ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Trade #{notification.relatedTradeId.slice(-6)}</span> : null}
-                          {notification.relatedListingId ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Listing #{notification.relatedListingId.slice(-6)}</span> : null}
+                          {notification.relatedTradeDisplayNumber
+                            ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Trade #{notification.relatedTradeDisplayNumber}</span>
+                            : notification.relatedTradeId
+                              ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Trade</span>
+                              : null}
+                          {notification.relatedListingDisplayNumber
+                            ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Listing #{notification.relatedListingDisplayNumber}</span>
+                            : notification.relatedListingId
+                              ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Listing</span>
+                              : null}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           <Button
