@@ -23,8 +23,8 @@ const BUYER_PASSWORD = process.env.E2E_BUYER_PASSWORD ?? "";
 async function login(page: Parameters<typeof test>[1] extends infer T ? T extends { page: infer P } ? P : never : never, email: string, password: string) {
   await page.goto("/en/login");
   await page.waitForSelector('form[data-hydrated="true"]', { timeout: 15_000 });
-  await page.getByPlaceholder("Email").fill(email);
-  await page.getByPlaceholder("Password").fill(password);
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(password);
   await page.click('button[type="submit"]');
   await page.waitForURL((url) => !url.pathname.endsWith("/login"), { timeout: 20_000 });
 }
@@ -102,8 +102,8 @@ test.describe("Authentication", () => {
   test("invalid credentials show error message", async ({ page }) => {
     await page.goto("/en/login");
     await page.waitForSelector('form[data-hydrated="true"]', { timeout: 15_000 });
-    await page.getByPlaceholder("Email").fill("nobody@example.com");
-    await page.getByPlaceholder("Password").fill("wrongpassword");
+    await page.getByLabel("Email").fill("nobody@example.com");
+    await page.getByLabel("Password").fill("wrongpassword");
     await page.click('button[type="submit"]');
     // Should stay on login page
     await expect(page).toHaveURL(/\/en\/login/);
@@ -145,8 +145,8 @@ test.describe("Post-login redirect", () => {
 
     // Fill login form
     await page.waitForSelector('form[data-hydrated="true"]', { timeout: 15_000 });
-    await page.getByPlaceholder("Email").fill(BUYER_EMAIL);
-    await page.getByPlaceholder("Password").fill(BUYER_PASSWORD);
+    await page.getByLabel("Email").fill(BUYER_EMAIL);
+    await page.getByLabel("Password").fill(BUYER_PASSWORD);
     await page.click('button[type="submit"]');
 
     // Should land on academy, not dashboard
@@ -157,8 +157,8 @@ test.describe("Post-login redirect", () => {
     test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     await page.goto("/en/usdt-exchange");
     await page.waitForSelector('form[data-hydrated="true"]', { timeout: 15_000 });
-    await page.getByPlaceholder("Email").fill(BUYER_EMAIL);
-    await page.getByPlaceholder("Password").fill(BUYER_PASSWORD);
+    await page.getByLabel("Email").fill(BUYER_EMAIL);
+    await page.getByLabel("Password").fill(BUYER_PASSWORD);
     await page.click('button[type="submit"]');
     await expect(page).toHaveURL(/\/en\/usdt-exchange/, { timeout: 20_000 });
   });
