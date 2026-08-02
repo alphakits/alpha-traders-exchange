@@ -1471,6 +1471,11 @@ export function TradeRoomPage({
                 <p className="text-sm text-[#9CA3AF]">
                   {isAr ? "طريقة الدفع" : "Payment Method"}: <span className="text-white">{request.paymentMethod}</span>
                 </p>
+                {request.bankName ? (
+                  <p className="text-sm text-[#9CA3AF]">
+                    {isAr ? "البنوك المعتمدة" : "Supported Banks"}: <span className="text-white">{request.bankName}</span>
+                  </p>
+                ) : null}
               </div>
               <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-right text-xs text-[#D1D5DB]">
                 <p>{isAr ? "حالة الاتصال" : "Live updates"}: <span className={streamConnected ? "text-emerald-300" : "text-amber-300"}>{streamConnected ? (isAr ? "متصل" : "Connected") : (isAr ? "إعادة الاتصال..." : "Reconnecting...")}</span></p>
@@ -1850,6 +1855,13 @@ export function TradeRoomPage({
                   <p className="rounded-xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-3">
                     {isAr ? "التذكير: لن يتم تحرير USDT إلا بعد تأكيد الدفع داخل Alpha Exchange." : "Escrow reminder: USDT is released only after payment confirmation inside Alpha Exchange."}
                   </p>
+                  {room.releaseDeadlineActive ? (
+                    <p className="rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-xs text-red-100">
+                      {isSeller
+                        ? "You must complete this trade before the timer expires. Repeated delays or failure to deliver funds may affect your seller reputation, future listings, and may result in administrative review."
+                        : "You must confirm receipt before the timer expires and follow platform rules. Repeated delays or inaccurate confirmations may affect your account standing and can trigger administrative review."}
+                    </p>
+                  ) : null}
                 </CardContent>
               </Card>
 

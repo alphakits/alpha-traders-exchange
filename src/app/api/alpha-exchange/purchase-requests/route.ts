@@ -130,6 +130,7 @@ export async function POST(request: NextRequest) {
 
     const buyerNotes = String(body.buyerNotes ?? "").slice(0, 2000);
     const usdtAmount = String(body.usdtAmount ?? "").trim();
+    const paymentMethod = String(body.paymentMethod ?? "").trim();
     if (!usdtAmount) {
       return denied("Trade amount is required.", 400, "TRADE_AMOUNT_REQUIRED");
     }
@@ -143,6 +144,7 @@ export async function POST(request: NextRequest) {
       buyerName,
       buyerWhatsapp,
       buyerNotes,
+      paymentMethod: paymentMethod || undefined,
       bankName: bankName || undefined,
       safetyAcknowledged,
       actorUserId: user.id,

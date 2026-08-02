@@ -5,6 +5,8 @@ export type IsraeliBankOption = {
   description?: string;
 };
 
+export const MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS = 2;
+
 const ISRAELI_BANK_OPTIONS: IsraeliBankOption[] = [
   {
     name: "Bank Leumi",
@@ -109,4 +111,25 @@ export function getIsraeliBankOption(rawName?: string | null): IsraeliBankOption
 
 export function getIsraeliBankOptions() {
   return ISRAELI_BANK_OPTIONS;
+}
+
+export function parseIsraeliBankSelection(rawValue?: string | null) {
+  if (!rawValue) return [] as string[];
+  const values = rawValue
+    .split(",")
+    .map((value) => normalizeIsraeliBankName(value))
+    .filter(Boolean);
+  return Array.from(new Set(values));
+}
+
+export function serializeIsraeliBankSelection(rawValues: string[]) {
+  return Array.from(
+    new Set(
+      rawValues
+        .map((value) => normalizeIsraeliBankName(value))
+        .filter(Boolean),
+    ),
+  )
+    .slice(0, MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS)
+    .join(", ");
 }

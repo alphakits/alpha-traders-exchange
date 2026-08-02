@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canPublishListings, createMarketplaceListing, getMarketplaceListings } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
+import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
-import { isBankTransferPaymentMethod, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
+import { MAX_LISTING_PAYMENT_METHODS, requiresIsraeliBankSelection, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
 
 function toNumber(value: unknown) {
@@ -53,8 +54,9 @@ export async function POST(request: NextRequest) {
     const price = String(body.price ?? "").trim();
     const responseTime = String(body.responseTime ?? "").trim().slice(0, 100) || "5 min";
     const currency = String(body.currency ?? "ILS").trim().slice(0, 10) || "ILS";
-    const paymentMethods = resolveListingPaymentMethods(body.paymentMethods, body.paymentMethod).slice(0, 1);
-    const bankName = String(body.bankName ?? "").trim();
+    const resolvedPaymentMethods = resolveListingPaymentMethods(body.paymentMethods, body.paymentMethod);
+    const paymentMethods = resolvedPaymentMethods.slice(0, MAX_LISTING_PAYMENT_METHODS);
+    const bankSelection = parseIsraeliBankSelection(String(body.bankName ?? ""));
     const minimumTrade = String(body.minimumTrade ?? "0").trim();
     const maximumTrade = String(body.maximumTrade ?? availableAmount).trim();
     const expiresAt = String(body.expiresAt ?? "").trim();
@@ -83,8 +85,16 @@ export async function POST(request: NextRequest) {
     if (!paymentMethods.length) {
       return NextResponse.json({ error: "A valid payment method is required (Bank Transfer, Face-to-Face, or Cardless ATM Withdrawal)." }, { status: 400 });
     }
-    if (isBankTransferPaymentMethod(paymentMethods[0]) && !bankName) {
-      return NextResponse.json({ error: "Please choose a receiving bank before publishing the listing." }, { status: 400 });
+    if (resolvedPaymentMethods.length > MAX_LISTING_PAYMENT_METHODS) {
+      return NextResponse.json({ error: `Select no more than ${MAX_LISTING_PAYMENT_METHODS} payment methods per listing.` }, { status: 400 });
+    }
+    if (requiresIsraeliBankSelection(paymentMethods)) {
+      if (!bankSelection.length) {
+        return NextResponse.json({ error: "Please choose one or two supported banks before publishing the listing." }, { status: 400 });
+      }
+      if (bankSelection.length > MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS) {
+        return NextResponse.json({ error: `Select no more than ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} supported banks per listing.` }, { status: 400 });
+      }
     }
     if (!acceptedCommissionPolicy) {
       return NextResponse.json({ error: "You must confirm Alpha Traders 1% commission policy before publishing this listing." }, { status: 400 });
@@ -116,7 +126,7 @@ export async function POST(request: NextRequest) {
       currency,
       network,
       paymentMethods,
-      bankName: isBankTransferPaymentMethod(paymentMethods[0]) ? (bankName || undefined) : undefined,
+      bankName: requiresIsraeliBankSelection(paymentMethods) ? (serializeIsraeliBankSelection(bankSelection) || undefined) : undefined,
       minimumTrade,
       maximumTrade,
       expiresAt: expiresAt || undefined,

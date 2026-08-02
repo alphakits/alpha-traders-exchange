@@ -5,6 +5,7 @@ export const MARKETPLACE_PAYMENT_METHODS = [
 ] as const;
 
 export type MarketplacePaymentMethod = (typeof MARKETPLACE_PAYMENT_METHODS)[number];
+export const MAX_LISTING_PAYMENT_METHODS = 2;
 
 function normalizeToken(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
@@ -47,6 +48,12 @@ export function isCardlessAtmPaymentMethod(method: unknown) {
 
 export function isBankTransferPaymentMethod(method: unknown) {
   return normalizeMarketplacePaymentMethod(method) === "Bank Transfer";
+}
+
+export function requiresIsraeliBankSelection(rawMethods: unknown, fallbackMethod?: unknown) {
+  return resolveListingPaymentMethods(rawMethods, fallbackMethod).some((method) =>
+    isBankTransferPaymentMethod(method) || isCardlessAtmPaymentMethod(method),
+  );
 }
 
 function resolveSellerEvidenceRequiredMethods() {

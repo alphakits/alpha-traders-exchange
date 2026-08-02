@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canPublishListings, deleteMarketplaceListingForSeller, getMarketplaceListingById, renewMarketplaceListing, updateMarketplaceListingForSeller } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
+import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
-import { isBankTransferPaymentMethod, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
+import { MAX_LISTING_PAYMENT_METHODS, requiresIsraeliBankSelection, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
 
 function toNumber(value: unknown) {
@@ -82,11 +83,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const price = body.price !== undefined ? String(body.price).trim() : undefined;
     const responseTime = body.responseTime !== undefined ? String(body.responseTime).trim() : undefined;
     const currency = body.currency !== undefined ? String(body.currency).trim() : undefined;
-    const paymentMethods = body.paymentMethods !== undefined || body.paymentMethod !== undefined
-      ? resolveListingPaymentMethods(body.paymentMethods, body.paymentMethod).slice(0, 1)
+    const resolvedPaymentMethods = body.paymentMethods !== undefined || body.paymentMethod !== undefined
+      ? resolveListingPaymentMethods(body.paymentMethods, body.paymentMethod)
       : undefined;
+    const paymentMethods = resolvedPaymentMethods?.slice(0, MAX_LISTING_PAYMENT_METHODS);
     const paymentMethod = paymentMethods?.[0];
-    const bankName = body.bankName !== undefined ? String(body.bankName).trim() : undefined;
+    const bankSelection = body.bankName !== undefined ? parseIsraeliBankSelection(String(body.bankName ?? "")) : undefined;
     const minimumTrade = body.minimumTrade !== undefined ? String(body.minimumTrade).trim() : undefined;
     const maximumTrade = body.maximumTrade !== undefined ? String(body.maximumTrade).trim() : undefined;
     const expiresAt = body.expiresAt !== undefined ? String(body.expiresAt).trim() : undefined;
@@ -123,9 +125,21 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (paymentMethods && !paymentMethods.length) {
       return NextResponse.json({ error: "A valid payment method is required (Bank Transfer, Face-to-Face, or Cardless ATM Withdrawal)." }, { status: 400 });
     }
+    if (resolvedPaymentMethods && resolvedPaymentMethods.length > MAX_LISTING_PAYMENT_METHODS) {
+      return NextResponse.json({ error: `Select no more than ${MAX_LISTING_PAYMENT_METHODS} payment methods per listing.` }, { status: 400 });
+    }
     const effectivePaymentMethod = paymentMethod ?? existingListing?.paymentMethod;
-    if (isBankTransferPaymentMethod(effectivePaymentMethod) && bankName !== undefined && !bankName) {
-      return NextResponse.json({ error: "Please choose a receiving bank before saving the listing." }, { status: 400 });
+    const effectivePaymentMethods = paymentMethods?.length
+      ? paymentMethods
+      : resolveListingPaymentMethods(existingListing?.paymentMethods, effectivePaymentMethod);
+    if (requiresIsraeliBankSelection(effectivePaymentMethods, effectivePaymentMethod)) {
+      const effectiveBanks = bankSelection ?? parseIsraeliBankSelection(existingListing?.bankName);
+      if (!effectiveBanks.length) {
+        return NextResponse.json({ error: "Please choose one or two supported banks before saving the listing." }, { status: 400 });
+      }
+      if (effectiveBanks.length > MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS) {
+        return NextResponse.json({ error: `Select no more than ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} supported banks per listing.` }, { status: 400 });
+      }
     }
     if (minimumTrade !== undefined && toNumber(minimumTrade) < 0) {
       return NextResponse.json({ error: "Minimum trade cannot be negative." }, { status: 400 });
@@ -159,7 +173,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       network,
       paymentMethod,
       paymentMethods,
-      bankName: isBankTransferPaymentMethod(effectivePaymentMethod) ? bankName : undefined,
+      bankName: requiresIsraeliBankSelection(effectivePaymentMethods, effectivePaymentMethod)
+        ? serializeIsraeliBankSelection(bankSelection ?? parseIsraeliBankSelection(existingListing?.bankName)) || undefined
+        : undefined,
       minimumTrade,
       maximumTrade,
       expiresAt,

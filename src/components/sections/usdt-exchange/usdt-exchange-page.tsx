@@ -13,7 +13,8 @@ import { LogoutButton } from "@/components/auth/logout-button";
 import { AlphaMarketCenter } from "@/components/market/alpha-market-center";
 import { useMarketFeed } from "@/components/market/use-market-feed";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
-import { MARKETPLACE_PAYMENT_METHODS, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
+import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, isCardlessAtmPaymentMethod, isBankTransferPaymentMethod, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import { CLIENT_COMMISSION_WALLETS, COMMISSION_NETWORKS, type CommissionNetworkId } from "@/lib/commission-config";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
@@ -30,11 +31,11 @@ const ISRAELI_BANKS = [
   { id: "hapoalim", name: "Bank Hapoalim", code: "בנק הפועלים", brandPrimary: "#E31C23", brandSecondary: "#B01016", accent: "#FCA5A5" },
   { id: "leumi", name: "Bank Leumi", code: "בנק לאומי", brandPrimary: "#2458A6", brandSecondary: "#1D4B8F", accent: "#93C5FD" },
   { id: "mizrahi-tefahot", name: "Mizrahi-Tefahot", code: "מזרחי טפחות", brandPrimary: "#F58220", brandSecondary: "#C8600E", accent: "#FDBA74" },
-  { id: "discount", name: "Discount Bank", code: "דיסקונט", brandPrimary: "#148A79", brandSecondary: "#0F7668", accent: "#5EEAD4" },
+  { id: "discount", name: "Discount", code: "דיסקונט", brandPrimary: "#148A79", brandSecondary: "#0F7668", accent: "#5EEAD4" },
   { id: "fibi", name: "First International", code: "הבינלאומי", brandPrimary: "#7C3AED", brandSecondary: "#6D28D9", accent: "#C4B5FD" },
   { id: "mercantile", name: "Mercantile", code: "מרכנתיל", brandPrimary: "#0B5CAD", brandSecondary: "#073F7A", accent: "#93C5FD" },
   { id: "yahav", name: "Yahav", code: "יהב", brandPrimary: "#2563EB", brandSecondary: "#1E40AF", accent: "#BFDBFE" },
-  { id: "jerusalem", name: "Bank Jerusalem", code: "בנק ירושלים", brandPrimary: "#1F2937", brandSecondary: "#111827", accent: "#D1D5DB" },
+  { id: "jerusalem", name: "Jerusalem", code: "בנק ירושלים", brandPrimary: "#1F2937", brandSecondary: "#111827", accent: "#D1D5DB" },
 ] as const;
 
 const PAYMENT_METHOD_META: Record<string, { emoji: string; shortLabel: string }> = {
@@ -327,15 +328,32 @@ function roleBadgeVariantFromSession(user: SessionUser) {
   return "buyer" as const;
 }
 
-function listingRequiresFaceToFaceSafetyNotice(listing: MarketplaceListing | null) {
-  if (!listing) return false;
-  const method = normalizeMarketplacePaymentMethod(listing.paymentMethods?.[0] ?? listing.paymentMethod);
-  return method === "Face-to-Face (Meet in Person)";
+function listingRequiresFaceToFaceSafetyNotice(method: string | null | undefined) {
+  return normalizeMarketplacePaymentMethod(method) === "Face-to-Face (Meet in Person)";
 }
 
 function normalizePaymentMethodList(methods: string[] | undefined, fallback: string | undefined) {
-  const normalized = normalizeMarketplacePaymentMethod(methods?.[0] ?? fallback);
-  return normalized ? [normalized] : [];
+  return resolveListingPaymentMethods(methods, fallback).slice(0, MAX_LISTING_PAYMENT_METHODS);
+}
+
+function requiresBankSelection(methods: string[] | undefined, fallback?: string) {
+  return requiresIsraeliBankSelection(methods, fallback);
+}
+
+function selectedMethodUsesBanks(method: string | null | undefined) {
+  return isBankTransferPaymentMethod(method) || isCardlessAtmPaymentMethod(method);
+}
+
+function toggleSelection(values: string[], nextValue: string, maxSelections: number) {
+  const nextSet = new Set(values);
+  if (nextSet.has(nextValue)) {
+    if (nextSet.size === 1) return values;
+    nextSet.delete(nextValue);
+    return Array.from(nextSet);
+  }
+  if (nextSet.size >= maxSelections) return values;
+  nextSet.add(nextValue);
+  return Array.from(nextSet);
 }
 
 function paymentMethodLabel(method: string) {
@@ -405,7 +423,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     price: "",
     currency: "ILS",
     network: "TRC20" as SupportedNetwork,
-    paymentMethods: "Bank Transfer",
+    paymentMethods: ["Bank Transfer"],
     bankName: "",
     minimumTrade: "0",
     maximumTrade: "",
@@ -449,12 +467,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     price: "",
     currency: "ILS",
     network: "TRC20" as SupportedNetwork,
-    paymentMethods: "Bank Transfer",
+    paymentMethods: ["Bank Transfer"],
     bankName: "",
     minimumTrade: "0",
     maximumTrade: "",
     sellerDescription: "",
   });
+  const [selectedPurchasePaymentMethod, setSelectedPurchasePaymentMethod] = useState<string>("Bank Transfer");
 
   const tradeReturnPath = selectedListing
     ? `/${locale}/usdt-exchange?listing=${encodeURIComponent(selectedListing.id)}`
@@ -574,6 +593,31 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     } catch {
       setWorkspaceError(safeErrorMessage("workspace"));
     }
+  }, []);
+
+  const syncListingState = useCallback((listing: MarketplaceListing | null, options?: { remove?: boolean }) => {
+    if (!listing) return;
+    const shouldRemove = options?.remove === true || listing.status === "closed" || listing.status === "cancelled";
+    setMyListings((prev) => {
+      const next = shouldRemove ? prev.filter((item) => item.id !== listing.id) : [listing, ...prev.filter((item) => item.id !== listing.id)];
+      return next.filter((item) => item.status !== "closed" && item.status !== "cancelled");
+    });
+    setListings((prev) => {
+      const next = shouldRemove ? prev.filter((item) => item.id !== listing.id) : [listing, ...prev.filter((item) => item.id !== listing.id)];
+      return next.filter((item) => item.status !== "closed" && item.status !== "cancelled");
+    });
+  }, []);
+
+  const backgroundRefreshSellerWorkspace = useCallback(() => {
+    void refreshSellerWorkspace();
+  }, [refreshSellerWorkspace]);
+
+  const openCommissionPayment = useCallback(() => {
+    setCommissionPayOpen(true);
+    setCommissionPayMessage(null);
+    setCommissionTxSignature("");
+    setCommissionPayerType(null);
+    setCommissionAdvancedOpen(false);
   }, []);
 
   const refreshNotifications = useCallback(async (options?: { category?: "all" | NotificationCategory; query?: string; unreadOnly?: boolean }) => {
@@ -761,6 +805,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       return;
     }
     setSelectedListing(listing);
+    setSelectedPurchasePaymentMethod(normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod)[0] ?? "Bank Transfer");
     setSellerProfileData(null);
     setPurchaseSubmitted(false);
     setShowVerificationCta(false);
@@ -1022,7 +1067,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   function openListingModal(listing: MarketplaceListing) {
     if (!requireAuth()) return;
+    const supportedMethods = normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod);
     setSelectedListing(listing);
+    setSelectedPurchasePaymentMethod(supportedMethods[0] ?? "Bank Transfer");
     setSellerProfileData(null);
     void fetchSellerProfileData(listing.sellerId);
     setPurchaseSubmitted(false);
@@ -1073,7 +1120,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   async function submitPurchaseRequest(notesOverride?: string) {
     if (!selectedListing) return;
     if (isSubmittingPurchase) return;
-    if (listingRequiresFaceToFaceSafetyNotice(selectedListing) && !faceToFaceSafetyAcknowledged) {
+    if (listingRequiresFaceToFaceSafetyNotice(selectedListingPaymentMethod) && !faceToFaceSafetyAcknowledged) {
       setStatusMessage("Please acknowledge the Face-to-Face privacy and safety guidelines before continuing.");
       return;
     }
@@ -1101,6 +1148,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           buyerName: buyerInfo.name,
           buyerWhatsapp: buyerInfo.whatsapp,
           buyerNotes: notesOverride ?? buyerInfo.notes,
+          paymentMethod: selectedListingPaymentMethod ?? undefined,
           safetyAcknowledged: faceToFaceSafetyAcknowledged,
         }),
       });
@@ -1193,12 +1241,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const listingCreatePriceInvalid = listingCreateCurrency === "ILS" && listingCreatePrice > maxAllowedListingPrice;
   const listingCreatePriceValid = listingCreatePrice > 0 && !listingCreatePriceInvalid;
   const listingCreateTradeRangeInvalid = listingCreateMaxTrade <= 0 || listingCreateMaxTrade > listingCreateAmount || listingCreateMaxTrade < listingCreateMinTrade;
-  const listingCreatePrimaryPaymentMethod = normalizeMarketplacePaymentMethod(listingCreateForm.paymentMethods);
-  const listingCreateRequiresBank = listingCreatePrimaryPaymentMethod === "Bank Transfer";
+  const listingCreateSelectedMethods = normalizePaymentMethodList(listingCreateForm.paymentMethods, undefined);
+  const listingCreateSelectedBanks = parseIsraeliBankSelection(listingCreateForm.bankName);
+  const listingCreateRequiresBank = requiresBankSelection(listingCreateSelectedMethods);
   const listingCreateMissingRequired = !listingCreateAmount
     || !listingCreatePrice
-    || !listingCreatePrimaryPaymentMethod
-    || (listingCreateRequiresBank && !listingCreateForm.bankName.trim())
+    || !listingCreateSelectedMethods.length
+    || (listingCreateRequiresBank && !listingCreateSelectedBanks.length)
     || !listingCommissionAgreement;
   const listingCreateTotalIls = listingCreateAmount * listingCreatePrice;
   const listingCreationBlocked = Boolean(sellerWorkspaceSummary && !sellerWorkspaceSummary.canCreateListing);
@@ -1229,12 +1278,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const listingEditPriceInvalid = listingEditCurrency === "ILS" && listingEditPrice > maxAllowedListingPrice;
   const listingEditPriceValid = listingEditPrice > 0 && !listingEditPriceInvalid;
   const listingEditTradeRangeInvalid = listingEditMaxTrade <= 0 || listingEditMaxTrade > listingEditAmount || listingEditMaxTrade < listingEditMinTrade;
-  const listingEditPrimaryPaymentMethod = normalizeMarketplacePaymentMethod(listingEditForm.paymentMethods);
-  const listingEditRequiresBank = listingEditPrimaryPaymentMethod === "Bank Transfer";
+  const listingEditSelectedMethods = normalizePaymentMethodList(listingEditForm.paymentMethods, undefined);
+  const listingEditSelectedBanks = parseIsraeliBankSelection(listingEditForm.bankName);
+  const listingEditRequiresBank = requiresBankSelection(listingEditSelectedMethods);
   const listingEditMissingRequired = !listingEditAmount
     || !listingEditPrice
-    || !listingEditPrimaryPaymentMethod
-    || (listingEditRequiresBank && !listingEditForm.bankName.trim());
+    || !listingEditSelectedMethods.length
+    || (listingEditRequiresBank && !listingEditSelectedBanks.length);
   const isListingEditSubmitDisabled = listingEditMissingRequired || listingEditPriceInvalid || listingEditTradeRangeInvalid;
   const listingEditGuardTone = listingEditPriceInvalid
     ? "border-red-500/60 bg-red-500/10 text-red-200"
@@ -1245,7 +1295,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const selectedMinTrade = selectedListing ? Math.max(0, toNumber(selectedListing.minimumTrade)) : 0;
   const selectedMaxTrade = selectedListing ? toNumber(selectedListing.maximumTrade || selectedListing.availableAmount) : 0;
   const buyerTradeAmountInvalid = !!selectedListing && (buyerTradeAmount < selectedMinTrade || buyerTradeAmount > selectedMaxTrade);
-  const selectedListingRequiresSafetyNotice = listingRequiresFaceToFaceSafetyNotice(selectedListing);
+  const selectedListingPaymentMethods = selectedListing ? normalizePaymentMethodList(selectedListing.paymentMethods, selectedListing.paymentMethod) : [];
+  const selectedListingPaymentMethod = normalizeMarketplacePaymentMethod(selectedPurchasePaymentMethod) ?? selectedListingPaymentMethods[0] ?? null;
+  const selectedListingRequiresSafetyNotice = listingRequiresFaceToFaceSafetyNotice(selectedListingPaymentMethod);
   const todayDateKey = new Date().toISOString().slice(0, 10);
 
   const sellerRequests = useMemo(() => myRequests.filter((request) => request.sellerId === sessionUser?.id), [myRequests, sessionUser?.id]);
@@ -1493,8 +1545,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
+      syncListingState(listing, { remove: true });
       setSellerWorkspaceMessage("🗑 Listing removed successfully.");
-      await refreshSellerWorkspace();
+      backgroundRefreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing"));
     } finally {
@@ -1526,9 +1579,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
+      const payload = await response.json() as { listing?: MarketplaceListing };
+      syncListingState(payload.listing ?? null);
       setSellerWorkspaceMessage("📋 Listing duplicated successfully. Review and publish it when ready.");
       setEditingListingId(null);
-      await refreshSellerWorkspace();
+      backgroundRefreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing"));
     } finally {
@@ -1548,8 +1603,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
+      const payload = await response.json() as { listing?: MarketplaceListing };
+      syncListingState(payload.listing ?? listing);
       setSellerWorkspaceMessage("🔄 Listing renewed. Your listing is now live with a refreshed expiry.");
-      await refreshSellerWorkspace();
+      backgroundRefreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing"));
     } finally {
@@ -1573,8 +1630,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           price: listingCreateForm.price,
           currency: listingCreateForm.currency,
           network: listingCreateForm.network,
-          paymentMethods: listingCreatePrimaryPaymentMethod ? [listingCreatePrimaryPaymentMethod] : [],
-          bankName: listingCreateForm.bankName,
+          paymentMethods: listingCreateSelectedMethods,
+          bankName: serializeIsraeliBankSelection(listingCreateSelectedBanks),
           minimumTrade: listingCreateForm.minimumTrade,
           maximumTrade: listingCreateForm.maximumTrade || listingCreateForm.availableAmount,
           sellerDescription: listingCreateForm.sellerDescription,
@@ -1586,10 +1643,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
+      const payload = await response.json() as { listing?: MarketplaceListing };
+      syncListingState(payload.listing ?? null);
       setListingCreateForm((prev) => ({
         ...prev,
         availableAmount: "",
         price: "",
+        paymentMethods: ["Bank Transfer"],
         bankName: "",
         minimumTrade: "0",
         maximumTrade: "",
@@ -1597,7 +1657,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       }));
       setListingCommissionAgreement(false);
       setSellerWorkspaceMessage("✅ Listing published successfully. Buyers can now see your listing in the marketplace.");
-      await refreshSellerWorkspace();
+      backgroundRefreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing"));
     } finally {
@@ -1618,8 +1678,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           price: listingEditForm.price,
           currency: listingEditForm.currency,
           network: listingEditForm.network,
-          paymentMethods: listingEditPrimaryPaymentMethod ? [listingEditPrimaryPaymentMethod] : [],
-          bankName: listingEditForm.bankName,
+          paymentMethods: listingEditSelectedMethods,
+          bankName: serializeIsraeliBankSelection(listingEditSelectedBanks),
           minimumTrade: listingEditForm.minimumTrade,
           maximumTrade: listingEditForm.maximumTrade || listingEditForm.availableAmount,
           sellerDescription: listingEditForm.sellerDescription,
@@ -1629,9 +1689,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
+      const payload = await response.json() as { listing?: MarketplaceListing };
+      syncListingState(payload.listing ?? null);
       setEditingListingId(null);
       setSellerWorkspaceMessage("✅ Listing updated successfully. Changes are now visible to buyers.");
-      await refreshSellerWorkspace();
+      backgroundRefreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing"));
     } finally {
@@ -2498,9 +2560,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           {sellerBadgeLabel(badge)}
                         </span>
                       ))}
-                      {listing.bankName ? (
+                      {parseIsraeliBankSelection(listing.bankName).length ? (
                         <span className="rounded-full border border-white/15 bg-white/[0.03] px-2 py-1 text-[11px] text-[#D1D5DB]">
-                          🏦 {listing.bankName}
+                          🏦 {parseIsraeliBankSelection(listing.bankName).join(", ")}
                         </span>
                       ) : null}
                     </div>
@@ -2941,7 +3003,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             )) : null}
           </div>
 
-          <Card className={`order-15 border-white/10 bg-[#0B0B0B]/90 ${sellerCommissionStatus?.status === "overdue" ? "border-red-600/60" : sellerCommissionStatus?.status === "pending" ? "border-amber-500/40" : ""}`}>
+          <Card className={`order-15 border-white/10 bg-[#0B0B0B]/90 ${sellerCommissionStatus?.status === "overdue" || sellerCommissionStatus?.status === "pending" ? "border-red-600/60" : ""}`}>
             <CardHeader>
               <CardTitle className="inline-flex items-center gap-2">
                 <LockKeyhole className="h-4 w-4 text-[#C9A227]" />
@@ -2953,25 +3015,25 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </CardHeader>
             <CardContent className="space-y-3">
               {sellerCommissionStatus?.status === "overdue" || sellerCommissionStatus?.status === "pending" ? (
-                <div className={`rounded-2xl border p-4 text-sm ${sellerCommissionStatus.status === "overdue" ? "border-red-600/60 bg-red-950/60 text-red-100" : "border-amber-500/40 bg-amber-950/40 text-amber-100"}`}>
+                <div className="rounded-2xl border border-red-600/60 bg-red-950/60 p-4 text-sm text-red-100">
                   <div className="flex items-start gap-3">
-                    <AlertTriangle className={`mt-0.5 h-5 w-5 shrink-0 ${sellerCommissionStatus.status === "overdue" ? "text-red-400" : "text-amber-400"}`} />
+                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
                     <div className="flex-1 space-y-2">
                       <p className="font-semibold text-base">{sellerCommissionStatus.status === "overdue" ? "Commission Overdue" : "Commission Due"}</p>
                       <div className="space-y-1 text-xs">
                         <div className="flex justify-between">
-                          <span className={sellerCommissionStatus.status === "overdue" ? "text-red-300" : "text-amber-300"}>Amount outstanding</span>
+                          <span className="text-red-300">Amount outstanding</span>
                           <span className="font-bold text-white text-sm">{formatUsdt(sellerCommissionStatus.amountDue)}</span>
                         </div>
                         {sellerCommissionStatus.relatedTradeDisplayNumber ? (
                           <div className="flex justify-between">
-                            <span className={sellerCommissionStatus.status === "overdue" ? "text-red-300" : "text-amber-300"}>Trade reference</span>
+                            <span className="text-red-300">Trade reference</span>
                             <span className="font-medium text-white">Trade #{sellerCommissionStatus.relatedTradeDisplayNumber}</span>
                           </div>
                         ) : null}
                         {sellerCommissionStatus.dueAt ? (
                           <div className="flex justify-between">
-                            <span className={sellerCommissionStatus.status === "overdue" ? "text-red-300" : "text-amber-300"}>Due date</span>
+                            <span className="text-red-300">Due date</span>
                             <span className="font-medium text-white">{new Date(sellerCommissionStatus.dueAt).toLocaleDateString("en-IL")}</span>
                           </div>
                         ) : null}
@@ -2988,12 +3050,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 </div>
               )}
               {sellerWorkspaceSummary?.blockedReason ? (
-                <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-100">{sellerWorkspaceSummary.blockedReason}</p>
+                <p className="rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-xs text-red-100">⚠ {sellerWorkspaceSummary.blockedReason}</p>
               ) : null}
               {sellerCommissionStatus?.status !== "clear" ? (
                 <Button
                   type="button"
-                  onClick={() => { setCommissionPayOpen(true); setCommissionPayMessage(null); setCommissionTxSignature(""); setCommissionPayerType(null); setCommissionAdvancedOpen(false); }}
+                  onClick={openCommissionPayment}
                   className="h-10 px-4 bg-red-600 hover:bg-red-700 text-white border-red-600"
                 >
                   Pay Now
@@ -3350,7 +3412,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       </Button>
                     ) : null}
                     {listingBlockedByCommission ? (
-                      <Button type="button" size="sm" variant="secondary" onClick={() => setCommissionPayOpen(true)}>
+                      <Button type="button" size="sm" variant="secondary" onClick={openCommissionPayment}>
                         Pay Now
                       </Button>
                     ) : null}
@@ -3412,12 +3474,19 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Payment Method *</p>
                   <div className="mt-3 grid gap-2 md:grid-cols-3">
                     {MARKETPLACE_PAYMENT_METHODS.map((method) => {
-                      const selected = normalizeMarketplacePaymentMethod(listingCreateForm.paymentMethods) === method;
+                      const selected = listingCreateSelectedMethods.includes(method);
                       return (
                         <button
                           key={`create-method-${method}`}
                           type="button"
-                          onClick={() => setListingCreateForm((prev) => ({ ...prev, paymentMethods: method, bankName: method === "Bank Transfer" ? prev.bankName : "" }))}
+                          onClick={() => setListingCreateForm((prev) => {
+                            const nextMethods = toggleSelection(prev.paymentMethods, method, MAX_LISTING_PAYMENT_METHODS);
+                            return {
+                              ...prev,
+                              paymentMethods: nextMethods,
+                              bankName: requiresBankSelection(nextMethods) ? prev.bankName : "",
+                            };
+                          })}
                           className={`rounded-xl border p-3 text-left transition-all duration-200 ${
                             selected
                               ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]"
@@ -3429,6 +3498,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       );
                     })}
                   </div>
+                  <p className="mt-2 text-xs text-[#9CA3AF]">Select up to {MAX_LISTING_PAYMENT_METHODS} methods. Buyers choose one method when they open the trade.</p>
                   <p className="mt-2 text-xs text-[#D1D5DB]">Review payment safety guidance in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link>.</p>
                 </div>
                 <div className="space-y-2">
@@ -3452,15 +3522,19 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 <Textarea className="md:col-span-2" placeholder="Seller Description" value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
                 {listingCreateRequiresBank ? (
                 <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
-                  <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Bank selection *</p>
+                  <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Supported banks *</p>
+                  <p className="mt-1 text-xs text-[#D1D5DB]">Select up to {MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks for bank transfer or cardless ATM listings.</p>
                   <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
                     {ISRAELI_BANKS.map((bank) => {
-                      const selected = listingCreateForm.bankName === bank.name;
+                      const selected = listingCreateSelectedBanks.includes(bank.name);
                       return (
                         <button
                           key={bank.id}
                           type="button"
-                          onClick={() => setListingCreateForm((prev) => ({ ...prev, bankName: bank.name }))}
+                          onClick={() => setListingCreateForm((prev) => {
+                            const nextBanks = toggleSelection(parseIsraeliBankSelection(prev.bankName), bank.name, MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS);
+                            return { ...prev, bankName: serializeIsraeliBankSelection(nextBanks) };
+                          })}
                           className={`rounded-xl border p-3 text-left transition-all duration-200 ${
                             selected
                               ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]"
@@ -3481,6 +3555,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       );
                     })}
                   </div>
+                  {listingCreateSelectedBanks.length ? <p className="mt-2 text-xs text-[#93C5FD]">Selected: {listingCreateSelectedBanks.join(", ")}</p> : null}
                 </div>
                 ) : null}
                 <div className="md:col-span-2 rounded-2xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-4 text-sm text-[#E5E7EB]">
@@ -3512,7 +3587,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <p>Current market: {formatIls(marketPricePerUsdt)} per 1 USDT</p>
                       <p>Maximum allowed: {formatIls(maxAllowedListingPrice)}</p>
                       {listingCreateTradeRangeInvalid ? <p className="text-amber-200">Maximum trade must be greater than minimum trade and less than or equal to available USDT.</p> : null}
-                      {listingCreateRequiresBank && !listingCreateForm.bankName.trim() ? <p className="text-amber-200">Select a receiving bank before submitting.</p> : null}
+                      {listingCreateRequiresBank && !listingCreateSelectedBanks.length ? <p className="text-amber-200">Select one or two supported banks before submitting.</p> : null}
                       {!listingCommissionAgreement ? <p className="text-amber-200">You must accept the 1% commission policy before publishing.</p> : null}
                       {listingCreateAmount > 0 ? <p>{listingCreateAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingCreateAmount * marketPricePerUsdt)}</p> : null}
                     </div>
@@ -3568,7 +3643,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <p>Available Amount: <span className="text-white">{toNumber(listing.availableAmount).toLocaleString("en-IL")} USDT</span></p>
                       <p>Price: <span className="text-white">{formatIls(toNumber(listing.price))}</span></p>
                       <p>Network: <span className="text-white">{safeText(listing.network)}</span></p>
-                      <p>Bank: <span className="text-white">{safeText(listing.bankName, "Not set")}</span></p>
+                      <p>Payment Methods: <span className="text-white">{normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).map(paymentMethodLabel).join(", ") || "Not set"}</span></p>
+                      <p>Banks: <span className="text-white">{parseIsraeliBankSelection(listing.bankName).join(", ") || "Not set"}</span></p>
                       <p>Purchase Requests: <span className="text-white">{requestsCount}</span></p>
                       <p>Created Date: <span className="text-white">{new Date(listing.createdAt).toLocaleDateString("en-IL")}</span></p>
                     </div>
@@ -3585,7 +3661,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                             price: listing.price,
                             currency: listing.currency,
                             network: listing.network,
-                            paymentMethods: normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod)[0] ?? "Bank Transfer",
+                            paymentMethods: normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod),
                             bankName: listing.bankName ?? "",
                             minimumTrade: listing.minimumTrade ?? "0",
                             maximumTrade: listing.maximumTrade ?? listing.availableAmount,
@@ -3659,12 +3735,19 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Payment Method *</p>
                           <div className="mt-2 grid gap-2 md:grid-cols-3">
                             {MARKETPLACE_PAYMENT_METHODS.map((method) => {
-                              const selected = normalizeMarketplacePaymentMethod(listingEditForm.paymentMethods) === method;
+                              const selected = listingEditSelectedMethods.includes(method);
                               return (
                                 <button
                                   key={`${listing.id}-method-${method}`}
                                   type="button"
-                                  onClick={() => setListingEditForm((prev) => ({ ...prev, paymentMethods: method, bankName: method === "Bank Transfer" ? prev.bankName : "" }))}
+                                  onClick={() => setListingEditForm((prev) => {
+                                    const nextMethods = toggleSelection(prev.paymentMethods, method, MAX_LISTING_PAYMENT_METHODS);
+                                    return {
+                                      ...prev,
+                                      paymentMethods: nextMethods,
+                                      bankName: requiresBankSelection(nextMethods) ? prev.bankName : "",
+                                    };
+                                  })}
                                   className={`rounded-xl border p-2.5 text-left transition-all duration-200 ${
                                     selected
                                       ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]"
@@ -3676,19 +3759,24 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                               );
                             })}
                           </div>
+                          <p className="mt-2 text-xs text-[#9CA3AF]">Select up to {MAX_LISTING_PAYMENT_METHODS} methods.</p>
                         </div>
                         <Textarea className="md:col-span-2" value={listingEditForm.sellerDescription} onChange={(event) => setListingEditForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} placeholder="Seller Description" />
                         {listingEditRequiresBank ? (
                         <div className="md:col-span-4 rounded-2xl border border-white/10 bg-black/20 p-3">
-                          <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Receiving bank *</p>
+                          <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Supported banks *</p>
+                          <p className="mt-1 text-xs text-[#D1D5DB]">Select up to {MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks for bank transfer or cardless ATM listings.</p>
                           <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
                             {ISRAELI_BANKS.map((bank) => {
-                              const selected = listingEditForm.bankName === bank.name;
+                              const selected = listingEditSelectedBanks.includes(bank.name);
                               return (
                                 <button
                                   key={`${listing.id}-${bank.id}`}
                                   type="button"
-                                  onClick={() => setListingEditForm((prev) => ({ ...prev, bankName: bank.name }))}
+                                  onClick={() => setListingEditForm((prev) => {
+                                    const nextBanks = toggleSelection(parseIsraeliBankSelection(prev.bankName), bank.name, MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS);
+                                    return { ...prev, bankName: serializeIsraeliBankSelection(nextBanks) };
+                                  })}
                                   className={`rounded-xl border p-2 text-left transition-all duration-200 ${
                                     selected
                                       ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]"
@@ -3709,6 +3797,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                               );
                             })}
                           </div>
+                          {listingEditSelectedBanks.length ? <p className="mt-2 text-xs text-[#93C5FD]">Selected: {listingEditSelectedBanks.join(", ")}</p> : null}
                         </div>
                         ) : null}
                         <div className={`md:col-span-4 rounded-2xl border p-3 text-xs transition-all duration-200 ${listingEditGuardTone}`}>
@@ -3721,7 +3810,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                               <p>Current market: {formatIls(marketPricePerUsdt)} per 1 USDT</p>
                               <p>Maximum allowed: {formatIls(maxAllowedListingPrice)}</p>
                               {listingEditTradeRangeInvalid ? <p className="text-amber-200">Maximum trade must be greater than minimum trade and less than or equal to available USDT.</p> : null}
-                              {listingEditRequiresBank && !listingEditForm.bankName.trim() ? <p className="text-amber-200">Select a receiving bank before saving.</p> : null}
+                              {listingEditRequiresBank && !listingEditSelectedBanks.length ? <p className="text-amber-200">Select one or two supported banks before saving.</p> : null}
                               {listingEditAmount > 0 ? <p>{listingEditAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingEditAmount * marketPricePerUsdt)}</p> : null}
                             </div>
                           </div>
@@ -4692,7 +4781,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         <p>Network: <span className="text-white">{selectedListing.network}</span></p>
                         <p>Commission (1%): <span className="text-white">₪{commission.toFixed(2)}</span></p>
                         <p className="font-medium">Estimated Total: <span className="text-[#C9A227]">₪{estimatedTotal.toFixed(2)}</span></p>
-                        <p>Trade Instructions: <span className="text-white">{paymentMethodTradeInstruction(selectedListing.paymentMethod, "buyer")}</span></p>
+                        <p>Trade Instructions: <span className="text-white">{paymentMethodTradeInstruction(selectedListingPaymentMethod ?? selectedListing.paymentMethod, "buyer")}</span></p>
                         <p>Safety Guidance: <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link></p>
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
@@ -4794,6 +4883,35 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   ) : null}
 
                   <form className="grid gap-3" onSubmit={handlePurchaseSubmit}>
+                    <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
+                      <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Choose payment method</p>
+                      <div className="mt-3 grid gap-2 md:grid-cols-3">
+                        {selectedListingPaymentMethods.map((method) => {
+                          const selected = selectedListingPaymentMethod === method;
+                          return (
+                            <button
+                              key={`purchase-method-${selectedListing.id}-${method}`}
+                              type="button"
+                              onClick={() => {
+                                setSelectedPurchasePaymentMethod(method);
+                                setFaceToFaceSafetyAcknowledged(false);
+                              }}
+                              className={`rounded-xl border p-3 text-left transition-all duration-200 ${
+                                selected
+                                  ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]"
+                                  : "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]"
+                              }`}
+                            >
+                              <p className="text-sm font-medium text-white">{paymentMethodEmoji(method)} {paymentMethodLabel(method)}</p>
+                              {selected ? <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#93C5FD]">Selected for this trade</p> : null}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {selectedMethodUsesBanks(selectedListingPaymentMethod) && parseIsraeliBankSelection(selectedListing.bankName).length ? (
+                        <p className="mt-3 text-xs text-[#D1D5DB]">Supported banks: <span className="text-white">{parseIsraeliBankSelection(selectedListing.bankName).join(", ")}</span></p>
+                      ) : null}
+                    </div>
                     <div className="grid gap-3 md:grid-cols-3">
                       <div className="space-y-2 md:col-span-3">
                         <Input

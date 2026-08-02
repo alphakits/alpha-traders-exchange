@@ -12,13 +12,20 @@ import { getAlphaExchangeRepository, type SnapshotTableName } from "@/lib/alpha-
 import { addRole, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import {
+  MAX_LISTING_PAYMENT_METHODS,
   isBankTransferPaymentMethod,
   isCardlessAtmPaymentMethod,
   isFaceToFacePaymentMethod,
+  requiresIsraeliBankSelection,
   isSellerEvidenceRequiredForPaymentMethod,
   normalizeMarketplacePaymentMethod,
   resolveListingPaymentMethods,
 } from "@/lib/marketplace-payment-methods";
+import {
+  MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS,
+  parseIsraeliBankSelection,
+  serializeIsraeliBankSelection,
+} from "@/lib/israeli-banks";
 import type {
   AlphaExchangeActivityLogEntry,
   BetaAnnouncement,
@@ -3878,13 +3885,22 @@ export async function createMarketplaceListing(input: {
   logProfile("getSellerListingBlockReason");
   const now = nowIso();
   const expiresAt = input.expiresAt?.trim() || getListingExpirationIso(now, input.expirationHours);
-  const listingPaymentMethods = resolveListingPaymentMethods(input.paymentMethods, input.paymentMethod).slice(0, 1);
+  const listingPaymentMethods = resolveListingPaymentMethods(input.paymentMethods, input.paymentMethod).slice(0, MAX_LISTING_PAYMENT_METHODS);
   if (!listingPaymentMethods.length) {
     throw new Error("A valid payment method is required (Bank Transfer, Face-to-Face, or Cardless ATM Withdrawal).");
   }
+  if (resolveListingPaymentMethods(input.paymentMethods, input.paymentMethod).length > MAX_LISTING_PAYMENT_METHODS) {
+    throw new Error(`Select no more than ${MAX_LISTING_PAYMENT_METHODS} payment methods per listing.`);
+  }
   const primaryPaymentMethod = listingPaymentMethods[0];
-  if (isBankTransferPaymentMethod(primaryPaymentMethod) && !input.bankName?.trim()) {
-    throw new Error("Please choose a receiving bank before publishing the listing.");
+  const listingBanks = parseIsraeliBankSelection(input.bankName);
+  if (requiresIsraeliBankSelection(listingPaymentMethods)) {
+    if (!listingBanks.length) {
+      throw new Error("Please choose one or two supported banks before publishing the listing.");
+    }
+    if (listingBanks.length > MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS) {
+      throw new Error(`Select no more than ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} supported banks per listing.`);
+    }
   }
   const listing: MarketplaceListing = {
     id: `listing-${randomUUID()}`,
@@ -3898,7 +3914,7 @@ export async function createMarketplaceListing(input: {
     network: input.network,
     paymentMethods: listingPaymentMethods,
     paymentMethod: primaryPaymentMethod,
-    bankName: isBankTransferPaymentMethod(primaryPaymentMethod) ? (input.bankName?.trim() || undefined) : undefined,
+    bankName: requiresIsraeliBankSelection(listingPaymentMethods) ? serializeIsraeliBankSelection(listingBanks) || undefined : undefined,
     minimumTrade: input.minimumTrade?.trim() || "0",
     maximumTrade: input.maximumTrade?.trim() || input.availableAmount.trim(),
     expiresAt,
@@ -4009,14 +4025,26 @@ export async function updateMarketplaceListingForSeller(input: {
   }
   const updatedAt = nowIso();
   const normalizedPaymentMethods = input.paymentMethods
-    ? resolveListingPaymentMethods(input.paymentMethods, input.paymentMethod).slice(0, 1)
-    : (input.paymentMethod ? resolveListingPaymentMethods(undefined, input.paymentMethod).slice(0, 1) : undefined);
+    ? resolveListingPaymentMethods(input.paymentMethods, input.paymentMethod).slice(0, MAX_LISTING_PAYMENT_METHODS)
+    : (input.paymentMethod ? resolveListingPaymentMethods(undefined, input.paymentMethod).slice(0, MAX_LISTING_PAYMENT_METHODS) : undefined);
+  if (input.paymentMethods && resolveListingPaymentMethods(input.paymentMethods, input.paymentMethod).length > MAX_LISTING_PAYMENT_METHODS) {
+    throw new Error(`Select no more than ${MAX_LISTING_PAYMENT_METHODS} payment methods per listing.`);
+  }
   const nextPaymentMethods = normalizedPaymentMethods?.length
     ? normalizedPaymentMethods
     : (current.paymentMethods?.length ? current.paymentMethods : resolveListingPaymentMethods(undefined, current.paymentMethod));
   const nextPaymentMethod = nextPaymentMethods[0] ?? normalizeMarketplacePaymentMethod(current.paymentMethod) ?? "Bank Transfer";
-  if (isBankTransferPaymentMethod(nextPaymentMethod) && input.bankName !== undefined && !input.bankName.trim()) {
-    throw new Error("Please choose a receiving bank before saving the listing.");
+  const nextRequiresBankSelection = requiresIsraeliBankSelection(nextPaymentMethods, nextPaymentMethod);
+  const nextBankSelection = input.bankName !== undefined
+    ? parseIsraeliBankSelection(input.bankName)
+    : parseIsraeliBankSelection(current.bankName);
+  if (nextRequiresBankSelection) {
+    if (!nextBankSelection.length) {
+      throw new Error("Please choose one or two supported banks before saving the listing.");
+    }
+    if (nextBankSelection.length > MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS) {
+      throw new Error(`Select no more than ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} supported banks per listing.`);
+    }
   }
 
   const next: MarketplaceListing = {
@@ -4029,8 +4057,8 @@ export async function updateMarketplaceListingForSeller(input: {
     network: input.network || current.network,
     paymentMethods: nextPaymentMethods,
     paymentMethod: nextPaymentMethod,
-    bankName: isBankTransferPaymentMethod(nextPaymentMethod)
-      ? (input.bankName !== undefined ? input.bankName.trim() || undefined : current.bankName)
+    bankName: nextRequiresBankSelection
+      ? serializeIsraeliBankSelection(nextBankSelection) || undefined
       : undefined,
     minimumTrade: input.minimumTrade?.trim() || current.minimumTrade,
     maximumTrade: input.maximumTrade?.trim() || current.maximumTrade,
@@ -4492,6 +4520,7 @@ export async function createPurchaseRequest(input: {
   buyerName: string;
   buyerWhatsapp: string;
   buyerNotes: string;
+  paymentMethod?: string;
   bankName?: string;
   safetyAcknowledged?: boolean;
   actorUserId: string;
@@ -4519,7 +4548,13 @@ export async function createPurchaseRequest(input: {
   const listing = db.marketplaceListings.find((item) => item.id === input.listingId);
   if (!listing) throw new Error("Listing not found.");
   const listingPaymentMethods = resolveListingPaymentMethods(listing.paymentMethods, listing.paymentMethod);
-  const primaryPaymentMethod = listingPaymentMethods[0] ?? "Bank Transfer";
+  const selectedPaymentMethod = normalizeMarketplacePaymentMethod(input.paymentMethod);
+  const primaryPaymentMethod = selectedPaymentMethod && listingPaymentMethods.includes(selectedPaymentMethod)
+    ? selectedPaymentMethod
+    : listingPaymentMethods[0] ?? "Bank Transfer";
+  if (selectedPaymentMethod && !listingPaymentMethods.includes(selectedPaymentMethod)) {
+    throw new Error("Selected payment method is not available for this listing.");
+  }
   const requiresFaceToFaceSafetyNotice = isFaceToFacePaymentMethod(primaryPaymentMethod);
   const buyerSafetyAcknowledged = !requiresFaceToFaceSafetyNotice || input.safetyAcknowledged === true;
   if (requiresFaceToFaceSafetyNotice && !buyerSafetyAcknowledged) {
@@ -4582,7 +4617,9 @@ export async function createPurchaseRequest(input: {
     paymentMethod: primaryPaymentMethod,
     buyerSafetyAcknowledged,
     sellerSafetyAcknowledged: !requiresFaceToFaceSafetyNotice,
-    bankName: isBankTransferPaymentMethod(primaryPaymentMethod) ? (input.bankName?.trim() || listing.bankName) : undefined,
+    bankName: (isBankTransferPaymentMethod(primaryPaymentMethod) || isCardlessAtmPaymentMethod(primaryPaymentMethod))
+      ? (serializeIsraeliBankSelection(parseIsraeliBankSelection(input.bankName || listing.bankName)) || undefined)
+      : undefined,
     timeline: [
       {
         id: `timeline-purchase-${randomUUID()}-1`,

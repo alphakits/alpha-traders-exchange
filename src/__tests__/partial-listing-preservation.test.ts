@@ -309,6 +309,61 @@ describe("partial listing preservation", () => {
     });
   });
 
+  it("persists up to two seller payment methods and supported banks on a listing", async () => {
+    const listing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "1000",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer", "Cardless ATM Withdrawal"],
+      bankName: "Bank Hapoalim, Bank Leumi",
+      minimumTrade: "50",
+      maximumTrade: "1000",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+
+    expect(listing.paymentMethods).toEqual(["Bank Transfer", "Cardless ATM Withdrawal"]);
+    expect(listing.bankName).toBe("Bank Hapoalim, Bank Leumi");
+  });
+
+  it("uses the buyer-selected payment method throughout the trade request", async () => {
+    const listing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "1000",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer", "Face-to-Face (Meet in Person)"],
+      bankName: "Bank Hapoalim, Bank Leumi",
+      minimumTrade: "50",
+      maximumTrade: "1000",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+
+    const created = await createPurchaseRequest({
+      buyerId: BUYER_ONE_ID,
+      listingId: listing.id,
+      usdtAmount: "250",
+      buyerName: "Buyer One",
+      buyerWhatsapp: "+972500000001",
+      buyerNotes: "Meet in person",
+      paymentMethod: "Face-to-Face (Meet in Person)",
+      safetyAcknowledged: true,
+      actorUserId: BUYER_ONE_ID,
+    });
+
+    expect(created.request.paymentMethod).toBe("Face-to-Face (Meet in Person)");
+    expect(created.request.bankName).toBeUndefined();
+    expect(created.request.buyerSafetyAcknowledged).toBe(true);
+  });
+
   it("returns updated seller and buyer profile stats immediately after trade completion", async () => {
     const listing = await createMarketplaceListing({
       sellerId: SELLER_ID,

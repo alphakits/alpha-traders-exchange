@@ -3,7 +3,6 @@ import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { hasRole } from "@/lib/roles";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
-import { getFirstActiveTradeForUser } from "@/lib/alpha-exchange-store";
 
 export const dynamic = "force-dynamic";
 
@@ -31,11 +30,6 @@ export default async function SellerDashboardPage({ params }: { params: Promise<
 
   if (!hasRole(user, "approved_seller")) {
     redirect(`/${locale}/dashboard`);
-  }
-
-  const activeTrade = await getFirstActiveTradeForUser(user.id, user.role);
-  if (activeTrade) {
-    redirect(`/${locale}/trade-room/${activeTrade.id}`);
   }
 
   return <UsdtExchangePage locale={locale as "ar" | "en"} />;
