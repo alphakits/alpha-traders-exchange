@@ -160,7 +160,10 @@ const defaultDb: AlphaExchangeDb = {
   sellerReviews: [],
 };
 
-const DB_CACHE_TTL_MS = 1000;
+// Cache TTL: writeDb() always updates the cache on write, so correctness is
+// maintained even with a long TTL. Raising from 1 s to 15 s eliminates the
+// full 22-table snapshot reload that was occurring on nearly every request.
+const DB_CACHE_TTL_MS = 15_000;
 const MAX_ACTIVE_LISTINGS_PER_SELLER = 2;
 const COMMISSION_GRACE_PERIOD_DAYS = 7;
 const DEFAULT_LISTING_EXPIRATION_HOURS = 24;
@@ -351,7 +354,7 @@ function buildTradeSnapshotForNotification(db: AlphaExchangeDb, userId: string, 
   };
 }
 
-function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNotification): AlphaExchangeNotification {
+function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNotification, cachedLookup?: Record<string, string>): AlphaExchangeNotification {
   const request = resolveTradeContextForNotification(db, {
     userId: notification.userId,
     relatedRequestId: notification.relatedRequestId,
@@ -373,7 +376,8 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     : notification.relatedHref;
   const actionHref = notification.actionHref?.trim() || relatedHref;
   const listing = request ? db.marketplaceListings.find((item) => item.id === request.listingId) : undefined;
-  const displayLookup = createExchangeDisplayLookup({
+  // Reuse a pre-built lookup when available (batch calls) to avoid O(n) per notification.
+  const displayLookup = cachedLookup ?? createExchangeDisplayLookup({
     listings: db.marketplaceListings,
     requests: db.purchaseRequests,
     commissions: db.commissionRecords,
@@ -7750,6 +7754,17 @@ export async function getNotificationsForUser(input: {
   const db = await readDb();
   const now = nowIso();
   let changed = false;
+
+  // Build the display-number lookup ONCE for the entire function so that every
+  // enrichNotification call below shares it rather than rebuilding it per call.
+  const sharedDisplayLookup = createExchangeDisplayLookup({
+    listings: db.marketplaceListings,
+    requests: db.purchaseRequests,
+    commissions: db.commissionRecords,
+    disputes: db.disputes,
+    applications: db.sellerApplications,
+  });
+
   db.notifications = db.notifications.map((notification) => {
     if (notification.userId !== input.userId) return notification;
     if (notification.state === "archived") return notification;
@@ -7770,7 +7785,7 @@ export async function getNotificationsForUser(input: {
       isRead: true,
       archivedAt: notification.archivedAt ?? now,
       updatedAt: now,
-    });
+    }, sharedDisplayLookup);
   });
   if (changed) {
     await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
@@ -7778,17 +7793,20 @@ export async function getNotificationsForUser(input: {
   const category = input.category;
   const centerCategory = input.centerCategory;
   const query = String(input.query ?? "").trim().toLowerCase();
-  const notifications = db.notifications.map((notification) => enrichNotification(db, notification)).filter((notification) => {
-    if (notification.userId !== input.userId) return false;
-    if (category && notification.category !== category) return false;
-    if (centerCategory && notification.centerCategory !== centerCategory) return false;
-    if (input.state && notification.state !== input.state) return false;
-    if (!input.state && notification.state === "archived") return false;
-    if (input.unreadOnly && notification.state !== "unread") return false;
-    if (!query) return true;
-    const haystack = `${notification.title} ${notification.message} ${notification.relatedTradeId ?? ""} ${notification.relatedRequestId ?? ""} ${notification.relatedListingId ?? ""} ${notification.tradeSnapshot?.counterpartyName ?? ""}`.toLowerCase();
-    return haystack.includes(query);
-  });
+  // Pre-filter by userId before enriching to avoid O(all_notifications × lookup_size) work.
+  const notifications = db.notifications
+    .filter((notification) => notification.userId === input.userId)
+    .map((notification) => enrichNotification(db, notification, sharedDisplayLookup))
+    .filter((notification) => {
+      if (category && notification.category !== category) return false;
+      if (centerCategory && notification.centerCategory !== centerCategory) return false;
+      if (input.state && notification.state !== input.state) return false;
+      if (!input.state && notification.state === "archived") return false;
+      if (input.unreadOnly && notification.state !== "unread") return false;
+      if (!query) return true;
+      const haystack = `${notification.title} ${notification.message} ${notification.relatedTradeId ?? ""} ${notification.relatedRequestId ?? ""} ${notification.relatedListingId ?? ""} ${notification.tradeSnapshot?.counterpartyName ?? ""}`.toLowerCase();
+      return haystack.includes(query);
+    });
   const sortedNotifications = [...notifications].sort((left, right) => {
     const leftRank = typeof left.priorityRank === "number" ? left.priorityRank : 99;
     const rightRank = typeof right.priorityRank === "number" ? right.priorityRank : 99;
@@ -7848,9 +7866,16 @@ export async function updateNotificationState(input: { userId: string; notificat
 export async function markAllNotificationsRead(userId: string) {
   const db = await readDb();
   const now = nowIso();
+  const sharedLookup = createExchangeDisplayLookup({
+    listings: db.marketplaceListings,
+    requests: db.purchaseRequests,
+    commissions: db.commissionRecords,
+    disputes: db.disputes,
+    applications: db.sellerApplications,
+  });
   db.notifications = db.notifications.map((item) => {
     if (item.userId !== userId || item.state === "archived") return item;
-    return enrichNotification(db, { ...item, isRead: true, state: "read", updatedAt: now });
+    return enrichNotification(db, { ...item, isRead: true, state: "read", updatedAt: now }, sharedLookup);
   });
   await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
 }

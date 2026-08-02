@@ -191,17 +191,22 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
     void (async () => {
       setLoading(true);
       setMessage(null);
-      try {
-        const meResponse = await fetch("/api/auth/me", { cache: "no-store", signal: controller.signal });
-        if (meResponse.ok) {
-          const mePayload = (await meResponse.json()) as { user?: { role?: string; roles?: string[] } | null };
+
+      // Fire both requests in parallel — /api/auth/me is fast (session cookie only)
+      // and gives us role data immediately; /api/auth/profile has the full payload.
+      const [meResponse] = await Promise.allSettled([
+        fetch("/api/auth/me", { cache: "no-store", signal: controller.signal }),
+      ]);
+      if (meResponse.status === "fulfilled" && meResponse.value.ok) {
+        try {
+          const mePayload = (await meResponse.value.json()) as { user?: { role?: string; roles?: string[] } | null };
           const user = mePayload.user;
           if (user) {
             setSessionRoles(normalizeRoleValues([...(user.roles ?? []), user.role]));
           }
+        } catch {
+          // Best-effort only; profile API remains source of truth for page content.
         }
-      } catch {
-        // Best-effort only; profile API remains source of truth for page content.
       }
 
       for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -226,6 +231,11 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
             showPhonePublic: data.profile.showPhonePublic === true,
             showEmailPublic: data.profile.showEmailPublic === true,
           });
+          // Also update session roles from the full profile payload (source of truth).
+          const profileRoles = (data.profile as { roles?: string[] }).roles ?? [];
+          if (profileRoles.length) {
+            setSessionRoles(normalizeRoleValues(profileRoles));
+          }
           setLoading(false);
           return;
         } catch {

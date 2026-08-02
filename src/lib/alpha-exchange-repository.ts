@@ -1356,9 +1356,13 @@ export class AlphaExchangeRepository {
               currentPurchaseRequests: currentRequests,
             });
             const currentResults: Array<{ tableName: SnapshotTableName; rows: Array<{ payload: unknown }> }> = [];
-            for (const table of tables) {
-              const result = await queryWithLogging(client, table.selectSql) as { rows: Array<{ payload: unknown }> };
-              currentResults.push({ tableName: table.name as SnapshotTableName, rows: result.rows });
+            // Parallelize all 22 table reads instead of issuing them sequentially.
+            const connectedClient = client!;
+            const parallelResults = await Promise.all(
+              tables.map((table) => queryWithLogging(connectedClient, table.selectSql) as Promise<{ rows: Array<{ payload: unknown }> }>),
+            );
+            for (let i = 0; i < tables.length; i++) {
+              currentResults.push({ tableName: tables[i]!.name as SnapshotTableName, rows: parallelResults[i]!.rows });
             }
             const latestSnapshot = attachVersion(snapshotFromTableRows(currentResults), currentVersion);
             const mergedSnapshot = mergeSnapshotWithLatest(latestSnapshot, pruneOrphanAuthSessions(db));

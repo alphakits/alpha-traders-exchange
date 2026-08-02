@@ -74,9 +74,12 @@ export async function GET(request: NextRequest) {
         if (!isNotificationEventForUser(event, user.id)) return;
         void sendSnapshot();
       });
+      // Keep a low-frequency poll as a resilience fallback for cases where the
+      // realtime event bus misses an event (e.g. hot reload, SSE reconnect).
+      // The realtime subscriber above handles the hot path; 30 s is sufficient.
       const poll = setInterval(() => {
         void sendSnapshot();
-      }, 5000);
+      }, 30_000);
       const keepAlive = setInterval(() => {
         safeEnqueue(": keepalive\n\n");
       }, 15000);

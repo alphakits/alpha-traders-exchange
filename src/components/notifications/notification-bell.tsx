@@ -149,6 +149,11 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   }
 
   async function handleMarkOneRead(notificationId: string) {
+    // Optimistic update — reflect the change immediately without waiting for the server.
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === notificationId ? { ...n, isRead: true, state: "read" as const } : n)),
+    );
+    setUnreadCount((prev) => Math.max(0, prev - 1));
     try {
       const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
         method: "PATCH",
@@ -156,16 +161,18 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
         body: JSON.stringify({ isRead: true }),
       });
       if (!response.ok) {
-        setError("Failed to update notification.");
-        return;
+        // Revert on failure with a fresh server fetch.
+        await loadNotifications(20);
       }
-      await loadNotifications(20);
     } catch {
-      setError("Failed to update notification.");
+      await loadNotifications(20);
     }
   }
 
   async function handleMarkAllRead() {
+    // Optimistic update — mark everything read locally before the server confirms.
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true, state: "read" as const })));
+    setUnreadCount(0);
     try {
       const response = await fetch("/api/alpha-exchange/notifications", {
         method: "PATCH",
@@ -173,12 +180,10 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
         body: JSON.stringify({ action: "mark_all_read" }),
       });
       if (!response.ok) {
-        setError("Failed to update notifications.");
-        return;
+        await loadNotifications(20);
       }
-      await loadNotifications(20);
     } catch {
-      setError("Failed to update notifications.");
+      await loadNotifications(20);
     }
   }
 
