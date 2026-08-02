@@ -3114,7 +3114,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     onChange={(event) => setCommissionTxSignature(event.target.value)}
                   />
                   <p className="text-xs text-[#6B7280]">
-                    Find this in your wallet&apos;s &quot;Activity&quot; or &quot;Transaction History&quot; after sending.
+                    After sending USDT, find the transaction hash in your wallet&apos;s &ldquo;Activity&rdquo; or &ldquo;Transaction History.&rdquo;
+                    {" "}Make sure the hash is from a USDT send — not a swap, trade, or other interaction.
                   </p>
                 </div>
 
