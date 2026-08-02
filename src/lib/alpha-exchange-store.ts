@@ -6448,19 +6448,28 @@ async function verifyEvmUsdtPaymentViaRpc(input: {
       log.topics?.[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC &&
       log.topics?.[2]?.toLowerCase() === recipientPadded,
   );
+  const commissionWalletInAnyTransfer = (receipt.logs ?? []).some(
+    (log) =>
+      log.topics?.[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC &&
+      (log.topics?.[1]?.toLowerCase() === recipientPadded ||
+       log.topics?.[2]?.toLowerCase() === recipientPadded),
+  );
 
   if (!transferLog?.data) {
     console.log("[commission-verify] rpc-transfer-not-found", {
       network: input.network, txHash, logsCount: receipt.logs?.length ?? 0,
       hasWrongTokenTransfer: Boolean(wrongTokenLog),
+      commissionWalletInAnyTransfer,
     });
-    return {
-      verified: false,
-      reference: txHash,
-      notes: wrongTokenLog
-        ? `This transaction sent tokens to the correct wallet, but not the supported USDT contract on ${networkLabel}.`
-        : `No USDT transfer to the configured Alpha Traders wallet was found. Please verify the destination wallet and selected network.`,
-    };
+    let notes: string;
+    if (wrongTokenLog) {
+      notes = `This transaction sent tokens to the correct wallet, but not the supported USDT contract on ${networkLabel}. Please send USDT (not USDC or other tokens) and try again.`;
+    } else if (!commissionWalletInAnyTransfer) {
+      notes = `This transaction does not include any transfer to or from the Alpha Traders commission wallet. Please verify you submitted the correct transaction hash — the commission payment transaction, not an unrelated wallet activity.`;
+    } else {
+      notes = `No USDT transfer to the configured Alpha Traders wallet was found. Please verify the destination wallet and selected network.`;
+    }
+    return { verified: false, reference: txHash, notes };
   }
 
   const usdtReceived = Number(BigInt(transferLog.data)) / 1_000_000;
@@ -6611,10 +6620,25 @@ async function verifyEvmUsdtPayment(input: {
         log.topics?.[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC &&
         log.topics?.[2]?.toLowerCase() === recipientPadded,
     );
+    // Any ERC-20 transfer to the commission wallet (regardless of token) — catches USDC-instead-of-USDT mistakes
     const wrongTokenLog = receipt.logs?.find(
       (log) =>
         log.topics?.[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC &&
         log.topics?.[2]?.toLowerCase() === recipientPadded,
+    );
+    // Distinct token contract addresses in this tx for diagnostic logging
+    const tokenAddressesInTx = [...new Set(
+      (receipt.logs ?? [])
+        .filter((log) => log.topics?.[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC)
+        .map((log) => log.address?.toLowerCase())
+        .filter(Boolean)
+    )];
+    // Does the commission wallet appear in any transfer at all (as sender or recipient)?
+    const commissionWalletInAnyTransfer = (receipt.logs ?? []).some(
+      (log) =>
+        log.topics?.[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC &&
+        (log.topics?.[1]?.toLowerCase() === recipientPadded ||
+         log.topics?.[2]?.toLowerCase() === recipientPadded),
     );
 
     if (!transferLog?.data) {
@@ -6622,15 +6646,19 @@ async function verifyEvmUsdtPayment(input: {
         network: input.network, txHash: input.txHash,
         recipientWalletAddress: input.recipientWalletAddress,
         usdtContract, logsCount: receipt.logs?.length ?? 0,
+        tokenAddressesInTx,
         hasWrongTokenTransfer: Boolean(wrongTokenLog),
+        commissionWalletInAnyTransfer,
       });
-      return {
-        verified: false,
-        reference: input.txHash,
-        notes: wrongTokenLog
-          ? `This transaction sent tokens to the correct wallet, but not the supported USDT contract on ${networkLabel}.`
-          : `No USDT transfer to the configured Alpha Traders wallet was found. Please verify the destination wallet and selected network.`,
-      };
+      let notes: string;
+      if (wrongTokenLog) {
+        notes = `This transaction sent tokens to the correct wallet, but not the supported USDT contract on ${networkLabel}. Please send USDT (not USDC or other tokens) and try again.`;
+      } else if (!commissionWalletInAnyTransfer) {
+        notes = `This transaction does not include any transfer to or from the Alpha Traders commission wallet. Please verify you submitted the correct transaction hash — the commission payment transaction, not an unrelated wallet activity.`;
+      } else {
+        notes = `No USDT transfer to the configured Alpha Traders wallet was found. Please verify the destination wallet and selected network.`;
+      }
+      return { verified: false, reference: input.txHash, notes };
     }
 
     const usdtReceived = Number(BigInt(transferLog.data)) / 1_000_000;
