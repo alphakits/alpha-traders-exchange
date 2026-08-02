@@ -6357,6 +6357,15 @@ async function verifyEvmUsdtPayment(input: {
     return { verified: false, reference: input.txHash, notes: `EVM verification not configured for network: ${input.network}` };
   }
   const apiKey = process.env[EVM_API_KEY_ENVS[input.network] ?? ""] ?? "";
+  const networkLabel = input.network === "ERC20" ? "Ethereum" : "Polygon";
+  console.log("[commission-verify] evm-lookup-start", {
+    network: input.network,
+    txHash: input.txHash,
+    recipientWalletAddress: input.recipientWalletAddress,
+    amountDueUsdt: input.amountDueUsdt,
+    hasApiKey: Boolean(apiKey),
+  });
+
   const params = new URLSearchParams({ module: "proxy", action: "eth_getTransactionReceipt", txhash: input.txHash });
   if (apiKey) params.set("apikey", apiKey);
 
@@ -6365,9 +6374,23 @@ async function verifyEvmUsdtPayment(input: {
     signal: AbortSignal.timeout(12_000),
   });
   if (!res.ok) throw new Error(`Explorer API HTTP ${res.status}`);
-  const data = (await res.json()) as { result?: EvmTxReceipt | null; message?: string };
+  const data = (await res.json()) as { result?: EvmTxReceipt | string | null; message?: string; status?: string };
+
+  // Etherscan/Polygonscan return `result` as a plain string on API-level errors
+  // (rate limits, invalid key, network issues). A string result is NOT a failed
+  // transaction — it is a service error. Must be handled before casting to EvmTxReceipt.
+  if (typeof data.result === "string") {
+    console.error("[commission-verify] evm-api-error", {
+      network: input.network,
+      txHash: input.txHash,
+      apiMessage: data.message,
+      apiResult: data.result,
+    });
+    throw new Error(`${networkLabel} explorer API error: ${data.result}`);
+  }
 
   if (!data.result) {
+    // Receipt not yet available — check if the tx exists but is pending
     const txParams = new URLSearchParams({ module: "proxy", action: "eth_getTransactionByHash", txhash: input.txHash });
     if (apiKey) txParams.set("apikey", apiKey);
     const txRes = await fetch(`${baseUrl}?${txParams.toString()}`, {
@@ -6375,24 +6398,38 @@ async function verifyEvmUsdtPayment(input: {
       signal: AbortSignal.timeout(12_000),
     });
     if (!txRes.ok) throw new Error(`Explorer API HTTP ${txRes.status}`);
-    const txData = (await txRes.json()) as { result?: EvmTx | null };
-    if (txData.result) {
+    const txData = (await txRes.json()) as { result?: EvmTx | string | null };
+    if (txData.result && typeof txData.result === "object") {
+      console.log("[commission-verify] evm-pending", { network: input.network, txHash: input.txHash });
       return {
         verified: false,
         reference: input.txHash,
         notes: "Transaction is still pending confirmations on the selected network. Please wait and try again once it is confirmed.",
       };
     }
+    console.log("[commission-verify] evm-not-found", { network: input.network, txHash: input.txHash });
     return {
       verified: false,
       reference: input.txHash,
-      notes: `Transaction was not found on the selected ${input.network === "ERC20" ? "Ethereum" : "Polygon"} network. Please verify the hash and selected network.`,
+      notes: `Transaction was not found on the selected ${networkLabel} network. Please verify the hash and selected network.`,
     };
   }
 
-  const receipt = data.result;
-  if (receipt.status !== "0x1") {
-    return { verified: false, reference: input.txHash, notes: "Transaction failed on chain and cannot be used as commission payment." };
+  const receipt = data.result as EvmTxReceipt;
+  // Normalize status: accept "0x1", "0x01", or decimal "1" / 1 as success.
+  const rawStatus = receipt.status;
+  const statusInt = typeof rawStatus === "string"
+    ? Number.parseInt(rawStatus, 16)
+    : (typeof rawStatus === "number" ? rawStatus : -1);
+  if (statusInt !== 1) {
+    console.log("[commission-verify] evm-tx-failed", {
+      network: input.network, txHash: input.txHash, rawStatus,
+    });
+    return {
+      verified: false,
+      reference: input.txHash,
+      notes: `Transaction was reverted on-chain (status: ${rawStatus ?? "unknown"}) and cannot be used as commission payment. Please check your wallet for a failed transaction and try a new one.`,
+    };
   }
 
   const blockParams = new URLSearchParams({ module: "proxy", action: "eth_blockNumber" });
@@ -6408,6 +6445,9 @@ async function verifyEvmUsdtPayment(input: {
   const minConfirmations = Math.max(1, Number(process.env.ALPHA_EXCHANGE_EVM_MIN_CONFIRMATIONS ?? "3"));
   const confirmations = currentBlock > 0 && receiptBlock > 0 ? (currentBlock - receiptBlock + 1) : 0;
   if (confirmations < minConfirmations) {
+    console.log("[commission-verify] evm-insufficient-confirmations", {
+      network: input.network, txHash: input.txHash, confirmations, minConfirmations,
+    });
     return {
       verified: false,
       reference: input.txHash,
@@ -6431,25 +6471,42 @@ async function verifyEvmUsdtPayment(input: {
   );
 
   if (!transferLog?.data) {
+    console.log("[commission-verify] evm-transfer-not-found", {
+      network: input.network,
+      txHash: input.txHash,
+      recipientWalletAddress: input.recipientWalletAddress,
+      usdtContract,
+      logsCount: receipt.logs?.length ?? 0,
+      hasWrongTokenTransfer: Boolean(wrongTokenLog),
+    });
     return {
       verified: false,
       reference: input.txHash,
       notes: wrongTokenLog
-        ? `This transaction sent tokens to the correct wallet, but not the supported USDT contract on ${input.network === "ERC20" ? "Ethereum" : "Polygon"}.`
+        ? `This transaction sent tokens to the correct wallet, but not the supported USDT contract on ${networkLabel}.`
         : `No USDT transfer to the configured Alpha Traders wallet was found. Please verify the destination wallet and selected network.`,
     };
   }
 
   const usdtReceived = Number(BigInt(transferLog.data)) / 1_000_000;
-  const networkLabel = input.network === "ERC20" ? "Ethereum" : "Polygon";
   if (usdtReceived + 0.000001 < input.amountDueUsdt) {
+    console.log("[commission-verify] evm-insufficient-amount", {
+      network: input.network, txHash: input.txHash,
+      usdtReceived, amountDueUsdt: input.amountDueUsdt,
+    });
     return {
       verified: false,
       reference: input.txHash,
       notes: `Insufficient payment. Received ${usdtReceived.toFixed(2)} USDT on ${networkLabel}, but ${input.amountDueUsdt.toFixed(2)} USDT is required.`,
     };
   }
-  console.log(`[commission-verify] ${networkLabel} USDT received: ${usdtReceived.toFixed(6)} → ${input.recipientWalletAddress}`);
+  console.log("[commission-verify] evm-verified", {
+    network: input.network,
+    txHash: input.txHash,
+    recipientWalletAddress: input.recipientWalletAddress,
+    usdtReceived,
+    confirmations,
+  });
   return { verified: true, reference: input.txHash, notes: `Verified: ${usdtReceived.toFixed(2)} USDT received on ${networkLabel}.` };
 }
 
@@ -6562,52 +6619,66 @@ async function verifyCommissionWalletPayment(input: {
   existingSignatures?: string[];
 }): Promise<CommissionWalletVerificationResult> {
   const txHash = input.paymentSignature.trim();
+  const logCtx = { txHash, network: input.network, amountDue: input.amountDue, payerWallet: input.payerWalletAddress };
+  console.log("[commission-verify] verification-started", logCtx);
 
   // 1. Format check
   if (txHash.length < 24) {
+    console.log("[commission-verify] rejected:hash-too-short", logCtx);
     return { verified: false, reference: txHash, notes: "Transaction hash is too short to be valid." };
   }
   if ((input.network === "ERC20" || input.network === "POLYGON") && !/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
+    console.log("[commission-verify] rejected:invalid-evm-hash-format", logCtx);
     return { verified: false, reference: txHash, notes: "Invalid transaction hash for the selected EVM network. Please paste the full 0x transaction hash." };
   }
   if (input.network === "SOL" && !/^[1-9A-HJ-NP-Za-km-z]{43,88}$/.test(txHash)) {
+    console.log("[commission-verify] rejected:invalid-solana-sig-format", logCtx);
     return { verified: false, reference: txHash, notes: "Invalid Solana transaction signature. Please paste the full transaction signature from your wallet or explorer." };
   }
 
   // 2. Duplicate hash check — prevent re-use of a previously accepted transaction
   if (input.existingSignatures?.includes(txHash)) {
+    console.log("[commission-verify] rejected:duplicate-hash", logCtx);
     return { verified: false, reference: txHash, notes: "This transaction hash has already been used for a previous commission payment." };
   }
 
   // 3. Recipient must be configured
   if (!input.recipientWalletAddress || input.recipientWalletAddress === "AT-COMMISSION-WALLET") {
-    console.error("[commission-verify] Recipient wallet not configured for network:", input.network);
+    console.error("[commission-verify] rejected:recipient-not-configured", logCtx);
     return { verified: false, reference: txHash, notes: "Commission wallet address is not configured for this network. Please contact support." };
   }
 
   // 4. Network-specific on-chain verification
+  let result: CommissionWalletVerificationResult;
   try {
     if (input.network === "ERC20" || input.network === "POLYGON") {
-      return await verifyEvmUsdtPayment({
+      result = await verifyEvmUsdtPayment({
         network: input.network,
         recipientWalletAddress: input.recipientWalletAddress,
         txHash,
         amountDueUsdt: input.amountDue,
       });
-    }
-    if (input.network === "SOL") {
-      return await verifySolanaUsdtPayment({
+    } else if (input.network === "SOL") {
+      result = await verifySolanaUsdtPayment({
         recipientWalletAddress: input.recipientWalletAddress,
         txHash,
         amountDueUsdt: input.amountDue,
       });
+    } else {
+      console.log("[commission-verify] rejected:unsupported-network", logCtx);
+      result = { verified: false, reference: txHash, notes: `Network '${input.network}' is not supported. Accepted: ERC20, POLYGON, SOL.` };
     }
-    return { verified: false, reference: txHash, notes: `Network '${input.network}' is not supported. Accepted: ERC20, POLYGON, SOL.` };
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error("[commission-verify] Blockchain verification error:", msg);
+    console.error("[commission-verify] blockchain-service-error", { ...logCtx, error: msg });
     return { verified: false, reference: txHash, notes: "Blockchain verification service temporarily unavailable. Please try again in a few minutes." };
   }
+  console.log("[commission-verify] verification-complete", {
+    ...logCtx,
+    verified: result.verified,
+    notes: result.notes,
+  });
+  return result;
 }
 
 export async function submitSellerCommissionWalletPayment(input: {
@@ -6683,8 +6754,8 @@ export async function submitSellerCommissionWalletPayment(input: {
     listingId: current.listingId,
     purchaseRequestId: current.purchaseRequestId,
     details: verification.verified
-      ? `Seller settled commission ${current.id} via ${chosenNetwork}.`
-      : `Seller submitted commission payment proof for ${current.id}, verification failed.`,
+      ? `Commission ${current.id} verified via ${chosenNetwork}. Amount: ${amountDueUsdt.toFixed(2)} USDT. Tx: ${input.paymentSignature.trim()}.`
+      : `Commission ${current.id} payment rejected via ${chosenNetwork}. Tx: ${input.paymentSignature.trim()}. Reason: ${verification.notes}`,
   });
 
   if (verification.verified) {
