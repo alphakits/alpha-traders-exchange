@@ -6543,6 +6543,34 @@ async function verifyEvmUsdtPayment(input: {
         return { verified: false, reference: input.txHash, notes: "Transaction is still pending confirmations on the selected network. Please wait and try again once it is confirmed." };
       }
       if (typeof txData.result === "string") throw new Error(`${networkLabel} explorer API error: ${txData.result}`);
+      // Before giving up, probe the OTHER supported EVM network — common mistake is selecting
+      // the wrong network (e.g. paid on Polygon but selected Ethereum).
+      const otherNetwork = input.network === "ERC20" ? "POLYGON" : "ERC20";
+      const otherChainId = EVM_CHAIN_IDS[otherNetwork];
+      const otherNetworkLabel = otherNetwork === "ERC20" ? "Ethereum" : "Polygon";
+      if (otherChainId) {
+        try {
+          const probeParams = new URLSearchParams({ chainid: otherChainId, module: "proxy", action: "eth_getTransactionByHash", txhash: input.txHash });
+          if (apiKey) probeParams.set("apikey", apiKey);
+          const probeRes = await fetch(`${EVM_EXPLORER_V2_URL}?${probeParams.toString()}`, {
+            headers: { Accept: "application/json" },
+            signal: AbortSignal.timeout(8_000),
+          });
+          if (probeRes.ok) {
+            const probeData = (await probeRes.json()) as { result?: EvmTx | string | null };
+            if (probeData.result && typeof probeData.result === "object") {
+              console.log("[commission-verify] evm-wrong-network", { selected: input.network, actual: otherNetwork, txHash: input.txHash });
+              return {
+                verified: false,
+                reference: input.txHash,
+                notes: `This transaction was found on ${otherNetworkLabel}, not ${networkLabel}. Please go back and select "${otherNetworkLabel}" as your payment network, then try again.`,
+              };
+            }
+          }
+        } catch {
+          // cross-network probe failed — fall through to generic not-found
+        }
+      }
       console.log("[commission-verify] evm-not-found", { network: input.network, txHash: input.txHash });
       return { verified: false, reference: input.txHash, notes: `Transaction was not found on the selected ${networkLabel} network. Please verify the hash and selected network.` };
     }
