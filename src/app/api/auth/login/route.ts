@@ -61,6 +61,7 @@ function setPhoneVerificationCookie(
 }
 
 export async function POST(request: NextRequest) {
+  const routeStartedAt = Date.now();
   const secureCookies = shouldUseSecureAuthCookie(request);
   const cookieStore = await cookies();
   const rate = checkRateLimit({
@@ -84,18 +85,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid email format." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
 
+    const localAuthStartedAt = Date.now();
     const localUser = await authenticateLocalUser(email, password);
+    const localAuthMs = Date.now() - localAuthStartedAt;
     if (localUser) {
       console.log("[auth/login] upserting local user profile", email);
+      const upsertStartedAt = Date.now();
       const user = await upsertUserProfileForAuth({
         fullName: localUser.fullName,
         email: localUser.email,
         whatsappNumber: localUser.whatsappNumber,
         emailVerified: true,
       });
+      const upsertMs = Date.now() - upsertStartedAt;
       console.log("[auth/login] creating user session", user.id);
 
+      const sessionStartedAt = Date.now();
       const { token, expiresAt } = await createUserSession(user.id, rememberMe ? 14 : 1);
+      const sessionMs = Date.now() - sessionStartedAt;
       cookieStore.set(AUTH_COOKIE_NAME, token, {
         httpOnly: true,
         secure: secureCookies,
@@ -117,6 +124,8 @@ export async function POST(request: NextRequest) {
         expiresAt,
         process.env.ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION === "1" || isVerified(user),
       );
+      const routeMs = Date.now() - routeStartedAt;
+      const dbMs = localAuthMs + upsertMs + sessionMs;
       return NextResponse.json({
         user: {
           id: user.id,
@@ -128,11 +137,23 @@ export async function POST(request: NextRequest) {
           onboardingSelection: user.onboardingSelection,
           onboardingCompletedAt: user.onboardingCompletedAt,
         },
-      }, { headers: AUTH_RESPONSE_HEADERS });
+      }, {
+        headers: {
+          ...AUTH_RESPONSE_HEADERS,
+          "X-Auth-Route-Ms": String(routeMs),
+          "X-Auth-Db-Ms": String(dbMs),
+          "X-Auth-Local-Auth-Ms": String(localAuthMs),
+          "X-Auth-Upsert-Ms": String(upsertMs),
+          "X-Auth-Session-Ms": String(sessionMs),
+          "Server-Timing": `route;dur=${routeMs}, db;dur=${dbMs}, localAuth;dur=${localAuthMs}, upsert;dur=${upsertMs}, session;dur=${sessionMs}`,
+        },
+      });
     }
 
     const supabase = createSupabaseAuthClient();
+    const supabaseAuthStartedAt = Date.now();
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const supabaseAuthMs = Date.now() - supabaseAuthStartedAt;
     if (error) {
       clearAuthCookies(cookieStore, secureCookies);
       if (error.message.toLowerCase().includes("email not confirmed")) {
@@ -162,15 +183,19 @@ export async function POST(request: NextRequest) {
       );
     }
     console.log("[auth/login] upserting supabase user profile", supabaseUser.email);
+    const upsertStartedAt = Date.now();
     const user = await upsertUserProfileForAuth({
       fullName: String(supabaseUser.user_metadata?.full_name ?? supabaseUser.email.split("@")[0]),
       email: supabaseUser.email,
       whatsappNumber: String(supabaseUser.user_metadata?.whatsapp_number ?? ""),
       emailVerified: true,
     });
+    const upsertMs = Date.now() - upsertStartedAt;
     console.log("[auth/login] creating user session for supabase user", user.id);
 
+    const sessionStartedAt = Date.now();
     const { token, expiresAt } = await createUserSession(user.id, rememberMe ? 14 : 1);
+    const sessionMs = Date.now() - sessionStartedAt;
     cookieStore.set(AUTH_COOKIE_NAME, token, {
       httpOnly: true,
       secure: secureCookies,
@@ -192,6 +217,8 @@ export async function POST(request: NextRequest) {
       expiresAt,
       process.env.ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION === "1" || isVerified(user),
     );
+    const routeMs = Date.now() - routeStartedAt;
+    const dbMs = upsertMs + sessionMs;
     return NextResponse.json({
       user: {
         id: user.id,
@@ -203,7 +230,17 @@ export async function POST(request: NextRequest) {
         onboardingSelection: user.onboardingSelection,
         onboardingCompletedAt: user.onboardingCompletedAt,
       },
-    }, { headers: AUTH_RESPONSE_HEADERS });
+    }, {
+      headers: {
+        ...AUTH_RESPONSE_HEADERS,
+        "X-Auth-Route-Ms": String(routeMs),
+        "X-Auth-Db-Ms": String(dbMs),
+        "X-Auth-Supabase-Ms": String(supabaseAuthMs),
+        "X-Auth-Upsert-Ms": String(upsertMs),
+        "X-Auth-Session-Ms": String(sessionMs),
+        "Server-Timing": `route;dur=${routeMs}, db;dur=${dbMs}, supabase;dur=${supabaseAuthMs}, upsert;dur=${upsertMs}, session;dur=${sessionMs}`,
+      },
+    });
   } catch (error) {
     console.error("[auth/login] unexpected error", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Login failed." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });

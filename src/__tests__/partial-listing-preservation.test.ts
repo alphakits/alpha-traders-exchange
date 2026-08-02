@@ -309,7 +309,7 @@ describe("partial listing preservation", () => {
     });
   });
 
-  it("persists up to two seller payment methods and supported banks on a listing", async () => {
+  it("persists all three seller payment methods and up to two supported banks on a listing", async () => {
     const listing = await createMarketplaceListing({
       sellerId: SELLER_ID,
       sellerDisplayName: "Seller One",
@@ -317,7 +317,7 @@ describe("partial listing preservation", () => {
       price: "3.20",
       currency: "ILS",
       network: "TRC20",
-      paymentMethods: ["Bank Transfer", "Cardless ATM Withdrawal"],
+      paymentMethods: ["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"],
       bankName: "Bank Hapoalim, Bank Leumi",
       minimumTrade: "50",
       maximumTrade: "1000",
@@ -326,7 +326,7 @@ describe("partial listing preservation", () => {
       actorUserId: SELLER_ID,
     });
 
-    expect(listing.paymentMethods).toEqual(["Bank Transfer", "Cardless ATM Withdrawal"]);
+    expect(listing.paymentMethods).toEqual(["Bank Transfer", "Cardless ATM Withdrawal", "Face-to-Face (Meet in Person)"]);
     expect(listing.bankName).toBe("Bank Hapoalim, Bank Leumi");
   });
 

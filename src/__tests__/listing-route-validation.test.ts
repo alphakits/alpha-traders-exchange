@@ -109,7 +109,7 @@ describe("alpha-exchange listing route validation", () => {
     expect(mocks.updateMarketplaceListingForSeller).not.toHaveBeenCalled();
   });
 
-  it("rejects listings with more than two payment methods", async () => {
+  it("accepts all three supported payment methods on a listing", async () => {
     mocks.getMarketplaceListingById.mockResolvedValue({
       id: "listing-1",
       price: "3.10",
@@ -124,15 +124,19 @@ describe("alpha-exchange listing route validation", () => {
 
     const request = new NextRequest("http://localhost/api/alpha-exchange/listings/listing-1", {
       method: "PATCH",
-      body: JSON.stringify({ paymentMethods: ["Bank Transfer", "Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"] }),
+      body: JSON.stringify({
+        paymentMethods: ["Bank Transfer", "Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"],
+        bankName: "Bank Hapoalim, Bank Leumi",
+      }),
       headers: { "Content-Type": "application/json" },
     });
     const response = await PATCH(request, { params: Promise.resolve({ listingId: "listing-1" }) });
-    const payload = await response.json() as { error?: string };
 
-    expect(response.status).toBe(400);
-    expect(payload.error).toBe("Select no more than 2 payment methods per listing.");
-    expect(mocks.updateMarketplaceListingForSeller).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mocks.updateMarketplaceListingForSeller).toHaveBeenCalledWith(expect.objectContaining({
+      paymentMethods: ["Bank Transfer", "Face-to-Face (Meet in Person)", "Cardless ATM Withdrawal"],
+      bankName: "Bank Hapoalim, Bank Leumi",
+    }));
   });
 
   it("requires supported banks when cardless ATM is enabled", async () => {

@@ -153,28 +153,35 @@ function normalizeDecimalInput(value: string | number | null | undefined) {
 }
 
 function renderBankLogo(bank: (typeof ISRAELI_BANKS)[number]) {
-  if (bank.id === "hapoalim") {
-    return <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill={bank.brandPrimary} /><path d="M8 16h16M16 8v16" stroke="white" strokeWidth="3" strokeLinecap="round" /></svg>;
-  }
-  if (bank.id === "leumi") {
-    return <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill={bank.brandPrimary} /><path d="M16 7l3.4 5.8L26 14.3l-4.6 4.6.9 6.5-6.3-3.2-6.3 3.2.9-6.5L6 14.3l6.6-1.5z" fill="white" /></svg>;
-  }
-  if (bank.id === "mizrahi-tefahot") {
-    return <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill={bank.brandPrimary} /><path d="M7 23L16 7l9 16h-4l-5-9-5 9z" fill="white" /></svg>;
-  }
-  if (bank.id === "discount") {
-    return <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill={bank.brandPrimary} /><circle cx="16" cy="16" r="7.5" fill="none" stroke="white" strokeWidth="3" /><path d="M16 9.5a6.5 6.5 0 100 13" fill="none" stroke={bank.accent} strokeWidth="3" strokeLinecap="round" /></svg>;
-  }
-  if (bank.id === "fibi") {
-    return <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill={bank.brandPrimary} /><path d="M8 10h16v3H8zm0 5h12v3H8zm0 5h16v3H8z" fill="white" /></svg>;
-  }
-  if (bank.id === "mercantile") {
-    return <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill={bank.brandPrimary} /><path d="M7 23V9h3l6 7 6-7h3v14h-3v-9l-6 6-6-6v9z" fill="white" /></svg>;
-  }
-  if (bank.id === "yahav") {
-    return <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill={bank.brandPrimary} /><path d="M9 9h4l3 5 3-5h4l-5 8v6h-4v-6z" fill="white" /></svg>;
-  }
-  return <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill={bank.brandPrimary} /><path d="M9 24V8h9a5 5 0 010 10H13v6zm4-9h4a2 2 0 000-4h-4z" fill="white" /></svg>;
+  const wordmark = (() => {
+    if (bank.id === "hapoalim") return { top: "POALIM", bottom: "BANK" };
+    if (bank.id === "leumi") return { top: "LEUMI", bottom: "BANK" };
+    if (bank.id === "mizrahi-tefahot") return { top: "MIZRAHI", bottom: "TEFAHOT" };
+    if (bank.id === "discount") return { top: "DISCOUNT", bottom: "BANK" };
+    if (bank.id === "fibi") return { top: "FIBI", bottom: "FIRST INTL" };
+    if (bank.id === "mercantile") return { top: "MERC", bottom: "BANK" };
+    if (bank.id === "yahav") return { top: "YAHAV", bottom: "BANK" };
+    return { top: "JERUSALEM", bottom: "BANK" };
+  })();
+
+  return (
+    <svg viewBox="0 0 56 56" className="h-8 w-8" aria-hidden="true">
+      <defs>
+        <linearGradient id={`bank-grad-${bank.id}`} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor={bank.brandPrimary} />
+          <stop offset="100%" stopColor={bank.brandSecondary} />
+        </linearGradient>
+      </defs>
+      <rect x="2" y="2" width="52" height="52" rx="14" fill={`url(#bank-grad-${bank.id})`} />
+      <rect x="7" y="8" width="4" height="40" rx="2" fill={bank.accent} opacity="0.95" />
+      <text x="16" y="24" fill="white" fontSize="9" fontWeight="700" fontFamily="Arial, sans-serif" letterSpacing="0.4">
+        {wordmark.top}
+      </text>
+      <text x="16" y="36" fill={bank.accent} fontSize="7" fontWeight="700" fontFamily="Arial, sans-serif" letterSpacing="0.3">
+        {wordmark.bottom}
+      </text>
+    </svg>
+  );
 }
 
 function shortListingRef(listing: Pick<MarketplaceListing, "displayNumber" | "id">) {

@@ -5,7 +5,7 @@ export const MARKETPLACE_PAYMENT_METHODS = [
 ] as const;
 
 export type MarketplacePaymentMethod = (typeof MARKETPLACE_PAYMENT_METHODS)[number];
-export const MAX_LISTING_PAYMENT_METHODS = 2;
+export const MAX_LISTING_PAYMENT_METHODS = 3;
 
 function normalizeToken(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
