@@ -9,15 +9,16 @@ type RouteContext = {
 
 export async function POST(request: NextRequest, context: RouteContext) {
   const routeStartedAt = Date.now();
-  console.info("[review-submit-diag][api] request-received", { ts: new Date(routeStartedAt).toISOString() });
+  const diagnosticId = request.headers.get("X-Review-Diagnostic-Id")?.trim() || null;
+  console.info("[review-submit-diag][api] request-received", { ts: new Date(routeStartedAt).toISOString(), diagnosticId });
   const { user, unauthorized } = await requireApiUser();
   if (!user) {
-    console.info("[review-submit-diag][api] request-unauthorized");
+    console.info("[review-submit-diag][api] request-unauthorized", { diagnosticId });
     return unauthorized;
   }
   const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
   if (phoneVerificationRequired) {
-    console.info("[review-submit-diag][api] request-blocked-phone-verification", { userId: user.id });
+    console.info("[review-submit-diag][api] request-blocked-phone-verification", { userId: user.id, diagnosticId });
     return phoneVerificationRequired;
   }
   const rate = checkRateLimit({
@@ -27,33 +28,33 @@ export async function POST(request: NextRequest, context: RouteContext) {
     windowMs: 60_000,
   });
   if (!rate.allowed) {
-    console.info("[review-submit-diag][api] request-rate-limited", { userId: user.id });
+    console.info("[review-submit-diag][api] request-rate-limited", { userId: user.id, diagnosticId });
     return NextResponse.json({ error: "Too many review actions. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
   }
 
   try {
     const { requestId } = await context.params;
     const validationStartedAt = Date.now();
-    console.info("[review-submit-diag][api] validation-started", { requestId, userId: user.id });
+    console.info("[review-submit-diag][api] validation-started", { requestId, userId: user.id, diagnosticId });
     const body = await request.json();
     const mode = String(body.mode ?? "buyer_review").trim();
-    console.info("[review-submit-diag][api] mode-read", { requestId, userId: user.id, mode });
+    console.info("[review-submit-diag][api] mode-read", { requestId, userId: user.id, mode, diagnosticId });
 
     if (mode === "buyer_review") {
       const rating = Number(body.rating ?? 0);
       if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-        console.info("[review-submit-diag][api] validation-failed", { requestId, userId: user.id, reason: "invalid-rating", rating });
+        console.info("[review-submit-diag][api] validation-failed", { requestId, userId: user.id, reason: "invalid-rating", rating, diagnosticId });
         return NextResponse.json({ error: "Rating must be a whole number between 1 and 5." }, { status: 400 });
       }
       const comment = String(body.comment ?? "").slice(0, 2000);
       if (!comment.trim()) {
-        console.info("[review-submit-diag][api] validation-failed", { requestId, userId: user.id, reason: "empty-comment" });
+        console.info("[review-submit-diag][api] validation-failed", { requestId, userId: user.id, reason: "empty-comment", diagnosticId });
       } else {
-        console.info("[review-submit-diag][api] validation-passed", { requestId, userId: user.id, rating, commentLength: comment.trim().length });
+        console.info("[review-submit-diag][api] validation-passed", { requestId, userId: user.id, rating, commentLength: comment.trim().length, diagnosticId });
       }
       const validationMs = Date.now() - validationStartedAt;
       const logicStartedAt = Date.now();
-      console.info("[review-submit-diag][api] submit-handler-started", { requestId, userId: user.id });
+      console.info("[review-submit-diag][api] submit-handler-started", { requestId, userId: user.id, diagnosticId });
       const updated = await submitBuyerTradeReview({
         requestId,
         buyerUserId: user.id,
@@ -62,12 +63,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
       });
       const logicMs = Date.now() - logicStartedAt;
       const routeMs = Date.now() - routeStartedAt;
-      console.info("[review-submit-diag][api] success-handler-executed", { requestId, userId: user.id, status: 200, routeMs, logicMs });
+      console.info("[review-submit-diag][api] success-handler-executed", { requestId, userId: user.id, status: 200, routeMs, logicMs, diagnosticId });
       return NextResponse.json(updated, {
         headers: {
           "X-Trade-Route-Ms": String(routeMs),
           "X-Trade-Validation-Ms": String(validationMs),
           "X-Trade-Logic-Ms": String(logicMs),
+          ...(diagnosticId ? { "X-Review-Diagnostic-Id": diagnosticId } : {}),
           "Server-Timing": `route;dur=${routeMs}, validate;dur=${validationMs}, logic;dur=${logicMs}`,
         },
       });
@@ -75,10 +77,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     if (mode === "seller_response") {
       const message = String(body.message ?? "").slice(0, 2000);
-      console.info("[review-submit-diag][api] validation-passed", { requestId, userId: user.id, mode, messageLength: message.trim().length });
+      console.info("[review-submit-diag][api] validation-passed", { requestId, userId: user.id, mode, messageLength: message.trim().length, diagnosticId });
       const validationMs = Date.now() - validationStartedAt;
       const logicStartedAt = Date.now();
-      console.info("[review-submit-diag][api] submit-handler-started", { requestId, userId: user.id, mode });
+      console.info("[review-submit-diag][api] submit-handler-started", { requestId, userId: user.id, mode, diagnosticId });
       const updated = await submitSellerReviewResponse({
         requestId,
         sellerUserId: user.id,
@@ -86,21 +88,22 @@ export async function POST(request: NextRequest, context: RouteContext) {
       });
       const logicMs = Date.now() - logicStartedAt;
       const routeMs = Date.now() - routeStartedAt;
-      console.info("[review-submit-diag][api] success-handler-executed", { requestId, userId: user.id, mode, status: 200, routeMs, logicMs });
+      console.info("[review-submit-diag][api] success-handler-executed", { requestId, userId: user.id, mode, status: 200, routeMs, logicMs, diagnosticId });
       return NextResponse.json({ request: updated }, {
         headers: {
           "X-Trade-Route-Ms": String(routeMs),
           "X-Trade-Validation-Ms": String(validationMs),
           "X-Trade-Logic-Ms": String(logicMs),
+          ...(diagnosticId ? { "X-Review-Diagnostic-Id": diagnosticId } : {}),
           "Server-Timing": `route;dur=${routeMs}, validate;dur=${validationMs}, logic;dur=${logicMs}`,
         },
       });
     }
 
-    console.info("[review-submit-diag][api] validation-failed", { requestId, userId: user.id, reason: "invalid-mode", mode });
+    console.info("[review-submit-diag][api] validation-failed", { requestId, userId: user.id, reason: "invalid-mode", mode, diagnosticId });
     return NextResponse.json({ error: "Invalid review mode." }, { status: 400 });
   } catch (error) {
-    console.error("[review-submit-diag][api] error-handler-executed", { error: error instanceof Error ? error.message : "unknown-error" });
+    console.error("[review-submit-diag][api] error-handler-executed", { error: error instanceof Error ? error.message : "unknown-error", diagnosticId });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to submit review." }, { status: 400 });
   }
 }

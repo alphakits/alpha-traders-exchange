@@ -1315,16 +1315,25 @@ export function TradeRoomPage({
     setReviewBusy(true);
     setStatusMessage(isAr ? "جاري إرسال التقييم..." : "Submitting rating...");
     try {
-      logReviewDiagnostic("api-request-started", { endpoint: `/api/alpha-exchange/purchase-requests/${currentRequest.id}/review` });
-      const response = await fetch(`/api/alpha-exchange/purchase-requests/${currentRequest.id}/review`, {
+      const requestUrl = `/api/alpha-exchange/purchase-requests/${currentRequest.id}/review`;
+      const diagnosticId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      logReviewDiagnostic("api-request-started", { endpoint: requestUrl, diagnosticId });
+      const requestPromise = fetch(requestUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Review-Diagnostic-Id": diagnosticId,
+        },
         body: JSON.stringify({
           mode: "buyer_review",
           rating: reviewRating,
           comment: trimmedComment,
         }),
       });
+      logReviewDiagnostic("api-request-dispatched", { endpoint: requestUrl, diagnosticId });
+      const response = await requestPromise;
       logReviewDiagnostic("api-response-received", { status: response.status, ok: response.ok });
       const payload = (await response.json()) as {
         error?: string;
