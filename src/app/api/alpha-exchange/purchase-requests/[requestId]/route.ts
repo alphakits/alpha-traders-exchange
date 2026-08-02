@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
+import { TradeBlockedError, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 
@@ -109,22 +109,32 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   } catch (error) {
     const debug = process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
     const { requestId } = await context.params;
+    const tradeError = error instanceof TradeBlockedError ? error : null;
     const message = error instanceof Error ? error.message : "Failed to update request.";
+    const rejection = {
+      error: message,
+      code: tradeError?.code ?? "trade-status-update-failed",
+      requestId: tradeError?.purchaseRequestId ?? requestId,
+      details: tradeError?.details,
+    };
+    const responseStatus = tradeError ? 409 : 400;
     console.error("[trade-room-action] mutation failed", {
       requestId,
       actorUserId: user.id,
       actorRole: user.role,
       message,
+      code: tradeError?.code,
+      details: tradeError?.details,
       stack: error instanceof Error ? error.stack : undefined,
     });
     if (debug) {
       console.log("[trade-room-action] response", {
         requestId,
         actorUserId: user.id,
-        responseStatus: 400,
-        responseBody: { error: message },
+        responseStatus,
+        responseBody: rejection,
       });
     }
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json(rejection, { status: responseStatus });
   }
 }

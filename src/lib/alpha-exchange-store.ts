@@ -173,14 +173,16 @@ let dbCache: { value: AlphaExchangeDb; updatedAt: number } | null = null;
 let dbReadInFlight: Promise<AlphaExchangeDb> | null = null;
 let dbWriteInFlight: Promise<void> = Promise.resolve();
 
-class TradeBlockedError extends Error {
+export class TradeBlockedError extends Error {
   readonly code: string;
   readonly purchaseRequestId?: string;
-  constructor(code: string, message: string, purchaseRequestId?: string) {
+  readonly details?: Record<string, unknown>;
+  constructor(code: string, message: string, purchaseRequestId?: string, details?: Record<string, unknown>) {
     super(message);
     this.name = "TradeBlockedError";
     this.code = code;
     this.purchaseRequestId = purchaseRequestId;
+    this.details = details;
   }
 }
 
@@ -5638,7 +5640,12 @@ export async function updatePurchaseRequestStatus(input: {
   let chatMs = 0;
   let notificationMs = 0;
   const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.requestId);
-  if (requestIndex === -1) throw new Error("Purchase request not found.");
+  if (requestIndex === -1) {
+    throw new TradeBlockedError("purchase-request-not-found", "Purchase request not found.", input.requestId, {
+      guard: "request-exists",
+      nextStatus: input.nextStatus,
+    });
+  }
   const request = db.purchaseRequests[requestIndex];
   const stateBefore = request.status;
   console.log("[trade-consistency] mutation db-read", {
@@ -5654,14 +5661,28 @@ export async function updatePurchaseRequestStatus(input: {
   const isAdmin = input.actorRole === "admin" || input.actorRole === "owner";
 
   if (!isSeller && !isBuyer && !isAdmin) {
-    throw new Error("You are not allowed to update this request.");
+    throw new TradeBlockedError("actor-not-allowed", "You are not allowed to update this request.", request.id, {
+      guard: "actor-membership",
+      nextStatus: input.nextStatus,
+      actorUserId: input.actorUserId,
+      sellerId: request.sellerId,
+      buyerId: request.buyerId,
+    });
   }
 
   if (isSeller && !["accepted", "declined", "funds_received", "usdt_release_pending", "usdt_sent"].includes(input.nextStatus)) {
-    throw new Error("Seller can only set accepted, declined, funds_received, usdt_release_pending, or usdt_sent.");
+    throw new TradeBlockedError("seller-transition-not-allowed", "Seller can only set accepted, declined, funds_received, usdt_release_pending, or usdt_sent.", request.id, {
+      guard: "seller-next-status-allowlist",
+      nextStatus: input.nextStatus,
+      actorUserId: input.actorUserId,
+    });
   }
   if (isBuyer && !["cancelled", "payment_sent", "completed"].includes(input.nextStatus)) {
-    throw new Error("Buyer can only set cancelled, payment_sent, or completed.");
+    throw new TradeBlockedError("buyer-transition-not-allowed", "Buyer can only set cancelled, payment_sent, or completed.", request.id, {
+      guard: "buyer-next-status-allowlist",
+      nextStatus: input.nextStatus,
+      actorUserId: input.actorUserId,
+    });
   }
 
   const currentStatus = request.status;
@@ -5683,8 +5704,23 @@ export async function updatePurchaseRequestStatus(input: {
     declined: [],
     cancelled: [],
   };
+  if (input.nextStatus === "completed" && currentStatus !== "usdt_sent") {
+    throw new TradeBlockedError("confirmation-prerequisite-missing", "Buyer confirmation requires seller release (status usdt_sent) before completion.", request.id, {
+      guard: "completed-requires-usdt-sent",
+      currentStatus,
+      expectedStatus: "usdt_sent",
+      nextStatus: input.nextStatus,
+      actorUserId: input.actorUserId,
+    });
+  }
   if (!allowedByStatus[currentStatus].includes(input.nextStatus)) {
-    throw new Error(`Invalid status transition from ${currentStatus} to ${input.nextStatus}.`);
+    throw new TradeBlockedError("invalid-status-transition", `Invalid status transition from ${currentStatus} to ${input.nextStatus}.`, request.id, {
+      guard: "allowed-by-status",
+      currentStatus,
+      nextStatus: input.nextStatus,
+      allowedNextStatuses: allowedByStatus[currentStatus],
+      actorUserId: input.actorUserId,
+    });
   }
 
   const actorRole = resolveActorRole(db, input.actorUserId);
