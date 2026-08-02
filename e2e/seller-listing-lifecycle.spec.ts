@@ -21,11 +21,15 @@ async function readRuntimeDb(request: APIRequestContext) {
 }
 
 async function writeRuntimeDb(request: APIRequestContext, db: Record<string, unknown>) {
-  const response = await request.put("/api/testing/alpha-exchange-state", {
-    headers: TEST_SUPPORT_HEADERS,
-    data: db as AlphaExchangeDb,
-  });
-  expect(response.ok()).toBeTruthy();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const response = await request.put("/api/testing/alpha-exchange-state", {
+      headers: TEST_SUPPORT_HEADERS,
+      data: db as AlphaExchangeDb,
+    });
+    if (response.ok()) return;
+    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+  throw new Error("writeRuntimeDb: PUT /api/testing/alpha-exchange-state failed after 3 attempts");
 }
 
 async function updateRuntimeDb(request: APIRequestContext, mutator: (db: Record<string, unknown>) => void) {
@@ -162,6 +166,17 @@ async function resetLifecycleFixtures() {
   );
   db.auditLogs = (Array.isArray(db.auditLogs) ? (db.auditLogs as Array<Record<string, unknown>>) : []).filter(
     (entry) => !relatedRequestIds.has(String(entry.purchaseRequestId ?? "")) && !relatedListingIds.has(String(entry.listingId ?? "")),
+  );
+  // Prune accumulated sessions and trust records for test users so the snapshot
+  // stays small between lifecycle test runs (prevents body-size failures).
+  db.authSessions = (Array.isArray(db.authSessions) ? (db.authSessions as Array<Record<string, unknown>>) : []).filter(
+    (session) => !relatedUserIds.has(String(session.userId ?? "")),
+  );
+  db.trustSnapshots = (Array.isArray(db.trustSnapshots) ? (db.trustSnapshots as Array<Record<string, unknown>>) : []).filter(
+    (snap) => !relatedUserIds.has(String(snap.sellerId ?? "")),
+  );
+  db.trustScoreHistory = (Array.isArray(db.trustScoreHistory) ? (db.trustScoreHistory as Array<Record<string, unknown>>) : []).filter(
+    (entry) => !relatedUserIds.has(String(entry.sellerId ?? "")),
   );
   db.users = users.map((user) => {
     if (String(user.id) !== sellerId && String(user.id) !== buyerId) return user;

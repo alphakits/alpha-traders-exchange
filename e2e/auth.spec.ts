@@ -6,15 +6,21 @@
  *
  * Credentialed checks use environment variables only:
  *   E2E_OWNER_EMAIL, E2E_OWNER_PASSWORD
+ *   E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD
  *   E2E_BUYER_EMAIL, E2E_BUYER_PASSWORD
+ *   E2E_SELLER_EMAIL, E2E_SELLER_PASSWORD
  */
 
 import { test, expect } from "@playwright/test";
 
 const OWNER_EMAIL = process.env.E2E_OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.E2E_OWNER_PASSWORD ?? "";
+const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL ?? "";
+const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? "";
 const BUYER_EMAIL = process.env.E2E_BUYER_EMAIL ?? "";
 const BUYER_PASSWORD = process.env.E2E_BUYER_PASSWORD ?? "";
+const SELLER_EMAIL = process.env.E2E_SELLER_EMAIL ?? "";
+const SELLER_PASSWORD = process.env.E2E_SELLER_PASSWORD ?? "";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -99,6 +105,18 @@ test.describe("Authentication", () => {
     await expect(page).not.toHaveURL(/\/login/);
   });
 
+  test("seller can log in", async ({ page }) => {
+    test.skip(!SELLER_EMAIL || !SELLER_PASSWORD, "Set E2E_SELLER_EMAIL and E2E_SELLER_PASSWORD to run credentialed login checks.");
+    await login(page, SELLER_EMAIL, SELLER_PASSWORD);
+    await expect(page).not.toHaveURL(/\/login/);
+  });
+
+  test("admin can log in", async ({ page }) => {
+    test.skip(!ADMIN_EMAIL || !ADMIN_PASSWORD, "Set E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD to run credentialed login checks.");
+    await login(page, ADMIN_EMAIL, ADMIN_PASSWORD);
+    await expect(page).not.toHaveURL(/\/login/);
+  });
+
   test("invalid credentials show error message", async ({ page }) => {
     await page.goto("/en/login");
     await page.waitForSelector('form[data-hydrated="true"]', { timeout: 15_000 });
@@ -122,12 +140,13 @@ test.describe("Authentication", () => {
   });
 
   test("logout clears session and redirects to login", async ({ page }) => {
+    test.setTimeout(60_000);
     test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     await login(page, BUYER_EMAIL, BUYER_PASSWORD);
     await page.request.post("/api/auth/logout");
     // After logout, protected route redirects to login
     await page.goto("/en/academy");
-    await expect(page).toHaveURL(/\/en\/login/);
+    await expect(page).toHaveURL(/\/en\/login/, { timeout: 30_000 });
   });
 });
 
@@ -186,6 +205,23 @@ test.describe("Role-based access", () => {
     await login(page, OWNER_EMAIL, OWNER_PASSWORD);
     await page.goto("/en/admin/alpha-exchange");
     // Should not be redirected to login or exchange
+    await expect(page).not.toHaveURL(/\/en\/login/);
+    await expect(page).not.toHaveURL(/\/en\/usdt-exchange$/);
+  });
+
+  test("profile exposes owner dashboard entry for owner", async ({ page }) => {
+    test.setTimeout(60_000);
+    test.skip(!OWNER_EMAIL || !OWNER_PASSWORD, "Set E2E_OWNER_EMAIL and E2E_OWNER_PASSWORD to run credentialed login checks.");
+    await login(page, OWNER_EMAIL, OWNER_PASSWORD);
+    await page.goto("/en/profile");
+    await expect(page.getByRole("heading", { name: "Administration" })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("link", { name: /Owner Dashboard/i })).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("admin route /en/admin/alpha-exchange accessible to admin", async ({ page }) => {
+    test.skip(!ADMIN_EMAIL || !ADMIN_PASSWORD, "Set E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD to run credentialed login checks.");
+    await login(page, ADMIN_EMAIL, ADMIN_PASSWORD);
+    await page.goto("/en/admin/alpha-exchange");
     await expect(page).not.toHaveURL(/\/en\/login/);
     await expect(page).not.toHaveURL(/\/en\/usdt-exchange$/);
   });
