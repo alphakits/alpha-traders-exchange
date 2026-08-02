@@ -1268,13 +1268,15 @@ export function TradeRoomPage({
       return;
     }
     if (reviewSubmitInFlightRef.current) {
+      setStatusMessage(isAr ? "جاري إرسال التقييم بالفعل..." : "Review submission is already in progress...");
       return;
     }
 
     reviewSubmitInFlightRef.current = true;
     setReviewBusy(true);
-    setStatusMessage(null);
+    setStatusMessage(isAr ? "جاري إرسال التقييم..." : "Submitting rating...");
     try {
+      console.info("[trade-room-review] submit-start", { requestId: currentRequest.id, rating: reviewRating });
       const response = await fetch(`/api/alpha-exchange/purchase-requests/${currentRequest.id}/review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1299,6 +1301,7 @@ export function TradeRoomPage({
       if (!response.ok) {
         throw new Error(readApiErrorFallback(payload, isAr ? "تعذر إرسال التقييم." : "Failed to submit review."));
       }
+      console.info("[trade-room-review] submit-success", { requestId: currentRequest.id });
       setReviewComment("");
       setReviewDeferred(false);
       if (payload.sellerProgress?.promoted) {
@@ -1315,12 +1318,18 @@ export function TradeRoomPage({
       await fetchRoom(true);
       startBuyerCompletionSuccessFlow(currentRequest.id);
     } catch (error) {
+      console.error("[trade-room-review] submit-failed", { requestId: currentRequest.id, error });
       setStatusMessage(error instanceof Error ? error.message : (isAr ? "تعذر إرسال التقييم." : "Failed to submit review."));
     } finally {
       reviewSubmitInFlightRef.current = false;
       setReviewBusy(false);
     }
   }, [fetchRoom, isAr, request, reviewComment, reviewRating, startBuyerCompletionSuccessFlow]);
+
+  const handleReviewFormSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void handleSubmitBuyerReview();
+  }, [handleSubmitBuyerReview]);
 
   if (isLoading) {
     return (
@@ -1544,27 +1553,29 @@ export function TradeRoomPage({
               {isActorBuyer && !request.buyerReview && !reviewDeferred ? (
                 <div className="rounded-xl border border-emerald-400/30 bg-black/20 p-3">
                   <p className="mb-2 font-medium text-white">{isAr ? "مطلوب قبل الصفقة التالية: قيّم البائع" : "Required before your next trade: Rate Seller & Leave Feedback"}</p>
-                  <div className="grid gap-2 md:grid-cols-[120px_1fr]">
-                    <select
-                      value={reviewRating}
-                      onChange={(event) => setReviewRating(Number(event.target.value))}
-                      className="h-10 rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white"
-                    >
-                      <option value={5}>★★★★★ (5)</option>
-                      <option value={4}>★★★★☆ (4)</option>
-                      <option value={3}>★★★☆☆ (3)</option>
-                      <option value={2}>★★☆☆☆ (2)</option>
-                      <option value={1}>★☆☆☆☆ (1)</option>
-                    </select>
-                    <Textarea
-                      value={reviewComment}
-                      onChange={(event) => setReviewComment(event.target.value)}
-                      placeholder={isAr ? "اكتب تقييمك للبائع..." : "Share your seller feedback..."}
-                    />
-                  </div>
-                  <Button type="button" className="mt-2" disabled={reviewBusy} onClick={() => void handleSubmitBuyerReview()}>
-                    {reviewBusy ? (isAr ? "جاري الإرسال..." : "Submitting...") : (isAr ? "إرسال التقييم" : "Submit Rating")}
-                  </Button>
+                  <form className="space-y-2" onSubmit={handleReviewFormSubmit}>
+                    <div className="grid gap-2 md:grid-cols-[120px_1fr]">
+                      <select
+                        value={reviewRating}
+                        onChange={(event) => setReviewRating(Number(event.target.value))}
+                        className="h-10 rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white"
+                      >
+                        <option value={5}>★★★★★ (5)</option>
+                        <option value={4}>★★★★☆ (4)</option>
+                        <option value={3}>★★★☆☆ (3)</option>
+                        <option value={2}>★★☆☆☆ (2)</option>
+                        <option value={1}>★☆☆☆☆ (1)</option>
+                      </select>
+                      <Textarea
+                        value={reviewComment}
+                        onChange={(event) => setReviewComment(event.target.value)}
+                        placeholder={isAr ? "اكتب تقييمك للبائع..." : "Share your seller feedback..."}
+                      />
+                    </div>
+                    <Button type="submit" className="mt-2" disabled={reviewBusy}>
+                      {reviewBusy ? (isAr ? "جاري الإرسال..." : "Submitting...") : (isAr ? "إرسال التقييم" : "Submit Rating")}
+                    </Button>
+                  </form>
                   <Button
                     type="button"
                     variant="secondary"
