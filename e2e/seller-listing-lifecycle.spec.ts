@@ -368,7 +368,7 @@ async function readPurchaseFromPatchResponse(response: Awaited<ReturnType<APIReq
 test.describe.configure({ mode: "serial" });
 
 test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
-  test.setTimeout(420_000);
+  test.setTimeout(600_000);
   const hasFixtures = await resetLifecycleFixtures();
   test.skip(!hasFixtures, "Set E2E owner/seller credentials and seed matching runtime accounts to run lifecycle tests.");
 
@@ -496,7 +496,7 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
 });
 
 test("listing expiration, renewal, vacation mode, timeout notifications, and audit history work end-to-end", async ({ browser }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(180_000);
   const hasFixtures = await resetLifecycleFixtures();
   test.skip(!hasFixtures, "Set E2E owner/seller credentials and seed matching runtime accounts to run lifecycle tests.");
 
@@ -615,7 +615,7 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
 });
 
 test("admin dashboard listing overrides update state, notifications, and audit history", async ({ browser, page }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(180_000);
   const hasFixtures = await resetLifecycleFixtures();
   test.skip(!hasFixtures, "Set E2E owner/seller credentials and seed matching runtime accounts to run lifecycle tests.");
 

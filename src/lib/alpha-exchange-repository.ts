@@ -1205,7 +1205,7 @@ export class AlphaExchangeRepository {
       ]);
       const snapshot = snapshotFromTableRows(
         results.map((result, index) => ({
-          tableName: tables[index]!.name,
+          tableName: tables[index]!.name as SnapshotTableName,
           rows: result.rows as Array<{ payload: unknown }>,
         })),
       );
@@ -1358,7 +1358,7 @@ export class AlphaExchangeRepository {
             const currentResults: Array<{ tableName: SnapshotTableName; rows: Array<{ payload: unknown }> }> = [];
             for (const table of tables) {
               const result = await queryWithLogging(client, table.selectSql) as { rows: Array<{ payload: unknown }> };
-              currentResults.push({ tableName: table.name, rows: result.rows });
+              currentResults.push({ tableName: table.name as SnapshotTableName, rows: result.rows });
             }
             const latestSnapshot = attachVersion(snapshotFromTableRows(currentResults), currentVersion);
             const mergedSnapshot = mergeSnapshotWithLatest(latestSnapshot, pruneOrphanAuthSessions(db));

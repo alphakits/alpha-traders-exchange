@@ -79,6 +79,41 @@ type ProfileFormState = {
   showEmailPublic: boolean;
 };
 
+function normalizeRoleValues(values: Array<string | undefined>) {
+  return values.map((value) => String(value ?? "").toLowerCase().trim()).filter(Boolean);
+}
+
+function AdministrationCard({ isAr, isOwner }: { isAr: boolean; isOwner: boolean }) {
+  return (
+    <Card className="border-[#C9A227]/25 bg-[linear-gradient(180deg,rgba(201,162,39,0.12),rgba(11,11,11,0.95))]">
+      <CardHeader>
+        <CardTitle>{isAr ? "الإدارة" : "Administration"}</CardTitle>
+        <CardDescription>
+          {isAr
+            ? "إدارة منصة Alpha Traders والسوق والمستخدمين والصفقات والعمولات والمراجعات والثقة وعمليات النظام."
+            : "Manage the Alpha Traders platform, marketplace, users, trades, commissions, moderation, trust, and system operations."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="rounded-2xl border border-[#C9A227]/20 bg-black/30 p-4 text-sm text-[#E5E7EB]">
+          <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">
+            {isAr ? "وصول تشغيلي" : "Operational access"}
+          </p>
+          <p className="mt-2 leading-6 text-[#D1D5DB]">
+            {isAr
+              ? "الوصول إلى أدوات الإدارة الداخلية يبقى مخفيًا عن المستخدمين العاديين ومتاحًا فقط للحسابات المصرح لها."
+              : "Internal administration tools stay hidden from normal users and are only available to authorized platform accounts."}
+          </p>
+        </div>
+        <Link href="/admin/alpha-exchange" className={buttonVariants({ size: "sm", className: "w-full justify-center gap-2" })}>
+          <Crown className="h-4 w-4" />
+          <span>{isOwner ? (isAr ? "لوحة المالك" : "Owner Dashboard") : (isAr ? "لوحة الإدارة" : "Admin Dashboard")}</span>
+        </Link>
+      </CardContent>
+    </Card>
+  );
+}
+
 function tierLabel(level: string, isAr: boolean) {
   const normalized = level.toLowerCase();
   if (normalized === "bronze") return isAr ? "برونزي" : "Bronze";
@@ -121,6 +156,7 @@ function profileTheme(variant: RoleBadgeVariant) {
 export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
   const isAr = locale === "ar";
   const [payload, setPayload] = useState<AccountProfilePayload | null>(null);
+  const [sessionRoles, setSessionRoles] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState("");
@@ -149,33 +185,62 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
   });
 
   useEffect(() => {
+    const controller = new AbortController();
+    let mounted = true;
+
     void (async () => {
       setLoading(true);
-      const response = await fetch("/api/auth/profile", { cache: "no-store" });
-      if (!response.ok) {
-        setMessage(isAr ? "تعذر تحميل الهوية." : "Failed to load identity.");
-        setLoading(false);
-        return;
+      setMessage(null);
+      try {
+        const meResponse = await fetch("/api/auth/me", { cache: "no-store", signal: controller.signal });
+        if (meResponse.ok) {
+          const mePayload = (await meResponse.json()) as { user?: { role?: string; roles?: string[] } | null };
+          const user = mePayload.user;
+          if (user) {
+            setSessionRoles(normalizeRoleValues([...(user.roles ?? []), user.role]));
+          }
+        }
+      } catch {
+        // Best-effort only; profile API remains source of truth for page content.
       }
-      const data = (await response.json()) as AccountProfilePayload;
-      setPayload(data);
-      setAvatarUrl(data.profile.profilePhotoUrl ?? "");
-      setCoverUrl(data.profile.coverBannerUrl ?? "");
-      setForm({
-        fullName: data.profile.fullName ?? "",
-        bio: data.profile.bio ?? "",
-        country: data.profile.country ?? "",
-        language: data.profile.language ?? "",
-        whatsappNumber: data.profile.whatsappNumber ?? "",
-        showTradeStats: data.profile.showTradeStats !== false,
-        showLastActive: data.profile.showLastActive !== false,
-        allowDirectMessages: data.profile.allowDirectMessages !== false,
-        allowProfileSearch: data.profile.allowProfileSearch !== false,
-        showPhonePublic: data.profile.showPhonePublic === true,
-        showEmailPublic: data.profile.showEmailPublic === true,
-      });
-      setLoading(false);
+
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          const response = await fetch("/api/auth/profile", { cache: "no-store", signal: controller.signal });
+          if (!response.ok) throw new Error("PROFILE_FETCH_FAILED");
+          const data = (await response.json()) as AccountProfilePayload;
+          if (!mounted) return;
+          setPayload(data);
+          setAvatarUrl(data.profile.profilePhotoUrl ?? "");
+          setCoverUrl(data.profile.coverBannerUrl ?? "");
+          setForm({
+            fullName: data.profile.fullName ?? "",
+            bio: data.profile.bio ?? "",
+            country: data.profile.country ?? "",
+            language: data.profile.language ?? "",
+            whatsappNumber: data.profile.whatsappNumber ?? "",
+            showTradeStats: data.profile.showTradeStats !== false,
+            showLastActive: data.profile.showLastActive !== false,
+            allowDirectMessages: data.profile.allowDirectMessages !== false,
+            allowProfileSearch: data.profile.allowProfileSearch !== false,
+            showPhonePublic: data.profile.showPhonePublic === true,
+            showEmailPublic: data.profile.showEmailPublic === true,
+          });
+          setLoading(false);
+          return;
+        } catch {
+          if (!mounted || controller.signal.aborted) return;
+          if (attempt === 0) continue;
+          setMessage(isAr ? "تعذر تحميل الهوية." : "Failed to load identity.");
+          setLoading(false);
+        }
+      }
     })();
+
+    return () => {
+      mounted = false;
+      controller.abort();
+    };
   }, [isAr]);
 
   async function handlePhotoUpload(file: File) {
@@ -267,25 +332,38 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
   }
 
   if (loading) {
+    const sessionIsOwner = sessionRoles.includes("owner");
+    const sessionHasAdminDashboardAccess = sessionIsOwner || sessionRoles.includes("admin") || sessionRoles.includes("administrator");
     return (
       <section className="section-container page-shell">
-        <Card className="mx-auto max-w-6xl border-white/10 bg-[#0B0B0B]/95">
-          <CardContent className="p-6 text-sm text-[#D1D5DB]">{isAr ? "جاري تجهيز الهوية..." : "Preparing trading identity..."}</CardContent>
-        </Card>
+        <div className="mx-auto max-w-6xl space-y-5">
+          <Card className="border-white/10 bg-[#0B0B0B]/95">
+            <CardContent className="p-6 text-sm text-[#D1D5DB]">{isAr ? "جاري تجهيز الهوية..." : "Preparing trading identity..."}</CardContent>
+          </Card>
+          {sessionHasAdminDashboardAccess ? <AdministrationCard isAr={isAr} isOwner={sessionIsOwner} /> : null}
+        </div>
       </section>
     );
   }
 
-  if (!payload) return null;
+  if (!payload) {
+    return (
+      <section className="section-container page-shell">
+        <Card className="mx-auto max-w-6xl border-white/10 bg-[#0B0B0B]/95">
+          <CardContent className="p-6 text-sm text-[#D1D5DB]">{message ?? (isAr ? "تعذر تحميل الهوية." : "Failed to load identity.")}</CardContent>
+        </Card>
+      </section>
+    );
+  }
 
   const initials = payload.profile.fullName?.charAt(0).toUpperCase() ?? "?";
   const onlineNow = payload.profile.onlineStatus === "online";
   const isSeller = payload.stats.kind === "seller";
   const theme = profileTheme(payload.roleBadge);
   const statusCopy = isAr ? payload.accountStatuses.join(" • ") : payload.accountStatuses.join(" • ");
-  const roles = payload.profile.roles ?? [payload.profile.role];
-  const isOwner = roles.includes("owner") || payload.profile.role === "owner";
-  const hasAdminDashboardAccess = isOwner || roles.includes("admin") || payload.profile.role === "admin";
+  const roles = normalizeRoleValues([...(payload.profile.roles ?? []), payload.profile.role]);
+  const isOwner = roles.includes("owner");
+  const hasAdminDashboardAccess = isOwner || roles.includes("admin") || roles.includes("administrator");
 
   return (
     <section className="section-container page-shell">
@@ -475,32 +553,7 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
 
           <div className="space-y-5">
             {hasAdminDashboardAccess ? (
-              <Card className="border-[#C9A227]/25 bg-[linear-gradient(180deg,rgba(201,162,39,0.12),rgba(11,11,11,0.95))]">
-                <CardHeader>
-                  <CardTitle>{isAr ? "الإدارة" : "Administration"}</CardTitle>
-                  <CardDescription>
-                    {isAr
-                      ? "إدارة منصة Alpha Traders والسوق والمستخدمين والصفقات والعمولات والمراجعات والثقة وعمليات النظام."
-                      : "Manage the Alpha Traders platform, marketplace, users, trades, commissions, moderation, trust, and system operations."}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="rounded-2xl border border-[#C9A227]/20 bg-black/30 p-4 text-sm text-[#E5E7EB]">
-                    <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">
-                      {isAr ? "وصول تشغيلي" : "Operational access"}
-                    </p>
-                    <p className="mt-2 leading-6 text-[#D1D5DB]">
-                      {isAr
-                        ? "الوصول إلى أدوات الإدارة الداخلية يبقى مخفيًا عن المستخدمين العاديين ومتاحًا فقط للحسابات المصرح لها."
-                        : "Internal administration tools stay hidden from normal users and are only available to authorized platform accounts."}
-                    </p>
-                  </div>
-                  <Link href="/admin/alpha-exchange" className={buttonVariants({ size: "sm", className: "w-full justify-center gap-2" })}>
-                    <Crown className="h-4 w-4" />
-                    <span>{isOwner ? (isAr ? "لوحة المالك" : "Owner Dashboard") : (isAr ? "لوحة الإدارة" : "Admin Dashboard")}</span>
-                  </Link>
-                </CardContent>
-              </Card>
+              <AdministrationCard isAr={isAr} isOwner={isOwner} />
             ) : null}
 
             <Card className="border-white/10 bg-[#0B0B0B]/95">

@@ -96,4 +96,13 @@ describe("AccountProfilePanel", () => {
     expect(screen.queryByText("Administration")).toBeNull();
     expect(screen.queryByRole("link", { name: /dashboard/i })).toBeNull();
   });
+
+  it("shows an error message when profile loading fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network timeout")));
+
+    render(<AccountProfilePanel locale="en" />);
+
+    await waitFor(() => expect(screen.getByText("Failed to load identity.")).toBeTruthy());
+    expect(screen.queryByText("Preparing trading identity...")).toBeNull();
+  });
 });
