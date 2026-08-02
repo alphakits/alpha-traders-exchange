@@ -611,6 +611,7 @@ export function TradeRoomPage({
   const perfSsePublishedAtRef = useRef<number | null>(null);
   const roomRef = useRef<TradeRoomData | null>(null);
   const buyerCompletionLockRef = useRef(false);
+  const reviewSubmitInFlightRef = useRef(false);
 
   const fetchRoom = useCallback(async (silent = false) => {
     if (!silent) {
@@ -1256,21 +1257,31 @@ export function TradeRoomPage({
   }, [disputeReason, fetchRoom, isAr, request]);
 
   const handleSubmitBuyerReview = useCallback(async () => {
-    if (!request) return;
-    if (!reviewComment.trim()) {
+    const currentRequest = roomRef.current?.request ?? request;
+    if (!currentRequest) {
+      setStatusMessage(isAr ? "جاري مزامنة الصفقة. حاول مرة أخرى خلال لحظة." : "Trade data is syncing. Please try again in a moment.");
+      return;
+    }
+    const trimmedComment = reviewComment.trim();
+    if (!trimmedComment) {
       setStatusMessage(isAr ? "يرجى كتابة تعليق قبل إرسال التقييم." : "Please add feedback before submitting rating.");
       return;
     }
+    if (reviewSubmitInFlightRef.current) {
+      return;
+    }
 
+    reviewSubmitInFlightRef.current = true;
     setReviewBusy(true);
+    setStatusMessage(null);
     try {
-      const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}/review`, {
+      const response = await fetch(`/api/alpha-exchange/purchase-requests/${currentRequest.id}/review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mode: "buyer_review",
           rating: reviewRating,
-          comment: reviewComment.trim(),
+          comment: trimmedComment,
         }),
       });
       const payload = (await response.json()) as {
@@ -1302,10 +1313,11 @@ export function TradeRoomPage({
         setStatusMessage(isAr ? "تم إرسال تقييم البائع." : "Seller rating submitted.");
       }
       await fetchRoom(true);
-      startBuyerCompletionSuccessFlow(request.id);
+      startBuyerCompletionSuccessFlow(currentRequest.id);
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : (isAr ? "تعذر إرسال التقييم." : "Failed to submit review."));
     } finally {
+      reviewSubmitInFlightRef.current = false;
       setReviewBusy(false);
     }
   }, [fetchRoom, isAr, request, reviewComment, reviewRating, startBuyerCompletionSuccessFlow]);
