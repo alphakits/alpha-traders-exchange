@@ -27,24 +27,45 @@ export async function GET(request: NextRequest) {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let lastSignature = "";
+      let closed = false;
+
+      const safeEnqueue = (chunk: string) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(chunk));
+        } catch {
+          closed = true;
+        }
+      };
+
+      const closeStream = () => {
+        if (closed) return;
+        closed = true;
+        try {
+          controller.close();
+        } catch {
+          // Stream may already be closed.
+        }
+      };
 
       const sendSnapshot = async () => {
+        if (closed) return;
         try {
           const snapshot = await getNotificationsForUser({
             userId: user.id,
             limit: 20,
             includeActivity: false,
           });
+          if (closed) return;
           const top = snapshot.notifications[0];
           const signature = `${snapshot.unreadCount}:${top?.id ?? ""}:${top?.updatedAt ?? top?.createdAt ?? ""}`;
           if (signature === lastSignature) return;
           lastSignature = signature;
-          controller.enqueue(
-            encoder.encode(`event: notifications\ndata: ${JSON.stringify({ notifications: snapshot.notifications, unreadCount: snapshot.unreadCount })}\n\n`),
-          );
+          safeEnqueue(`event: notifications\ndata: ${JSON.stringify({ notifications: snapshot.notifications, unreadCount: snapshot.unreadCount })}\n\n`);
         } catch (error) {
+          if (closed) return;
           const message = error instanceof Error ? error.message : "notification_stream_failed";
-          controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ message })}\n\n`));
+          safeEnqueue(`event: error\ndata: ${JSON.stringify({ message })}\n\n`);
         }
       };
 
@@ -57,7 +78,7 @@ export async function GET(request: NextRequest) {
         void sendSnapshot();
       }, 5000);
       const keepAlive = setInterval(() => {
-        controller.enqueue(encoder.encode(": keepalive\n\n"));
+        safeEnqueue(": keepalive\n\n");
       }, 15000);
 
       const signal = request.signal;
@@ -65,7 +86,7 @@ export async function GET(request: NextRequest) {
         clearInterval(poll);
         clearInterval(keepAlive);
         unsubscribe();
-        controller.close();
+        closeStream();
         return;
       }
 
@@ -73,7 +94,7 @@ export async function GET(request: NextRequest) {
         clearInterval(poll);
         clearInterval(keepAlive);
         unsubscribe();
-        controller.close();
+        closeStream();
       }, { once: true });
     },
   });
@@ -87,4 +108,3 @@ export async function GET(request: NextRequest) {
     },
   });
 }
-

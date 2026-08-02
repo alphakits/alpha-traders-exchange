@@ -27,6 +27,8 @@ vi.mock("@/lib/alpha-exchange-repository", async () => {
 import { AlphaExchangeRepository, getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import { upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 
+const TEST_FALLBACK_DIR = `.next-runtime-test${process.env.VITEST_WORKER_ID ? `-${process.env.VITEST_WORKER_ID}` : ""}`;
+
 describe("AlphaExchangeRepository", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -34,7 +36,7 @@ describe("AlphaExchangeRepository", () => {
     globalThis.__alphaExchangeMemorySnapshot = undefined as never;
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
-    const fallbackPath = path.join(process.cwd(), ".next-runtime-test", "alpha-exchange-fallback.json");
+    const fallbackPath = path.join(process.cwd(), TEST_FALLBACK_DIR, "alpha-exchange-fallback.json");
     if (existsSync(fallbackPath)) {
       rmSync(fallbackPath, { force: true });
     }
@@ -42,7 +44,7 @@ describe("AlphaExchangeRepository", () => {
   });
 
   afterEach(() => {
-    const fallbackPath = path.join(process.cwd(), ".next-runtime-test", "alpha-exchange-fallback.json");
+    const fallbackPath = path.join(process.cwd(), TEST_FALLBACK_DIR, "alpha-exchange-fallback.json");
     if (existsSync(fallbackPath)) {
       rmSync(fallbackPath, { force: true });
     }
@@ -182,7 +184,7 @@ describe("AlphaExchangeRepository", () => {
   });
 
   it("prefers a newer persisted fallback snapshot over stale in-memory state after a load failure", async () => {
-    const fallbackPath = path.join(process.cwd(), ".next-runtime-test", "alpha-exchange-fallback.json");
+    const fallbackPath = path.join(process.cwd(), TEST_FALLBACK_DIR, "alpha-exchange-fallback.json");
     globalThis.__alphaExchangeMemorySnapshot = {
       users: [],
       sellerApplications: [],
@@ -320,7 +322,7 @@ describe("AlphaExchangeRepository", () => {
     expect(JSON.stringify(sessionInserts)).not.toContain("orphan-token");
   });
 
-  it("expands partial user writes to a full snapshot write so listings survive cascades", async () => {
+  it("keeps partial user writes scoped without rewriting listings", async () => {
     const client = {
       query: vi.fn((sql: string) => {
         if (typeof sql === "string" && sql.includes("select version::text as version from alpha_exchange.runtime_meta")) {
@@ -387,7 +389,11 @@ describe("AlphaExchangeRepository", () => {
     } as AlphaExchangeDb, { selectedTables: ["users"] });
 
     const listingInsert = client.query.mock.calls.find(([sql]) => typeof sql === "string" && sql.includes("insert into alpha_exchange.listings"));
-    expect(listingInsert).toBeDefined();
+    expect(listingInsert).toBeUndefined();
+    const fullUsersDelete = client.query.mock.calls.find(([sql]) => typeof sql === "string" && sql.trim() === "delete from alpha_exchange.users");
+    expect(fullUsersDelete).toBeUndefined();
+    const scopedUsersDelete = client.query.mock.calls.find(([sql]) => typeof sql === "string" && sql.includes("delete from alpha_exchange.users where not"));
+    expect(scopedUsersDelete).toBeDefined();
   });
 
   it("switches to the in-memory snapshot after initialization fails so later writes do not hit the database", async () => {

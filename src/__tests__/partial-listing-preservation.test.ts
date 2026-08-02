@@ -105,6 +105,7 @@ async function completeTrade(input: {
   buyerId: string;
   buyerName: string;
   amount: string;
+  runDeferredTrustWrite?: boolean;
 }) {
   const request = await createPurchaseRequest({
     buyerId: input.buyerId,
@@ -167,12 +168,15 @@ async function completeTrade(input: {
     nextStatus: "usdt_sent",
   });
 
-  await updatePurchaseRequestStatus({
+  const completion = await updatePurchaseRequestStatus({
     requestId: request.request.id,
     actorUserId: input.buyerId,
     actorRole: "buyer",
     nextStatus: "completed",
   });
+  if (input.runDeferredTrustWrite && completion.deferredTrustWrite) {
+    await completion.deferredTrustWrite();
+  }
 
   return request.request.id;
 }
@@ -220,6 +224,7 @@ describe("partial listing preservation", () => {
       buyerId: BUYER_ONE_ID,
       buyerName: "Buyer One",
       amount: "250",
+      runDeferredTrustWrite: true,
     });
 
     invalidateAlphaExchangeStoreCache();

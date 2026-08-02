@@ -30,9 +30,12 @@ type Queryable = Pool | PoolClient;
 
 type EvidenceWriteMap = Map<string, Buffer>;
 
+const TEST_FALLBACK_DIR_SUFFIX = process.env.NODE_ENV === "test" && process.env.VITEST_WORKER_ID
+  ? `-${process.env.VITEST_WORKER_ID}`
+  : "";
 const FALLBACK_SNAPSHOT_DIR = path.join(
   process.cwd(),
-  process.env.NODE_ENV === "test" ? ".next-runtime-test" : ".next-runtime",
+  process.env.NODE_ENV === "test" ? `.next-runtime-test${TEST_FALLBACK_DIR_SUFFIX}` : ".next-runtime",
 );
 const FALLBACK_SNAPSHOT_PATH = path.join(FALLBACK_SNAPSHOT_DIR, "alpha-exchange-fallback.json");
 
@@ -794,6 +797,16 @@ async function upsertUsersTable(tx: PoolClient, rows: AlphaExchangeUser[]) {
 }
 
 async function replaceTableContents(tx: PoolClient, tableName: SnapshotTableName, db: AlphaExchangeDb, context?: SaveContext) {
+  if (tableName === "users") {
+    const userRows = db.users;
+    if (userRows.length === 0) {
+      await tx.query("delete from alpha_exchange.users");
+      return;
+    }
+    await tx.query("delete from alpha_exchange.users where not (id = any($1::text[]))", [userRows.map((row) => row.id)]);
+    await upsertUsersTable(tx, userRows);
+    return;
+  }
   await tx.query(`delete from alpha_exchange.${tableName}`);
   const table = getTable(tableName);
   await table.insert(tx, table.values(db), {
@@ -1291,16 +1304,11 @@ export class AlphaExchangeRepository {
       ? Array.from(new Set(options.selectedTables))
       : [...SNAPSHOT_TABLE_NAMES];
     const selectedTableSet = new Set<SnapshotTableName>(selectedTables);
-    // Replacing users via DELETE ... INSERT cascades into multiple child tables (sessions,
-    // listings, notifications, trust snapshots, etc.). Partial writes that include `users`
-    // must therefore expand to a full snapshot write so dependent rows are re-persisted in
-    // the same transaction instead of being silently deleted by PostgreSQL.
-    if (selectedTableSet.has("users") && selectedTables.length < SNAPSHOT_TABLE_NAMES.length) {
-      selectedTables.splice(0, selectedTables.length, ...SNAPSHOT_TABLE_NAMES);
-      selectedTableSet.clear();
-      for (const tableName of selectedTables) {
-        selectedTableSet.add(tableName);
-      }
+    // When writing the 'users' table, also write 'sessions' to preserve active auth sessions.
+    // PostgreSQL's ON DELETE CASCADE on sessions.user_id can evict auth sessions if a user is deleted.
+    if (selectedTableSet.has("users") && !selectedTableSet.has("sessions")) {
+      selectedTables.push("sessions");
+      selectedTableSet.add("sessions");
     }
 
     let client: PoolClient | null = null;
