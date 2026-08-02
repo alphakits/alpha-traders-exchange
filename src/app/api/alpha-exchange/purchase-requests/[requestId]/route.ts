@@ -12,16 +12,24 @@ function isValidRequestStatus(value: string): value is "pending" | "accepted" | 
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
+  const diagId = `patch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  console.log("[patch-diag] stage=entry", { diagId, method: request.method, url: request.url });
+
   const { user, unauthorized } = await requireApiUser();
+  console.log("[patch-diag] stage=auth", { diagId, authenticated: Boolean(user), userId: user?.id });
   if (!user) return unauthorized;
+
   const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
+  console.log("[patch-diag] stage=phone-verification", { diagId, phoneBlocked: Boolean(phoneVerificationRequired) });
   if (phoneVerificationRequired) return phoneVerificationRequired;
+
   const rate = checkRateLimit({
     headers: request.headers,
     key: "exchange:purchase-request-status",
     maxRequests: 40,
     windowMs: 60_000,
   });
+  console.log("[patch-diag] stage=rate-limit", { diagId, allowed: rate.allowed });
   if (!rate.allowed) {
     return NextResponse.json({ error: "Too many status updates. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
   }
@@ -30,9 +38,17 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const debug = process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
     const startedAt = Date.now();
     const { requestId } = await context.params;
-    const body = await request.json();
-    const status = String(body.status ?? "").trim();
-    const safetyAcknowledged = body.safetyAcknowledged === true;
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch (parseErr) {
+      console.error("[patch-diag] stage=body-parse-failed", { diagId, requestId, error: String(parseErr) });
+      return NextResponse.json({ error: "Invalid request body.", stage: "body-parse", code: "invalid-body", diagId }, { status: 400 });
+    }
+    const rawBody = body as Record<string, unknown>;
+    const status = String(rawBody.status ?? "").trim();
+    const safetyAcknowledged = rawBody.safetyAcknowledged === true;
+    console.log("[patch-diag] stage=body-parsed", { diagId, requestId, receivedStatus: rawBody.status, parsedStatus: status, safetyAcknowledged });
     const isUsdtSent = status === "usdt_sent";
     const traceId = debug && isUsdtSent ? `usdt-sent:${requestId}:${Date.now()}` : undefined;
     console.log("[trade-consistency] PATCH received", {
@@ -46,11 +62,14 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       console.log("[usdt-sent-trace] route entry", { traceId, requestId, actorUserId: user.id });
     }
     if (!status) {
-      return NextResponse.json({ error: "Status is required." }, { status: 400 });
+      console.warn("[patch-diag] stage=early-return status-empty", { diagId, requestId, rawStatus: rawBody.status });
+      return NextResponse.json({ error: "Status is required.", stage: "status-empty", code: "status-required", diagId }, { status: 400 });
     }
     if (!isValidRequestStatus(status)) {
-      return NextResponse.json({ error: "Invalid purchase request status." }, { status: 400 });
+      console.warn("[patch-diag] stage=early-return status-invalid", { diagId, requestId, status });
+      return NextResponse.json({ error: "Invalid purchase request status.", stage: "status-invalid", code: "invalid-status", receivedStatus: status, diagId }, { status: 400 });
     }
+    console.log("[patch-diag] stage=calling-store", { diagId, requestId, status, actorUserId: user.id, actorRole: user.role });
     if (debug) {
       console.log("[trade-room-action] request", {
         requestId,
@@ -68,6 +87,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       safetyAcknowledged,
       traceId: isUsdtSent ? traceId : undefined,
     });
+    console.log("[patch-diag] stage=store-returned", { diagId, requestId, resultStatus: updated.status });
     if (debug && isUsdtSent) {
       console.log("[usdt-sent-trace] before response", { traceId, requestId, updatedStatus: updated.status });
     }
@@ -116,8 +136,19 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       code: tradeError?.code ?? "trade-status-update-failed",
       requestId: tradeError?.purchaseRequestId ?? requestId,
       details: tradeError?.details,
+      stage: "store-threw",
     };
     const responseStatus = tradeError ? 409 : 400;
+    console.error("[patch-diag] stage=store-threw", {
+      requestId,
+      actorUserId: user.id,
+      actorRole: user.role,
+      isTradeBlockedError: Boolean(tradeError),
+      code: tradeError?.code,
+      message,
+      details: tradeError?.details,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     console.error("[trade-room-action] mutation failed", {
       requestId,
       actorUserId: user.id,
