@@ -589,6 +589,7 @@ export function TradeRoomPage({
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
+  const [reviewCommentError, setReviewCommentError] = useState<string | null>(null);
   const [reviewDeferred, setReviewDeferred] = useState(false);
   const [buyerCompletionSuccessActive, setBuyerCompletionSuccessActive] = useState(false);
   const [buyerRedirectPending, setBuyerRedirectPending] = useState(false);
@@ -601,6 +602,7 @@ export function TradeRoomPage({
   const buyerRedirectFadeTimeoutRef = useRef<number | null>(null);
   const buyerEvidenceInputRef = useRef<HTMLInputElement | null>(null);
   const sellerEvidenceInputRef = useRef<HTMLInputElement | null>(null);
+  const reviewCommentInputRef = useRef<HTMLTextAreaElement | null>(null);
   const statusBannerRef = useRef<HTMLDivElement | null>(null);
   const evidenceSectionRef = useRef<HTMLDivElement | null>(null);
   const previousStatusRef = useRef<PurchaseRequest["status"] | null>(null);
@@ -1301,9 +1303,13 @@ export function TradeRoomPage({
     const trimmedComment = reviewComment.trim();
     if (!trimmedComment) {
       logReviewDiagnostic("validation-failed", { reason: "empty-comment" });
+      setReviewCommentError(isAr ? "يرجى كتابة تقييم قبل الإرسال." : "Please enter a review before submitting.");
       setStatusMessage(isAr ? "يرجى كتابة تعليق قبل إرسال التقييم." : "Please add feedback before submitting rating.");
+      reviewCommentInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      reviewCommentInputRef.current?.focus();
       return;
     }
+    setReviewCommentError(null);
     if (reviewSubmitInFlightRef.current) {
       logReviewDiagnostic("validation-failed", { reason: "submit-already-in-flight" });
       setStatusMessage(isAr ? "جاري إرسال التقييم بالفعل..." : "Review submission is already in progress...");
@@ -1617,11 +1623,20 @@ export function TradeRoomPage({
                         <option value={1}>★☆☆☆☆ (1)</option>
                       </select>
                       <Textarea
+                        ref={reviewCommentInputRef}
                         value={reviewComment}
-                        onChange={(event) => setReviewComment(event.target.value)}
+                        onChange={(event) => {
+                          if (reviewCommentError) setReviewCommentError(null);
+                          setReviewComment(event.target.value);
+                        }}
                         placeholder={isAr ? "اكتب تقييمك للبائع..." : "Share your seller feedback..."}
+                        className={reviewCommentError ? "border-red-400/60 focus-visible:ring-red-400" : undefined}
+                        aria-invalid={reviewCommentError ? true : undefined}
                       />
                     </div>
+                    {reviewCommentError ? (
+                      <p className="text-xs text-red-300">{reviewCommentError}</p>
+                    ) : null}
                     <Button
                       type="submit"
                       className="mt-2"
