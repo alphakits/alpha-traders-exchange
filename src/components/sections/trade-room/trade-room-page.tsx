@@ -1293,6 +1293,15 @@ export function TradeRoomPage({
   }, [disputeReason, fetchRoom, isAr, request]);
 
   const handleSubmitBuyerReview = useCallback(async () => {
+    if (actionBusy || Boolean(actionInFlightRef.current)) {
+      logReviewDiagnostic("validation-failed", { reason: "trade-status-update-in-flight" });
+      setStatusMessage(
+        isAr
+          ? "يتم الآن تثبيت حالة الصفقة. انتظر لحظة ثم أعد الإرسال."
+          : "Trade confirmation is still syncing. Please wait a moment, then submit your review.",
+      );
+      return;
+    }
     const currentRequest = roomRef.current?.request ?? request;
     logReviewDiagnostic("validation-started", { hasRequest: Boolean(currentRequest), rating: reviewRating, commentLength: reviewComment.trim().length });
     if (!currentRequest) {
@@ -1379,7 +1388,7 @@ export function TradeRoomPage({
       reviewSubmitInFlightRef.current = false;
       setReviewBusy(false);
     }
-  }, [fetchRoom, isAr, logReviewDiagnostic, request, reviewComment, reviewRating, startBuyerCompletionSuccessFlow]);
+  }, [actionBusy, fetchRoom, isAr, logReviewDiagnostic, request, reviewComment, reviewRating, startBuyerCompletionSuccessFlow]);
 
   const handleReviewFormSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1615,6 +1624,7 @@ export function TradeRoomPage({
                         value={reviewRating}
                         onChange={(event) => setReviewRating(Number(event.target.value))}
                         className="h-10 rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white"
+                        disabled={reviewBusy || actionBusy}
                       >
                         <option value={5}>★★★★★ (5)</option>
                         <option value={4}>★★★★☆ (4)</option>
@@ -1632,17 +1642,23 @@ export function TradeRoomPage({
                         placeholder={isAr ? "اكتب تقييمك للبائع..." : "Share your seller feedback..."}
                         className={reviewCommentError ? "border-red-400/60 focus-visible:ring-red-400" : undefined}
                         aria-invalid={reviewCommentError ? true : undefined}
+                        disabled={reviewBusy || actionBusy}
                       />
                     </div>
+                    {actionBusy ? (
+                      <p className="text-xs text-[#FDE68A]">
+                        {isAr ? "جاري تثبيت تأكيد الصفقة... يمكنك إرسال التقييم بعد لحظات." : "Finalizing trade confirmation... you can submit your review in a moment."}
+                      </p>
+                    ) : null}
                     {reviewCommentError ? (
                       <p className="text-xs text-red-300">{reviewCommentError}</p>
                     ) : null}
                     <Button
                       type="submit"
                       className="mt-2"
-                      disabled={reviewBusy}
+                      disabled={reviewBusy || actionBusy}
                       onClick={() => {
-                        logReviewDiagnostic("submit-button-clicked", { reviewBusy });
+                        logReviewDiagnostic("submit-button-clicked", { reviewBusy, actionBusy });
                       }}
                     >
                       {reviewBusy ? (isAr ? "جاري الإرسال..." : "Submitting...") : (isAr ? "إرسال التقييم" : "Submit Rating")}
