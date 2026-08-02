@@ -468,7 +468,7 @@ function applyRequestToRoom(room: TradeRoomData, nextRequest: PurchaseRequest): 
 
 function applyOptimisticStatusFields(nextRequest: PurchaseRequest, nextStatus: PrimaryStatus, now: Date) {
   const nowIso = now.toISOString();
-  const requestStatus = nextStatus === "completed" ? "review_open" : nextStatus;
+  const requestStatus = nextStatus === "completed" ? nextRequest.status : nextStatus;
   nextRequest.status = requestStatus;
   nextRequest.updatedAt = nowIso;
   if (nextStatus === "payment_sent") nextRequest.paymentSentAt = nowIso;
@@ -478,11 +478,6 @@ function applyOptimisticStatusFields(nextRequest: PurchaseRequest, nextStatus: P
     nextRequest.usdtReleaseDeadlineAt = new Date(now.getTime() + 45 * 60 * 1000).toISOString();
   }
   if (nextStatus === "usdt_sent") nextRequest.usdtSentAt = nowIso;
-  if (nextStatus === "completed") {
-    nextRequest.completedAt = nowIso;
-    nextRequest.reviewUnlockedAt = nowIso;
-    nextRequest.lockedAt = nowIso;
-  }
 }
 
 function createOptimisticEvidence(request: PurchaseRequest, side: "buyer" | "seller", actorUserId: string, file: File, uploadedAt: string): TradeEvidenceFile {
@@ -908,6 +903,13 @@ export function TradeRoomPage({
   const isOverdueTrade = Boolean(room?.isOverdue);
   const statusBanner = request ? getStatusBannerContent(request, isSeller, isAr, primaryAction, isOverdueTrade) : null;
   const showSuccessScreen = request?.status === "review_open" || request?.status === "completed" || request?.status === "locked";
+  const isBuyerCompletionSyncInFlight = Boolean(
+    request
+    && request.buyerId === actor.id
+    && request.status === "usdt_sent"
+    && actionBusy
+    && actionInFlightRef.current?.endsWith(":completed"),
+  );
   const sellerCanViewBuyerReceipt = Boolean(
     isSeller
     && request
@@ -1618,6 +1620,22 @@ export function TradeRoomPage({
               {isActorBuyer && !request.buyerReview && !reviewDeferred ? (
                 <div className="rounded-xl border border-emerald-400/30 bg-black/20 p-3">
                   <p className="mb-2 font-medium text-white">{isAr ? "مطلوب قبل الصفقة التالية: قيّم البائع" : "Required before your next trade: Rate Seller & Leave Feedback"}</p>
+                  {!showSuccessScreen || actionBusy || Boolean(actionInFlightRef.current) ? (
+                    <div className="space-y-2 rounded-xl border border-[#C9A227]/35 bg-[#C9A227]/10 p-3 text-sm text-[#FDE68A]">
+                      <div className="inline-flex items-center gap-2">
+                        <LoaderCircle className="h-4 w-4 animate-spin" />
+                        <span className="font-medium">
+                          {isAr ? "جاري إنهاء تأكيد الصفقة..." : "Finalizing trade confirmation..."}
+                        </span>
+                      </div>
+                      <p className="text-xs text-[#FDE68A]/90">
+                        {isAr
+                          ? "يرجى الانتظار لحظات حتى يؤكد الخادم اكتمال الصفقة، ثم سيتاح إرسال التقييم."
+                          : "Please wait a moment while we complete your trade on the server. Review submission will unlock right after confirmation."}
+                      </p>
+                    </div>
+                  ) : null}
+                  {showSuccessScreen && !actionBusy && !actionInFlightRef.current ? (
                   <form className="space-y-2" onSubmit={handleReviewFormSubmit}>
                     <div className="grid gap-2 md:grid-cols-[120px_1fr]">
                       <select
@@ -1664,11 +1682,12 @@ export function TradeRoomPage({
                       {reviewBusy ? (isAr ? "جاري الإرسال..." : "Submitting...") : (isAr ? "إرسال التقييم" : "Submit Rating")}
                     </Button>
                   </form>
+                  ) : null}
                   <Button
                     type="button"
                     variant="secondary"
                     className="mt-2 ms-2"
-                    disabled={reviewBusy}
+                    disabled={reviewBusy || actionBusy || Boolean(actionInFlightRef.current)}
                     onClick={() => {
                       setReviewDeferred(true);
                       setStatusMessage(
@@ -1681,6 +1700,21 @@ export function TradeRoomPage({
                     {isAr ? "ذكرني لاحقًا" : "Remind Me Later"}
                   </Button>
                 </div>
+              ) : null}
+              {!showSuccessScreen && isBuyerCompletionSyncInFlight ? (
+                <Card className="border-[#C9A227]/35 bg-[#C9A227]/10">
+                  <CardContent className="flex items-center gap-3 py-4 text-sm text-[#FDE68A]">
+                    <LoaderCircle className="h-5 w-5 animate-spin" />
+                    <div>
+                      <p className="font-medium">{isAr ? "جاري إنهاء تأكيد الصفقة..." : "Finalizing trade confirmation..."}</p>
+                      <p className="text-xs text-[#FDE68A]/90">
+                        {isAr
+                          ? "يرجى الانتظار لحظة أثناء تثبيت اكتمال الصفقة على الخادم."
+                          : "Please wait a moment while we complete your trade on the server."}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
               ) : null}
               {isActorBuyer && !request.buyerReview && reviewDeferred ? (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
