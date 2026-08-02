@@ -6312,15 +6312,24 @@ const EVM_USDT_CONTRACTS: Record<string, string> = {
   ERC20: "0xdac17f958d2ee523a2206206994597c13d831ec7",
   POLYGON: "0xc2132d05d31c914a87c6611c10748aeb04b58e8f",
 };
-/** Etherscan-compatible explorer API base URLs */
+/** Etherscan-compatible explorer API base URLs (primary, key-authenticated) */
 const EVM_EXPLORER_APIS: Record<string, string> = {
   ERC20: "https://api.etherscan.io/api",
   POLYGON: "https://api.polygonscan.com/api",
 };
-/** Optional API key env vars (free-tier works without keys but rate-limited) */
+/** Optional API key env vars — configure these in Vercel to avoid rate limits */
 const EVM_API_KEY_ENVS: Record<string, string> = {
   ERC20: "ALPHA_EXCHANGE_ETHERSCAN_API_KEY",
   POLYGON: "ALPHA_EXCHANGE_POLYGONSCAN_API_KEY",
+};
+/**
+ * Public JSON-RPC fallback endpoints — no API key required.
+ * Used when the primary Etherscan/Polygonscan API is rate-limited or unavailable.
+ * Configure ALPHA_EXCHANGE_ETH_RPC_URL / ALPHA_EXCHANGE_POLYGON_RPC_URL to override.
+ */
+const EVM_RPC_FALLBACKS: Record<string, string> = {
+  ERC20: "https://cloudflare-eth.com",        // Cloudflare Ethereum gateway
+  POLYGON: "https://polygon-rpc.com",          // Official Polygon Labs RPC
 };
 const SOLANA_USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
 const ERC20_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
@@ -6345,6 +6354,125 @@ interface SolanaTokenBalance {
   uiTokenAmount?: { uiAmount?: number | null };
 }
 
+/** Logs API key presence on first use (no secret values exposed). */
+function logEvmKeyDiagnostics(network: string, hasKey: boolean) {
+  const rpcFallbackEnv = network === "ERC20" ? "ALPHA_EXCHANGE_ETH_RPC_URL" : "ALPHA_EXCHANGE_POLYGON_RPC_URL";
+  const rpcOverride = process.env[rpcFallbackEnv];
+  console.log("[commission-verify] evm-key-diagnostics", {
+    network,
+    explorerApiKeyPresent: hasKey,
+    rpcFallbackConfigured: Boolean(rpcOverride),
+    rpcFallbackUrl: rpcOverride ? "(configured)" : EVM_RPC_FALLBACKS[network],
+  });
+}
+
+/**
+ * Verifies an EVM USDT transfer using a direct JSON-RPC endpoint.
+ * Called as fallback when the Etherscan/Polygonscan explorer API fails.
+ */
+async function verifyEvmUsdtPaymentViaRpc(input: {
+  network: string;
+  recipientWalletAddress: string;
+  txHash: string;
+  amountDueUsdt: number;
+  rpcUrl: string;
+  networkLabel: string;
+  usdtContract: string;
+  minConfirmations: number;
+}): Promise<CommissionWalletVerificationResult> {
+  const { txHash, rpcUrl, networkLabel, usdtContract, minConfirmations } = input;
+
+  const rpcPost = async (method: string, params: unknown[]) => {
+    const res = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!res.ok) throw new Error(`RPC HTTP ${res.status}`);
+    const data = (await res.json()) as { result?: unknown; error?: { message: string } };
+    if (data.error) throw new Error(`RPC error: ${data.error.message}`);
+    return data.result;
+  };
+
+  console.log("[commission-verify] rpc-fallback-start", { network: input.network, rpcUrl, txHash });
+
+  const receipt = (await rpcPost("eth_getTransactionReceipt", [txHash])) as EvmTxReceipt | null;
+  if (!receipt) {
+    // Check if tx exists but is pending
+    const tx = (await rpcPost("eth_getTransactionByHash", [txHash])) as EvmTx | null;
+    if (tx) {
+      return { verified: false, reference: txHash, notes: "Transaction is still pending confirmations. Please wait and try again once it is confirmed." };
+    }
+    return { verified: false, reference: txHash, notes: `Transaction was not found on ${networkLabel}. Please verify the hash and selected network.` };
+  }
+
+  const rawStatus = receipt.status;
+  const statusInt = typeof rawStatus === "string"
+    ? Number.parseInt(rawStatus, 16)
+    : (typeof rawStatus === "number" ? rawStatus : -1);
+  if (statusInt !== 1) {
+    return {
+      verified: false,
+      reference: txHash,
+      notes: `Transaction was reverted on-chain (status: ${rawStatus ?? "unknown"}) and cannot be used as commission payment.`,
+    };
+  }
+
+  const currentBlockHex = (await rpcPost("eth_blockNumber", [])) as string;
+  const currentBlock = Number.parseInt(currentBlockHex ?? "0x0", 16);
+  const receiptBlock = Number.parseInt(receipt.blockNumber ?? "0x0", 16);
+  const confirmations = currentBlock > 0 && receiptBlock > 0 ? (currentBlock - receiptBlock + 1) : 0;
+  if (confirmations < minConfirmations) {
+    return {
+      verified: false,
+      reference: txHash,
+      notes: `Transaction is confirmed but still waiting for finality (${confirmations}/${minConfirmations} confirmations). Please try again shortly.`,
+    };
+  }
+
+  const recipientPadded = `0x${"0".repeat(24)}${input.recipientWalletAddress.toLowerCase().replace("0x", "")}`;
+  const transferLog = receipt.logs?.find(
+    (log) =>
+      log.address?.toLowerCase() === usdtContract &&
+      log.topics?.[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC &&
+      log.topics?.[2]?.toLowerCase() === recipientPadded,
+  );
+  const wrongTokenLog = receipt.logs?.find(
+    (log) =>
+      log.topics?.[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC &&
+      log.topics?.[2]?.toLowerCase() === recipientPadded,
+  );
+
+  if (!transferLog?.data) {
+    console.log("[commission-verify] rpc-transfer-not-found", {
+      network: input.network, txHash, logsCount: receipt.logs?.length ?? 0,
+      hasWrongTokenTransfer: Boolean(wrongTokenLog),
+    });
+    return {
+      verified: false,
+      reference: txHash,
+      notes: wrongTokenLog
+        ? `This transaction sent tokens to the correct wallet, but not the supported USDT contract on ${networkLabel}.`
+        : `No USDT transfer to the configured Alpha Traders wallet was found. Please verify the destination wallet and selected network.`,
+    };
+  }
+
+  const usdtReceived = Number(BigInt(transferLog.data)) / 1_000_000;
+  if (usdtReceived + 0.000001 < input.amountDueUsdt) {
+    return {
+      verified: false,
+      reference: txHash,
+      notes: `Insufficient payment. Received ${usdtReceived.toFixed(2)} USDT on ${networkLabel}, but ${input.amountDueUsdt.toFixed(2)} USDT is required.`,
+    };
+  }
+  console.log("[commission-verify] rpc-verified", {
+    network: input.network, txHash, rpcUrl,
+    usdtReceived, confirmations,
+  });
+  return { verified: true, reference: txHash, notes: `Verified: ${usdtReceived.toFixed(2)} USDT received on ${networkLabel}.` };
+}
+
 async function verifyEvmUsdtPayment(input: {
   network: string;
   recipientWalletAddress: string;
@@ -6358,6 +6486,10 @@ async function verifyEvmUsdtPayment(input: {
   }
   const apiKey = process.env[EVM_API_KEY_ENVS[input.network] ?? ""] ?? "";
   const networkLabel = input.network === "ERC20" ? "Ethereum" : "Polygon";
+  const minConfirmations = Math.max(1, Number(process.env.ALPHA_EXCHANGE_EVM_MIN_CONFIRMATIONS ?? "3"));
+
+  // Log key presence on every attempt so Vercel logs show configuration status.
+  logEvmKeyDiagnostics(input.network, Boolean(apiKey));
   console.log("[commission-verify] evm-lookup-start", {
     network: input.network,
     txHash: input.txHash,
@@ -6366,148 +6498,142 @@ async function verifyEvmUsdtPayment(input: {
     hasApiKey: Boolean(apiKey),
   });
 
-  const params = new URLSearchParams({ module: "proxy", action: "eth_getTransactionReceipt", txhash: input.txHash });
-  if (apiKey) params.set("apikey", apiKey);
+  // ── Primary: Etherscan / Polygonscan explorer API ──────────────────────────
+  let primaryError: string | null = null;
+  try {
+    const params = new URLSearchParams({ module: "proxy", action: "eth_getTransactionReceipt", txhash: input.txHash });
+    if (apiKey) params.set("apikey", apiKey);
 
-  const res = await fetch(`${baseUrl}?${params.toString()}`, {
-    headers: { Accept: "application/json" },
-    signal: AbortSignal.timeout(12_000),
-  });
-  if (!res.ok) throw new Error(`Explorer API HTTP ${res.status}`);
-  const data = (await res.json()) as { result?: EvmTxReceipt | string | null; message?: string; status?: string };
-
-  // Etherscan/Polygonscan return `result` as a plain string on API-level errors
-  // (rate limits, invalid key, network issues). A string result is NOT a failed
-  // transaction — it is a service error. Must be handled before casting to EvmTxReceipt.
-  if (typeof data.result === "string") {
-    console.error("[commission-verify] evm-api-error", {
-      network: input.network,
-      txHash: input.txHash,
-      apiMessage: data.message,
-      apiResult: data.result,
-    });
-    throw new Error(`${networkLabel} explorer API error: ${data.result}`);
-  }
-
-  if (!data.result) {
-    // Receipt not yet available — check if the tx exists but is pending
-    const txParams = new URLSearchParams({ module: "proxy", action: "eth_getTransactionByHash", txhash: input.txHash });
-    if (apiKey) txParams.set("apikey", apiKey);
-    const txRes = await fetch(`${baseUrl}?${txParams.toString()}`, {
+    const res = await fetch(`${baseUrl}?${params.toString()}`, {
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(12_000),
     });
-    if (!txRes.ok) throw new Error(`Explorer API HTTP ${txRes.status}`);
-    const txData = (await txRes.json()) as { result?: EvmTx | string | null };
-    if (txData.result && typeof txData.result === "object") {
-      console.log("[commission-verify] evm-pending", { network: input.network, txHash: input.txHash });
+    if (!res.ok) throw new Error(`Explorer API HTTP ${res.status}`);
+    const data = (await res.json()) as { result?: EvmTxReceipt | string | null; message?: string; status?: string };
+
+    // Etherscan/Polygonscan return `result` as a plain string on API-level errors
+    // (rate limits, invalid key, network issues). Throw so the fallback runs.
+    if (typeof data.result === "string") {
+      console.error("[commission-verify] evm-api-error-will-fallback", {
+        network: input.network,
+        txHash: input.txHash,
+        apiMessage: data.message,
+        apiResult: data.result,
+      });
+      throw new Error(`${networkLabel} explorer API error: ${data.result}`);
+    }
+
+    if (!data.result) {
+      // Receipt not yet available — check if tx exists but is pending
+      const txParams = new URLSearchParams({ module: "proxy", action: "eth_getTransactionByHash", txhash: input.txHash });
+      if (apiKey) txParams.set("apikey", apiKey);
+      const txRes = await fetch(`${baseUrl}?${txParams.toString()}`, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(12_000),
+      });
+      if (!txRes.ok) throw new Error(`Explorer API HTTP ${txRes.status}`);
+      const txData = (await txRes.json()) as { result?: EvmTx | string | null };
+      if (txData.result && typeof txData.result === "object") {
+        console.log("[commission-verify] evm-pending", { network: input.network, txHash: input.txHash });
+        return { verified: false, reference: input.txHash, notes: "Transaction is still pending confirmations on the selected network. Please wait and try again once it is confirmed." };
+      }
+      if (typeof txData.result === "string") throw new Error(`${networkLabel} explorer API error: ${txData.result}`);
+      console.log("[commission-verify] evm-not-found", { network: input.network, txHash: input.txHash });
+      return { verified: false, reference: input.txHash, notes: `Transaction was not found on the selected ${networkLabel} network. Please verify the hash and selected network.` };
+    }
+
+    const receipt = data.result as EvmTxReceipt;
+    const rawStatus = receipt.status;
+    const statusInt = typeof rawStatus === "string"
+      ? Number.parseInt(rawStatus, 16)
+      : (typeof rawStatus === "number" ? rawStatus : -1);
+    if (statusInt !== 1) {
+      console.log("[commission-verify] evm-tx-failed", { network: input.network, txHash: input.txHash, rawStatus });
+      return { verified: false, reference: input.txHash, notes: `Transaction was reverted on-chain (status: ${rawStatus ?? "unknown"}) and cannot be used as commission payment. Please check your wallet for a failed transaction and try a new one.` };
+    }
+
+    const blockParams = new URLSearchParams({ module: "proxy", action: "eth_blockNumber" });
+    if (apiKey) blockParams.set("apikey", apiKey);
+    const blockRes = await fetch(`${baseUrl}?${blockParams.toString()}`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!blockRes.ok) throw new Error(`Explorer API HTTP ${blockRes.status}`);
+    const blockData = (await blockRes.json()) as { result?: string };
+    if (typeof blockData.result === "string" && !blockData.result.startsWith("0x")) {
+      throw new Error(`${networkLabel} explorer API error (blockNumber): ${blockData.result}`);
+    }
+    const currentBlock = Number.parseInt(blockData.result ?? "0x0", 16);
+    const receiptBlock = Number.parseInt(receipt.blockNumber ?? "0x0", 16);
+    const confirmations = currentBlock > 0 && receiptBlock > 0 ? (currentBlock - receiptBlock + 1) : 0;
+    if (confirmations < minConfirmations) {
+      console.log("[commission-verify] evm-insufficient-confirmations", { network: input.network, txHash: input.txHash, confirmations, minConfirmations });
+      return { verified: false, reference: input.txHash, notes: `Transaction is confirmed but still waiting for finality (${confirmations}/${minConfirmations} confirmations). Please try again shortly.` };
+    }
+
+    const recipientPadded = `0x${"0".repeat(24)}${input.recipientWalletAddress.toLowerCase().replace("0x", "")}`;
+    const transferLog = receipt.logs?.find(
+      (log) =>
+        log.address?.toLowerCase() === usdtContract &&
+        log.topics?.[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC &&
+        log.topics?.[2]?.toLowerCase() === recipientPadded,
+    );
+    const wrongTokenLog = receipt.logs?.find(
+      (log) =>
+        log.topics?.[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC &&
+        log.topics?.[2]?.toLowerCase() === recipientPadded,
+    );
+
+    if (!transferLog?.data) {
+      console.log("[commission-verify] evm-transfer-not-found", {
+        network: input.network, txHash: input.txHash,
+        recipientWalletAddress: input.recipientWalletAddress,
+        usdtContract, logsCount: receipt.logs?.length ?? 0,
+        hasWrongTokenTransfer: Boolean(wrongTokenLog),
+      });
       return {
         verified: false,
         reference: input.txHash,
-        notes: "Transaction is still pending confirmations on the selected network. Please wait and try again once it is confirmed.",
+        notes: wrongTokenLog
+          ? `This transaction sent tokens to the correct wallet, but not the supported USDT contract on ${networkLabel}.`
+          : `No USDT transfer to the configured Alpha Traders wallet was found. Please verify the destination wallet and selected network.`,
       };
     }
-    console.log("[commission-verify] evm-not-found", { network: input.network, txHash: input.txHash });
-    return {
-      verified: false,
-      reference: input.txHash,
-      notes: `Transaction was not found on the selected ${networkLabel} network. Please verify the hash and selected network.`,
-    };
+
+    const usdtReceived = Number(BigInt(transferLog.data)) / 1_000_000;
+    if (usdtReceived + 0.000001 < input.amountDueUsdt) {
+      console.log("[commission-verify] evm-insufficient-amount", { network: input.network, txHash: input.txHash, usdtReceived, amountDueUsdt: input.amountDueUsdt });
+      return { verified: false, reference: input.txHash, notes: `Insufficient payment. Received ${usdtReceived.toFixed(2)} USDT on ${networkLabel}, but ${input.amountDueUsdt.toFixed(2)} USDT is required.` };
+    }
+    console.log("[commission-verify] evm-verified", { network: input.network, txHash: input.txHash, usdtReceived, confirmations, via: "explorer" });
+    return { verified: true, reference: input.txHash, notes: `Verified: ${usdtReceived.toFixed(2)} USDT received on ${networkLabel}.` };
+  } catch (explorerError) {
+    primaryError = explorerError instanceof Error ? explorerError.message : String(explorerError);
+    console.warn("[commission-verify] evm-explorer-failed-trying-rpc", { network: input.network, txHash: input.txHash, error: primaryError });
   }
 
-  const receipt = data.result as EvmTxReceipt;
-  // Normalize status: accept "0x1", "0x01", or decimal "1" / 1 as success.
-  const rawStatus = receipt.status;
-  const statusInt = typeof rawStatus === "string"
-    ? Number.parseInt(rawStatus, 16)
-    : (typeof rawStatus === "number" ? rawStatus : -1);
-  if (statusInt !== 1) {
-    console.log("[commission-verify] evm-tx-failed", {
-      network: input.network, txHash: input.txHash, rawStatus,
-    });
-    return {
-      verified: false,
-      reference: input.txHash,
-      notes: `Transaction was reverted on-chain (status: ${rawStatus ?? "unknown"}) and cannot be used as commission payment. Please check your wallet for a failed transaction and try a new one.`,
-    };
-  }
-
-  const blockParams = new URLSearchParams({ module: "proxy", action: "eth_blockNumber" });
-  if (apiKey) blockParams.set("apikey", apiKey);
-  const blockRes = await fetch(`${baseUrl}?${blockParams.toString()}`, {
-    headers: { Accept: "application/json" },
-    signal: AbortSignal.timeout(12_000),
-  });
-  if (!blockRes.ok) throw new Error(`Explorer API HTTP ${blockRes.status}`);
-  const blockData = (await blockRes.json()) as { result?: string };
-  const currentBlock = Number.parseInt(blockData.result ?? "0x0", 16);
-  const receiptBlock = Number.parseInt(receipt.blockNumber ?? "0x0", 16);
-  const minConfirmations = Math.max(1, Number(process.env.ALPHA_EXCHANGE_EVM_MIN_CONFIRMATIONS ?? "3"));
-  const confirmations = currentBlock > 0 && receiptBlock > 0 ? (currentBlock - receiptBlock + 1) : 0;
-  if (confirmations < minConfirmations) {
-    console.log("[commission-verify] evm-insufficient-confirmations", {
-      network: input.network, txHash: input.txHash, confirmations, minConfirmations,
-    });
-    return {
-      verified: false,
-      reference: input.txHash,
-      notes: `Transaction is confirmed but still waiting for finality (${confirmations}/${minConfirmations} confirmations). Please try again shortly.`,
-    };
-  }
-
-  // Find ERC20 Transfer event from USDT contract to recipient wallet
-  const recipientPadded = `0x${"0".repeat(24)}${input.recipientWalletAddress.toLowerCase().replace("0x", "")}`;
-  const transferLog = receipt.logs?.find(
-    (log) =>
-      log.address?.toLowerCase() === usdtContract &&
-      log.topics?.[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC &&
-      log.topics?.[2]?.toLowerCase() === recipientPadded,
-  );
-
-  const wrongTokenLog = receipt.logs?.find(
-    (log) =>
-      log.topics?.[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC &&
-      log.topics?.[2]?.toLowerCase() === recipientPadded,
-  );
-
-  if (!transferLog?.data) {
-    console.log("[commission-verify] evm-transfer-not-found", {
+  // ── Fallback: direct JSON-RPC endpoint (no API key needed) ─────────────────
+  const rpcEnvKey = input.network === "ERC20" ? "ALPHA_EXCHANGE_ETH_RPC_URL" : "ALPHA_EXCHANGE_POLYGON_RPC_URL";
+  const rpcUrl = process.env[rpcEnvKey] ?? EVM_RPC_FALLBACKS[input.network];
+  try {
+    return await verifyEvmUsdtPaymentViaRpc({
       network: input.network,
-      txHash: input.txHash,
       recipientWalletAddress: input.recipientWalletAddress,
+      txHash: input.txHash,
+      amountDueUsdt: input.amountDueUsdt,
+      rpcUrl,
+      networkLabel,
       usdtContract,
-      logsCount: receipt.logs?.length ?? 0,
-      hasWrongTokenTransfer: Boolean(wrongTokenLog),
+      minConfirmations,
     });
-    return {
-      verified: false,
-      reference: input.txHash,
-      notes: wrongTokenLog
-        ? `This transaction sent tokens to the correct wallet, but not the supported USDT contract on ${networkLabel}.`
-        : `No USDT transfer to the configured Alpha Traders wallet was found. Please verify the destination wallet and selected network.`,
-    };
-  }
-
-  const usdtReceived = Number(BigInt(transferLog.data)) / 1_000_000;
-  if (usdtReceived + 0.000001 < input.amountDueUsdt) {
-    console.log("[commission-verify] evm-insufficient-amount", {
+  } catch (rpcError) {
+    const rpcMsg = rpcError instanceof Error ? rpcError.message : String(rpcError);
+    console.error("[commission-verify] evm-both-verifiers-failed", {
       network: input.network, txHash: input.txHash,
-      usdtReceived, amountDueUsdt: input.amountDueUsdt,
+      explorerError: primaryError, rpcError: rpcMsg, rpcUrl,
     });
-    return {
-      verified: false,
-      reference: input.txHash,
-      notes: `Insufficient payment. Received ${usdtReceived.toFixed(2)} USDT on ${networkLabel}, but ${input.amountDueUsdt.toFixed(2)} USDT is required.`,
-    };
+    throw new Error(`Both ${networkLabel} verifiers failed. Explorer: ${primaryError}. RPC: ${rpcMsg}`);
   }
-  console.log("[commission-verify] evm-verified", {
-    network: input.network,
-    txHash: input.txHash,
-    recipientWalletAddress: input.recipientWalletAddress,
-    usdtReceived,
-    confirmations,
-  });
-  return { verified: true, reference: input.txHash, notes: `Verified: ${usdtReceived.toFixed(2)} USDT received on ${networkLabel}.` };
 }
 
 async function verifySolanaUsdtPayment(input: {
