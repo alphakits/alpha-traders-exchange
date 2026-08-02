@@ -6307,7 +6307,23 @@ type CommissionWalletVerificationResult = {
   notes: string;
 };
 
-/** EVM USDT contract addresses (lowercase) */
+/**
+ * Supported stablecoin payment tokens per EVM network (all 6-decimal, ≈$1 USD value).
+ * Any of these transferred to the commission wallet counts as valid commission payment.
+ * Key = lowercase contract address.
+ */
+const EVM_SUPPORTED_TOKENS: Record<string, Record<string, { symbol: string; decimals: number }>> = {
+  ERC20: {
+    "0xdac17f958d2ee523a2206206994597c13d831ec7": { symbol: "USDT", decimals: 6 },
+    "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": { symbol: "USDC", decimals: 6 },
+  },
+  POLYGON: {
+    "0xc2132d05d31c914a87c6611c10748aeb04b58e8f": { symbol: "USDT", decimals: 6 },
+    "0x2791bca1f2de4661ed88a30c99a7a9449aa84174": { symbol: "USDC.e", decimals: 6 },  // bridged USDC
+    "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359": { symbol: "USDC",   decimals: 6 },  // native USDC
+  },
+};
+/** Primary USDT contract per network — used for cross-network probing and RPC fallback compatibility */
 const EVM_USDT_CONTRACTS: Record<string, string> = {
   ERC20: "0xdac17f958d2ee523a2206206994597c13d831ec7",
   POLYGON: "0xc2132d05d31c914a87c6611c10748aeb04b58e8f",
@@ -6385,7 +6401,7 @@ async function verifyEvmUsdtPaymentViaRpc(input: {
   usdtContract: string;
   minConfirmations: number;
 }): Promise<CommissionWalletVerificationResult> {
-  const { txHash, rpcUrl, networkLabel, usdtContract, minConfirmations } = input;
+  const { txHash, rpcUrl, networkLabel, minConfirmations } = input;
 
   const rpcPost = async (method: string, params: unknown[]) => {
     const res = await fetch(rpcUrl, {
@@ -6437,13 +6453,19 @@ async function verifyEvmUsdtPaymentViaRpc(input: {
   }
 
   const recipientPadded = `0x${"0".repeat(24)}${input.recipientWalletAddress.toLowerCase().replace("0x", "")}`;
+  const networkTokens = EVM_SUPPORTED_TOKENS[input.network] ?? {};
+
+  // Find the first supported-token Transfer event where commission wallet is the recipient.
+  // Scans ALL logs (including those from internal contract calls) so proxy/relay payments are covered.
   const transferLog = receipt.logs?.find(
     (log) =>
-      log.address?.toLowerCase() === usdtContract &&
+      log.address?.toLowerCase() !== undefined &&
+      networkTokens[log.address.toLowerCase()] !== undefined &&
       log.topics?.[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC &&
       log.topics?.[2]?.toLowerCase() === recipientPadded,
   );
-  const wrongTokenLog = receipt.logs?.find(
+  // Any ERC-20 Transfer to the commission wallet (supported or unsupported token) — for diagnostics
+  const anyTokenToWallet = receipt.logs?.find(
     (log) =>
       log.topics?.[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC &&
       log.topics?.[2]?.toLowerCase() === recipientPadded,
@@ -6456,35 +6478,40 @@ async function verifyEvmUsdtPaymentViaRpc(input: {
   );
 
   if (!transferLog?.data) {
+    const supportedSymbols = Object.values(networkTokens).map((t) => t.symbol).join(", ");
     console.log("[commission-verify] rpc-transfer-not-found", {
       network: input.network, txHash, logsCount: receipt.logs?.length ?? 0,
-      hasWrongTokenTransfer: Boolean(wrongTokenLog),
+      anyTokenToWallet: Boolean(anyTokenToWallet),
+      anyTokenAddress: anyTokenToWallet?.address,
       commissionWalletInAnyTransfer,
     });
     let notes: string;
-    if (wrongTokenLog) {
-      notes = `This transaction sent tokens to the correct wallet, but not the supported USDT contract on ${networkLabel}. Please send USDT (not USDC or other tokens) and try again.`;
+    if (anyTokenToWallet) {
+      const tokenAddr = anyTokenToWallet.address?.toLowerCase() ?? "";
+      const tokenSymbol = networkTokens[tokenAddr]?.symbol ?? anyTokenToWallet.address;
+      notes = `This transaction sent ${tokenSymbol} to the correct wallet, but that token is not a supported payment asset on ${networkLabel}. Accepted assets: ${supportedSymbols}.`;
     } else if (!commissionWalletInAnyTransfer) {
       notes = `This transaction does not include any transfer to or from the Alpha Traders commission wallet. Please verify you submitted the correct transaction hash — the commission payment transaction, not an unrelated wallet activity.`;
     } else {
-      notes = `No USDT transfer to the configured Alpha Traders wallet was found. Please verify the destination wallet and selected network.`;
+      notes = `No supported stablecoin transfer to the Alpha Traders commission wallet was found. Accepted assets: ${supportedSymbols}. Please verify the destination wallet and selected network.`;
     }
     return { verified: false, reference: txHash, notes };
   }
 
-  const usdtReceived = Number(BigInt(transferLog.data)) / 1_000_000;
-  if (usdtReceived + 0.000001 < input.amountDueUsdt) {
+  const tokenMeta = networkTokens[transferLog.address?.toLowerCase() ?? ""] ?? { symbol: "USDT", decimals: 6 };
+  const amountReceived = Number(BigInt(transferLog.data)) / Math.pow(10, tokenMeta.decimals);
+  if (amountReceived + 0.000001 < input.amountDueUsdt) {
     return {
       verified: false,
       reference: txHash,
-      notes: `Insufficient payment. Received ${usdtReceived.toFixed(2)} USDT on ${networkLabel}, but ${input.amountDueUsdt.toFixed(2)} USDT is required.`,
+      notes: `Insufficient payment. Received ${amountReceived.toFixed(2)} ${tokenMeta.symbol} on ${networkLabel}, but ${input.amountDueUsdt.toFixed(2)} USD is required.`,
     };
   }
   console.log("[commission-verify] rpc-verified", {
     network: input.network, txHash, rpcUrl,
-    usdtReceived, confirmations,
+    token: tokenMeta.symbol, amountReceived, confirmations,
   });
-  return { verified: true, reference: txHash, notes: `Verified: ${usdtReceived.toFixed(2)} USDT received on ${networkLabel}.` };
+  return { verified: true, reference: txHash, notes: `Verified: ${amountReceived.toFixed(2)} ${tokenMeta.symbol} received on ${networkLabel}.` };
 }
 
 async function verifyEvmUsdtPayment(input: {
@@ -6614,14 +6641,19 @@ async function verifyEvmUsdtPayment(input: {
     }
 
     const recipientPadded = `0x${"0".repeat(24)}${input.recipientWalletAddress.toLowerCase().replace("0x", "")}`;
+    const networkTokens = EVM_SUPPORTED_TOKENS[input.network] ?? {};
+
+    // Find any supported-stablecoin Transfer to the commission wallet.
+    // Scans ALL logs (including those from internal contract calls) so proxy/relay payments are covered.
     const transferLog = receipt.logs?.find(
       (log) =>
-        log.address?.toLowerCase() === usdtContract &&
+        log.address?.toLowerCase() !== undefined &&
+        networkTokens[log.address.toLowerCase()] !== undefined &&
         log.topics?.[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC &&
         log.topics?.[2]?.toLowerCase() === recipientPadded,
     );
-    // Any ERC-20 transfer to the commission wallet (regardless of token) — catches USDC-instead-of-USDT mistakes
-    const wrongTokenLog = receipt.logs?.find(
+    // Any ERC-20 Transfer to the commission wallet (supported or unsupported token) — for diagnostics
+    const anyTokenToWallet = receipt.logs?.find(
       (log) =>
         log.topics?.[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC &&
         log.topics?.[2]?.toLowerCase() === recipientPadded,
@@ -6633,7 +6665,6 @@ async function verifyEvmUsdtPayment(input: {
         .map((log) => log.address?.toLowerCase())
         .filter(Boolean)
     )];
-    // Does the commission wallet appear in any transfer at all (as sender or recipient)?
     const commissionWalletInAnyTransfer = (receipt.logs ?? []).some(
       (log) =>
         log.topics?.[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC &&
@@ -6642,32 +6673,37 @@ async function verifyEvmUsdtPayment(input: {
     );
 
     if (!transferLog?.data) {
+      const supportedSymbols = Object.values(networkTokens).map((t) => t.symbol).join(", ");
       console.log("[commission-verify] evm-transfer-not-found", {
         network: input.network, txHash: input.txHash,
         recipientWalletAddress: input.recipientWalletAddress,
-        usdtContract, logsCount: receipt.logs?.length ?? 0,
+        logsCount: receipt.logs?.length ?? 0,
         tokenAddressesInTx,
-        hasWrongTokenTransfer: Boolean(wrongTokenLog),
+        anyTokenToWallet: Boolean(anyTokenToWallet),
+        anyTokenAddress: anyTokenToWallet?.address,
         commissionWalletInAnyTransfer,
       });
       let notes: string;
-      if (wrongTokenLog) {
-        notes = `This transaction sent tokens to the correct wallet, but not the supported USDT contract on ${networkLabel}. Please send USDT (not USDC or other tokens) and try again.`;
+      if (anyTokenToWallet) {
+        const tokenAddr = anyTokenToWallet.address?.toLowerCase() ?? "";
+        const tokenSymbol = networkTokens[tokenAddr]?.symbol ?? anyTokenToWallet.address;
+        notes = `This transaction sent ${tokenSymbol} to the correct wallet, but that token is not a supported payment asset on ${networkLabel}. Accepted assets: ${supportedSymbols}.`;
       } else if (!commissionWalletInAnyTransfer) {
         notes = `This transaction does not include any transfer to or from the Alpha Traders commission wallet. Please verify you submitted the correct transaction hash — the commission payment transaction, not an unrelated wallet activity.`;
       } else {
-        notes = `No USDT transfer to the configured Alpha Traders wallet was found. Please verify the destination wallet and selected network.`;
+        notes = `No supported stablecoin transfer to the Alpha Traders commission wallet was found. Accepted assets: ${supportedSymbols}. Please verify the destination wallet and selected network.`;
       }
       return { verified: false, reference: input.txHash, notes };
     }
 
-    const usdtReceived = Number(BigInt(transferLog.data)) / 1_000_000;
-    if (usdtReceived + 0.000001 < input.amountDueUsdt) {
-      console.log("[commission-verify] evm-insufficient-amount", { network: input.network, txHash: input.txHash, usdtReceived, amountDueUsdt: input.amountDueUsdt });
-      return { verified: false, reference: input.txHash, notes: `Insufficient payment. Received ${usdtReceived.toFixed(2)} USDT on ${networkLabel}, but ${input.amountDueUsdt.toFixed(2)} USDT is required.` };
+    const tokenMeta = networkTokens[transferLog.address?.toLowerCase() ?? ""] ?? { symbol: "USDT", decimals: 6 };
+    const amountReceived = Number(BigInt(transferLog.data)) / Math.pow(10, tokenMeta.decimals);
+    if (amountReceived + 0.000001 < input.amountDueUsdt) {
+      console.log("[commission-verify] evm-insufficient-amount", { network: input.network, txHash: input.txHash, token: tokenMeta.symbol, amountReceived, amountDueUsdt: input.amountDueUsdt });
+      return { verified: false, reference: input.txHash, notes: `Insufficient payment. Received ${amountReceived.toFixed(2)} ${tokenMeta.symbol} on ${networkLabel}, but ${input.amountDueUsdt.toFixed(2)} USD is required.` };
     }
-    console.log("[commission-verify] evm-verified", { network: input.network, txHash: input.txHash, usdtReceived, confirmations, via: "explorer" });
-    return { verified: true, reference: input.txHash, notes: `Verified: ${usdtReceived.toFixed(2)} USDT received on ${networkLabel}.` };
+    console.log("[commission-verify] evm-verified", { network: input.network, txHash: input.txHash, token: tokenMeta.symbol, amountReceived, confirmations, via: "explorer" });
+    return { verified: true, reference: input.txHash, notes: `Verified: ${amountReceived.toFixed(2)} ${tokenMeta.symbol} received on ${networkLabel}.` };
   } catch (explorerError) {
     primaryError = explorerError instanceof Error ? explorerError.message : String(explorerError);
     console.warn("[commission-verify] evm-explorer-failed-trying-rpc", { network: input.network, txHash: input.txHash, error: primaryError });
