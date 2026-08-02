@@ -980,6 +980,7 @@ export function TradeRoomPage({
     perfClickTsRef.current = clickTs;
     const startedAt = clickTs;
     const optimisticStartedAt = performance.now();
+    roomRef.current = optimisticRoom;
     setRoom(optimisticRoom);
     writeTradeRoomCache(requestId, optimisticRoom);
     const optimisticUiMs = Math.round(performance.now() - optimisticStartedAt);
@@ -1052,6 +1053,7 @@ export function TradeRoomPage({
       }
       if (responsePayload.request) {
         const nextRoom = applyRequestToRoom(optimisticRoom, responsePayload.request);
+        roomRef.current = nextRoom;
         setRoom(nextRoom);
         writeTradeRoomCache(requestId, nextRoom);
       }
@@ -1089,6 +1091,7 @@ export function TradeRoomPage({
         }
         setStatusMessage(isAr ? "تم تحديث حالة الصفقة بعد تأكيد الخادم." : "Trade status updated after server confirmation.");
       } else {
+        roomRef.current = previousRoom;
         setRoom(previousRoom);
         writeTradeRoomCache(requestId, previousRoom);
         const message = error instanceof Error
@@ -1174,6 +1177,7 @@ export function TradeRoomPage({
       file,
       autoAdvanceStatus,
     });
+    roomRef.current = optimisticRoom;
     setRoom(optimisticRoom);
     writeTradeRoomCache(requestId, optimisticRoom);
     try {
@@ -1214,6 +1218,7 @@ export function TradeRoomPage({
           nextRoom = applyRequestToRoom(nextRoom, statusPayload.request);
         }
       }
+      roomRef.current = nextRoom;
       setRoom(nextRoom);
       writeTradeRoomCache(requestId, nextRoom);
       if (side === "buyer") setBuyerEvidenceFile(null);
@@ -1240,6 +1245,7 @@ export function TradeRoomPage({
           : (isAr ? "تم رفع الإثبات بنجاح." : "Evidence uploaded."),
       );
     } catch (error) {
+      roomRef.current = previousRoom;
       setRoom(previousRoom);
       writeTradeRoomCache(requestId, previousRoom);
       setStatusMessage(error instanceof Error ? error.message : (isAr ? "تعذر رفع الإثبات." : "Failed to upload evidence."));
