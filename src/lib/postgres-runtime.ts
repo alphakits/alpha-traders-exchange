@@ -41,9 +41,11 @@ export function getRuntimePostgresPool() {
     const pool = new Pool({
       connectionString,
       ssl: process.env.SUPABASE_DB_SSL === "false" ? undefined : { rejectUnauthorized: false },
-      // Keep the pool small for serverless environments (Vercel Functions).
-      // Each function instance creates its own pool; a large max multiplies quickly.
-      max: 2,
+      // 5 connections per instance balances parallelism with Supabase pooler limits.
+      // loadSnapshot issues 23 parallel queries; with max:2 they serialize into ~12 batches
+      // (≈1200ms). With max:5 they batch into ~5 rounds (≈400ms), saving ~800ms per cold load.
+      // Each Vercel function instance still holds at most 5 connections concurrently.
+      max: 5,
       idleTimeoutMillis: 10_000,
       connectionTimeoutMillis: 5_000,
     });

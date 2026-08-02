@@ -1806,7 +1806,13 @@ const ADMIN_LISTING_OVERRIDE_TABLES = ["listings", "purchase_requests", "notific
 async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<string, Buffer>; traceTag?: string; selectedTables?: readonly SnapshotTableName[] }) {
   const normalized = normalizeDb(db);
   ensureDisplayNumbers(normalized);
+  const tables = options?.selectedTables ?? ["(all)"];
+  const storeWriteStart = process.env.ALPHA_EXCHANGE_PERF === "1" ? Date.now() : 0;
   const writeTask = dbWriteInFlight.then(async () => {
+    if (process.env.ALPHA_EXCHANGE_PERF === "1") {
+      const waitedMs = Date.now() - storeWriteStart;
+      console.log(`[STORE-PERF] writeDb[${tables.join(",")}] waited_for_prev_write ${waitedMs}ms`);
+    }
     const repository = await getAlphaExchangeRepository();
     await repository.saveSnapshot(normalized, {
       evidenceOverrides: options?.evidenceOverrides,
@@ -1817,6 +1823,9 @@ async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<
   dbWriteInFlight = writeTask.catch(() => undefined);
   try {
     await writeTask;
+    if (process.env.ALPHA_EXCHANGE_PERF === "1") {
+      console.log(`[STORE-PERF] writeDb[${tables.join(",")}] total ${Date.now() - storeWriteStart}ms`);
+    }
     dbCache = { value: normalized, updatedAt: Date.now() };
   } finally {
     dbReadInFlight = null;
