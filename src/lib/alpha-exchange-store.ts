@@ -5733,7 +5733,17 @@ export async function updatePurchaseRequestStatus(input: {
       }
     }
   }
-  const listing = getListingByIdOrThrow(db, request.listingId);
+  // Nullable lookup — the listing may no longer exist for in-progress trades (admin delete, cascade, data migration).
+  // Acceptance strictly requires a live listing; all other transitions use it opportunistically.
+  const listing = db.marketplaceListings.find((item) => item.id === request.listingId);
+  if (!listing) {
+    console.warn("[trade-store] listing not found for in-progress transition", {
+      requestId: input.requestId,
+      listingId: request.listingId,
+      nextStatus: input.nextStatus,
+      currentStatus,
+    });
+  }
   const requestPaymentMethod = normalizeMarketplacePaymentMethod(request.paymentMethod) ?? "Bank Transfer";
   const isFaceToFaceTrade = isFaceToFacePaymentMethod(requestPaymentMethod);
   const isAtmTrade = isCardlessAtmPaymentMethod(requestPaymentMethod);
@@ -5779,6 +5789,13 @@ export async function updatePurchaseRequestStatus(input: {
   };
 
   if (input.nextStatus === "accepted") {
+    if (!listing) {
+      throw new TradeBlockedError("listing-not-found", "Listing not found.", request.id, {
+        guard: "listing-exists",
+        listingId: request.listingId,
+        nextStatus: input.nextStatus,
+      });
+    }
     if (listing.sellerId !== input.actorUserId && !isAdmin) {
       throw new Error("Only the seller can accept this trade.");
     }
@@ -5872,7 +5889,7 @@ export async function updatePurchaseRequestStatus(input: {
   } else if (input.nextStatus === "cancelled") {
     next.status = "cancelled";
     appendTradeTimelineEntry(next, { type: "request_cancelled", actorUserId: input.actorUserId, actorRole, message: "Buyer cancelled request", createdAt: now });
-    if (listing.activeTradeRequestId === request.id) {
+    if (listing && listing.activeTradeRequestId === request.id) {
       unlockListingAfterCancelledTrade(db, listing, input.actorUserId, request, "Buyer cancelled the trade.");
     }
   } else if (input.nextStatus === "payment_sent") {
@@ -5881,7 +5898,7 @@ export async function updatePurchaseRequestStatus(input: {
     next.status = "payment_sent";
     next.buyerEvidence = buyerEvidence;
     next.paymentSentAt = now;
-    if (listing.activeTradeRequestId === request.id) {
+    if (listing && listing.activeTradeRequestId === request.id) {
       listing.status = "in_trade";
       listing.updatedAt = now;
     }
@@ -5995,37 +6012,44 @@ export async function updatePurchaseRequestStatus(input: {
       createdAt: now,
     });
 
-    const remainingAmount = Math.max(0, toNumber(listing.availableAmount) - toNumber(next.usdtAmount));
-    listing.availableAmount = remainingAmount.toFixed(2).replace(/\.00$/, "");
-    listing.activeTradeRequestId = undefined;
-    listing.lockedAt = undefined;
-    listing.updatedAt = now;
-    if (remainingAmount > 0) {
-      const expiresMs = listing.expiresAt ? new Date(listing.expiresAt).getTime() : 0;
-      const shouldExpire = Boolean(expiresMs && !Number.isNaN(expiresMs) && expiresMs <= Date.now());
-      listing.status = shouldExpire ? "expired" : "active";
-      listing.expiredAt = shouldExpire ? now : undefined;
-      await appendListingStateAudit(db, {
-        action: shouldExpire ? "listing_expired" : "listing_reopened",
-        actorUserId: input.actorUserId,
-        targetUserId: request.sellerId,
-        listingId: request.listingId,
-        purchaseRequestId: request.id,
-        details: shouldExpire
-          ? `Listing ${listing.id} expired after trade completion with ${listing.availableAmount} USDT remaining.`
-          : `Listing ${listing.id} reopened with ${listing.availableAmount} USDT remaining.`,
-      });
+    const remainingAmount = listing ? Math.max(0, toNumber(listing.availableAmount) - toNumber(next.usdtAmount)) : 0;
+    if (listing) {
+      listing.availableAmount = remainingAmount.toFixed(2).replace(/\.00$/, "");
+      listing.activeTradeRequestId = undefined;
+      listing.lockedAt = undefined;
+      listing.updatedAt = now;
+      if (remainingAmount > 0) {
+        const expiresMs = listing.expiresAt ? new Date(listing.expiresAt).getTime() : 0;
+        const shouldExpire = Boolean(expiresMs && !Number.isNaN(expiresMs) && expiresMs <= Date.now());
+        listing.status = shouldExpire ? "expired" : "active";
+        listing.expiredAt = shouldExpire ? now : undefined;
+        await appendListingStateAudit(db, {
+          action: shouldExpire ? "listing_expired" : "listing_reopened",
+          actorUserId: input.actorUserId,
+          targetUserId: request.sellerId,
+          listingId: request.listingId,
+          purchaseRequestId: request.id,
+          details: shouldExpire
+            ? `Listing ${listing.id} expired after trade completion with ${listing.availableAmount} USDT remaining.`
+            : `Listing ${listing.id} reopened with ${listing.availableAmount} USDT remaining.`,
+        });
+      } else {
+        listing.availableAmount = "0";
+        listing.status = "completed";
+        listing.completedAt = now;
+        await appendListingStateAudit(db, {
+          action: "listing_completed",
+          actorUserId: input.actorUserId,
+          targetUserId: request.sellerId,
+          listingId: request.listingId,
+          purchaseRequestId: request.id,
+          details: `Listing ${listing.id} completed after selling out.`,
+        });
+      }
     } else {
-      listing.availableAmount = "0";
-      listing.status = "completed";
-      listing.completedAt = now;
-      await appendListingStateAudit(db, {
-        action: "listing_completed",
-        actorUserId: input.actorUserId,
-        targetUserId: request.sellerId,
+      console.warn("[trade-store] listing not found during completion — skipping listing state update", {
+        requestId: input.requestId,
         listingId: request.listingId,
-        purchaseRequestId: request.id,
-        details: `Listing ${listing.id} completed after selling out.`,
       });
     }
     const hasCommission = db.commissionRecords.some((record) => record.purchaseRequestId === request.id);
@@ -6156,9 +6180,9 @@ export async function updatePurchaseRequestStatus(input: {
       requestId: next.id,
       tradeId: next.tradeId ?? null,
       purchaseRequestStatus: next.status,
-      listingId: listing.id,
-      listingStatus: listing.status,
-      listingActiveTradeRequestId: listing.activeTradeRequestId ?? null,
+      listingId: listing?.id ?? null,
+      listingStatus: listing?.status ?? null,
+      listingActiveTradeRequestId: listing?.activeTradeRequestId ?? null,
       sellerId: next.sellerId,
       buyerId: next.buyerId,
     });
