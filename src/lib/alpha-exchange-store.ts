@@ -1766,7 +1766,10 @@ const SELLER_PROFILE_STATE_TABLES = [...USER_PROFILE_TABLES, "audit_logs"] as co
 const SELLER_PRESTIGE_TABLES = [...USER_PROFILE_TABLES, "notifications", "audit_logs", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
 const PURCHASE_REQUEST_CREATE_TABLES = ["purchase_requests", "notifications", "audit_logs", "activity_logs"] as const satisfies readonly SnapshotTableName[];
 const TRADE_STATUS_BASE_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
-const TRADE_STATUS_TRUST_TABLES = [...USER_PROFILE_TABLES, "purchase_requests", "listings", "notifications", "audit_logs", "activity_logs", "commissions", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
+// For completed/declined/cancelled: core trade state written synchronously (critical path).
+const TRADE_COMPLETION_CORE_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "commissions"] as const satisfies readonly SnapshotTableName[];
+// For completed/declined/cancelled: trust data written after the response via after() (non-critical path).
+const TRADE_COMPLETION_TRUST_TABLES = [...USER_PROFILE_TABLES, "activity_logs", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
 const TRADE_EVIDENCE_BASE_TABLES = ["purchase_requests", "audit_logs", "activity_logs", "evidence"] as const satisfies readonly SnapshotTableName[];
 const TRADE_EVIDENCE_PAYMENT_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "activity_logs", "evidence"] as const satisfies readonly SnapshotTableName[];
 const TRADE_REVIEW_TABLES = ["purchase_requests", "notifications", "audit_logs", "activity_logs"] as const satisfies readonly SnapshotTableName[];
@@ -6206,9 +6209,12 @@ export async function updatePurchaseRequestStatus(input: {
     actorUserId: input.actorUserId,
     nextStatus: input.nextStatus,
   });
+  // For trust-affecting transitions, write only the core trade tables synchronously so the
+  // response returns quickly (≤5s target). Trust-related tables (user profiles, snapshots,
+  // activity logs) are written in a deferred task via after() in the route handler.
   await writeDb(db, {
     traceTag: debugTradeRoom && isUsdtSentTrace ? input.traceId : undefined,
-    selectedTables: shouldRecalculateTrust ? TRADE_STATUS_TRUST_TABLES : TRADE_STATUS_BASE_TABLES,
+    selectedTables: shouldRecalculateTrust ? TRADE_COMPLETION_CORE_TABLES : TRADE_STATUS_BASE_TABLES,
   });
   const writeDbMs = Date.now() - beforeWriteMs;
   console.log("[trade-consistency] mutation commit-complete", {
@@ -6263,6 +6269,13 @@ export async function updatePurchaseRequestStatus(input: {
   }
   return {
     request: enriched,
+    // When trust was recalculated, return a deferred task that writes the trust tables.
+    // The route handler runs this via after() so the HTTP response is sent first.
+    deferredTrustWrite: shouldRecalculateTrust
+      ? async () => {
+          await writeDb(db, { selectedTables: TRADE_COMPLETION_TRUST_TABLES });
+        }
+      : undefined,
     metrics: {
       readDbMs,
       timelineMs,

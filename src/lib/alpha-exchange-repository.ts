@@ -1136,6 +1136,15 @@ export class AlphaExchangeRepository {
       : [...SNAPSHOT_TABLE_NAMES];
     const selectedTableSet = new Set<SnapshotTableName>(selectedTables);
 
+    // When writing the 'users' table, also write 'sessions' to preserve active auth sessions.
+    // PostgreSQL's ON DELETE CASCADE on sessions.user_id evicts all auth sessions when the
+    // users table is replaced via DELETE … INSERT. By including 'sessions' in the write,
+    // the existing session-preservation logic below restores them from the current DB state.
+    if (selectedTableSet.has("users") && !selectedTableSet.has("sessions")) {
+      selectedTables.push("sessions");
+      selectedTableSet.add("sessions");
+    }
+
     let client: PoolClient | null = null;
     try {
       for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -1196,7 +1205,14 @@ export class AlphaExchangeRepository {
                 evidenceContentById.set(row.id, row.content);
               }
             }
-            const persistedSnapshot = attachVersion(mergedSnapshot, nextVersion);
+            // When sessions are being written, use the sessions from the current full DB read
+            // (latestSnapshot) rather than the potentially-stale sessions in the incoming db.
+            // This prevents the deferred trust write from overwriting sessions created after
+            // the initial db snapshot was loaded.
+            const snapshotForMergeWrite = selectedTableSet.has("sessions")
+              ? { ...mergedSnapshot, authSessions: latestSnapshot.authSessions }
+              : mergedSnapshot;
+            const persistedSnapshot = attachVersion(snapshotForMergeWrite, nextVersion);
             for (const tableName of selectedTables) {
               await replaceTableContents(client, tableName, persistedSnapshot, {
                 evidenceContentById,

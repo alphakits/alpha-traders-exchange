@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
 import { TradeBlockedError, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
@@ -79,7 +80,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       });
     }
 
-    const { request: updated, metrics } = await updatePurchaseRequestStatus({
+    const { request: updated, metrics, deferredTrustWrite } = await updatePurchaseRequestStatus({
       requestId,
       actorUserId: user.id,
       actorRole: user.role,
@@ -87,6 +88,20 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       safetyAcknowledged,
       traceId: isUsdtSent ? traceId : undefined,
     });
+    if (deferredTrustWrite) {
+      after(async () => {
+        try {
+          await deferredTrustWrite();
+        } catch (err: unknown) {
+          console.error("[trade-trust-deferred] write failed", {
+            requestId,
+            actorUserId: user.id,
+            nextStatus: status,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      });
+    }
     console.log("[patch-diag] stage=store-returned", { diagId, requestId, resultStatus: updated.status });
     if (debug && isUsdtSent) {
       console.log("[usdt-sent-trace] before response", { traceId, requestId, updatedStatus: updated.status });
