@@ -6312,19 +6312,22 @@ const EVM_USDT_CONTRACTS: Record<string, string> = {
   ERC20: "0xdac17f958d2ee523a2206206994597c13d831ec7",
   POLYGON: "0xc2132d05d31c914a87c6611c10748aeb04b58e8f",
 };
-/** Etherscan-compatible explorer API base URLs (primary, key-authenticated) */
-const EVM_EXPLORER_APIS: Record<string, string> = {
-  ERC20: "https://api.etherscan.io/api",
-  POLYGON: "https://api.polygonscan.com/api",
+/**
+ * Etherscan V2 unified API endpoint.
+ * V2 covers all supported chains via the `chainid` parameter using a single API key.
+ * V1 per-chain endpoints (api.etherscan.io/api, api.polygonscan.com/api) are deprecated.
+ */
+const EVM_EXPLORER_V2_URL = "https://api.etherscan.io/v2/api";
+/** EIP-155 chain IDs for each supported network */
+const EVM_CHAIN_IDS: Record<string, string> = {
+  ERC20: "1",     // Ethereum mainnet
+  POLYGON: "137", // Polygon mainnet
 };
-/** Optional API key env vars — configure these in Vercel to avoid rate limits */
-const EVM_API_KEY_ENVS: Record<string, string> = {
-  ERC20: "ALPHA_EXCHANGE_ETHERSCAN_API_KEY",
-  POLYGON: "ALPHA_EXCHANGE_POLYGONSCAN_API_KEY",
-};
+/** Single API key env var — Etherscan V2 covers all chains with one key */
+const EVM_EXPLORER_API_KEY_ENV = "ALPHA_EXCHANGE_ETHERSCAN_API_KEY";
 /**
  * Public JSON-RPC fallback endpoints — no API key required.
- * Used when the primary Etherscan/Polygonscan API is rate-limited or unavailable.
+ * Used when the primary Etherscan V2 API is rate-limited or unavailable.
  * Configure ALPHA_EXCHANGE_ETH_RPC_URL / ALPHA_EXCHANGE_POLYGON_RPC_URL to override.
  */
 const EVM_RPC_FALLBACKS: Record<string, string> = {
@@ -6360,7 +6363,9 @@ function logEvmKeyDiagnostics(network: string, hasKey: boolean) {
   const rpcOverride = process.env[rpcFallbackEnv];
   console.log("[commission-verify] evm-key-diagnostics", {
     network,
+    chainId: EVM_CHAIN_IDS[network],
     explorerApiKeyPresent: hasKey,
+    explorerEndpoint: `${EVM_EXPLORER_V2_URL}?chainid=${EVM_CHAIN_IDS[network]}`,
     rpcFallbackConfigured: Boolean(rpcOverride),
     rpcFallbackUrl: rpcOverride ? "(configured)" : EVM_RPC_FALLBACKS[network],
   });
@@ -6479,12 +6484,12 @@ async function verifyEvmUsdtPayment(input: {
   txHash: string;
   amountDueUsdt: number;
 }): Promise<CommissionWalletVerificationResult> {
-  const baseUrl = EVM_EXPLORER_APIS[input.network];
   const usdtContract = EVM_USDT_CONTRACTS[input.network];
-  if (!baseUrl || !usdtContract) {
+  const chainId = EVM_CHAIN_IDS[input.network];
+  if (!usdtContract || !chainId) {
     return { verified: false, reference: input.txHash, notes: `EVM verification not configured for network: ${input.network}` };
   }
-  const apiKey = process.env[EVM_API_KEY_ENVS[input.network] ?? ""] ?? "";
+  const apiKey = process.env[EVM_EXPLORER_API_KEY_ENV] ?? "";
   const networkLabel = input.network === "ERC20" ? "Ethereum" : "Polygon";
   const minConfirmations = Math.max(1, Number(process.env.ALPHA_EXCHANGE_EVM_MIN_CONFIRMATIONS ?? "3"));
 
@@ -6498,13 +6503,13 @@ async function verifyEvmUsdtPayment(input: {
     hasApiKey: Boolean(apiKey),
   });
 
-  // ── Primary: Etherscan / Polygonscan explorer API ──────────────────────────
+  // ── Primary: Etherscan V2 unified API (chainid parameter selects network) ──
   let primaryError: string | null = null;
   try {
-    const params = new URLSearchParams({ module: "proxy", action: "eth_getTransactionReceipt", txhash: input.txHash });
+    const params = new URLSearchParams({ chainid: chainId, module: "proxy", action: "eth_getTransactionReceipt", txhash: input.txHash });
     if (apiKey) params.set("apikey", apiKey);
 
-    const res = await fetch(`${baseUrl}?${params.toString()}`, {
+    const res = await fetch(`${EVM_EXPLORER_V2_URL}?${params.toString()}`, {
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(12_000),
     });
@@ -6525,9 +6530,9 @@ async function verifyEvmUsdtPayment(input: {
 
     if (!data.result) {
       // Receipt not yet available — check if tx exists but is pending
-      const txParams = new URLSearchParams({ module: "proxy", action: "eth_getTransactionByHash", txhash: input.txHash });
+      const txParams = new URLSearchParams({ chainid: chainId, module: "proxy", action: "eth_getTransactionByHash", txhash: input.txHash });
       if (apiKey) txParams.set("apikey", apiKey);
-      const txRes = await fetch(`${baseUrl}?${txParams.toString()}`, {
+      const txRes = await fetch(`${EVM_EXPLORER_V2_URL}?${txParams.toString()}`, {
         headers: { Accept: "application/json" },
         signal: AbortSignal.timeout(12_000),
       });
@@ -6552,9 +6557,9 @@ async function verifyEvmUsdtPayment(input: {
       return { verified: false, reference: input.txHash, notes: `Transaction was reverted on-chain (status: ${rawStatus ?? "unknown"}) and cannot be used as commission payment. Please check your wallet for a failed transaction and try a new one.` };
     }
 
-    const blockParams = new URLSearchParams({ module: "proxy", action: "eth_blockNumber" });
+    const blockParams = new URLSearchParams({ chainid: chainId, module: "proxy", action: "eth_blockNumber" });
     if (apiKey) blockParams.set("apikey", apiKey);
-    const blockRes = await fetch(`${baseUrl}?${blockParams.toString()}`, {
+    const blockRes = await fetch(`${EVM_EXPLORER_V2_URL}?${blockParams.toString()}`, {
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(12_000),
     });
