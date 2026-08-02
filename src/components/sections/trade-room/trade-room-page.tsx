@@ -612,6 +612,23 @@ export function TradeRoomPage({
   const roomRef = useRef<TradeRoomData | null>(null);
   const buyerCompletionLockRef = useRef(false);
   const reviewSubmitInFlightRef = useRef(false);
+  const reviewFormVisibleRef = useRef(false);
+
+  const logReviewDiagnostic = useCallback((stage: string, detail?: Record<string, unknown>) => {
+    const payload = {
+      stage,
+      requestId,
+      ts: new Date().toISOString(),
+      ...(detail ?? {}),
+    };
+    console.info("[review-submit-diag]", payload);
+    if (typeof window !== "undefined") {
+      type WindowWithReviewDiag = Window & { __reviewSubmitDiag?: unknown[] };
+      const diagWindow = window as WindowWithReviewDiag;
+      const existing = Array.isArray(diagWindow.__reviewSubmitDiag) ? diagWindow.__reviewSubmitDiag : [];
+      diagWindow.__reviewSubmitDiag = [...existing.slice(-199), payload];
+    }
+  }, [requestId]);
 
   const fetchRoom = useCallback(async (silent = false) => {
     if (!silent) {
@@ -666,6 +683,23 @@ export function TradeRoomPage({
   useEffect(() => {
     roomRef.current = room;
   }, [room]);
+
+  useEffect(() => {
+    const currentRequest = room?.request;
+    if (!currentRequest) {
+      reviewFormVisibleRef.current = false;
+      return;
+    }
+    const reviewFormVisible = actor.role === "buyer" && !currentRequest.buyerReview && !reviewDeferred && COMPLETED_TRADE_STATUSES.has(currentRequest.status);
+    if (reviewFormVisible && !reviewFormVisibleRef.current) {
+      logReviewDiagnostic("review-form-rendered", { status: currentRequest.status });
+      reviewFormVisibleRef.current = true;
+      return;
+    }
+    if (!reviewFormVisible) {
+      reviewFormVisibleRef.current = false;
+    }
+  }, [actor.role, logReviewDiagnostic, reviewDeferred, room?.request]);
 
   useEffect(() => {
     const currentRequest = room?.request;
@@ -1258,25 +1292,30 @@ export function TradeRoomPage({
 
   const handleSubmitBuyerReview = useCallback(async () => {
     const currentRequest = roomRef.current?.request ?? request;
+    logReviewDiagnostic("validation-started", { hasRequest: Boolean(currentRequest), rating: reviewRating, commentLength: reviewComment.trim().length });
     if (!currentRequest) {
+      logReviewDiagnostic("validation-failed", { reason: "missing-request" });
       setStatusMessage(isAr ? "جاري مزامنة الصفقة. حاول مرة أخرى خلال لحظة." : "Trade data is syncing. Please try again in a moment.");
       return;
     }
     const trimmedComment = reviewComment.trim();
     if (!trimmedComment) {
+      logReviewDiagnostic("validation-failed", { reason: "empty-comment" });
       setStatusMessage(isAr ? "يرجى كتابة تعليق قبل إرسال التقييم." : "Please add feedback before submitting rating.");
       return;
     }
     if (reviewSubmitInFlightRef.current) {
+      logReviewDiagnostic("validation-failed", { reason: "submit-already-in-flight" });
       setStatusMessage(isAr ? "جاري إرسال التقييم بالفعل..." : "Review submission is already in progress...");
       return;
     }
+    logReviewDiagnostic("validation-passed", { rating: reviewRating, commentLength: trimmedComment.length });
 
     reviewSubmitInFlightRef.current = true;
     setReviewBusy(true);
     setStatusMessage(isAr ? "جاري إرسال التقييم..." : "Submitting rating...");
     try {
-      console.info("[trade-room-review] submit-start", { requestId: currentRequest.id, rating: reviewRating });
+      logReviewDiagnostic("api-request-started", { endpoint: `/api/alpha-exchange/purchase-requests/${currentRequest.id}/review` });
       const response = await fetch(`/api/alpha-exchange/purchase-requests/${currentRequest.id}/review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1286,6 +1325,7 @@ export function TradeRoomPage({
           comment: trimmedComment,
         }),
       });
+      logReviewDiagnostic("api-response-received", { status: response.status, ok: response.ok });
       const payload = (await response.json()) as {
         error?: string;
         message?: string;
@@ -1301,7 +1341,7 @@ export function TradeRoomPage({
       if (!response.ok) {
         throw new Error(readApiErrorFallback(payload, isAr ? "تعذر إرسال التقييم." : "Failed to submit review."));
       }
-      console.info("[trade-room-review] submit-success", { requestId: currentRequest.id });
+      logReviewDiagnostic("success-handler-executed", { status: response.status });
       setReviewComment("");
       setReviewDeferred(false);
       if (payload.sellerProgress?.promoted) {
@@ -1318,18 +1358,19 @@ export function TradeRoomPage({
       await fetchRoom(true);
       startBuyerCompletionSuccessFlow(currentRequest.id);
     } catch (error) {
-      console.error("[trade-room-review] submit-failed", { requestId: currentRequest.id, error });
+      logReviewDiagnostic("error-handler-executed", { error: error instanceof Error ? error.message : "unknown-error" });
       setStatusMessage(error instanceof Error ? error.message : (isAr ? "تعذر إرسال التقييم." : "Failed to submit review."));
     } finally {
       reviewSubmitInFlightRef.current = false;
       setReviewBusy(false);
     }
-  }, [fetchRoom, isAr, request, reviewComment, reviewRating, startBuyerCompletionSuccessFlow]);
+  }, [fetchRoom, isAr, logReviewDiagnostic, request, reviewComment, reviewRating, startBuyerCompletionSuccessFlow]);
 
   const handleReviewFormSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    logReviewDiagnostic("form-onsubmit-executed");
     void handleSubmitBuyerReview();
-  }, [handleSubmitBuyerReview]);
+  }, [handleSubmitBuyerReview, logReviewDiagnostic]);
 
   if (isLoading) {
     return (
@@ -1572,7 +1613,14 @@ export function TradeRoomPage({
                         placeholder={isAr ? "اكتب تقييمك للبائع..." : "Share your seller feedback..."}
                       />
                     </div>
-                    <Button type="submit" className="mt-2" disabled={reviewBusy}>
+                    <Button
+                      type="submit"
+                      className="mt-2"
+                      disabled={reviewBusy}
+                      onClick={() => {
+                        logReviewDiagnostic("submit-button-clicked", { reviewBusy });
+                      }}
+                    >
                       {reviewBusy ? (isAr ? "جاري الإرسال..." : "Submitting...") : (isAr ? "إرسال التقييم" : "Submit Rating")}
                     </Button>
                   </form>
