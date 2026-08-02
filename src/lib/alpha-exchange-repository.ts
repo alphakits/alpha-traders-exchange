@@ -1,5 +1,6 @@
 import { Pool, type PoolClient } from "pg";
-import { appendFileSync } from "fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import path from "path";
 import alphaExchangeSeed from "../../data/alpha-exchange-db.json";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import type {
@@ -28,6 +29,12 @@ import type {
 type Queryable = Pool | PoolClient;
 
 type EvidenceWriteMap = Map<string, Buffer>;
+
+const FALLBACK_SNAPSHOT_DIR = path.join(
+  process.cwd(),
+  process.env.NODE_ENV === "test" ? ".next-runtime-test" : ".next-runtime",
+);
+const FALLBACK_SNAPSHOT_PATH = path.join(FALLBACK_SNAPSHOT_DIR, "alpha-exchange-fallback.json");
 
 const SCHEMA_SQL = [
   "create schema if not exists alpha_exchange",
@@ -825,31 +832,101 @@ function getVersion(db: AlphaExchangeDb) {
   return (db as SnapshotWithVersion).__runtimeVersion ?? 0;
 }
 
-function snapshotFromTableRows(results: Array<{ rows: Array<{ payload: unknown }> }>): AlphaExchangeDb {
-  const rowsAt = <T>(index: number) => results[index].rows as Array<{ payload: T }>;
-
+function emptySnapshotCollections(): AlphaExchangeDb {
   return {
-    users: fromPayloadRows(rowsAt<AlphaExchangeUser>(0)),
-    sellerApplications: fromPayloadRows(rowsAt<SellerApplication>(12)),
-    marketplaceListings: fromPayloadRows(rowsAt<MarketplaceListing>(3)),
-    purchaseRequests: fromPayloadRows(rowsAt<PurchaseRequest>(5)),
-    commissionRecords: fromPayloadRows(rowsAt<CommissionRecord>(7)),
-    auditLogs: fromPayloadRows(rowsAt<AuditLogEntry>(8)),
-    authSessions: fromPayloadRows(rowsAt<AuthSession>(10)),
-    passwordResetTokens: fromPayloadRows(rowsAt<PasswordResetToken>(11)),
-    notifications: fromPayloadRows(rowsAt<AlphaExchangeNotification>(6)),
-    activityLog: fromPayloadRows(rowsAt<AlphaExchangeActivityLogEntry>(13)),
-    disputes: fromPayloadRows(rowsAt<TradeDisputeCase>(14)),
-    sellerReports: fromPayloadRows(rowsAt<SellerReport>(15)),
-    trustSnapshots: fromPayloadRows(rowsAt<TrustSnapshotRecord>(16)),
-    trustScoreHistory: fromPayloadRows(rowsAt<TrustScoreChangeLog>(17)),
-    tradeEvidenceFiles: fromPayloadRows(rowsAt<TradeEvidenceFile>(9)),
-    privateBetaInvites: fromPayloadRows(rowsAt<PrivateBetaInviteCode>(18)),
-    privateBetaInviteUses: fromPayloadRows(rowsAt<PrivateBetaInviteUse>(19)),
-    betaFeedback: fromPayloadRows(rowsAt<BetaFeedbackEntry>(20)),
-    betaAnnouncements: fromPayloadRows(rowsAt<BetaAnnouncement>(21)),
+    users: [],
+    sellerApplications: [],
+    marketplaceListings: [],
+    purchaseRequests: [],
+    commissionRecords: [],
+    auditLogs: [],
+    authSessions: [],
+    passwordResetTokens: [],
+    notifications: [],
+    activityLog: [],
+    disputes: [],
+    sellerReports: [],
+    trustSnapshots: [],
+    trustScoreHistory: [],
+    tradeEvidenceFiles: [],
+    privateBetaInvites: [],
+    privateBetaInviteUses: [],
+    betaFeedback: [],
+    betaAnnouncements: [],
     sellerReviews: [],
   };
+}
+
+function snapshotFromTableRows(
+  results: Array<{ tableName: SnapshotTableName; rows: Array<{ payload: unknown }> }>,
+): AlphaExchangeDb {
+  const snapshot = emptySnapshotCollections();
+
+  for (const { tableName, rows } of results) {
+    switch (tableName) {
+      case "users":
+        snapshot.users = fromPayloadRows(rows as Array<{ payload: AlphaExchangeUser }>);
+        break;
+      case "seller_applications":
+        snapshot.sellerApplications = fromPayloadRows(rows as Array<{ payload: SellerApplication }>);
+        break;
+      case "listings":
+        snapshot.marketplaceListings = fromPayloadRows(rows as Array<{ payload: MarketplaceListing }>);
+        break;
+      case "purchase_requests":
+        snapshot.purchaseRequests = fromPayloadRows(rows as Array<{ payload: PurchaseRequest }>);
+        break;
+      case "commissions":
+        snapshot.commissionRecords = fromPayloadRows(rows as Array<{ payload: CommissionRecord }>);
+        break;
+      case "audit_logs":
+        snapshot.auditLogs = fromPayloadRows(rows as Array<{ payload: AuditLogEntry }>);
+        break;
+      case "sessions":
+        snapshot.authSessions = fromPayloadRows(rows as Array<{ payload: AuthSession }>);
+        break;
+      case "password_reset_tokens":
+        snapshot.passwordResetTokens = fromPayloadRows(rows as Array<{ payload: PasswordResetToken }>);
+        break;
+      case "notifications":
+        snapshot.notifications = fromPayloadRows(rows as Array<{ payload: AlphaExchangeNotification }>);
+        break;
+      case "activity_logs":
+        snapshot.activityLog = fromPayloadRows(rows as Array<{ payload: AlphaExchangeActivityLogEntry }>);
+        break;
+      case "disputes":
+        snapshot.disputes = fromPayloadRows(rows as Array<{ payload: TradeDisputeCase }>);
+        break;
+      case "seller_reports":
+        snapshot.sellerReports = fromPayloadRows(rows as Array<{ payload: SellerReport }>);
+        break;
+      case "trust_snapshots":
+        snapshot.trustSnapshots = fromPayloadRows(rows as Array<{ payload: TrustSnapshotRecord }>);
+        break;
+      case "trust_score_history":
+        snapshot.trustScoreHistory = fromPayloadRows(rows as Array<{ payload: TrustScoreChangeLog }>);
+        break;
+      case "evidence":
+        snapshot.tradeEvidenceFiles = fromPayloadRows(rows as Array<{ payload: TradeEvidenceFile }>);
+        break;
+      case "private_beta_invites":
+        snapshot.privateBetaInvites = fromPayloadRows(rows as Array<{ payload: PrivateBetaInviteCode }>);
+        break;
+      case "private_beta_invite_uses":
+        snapshot.privateBetaInviteUses = fromPayloadRows(rows as Array<{ payload: PrivateBetaInviteUse }>);
+        break;
+      case "beta_feedback":
+        snapshot.betaFeedback = fromPayloadRows(rows as Array<{ payload: BetaFeedbackEntry }>);
+        break;
+      case "beta_announcements":
+        snapshot.betaAnnouncements = fromPayloadRows(rows as Array<{ payload: BetaAnnouncement }>);
+        break;
+      default:
+        break;
+    }
+  }
+
+  return snapshot;
 }
 
 function isAbortedTransactionError(error: unknown) {
@@ -923,7 +1000,7 @@ function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchang
     purchaseRequests: mergedPurchaseRequests,
     commissionRecords: getCollection(incoming.commissionRecords, latest.commissionRecords),
     auditLogs: getCollection(incoming.auditLogs, latest.auditLogs),
-    authSessions: latest.authSessions,
+    authSessions: pruneOrphanAuthSessions(latest).authSessions,
     passwordResetTokens: getCollection(incoming.passwordResetTokens, latest.passwordResetTokens),
     notifications: getCollection(incoming.notifications, latest.notifications),
     activityLog: getCollection(incoming.activityLog, latest.activityLog),
@@ -951,10 +1028,91 @@ async function runSchema(target: Queryable) {
 
 function ensureMemorySeed() {
   if (!globalThis.__alphaExchangeMemorySnapshot) {
-    globalThis.__alphaExchangeMemorySnapshot = attachVersion(cloneSnapshot(DEFAULT_DB), 0);
+    const persistedFallback = loadPersistedFallbackSnapshot();
+    globalThis.__alphaExchangeMemorySnapshot = persistedFallback ?? attachVersion(cloneSnapshot(DEFAULT_DB), 0);
   }
   if (!globalThis.__alphaExchangeMemoryEvidenceContent) {
     globalThis.__alphaExchangeMemoryEvidenceContent = new Map();
+  }
+}
+
+function getLatestAvailableFallbackSnapshot(): SnapshotWithVersion {
+  const memorySnapshot = globalThis.__alphaExchangeMemorySnapshot
+    ? attachVersion(
+      cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
+      getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
+    )
+    : null;
+  const persistedFallback = loadPersistedFallbackSnapshot();
+  if (!memorySnapshot) {
+    if (persistedFallback) {
+      globalThis.__alphaExchangeMemorySnapshot = attachVersion(cloneSnapshot(persistedFallback), getVersion(persistedFallback));
+      return attachVersion(cloneSnapshot(persistedFallback), getVersion(persistedFallback));
+    }
+    ensureMemorySeed();
+    return attachVersion(
+      cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
+      getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
+    );
+  }
+  if (!persistedFallback) {
+    return memorySnapshot;
+  }
+
+  if (getVersion(persistedFallback) >= getVersion(memorySnapshot)) {
+    globalThis.__alphaExchangeMemorySnapshot = attachVersion(cloneSnapshot(persistedFallback), getVersion(persistedFallback));
+    return attachVersion(cloneSnapshot(persistedFallback), getVersion(persistedFallback));
+  }
+
+  return memorySnapshot;
+}
+
+function syncFallbackAuthSessions(update: (sessions: AuthSession[]) => AuthSession[]) {
+  const snapshot = getLatestAvailableFallbackSnapshot();
+  const next = attachVersion({
+    ...snapshot,
+    authSessions: update(snapshot.authSessions),
+  }, getVersion(snapshot));
+  syncMemoryFallbackSnapshot(next, getVersion(snapshot));
+}
+
+function loadPersistedFallbackSnapshot(): SnapshotWithVersion | null {
+  try {
+    if (!existsSync(FALLBACK_SNAPSHOT_PATH)) return null;
+    const raw = readFileSync(FALLBACK_SNAPSHOT_PATH, "utf8").trim();
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SnapshotWithVersion;
+    const version = getVersion(parsed);
+    return attachVersion(cloneSnapshot(parsed), version);
+  } catch (error) {
+    console.warn(
+      "[alpha-exchange-repository] failed to load persisted fallback snapshot:",
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  }
+}
+
+function pruneOrphanAuthSessions<T extends AlphaExchangeDb>(snapshot: T): T {
+  const userIds = new Set(snapshot.users.map((user) => user.id));
+  return {
+    ...snapshot,
+    authSessions: snapshot.authSessions.filter((session) => userIds.has(session.userId)),
+  };
+}
+
+function syncMemoryFallbackSnapshot(snapshot: AlphaExchangeDb, version = getVersion(snapshot)) {
+  ensureMemorySeed();
+  const next = attachVersion(pruneOrphanAuthSessions(cloneSnapshot(snapshot)), version);
+  globalThis.__alphaExchangeMemorySnapshot = next;
+  try {
+    mkdirSync(FALLBACK_SNAPSHOT_DIR, { recursive: true });
+    writeFileSync(FALLBACK_SNAPSHOT_PATH, JSON.stringify(next), "utf8");
+  } catch (error) {
+    console.warn(
+      "[alpha-exchange-repository] failed to persist fallback snapshot:",
+      error instanceof Error ? error.message : error,
+    );
   }
 }
 
@@ -1020,11 +1178,7 @@ export class AlphaExchangeRepository {
     await this.ensureReady();
     const pool = this.pool;
     if (this.usesMemoryFallback || !pool) {
-      ensureMemorySeed();
-      const snapshot = attachVersion(
-        cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
-        getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
-      );
+      const snapshot = getLatestAvailableFallbackSnapshot();
       logRepoVersionFlow("load:memory", {
         version: getVersion(snapshot),
         purchaseRequests: snapshot.purchaseRequests.length,
@@ -1036,10 +1190,16 @@ export class AlphaExchangeRepository {
         pool.query<{ version: string }>("select version::text as version from alpha_exchange.runtime_meta where singleton = true"),
         ...tables.map((table) => pool.query(table.selectSql)),
       ]);
-      const snapshot = snapshotFromTableRows(results as Array<{ rows: Array<{ payload: unknown }> }>);
+      const snapshot = snapshotFromTableRows(
+        results.map((result, index) => ({
+          tableName: tables[index]!.name,
+          rows: result.rows as Array<{ payload: unknown }>,
+        })),
+      );
 
       const version = Number(meta.rows[0]?.version ?? "0");
-      const withVersion = attachVersion(snapshot, version);
+      const withVersion = attachVersion(pruneOrphanAuthSessions(snapshot), version);
+      syncMemoryFallbackSnapshot(withVersion, version);
       logRepoVersionFlow("load:db", {
         version,
         purchaseRequests: withVersion.purchaseRequests.length,
@@ -1047,11 +1207,7 @@ export class AlphaExchangeRepository {
       return withVersion;
     } catch (error) {
       console.error("[alpha-exchange-repository] CRITICAL: Falling back to in-memory snapshot because loading the database snapshot failed. All data created during this session will be lost on the next invocation. Error:", error instanceof Error ? error.message : error);
-      ensureMemorySeed();
-      const fallback = attachVersion(
-        cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
-        getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
-      );
+      const fallback = getLatestAvailableFallbackSnapshot();
       logRepoVersionFlow("load:fallback-memory", {
         version: getVersion(fallback),
         purchaseRequests: fallback.purchaseRequests.length,
@@ -1082,7 +1238,7 @@ export class AlphaExchangeRepository {
         });
         const latestSnapshot = cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion);
         latestSnapshot.authSessions = cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion).authSessions;
-        const nextSnapshot = cloneSnapshot(db);
+        const nextSnapshot = pruneOrphanAuthSessions(cloneSnapshot(db));
         const mergedSnapshot = mergeSnapshotWithLatest(latestSnapshot, nextSnapshot);
         const next = attachVersion(mergedSnapshot, previousVersion + 1);
         const previousEvidence = globalThis.__alphaExchangeMemoryEvidenceContent as Map<string, Buffer | null>;
@@ -1135,14 +1291,16 @@ export class AlphaExchangeRepository {
       ? Array.from(new Set(options.selectedTables))
       : [...SNAPSHOT_TABLE_NAMES];
     const selectedTableSet = new Set<SnapshotTableName>(selectedTables);
-
-    // When writing the 'users' table, also write 'sessions' to preserve active auth sessions.
-    // PostgreSQL's ON DELETE CASCADE on sessions.user_id evicts all auth sessions when the
-    // users table is replaced via DELETE … INSERT. By including 'sessions' in the write,
-    // the existing session-preservation logic below restores them from the current DB state.
-    if (selectedTableSet.has("users") && !selectedTableSet.has("sessions")) {
-      selectedTables.push("sessions");
-      selectedTableSet.add("sessions");
+    // Replacing users via DELETE ... INSERT cascades into multiple child tables (sessions,
+    // listings, notifications, trust snapshots, etc.). Partial writes that include `users`
+    // must therefore expand to a full snapshot write so dependent rows are re-persisted in
+    // the same transaction instead of being silently deleted by PostgreSQL.
+    if (selectedTableSet.has("users") && selectedTables.length < SNAPSHOT_TABLE_NAMES.length) {
+      selectedTables.splice(0, selectedTables.length, ...SNAPSHOT_TABLE_NAMES);
+      selectedTableSet.clear();
+      for (const tableName of selectedTables) {
+        selectedTableSet.add(tableName);
+      }
     }
 
     let client: PoolClient | null = null;
@@ -1189,12 +1347,13 @@ export class AlphaExchangeRepository {
               incomingPurchaseRequests: db.purchaseRequests.length,
               currentPurchaseRequests: currentRequests,
             });
-            const currentResults: Array<{ rows: Array<{ payload: unknown }> }> = [];
+            const currentResults: Array<{ tableName: SnapshotTableName; rows: Array<{ payload: unknown }> }> = [];
             for (const table of tables) {
-              currentResults.push(await queryWithLogging(client, table.selectSql) as { rows: Array<{ payload: unknown }> });
+              const result = await queryWithLogging(client, table.selectSql) as { rows: Array<{ payload: unknown }> };
+              currentResults.push({ tableName: table.name, rows: result.rows });
             }
             const latestSnapshot = attachVersion(snapshotFromTableRows(currentResults), currentVersion);
-            const mergedSnapshot = mergeSnapshotWithLatest(latestSnapshot, db);
+            const mergedSnapshot = mergeSnapshotWithLatest(latestSnapshot, pruneOrphanAuthSessions(db));
             const mergedVersion = getVersion(mergedSnapshot);
             const nextVersion = currentVersion + 1;
             const evidenceContentById = new Map<string, Buffer | null>();
@@ -1210,8 +1369,8 @@ export class AlphaExchangeRepository {
             // This prevents the deferred trust write from overwriting sessions created after
             // the initial db snapshot was loaded.
             const snapshotForMergeWrite = selectedTableSet.has("sessions")
-              ? { ...mergedSnapshot, authSessions: latestSnapshot.authSessions }
-              : mergedSnapshot;
+              ? pruneOrphanAuthSessions({ ...mergedSnapshot, authSessions: latestSnapshot.authSessions })
+              : pruneOrphanAuthSessions(mergedSnapshot);
             const persistedSnapshot = attachVersion(snapshotForMergeWrite, nextVersion);
             for (const tableName of selectedTables) {
               await replaceTableContents(client, tableName, persistedSnapshot, {
@@ -1233,6 +1392,7 @@ export class AlphaExchangeRepository {
               purchaseRequests: persistedSnapshot.purchaseRequests.length,
             });
             attachVersion(db, nextVersion);
+            syncMemoryFallbackSnapshot(persistedSnapshot, nextVersion);
             await client.query("commit");
             logProfile("commit_merge");
             return;
@@ -1248,17 +1408,16 @@ export class AlphaExchangeRepository {
           }
 
           // Snapshot writes should not evict active auth sessions managed by dedicated session methods.
-          let persistedSnapshot: AlphaExchangeDb = db;
+          let persistedSnapshot: AlphaExchangeDb = pruneOrphanAuthSessions(db);
           if (selectedTableSet.has("sessions")) {
             const currentSessions = await queryWithLogging(client, "select payload from alpha_exchange.sessions order by sort_index asc") as { rows?: Array<{ payload: unknown }> };
             logProfile("load_sessions");
             const currentSessionRows = (currentSessions.rows ?? []) as Array<{ payload: AuthSession }>;
-            persistedSnapshot = {
+            persistedSnapshot = pruneOrphanAuthSessions({
               ...db,
               authSessions: fromPayloadRows(currentSessionRows),
-            };
+            });
           }
-
           for (const tableName of selectedTables) {
             await replaceTableContents(client, tableName, persistedSnapshot, {
               evidenceContentById,
@@ -1282,6 +1441,7 @@ export class AlphaExchangeRepository {
           });
 
           attachVersion(db, writtenVersion);
+          syncMemoryFallbackSnapshot(persistedSnapshot, writtenVersion);
           await client.query("commit");
           logProfile("commit");
           return;
@@ -1434,6 +1594,10 @@ export class AlphaExchangeRepository {
             [session.token, session.userId, session.expiresAt, session.createdAt, Number(nextSortIndex.rows[0]?.next_index ?? "0"), json(session)],
           );
           await client.query("commit");
+          syncFallbackAuthSessions((sessions) => [
+            ...sessions.filter((item) => item.userId !== session.userId && item.token !== session.token),
+            session,
+          ]);
           return;
         } catch (error) {
           console.error("[alpha-exchange-repository] upsertAuthSession transaction error", error);
@@ -1466,11 +1630,16 @@ export class AlphaExchangeRepository {
       return (globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion).authSessions.find((item) => item.token === tokenHash) ?? null;
     }
 
-    const result = await pool.query<{ payload: AuthSession }>(
-      "select payload from alpha_exchange.sessions where token_hash = $1 limit 1",
-      [tokenHash],
-    );
-    return result.rows[0]?.payload ?? null;
+    try {
+      const result = await pool.query<{ payload: AuthSession }>(
+        "select payload from alpha_exchange.sessions where token_hash = $1 limit 1",
+        [tokenHash],
+      );
+      return result.rows[0]?.payload ?? null;
+    } catch (error) {
+      console.error("[alpha-exchange-repository] falling back to cached auth session after database read failure", error);
+      return getLatestAvailableFallbackSnapshot().authSessions.find((item) => item.token === tokenHash) ?? null;
+    }
   }
 
   async deleteAuthSession(tokenHash: string) {
@@ -1484,7 +1653,11 @@ export class AlphaExchangeRepository {
       return;
     }
 
-    await pool.query("delete from alpha_exchange.sessions where token_hash = $1", [tokenHash]);
+    try {
+      await pool.query("delete from alpha_exchange.sessions where token_hash = $1", [tokenHash]);
+    } finally {
+      syncFallbackAuthSessions((sessions) => sessions.filter((item) => item.token !== tokenHash));
+    }
   }
 
   async readEvidenceContent(evidenceId: string) {
@@ -1626,6 +1799,7 @@ export class AlphaExchangeRepository {
 
     // ── Step 1: transactional — INSERT listing + UPSERT trust_snapshots ──────
     let client: PoolClient | null = null;
+    let nextVersion = 0;
     try {
       client = await pool.connect();
       await client.query("begin");
@@ -1663,6 +1837,11 @@ export class AlphaExchangeRepository {
           [snap.sellerId, snap.updatedAt, json(snap)],
         );
       }
+
+      const versionResult = await client.query<{ version: string }>(
+        "update alpha_exchange.runtime_meta set version = version + 1, updated_at = now() where singleton = true returning version::text as version",
+      );
+      nextVersion = Number(versionResult.rows[0]?.version ?? "0");
 
       await client.query("commit");
     } catch (error) {
@@ -1756,6 +1935,13 @@ export class AlphaExchangeRepository {
         );
       }
     });
+
+    try {
+      const snapshot = await this.loadSnapshot();
+      syncMemoryFallbackSnapshot(snapshot, nextVersion || getVersion(snapshot));
+    } catch {
+      // Ignore fallback-mirror refresh failures; the committed database state remains authoritative.
+    }
   }
 }
 

@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import path from "path";
 import type { Pool } from "pg";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
@@ -32,6 +34,21 @@ describe("AlphaExchangeRepository", () => {
     globalThis.__alphaExchangeMemorySnapshot = undefined as never;
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
+    const fallbackPath = path.join(process.cwd(), ".next-runtime-test", "alpha-exchange-fallback.json");
+    if (existsSync(fallbackPath)) {
+      rmSync(fallbackPath, { force: true });
+    }
+    mkdirSync(path.dirname(fallbackPath), { recursive: true });
+  });
+
+  afterEach(() => {
+    const fallbackPath = path.join(process.cwd(), ".next-runtime-test", "alpha-exchange-fallback.json");
+    if (existsSync(fallbackPath)) {
+      rmSync(fallbackPath, { force: true });
+    }
+    globalThis.__alphaExchangeMemorySnapshot = undefined as never;
+    globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
+    globalThis.__alphaExchangeRepositoryPromise = undefined as never;
   });
 
   it("falls back to the in-memory snapshot when the database connection times out", async () => {
@@ -46,6 +63,331 @@ describe("AlphaExchangeRepository", () => {
 
     expect(snapshot).toBeDefined();
     expect(snapshot).toHaveProperty("__runtimeVersion", 0);
+  });
+
+  it("reuses the latest successful database snapshot when a later load falls back to memory", async () => {
+    const listing = {
+      id: "listing-1",
+      sellerId: "seller-1",
+      sellerDisplayName: "Seller One",
+      photos: [],
+      originalAmount: "1000",
+      availableAmount: "700",
+      price: "3.2",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      paymentMethod: "Bank Transfer",
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "1000",
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      notes: "",
+      sellerDescription: "",
+      responseTime: "5 min",
+      status: "active",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    let failLoads = false;
+    const pool = {
+      query: vi.fn((queryText: string) => {
+        if (failLoads) {
+          return Promise.reject(new Error("timeout exceeded when trying to connect"));
+        }
+        if (queryText.includes("select version::text as version from alpha_exchange.runtime_meta")) {
+          return Promise.resolve({ rows: [{ version: "7" }] });
+        }
+        if (queryText.includes("from alpha_exchange.users")) {
+          return Promise.resolve({ rows: [{ payload: { id: "seller-1", email: "seller@example.com", role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller" } }] });
+        }
+        if (queryText.includes("from alpha_exchange.listings")) {
+          return Promise.resolve({ rows: [{ payload: listing }] });
+        }
+        return Promise.resolve({ rows: [] });
+      }),
+      connect: vi.fn(),
+      on: vi.fn(),
+    } as unknown as Pool;
+
+    const repository = new AlphaExchangeRepository(pool);
+    const loaded = await repository.loadSnapshot();
+    expect(loaded.marketplaceListings).toEqual([expect.objectContaining({ id: "listing-1", availableAmount: "700" })]);
+    expect((loaded as AlphaExchangeDb & { __runtimeVersion?: number }).__runtimeVersion).toBe(7);
+
+    failLoads = true;
+    const fallback = await repository.loadSnapshot();
+    expect(fallback.marketplaceListings).toEqual([expect.objectContaining({ id: "listing-1", availableAmount: "700" })]);
+    expect((fallback as AlphaExchangeDb & { __runtimeVersion?: number }).__runtimeVersion).toBe(7);
+  });
+
+  it("shares the latest fallback snapshot across repository instances", async () => {
+    const listing = {
+      id: "listing-shared",
+      sellerId: "seller-1",
+      sellerDisplayName: "Seller One",
+      photos: [],
+      originalAmount: "1000",
+      availableAmount: "700",
+      price: "3.2",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      paymentMethod: "Bank Transfer",
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "1000",
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      notes: "",
+      sellerDescription: "",
+      responseTime: "5 min",
+      status: "active",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const successPool = {
+      query: vi.fn((queryText: string) => {
+        if (queryText.includes("select version::text as version from alpha_exchange.runtime_meta")) {
+          return Promise.resolve({ rows: [{ version: "9" }] });
+        }
+        if (queryText.includes("from alpha_exchange.users")) {
+          return Promise.resolve({ rows: [{ payload: { id: "seller-1", email: "seller@example.com", role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller" } }] });
+        }
+        if (queryText.includes("from alpha_exchange.listings")) {
+          return Promise.resolve({ rows: [{ payload: listing }] });
+        }
+        return Promise.resolve({ rows: [] });
+      }),
+      connect: vi.fn(),
+      on: vi.fn(),
+    } as unknown as Pool;
+
+    const firstRepository = new AlphaExchangeRepository(successPool);
+    const loaded = await firstRepository.loadSnapshot();
+    expect(loaded.marketplaceListings).toEqual([expect.objectContaining({ id: "listing-shared" })]);
+
+    globalThis.__alphaExchangeMemorySnapshot = undefined as never;
+    globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
+
+    const failingPool = {
+      query: vi.fn().mockRejectedValue(new Error("timeout exceeded when trying to connect")),
+      connect: vi.fn(),
+      on: vi.fn(),
+    } as unknown as Pool;
+
+    const secondRepository = new AlphaExchangeRepository(failingPool);
+    const fallback = await secondRepository.loadSnapshot();
+    expect(fallback.marketplaceListings).toEqual([expect.objectContaining({ id: "listing-shared", availableAmount: "700" })]);
+    expect((fallback as AlphaExchangeDb & { __runtimeVersion?: number }).__runtimeVersion).toBe(9);
+  });
+
+  it("prefers a newer persisted fallback snapshot over stale in-memory state after a load failure", async () => {
+    const fallbackPath = path.join(process.cwd(), ".next-runtime-test", "alpha-exchange-fallback.json");
+    globalThis.__alphaExchangeMemorySnapshot = {
+      users: [],
+      sellerApplications: [],
+      marketplaceListings: [],
+      purchaseRequests: [],
+      commissionRecords: [],
+      auditLogs: [],
+      authSessions: [],
+      passwordResetTokens: [],
+      notifications: [],
+      activityLog: [],
+      disputes: [],
+      sellerReports: [],
+      trustSnapshots: [],
+      trustScoreHistory: [],
+      tradeEvidenceFiles: [],
+      privateBetaInvites: [],
+      privateBetaInviteUses: [],
+      betaFeedback: [],
+      betaAnnouncements: [],
+      sellerReviews: [],
+      __runtimeVersion: 1,
+    } as never;
+
+    writeFileSync(fallbackPath, JSON.stringify({
+      users: [{ id: "seller-1", email: "seller@example.com", role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller" }],
+      sellerApplications: [],
+      marketplaceListings: [{
+        id: "listing-persisted",
+        sellerId: "seller-1",
+        sellerDisplayName: "Seller One",
+        photos: [],
+        originalAmount: "1000",
+        availableAmount: "750",
+        price: "3.2",
+        currency: "ILS",
+        network: "TRC20",
+        paymentMethods: ["Bank Transfer"],
+        paymentMethod: "Bank Transfer",
+        bankName: "Bank Hapoalim",
+        minimumTrade: "50",
+        maximumTrade: "1000",
+        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+        notes: "",
+        sellerDescription: "",
+        responseTime: "5 min",
+        status: "active",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }],
+      purchaseRequests: [{ id: "purchase-1", listingId: "listing-persisted", sellerId: "seller-1", buyerId: "buyer-1", status: "review_open", usdtAmount: "250" }],
+      commissionRecords: [],
+      auditLogs: [],
+      authSessions: [],
+      passwordResetTokens: [],
+      notifications: [],
+      activityLog: [],
+      disputes: [],
+      sellerReports: [],
+      trustSnapshots: [],
+      trustScoreHistory: [],
+      tradeEvidenceFiles: [],
+      privateBetaInvites: [],
+      privateBetaInviteUses: [],
+      betaFeedback: [],
+      betaAnnouncements: [],
+      sellerReviews: [],
+      __runtimeVersion: 12,
+    }), "utf8");
+
+    const pool = {
+      query: vi.fn().mockRejectedValue(new Error("timeout exceeded when trying to connect")),
+      connect: vi.fn(),
+      on: vi.fn(),
+    } as unknown as Pool;
+
+    const repository = new AlphaExchangeRepository(pool);
+    const fallback = await repository.loadSnapshot();
+
+    expect(fallback.marketplaceListings).toEqual([expect.objectContaining({ id: "listing-persisted", availableAmount: "750" })]);
+    expect(fallback.purchaseRequests).toEqual([expect.objectContaining({ id: "purchase-1", status: "review_open" })]);
+    expect((fallback as AlphaExchangeDb & { __runtimeVersion?: number }).__runtimeVersion).toBe(12);
+  });
+
+  it("drops orphan auth sessions before full snapshot writes", async () => {
+    const client = {
+      query: vi.fn((sql: string) => {
+        if (typeof sql === "string" && sql.includes("select payload from alpha_exchange.sessions")) {
+          return Promise.resolve({
+            rows: [
+              { payload: { token: "good-token", userId: "user-1", createdAt: new Date().toISOString(), expiresAt: new Date().toISOString() } },
+              { payload: { token: "orphan-token", userId: "missing-user", createdAt: new Date().toISOString(), expiresAt: new Date().toISOString() } },
+            ],
+          });
+        }
+        return Promise.resolve({ rows: [] });
+      }),
+      release: vi.fn(),
+    };
+    const pool = {
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      connect: vi.fn().mockResolvedValue(client),
+      on: vi.fn(),
+    } as unknown as Pool;
+
+    const repository = new AlphaExchangeRepository(pool);
+
+    await expect(repository.saveSnapshot({
+      users: [{ id: "user-1", email: "user@example.com", role: "buyer", roles: ["buyer"], sellerStatus: "buyer", availabilityStatus: "available", onlineStatus: "online", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as never],
+      sellerApplications: [],
+      marketplaceListings: [],
+      purchaseRequests: [],
+      commissionRecords: [],
+      auditLogs: [],
+      authSessions: [],
+      passwordResetTokens: [],
+      notifications: [],
+      activityLog: [],
+      disputes: [],
+      sellerReports: [],
+      trustSnapshots: [],
+      trustScoreHistory: [],
+      tradeEvidenceFiles: [],
+      privateBetaInvites: [],
+      privateBetaInviteUses: [],
+      betaFeedback: [],
+      betaAnnouncements: [],
+      sellerReviews: [],
+    })).resolves.toBeUndefined();
+
+    const sessionInserts = client.query.mock.calls
+      .filter(([sql]) => typeof sql === "string" && sql.includes("insert into alpha_exchange.sessions"));
+    expect(sessionInserts).toHaveLength(1);
+    expect(sessionInserts[0]?.[1]).toEqual(expect.arrayContaining(["good-token", "user-1"]));
+    expect(JSON.stringify(sessionInserts)).not.toContain("orphan-token");
+  });
+
+  it("expands partial user writes to a full snapshot write so listings survive cascades", async () => {
+    const client = {
+      query: vi.fn((sql: string) => {
+        if (typeof sql === "string" && sql.includes("select version::text as version from alpha_exchange.runtime_meta")) {
+          return Promise.resolve({ rows: [{ version: "4" }] });
+        }
+        if (typeof sql === "string" && sql.includes("select payload from alpha_exchange.sessions")) {
+          return Promise.resolve({ rows: [] });
+        }
+        return Promise.resolve({ rows: [] });
+      }),
+      release: vi.fn(),
+    };
+    const pool = {
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      connect: vi.fn().mockResolvedValue(client),
+      on: vi.fn(),
+    } as unknown as Pool;
+
+    const repository = new AlphaExchangeRepository(pool);
+    await repository.saveSnapshot({
+      users: [{ id: "user-1", email: "user@example.com", role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller", availabilityStatus: "available", onlineStatus: "online", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as never],
+      sellerApplications: [],
+      marketplaceListings: [{
+        id: "listing-1",
+        sellerId: "user-1",
+        sellerDisplayName: "Seller One",
+        photos: [],
+        originalAmount: "1000",
+        availableAmount: "700",
+        price: "3.2",
+        currency: "ILS",
+        network: "TRC20",
+        paymentMethods: ["Bank Transfer"],
+        paymentMethod: "Bank Transfer",
+        bankName: "Bank Hapoalim",
+        minimumTrade: "50",
+        maximumTrade: "1000",
+        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+        notes: "",
+        sellerDescription: "",
+        responseTime: "5 min",
+        status: "active",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }] as never,
+      purchaseRequests: [],
+      commissionRecords: [],
+      auditLogs: [],
+      authSessions: [],
+      passwordResetTokens: [],
+      notifications: [],
+      activityLog: [],
+      disputes: [],
+      sellerReports: [],
+      trustSnapshots: [],
+      trustScoreHistory: [],
+      tradeEvidenceFiles: [],
+      privateBetaInvites: [],
+      privateBetaInviteUses: [],
+      betaFeedback: [],
+      betaAnnouncements: [],
+      sellerReviews: [],
+      __runtimeVersion: 4,
+    } as AlphaExchangeDb, { selectedTables: ["users"] });
+
+    const listingInsert = client.query.mock.calls.find(([sql]) => typeof sql === "string" && sql.includes("insert into alpha_exchange.listings"));
+    expect(listingInsert).toBeDefined();
   });
 
   it("switches to the in-memory snapshot after initialization fails so later writes do not hit the database", async () => {

@@ -174,6 +174,11 @@ let dbCache: { value: AlphaExchangeDb; updatedAt: number } | null = null;
 let dbReadInFlight: Promise<AlphaExchangeDb> | null = null;
 let dbWriteInFlight: Promise<void> = Promise.resolve();
 
+export function invalidateAlphaExchangeStoreCache() {
+  dbCache = null;
+  dbReadInFlight = null;
+}
+
 export class TradeBlockedError extends Error {
   readonly code: string;
   readonly purchaseRequestId?: string;
@@ -3485,7 +3490,7 @@ export async function getAllSellerApplicationsForAdmin(dbInput?: AlphaExchangeDb
   return db.sellerApplications;
 }
 
-export async function approveSellerApplicationByAdmin(applicationId: string, adminUserId: string) {
+export async function approveSellerApplicationByAdmin(applicationId: string, adminUserId: string, reason?: string) {
   const db = await readDb();
   const applicationIndex = db.sellerApplications.findIndex((item) => item.id === applicationId);
   if (applicationIndex === -1) throw new Error("Seller application not found.");
@@ -3514,6 +3519,7 @@ export async function approveSellerApplicationByAdmin(applicationId: string, adm
     actorUserId: adminUserId,
     targetUserId: application.userId,
     details: `Approved seller application ${application.id}`,
+    reason: reason?.trim() || undefined,
   });
   pushNotification(db, {
     userId: application.userId,
@@ -3534,7 +3540,7 @@ export async function approveSellerApplicationByAdmin(applicationId: string, adm
   return db.sellerApplications[applicationIndex];
 }
 
-export async function rejectSellerApplicationByAdmin(applicationId: string, adminUserId: string) {
+export async function rejectSellerApplicationByAdmin(applicationId: string, adminUserId: string, reason?: string) {
   const db = await readDb();
   const applicationIndex = db.sellerApplications.findIndex((item) => item.id === applicationId);
   if (applicationIndex === -1) throw new Error("Seller application not found.");
@@ -3563,6 +3569,7 @@ export async function rejectSellerApplicationByAdmin(applicationId: string, admi
     actorUserId: adminUserId,
     targetUserId: application.userId,
     details: `Rejected seller application ${application.id}`,
+    reason: reason?.trim() || undefined,
   });
   pushNotification(db, {
     userId: application.userId,
@@ -3583,7 +3590,7 @@ export async function rejectSellerApplicationByAdmin(applicationId: string, admi
   return db.sellerApplications[applicationIndex];
 }
 
-export async function suspendApprovedSellerByAdmin(userId: string, adminUserId: string) {
+export async function suspendApprovedSellerByAdmin(userId: string, adminUserId: string, reason?: string) {
   const db = await readDb();
   const userIndex = db.users.findIndex((user) => user.id === userId);
   if (userIndex === -1) throw new Error("User not found.");
@@ -3600,6 +3607,7 @@ export async function suspendApprovedSellerByAdmin(userId: string, adminUserId: 
     actorUserId: adminUserId,
     targetUserId: userId,
     details: `Suspended seller ${userId}`,
+    reason: reason?.trim() || undefined,
   });
   await recalculateTrustEngine(db, { reason: "Seller suspended", triggeredBy: adminUserId });
 
@@ -3607,7 +3615,7 @@ export async function suspendApprovedSellerByAdmin(userId: string, adminUserId: 
   return db.users[userIndex];
 }
 
-export async function reactivateSellerByAdmin(userId: string, adminUserId: string) {
+export async function reactivateSellerByAdmin(userId: string, adminUserId: string, reason?: string) {
   const db = await readDb();
   const userIndex = db.users.findIndex((user) => user.id === userId);
   if (userIndex === -1) throw new Error("User not found.");
@@ -3627,6 +3635,7 @@ export async function reactivateSellerByAdmin(userId: string, adminUserId: strin
     actorUserId: adminUserId,
     targetUserId: userId,
     details: `Reactivated seller ${userId}`,
+    reason: reason?.trim() || undefined,
   });
   await recalculateTrustEngine(db, { reason: "Seller reactivated", triggeredBy: adminUserId });
 
@@ -4198,6 +4207,7 @@ export async function adminOverrideMarketplaceListing(input: {
     listing.status = "active";
     listing.expiresAt = getListingExpirationIso(now, input.expirationHours);
     listing.expiredAt = undefined;
+    listing.closedAt = undefined;
     listing.lastRenewedAt = now;
   } else if (input.action === "extend") {
     listing.expiresAt = getListingExpirationIso(listing.expiresAt ?? now, input.expirationHours);
@@ -4482,7 +4492,7 @@ export async function createPurchaseRequest(input: {
 }) {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
-  const db = await readDb();
+  const db = await readDb({ bypassCache: true });
   const dbReadMs = Date.now() - dbReadStartedAt;
   const validationStartedAt = Date.now();
   const now = nowIso();
@@ -5136,7 +5146,7 @@ export async function uploadTradeEvidence(input: {
 }) {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
-  const db = await readDb();
+  const db = await readDb({ bypassCache: true });
   const dbReadMs = Date.now() - dbReadStartedAt;
   const validationStartedAt = Date.now();
   const actorRole = resolveActorRole(db, input.actorUserId);
@@ -5638,7 +5648,7 @@ export async function updatePurchaseRequestStatus(input: {
       actorRole: input.actorRole,
     });
   }
-  let db = await readDb();
+  let db = await readDb({ bypassCache: true });
   const readDbMs = Date.now() - startedAt;
   let timelineMs = 0;
   let chatMs = 0;
@@ -7159,6 +7169,9 @@ export async function updateCommissionPaymentStatus(input: {
   commissionId: string;
   actorUserId: string;
   paymentStatus: "pending" | "paid" | "overdue";
+  paymentVerificationStatus?: "pending_verification" | "verified" | "failed";
+  paymentVerificationNotes?: string;
+  reason?: string;
 }) {
   const db = await readDb();
   const index = db.commissionRecords.findIndex((record) => record.id === input.commissionId);
@@ -7170,6 +7183,17 @@ export async function updateCommissionPaymentStatus(input: {
   db.commissionRecords[index] = {
     ...current,
     paymentStatus: input.paymentStatus,
+    paymentVerificationStatus:
+      input.paymentVerificationStatus
+      ?? (input.paymentStatus === "paid"
+        ? "verified"
+        : input.paymentStatus === "pending"
+          ? current.paymentVerificationStatus
+          : current.paymentVerificationStatus),
+    paymentVerificationNotes:
+      input.paymentVerificationNotes !== undefined
+        ? input.paymentVerificationNotes.trim() || undefined
+        : current.paymentVerificationNotes,
     paidAt: input.paymentStatus === "paid" ? now : undefined,
     overdueNotifiedAt: input.paymentStatus === "overdue" ? current.overdueNotifiedAt ?? now : undefined,
     updatedAt: now,
@@ -7181,6 +7205,7 @@ export async function updateCommissionPaymentStatus(input: {
     listingId: current.listingId,
     purchaseRequestId: current.purchaseRequestId,
     details: `Commission ${current.id} marked ${input.paymentStatus}.`,
+    reason: input.reason?.trim() || undefined,
   });
   if (input.paymentStatus === "paid") {
     if (request) {
@@ -8224,7 +8249,7 @@ export async function disableUserAccountByAdmin(input: { userId: string; disable
   await writeDb(db, { selectedTables: SELLER_PROFILE_STATE_TABLES });
 }
 
-export async function setSellerVacationModeByAdmin(input: { userId: string; enabled: boolean; actorUserId: string }) {
+export async function setSellerVacationModeByAdmin(input: { userId: string; enabled: boolean; actorUserId: string; reason?: string }) {
   const db = await readDb();
   const index = db.users.findIndex((u) => u.id === input.userId);
   if (index === -1) throw new Error("User not found.");
@@ -8236,11 +8261,12 @@ export async function setSellerVacationModeByAdmin(input: { userId: string; enab
     actorUserId: input.actorUserId,
     targetUserId: input.userId,
     details: `Admin ${input.enabled ? "enabled" : "disabled"} vacation mode for seller`,
+    reason: input.reason?.trim() || undefined,
   });
   await writeDb(db, { selectedTables: SELLER_PROFILE_STATE_TABLES });
 }
 
-export async function broadcastNotificationByAdmin(input: { title: string; body: string; type: "info" | "warning" | "success"; actorUserId: string }) {
+export async function broadcastNotificationByAdmin(input: { title: string; body: string; type: "info" | "warning" | "success"; actorUserId: string; reason?: string }) {
   const db = await readDb();
   for (const user of db.users) {
     pushNotification(db, {
@@ -8255,11 +8281,12 @@ export async function broadcastNotificationByAdmin(input: { title: string; body:
     action: "admin_override",
     actorUserId: input.actorUserId,
     details: `Broadcast notification sent: ${input.title}`,
+    reason: input.reason?.trim() || undefined,
   });
   await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
 }
 
-export async function reverifyCommissionByAdmin(input: { commissionId: string; actorUserId: string }) {
+export async function reverifyCommissionByAdmin(input: { commissionId: string; actorUserId: string; reason?: string }) {
   const db = await readDb();
   const index = db.commissionRecords.findIndex((r) => r.id === input.commissionId);
   if (index === -1) throw new Error("Commission record not found.");
@@ -8290,9 +8317,27 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
     actorUserId: input.actorUserId,
     purchaseRequestId: record.purchaseRequestId,
     details: `Commission ${input.commissionId} reverified: ${result.verified ? "verified" : "failed"} — ${result.notes}`,
+    reason: input.reason?.trim() || undefined,
   });
   await writeDb(db, { selectedTables: COMMISSION_STATUS_TABLES });
   return result;
+}
+
+export async function recalculateAllTrustByAdmin(input: { actorUserId: string; reason: string }) {
+  const db = await readDb();
+  const trimmedReason = input.reason.trim();
+  if (!trimmedReason) throw new Error("Reason is required.");
+  await recalculateTrustEngine(db, { reason: trimmedReason, triggeredBy: input.actorUserId });
+  await appendAuditLog(db, {
+    action: "admin_override",
+    actorUserId: input.actorUserId,
+    details: "Admin triggered full trust recalculation.",
+    reason: trimmedReason,
+  });
+  await writeDb(db, { selectedTables: SELLER_STATUS_TRUST_TABLES });
+  return {
+    sellerCount: db.trustSnapshots.length,
+  };
 }
 
 export async function getAdminPrepDashboardData() {
