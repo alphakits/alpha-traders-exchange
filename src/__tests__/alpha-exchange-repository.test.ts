@@ -316,9 +316,10 @@ describe("AlphaExchangeRepository", () => {
     })).resolves.toBeUndefined();
 
     const sessionInserts = client.query.mock.calls
-      .filter(([sql]) => typeof sql === "string" && sql.includes("insert into alpha_exchange.sessions"));
+      .filter(([sql]) => typeof sql === "string" && sql.toLowerCase().includes("insert into alpha_exchange.sessions"));
     expect(sessionInserts).toHaveLength(1);
-    expect(sessionInserts[0]?.[1]).toEqual(expect.arrayContaining(["good-token", "user-1"]));
+    expect(sessionInserts[0]?.[1][0]).toEqual(expect.arrayContaining(["good-token"]));
+    expect(sessionInserts[0]?.[1][1]).toEqual(expect.arrayContaining(["user-1"]));
     expect(JSON.stringify(sessionInserts)).not.toContain("orphan-token");
   });
 

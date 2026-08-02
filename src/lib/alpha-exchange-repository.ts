@@ -365,20 +365,32 @@ function cloneSnapshot(db: AlphaExchangeDb) {
   return structuredClone(db);
 }
 
+async function bulkInsert(tx: PoolClient, sql: string, columnArrays: unknown[][]): Promise<void> {
+  if (!columnArrays[0]?.length) return;
+  await tx.query(sql, columnArrays);
+}
+
 const tables = [
   {
     name: "users",
     selectSql: "select payload from alpha_exchange.users order by sort_index asc",
     values: (db) => db.users,
     insert: async (tx, rows: AlphaExchangeUser[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.users
-            (id, email, role, seller_status, availability_status, online_status, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)`,
-          [row.id, row.email, row.role, row.sellerStatus, row.availabilityStatus, row.onlineStatus, row.createdAt, row.updatedAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.users (id, email, role, seller_status, availability_status, online_status, created_at, updated_at, sort_index, payload)
+SELECT id, email, role, seller_status, availability_status, online_status, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[])
+  AS t(id,email,role,seller_status,availability_status,online_status,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.email),
+        rows.map(r => r.role),
+        rows.map(r => r.sellerStatus),
+        rows.map(r => r.availabilityStatus),
+        rows.map(r => r.onlineStatus),
+        rows.map(r => r.createdAt),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -409,14 +421,17 @@ const tables = [
         updatedAt: user.updatedAt,
       })),
     insert: async (tx, rows: Array<Record<string, unknown>>) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.seller_profiles
-            (user_id, seller_status, availability_status, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6::jsonb)`,
-          [String(row.userId), String(row.sellerStatus), String(row.availabilityStatus), String(row.updatedAt), index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.seller_profiles (user_id, seller_status, availability_status, updated_at, sort_index, payload)
+SELECT user_id, seller_status, availability_status, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
+  AS t(user_id,seller_status,availability_status,updated_at,sort_index,payload)`, [
+        rows.map(r => String(r.userId)),
+        rows.map(r => String(r.sellerStatus)),
+        rows.map(r => String(r.availabilityStatus)),
+        rows.map(r => String(r.updatedAt)),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -432,14 +447,17 @@ const tables = [
         updatedAt: user.updatedAt,
       })),
     insert: async (tx, rows: Array<Record<string, unknown>>) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.seller_settings
-            (user_id, availability_status, notification_preferences, updated_at, sort_index, payload)
-           values ($1,$2,$3::jsonb,$4,$5,$6::jsonb)`,
-          [String(row.userId), String(row.availabilityStatus), json(row.notificationPreferences), String(row.updatedAt), index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.seller_settings (user_id, availability_status, notification_preferences, updated_at, sort_index, payload)
+SELECT user_id, availability_status, notification_preferences::jsonb, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
+  AS t(user_id,availability_status,notification_preferences,updated_at,sort_index,payload)`, [
+        rows.map(r => String(r.userId)),
+        rows.map(r => String(r.availabilityStatus)),
+        rows.map(r => json(r.notificationPreferences)),
+        rows.map(r => String(r.updatedAt)),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -447,14 +465,20 @@ const tables = [
     selectSql: "select payload from alpha_exchange.listings order by sort_index asc",
     values: (db) => db.marketplaceListings,
     insert: async (tx, rows: MarketplaceListing[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.listings
-            (id, seller_id, status, active_trade_request_id, expires_at, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
-          [row.id, row.sellerId, row.status, row.activeTradeRequestId ?? null, toTimestamp(row.expiresAt), row.createdAt, row.updatedAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.listings (id, seller_id, status, active_trade_request_id, expires_at, created_at, updated_at, sort_index, payload)
+SELECT id, seller_id, status, active_trade_request_id, expires_at::timestamptz, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[])
+  AS t(id,seller_id,status,active_trade_request_id,expires_at,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.sellerId),
+        rows.map(r => r.status),
+        rows.map(r => r.activeTradeRequestId ?? null),
+        rows.map(r => toTimestamp(r.expiresAt)?.toISOString() ?? null),
+        rows.map(r => r.createdAt),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -474,26 +498,22 @@ const tables = [
         timeline: request.timeline,
       })),
     insert: async (tx, rows: Array<Record<string, unknown>>) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.trades
-            (id, purchase_request_id, listing_id, seller_id, buyer_id, status, completed_at, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
-          [
-            String(row.id),
-            String(row.purchaseRequestId),
-            String(row.listingId),
-            String(row.sellerId),
-            String(row.buyerId),
-            String(row.status),
-            toTimestamp(typeof row.completedAt === "string" ? row.completedAt : undefined),
-            String(row.createdAt),
-            String(row.updatedAt),
-            index,
-            json(row),
-          ],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.trades (id, purchase_request_id, listing_id, seller_id, buyer_id, status, completed_at, created_at, updated_at, sort_index, payload)
+SELECT id, purchase_request_id, listing_id, seller_id, buyer_id, status, completed_at::timestamptz, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[],$11::text[])
+  AS t(id,purchase_request_id,listing_id,seller_id,buyer_id,status,completed_at,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => String(r.id)),
+        rows.map(r => String(r.purchaseRequestId)),
+        rows.map(r => String(r.listingId)),
+        rows.map(r => String(r.sellerId)),
+        rows.map(r => String(r.buyerId)),
+        rows.map(r => String(r.status)),
+        rows.map(r => toTimestamp(typeof r.completedAt === "string" ? r.completedAt : undefined)?.toISOString() ?? null),
+        rows.map(r => String(r.createdAt)),
+        rows.map(r => String(r.updatedAt)),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -501,27 +521,23 @@ const tables = [
     selectSql: "select payload from alpha_exchange.purchase_requests order by sort_index asc",
     values: (db) => db.purchaseRequests,
     insert: async (tx, rows: PurchaseRequest[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.purchase_requests
-            (id, trade_id, listing_id, seller_id, buyer_id, status, timed_out_at, completed_at, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)`,
-          [
-            row.id,
-            row.tradeId ?? null,
-            row.listingId,
-            row.sellerId,
-            row.buyerId,
-            row.status,
-            toTimestamp(row.timedOutAt),
-            toTimestamp(row.completedAt),
-            row.createdAt,
-            row.updatedAt,
-            index,
-            json(row),
-          ],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.purchase_requests (id, trade_id, listing_id, seller_id, buyer_id, status, timed_out_at, completed_at, created_at, updated_at, sort_index, payload)
+SELECT id, trade_id, listing_id, seller_id, buyer_id, status, timed_out_at::timestamptz, completed_at::timestamptz, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[],$11::text[],$12::text[])
+  AS t(id,trade_id,listing_id,seller_id,buyer_id,status,timed_out_at,completed_at,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.tradeId ?? null),
+        rows.map(r => r.listingId),
+        rows.map(r => r.sellerId),
+        rows.map(r => r.buyerId),
+        rows.map(r => r.status),
+        rows.map(r => toTimestamp(r.timedOutAt)?.toISOString() ?? null),
+        rows.map(r => toTimestamp(r.completedAt)?.toISOString() ?? null),
+        rows.map(r => r.createdAt),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -529,14 +545,18 @@ const tables = [
     selectSql: "select payload from alpha_exchange.notifications order by sort_index asc",
     values: (db) => db.notifications,
     insert: async (tx, rows: AlphaExchangeNotification[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.notifications
-            (id, user_id, category, is_read, created_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
-          [row.id, row.userId, row.category, row.isRead, row.createdAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.notifications (id, user_id, category, is_read, created_at, sort_index, payload)
+SELECT id, user_id, category, is_read::boolean, created_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[])
+  AS t(id,user_id,category,is_read,created_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.userId),
+        rows.map(r => r.category),
+        rows.map(r => String(r.isRead)),
+        rows.map(r => r.createdAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -544,14 +564,22 @@ const tables = [
     selectSql: "select payload from alpha_exchange.commissions order by sort_index asc",
     values: (db) => db.commissionRecords,
     insert: async (tx, rows: CommissionRecord[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.commissions
-            (id, purchase_request_id, listing_id, seller_id, buyer_id, payment_status, due_at, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
-          [row.id, row.purchaseRequestId, row.listingId, row.sellerId, row.buyerId, row.paymentStatus, toTimestamp(row.dueAt), row.createdAt, row.updatedAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.commissions (id, purchase_request_id, listing_id, seller_id, buyer_id, payment_status, due_at, created_at, updated_at, sort_index, payload)
+SELECT id, purchase_request_id, listing_id, seller_id, buyer_id, payment_status, due_at::timestamptz, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[],$11::text[])
+  AS t(id,purchase_request_id,listing_id,seller_id,buyer_id,payment_status,due_at,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.purchaseRequestId),
+        rows.map(r => r.listingId),
+        rows.map(r => r.sellerId),
+        rows.map(r => r.buyerId),
+        rows.map(r => r.paymentStatus),
+        rows.map(r => toTimestamp(r.dueAt)?.toISOString() ?? null),
+        rows.map(r => r.createdAt),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -559,14 +587,20 @@ const tables = [
     selectSql: "select payload from alpha_exchange.audit_logs order by sort_index asc",
     values: (db) => db.auditLogs,
     insert: async (tx, rows: AuditLogEntry[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.audit_logs
-            (id, action, actor_user_id, target_user_id, listing_id, purchase_request_id, created_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
-          [row.id, row.action, row.actorUserId, row.targetUserId ?? null, row.listingId ?? null, row.purchaseRequestId ?? null, row.createdAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.audit_logs (id, action, actor_user_id, target_user_id, listing_id, purchase_request_id, created_at, sort_index, payload)
+SELECT id, action, actor_user_id, target_user_id, listing_id, purchase_request_id, created_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[])
+  AS t(id,action,actor_user_id,target_user_id,listing_id,purchase_request_id,created_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.action),
+        rows.map(r => r.actorUserId),
+        rows.map(r => r.targetUserId ?? null),
+        rows.map(r => r.listingId ?? null),
+        rows.map(r => r.purchaseRequestId ?? null),
+        rows.map(r => r.createdAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -590,14 +624,17 @@ const tables = [
     selectSql: "select payload from alpha_exchange.sessions order by sort_index asc",
     values: (db) => db.authSessions,
     insert: async (tx, rows: AuthSession[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.sessions
-            (token_hash, user_id, expires_at, created_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6::jsonb)`,
-          [row.token, row.userId, row.expiresAt, row.createdAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.sessions (token_hash, user_id, expires_at, created_at, sort_index, payload)
+SELECT token_hash, user_id, expires_at::timestamptz, created_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
+  AS t(token_hash,user_id,expires_at,created_at,sort_index,payload)`, [
+        rows.map(r => r.token),
+        rows.map(r => r.userId),
+        rows.map(r => r.expiresAt),
+        rows.map(r => r.createdAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -605,14 +642,18 @@ const tables = [
     selectSql: "select payload from alpha_exchange.password_reset_tokens order by sort_index asc",
     values: (db) => db.passwordResetTokens,
     insert: async (tx, rows: PasswordResetToken[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.password_reset_tokens
-            (id, user_id, token_hash, expires_at, created_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
-          [row.id, row.userId, row.tokenHash, row.expiresAt, row.createdAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.password_reset_tokens (id, user_id, token_hash, expires_at, created_at, sort_index, payload)
+SELECT id, user_id, token_hash, expires_at::timestamptz, created_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[])
+  AS t(id,user_id,token_hash,expires_at,created_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.userId),
+        rows.map(r => r.tokenHash),
+        rows.map(r => r.expiresAt),
+        rows.map(r => r.createdAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -620,14 +661,18 @@ const tables = [
     selectSql: "select payload from alpha_exchange.seller_applications order by sort_index asc",
     values: (db) => db.sellerApplications,
     insert: async (tx, rows: SellerApplication[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.seller_applications
-            (id, user_id, status, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
-          [row.id, row.userId, row.status, row.createdAt, row.updatedAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.seller_applications (id, user_id, status, created_at, updated_at, sort_index, payload)
+SELECT id, user_id, status, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[])
+  AS t(id,user_id,status,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.userId),
+        rows.map(r => r.status),
+        rows.map(r => r.createdAt),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -635,14 +680,17 @@ const tables = [
     selectSql: "select payload from alpha_exchange.activity_logs order by sort_index asc",
     values: (db) => db.activityLog,
     insert: async (tx, rows: AlphaExchangeActivityLogEntry[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.activity_logs
-            (id, user_id, category, created_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6::jsonb)`,
-          [row.id, row.userId, row.category, row.createdAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.activity_logs (id, user_id, category, created_at, sort_index, payload)
+SELECT id, user_id, category, created_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
+  AS t(id,user_id,category,created_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.userId),
+        rows.map(r => r.category),
+        rows.map(r => r.createdAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -650,14 +698,21 @@ const tables = [
     selectSql: "select payload from alpha_exchange.disputes order by sort_index asc",
     values: (db) => db.disputes,
     insert: async (tx, rows: TradeDisputeCase[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.disputes
-            (id, trade_id, purchase_request_id, seller_id, buyer_id, status, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)`,
-          [row.id, row.tradeId, row.purchaseRequestId, row.sellerId, row.buyerId, row.status, row.createdAt, row.updatedAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.disputes (id, trade_id, purchase_request_id, seller_id, buyer_id, status, created_at, updated_at, sort_index, payload)
+SELECT id, trade_id, purchase_request_id, seller_id, buyer_id, status, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[])
+  AS t(id,trade_id,purchase_request_id,seller_id,buyer_id,status,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.tradeId),
+        rows.map(r => r.purchaseRequestId),
+        rows.map(r => r.sellerId),
+        rows.map(r => r.buyerId),
+        rows.map(r => r.status),
+        rows.map(r => r.createdAt),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -665,14 +720,18 @@ const tables = [
     selectSql: "select payload from alpha_exchange.seller_reports order by sort_index asc",
     values: (db) => db.sellerReports,
     insert: async (tx, rows: SellerReport[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.seller_reports
-            (id, reporter_user_id, seller_id, purchase_request_id, created_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
-          [row.id, row.reporterUserId, row.sellerId, row.purchaseRequestId ?? null, row.createdAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.seller_reports (id, reporter_user_id, seller_id, purchase_request_id, created_at, sort_index, payload)
+SELECT id, reporter_user_id, seller_id, purchase_request_id, created_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[])
+  AS t(id,reporter_user_id,seller_id,purchase_request_id,created_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.reporterUserId),
+        rows.map(r => r.sellerId),
+        rows.map(r => r.purchaseRequestId ?? null),
+        rows.map(r => r.createdAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -680,14 +739,15 @@ const tables = [
     selectSql: "select payload from alpha_exchange.trust_snapshots order by sort_index asc",
     values: (db) => db.trustSnapshots,
     insert: async (tx, rows: TrustSnapshotRecord[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.trust_snapshots
-            (seller_id, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4::jsonb)`,
-          [row.sellerId, row.updatedAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.trust_snapshots (seller_id, updated_at, sort_index, payload)
+SELECT seller_id, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[])
+  AS t(seller_id,updated_at,sort_index,payload)`, [
+        rows.map(r => r.sellerId),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -695,14 +755,16 @@ const tables = [
     selectSql: "select payload from alpha_exchange.trust_score_history order by sort_index asc",
     values: (db) => db.trustScoreHistory,
     insert: async (tx, rows: TrustScoreChangeLog[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.trust_score_history
-            (id, seller_id, created_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5::jsonb)`,
-          [row.id, row.sellerId, row.createdAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.trust_score_history (id, seller_id, created_at, sort_index, payload)
+SELECT id, seller_id, created_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[])
+  AS t(id,seller_id,created_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.sellerId),
+        rows.map(r => r.createdAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -710,14 +772,20 @@ const tables = [
     selectSql: "select payload from alpha_exchange.private_beta_invites order by sort_index asc",
     values: (db) => db.privateBetaInvites,
     insert: async (tx, rows: PrivateBetaInviteCode[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.private_beta_invites
-            (id, code, status, created_by_user_id, expires_at, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
-          [row.id, row.code, row.status, row.createdByUserId, toTimestamp(row.expiresAt), row.createdAt, row.updatedAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.private_beta_invites (id, code, status, created_by_user_id, expires_at, created_at, updated_at, sort_index, payload)
+SELECT id, code, status, created_by_user_id, expires_at::timestamptz, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[])
+  AS t(id,code,status,created_by_user_id,expires_at,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.code),
+        rows.map(r => r.status),
+        rows.map(r => r.createdByUserId),
+        rows.map(r => toTimestamp(r.expiresAt)?.toISOString() ?? null),
+        rows.map(r => r.createdAt),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -725,14 +793,17 @@ const tables = [
     selectSql: "select payload from alpha_exchange.private_beta_invite_uses order by sort_index asc",
     values: (db) => db.privateBetaInviteUses,
     insert: async (tx, rows: PrivateBetaInviteUse[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.private_beta_invite_uses
-            (id, invite_code_id, used_by_user_id, used_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6::jsonb)`,
-          [row.id, row.inviteCodeId, row.usedByUserId, row.usedAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.private_beta_invite_uses (id, invite_code_id, used_by_user_id, used_at, sort_index, payload)
+SELECT id, invite_code_id, used_by_user_id, used_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
+  AS t(id,invite_code_id,used_by_user_id,used_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.inviteCodeId),
+        rows.map(r => r.usedByUserId),
+        rows.map(r => r.usedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -740,14 +811,18 @@ const tables = [
     selectSql: "select payload from alpha_exchange.beta_feedback order by sort_index asc",
     values: (db) => db.betaFeedback,
     insert: async (tx, rows: BetaFeedbackEntry[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.beta_feedback
-            (id, user_id, status, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
-          [row.id, row.userId, row.status, row.createdAt, row.updatedAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.beta_feedback (id, user_id, status, created_at, updated_at, sort_index, payload)
+SELECT id, user_id, status, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[])
+  AS t(id,user_id,status,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.userId),
+        rows.map(r => r.status),
+        rows.map(r => r.createdAt),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -755,14 +830,19 @@ const tables = [
     selectSql: "select payload from alpha_exchange.beta_announcements order by sort_index asc",
     values: (db) => db.betaAnnouncements,
     insert: async (tx, rows: BetaAnnouncement[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.beta_announcements
-            (id, type, is_active, created_by_user_id, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`,
-          [row.id, row.type, row.isActive, row.createdByUserId, row.createdAt, row.updatedAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.beta_announcements (id, type, is_active, created_by_user_id, created_at, updated_at, sort_index, payload)
+SELECT id, type, is_active::boolean, created_by_user_id, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[])
+  AS t(id,type,is_active,created_by_user_id,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.type),
+        rows.map(r => String(r.isActive)),
+        rows.map(r => r.createdByUserId),
+        rows.map(r => r.createdAt),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
 ] as Array<RepoTable<unknown>>;
@@ -776,24 +856,31 @@ function getTable(name: string) {
 }
 
 async function upsertUsersTable(tx: PoolClient, rows: AlphaExchangeUser[]) {
-  for (const [index, row] of rows.entries()) {
-    await tx.query(
-      `insert into alpha_exchange.users
-        (id, email, role, seller_status, availability_status, online_status, created_at, updated_at, sort_index, payload)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)
-       on conflict (id) do update set
-         email = excluded.email,
-         role = excluded.role,
-         seller_status = excluded.seller_status,
-         availability_status = excluded.availability_status,
-         online_status = excluded.online_status,
-         created_at = excluded.created_at,
-         updated_at = excluded.updated_at,
-         sort_index = excluded.sort_index,
-         payload = excluded.payload`,
-      [row.id, row.email, row.role, row.sellerStatus, row.availabilityStatus, row.onlineStatus, row.createdAt, row.updatedAt, index, json(row)],
-    );
-  }
+  await bulkInsert(tx, `INSERT INTO alpha_exchange.users (id, email, role, seller_status, availability_status, online_status, created_at, updated_at, sort_index, payload)
+SELECT id, email, role, seller_status, availability_status, online_status, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[])
+  AS t(id,email,role,seller_status,availability_status,online_status,created_at,updated_at,sort_index,payload)
+ON CONFLICT (id) DO UPDATE SET
+  email = excluded.email,
+  role = excluded.role,
+  seller_status = excluded.seller_status,
+  availability_status = excluded.availability_status,
+  online_status = excluded.online_status,
+  created_at = excluded.created_at,
+  updated_at = excluded.updated_at,
+  sort_index = excluded.sort_index,
+  payload = excluded.payload`, [
+    rows.map(r => r.id),
+    rows.map(r => r.email),
+    rows.map(r => r.role),
+    rows.map(r => r.sellerStatus),
+    rows.map(r => r.availabilityStatus),
+    rows.map(r => r.onlineStatus),
+    rows.map(r => r.createdAt),
+    rows.map(r => r.updatedAt),
+    rows.map((_, i) => String(i)),
+    rows.map(r => json(r)),
+  ]);
 }
 
 async function replaceTableContents(tx: PoolClient, tableName: SnapshotTableName, db: AlphaExchangeDb, context?: SaveContext) {
