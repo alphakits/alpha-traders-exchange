@@ -65,11 +65,13 @@ export async function authenticateLocalUser(email: string, password: string) {
   if (process.env.NODE_ENV === "production" && process.env.ENABLE_LOCAL_AUTH_FALLBACK !== "1") {
     return null;
   }
+  // Fall through to the full store lookup which has all fields (role, sellerStatus, etc.)
+  // The JSON fast-path is kept as a lightweight read but returns the full user record.
   const cwd = process.cwd();
   const dbPath = path.join(cwd, "data", "alpha-exchange-db.json");
   try {
-    const raw = readFileSync(dbPath, "utf8");
-    const db = JSON.parse(raw) as { users?: Array<{ email?: string; passwordHash?: string; fullName?: string; whatsappNumber?: string }> };
+    const raw = readFileSync(dbPath, "utf8").replace(/^\uFEFF/, "");
+    const db = JSON.parse(raw) as { users?: Array<{ email?: string; passwordHash?: string; fullName?: string; whatsappNumber?: string; role?: string; roles?: string[]; sellerStatus?: string; emailVerified?: boolean }> };
     const user = db.users?.find((candidate) => candidate.email?.toLowerCase() === email.toLowerCase());
     if (!user?.passwordHash) {
       return null;
@@ -86,10 +88,10 @@ export async function authenticateLocalUser(email: string, password: string) {
       email,
       passwordHash: user.passwordHash,
       whatsappNumber: user.whatsappNumber ?? "",
-      role: "buyer",
-      roles: ["buyer"],
-      sellerStatus: "buyer",
-      emailVerified: true,
+      role: (user.role ?? "buyer") as string,
+      roles: (user.roles ?? [user.role ?? "buyer"]) as string[],
+      sellerStatus: (user.sellerStatus ?? "buyer") as string,
+      emailVerified: user.emailVerified === true,
     };
   } catch {
     const user = await findUserByEmail(email);
