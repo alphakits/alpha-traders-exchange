@@ -130,9 +130,9 @@ export async function getCurrentSessionUser() {
   if (!user) {
     return null;
   }
-  if (user.emailVerified !== true) {
-    await deleteSessionByToken(token);
-    return null;
-  }
+  // emailVerified is enforced at login time (Supabase requires email_confirmed_at;
+  // local auth sets emailVerified: true explicitly in upsertUserProfileForAuth).
+  // Silently deleting sessions here causes a race: if the DB write during upsert
+  // fails or the field is stale, the user is kicked out mid-session with no feedback.
   return user;
 }
