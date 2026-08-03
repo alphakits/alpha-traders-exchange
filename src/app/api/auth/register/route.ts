@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { findUserByEmail, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 import { checkRateLimit, resolveClientIp } from "@/lib/rate-limit";
-import { createSupabaseAdminClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
+import { createSupabaseAdminClient, createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 import { buildAuthEmail, sendAuthEmailViaResend } from "@/lib/auth-email-delivery";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
@@ -173,7 +173,29 @@ export async function POST(request: NextRequest) {
         email,
         provider: "resend",
       });
-      return NextResponse.json({ error: "Registration failed. Please try again." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+      try {
+        const authSupabase = createSupabaseAuthClient({ requestHeaders: request.headers });
+        const { error: resendError } = await authSupabase.auth.resend({
+          type: "signup",
+          email,
+          options: {
+            emailRedirectTo: getSupabaseEmailRedirectUrl(locale),
+          },
+        });
+        if (resendError) {
+          logRegistrationRateLimit("provider_resend_failed", {
+            ip: clientIp,
+            email,
+            provider: "supabase",
+          });
+        }
+      } catch {
+        logRegistrationRateLimit("provider_resend_unavailable", {
+          ip: clientIp,
+          email,
+          provider: "supabase",
+        });
+      }
     }
 
     await upsertUserProfileForAuth({

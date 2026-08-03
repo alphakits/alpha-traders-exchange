@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getSupabaseEmailRedirectUrl: vi.fn(),
   adminCreateUser: vi.fn(),
   adminGenerateLink: vi.fn(),
+  providerResend: vi.fn(),
   buildAuthEmail: vi.fn(),
   sendAuthEmailViaResend: vi.fn(),
   findUserByEmail: vi.fn(),
@@ -22,6 +23,11 @@ vi.mock("@/lib/rate-limit", () => ({
 vi.mock("@/lib/supabase-auth-provider", () => ({
   inferLocaleFromRequest: mocks.inferLocaleFromRequest,
   getSupabaseEmailRedirectUrl: mocks.getSupabaseEmailRedirectUrl,
+  createSupabaseAuthClient: vi.fn(() => ({
+    auth: {
+      resend: mocks.providerResend,
+    },
+  })),
   createSupabaseAdminClient: vi.fn(() => ({
     auth: {
       admin: {
@@ -52,6 +58,7 @@ describe("auth register rate-limit hotfix", () => {
     mocks.getSupabaseEmailRedirectUrl.mockReset();
     mocks.adminCreateUser.mockReset();
     mocks.adminGenerateLink.mockReset();
+    mocks.providerResend.mockReset();
     mocks.buildAuthEmail.mockReset();
     mocks.sendAuthEmailViaResend.mockReset();
     mocks.findUserByEmail.mockReset();
@@ -77,6 +84,7 @@ describe("auth register rate-limit hotfix", () => {
       text: "verify",
     });
     mocks.sendAuthEmailViaResend.mockResolvedValue({ ok: true });
+    mocks.providerResend.mockResolvedValue({ error: null });
     mocks.findUserByEmail.mockResolvedValue(null);
     mocks.upsertUserProfileForAuth.mockResolvedValue({});
   });
@@ -117,6 +125,15 @@ describe("auth register rate-limit hotfix", () => {
     expect(mocks.adminCreateUser).toHaveBeenCalled();
     expect(mocks.adminGenerateLink).toHaveBeenCalled();
     expect(mocks.sendAuthEmailViaResend).toHaveBeenCalled();
+  });
+
+  it("does not fail registration when resend delivery fails", async () => {
+    mocks.sendAuthEmailViaResend.mockResolvedValue({ ok: false, reason: "resend_not_configured" });
+    const response = await POST(makeRequest("fallback@example.com", "en"));
+    const payload = await response.json() as { ok?: boolean };
+    expect(response.status).toBe(200);
+    expect(payload.ok).toBe(true);
+    expect(mocks.providerResend).toHaveBeenCalled();
   });
 
   it("uses composite ip+email key for retry-friendly legitimate registrations", async () => {
