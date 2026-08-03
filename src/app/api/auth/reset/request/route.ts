@@ -36,15 +36,12 @@ export async function POST(request: NextRequest) {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo,
     });
-    if (error) {
-      if (isAuthRateLimitError(error.message)) {
-        return NextResponse.json({ error: "Password reset is temporarily rate-limited. Please try again shortly." }, { status: 429, headers: AUTH_RESPONSE_HEADERS });
-      }
-      return NextResponse.json({ error: "Unable to send reset email right now. Please try again." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    if (error && isAuthRateLimitError(error.message)) {
+      return NextResponse.json({ error: "Password reset is temporarily rate-limited. Please try again shortly." }, { status: 429, headers: AUTH_RESPONSE_HEADERS });
     }
     return NextResponse.json({
       ok: true,
-      message: "If the account exists, a password reset email has been sent.",
+      message: "If an account exists for this email, we've sent password reset instructions.",
     }, { headers: AUTH_RESPONSE_HEADERS });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to request password reset." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });

@@ -16,9 +16,15 @@ export default async function LoginPage({
   searchParams,
 }: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ redirectTo?: string | string[] }>;
+  searchParams: Promise<{ redirectTo?: string | string[]; reset?: string | string[] }>;
 }) {
   const { locale } = await params;
-  const { redirectTo } = await searchParams;
-  return <LoginForm locale={locale as "ar" | "en"} redirectTo={typeof redirectTo === "string" ? redirectTo : undefined} />;
+  const { redirectTo, reset } = await searchParams;
+  return (
+    <LoginForm
+      locale={locale as "ar" | "en"}
+      redirectTo={typeof redirectTo === "string" ? redirectTo : undefined}
+      passwordResetSuccess={typeof reset === "string" && reset === "success"}
+    />
+  );
 }

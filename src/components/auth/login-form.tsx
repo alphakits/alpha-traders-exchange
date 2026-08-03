@@ -6,15 +6,26 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, beginLoginJourney, noteLoginJourneyRedirectStart } from "@/lib/login-journey-trace";
 
-export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirectTo?: string }) {
+export function LoginForm({
+  locale,
+  redirectTo,
+  passwordResetSuccess = false,
+}: {
+  locale: "ar" | "en";
+  redirectTo?: string;
+  passwordResetSuccess?: boolean;
+}) {
   const isAr = locale === "ar";
   const [form, setForm] = useState({ email: "", password: "", rememberMe: true });
-  const [resetMode, setResetMode] = useState(false);
-  const [resetRequestEmail, setResetRequestEmail] = useState("");
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(
+    passwordResetSuccess
+      ? (isAr
+        ? "تم تحديث كلمة المرور بنجاح. يُرجى تسجيل الدخول."
+        : "Your password has been updated successfully. Please sign in.")
+      : null,
+  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoginSubmitting, setIsLoginSubmitting] = useState(false);
-  const [isResetRequestSubmitting, setIsResetRequestSubmitting] = useState(false);
   const [isResendVerificationSubmitting, setIsResendVerificationSubmitting] = useState(false);
   const [requiresEmailVerification, setRequiresEmailVerification] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -163,31 +174,6 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
     }
   }
 
-  async function handleResetRequest(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setStatusMessage(null);
-    setErrorMessage(null);
-    if (isResetRequestSubmitting) return;
-    setIsResetRequestSubmitting(true);
-    try {
-      const response = await fetch("/api/auth/reset/request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: resetRequestEmail }),
-      });
-      const data = (await response.json()) as { error?: string; message?: string };
-      if (!response.ok) {
-        setErrorMessage(data.error ?? "Failed to request reset.");
-        return;
-      }
-      setStatusMessage(data.message ?? (isAr ? "إذا كان الحساب موجودًا، تم إرسال بريد إعادة تعيين كلمة المرور." : "If the account exists, a password reset email has been sent."));
-    } catch {
-      setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
-    } finally {
-      setIsResetRequestSubmitting(false);
-    }
-  }
-
   return (
     <section className="section-container py-8 md:py-12">
       <div className="mx-auto grid w-full max-w-6xl overflow-hidden rounded-[2rem] border border-white/10 bg-[#070707]/95 shadow-[0_32px_90px_rgba(0,0,0,0.55)] lg:grid-cols-[1.05fr_0.95fr]">
@@ -271,25 +257,14 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
                   <input type="checkbox" checked={form.rememberMe} onChange={(event) => setForm((prev) => ({ ...prev, rememberMe: event.target.checked }))} className="h-4 w-4 rounded border-white/30 bg-transparent accent-[#C9A227]" />
                   {isAr ? "تذكرني" : "Remember Me"}
                 </label>
-                <button type="button" onClick={() => setResetMode((prev) => !prev)} className="text-[#C9A227] transition hover:text-[#F4D87A] hover:underline">
-                  {isAr ? "نسيت كلمة المرور" : "Forgot Password"}
-                </button>
+                <Link href="/forgot-password" className="text-[#C9A227] transition hover:text-[#F4D87A] hover:underline">
+                  {isAr ? "هل نسيت كلمة المرور؟" : "Forgot your password?"}
+                </Link>
               </div>
               <Button type="submit" className="h-12 text-base" loading={isLoginSubmitting} loadingLabel={isAr ? "جاري تسجيل الدخول..." : "Logging in..."}>
                 {isAr ? "تسجيل الدخول" : "Login"}
               </Button>
             </form>
-
-            {resetMode ? (
-              <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-black/25 p-4">
-                <form className="grid gap-3" onSubmit={handleResetRequest}>
-                  <Input aria-label={isAr ? "البريد لإعادة تعيين كلمة المرور" : "Email for password reset"} placeholder={isAr ? "البريد لإعادة تعيين كلمة المرور" : "Email for password reset"} type="email" autoComplete="email" required value={resetRequestEmail} onChange={(event) => setResetRequestEmail(event.target.value)} className="h-12 rounded-2xl border-white/15 bg-black/30 text-white placeholder:text-[#6B7280]" />
-                  <Button type="submit" variant="secondary" className="h-11" loading={isResetRequestSubmitting} loadingLabel={isAr ? "جاري الإرسال..." : "Sending..."}>
-                    {isAr ? "إرسال رابط إعادة التعيين" : "Send Reset Link"}
-                  </Button>
-                </form>
-              </div>
-            ) : null}
 
             {errorMessage ? <p className="mt-4 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-200" role="status" aria-live="polite">{errorMessage}</p> : null}
             {requiresEmailVerification ? (

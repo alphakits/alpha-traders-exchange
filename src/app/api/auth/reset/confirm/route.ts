@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
     }
 
     await supabase.auth.signOut();
-    return NextResponse.json({ ok: true, message: "Your password has been updated successfully. Please sign in with your new password." }, { headers: AUTH_RESPONSE_HEADERS });
+    return NextResponse.json({ ok: true, message: "Your password has been updated successfully. Please sign in." }, { headers: AUTH_RESPONSE_HEADERS });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to reset password." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
   }
