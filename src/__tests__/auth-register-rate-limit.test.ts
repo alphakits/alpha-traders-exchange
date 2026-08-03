@@ -6,11 +6,7 @@ const mocks = vi.hoisted(() => ({
   resolveClientIp: vi.fn(),
   inferLocaleFromRequest: vi.fn(),
   getSupabaseEmailRedirectUrl: vi.fn(),
-  adminCreateUser: vi.fn(),
-  adminGenerateLink: vi.fn(),
-  providerResend: vi.fn(),
-  buildAuthEmail: vi.fn(),
-  sendAuthEmailViaResend: vi.fn(),
+  signUp: vi.fn(),
   findUserByEmail: vi.fn(),
   upsertUserProfileForAuth: vi.fn(),
 }));
@@ -25,22 +21,9 @@ vi.mock("@/lib/supabase-auth-provider", () => ({
   getSupabaseEmailRedirectUrl: mocks.getSupabaseEmailRedirectUrl,
   createSupabaseAuthClient: vi.fn(() => ({
     auth: {
-      resend: mocks.providerResend,
+      signUp: mocks.signUp,
     },
   })),
-  createSupabaseAdminClient: vi.fn(() => ({
-    auth: {
-      admin: {
-        createUser: mocks.adminCreateUser,
-        generateLink: mocks.adminGenerateLink,
-      },
-    },
-  })),
-}));
-
-vi.mock("@/lib/auth-email-delivery", () => ({
-  buildAuthEmail: mocks.buildAuthEmail,
-  sendAuthEmailViaResend: mocks.sendAuthEmailViaResend,
 }));
 
 vi.mock("@/lib/alpha-exchange-store", () => ({
@@ -50,17 +33,13 @@ vi.mock("@/lib/alpha-exchange-store", () => ({
 
 import { POST } from "@/app/api/auth/register/route";
 
-describe("auth register rate-limit hotfix", () => {
+describe("auth register route", () => {
   beforeEach(() => {
     mocks.checkRateLimit.mockReset();
     mocks.resolveClientIp.mockReset();
     mocks.inferLocaleFromRequest.mockReset();
     mocks.getSupabaseEmailRedirectUrl.mockReset();
-    mocks.adminCreateUser.mockReset();
-    mocks.adminGenerateLink.mockReset();
-    mocks.providerResend.mockReset();
-    mocks.buildAuthEmail.mockReset();
-    mocks.sendAuthEmailViaResend.mockReset();
+    mocks.signUp.mockReset();
     mocks.findUserByEmail.mockReset();
     mocks.upsertUserProfileForAuth.mockReset();
 
@@ -70,21 +49,10 @@ describe("auth register rate-limit hotfix", () => {
     mocks.checkRateLimit
       .mockReturnValueOnce({ allowed: true, retryAfterSeconds: 0, reason: null })
       .mockReturnValueOnce({ allowed: true, retryAfterSeconds: 0, reason: null });
-    mocks.adminCreateUser.mockResolvedValue({
-      data: { user: { id: "user-1" } },
+    mocks.signUp.mockResolvedValue({
+      data: { user: { identities: [{ id: "id-1" }] } },
       error: null,
     });
-    mocks.adminGenerateLink.mockResolvedValue({
-      data: { properties: { action_link: "https://www.alphatraders.co.il/en/verify-email?token_hash=abc&type=signup" } },
-      error: null,
-    });
-    mocks.buildAuthEmail.mockReturnValue({
-      subject: "Verify",
-      html: "<p>verify</p>",
-      text: "verify",
-    });
-    mocks.sendAuthEmailViaResend.mockResolvedValue({ ok: true });
-    mocks.providerResend.mockResolvedValue({ error: null });
     mocks.findUserByEmail.mockResolvedValue(null);
     mocks.upsertUserProfileForAuth.mockResolvedValue({});
   });
@@ -117,23 +85,28 @@ describe("auth register rate-limit hotfix", () => {
     expect(payload.error).toBe("تم تقييد التسجيل مؤقتًا. يُرجى المحاولة مرة أخرى خلال بضع دقائق.");
   });
 
-  it("creates user through admin flow and sends verification email via resend", async () => {
+  it("calls supabase signup and returns success", async () => {
     const response = await POST(makeRequest("fresh@example.com", "en"));
     const payload = await response.json() as { ok?: boolean; message?: string };
     expect(response.status).toBe(200);
     expect(payload.ok).toBe(true);
-    expect(mocks.adminCreateUser).toHaveBeenCalled();
-    expect(mocks.adminGenerateLink).toHaveBeenCalled();
-    expect(mocks.sendAuthEmailViaResend).toHaveBeenCalled();
+    expect(mocks.signUp).toHaveBeenCalledWith(expect.objectContaining({
+      email: "fresh@example.com",
+      options: expect.objectContaining({
+        emailRedirectTo: "https://www.alphatraders.co.il/en/login",
+      }),
+    }));
   });
 
-  it("does not fail registration when resend delivery fails", async () => {
-    mocks.sendAuthEmailViaResend.mockResolvedValue({ ok: false, reason: "resend_not_configured" });
-    const response = await POST(makeRequest("fallback@example.com", "en"));
-    const payload = await response.json() as { ok?: boolean };
-    expect(response.status).toBe(200);
-    expect(payload.ok).toBe(true);
-    expect(mocks.providerResend).toHaveBeenCalled();
+  it("returns provider 429 as launch-friendly rate-limit message", async () => {
+    mocks.signUp.mockResolvedValue({
+      data: null,
+      error: { message: "email rate limit exceeded" },
+    });
+    const response = await POST(makeRequest("ratelimited@example.com", "en"));
+    const payload = await response.json() as { error?: string };
+    expect(response.status).toBe(429);
+    expect(payload.error).toBe("Registration is temporarily rate-limited. Please try again in a few minutes.");
   });
 
   it("uses composite ip+email key for retry-friendly legitimate registrations", async () => {
@@ -153,6 +126,6 @@ describe("auth register rate-limit hotfix", () => {
     const payload = await response.json() as { error?: string };
     expect(response.status).toBe(409);
     expect(payload.error).toBe("Email already registered.");
-    expect(mocks.adminCreateUser).not.toHaveBeenCalled();
+    expect(mocks.signUp).not.toHaveBeenCalled();
   });
 });

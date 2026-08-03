@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit, resolveClientIp } from "@/lib/rate-limit";
-import { createSupabaseAdminClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
-import { buildAuthEmail, sendAuthEmailViaResend } from "@/lib/auth-email-delivery";
+import { createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -9,6 +8,12 @@ function verificationGenericMessage(locale: "ar" | "en") {
   return locale === "ar"
     ? "إذا كان الحساب موجودًا وغير موثق، فسنرسل رسالة تحقق جديدة."
     : "If the account exists and is unverified, a new verification email has been sent.";
+}
+
+function verificationDeliveryFailedMessage(locale: "ar" | "en") {
+  return locale === "ar"
+    ? "تعذر إرسال رسالة التحقق الآن. يُرجى المحاولة مرة أخرى بعد قليل."
+    : "We could not send a verification email right now. Please try again shortly.";
 }
 
 export async function POST(request: NextRequest) {
@@ -33,45 +38,29 @@ export async function POST(request: NextRequest) {
     }
     const locale = inferLocaleFromRequest(request);
     const ip = resolveClientIp(request.headers);
-    let linkResult: {
-      data?: { properties?: { action_link?: string | null } | null } | null;
-      error?: { message?: string } | null;
-    } | null = null;
+    const supabase = createSupabaseAuthClient({ requestHeaders: request.headers });
+    let resendError: { message?: string } | null = null;
     try {
-      const adminSupabase = createSupabaseAdminClient();
-      linkResult = await adminSupabase.auth.admin.generateLink({
-        type: "invite",
+      const { error } = await supabase.auth.resend({
+        type: "signup",
         email,
         options: {
-          redirectTo: getSupabaseEmailRedirectUrl(locale),
+          emailRedirectTo: getSupabaseEmailRedirectUrl(locale),
         },
       });
-    } catch {
-      if (process.env.NODE_ENV !== "test") {
-        console.warn("[auth/verify-email/resend]", { reason: "provider_admin_unavailable", email, ip });
-      }
-      return NextResponse.json({ message: verificationGenericMessage(locale) }, { headers: AUTH_RESPONSE_HEADERS });
+      resendError = error;
+    } catch (error) {
+      resendError = error instanceof Error ? { message: error.message } : { message: "unexpected_resend_error" };
     }
 
-    if (!linkResult || linkResult.error) {
+    if (resendError) {
       if (process.env.NODE_ENV !== "test") {
-        console.warn("[auth/verify-email/resend]", { reason: "provider_generate_link_failed", email, ip });
+        console.warn("[auth/verify-email/resend]", { reason: "provider_resend_failed", email, ip, message: resendError.message });
       }
-      return NextResponse.json({ message: verificationGenericMessage(locale) }, { headers: AUTH_RESPONSE_HEADERS });
-    }
-
-    const actionLink = linkResult.data?.properties?.action_link;
-    if (typeof actionLink === "string" && actionLink.startsWith("http")) {
-      const mail = buildAuthEmail("verification", locale, actionLink);
-      const result = await sendAuthEmailViaResend({
-        to: email,
-        subject: mail.subject,
-        html: mail.html,
-        text: mail.text,
-      });
-      if (!result.ok && process.env.NODE_ENV !== "test") {
-        console.warn("[auth/verify-email/resend]", { reason: result.reason, email, ip });
-      }
+      return NextResponse.json(
+        { error: verificationDeliveryFailedMessage(locale) },
+        { status: 503, headers: AUTH_RESPONSE_HEADERS },
+      );
     }
 
     return NextResponse.json(

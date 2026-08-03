@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { findUserByEmail, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 import { checkRateLimit, resolveClientIp } from "@/lib/rate-limit";
-import { createSupabaseAdminClient, createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
-import { buildAuthEmail, sendAuthEmailViaResend } from "@/lib/auth-email-delivery";
+import { createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -106,96 +105,47 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Passwords do not match." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
 
-    const adminSupabase = createSupabaseAdminClient();
-    const createResult = await adminSupabase.auth.admin.createUser({
+    const supabase = createSupabaseAuthClient({ requestHeaders: request.headers });
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      email_confirm: false,
-      user_metadata: {
-        full_name: fullName,
-        whatsapp_number: whatsappNumber,
-      },
-    });
-    if (createResult.error) {
-      if (isDuplicateRegistrationError(createResult.error.message)) {
-        logRegistrationRateLimit("duplicate_registration", {
-          ip: clientIp,
-          email,
-          provider: "supabase_admin",
-        });
-        return NextResponse.json({ error: "Email already registered." }, { status: 409, headers: AUTH_RESPONSE_HEADERS });
-      }
-      logRegistrationRateLimit("provider_create_user_failed", {
-        ip: clientIp,
-        email,
-        provider: "supabase_admin",
-      });
-      return NextResponse.json({ error: "Registration failed. Please try again." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
-    }
-
-    const linkResult = await adminSupabase.auth.admin.generateLink({
-      type: "invite",
-      email,
       options: {
-        redirectTo: getSupabaseEmailRedirectUrl(locale),
+        emailRedirectTo: getSupabaseEmailRedirectUrl(locale),
+        data: {
+          full_name: fullName,
+          whatsapp_number: whatsappNumber,
+        },
       },
     });
-
-    if (linkResult.error) {
-      logRegistrationRateLimit("provider_generate_link_failed", {
-        ip: clientIp,
-        email,
-        provider: "supabase_admin",
-      });
-      return NextResponse.json({ error: "Registration failed. Please try again." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
-    }
-
-    const actionLink = linkResult.data?.properties?.action_link;
-    if (typeof actionLink !== "string" || !actionLink.startsWith("http")) {
-      logRegistrationRateLimit("provider_generate_link_missing", {
-        ip: clientIp,
-        email,
-        provider: "supabase_admin",
-      });
-      return NextResponse.json({ error: "Registration failed. Please try again." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
-    }
-
-    const verificationMail = buildAuthEmail("verification", locale, actionLink);
-    const deliveryResult = await sendAuthEmailViaResend({
-      to: email,
-      subject: verificationMail.subject,
-      html: verificationMail.html,
-      text: verificationMail.text,
-    });
-    if (!deliveryResult.ok) {
-      logRegistrationRateLimit(deliveryResult.reason, {
-        ip: clientIp,
-        email,
-        provider: "resend",
-      });
-      try {
-        const authSupabase = createSupabaseAuthClient({ requestHeaders: request.headers });
-        const { error: resendError } = await authSupabase.auth.resend({
-          type: "signup",
-          email,
-          options: {
-            emailRedirectTo: getSupabaseEmailRedirectUrl(locale),
-          },
-        });
-        if (resendError) {
-          logRegistrationRateLimit("provider_resend_failed", {
-            ip: clientIp,
-            email,
-            provider: "supabase",
-          });
-        }
-      } catch {
-        logRegistrationRateLimit("provider_resend_unavailable", {
+    if (error) {
+      if (isDuplicateRegistrationError(error.message)) {
+        logRegistrationRateLimit("duplicate_registration", {
           ip: clientIp,
           email,
           provider: "supabase",
         });
+        return NextResponse.json({ error: "Email already registered." }, { status: 409, headers: AUTH_RESPONSE_HEADERS });
       }
+      if (error.message.toLowerCase().includes("rate limit")) {
+        logRegistrationRateLimit("provider_rate_limit", {
+          ip: clientIp,
+          email,
+          provider: "supabase",
+        });
+        return NextResponse.json({ error: registrationRateLimitMessage(locale) }, { status: 429, headers: AUTH_RESPONSE_HEADERS });
+      }
+      logRegistrationRateLimit("provider_signup_failed", {
+        ip: clientIp,
+        email,
+        provider: "supabase",
+      });
+      return NextResponse.json({ error: "Registration failed. Please try again." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    }
+    if (!data.user) {
+      return NextResponse.json({ error: "Registration failed. Please try again." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    }
+    if (Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      return NextResponse.json({ error: "Email already registered." }, { status: 409, headers: AUTH_RESPONSE_HEADERS });
     }
 
     await upsertUserProfileForAuth({
