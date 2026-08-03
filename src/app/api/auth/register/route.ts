@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 import { checkRateLimit, resolveClientIp } from "@/lib/rate-limit";
-import { createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
+import { createSupabaseAdminClient, createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -24,6 +24,52 @@ function registrationRateLimitMessage(locale: "ar" | "en") {
 function logRegistrationRateLimit(reason: string, details: Record<string, string | number | boolean | null>) {
   if (process.env.NODE_ENV === "test") return;
   console.warn("[auth/register] rate-limited", { reason, ...details });
+}
+
+async function fallbackCreateSupabaseUser(input: {
+  email: string;
+  password: string;
+  fullName: string;
+  whatsappNumber: string;
+  locale: "ar" | "en";
+  requestHeaders: Headers;
+}) {
+  try {
+    const adminSupabase = createSupabaseAdminClient();
+    const { data, error } = await adminSupabase.auth.admin.createUser({
+      email: input.email,
+      password: input.password,
+      email_confirm: false,
+      user_metadata: {
+        full_name: input.fullName,
+        whatsapp_number: input.whatsappNumber,
+      },
+    });
+    if (error) {
+      return { ok: false as const, duplicate: isDuplicateRegistrationError(error.message) };
+    }
+
+    // Best effort: dispatch verification email for the admin-created account.
+    try {
+      const supabase = createSupabaseAuthClient({ requestHeaders: input.requestHeaders });
+      await supabase.auth.resend({
+        type: "signup",
+        email: input.email,
+        options: {
+          emailRedirectTo: getSupabaseEmailRedirectUrl(input.locale),
+        },
+      });
+    } catch {
+      // Registration succeeds even if dispatching the verification email needs a retry.
+    }
+
+    if (!data.user) {
+      return { ok: false as const, duplicate: false };
+    }
+    return { ok: true as const, duplicate: false };
+  } catch {
+    return { ok: false as const, duplicate: false };
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -121,6 +167,36 @@ export async function POST(request: NextRequest) {
           email,
           provider: "supabase",
         });
+        const fallback = await fallbackCreateSupabaseUser({
+          email,
+          password,
+          fullName,
+          whatsappNumber,
+          locale,
+          requestHeaders: request.headers,
+        });
+        if (fallback.ok) {
+          if (process.env.NODE_ENV !== "test") {
+            console.warn("[auth/register] provider rate-limit fallback applied", {
+              ip: clientIp,
+              email,
+              provider: "supabase_admin",
+            });
+          }
+          await upsertUserProfileForAuth({
+            fullName,
+            email,
+            whatsappNumber,
+            emailVerified: false,
+          });
+          return NextResponse.json({
+            ok: true,
+            message: "Your account has been created. Please verify your email before signing in.",
+          }, { headers: AUTH_RESPONSE_HEADERS });
+        }
+        if (fallback.duplicate) {
+          return NextResponse.json({ error: "Email already registered." }, { status: 409, headers: AUTH_RESPONSE_HEADERS });
+        }
         return NextResponse.json({ error: registrationRateLimitMessage(locale) }, { status: 429, headers: AUTH_RESPONSE_HEADERS });
       }
       return NextResponse.json({ error: error.message }, { status: 400, headers: AUTH_RESPONSE_HEADERS });

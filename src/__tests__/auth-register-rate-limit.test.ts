@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   inferLocaleFromRequest: vi.fn(),
   getSupabaseEmailRedirectUrl: vi.fn(),
   signUp: vi.fn(),
+  resend: vi.fn(),
+  adminCreateUser: vi.fn(),
   upsertUserProfileForAuth: vi.fn(),
 }));
 
@@ -21,6 +23,14 @@ vi.mock("@/lib/supabase-auth-provider", () => ({
   createSupabaseAuthClient: vi.fn(() => ({
     auth: {
       signUp: mocks.signUp,
+      resend: mocks.resend,
+    },
+  })),
+  createSupabaseAdminClient: vi.fn(() => ({
+    auth: {
+      admin: {
+        createUser: mocks.adminCreateUser,
+      },
     },
   })),
 }));
@@ -38,6 +48,8 @@ describe("auth register rate-limit hotfix", () => {
     mocks.inferLocaleFromRequest.mockReset();
     mocks.getSupabaseEmailRedirectUrl.mockReset();
     mocks.signUp.mockReset();
+    mocks.resend.mockReset();
+    mocks.adminCreateUser.mockReset();
     mocks.upsertUserProfileForAuth.mockReset();
 
     mocks.resolveClientIp.mockReturnValue("198.51.100.23");
@@ -48,6 +60,11 @@ describe("auth register rate-limit hotfix", () => {
       .mockReturnValueOnce({ allowed: true, retryAfterSeconds: 0, reason: null });
     mocks.signUp.mockResolvedValue({
       data: { user: { identities: [{ id: "id-1" }] } },
+      error: null,
+    });
+    mocks.resend.mockResolvedValue({ error: null });
+    mocks.adminCreateUser.mockResolvedValue({
+      data: { user: { id: "user-1" } },
       error: null,
     });
     mocks.upsertUserProfileForAuth.mockResolvedValue({});
@@ -81,15 +98,16 @@ describe("auth register rate-limit hotfix", () => {
     expect(payload.error).toBe("تم تقييد التسجيل مؤقتًا. يُرجى المحاولة مرة أخرى خلال بضع دقائق.");
   });
 
-  it("returns generic localized message when provider rate-limits", async () => {
+  it("falls back to admin creation when provider sign-up is rate-limited", async () => {
     mocks.signUp.mockResolvedValue({
       data: null,
       error: { message: "rate limit exceeded" },
     });
     const response = await POST(makeRequest("fresh@example.com", "en"));
-    const payload = await response.json() as { error?: string };
-    expect(response.status).toBe(429);
-    expect(payload.error).toBe("Registration is temporarily rate-limited. Please try again in a few minutes.");
+    const payload = await response.json() as { ok?: boolean; message?: string };
+    expect(response.status).toBe(200);
+    expect(payload.ok).toBe(true);
+    expect(mocks.adminCreateUser).toHaveBeenCalled();
   });
 
   it("uses composite ip+email key for retry-friendly legitimate registrations", async () => {
