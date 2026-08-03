@@ -4,12 +4,8 @@ import { AUTH_COOKIE_NAME } from "@/lib/auth";
 import { getSessionByToken, findUserById } from "@/lib/alpha-exchange-store";
 import { hasRole } from "@/lib/roles";
 
-// Dev-only debug endpoint — returns current session user with role diagnostics.
+// Debug endpoint — returns current session user with role diagnostics.
 export async function GET() {
-  if (process.env.NODE_ENV === "production") {
-    return NextResponse.json({ error: "Not found." }, { status: 404 });
-  }
-
   const cookieStore = await cookies();
   const rawToken = cookieStore.get(AUTH_COOKIE_NAME)?.value ?? null;
   const allCookieNames = cookieStore.getAll().map((c) => c.name);
