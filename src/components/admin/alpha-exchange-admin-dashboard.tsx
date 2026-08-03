@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Search, Settings, ShieldCheck, Star, Store, TrendingUp, Trophy, Users, Users2, WalletCards, X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -193,6 +194,7 @@ function paginate<T>(items: T[], page: number) {
 }
 
 export function AlphaExchangeAdminDashboard() {
+  const searchParams = useSearchParams();
   const [activeSection, setActiveSection] = useState<SectionKey>("overview");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -239,6 +241,7 @@ export function AlphaExchangeAdminDashboard() {
   const [announcementTitle, setAnnouncementTitle] = useState("");
   const [announcementMessage, setAnnouncementMessage] = useState("");
   const toastTimeoutRef = useRef<number | null>(null);
+  const deepLinkAppliedRef = useRef(false);
 
   const [usersQuery, setUsersQuery] = useState("");
   const [usersPage, setUsersPage] = useState(1);
@@ -275,6 +278,22 @@ export function AlphaExchangeAdminDashboard() {
   useEffect(() => {
     void fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    if (deepLinkAppliedRef.current) return;
+    const section = searchParams.get("section");
+    const sellerApplicationId = searchParams.get("sellerApplication");
+    if (section === "seller-applications") {
+      setActiveSection("seller-applications");
+    }
+    if (sellerApplicationId?.trim()) {
+      setApplicationsQuery(sellerApplicationId.trim());
+      setApplicationsStatus("all");
+    }
+    if (section || sellerApplicationId) {
+      deepLinkAppliedRef.current = true;
+    }
+  }, [searchParams]);
 
   function pushToast(message: string) {
     if (toastTimeoutRef.current !== null) {

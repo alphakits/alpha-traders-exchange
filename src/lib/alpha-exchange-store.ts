@@ -311,6 +311,8 @@ function resolveTradeRequiredAction(request: PurchaseRequest, recipientIsSeller:
 
 function resolveNotificationActionLabel(notification: Pick<AlphaExchangeNotification, "title" | "message" | "centerCategory" | "relatedTradeId" | "relatedRequestId">, request?: PurchaseRequest) {
   const text = `${notification.title} ${notification.message}`.toLowerCase();
+  if (text.includes("seller application")) return "Review Application";
+  if (text.includes("listing")) return "Manage Listing";
   if (text.includes("verify") || text.includes("payment sent")) return "Verify Payment";
   if (text.includes("confirm") && text.includes("completed")) return "Confirm Completion";
   if (text.includes("review") || request?.status === "review_open" || request?.status === "completed") return "Leave Review";
@@ -378,7 +380,11 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
   const priorityRank = typeof notification.priorityRank === "number"
     ? notification.priorityRank
     : resolveNotificationPriority({ ...notification, centerCategory }).rank;
-  const relatedHref = request
+  const isTradeNotification = notification.category === "trade"
+    || centerCategory === "trades"
+    || Boolean(notification.relatedTradeId)
+    || Boolean(notification.relatedRequestId);
+  const relatedHref = isTradeNotification && request
     ? requestDetailsHref(request.id)
     : notification.relatedHref;
   const actionHref = notification.actionHref?.trim() || relatedHref;
@@ -408,7 +414,9 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     relatedHref,
     actionHref,
     actionLabel: notification.actionLabel?.trim() || resolveNotificationActionLabel(notification, request),
-    tradeSnapshot: notification.tradeSnapshot ?? buildTradeSnapshotForNotification(db, notification.userId, request),
+    tradeSnapshot: isTradeNotification
+      ? (notification.tradeSnapshot ?? buildTradeSnapshotForNotification(db, notification.userId, request))
+      : undefined,
     updatedAt: notification.updatedAt ?? notification.createdAt,
   };
 }
@@ -3589,9 +3597,10 @@ export async function createSellerApplication(input: {
     pushNotification(db, {
       userId: owner.id,
       category: "application",
-      title: "New seller application",
-      message: `${next.fullName} submitted a seller application.`,
-      relatedHref: "/admin/alpha-exchange",
+      title: "New Seller Application",
+      message: `${next.fullName} has applied to become an approved seller.`,
+      actionLabel: "Review Application",
+      relatedHref: `/admin/alpha-exchange?section=seller-applications&sellerApplication=${encodeURIComponent(next.id)}`,
     });
   }
   pushActivityLog(db, {

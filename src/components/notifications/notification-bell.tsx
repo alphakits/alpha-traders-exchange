@@ -202,37 +202,49 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   }
 
   async function handleOpenNotification(notification: AlphaExchangeNotification) {
-    const tradeRoomHref = resolveTradeRoomHref(notification)
-      ?? await resolveActiveTradeHref({ notificationId: notification.id, includePending: true });
+    const destination = await resolveNotificationDestination(notification);
     if (TRADE_ROOM_DEBUG) {
-      console.log("[trade-room-open] notification click", {
+      console.log("[notification-open] notification click", {
         notificationId: notification.id,
+        category: notification.category,
         relatedRequestId: notification.relatedRequestId ?? null,
         relatedListingId: notification.relatedListingId ?? null,
         relatedTradeId: notification.relatedTradeId ?? null,
-        destination: tradeRoomHref,
+        destination,
       });
     }
     if (!notification.isRead) {
       void handleMarkOneRead(notification.id);
     }
-    if (tradeRoomHref) {
-      const requestId = extractRequestIdFromTradeRoomHref(tradeRoomHref);
+    if (destination) {
+      const requestId = extractRequestIdFromTradeRoomHref(destination);
       if (requestId) prefetchTradeRoom(router, requestId);
-      router.push(tradeRoomHref);
-      setIsOpen(false);
-      return;
-    }
-    if (notification.relatedHref) {
-      if (TRADE_ROOM_DEBUG) {
-        console.log("[trade-room-open] fallback related href", {
-          notificationId: notification.id,
-          destination: notification.relatedHref,
-        });
-      }
-      router.push(notification.relatedHref);
+      router.push(destination);
       setIsOpen(false);
     }
+  }
+
+  function isTradeNotification(notification: AlphaExchangeNotification) {
+    return notification.category === "trade"
+      || notification.centerCategory === "trades"
+      || Boolean(notification.relatedTradeId)
+      || Boolean(notification.relatedRequestId);
+  }
+
+  async function resolveNotificationDestination(notification: AlphaExchangeNotification) {
+    if (isTradeNotification(notification)) {
+      return resolveTradeRoomHref(notification)
+        ?? await resolveActiveTradeHref({ notificationId: notification.id, includePending: true });
+    }
+    return notification.actionHref ?? notification.relatedHref ?? null;
+  }
+
+  function resolveNotificationActionLabel(notification: AlphaExchangeNotification) {
+    if (notification.actionLabel?.trim()) return notification.actionLabel.trim();
+    if (notification.category === "application") return "Review Application";
+    if (notification.category === "listing") return "Manage Listing";
+    if (isTradeNotification(notification)) return "Open Trade Room";
+    return "Open";
   }
 
   function resolveTradeRoomHref(notification: AlphaExchangeNotification) {
@@ -340,18 +352,20 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                             variant="secondary"
                             className="h-7 px-2.5 text-[11px]"
                             onMouseEnter={() => {
+                              if (!isTradeNotification(notification)) return;
                               const href = resolveTradeRoomHref(notification);
                               const requestId = extractRequestIdFromTradeRoomHref(href);
                               if (requestId) prefetchTradeRoom(router, requestId);
                             }}
                             onFocus={() => {
+                              if (!isTradeNotification(notification)) return;
                               const href = resolveTradeRoomHref(notification);
                               const requestId = extractRequestIdFromTradeRoomHref(href);
                               if (requestId) prefetchTradeRoom(router, requestId);
                             }}
                             onClick={() => void handleOpenNotification(notification)}
                           >
-                            Open Trade Room
+                            {resolveNotificationActionLabel(notification)}
                           </Button>
                           {!notification.isRead ? (
                             <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleMarkOneRead(notification.id)}>
