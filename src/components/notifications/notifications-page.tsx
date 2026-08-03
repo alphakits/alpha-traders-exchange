@@ -164,10 +164,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
   const pageItems = filteredNotifications.slice(pageStart, pageStart + PAGE_SIZE);
 
   function isTradeNotification(notification: AlphaExchangeNotification) {
-    return notification.category === "trade"
-      || notification.centerCategory === "trades"
-      || Boolean(notification.relatedTradeId)
-      || Boolean(notification.relatedRequestId);
+    return notification.category === "trade";
   }
 
   function resolveNotificationActionLabel(notification: AlphaExchangeNotification) {
@@ -182,6 +179,19 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
     if (notification.relatedRequestId?.trim()) return `/trade-room/${notification.relatedRequestId.trim()}`;
     const fromHref = extractTradeRoomHrefFromRelatedHref(notification.relatedHref ?? notification.actionHref);
     if (fromHref) return fromHref;
+    return null;
+  }
+
+  function extractSellerApplicationId(notification: AlphaExchangeNotification) {
+    const href = (notification.actionHref ?? notification.relatedHref ?? "").trim();
+    if (!href) return null;
+    try {
+      const parsed = new URL(href, "https://www.alphatraders.co.il");
+      const byQuery = parsed.searchParams.get("sellerApplication");
+      if (byQuery?.trim()) return byQuery.trim();
+    } catch {
+      return null;
+    }
     return null;
   }
 
@@ -234,6 +244,33 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
       void handleMarkOneRead(notification.id);
     }
     router.push(destination);
+  }
+
+  async function handleSellerApplicationDecision(notification: AlphaExchangeNotification, decision: "approve" | "reject") {
+    const applicationId = extractSellerApplicationId(notification);
+    if (!applicationId) return;
+    const actionKey = `${decision}:${notification.id}`;
+    if (itemLoading[actionKey]) return;
+    setItemLoading((prev) => ({ ...prev, [actionKey]: true }));
+    try {
+      const reason = decision === "approve" ? "Approved from notification workflow" : "Rejected from notification workflow";
+      const response = await fetch(`/api/alpha-exchange/admin/seller-applications/${encodeURIComponent(applicationId)}/${decision}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      if (!response.ok) {
+        setError("Failed to update seller application.");
+        return;
+      }
+      if (!notification.isRead) {
+        await handleMarkOneRead(notification.id);
+      } else {
+        await loadNotifications();
+      }
+    } finally {
+      setItemLoading((prev) => ({ ...prev, [actionKey]: false }));
+    }
   }
 
   async function handleMarkOneRead(notificationId: string) {
@@ -346,7 +383,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                       <p className="mt-1 text-sm text-[#D1D5DB]">{formatNotificationMessage(notification)}</p>
                       <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-[#C9A227]">
                         {!notification.isRead ? <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5">Unread</span> : <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#9CA3AF]">Read</span>}
-                        {notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">Trade {formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId)}</span> : null}
+                        {isTradeNotification(notification) && (notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber) ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">Trade {formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId)}</span> : null}
                         {notification.relatedListingId || notification.relatedListingDisplayNumber ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">Listing {formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}</span> : null}
                         {notification.tradeSnapshot?.usdtAmount ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">{notification.tradeSnapshot.usdtAmount} USDT</span> : null}
                         {notification.tradeSnapshot?.counterpartyName ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">{notification.tradeSnapshot.counterpartyName}</span> : null}
@@ -373,33 +410,71 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                         >
                           {resolveNotificationActionLabel(notification)}
                         </Button>
-                        {!notification.isRead ? (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            className="h-8 px-3 text-xs"
-                            loading={Boolean(itemLoading[`read:${notification.id}`])}
-                            loadingLabel="Saving..."
-                            onClick={() => void handleMarkOneRead(notification.id)}
-                          >
-                            Mark as read
-                          </Button>
-                        ) : null}
-                        {(notification.actionHref || notification.relatedHref) ? (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            className="h-8 px-3 text-xs"
-                            onClick={() => {
-                              const fallbackHref = notification.actionHref ?? notification.relatedHref;
-                              if (fallbackHref) router.push(fallbackHref);
-                            }}
-                          >
-                            Open related page
-                          </Button>
-                        ) : null}
+                        {notification.category === "application" && extractSellerApplicationId(notification) ? (
+                          <>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              className="h-8 px-3 text-xs"
+                              loading={Boolean(itemLoading[`approve:${notification.id}`])}
+                              loadingLabel="Approving..."
+                              onClick={() => void handleSellerApplicationDecision(notification, "approve")}
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              className="h-8 px-3 text-xs"
+                              loading={Boolean(itemLoading[`reject:${notification.id}`])}
+                              loadingLabel="Rejecting..."
+                              onClick={() => void handleSellerApplicationDecision(notification, "reject")}
+                            >
+                              Reject
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              className="h-8 px-3 text-xs"
+                              onClick={() => void handleMarkOneRead(notification.id)}
+                            >
+                              Later
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            {!notification.isRead ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-8 px-3 text-xs"
+                                loading={Boolean(itemLoading[`read:${notification.id}`])}
+                                loadingLabel="Saving..."
+                                onClick={() => void handleMarkOneRead(notification.id)}
+                              >
+                                Mark as read
+                              </Button>
+                            ) : null}
+                            {(notification.actionHref || notification.relatedHref) ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-8 px-3 text-xs"
+                                onClick={() => {
+                                  const fallbackHref = notification.actionHref ?? notification.relatedHref;
+                                  if (fallbackHref) router.push(fallbackHref);
+                                }}
+                              >
+                                Open related page
+                              </Button>
+                            ) : null}
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>

@@ -380,10 +380,7 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
   const priorityRank = typeof notification.priorityRank === "number"
     ? notification.priorityRank
     : resolveNotificationPriority({ ...notification, centerCategory }).rank;
-  const isTradeNotification = notification.category === "trade"
-    || centerCategory === "trades"
-    || Boolean(notification.relatedTradeId)
-    || Boolean(notification.relatedRequestId);
+  const isTradeNotification = notification.category === "trade";
   const relatedHref = isTradeNotification && request
     ? requestDetailsHref(request.id)
     : notification.relatedHref;
@@ -3597,8 +3594,8 @@ export async function createSellerApplication(input: {
     pushNotification(db, {
       userId: owner.id,
       category: "application",
-      title: "New Seller Application",
-      message: `${next.fullName} has applied to become an approved seller.`,
+      title: "New Approved Seller Application",
+      message: `${next.fullName} has applied to become an Approved Seller.`,
       actionLabel: "Review Application",
       relatedHref: `/admin/alpha-exchange?section=seller-applications&sellerApplication=${encodeURIComponent(next.id)}`,
     });

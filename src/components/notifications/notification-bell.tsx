@@ -78,6 +78,7 @@ function formatNotificationMessage(notification: AlphaExchangeNotification) {
 export function NotificationBell({ locale }: { locale: AppLocale }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [notifications, setNotifications] = useState<AlphaExchangeNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -225,10 +226,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   }
 
   function isTradeNotification(notification: AlphaExchangeNotification) {
-    return notification.category === "trade"
-      || notification.centerCategory === "trades"
-      || Boolean(notification.relatedTradeId)
-      || Boolean(notification.relatedRequestId);
+    return notification.category === "trade";
   }
 
   async function resolveNotificationDestination(notification: AlphaExchangeNotification) {
@@ -237,6 +235,43 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
         ?? await resolveActiveTradeHref({ notificationId: notification.id, includePending: true });
     }
     return notification.actionHref ?? notification.relatedHref ?? null;
+  }
+
+  function extractSellerApplicationId(notification: AlphaExchangeNotification) {
+    const href = (notification.actionHref ?? notification.relatedHref ?? "").trim();
+    if (!href) return null;
+    try {
+      const parsed = new URL(href, "https://www.alphatraders.co.il");
+      const byQuery = parsed.searchParams.get("sellerApplication");
+      if (byQuery?.trim()) return byQuery.trim();
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  async function handleSellerApplicationDecision(notification: AlphaExchangeNotification, decision: "approve" | "reject") {
+    const applicationId = extractSellerApplicationId(notification);
+    if (!applicationId) return;
+    const actionKey = `${notification.id}:${decision}`;
+    if (actionLoading[actionKey]) return;
+    setActionLoading((prev) => ({ ...prev, [actionKey]: true }));
+    try {
+      const reason = decision === "approve" ? "Approved from notification workflow" : "Rejected from notification workflow";
+      const response = await fetch(`/api/alpha-exchange/admin/seller-applications/${encodeURIComponent(applicationId)}/${decision}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      if (response.ok) {
+        if (!notification.isRead) {
+          await handleMarkOneRead(notification.id);
+        }
+        await loadNotifications(20);
+      }
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [actionKey]: false }));
+    }
   }
 
   function resolveNotificationActionLabel(notification: AlphaExchangeNotification) {
@@ -338,7 +373,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                         <p className="mt-1 line-clamp-2">{formatNotificationMessage(notification)}</p>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           {!notification.isRead ? <span className="inline-flex items-center rounded-full bg-[#C9A227]/20 px-2 py-0.5 text-[10px] text-[#C9A227]">Unread</span> : null}
-                          {notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber
+                          {isTradeNotification(notification) && (notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber)
                             ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Trade {formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId)}</span>
                             : null}
                           {notification.relatedListingId || notification.relatedListingDisplayNumber
@@ -367,24 +402,65 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                           >
                             {resolveNotificationActionLabel(notification)}
                           </Button>
-                          {!notification.isRead ? (
-                            <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleMarkOneRead(notification.id)}>
-                              Mark read
-                            </Button>
-                          ) : null}
-                          {notification.relatedHref ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                router.push(notification.relatedHref!);
-                                setIsOpen(false);
-                              }}
-                              className={buttonVariants({ variant: "secondary", size: "sm" })}
-                            >
-                              <ExternalLink className="h-3 w-3" />
-                              Related
-                            </button>
-                          ) : null}
+                          {notification.category === "application" && extractSellerApplicationId(notification) ? (
+                            <>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-7 px-2.5 text-[11px]"
+                                disabled={Boolean(actionLoading[`${notification.id}:approve`])}
+                                onClick={() => void handleSellerApplicationDecision(notification, "approve")}
+                              >
+                                Approve
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-7 px-2.5 text-[11px]"
+                                disabled={Boolean(actionLoading[`${notification.id}:reject`])}
+                                onClick={() => void handleSellerApplicationDecision(notification, "reject")}
+                              >
+                                Reject
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-7 px-2.5 text-[11px]"
+                                onClick={() => {
+                                  if (!notification.isRead) {
+                                    void handleMarkOneRead(notification.id);
+                                  }
+                                  setIsOpen(false);
+                                }}
+                              >
+                                Later
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              {!notification.isRead ? (
+                                <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleMarkOneRead(notification.id)}>
+                                  Mark read
+                                </Button>
+                              ) : null}
+                              {notification.relatedHref ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    router.push(notification.relatedHref!);
+                                    setIsOpen(false);
+                                  }}
+                                  className={buttonVariants({ variant: "secondary", size: "sm" })}
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  Related
+                                </button>
+                              ) : null}
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
