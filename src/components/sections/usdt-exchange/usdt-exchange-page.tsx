@@ -411,6 +411,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [isWorkspaceWidgetsLoading, setIsWorkspaceWidgetsLoading] = useState(true);
   const [isSellerApplicationLoading, setIsSellerApplicationLoading] = useState(true);
   const [notificationsInitialized, setNotificationsInitialized] = useState(false);
+  const [deferredSellerPanelsReady, setDeferredSellerPanelsReady] = useState(false);
   const [pulseNow, setPulseNow] = useState(() => Date.now());
   const listingsLoadedAtRef = useRef<number>(Date.now());
   const [applicationSubmitted, setApplicationSubmitted] = useState(false);
@@ -549,6 +550,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [notificationUnreadOnly, setNotificationUnreadOnly] = useState(false);
   const [notificationPreferences, setNotificationPreferences] = useState<{ inApp: boolean; email: boolean; sms: boolean }>({ inApp: true, email: false, sms: false });
   const notificationsRequestIdRef = useRef(0);
+  const sellerDeferredPanelsSentinelRef = useRef<HTMLDivElement | null>(null);
   const bootstrapCompletedAtRef = useRef<number | null>(null);
   const renderCompleteRecordedRef = useRef(false);
   const interactivePaintRecordedRef = useRef(false);
@@ -564,6 +566,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     additionalNotes: "",
   });
   const [sellerApplicationMethods, setSellerApplicationMethods] = useState<SellerApplicationMethod[]>(["USDT (ERC20 / Ethereum)"]);
+  const isApprovedSellerSession = sessionUser?.role === "approved_seller" && sessionUser?.sellerStatus === "approved_seller";
 
   const tracedFetch = useCallback(async (label: string, input: string, init?: RequestInit) => {
     const startedAt = Date.now();
@@ -818,7 +821,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   }, [tracedFetch]);
 
   useEffect(() => {
-    if (!sessionUser) return;
+    if (!sessionUser || isLoadingListings) return;
     setIsWorkspaceWidgetsLoading(true);
     setIsSellerApplicationLoading(true);
     let cancelled = false;
@@ -845,21 +848,49 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           }
         }
       })();
-    }, 150);
+    }, 200);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [refreshNotificationPreferences, refreshSellerWorkspace, sessionUser, tracedFetch]);
+  }, [isLoadingListings, refreshNotificationPreferences, refreshSellerWorkspace, sessionUser, tracedFetch]);
+
+  useEffect(() => {
+    if (!isApprovedSellerSession || isSessionResolving || deferredSellerPanelsReady) return;
+    const sentinel = sellerDeferredPanelsSentinelRef.current;
+    if (!sentinel) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setDeferredSellerPanelsReady(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setDeferredSellerPanelsReady(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "220px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [deferredSellerPanelsReady, isApprovedSellerSession, isSessionResolving]);
+
+  useEffect(() => {
+    if (!isApprovedSellerSession) {
+      setDeferredSellerPanelsReady(false);
+    }
+  }, [isApprovedSellerSession]);
 
   useEffect(() => {
     if (!sessionUser || notificationsInitialized) return;
     if (isSessionResolving) return;
+    if (isApprovedSellerSession && !deferredSellerPanelsReady) return;
     const timer = window.setTimeout(() => {
       setNotificationsInitialized(true);
     }, 450);
     return () => window.clearTimeout(timer);
-  }, [isSessionResolving, notificationsInitialized, sessionUser]);
+  }, [deferredSellerPanelsReady, isApprovedSellerSession, isSessionResolving, notificationsInitialized, sessionUser]);
 
   useEffect(() => {
     if (!sessionUser || !notificationsInitialized) return;
@@ -1327,7 +1358,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const commission = selectedAmount * selectedPrice * 0.01;
   const estimatedTotal = selectedAmount * selectedPrice + commission;
 
-  const isApprovedSeller = sessionUser?.role === "approved_seller" && sessionUser?.sellerStatus === "approved_seller";
+  const isApprovedSeller = isApprovedSellerSession;
   const isOwnerViewer = sessionUser?.role === "admin" && isAlphaExchangeOwnerEmail(sessionUser.email);
   const archivedConfirmationTrade = !isApprovedSeller
     ? myRequests.find((r) => r.status === "usdt_sent" && r.buyerConfirmationArchivedAt)
@@ -1496,21 +1527,28 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   const recentCompletedTrades = useMemo(
     () =>
+      !deferredSellerPanelsReady
+        ? []
+        :
       myRequests
         .filter((request) => request.status === "completed" || Boolean(request.completedAt))
         .sort((left, right) => new Date(right.completedAt ?? right.updatedAt).getTime() - new Date(left.completedAt ?? left.updatedAt).getTime())
         .slice(0, 4),
-    [myRequests],
+    [deferredSellerPanelsReady, myRequests],
   );
   const todaysCompletedTrades = useMemo(
     () =>
+      !deferredSellerPanelsReady
+        ? 0
+        :
       myRequests.filter((request) => {
         const completedAt = request.completedAt ?? (request.status === "completed" ? request.updatedAt : "");
         return completedAt.slice(0, 10) === todayDateKey;
       }).length,
-    [myRequests, todayDateKey],
+    [deferredSellerPanelsReady, myRequests, todayDateKey],
   );
   const marketplaceUpdates = useMemo(() => {
+    if (!deferredSellerPanelsReady) return [];
     const activityItems = activityHistory.slice(0, 6).map((entry) => ({
       id: `activity-${entry.id}`,
       title: entry.title,
@@ -1524,8 +1562,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       details: notification.message,
       createdAt: notification.createdAt,
     }));
-  }, [activityHistory, notifications]);
-  const groupedActivityHistory = useMemo(() => groupActivityEntriesByDay(activityHistory).slice(0, 4), [activityHistory]);
+  }, [activityHistory, deferredSellerPanelsReady, notifications]);
+  const groupedActivityHistory = useMemo(
+    () => (deferredSellerPanelsReady ? groupActivityEntriesByDay(activityHistory).slice(0, 4) : []),
+    [activityHistory, deferredSellerPanelsReady],
+  );
   const buyerOverviewStats = useMemo(() => {
     const completed = buyerRequests.filter((request) => request.status === "completed" || request.status === "review_open" || Boolean(request.completedAt));
     const pending = buyerRequests.filter((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status));
@@ -4280,133 +4321,156 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </CardContent>
           </Card>
 
-          <div className="order-40 grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
-            <Card className="order-50 border-white/10 bg-[#0B0B0B]/90">
-              <CardHeader>
-                <CardTitle>{isAr ? "ملف البائع" : "Seller Profile"}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm text-[#D1D5DB]">
-                <div className="flex items-center gap-3">
-                  {sessionUser?.profilePhotoUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={sessionUser.profilePhotoUrl} alt={`${sessionUser.fullName} profile`} className="h-13 w-13 rounded-full border border-white/15 object-cover" />
-                  ) : (
-                    <div className="inline-flex h-13 w-13 items-center justify-center rounded-full border border-white/15 bg-white/[0.04] text-sm font-semibold text-[#D1D5DB]">
-                      {safeText(sessionUser?.fullName, "Seller")
-                        .split(" ")
-                        .map((part) => part[0])
-                        .join("")
-                        .slice(0, 2)}
-                    </div>
-                  )}
-                  <div>
-                    <p className="text-base font-semibold text-white">{safeText(sessionUser?.fullName, "Seller")}</p>
-                    <RoleBadge variant="approved_seller" />
-                  </div>
-                </div>
-                <p>Member Since: <span className="text-white">{sessionUser?.createdAt ? new Date(sessionUser.createdAt).toLocaleDateString("en-IL") : "—"}</span></p>
-                <p>Languages: <span className="text-white">{sessionUser?.languages?.join(", ") || "English"}</span></p>
-                <p>Preferred Networks: <span className="text-white">{sessionUser?.preferredNetworks?.join(", ") || "TRC20"}</span></p>
-                <p>Rating: <span className="text-white">{(sellerOverviewStats.reputation?.rating ?? 4.5).toFixed(2)}</span></p>
-                <p>Success Rate: <span className="text-white">{sellerOverviewStats.successRate.toFixed(1)}%</span></p>
-                <p>Completed Trades: <span className="text-white">{sellerOverviewStats.completedTrades}</span></p>
-                <p>Total USDT Volume: <span className="text-white">{sellerOverviewStats.totalUsdtSold.toLocaleString("en-IL")}</span></p>
-                <p>Current Listings: <span className="text-white">{sellerOverviewStats.activeListings}</span></p>
-                <p>Average Response Time: <span className="text-white">{sellerOverviewStats.averageResponseTime}</span></p>
-                <p>Status: <span className="text-white">{sessionUser?.onlineStatus === "online" ? "Online" : "Offline"}</span></p>
-                <p>Last Active: <span className="text-white">{formatRelativeMinutesLabel(sessionUser?.lastActiveAt)}</span></p>
-                <p>Bio: <span className="text-white">{safeText(sessionUser?.bio, "Professional USDT seller on Alpha Exchange.")}</span></p>
-                <p>Trading Experience: <span className="text-white">{safeText(sessionUser?.tradingExperience, "Professional trading experience")}</span></p>
-                <p>Working Hours: <span className="text-white">{safeText(sessionUser?.workingHours, "Sun-Thu, 09:00-21:00")}</span></p>
-                <p>Account Status: <span className="text-white">{sessionUser?.sellerStatus ?? "buyer"}</span></p>
-                <div className="flex flex-wrap gap-2 pt-1">
-                  {(sellerOverviewStats.reputation?.badges ?? []).map((badge) => (
-                    <span key={badge} className="rounded-full border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-2 py-1 text-[11px] text-[#93C5FD]">
-                      {sellerBadgeLabel(badge)}
-                    </span>
-                  ))}
-                </div>
-                {sellerOverviewStats.completedTrades === 0 ? (
-                  <div className="mt-2 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#9CA3AF]">
-                    {isAr ? "لا توجد صفقات مكتملة بعد. أكمل أول صفقة لبناء سجل ثقة قوي." : "No Trades Yet. Complete your first trade to start building trust history."}
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
-
-            {notificationCenterCard}
-            {marketInsightsCard}
-
-            <Card className="border-white/10 bg-[#0B0B0B]/90">
-              <CardHeader>
-                <CardTitle>{isAr ? "لوحة البائع" : "Seller Command Center"}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                    <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Lifetime Trade Volume</p>
-                    <p className="mt-1 text-lg font-semibold text-white">{sellerOverviewStats.totalUsdtSold.toLocaleString("en-IL")} USDT</p>
-                  </div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                    <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Average Rating</p>
-                    <p className="mt-1 text-lg font-semibold text-white">{(sellerOverviewStats.reputation?.rating ?? 4.5).toFixed(2)}★</p>
-                  </div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                    <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Completed Trades</p>
-                    <p className="mt-1 text-lg font-semibold text-white">{sellerOverviewStats.completedTrades.toLocaleString("en-IL")}</p>
-                  </div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                    <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Seller Level</p>
-                    <p className="mt-1 text-lg font-semibold text-white">{sellerLevelLabel(sellerOverviewStats.reputation?.level)}</p>
-                  </div>
-                </div>
-                <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-[#D1D5DB]">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Quick Actions</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/dashboard/seller")}>Open Seller Dashboard</Button>
-                    <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/profile")}>Update Public Profile</Button>
-                    <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/settings")}>Account & Security</Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => document.getElementById("create-listing-form")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                    >
-                      Create New Listing
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="border-white/10 bg-[#0B0B0B]/90 xl:col-span-2">
-              <CardHeader>
-                <CardTitle>Activity Timeline</CardTitle>
-                <CardDescription>Newest first, grouped by date, with compact activity cards.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {!activityHistory.length ? (
-                  <p className="text-xs text-[#9CA3AF]">Your timeline updates automatically as you trade, review, and manage listings.</p>
-                ) : (
-                  groupedActivityHistory.map((group) => (
-                    <div key={group.dayKey} className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{group.label}</p>
-                      <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
-                        {group.items.slice(0, 3).map((entry) => (
-                          <div key={entry.id} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
-                            <div className="flex items-start justify-between gap-3">
-                              <p className="font-medium text-white">{entry.title}</p>
-                              <p className="shrink-0 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleTimeString("en-IL", { hour: "2-digit", minute: "2-digit" })}</p>
-                            </div>
-                            <p className="mt-1 line-clamp-2 text-[#9CA3AF]">{entry.details}</p>
-                          </div>
-                        ))}
+          <div ref={sellerDeferredPanelsSentinelRef} className="order-39 h-px w-full" aria-hidden />
+          {deferredSellerPanelsReady ? (
+            <div className="order-40 grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
+              <Card className="order-50 border-white/10 bg-[#0B0B0B]/90">
+                <CardHeader>
+                  <CardTitle>{isAr ? "ملف البائع" : "Seller Profile"}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm text-[#D1D5DB]">
+                  <div className="flex items-center gap-3">
+                    {sessionUser?.profilePhotoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={sessionUser.profilePhotoUrl} alt={`${sessionUser.fullName} profile`} className="h-13 w-13 rounded-full border border-white/15 object-cover" />
+                    ) : (
+                      <div className="inline-flex h-13 w-13 items-center justify-center rounded-full border border-white/15 bg-white/[0.04] text-sm font-semibold text-[#D1D5DB]">
+                        {safeText(sessionUser?.fullName, "Seller")
+                          .split(" ")
+                          .map((part) => part[0])
+                          .join("")
+                          .slice(0, 2)}
                       </div>
+                    )}
+                    <div>
+                      <p className="text-base font-semibold text-white">{safeText(sessionUser?.fullName, "Seller")}</p>
+                      <RoleBadge variant="approved_seller" />
                     </div>
-                  ))
-                )}
+                  </div>
+                  <p>Member Since: <span className="text-white">{sessionUser?.createdAt ? new Date(sessionUser.createdAt).toLocaleDateString("en-IL") : "—"}</span></p>
+                  <p>Languages: <span className="text-white">{sessionUser?.languages?.join(", ") || "English"}</span></p>
+                  <p>Preferred Networks: <span className="text-white">{sessionUser?.preferredNetworks?.join(", ") || "TRC20"}</span></p>
+                  <p>Rating: <span className="text-white">{(sellerOverviewStats.reputation?.rating ?? 4.5).toFixed(2)}</span></p>
+                  <p>Success Rate: <span className="text-white">{sellerOverviewStats.successRate.toFixed(1)}%</span></p>
+                  <p>Completed Trades: <span className="text-white">{sellerOverviewStats.completedTrades}</span></p>
+                  <p>Total USDT Volume: <span className="text-white">{sellerOverviewStats.totalUsdtSold.toLocaleString("en-IL")}</span></p>
+                  <p>Current Listings: <span className="text-white">{sellerOverviewStats.activeListings}</span></p>
+                  <p>Average Response Time: <span className="text-white">{sellerOverviewStats.averageResponseTime}</span></p>
+                  <p>Status: <span className="text-white">{sessionUser?.onlineStatus === "online" ? "Online" : "Offline"}</span></p>
+                  <p>Last Active: <span className="text-white">{formatRelativeMinutesLabel(sessionUser?.lastActiveAt)}</span></p>
+                  <p>Bio: <span className="text-white">{safeText(sessionUser?.bio, "Professional USDT seller on Alpha Exchange.")}</span></p>
+                  <p>Trading Experience: <span className="text-white">{safeText(sessionUser?.tradingExperience, "Professional trading experience")}</span></p>
+                  <p>Working Hours: <span className="text-white">{safeText(sessionUser?.workingHours, "Sun-Thu, 09:00-21:00")}</span></p>
+                  <p>Account Status: <span className="text-white">{sessionUser?.sellerStatus ?? "buyer"}</span></p>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {(sellerOverviewStats.reputation?.badges ?? []).map((badge) => (
+                      <span key={badge} className="rounded-full border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-2 py-1 text-[11px] text-[#93C5FD]">
+                        {sellerBadgeLabel(badge)}
+                      </span>
+                    ))}
+                  </div>
+                  {sellerOverviewStats.completedTrades === 0 ? (
+                    <div className="mt-2 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#9CA3AF]">
+                      {isAr ? "لا توجد صفقات مكتملة بعد. أكمل أول صفقة لبناء سجل ثقة قوي." : "No Trades Yet. Complete your first trade to start building trust history."}
+                    </div>
+                  ) : null}
+                </CardContent>
+              </Card>
+
+              {notificationCenterCard}
+              {marketInsightsCard}
+
+              <Card className="border-white/10 bg-[#0B0B0B]/90">
+                <CardHeader>
+                  <CardTitle>{isAr ? "لوحة البائع" : "Seller Command Center"}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
+                      <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Lifetime Trade Volume</p>
+                      <p className="mt-1 text-lg font-semibold text-white">{sellerOverviewStats.totalUsdtSold.toLocaleString("en-IL")} USDT</p>
+                    </div>
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
+                      <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Average Rating</p>
+                      <p className="mt-1 text-lg font-semibold text-white">{(sellerOverviewStats.reputation?.rating ?? 4.5).toFixed(2)}★</p>
+                    </div>
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
+                      <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Completed Trades</p>
+                      <p className="mt-1 text-lg font-semibold text-white">{sellerOverviewStats.completedTrades.toLocaleString("en-IL")}</p>
+                    </div>
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
+                      <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Seller Level</p>
+                      <p className="mt-1 text-lg font-semibold text-white">{sellerLevelLabel(sellerOverviewStats.reputation?.level)}</p>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-[#D1D5DB]">
+                    <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Quick Actions</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/dashboard/seller")}>Open Seller Dashboard</Button>
+                      <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/profile")}>Update Public Profile</Button>
+                      <Button type="button" size="sm" variant="secondary" onClick={() => router.push("/settings")}>Account & Security</Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => document.getElementById("create-listing-form")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                      >
+                        Create New Listing
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="border-white/10 bg-[#0B0B0B]/90 xl:col-span-2">
+                <CardHeader>
+                  <CardTitle>Activity Timeline</CardTitle>
+                  <CardDescription>Newest first, grouped by date, with compact activity cards.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {!activityHistory.length ? (
+                    <p className="text-xs text-[#9CA3AF]">Your timeline updates automatically as you trade, review, and manage listings.</p>
+                  ) : (
+                    groupedActivityHistory.map((group) => (
+                      <div key={group.dayKey} className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{group.label}</p>
+                        <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
+                          {group.items.slice(0, 3).map((entry) => (
+                            <div key={entry.id} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
+                              <div className="flex items-start justify-between gap-3">
+                                <p className="font-medium text-white">{entry.title}</p>
+                                <p className="shrink-0 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleTimeString("en-IL", { hour: "2-digit", minute: "2-digit" })}</p>
+                              </div>
+                              <p className="mt-1 line-clamp-2 text-[#9CA3AF]">{entry.details}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          ) : (
+            <Card className="order-40 border-white/10 bg-[#0B0B0B]/90">
+              <CardHeader>
+                <CardTitle>{isAr ? "جاري تحميل الرؤى المتقدمة" : "Advanced insights load on demand"}</CardTitle>
+                <CardDescription>
+                  {isAr
+                    ? "تظهر الإشعارات، التحليلات، والملفات الثانوية عند فتح هذا الجزء لتسريع التفاعل الأولي."
+                    : "Notifications, analytics, and secondary reputation widgets hydrate when this section comes into view so the shell stays fast."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <div key={`deferred-seller-panel-${index}`} className="rounded-xl border border-white/10 bg-black/20 p-4">
+                    <div className="h-3 w-44 animate-pulse rounded bg-white/10" />
+                    <div className="mt-3 h-4 w-full animate-pulse rounded bg-white/10" />
+                    <div className="mt-2 h-4 w-4/5 animate-pulse rounded bg-white/10" />
+                  </div>
+                ))}
               </CardContent>
             </Card>
-          </div>
+          )}
         </div>
       ) : (
         <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)] xl:items-start">
