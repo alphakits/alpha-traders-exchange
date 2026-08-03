@@ -29,12 +29,14 @@ export function resolveSellerByUsername<T extends Pick<AlphaExchangeUser, "id" |
 
 export async function getSellerProfilePageData(input: {
   username: string;
+  sellerId?: string;
   viewerUserId?: string;
   viewerRole?: string;
   viewerEmail?: string;
 }) {
   const routeData = await getSellerProfileRouteData({
     username: input.username,
+    sellerId: input.sellerId,
     viewerUserId: input.viewerUserId,
     viewerRole: input.viewerRole as never,
     viewerEmail: input.viewerEmail,

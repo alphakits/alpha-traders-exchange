@@ -426,6 +426,42 @@ textarea {
   transform: translateY(-1px);
 }
 
+.role-badge-with-tooltip {
+  position: relative;
+  display: inline-flex;
+}
+
+.role-badge__tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  z-index: 30;
+  display: inline-flex;
+  min-width: 220px;
+  flex-direction: column;
+  gap: 0.16rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(212, 160, 60, 0.35);
+  background: linear-gradient(135deg, rgba(20, 7, 7, 0.96), rgba(10, 10, 10, 0.96));
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45), 0 0 18px rgba(220, 38, 38, 0.18);
+  padding: 0.55rem 0.7rem;
+  color: #f5f5f5;
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  line-height: 1.35;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 180ms ease, visibility 180ms ease;
+  transform: translateX(-50%);
+}
+
+.role-badge-with-tooltip:hover .role-badge__tooltip,
+.role-badge-with-tooltip:focus-within .role-badge__tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+
 .role-badge__content {
   position: relative;
   z-index: 1;
@@ -489,15 +525,766 @@ textarea {
 }
 
 .role-badge--owner {
-  border-color: rgba(248, 113, 113, 0.62);
-  color: #fecaca;
-  background: linear-gradient(132deg, rgba(24, 24, 27, 0.86), rgba(127, 29, 29, 0.78), rgba(69, 10, 10, 0.92));
-  box-shadow: 0 8px 24px rgba(69, 10, 10, 0.4), 0 0 24px rgba(239, 68, 68, 0.36), inset 0 0 12px rgba(248, 113, 113, 0.2);
-  animation: role-badge-owner-energy 4.2s ease-in-out infinite;
+  border-color: rgba(212, 160, 60, 0.55);
+  color: #ffe5e5;
+  background: linear-gradient(
+    132deg,
+    rgba(10, 3, 3, 0.98) 0%,
+    rgba(155, 20, 20, 0.95) 22%,
+    rgba(220, 38, 38, 0.88) 45%,
+    rgba(185, 22, 22, 0.95) 68%,
+    rgba(100, 8, 8, 0.98) 100%
+  );
+  box-shadow:
+    0 0 12px rgba(220, 38, 38, 0.50),
+    0 0 28px rgba(180, 20, 20, 0.30),
+    0 2px 8px rgba(0, 0, 0, 0.55),
+    inset 0 0 10px rgba(255, 110, 110, 0.12),
+    inset 0 1px 0 rgba(255, 210, 150, 0.28);
+  animation: role-badge-owner-energy 5.0s ease-in-out infinite;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  padding: 0.3rem 0.75rem;
+  text-shadow: 0 0 8px rgba(255, 160, 160, 0.40);
 }
+
+.role-badge--owner .role-badge__shine {
+  background: linear-gradient(
+    108deg,
+    transparent 0%,
+    rgba(255, 200, 140, 0.04) 20%,
+    rgba(255, 230, 190, 0.38) 50%,
+    rgba(255, 200, 140, 0.04) 80%,
+    transparent 100%
+  );
+  animation: role-badge-owner-shine 4.5s ease-in-out infinite;
+}
+
+.role-badge--owner .role-badge__emblem {
+  border-color: rgba(252, 165, 165, 0.62);
+  background: linear-gradient(135deg, rgba(185, 18, 18, 0.72), rgba(239, 68, 68, 0.42));
+  color: #fff1f1;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.seller-rank-surface {
+  position: relative;
+  overflow: hidden;
+}
+
+.seller-rank-surface::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.95;
+  z-index: 0;
+}
+
+.seller-rank-surface > * {
+  position: relative;
+  z-index: 1;
+}
+
+.seller-rank-surface::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 0;
+  background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.08) 48%, transparent 100%);
+  transform: translate3d(-120%, 0, 0);
+  transition: opacity 260ms ease;
+}
+
+.seller-rank-surface:hover::after {
+  opacity: 0.14;
+  transform: translate3d(120%, 0, 0);
+  transition: transform 1.15s ease, opacity 260ms ease;
+}
+
+.seller-rank-surface--bronze::before {
+  background:
+    radial-gradient(120% 70% at 82% 0%, rgba(170, 105, 63, 0.14), transparent 58%),
+    linear-gradient(140deg, rgba(8, 8, 8, 0.96), rgba(40, 24, 16, 0.9) 62%, rgba(12, 10, 10, 0.95));
+}
+
+.seller-rank-surface--silver::before {
+  background:
+    radial-gradient(120% 70% at 84% 0%, rgba(171, 182, 198, 0.14), transparent 62%),
+    linear-gradient(140deg, rgba(8, 8, 8, 0.96), rgba(29, 33, 40, 0.92) 62%, rgba(11, 11, 11, 0.95));
+}
+
+.seller-rank-surface--gold::before {
+  background:
+    radial-gradient(120% 72% at 84% 0%, rgba(179, 138, 41, 0.16), transparent 60%),
+    linear-gradient(142deg, rgba(8, 8, 8, 0.96), rgba(46, 33, 15, 0.92) 58%, rgba(12, 10, 10, 0.96));
+}
+
+.seller-rank-surface--platinum::before {
+  background:
+    radial-gradient(120% 72% at 84% 0%, rgba(192, 208, 232, 0.16), transparent 60%),
+    linear-gradient(142deg, rgba(8, 8, 8, 0.96), rgba(31, 37, 48, 0.92) 58%, rgba(10, 11, 12, 0.96));
+}
+
+.seller-rank-surface--diamond::before {
+  background:
+    radial-gradient(120% 72% at 84% 0%, rgba(90, 140, 212, 0.2), transparent 60%),
+    linear-gradient(142deg, rgba(7, 8, 10, 0.97), rgba(18, 34, 60, 0.92) 58%, rgba(7, 10, 15, 0.97));
+}
+
+.seller-rank-surface--legendary::before {
+  background:
+    radial-gradient(120% 72% at 84% 0%, rgba(212, 175, 55, 0.16), transparent 58%),
+    radial-gradient(140% 90% at 10% 100%, rgba(124, 16, 16, 0.22), transparent 70%),
+    linear-gradient(142deg, rgba(8, 8, 8, 0.97), rgba(45, 14, 20, 0.92) 58%, rgba(11, 9, 9, 0.97));
+}
+
+.seller-rank-surface--legendary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.2;
+  z-index: 0;
+  background: linear-gradient(125deg, transparent 12%, rgba(247, 213, 126, 0.12) 48%, transparent 88%);
+}
+
+.seller-avatar-ring {
+  border-radius: 9999px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.seller-avatar-ring img,
+.seller-avatar-ring > div {
+  border-radius: 9999px;
+}
+
+.seller-avatar-ring--bronze {
+  box-shadow: 0 0 0 1px rgba(201, 122, 69, 0.45), 0 0 12px rgba(201, 122, 69, 0.16);
+}
+
+.seller-avatar-ring--silver {
+  box-shadow: 0 0 0 1px rgba(194, 205, 220, 0.5), 0 0 12px rgba(194, 205, 220, 0.18);
+}
+
+.seller-avatar-ring--gold {
+  box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.56), 0 0 14px rgba(212, 175, 55, 0.22);
+}
+
+.seller-avatar-ring--platinum {
+  box-shadow: 0 0 0 1px rgba(203, 219, 243, 0.56), 0 0 14px rgba(203, 219, 243, 0.22);
+}
+
+.seller-avatar-ring--diamond {
+  box-shadow: 0 0 0 1px rgba(138, 197, 255, 0.6), 0 0 16px rgba(138, 197, 255, 0.24);
+}
+
+.seller-avatar-ring--legendary {
+  box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.64), 0 0 18px rgba(212, 175, 55, 0.26);
+}
+
+.seller-rank-avatar-frame--bronze { box-shadow: 0 0 0 1px rgba(201, 122, 69, 0.24), 0 0 14px rgba(201, 122, 69, 0.12); }
+.seller-rank-avatar-frame--silver { box-shadow: 0 0 0 1px rgba(194, 205, 220, 0.24), 0 0 14px rgba(194, 205, 220, 0.12); }
+.seller-rank-avatar-frame--gold { box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.28), 0 0 16px rgba(212, 175, 55, 0.15); }
+.seller-rank-avatar-frame--platinum { box-shadow: 0 0 0 1px rgba(203, 219, 243, 0.3), 0 0 16px rgba(203, 219, 243, 0.16); }
+.seller-rank-avatar-frame--diamond { box-shadow: 0 0 0 1px rgba(138, 197, 255, 0.32), 0 0 18px rgba(138, 197, 255, 0.18); }
+.seller-rank-avatar-frame--legendary { box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.36), 0 0 22px rgba(212, 175, 55, 0.2); }
+
+.owner-legendary-surface {
+  position: relative;
+  overflow: hidden;
+}
+
+.owner-legendary-surface::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(120% 70% at 85% 0%, rgba(212, 175, 55, 0.14), transparent 62%),
+    radial-gradient(140% 90% at 10% 100%, rgba(136, 20, 20, 0.18), transparent 70%);
+  opacity: 0.9;
+}
+
+.owner-legendary-surface > * {
+  position: relative;
+  z-index: 1;
+}
+
+.seller-listing-shell {
+  border-radius: 1.1rem;
+  border-width: 1px;
+  backdrop-filter: blur(12px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 22px 48px rgba(0, 0, 0, 0.28);
+  transition: border-color 220ms ease, box-shadow 220ms ease, transform 220ms ease;
+}
+
+.seller-listing-seller-name {
+  font-weight: 700;
+  letter-spacing: 0.012em;
+  text-rendering: geometricPrecision;
+  overflow-wrap: anywhere;
+}
+
+.seller-listing-seller-subtitle {
+  letter-spacing: 0.11em;
+}
+
+.seller-listing-rank-label {
+  font-weight: 700;
+}
+
+.seller-listing-rank-label--bronze { color: #e3a57d; }
+.seller-listing-rank-label--silver { color: #d7deea; }
+.seller-listing-rank-label--gold { color: #f2d67f; }
+.seller-listing-rank-label--platinum { color: #e4ecf8; }
+.seller-listing-rank-label--diamond { color: #ccecff; }
+.seller-listing-rank-label--legendary { color: #fde7a4; }
+
+.seller-listing-status-separator,
+.seller-listing-presence {
+  color: #8d97a4;
+}
+
+.seller-asset-usdt-card {
+  border-color: rgba(52, 211, 153, 0.34);
+  background:
+    linear-gradient(145deg, rgba(16, 185, 129, 0.22), rgba(8, 25, 19, 0.9) 64%),
+    linear-gradient(180deg, rgba(16, 185, 129, 0.08), rgba(0, 0, 0, 0.16));
+  box-shadow:
+    0 0 0 1px rgba(110, 231, 183, 0.12) inset,
+    0 0 34px rgba(16, 185, 129, 0.18);
+  overflow: hidden;
+}
+
+.seller-asset-usdt-value {
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 18px rgba(74, 222, 128, 0.24);
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  text-align: left;
+  text-wrap: nowrap;
+  transition: font-size 220ms ease, letter-spacing 220ms ease;
+  flex: 0 1 65%;
+  min-width: 0;
+  max-width: 65%;
+  overflow: hidden;
+}
+
+.seller-asset-usdt-amount-row {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  width: 100%;
+  min-height: clamp(4.1rem, 6vw, 4.7rem);
+  margin-top: 1rem;
+  padding-inline: 0.95rem;
+  overflow: hidden;
+}
+
+.seller-asset-usdt-amount-content {
+  display: flex;
+  align-items: center;
+  gap: 1.15rem;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.seller-asset-usdt-amount-icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: 0 0 2.25rem;
+  box-shadow: 0 0 0 1px rgba(110, 231, 183, 0.12) inset;
+}
+
+.seller-asset-usdt-value--hero {
+  font-size: clamp(2.2rem, 2.55vw, 2.75rem);
+  letter-spacing: -0.024em;
+}
+
+.seller-asset-usdt-value--balanced {
+  font-size: clamp(2rem, 2.3vw, 2.45rem);
+  letter-spacing: -0.02em;
+}
+
+.seller-asset-usdt-value--tight {
+  font-size: clamp(1.8rem, 2.08vw, 2.2rem);
+  letter-spacing: -0.016em;
+}
+
+.seller-asset-usdt-value--compact {
+  font-size: clamp(1.62rem, 1.86vw, 1.92rem);
+  letter-spacing: -0.012em;
+}
+
+.seller-price-value {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-shadow: 0 0 18px rgba(16, 185, 129, 0.22);
+}
+
+.seller-card-keymetric {
+  min-height: 12.25rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.seller-listing-availability {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  border: 1px solid rgba(34, 197, 94, 0.24);
+  background: rgba(34, 197, 94, 0.1);
+  padding: 0.24rem 0.72rem;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #86efac;
+}
+
+.seller-listing-availability--bronze { box-shadow: 0 0 0 1px rgba(201, 122, 69, 0.14) inset; }
+.seller-listing-availability--silver { box-shadow: 0 0 0 1px rgba(194, 205, 220, 0.15) inset; }
+.seller-listing-availability--gold { box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.2) inset; }
+.seller-listing-availability--platinum { box-shadow: 0 0 0 1px rgba(203, 219, 243, 0.2) inset; }
+.seller-listing-availability--diamond { box-shadow: 0 0 0 1px rgba(138, 197, 255, 0.22) inset; }
+.seller-listing-availability--legendary { box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.24) inset; }
+
+.seller-rank-price {
+  background: rgba(13, 13, 13, 0.86);
+  transition: border-color 240ms ease, box-shadow 240ms ease;
+}
+
+.seller-live-market-panel {
+  border-color: rgba(110, 231, 183, 0.16);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.03), rgba(0, 0, 0, 0.24));
+}
+
+.seller-live-market-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  border: 1px solid rgba(52, 211, 153, 0.28);
+  background: rgba(16, 185, 129, 0.12);
+  padding: 0.18rem 0.55rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #86efac;
+}
+
+.seller-rank-price--bronze { border-color: rgba(201, 122, 69, 0.34); box-shadow: 0 0 0 1px rgba(201, 122, 69, 0.08) inset; }
+.seller-rank-price--silver { border-color: rgba(194, 205, 220, 0.36); box-shadow: 0 0 0 1px rgba(194, 205, 220, 0.09) inset; }
+.seller-rank-price--gold { border-color: rgba(212, 175, 55, 0.38); box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.1) inset; }
+.seller-rank-price--platinum { border-color: rgba(203, 219, 243, 0.4); box-shadow: 0 0 0 1px rgba(203, 219, 243, 0.1) inset; }
+.seller-rank-price--diamond { border-color: rgba(138, 197, 255, 0.42); box-shadow: 0 0 0 1px rgba(138, 197, 255, 0.11) inset; }
+.seller-rank-price--legendary { border-color: rgba(212, 175, 55, 0.44); box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.12) inset; }
+
+.seller-profile-hero-material {
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+.seller-profile-hero-material--bronze {
+  background:
+    linear-gradient(115deg, rgba(0, 0, 0, 0.14), rgba(255, 255, 255, 0.03) 44%, rgba(0, 0, 0, 0.12) 68%),
+    repeating-linear-gradient(104deg, rgba(255, 210, 180, 0.06) 0 2px, rgba(0, 0, 0, 0) 2px 10px),
+    radial-gradient(120% 90% at 82% 0%, rgba(205, 132, 84, 0.18), transparent 58%);
+}
+
+.seller-profile-hero-material--silver {
+  background:
+    linear-gradient(118deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.08) 48%, rgba(255, 255, 255, 0.04) 72%),
+    repeating-linear-gradient(102deg, rgba(232, 239, 248, 0.05) 0 2px, rgba(0, 0, 0, 0) 2px 11px),
+    radial-gradient(120% 90% at 82% 0%, rgba(194, 205, 220, 0.18), transparent 58%);
+}
+
+.seller-profile-hero-material--gold {
+  background:
+    linear-gradient(118deg, rgba(255, 241, 204, 0.08), rgba(0, 0, 0, 0.08) 46%, rgba(255, 215, 110, 0.06) 72%),
+    repeating-linear-gradient(101deg, rgba(255, 220, 120, 0.06) 0 2px, rgba(0, 0, 0, 0) 2px 11px),
+    radial-gradient(120% 90% at 82% 0%, rgba(212, 175, 55, 0.2), transparent 58%);
+}
+
+.seller-profile-hero-material--platinum {
+  background:
+    linear-gradient(118deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.08) 46%, rgba(230, 239, 250, 0.06) 72%),
+    repeating-linear-gradient(102deg, rgba(223, 231, 243, 0.06) 0 2px, rgba(0, 0, 0, 0) 2px 10px),
+    radial-gradient(120% 90% at 82% 0%, rgba(203, 219, 243, 0.2), transparent 58%);
+}
+
+.seller-profile-hero-material--diamond {
+  background:
+    linear-gradient(118deg, rgba(215, 241, 255, 0.08), rgba(0, 0, 0, 0.1) 46%, rgba(120, 183, 255, 0.06) 72%),
+    repeating-linear-gradient(102deg, rgba(180, 228, 255, 0.06) 0 2px, rgba(0, 0, 0, 0) 2px 10px),
+    radial-gradient(120% 90% at 82% 0%, rgba(138, 197, 255, 0.22), transparent 58%);
+}
+
+.seller-profile-hero-material--legendary {
+  background:
+    linear-gradient(120deg, rgba(255, 225, 180, 0.06), rgba(0, 0, 0, 0.08) 40%, rgba(255, 214, 122, 0.05) 66%),
+    repeating-linear-gradient(104deg, rgba(255, 221, 156, 0.05) 0 2px, rgba(0, 0, 0, 0) 2px 12px),
+    radial-gradient(120% 90% at 84% 0%, rgba(212, 175, 55, 0.22), transparent 56%),
+    radial-gradient(140% 100% at 8% 100%, rgba(124, 16, 16, 0.24), transparent 68%);
+}
+
+.seller-profile-hero-material--owner {
+  background:
+    linear-gradient(120deg, rgba(255, 229, 197, 0.07), rgba(0, 0, 0, 0.08) 42%, rgba(255, 208, 115, 0.06) 70%),
+    repeating-linear-gradient(104deg, rgba(255, 221, 156, 0.05) 0 2px, rgba(0, 0, 0, 0) 2px 12px),
+    radial-gradient(120% 90% at 84% 0%, rgba(212, 175, 55, 0.22), transparent 56%),
+    radial-gradient(140% 100% at 8% 100%, rgba(160, 20, 20, 0.28), transparent 68%);
+}
+
+.seller-hero-stat {
+  backdrop-filter: blur(10px);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.04), rgba(0, 0, 0, 0.28));
+}
+
+.seller-rank-profile-shell,
+.seller-rank-profile-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.seller-rank-profile-shell::before,
+.seller-rank-profile-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.seller-rank-profile-shell > *,
+.seller-rank-profile-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.seller-rank-profile-shell--bronze::before,
+.seller-rank-profile-panel--bronze::before {
+  background: linear-gradient(145deg, rgba(9, 9, 9, 0.96), rgba(43, 25, 18, 0.9) 62%, rgba(12, 10, 10, 0.96));
+}
+
+.seller-rank-profile-shell--silver::before,
+.seller-rank-profile-panel--silver::before {
+  background: linear-gradient(145deg, rgba(9, 9, 9, 0.96), rgba(30, 34, 42, 0.9) 62%, rgba(12, 12, 12, 0.96));
+}
+
+.seller-rank-profile-shell--gold::before,
+.seller-rank-profile-panel--gold::before {
+  background: linear-gradient(145deg, rgba(9, 9, 9, 0.96), rgba(49, 34, 15, 0.9) 62%, rgba(12, 10, 10, 0.96));
+}
+
+.seller-rank-profile-shell--platinum::before,
+.seller-rank-profile-panel--platinum::before {
+  background: linear-gradient(145deg, rgba(9, 10, 10, 0.97), rgba(33, 38, 49, 0.9) 62%, rgba(11, 12, 12, 0.97));
+}
+
+.seller-rank-profile-shell--diamond::before,
+.seller-rank-profile-panel--diamond::before {
+  background: linear-gradient(145deg, rgba(7, 9, 11, 0.98), rgba(18, 36, 62, 0.9) 62%, rgba(8, 10, 14, 0.98));
+}
+
+.seller-rank-profile-shell--legendary::before,
+.seller-rank-profile-panel--legendary::before {
+  background:
+    radial-gradient(130% 80% at 85% 0%, rgba(212, 175, 55, 0.14), transparent 62%),
+    linear-gradient(145deg, rgba(8, 8, 8, 0.98), rgba(47, 14, 18, 0.9) 62%, rgba(11, 9, 9, 0.98));
+}
+
+.seller-rank-name {
+  background-size: 240% auto;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.06);
+}
+
+.seller-rank-name--bronze {
+  background-image: linear-gradient(112deg, #8c4f2b 0%, #c97a45 40%, #f2c59f 64%, #9f5b31 100%);
+  filter: drop-shadow(0 0 8px rgba(201, 122, 69, 0.18));
+}
+
+.seller-rank-name--silver {
+  background-image: linear-gradient(112deg, #8f99a8 0%, #c8d1df 44%, #f6f7fb 62%, #a5afbc 100%);
+  filter: drop-shadow(0 0 9px rgba(190, 199, 214, 0.2));
+}
+
+.seller-rank-name--gold {
+  background-image: linear-gradient(112deg, #9f6c10 0%, #d7a82d 40%, #fde59a 62%, #b27a12 100%);
+  filter: drop-shadow(0 0 10px rgba(212, 175, 55, 0.25));
+}
+
+.seller-rank-name--platinum {
+  background-image: linear-gradient(112deg, #9aa8bc 0%, #d8e0ec 38%, #fcfdff 60%, #aab8cb 100%);
+  filter: drop-shadow(0 0 10px rgba(203, 219, 243, 0.28));
+}
+
+.seller-rank-name--diamond {
+  background-image: linear-gradient(112deg, #6e8fd7 0%, #8ec5ff 44%, #d9f2ff 62%, #6a8adc 100%);
+  filter: drop-shadow(0 0 12px rgba(122, 189, 255, 0.34));
+}
+
+.seller-rank-name--legendary {
+  background-image: linear-gradient(112deg, #7a0f0f 0%, #ba1d1d 26%, #d4af37 48%, #f8d778 62%, #b61919 78%, #7c1010 100%);
+  animation: seller-rank-legendary-name 6.4s ease-in-out infinite;
+  filter: drop-shadow(0 0 14px rgba(212, 175, 55, 0.26));
+}
+
+.seller-rank-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.26rem;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  padding: 0.22rem 0.64rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(6px);
+}
+
+.seller-rank-separator--bronze { background: linear-gradient(to bottom, transparent, rgba(201, 122, 69, 0.4), transparent); }
+.seller-rank-separator--silver { background: linear-gradient(to bottom, transparent, rgba(194, 205, 220, 0.42), transparent); }
+.seller-rank-separator--gold { background: linear-gradient(to bottom, transparent, rgba(212, 175, 55, 0.46), transparent); }
+.seller-rank-separator--platinum { background: linear-gradient(to bottom, transparent, rgba(203, 219, 243, 0.46), transparent); }
+.seller-rank-separator--diamond { background: linear-gradient(to bottom, transparent, rgba(138, 197, 255, 0.5), transparent); }
+.seller-rank-separator--legendary { background: linear-gradient(to bottom, transparent, rgba(212, 175, 55, 0.52), transparent); }
+
+.seller-rank-microcard {
+  transition: border-color 220ms ease, box-shadow 220ms ease, background-color 220ms ease;
+}
+
+.seller-rank-microcard--bronze { border-color: rgba(201, 122, 69, 0.26); }
+.seller-rank-microcard--silver { border-color: rgba(194, 205, 220, 0.28); }
+.seller-rank-microcard--gold { border-color: rgba(212, 175, 55, 0.3); box-shadow: inset 0 1px 0 rgba(212, 175, 55, 0.08); }
+.seller-rank-microcard--platinum { border-color: rgba(203, 219, 243, 0.32); box-shadow: inset 0 1px 0 rgba(203, 219, 243, 0.1); }
+.seller-rank-microcard--diamond { border-color: rgba(138, 197, 255, 0.34); box-shadow: inset 0 1px 0 rgba(138, 197, 255, 0.12); }
+.seller-rank-microcard--legendary { border-color: rgba(212, 175, 55, 0.36); box-shadow: inset 0 1px 0 rgba(212, 175, 55, 0.14); }
+
+.seller-rank-microcard--bronze:hover { box-shadow: 0 0 0 1px rgba(201, 122, 69, 0.2); }
+.seller-rank-microcard--silver:hover { box-shadow: 0 0 0 1px rgba(194, 205, 220, 0.22); }
+.seller-rank-microcard--gold:hover { box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.24), 0 0 14px rgba(212, 175, 55, 0.08); }
+.seller-rank-microcard--platinum:hover { box-shadow: 0 0 0 1px rgba(203, 219, 243, 0.25), 0 0 14px rgba(203, 219, 243, 0.08); }
+.seller-rank-microcard--diamond:hover { box-shadow: 0 0 0 1px rgba(138, 197, 255, 0.26), 0 0 16px rgba(138, 197, 255, 0.1); }
+.seller-rank-microcard--legendary:hover { box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.28), 0 0 18px rgba(212, 175, 55, 0.1); }
+
+.seller-rank-pill--bronze {
+  border-color: rgba(201, 122, 69, 0.46);
+  background: linear-gradient(120deg, rgba(88, 48, 26, 0.84), rgba(165, 99, 59, 0.72), rgba(89, 50, 28, 0.84));
+  color: #f2c8aa;
+}
+.seller-rank-pill--silver {
+  border-color: rgba(194, 205, 220, 0.5);
+  background: linear-gradient(120deg, rgba(71, 80, 96, 0.84), rgba(148, 160, 180, 0.72), rgba(72, 82, 98, 0.84));
+  color: #e9f0fb;
+}
+.seller-rank-pill--gold {
+  border-color: rgba(212, 175, 55, 0.56);
+  background: linear-gradient(120deg, rgba(112, 79, 12, 0.86), rgba(188, 142, 36, 0.74), rgba(113, 80, 13, 0.86));
+  color: #fde8a6;
+}
+.seller-rank-pill--platinum {
+  border-color: rgba(205, 220, 245, 0.56);
+  background: linear-gradient(120deg, rgba(84, 98, 122, 0.86), rgba(180, 196, 220, 0.74), rgba(86, 100, 124, 0.86));
+  color: #f3f7ff;
+}
+.seller-rank-pill--diamond {
+  border-color: rgba(138, 197, 255, 0.6);
+  background: linear-gradient(120deg, rgba(38, 71, 116, 0.86), rgba(93, 154, 219, 0.74), rgba(40, 73, 118, 0.86));
+  color: #def3ff;
+}
+.seller-rank-pill--legendary {
+  border-color: rgba(212, 175, 55, 0.62);
+  background: linear-gradient(118deg, rgba(90, 16, 20, 0.9), rgba(190, 42, 42, 0.72), rgba(212, 175, 55, 0.34), rgba(94, 16, 20, 0.9));
+  color: #fee9b2;
+  box-shadow: inset 0 1px 0 rgba(255, 230, 180, 0.18), 0 0 14px rgba(212, 175, 55, 0.18);
+}
+
+.seller-rank-badge {
+  transition: box-shadow 200ms ease, border-color 200ms ease;
+}
+
+.seller-rank-badge--bronze { border-color: rgba(201, 122, 69, 0.46); box-shadow: 0 0 0 1px rgba(201, 122, 69, 0.12); }
+.seller-rank-badge--silver { border-color: rgba(194, 205, 220, 0.52); box-shadow: 0 0 0 1px rgba(194, 205, 220, 0.14); }
+.seller-rank-badge--gold { border-color: rgba(212, 175, 55, 0.56); box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.18), 0 0 16px rgba(212, 175, 55, 0.18); }
+.seller-rank-badge--platinum { border-color: rgba(203, 219, 243, 0.56); box-shadow: 0 0 0 1px rgba(203, 219, 243, 0.18), 0 0 10px rgba(203, 219, 243, 0.14); }
+.seller-rank-badge--diamond { border-color: rgba(138, 197, 255, 0.62); box-shadow: 0 0 0 1px rgba(138, 197, 255, 0.2), 0 0 12px rgba(138, 197, 255, 0.16); }
+.seller-rank-badge--legendary { border-color: rgba(212, 175, 55, 0.66); box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.22), 0 0 14px rgba(212, 175, 55, 0.16); }
+
+.seller-rank-card--bronze { box-shadow: 0 0 0 1px rgba(201, 122, 69, 0.14); }
+.seller-rank-card--silver { box-shadow: 0 0 0 1px rgba(194, 205, 220, 0.16); }
+.seller-rank-card--gold { box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.18), 0 0 14px rgba(212, 175, 55, 0.09); }
+.seller-rank-card--platinum { box-shadow: 0 0 0 1px rgba(203, 219, 243, 0.2), 0 0 12px rgba(203, 219, 243, 0.09); }
+.seller-rank-card--diamond { box-shadow: 0 0 0 1px rgba(138, 197, 255, 0.22), 0 0 15px rgba(138, 197, 255, 0.1); }
+.seller-rank-card--legendary { box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.24), 0 0 18px rgba(212, 175, 55, 0.11), 0 0 30px rgba(124, 16, 16, 0.08); }
+
+.seller-rank-accent {
+  transition: border-color 260ms ease, box-shadow 260ms ease;
+}
+
+.seller-rank-accent--bronze { border-color: rgba(201, 122, 69, 0.28); background: linear-gradient(135deg, rgba(201, 122, 69, 0.12), rgba(5, 5, 5, 0.88)); }
+.seller-rank-accent--silver { border-color: rgba(194, 205, 220, 0.30); background: linear-gradient(135deg, rgba(194, 205, 220, 0.12), rgba(5, 5, 5, 0.88)); }
+.seller-rank-accent--gold { border-color: rgba(212, 175, 55, 0.34); background: linear-gradient(135deg, rgba(212, 175, 55, 0.14), rgba(5, 5, 5, 0.88)); }
+.seller-rank-accent--platinum { border-color: rgba(203, 219, 243, 0.34); background: linear-gradient(135deg, rgba(203, 219, 243, 0.14), rgba(5, 5, 5, 0.88)); }
+.seller-rank-accent--diamond { border-color: rgba(138, 197, 255, 0.36); background: linear-gradient(135deg, rgba(138, 197, 255, 0.16), rgba(5, 5, 5, 0.88)); }
+.seller-rank-accent--legendary { border-color: rgba(212, 175, 55, 0.4); background: linear-gradient(135deg, rgba(124, 16, 16, 0.2), rgba(212, 175, 55, 0.11), rgba(5, 5, 5, 0.9)); }
+
+.seller-rank-volume--bronze { border-color: rgba(201, 122, 69, 0.32); background: rgba(201, 122, 69, 0.12); box-shadow: 0 0 24px rgba(201, 122, 69, 0.12); }
+.seller-rank-volume--silver { border-color: rgba(194, 205, 220, 0.34); background: rgba(194, 205, 220, 0.12); box-shadow: 0 0 24px rgba(194, 205, 220, 0.14); }
+.seller-rank-volume--gold { border-color: rgba(212, 175, 55, 0.38); background: rgba(212, 175, 55, 0.12); box-shadow: 0 0 24px rgba(212, 175, 55, 0.16); }
+.seller-rank-volume--platinum { border-color: rgba(203, 219, 243, 0.4); background: rgba(203, 219, 243, 0.12); box-shadow: 0 0 24px rgba(203, 219, 243, 0.18); }
+.seller-rank-volume--diamond { border-color: rgba(138, 197, 255, 0.42); background: rgba(138, 197, 255, 0.12); box-shadow: 0 0 26px rgba(138, 197, 255, 0.2); }
+.seller-rank-volume--legendary { border-color: rgba(212, 175, 55, 0.42); background: linear-gradient(130deg, rgba(124, 16, 16, 0.16), rgba(212, 175, 55, 0.12)); box-shadow: 0 0 28px rgba(212, 175, 55, 0.2); }
+
+.seller-rank-cta {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.3);
+  position: relative;
+  overflow: hidden;
+}
+
+.seller-marketplace-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 3.4rem;
+  border-radius: 1rem;
+  padding: 0 1.1rem;
+  font-size: 0.89rem;
+  font-weight: 600;
+  transition: border-color 220ms ease, box-shadow 220ms ease, filter 220ms ease;
+}
+
+.seller-marketplace-action--profile {
+  color: inherit;
+  text-decoration: none;
+}
+
+.seller-marketplace-action:hover {
+  filter: brightness(1.02);
+}
+
+.seller-rank-cta::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(118deg, transparent 0%, rgba(255, 255, 255, 0.2) 48%, transparent 100%);
+  opacity: 0;
+  transform: translate3d(-130%, 0, 0);
+  transition: transform 0.9s ease, opacity 220ms ease;
+}
+
+.seller-rank-cta:hover::after {
+  opacity: 0.14;
+  transform: translate3d(130%, 0, 0);
+}
+
+.seller-rank-cta--bronze { background: linear-gradient(90deg, #9b562f, #d08a52, #a35f36); color: #1f120a; }
+.seller-rank-cta--silver { background: linear-gradient(90deg, #a0a9b7, #d5deea, #a8b2c1); color: #121824; }
+.seller-rank-cta--gold { background: linear-gradient(90deg, #b88416, #e3bf57, #c59321); color: #1d1408; }
+.seller-rank-cta--platinum { background: linear-gradient(90deg, #a5b2c4, #edf2fa, #b0bed2); color: #141822; }
+.seller-rank-cta--diamond { background: linear-gradient(90deg, #6e9ade, #9cd2ff, #739fdf); color: #0b1730; }
+.seller-rank-cta--legendary { background: linear-gradient(90deg, #7a0f0f, #d4af37, #8a1313); color: #1c1205; }
+
+.owner-cta-premium {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(212, 175, 55, 0.45);
+  background: linear-gradient(92deg, #6f1015 0%, #b51d23 20%, #d4af37 50%, #b51d23 78%, #7a1117 100%);
+  color: #1e1207;
+  box-shadow: 0 14px 32px rgba(124, 16, 16, 0.28), 0 0 24px rgba(212, 175, 55, 0.2);
+}
+
+.owner-cta-premium::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(120deg, transparent 0%, rgba(255, 240, 205, 0.26) 50%, transparent 100%);
+  opacity: 0;
+  transform: translate3d(-130%, 0, 0);
+  transition: transform 1s ease, opacity 240ms ease;
+}
+
+.owner-cta-premium:hover::after {
+  opacity: 0.16;
+  transform: translate3d(130%, 0, 0);
+}
+
+.seller-escrow-emphasis {
+  color: #fca5a5;
+  text-shadow: 0 0 12px rgba(185, 28, 28, 0.14);
+}
+
+.seller-escrow-brand {
+  font-weight: 700;
+  color: #fda4af;
+}
+
+.seller-card-info-panel {
+  min-height: 7.25rem;
+}
+
+@media (max-width: 768px) {
+  .seller-card-keymetric {
+    min-height: 10.5rem;
+  }
+
+  .seller-card-info-panel {
+    min-height: auto;
+  }
+
+  .seller-listing-shell {
+    border-radius: 1rem;
+  }
+}
+
+.seller-rank-tier-card--bronze { border-color: rgba(201, 122, 69, 0.3); background: rgba(201, 122, 69, 0.12); }
+.seller-rank-tier-card--silver { border-color: rgba(194, 205, 220, 0.32); background: rgba(194, 205, 220, 0.12); }
+.seller-rank-tier-card--gold { border-color: rgba(212, 175, 55, 0.34); background: rgba(212, 175, 55, 0.12); }
+.seller-rank-tier-card--platinum { border-color: rgba(203, 219, 243, 0.36); background: rgba(203, 219, 243, 0.13); }
+.seller-rank-tier-card--diamond { border-color: rgba(138, 197, 255, 0.38); background: rgba(138, 197, 255, 0.13); }
+.seller-rank-tier-card--legendary { border-color: rgba(212, 175, 55, 0.42); background: linear-gradient(125deg, rgba(124, 16, 16, 0.16), rgba(212, 175, 55, 0.13)); }
+
+.seller-rank-tier-label--bronze { color: #e3a57d; }
+.seller-rank-tier-label--silver { color: #d7deea; }
+.seller-rank-tier-label--gold { color: #f2d67f; }
+.seller-rank-tier-label--platinum { color: #e4ecf8; }
+.seller-rank-tier-label--diamond { color: #ccecff; }
+.seller-rank-tier-label--legendary { color: #fde7a4; }
+
+.seller-rank-progress--bronze { background: linear-gradient(90deg, #9b562f, #d08a52); }
+.seller-rank-progress--silver { background: linear-gradient(90deg, #9ea8b7, #d7dfec); }
+.seller-rank-progress--gold { background: linear-gradient(90deg, #b88416, #e3bf57); }
+.seller-rank-progress--platinum { background: linear-gradient(90deg, #a4b2c4, #e8eff9); }
+.seller-rank-progress--diamond { background: linear-gradient(90deg, #6f9cdf, #9ed4ff); }
+.seller-rank-progress--legendary { background: linear-gradient(90deg, #8a1313, #d4af37, #8a1313); }
 
 .section-container {
   @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+}
+
+.exchange-marketplace-shell {
+  max-width: 92rem;
 }
 
 .page-shell {
@@ -552,6 +1339,25 @@ textarea {
   animation: seller-name-shimmer 5.5s linear infinite;
 }
 
+.profile-identity-name--owner {
+  background-image: linear-gradient(112deg, #5f0d14 0%, #a1121f 30%, #dc2626 54%, #f87171 70%, #7f1d1d 100%);
+  background-size: 260% auto;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-rendering: geometricPrecision;
+  filter: drop-shadow(0 0 6px rgba(248, 113, 113, 0.22));
+  animation: owner-name-shimmer 6s ease-in-out infinite;
+  transition: filter 180ms ease;
+  cursor: default;
+}
+
+.profile-identity-name--owner:hover {
+  filter: drop-shadow(0 0 7px rgba(248, 113, 113, 0.25)) brightness(1.06);
+}
+
 .profile-identity-name--buyer {
   background-image: linear-gradient(120deg, #bfdbfe 0%, #ffffff 45%, #6caeff 65%, #bfdbfe 100%);
   background-size: 220% auto;
@@ -591,6 +1397,19 @@ textarea {
     }
   }
 
+  @keyframes owner-name-shimmer {
+    0%,
+    78% {
+      background-position: 0% 50%;
+    }
+    88% {
+      background-position: 70% 50%;
+    }
+    100% {
+      background-position: 100% 50%;
+    }
+  }
+
   @keyframes role-badge-shimmer {
     0%,
     85% {
@@ -607,12 +1426,25 @@ textarea {
   }
 
   @keyframes role-badge-owner-energy {
-    0%,
-    100% {
-      filter: drop-shadow(0 0 0 rgba(248, 113, 113, 0.2));
+    0%, 100% {
+      filter: drop-shadow(0 0 2px rgba(220, 50, 50, 0.20));
     }
     50% {
-      filter: drop-shadow(0 0 10px rgba(248, 113, 113, 0.38));
+      filter: drop-shadow(0 0 7px rgba(220, 60, 60, 0.42)) drop-shadow(0 0 16px rgba(200, 40, 40, 0.20));
+    }
+  }
+
+  @keyframes role-badge-owner-shine {
+    0%, 65% {
+      opacity: 0;
+      transform: translate3d(-140%, 0, 0);
+    }
+    80% {
+      opacity: 0.60;
+    }
+    100% {
+      opacity: 0;
+      transform: translate3d(140%, 0, 0);
     }
   }
   to {
@@ -778,6 +1610,41 @@ textarea {
   50% {
     opacity: 0.18;
     transform: translate3d(0, -12px, 0);
+  }
+}
+
+@keyframes seller-rank-legendary-name {
+  0%,
+  74% {
+    background-position: 0% 50%;
+  }
+  88% {
+    background-position: 82% 50%;
+  }
+  100% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes seller-rank-particles {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(-2%, 1.5%, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes seller-rank-badge-breath {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.08);
   }
 }
 

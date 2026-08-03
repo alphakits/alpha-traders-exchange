@@ -724,6 +724,7 @@ function buildSellerPublicProfile(user: AlphaExchangeUser): SellerPublicProfile 
   return {
     sellerId: user.id,
     sellerName: user.fullName,
+    fullName: user.fullName,
     profilePhotoUrl: user.profilePhotoUrl,
     memberSince: user.createdAt,
     languages: user.languages,
@@ -736,12 +737,115 @@ function buildSellerPublicProfile(user: AlphaExchangeUser): SellerPublicProfile 
     city: user.city,
     coverBannerUrl: user.coverBannerUrl,
     isFoundingSeller: user.isFoundingSeller === true,
+    isFoundingMember: user.isFoundingMember === true,
     isFeaturedSeller: user.isFeaturedSeller === true,
     isProfileHidden: user.isProfileHidden === true,
+    isOwner: isAlphaExchangeOwnerEmail(user.email),
+    role: user.role,
+    roles: user.roles ?? [user.role],
+    sellerStatus: user.sellerStatus,
+    allowDirectMessages: user.allowDirectMessages !== false,
+    contact: {
+      email: user.showEmailPublic === true ? user.email : "",
+      phone: user.showPhonePublic === true ? user.whatsappNumber : "",
+    },
     onlineStatus: user.onlineStatus,
     availabilityStatus: user.availabilityStatus,
     lastActiveAt: user.lastActiveAt,
   };
+}
+
+function buildPublicUserProfileDataForUser(input: {
+  db: AlphaExchangeDb;
+  user: AlphaExchangeUser;
+  viewerUserId?: string;
+  viewerRole?: UserRole;
+  enforceSearchVisibility?: boolean;
+}) {
+  const { db, enforceSearchVisibility = true, user, viewerRole, viewerUserId } = input;
+  const viewerIsPrivileged = viewerRole === "admin" || viewerRole === "owner";
+  const viewerIsOwner = viewerUserId === user.id;
+  const canBypassVisibility = viewerIsOwner || viewerIsPrivileged;
+
+  if (user.isProfileHidden === true && !canBypassVisibility) return null;
+  if (enforceSearchVisibility && user.allowProfileSearch === false && !canBypassVisibility) return null;
+
+  const username = deriveSellerRouteUsername({ fullName: user.fullName, email: user.email, id: user.id });
+  const trustSnapshot = isTrustEligibleSeller(user) ? computeSellerReputationSnapshot(db, user.id) : null;
+  const buyerRequests = db.purchaseRequests.filter((request) => request.buyerId === user.id);
+  const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === user.id);
+  const completedAsBuyer = buyerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length;
+  const completedAsSeller = sellerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length;
+  const reviewsWritten = buyerRequests.filter((request) => Boolean(request.buyerReview)).length;
+  const reviewsReceived = sellerRequests.filter((request) => Boolean(request.buyerReview)).length;
+
+  const showStats = user.showTradeStats !== false || canBypassVisibility;
+  const showLastActive = user.showLastActive !== false || canBypassVisibility;
+  const showPhone = user.showPhonePublic === true || canBypassVisibility;
+  const showEmail = user.showEmailPublic === true || canBypassVisibility;
+
+  return {
+    profile: {
+      id: user.id,
+      username,
+      fullName: user.fullName,
+      role: user.role,
+      roles: user.roles ?? [user.role],
+      sellerStatus: user.sellerStatus,
+      memberSince: user.createdAt,
+      lastActiveAt: showLastActive ? user.lastActiveAt ?? user.updatedAt : null,
+      country: user.country ?? "",
+      city: user.city ?? "",
+      languages: user.languages ?? [],
+      bio: user.bio ?? "",
+      profilePhotoUrl: user.profilePhotoUrl ?? "",
+      coverBannerUrl: user.coverBannerUrl ?? "",
+      isFeaturedSeller: user.isFeaturedSeller === true,
+      isFoundingMember: user.isFoundingMember === true,
+      isFoundingSeller: user.isFoundingSeller === true,
+      allowDirectMessages: user.allowDirectMessages !== false || canBypassVisibility,
+      contact: {
+        email: showEmail ? user.email : "",
+        phone: showPhone ? user.whatsappNumber : "",
+      },
+    },
+    reputation: trustSnapshot
+      ? {
+          level: user.sellerPrestigeRank ?? trustSnapshot.level,
+          trustScore: trustSnapshot.trustScore,
+          publicVolumeRange: trustSnapshot.publicVolumeRange,
+          rating: trustSnapshot.rating,
+          badges: trustSnapshot.badges,
+        }
+      : null,
+    stats: showStats
+      ? {
+          completedAsBuyer,
+          completedAsSeller,
+          reviewsWritten,
+          reviewsReceived,
+          activeListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "active").length,
+          pendingListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "draft").length,
+        }
+      : null,
+  };
+}
+
+export async function getPublicUserProfileById(input: {
+  userId: string;
+  viewerUserId?: string;
+  viewerRole?: UserRole;
+}) {
+  const db = await readDb();
+  const user = db.users.find((row) => row.id === input.userId);
+  if (!user) return null;
+  return buildPublicUserProfileDataForUser({
+    db,
+    user,
+    viewerUserId: input.viewerUserId,
+    viewerRole: input.viewerRole,
+    enforceSearchVisibility: true,
+  });
 }
 
 function deriveSellerRouteUsername(input: { fullName?: string; email?: string; id?: string }) {
@@ -933,13 +1037,17 @@ function enrichListingsWithSellerData(db: AlphaExchangeDb, listings: Marketplace
 
 export async function getSellerProfileRouteData(input: {
   username: string;
+  sellerId?: string;
   viewerUserId?: string;
   viewerRole?: UserRole;
   viewerEmail?: string;
 }) {
   const db = await readDb();
   const normalizedUsername = input.username.trim().toLowerCase();
-  const seller = db.users.find((user) => deriveSellerRouteUsername({ fullName: user.fullName, email: user.email, id: user.id }) === normalizedUsername);
+  const normalizedSellerId = String(input.sellerId ?? "").trim();
+  const seller = normalizedSellerId
+    ? db.users.find((user) => user.id === normalizedSellerId)
+    : db.users.find((user) => deriveSellerRouteUsername({ fullName: user.fullName, email: user.email, id: user.id }) === normalizedUsername);
   if (!seller || (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended")) {
     return null;
   }
@@ -981,73 +1089,12 @@ export async function getPublicUserProfileRouteData(input: {
   const normalizedUsername = input.username.trim().toLowerCase();
   const user = db.users.find((row) => deriveSellerRouteUsername({ fullName: row.fullName, email: row.email, id: row.id }) === normalizedUsername);
   if (!user) return null;
-
-  const viewerIsPrivileged = input.viewerRole === "admin" || input.viewerRole === "owner";
-  const viewerIsOwner = input.viewerUserId === user.id;
-  const canBypassVisibility = viewerIsOwner || viewerIsPrivileged;
-
-  if (user.isProfileHidden === true && !canBypassVisibility) return null;
-  if (user.allowProfileSearch === false && !canBypassVisibility) return null;
-
-  const username = deriveSellerRouteUsername({ fullName: user.fullName, email: user.email, id: user.id });
-  const trustSnapshot = isTrustEligibleSeller(user) ? computeSellerReputationSnapshot(db, user.id) : null;
-  const buyerRequests = db.purchaseRequests.filter((request) => request.buyerId === user.id);
-  const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === user.id);
-  const completedAsBuyer = buyerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length;
-  const completedAsSeller = sellerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length;
-  const reviewsWritten = buyerRequests.filter((request) => Boolean(request.buyerReview)).length;
-  const reviewsReceived = sellerRequests.filter((request) => Boolean(request.buyerReview)).length;
-
-  const showStats = user.showTradeStats !== false || canBypassVisibility;
-  const showLastActive = user.showLastActive !== false || canBypassVisibility;
-  const showPhone = user.showPhonePublic === true || canBypassVisibility;
-  const showEmail = user.showEmailPublic === true || canBypassVisibility;
-
-  return {
-    profile: {
-      id: user.id,
-      username,
-      fullName: user.fullName,
-      role: user.role,
-      roles: user.roles ?? [user.role],
-      sellerStatus: user.sellerStatus,
-      memberSince: user.createdAt,
-      lastActiveAt: showLastActive ? user.lastActiveAt ?? user.updatedAt : null,
-      country: user.country ?? "",
-      city: user.city ?? "",
-      languages: user.languages ?? [],
-      bio: user.bio ?? "",
-      profilePhotoUrl: user.profilePhotoUrl ?? "",
-      coverBannerUrl: user.coverBannerUrl ?? "",
-      isFeaturedSeller: user.isFeaturedSeller === true,
-      isFoundingMember: user.isFoundingMember === true,
-      isFoundingSeller: user.isFoundingSeller === true,
-      allowDirectMessages: user.allowDirectMessages !== false || canBypassVisibility,
-      contact: {
-        email: showEmail ? user.email : "",
-        phone: showPhone ? user.whatsappNumber : "",
-      },
-    },
-    reputation: trustSnapshot
-      ? {
-          level: user.sellerPrestigeRank ?? trustSnapshot.level,
-          trustScore: trustSnapshot.trustScore,
-          publicVolumeRange: trustSnapshot.publicVolumeRange,
-          rating: trustSnapshot.rating,
-          badges: trustSnapshot.badges,
-        }
-      : null,
-    stats: showStats
-      ? {
-          completedAsBuyer,
-          completedAsSeller,
-          reviewsWritten,
-          reviewsReceived,
-          activeListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "active").length,
-          pendingListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "draft").length,
-        }
-      : null,
-  };
+  return buildPublicUserProfileDataForUser({
+    db,
+    user,
+    viewerUserId: input.viewerUserId,
+    viewerRole: input.viewerRole,
+  });
 }
 
 export async function getPremiumSellerProfile(input: {
@@ -1061,10 +1108,17 @@ export async function getPremiumSellerProfile(input: {
   const seller = db.users.find((user) => user.id === input.sellerId);
   if (!seller) return null;
   if (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended") return null;
+  const publicAccount = buildPublicUserProfileDataForUser({
+    db,
+    user: seller,
+    viewerUserId: input.viewerUserId,
+    viewerRole: input.viewerRole,
+    enforceSearchVisibility: false,
+  });
+  if (!publicAccount) return null;
   const viewerIsOwner = input.viewerRole === "owner" || (input.viewerRole === "admin" && isAlphaExchangeOwnerEmail(input.viewerEmail ?? ""));
   const viewerIsSellerOwner = input.viewerUserId === seller.id;
   const canSeeExactSellerStats = viewerIsOwner || viewerIsSellerOwner;
-  if (seller.isProfileHidden === true && !viewerIsOwner) return null;
 
   const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === seller.id);
   const completedStatuses = new Set<PurchaseRequestStatus>(["completed", "locked", "review_open"]);
@@ -1140,7 +1194,28 @@ export async function getPremiumSellerProfile(input: {
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
     .slice(0, 12);
 
-  const profile = buildSellerPublicProfile(seller);
+  const profile: SellerPublicProfile = {
+    ...buildSellerPublicProfile(seller),
+    sellerName: publicAccount.profile.fullName,
+    fullName: publicAccount.profile.fullName,
+    username: publicAccount.profile.username,
+    profilePhotoUrl: publicAccount.profile.profilePhotoUrl,
+    memberSince: publicAccount.profile.memberSince,
+    languages: publicAccount.profile.languages,
+    bio: publicAccount.profile.bio,
+    country: publicAccount.profile.country,
+    city: publicAccount.profile.city,
+    coverBannerUrl: publicAccount.profile.coverBannerUrl,
+    isFeaturedSeller: publicAccount.profile.isFeaturedSeller,
+    isFoundingMember: publicAccount.profile.isFoundingMember,
+    isFoundingSeller: publicAccount.profile.isFoundingSeller,
+    role: publicAccount.profile.role,
+    roles: publicAccount.profile.roles,
+    sellerStatus: publicAccount.profile.sellerStatus,
+    allowDirectMessages: publicAccount.profile.allowDirectMessages,
+    contact: publicAccount.profile.contact,
+    lastActiveAt: publicAccount.profile.lastActiveAt ?? undefined,
+  };
   const lifetimeCompletedVolumeUsdt = Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? trustSnapshot.totalUsdtVolume));
   const sellerAchievements = seller.sellerAchievements ?? [];
   const hallOfFameEligible = (seller.sellerPrestigeRank ?? trustSnapshot.level) === "legendary";

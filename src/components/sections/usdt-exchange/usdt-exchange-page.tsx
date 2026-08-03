@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Activity, AlertTriangle, ArrowRight, BadgePercent, BellRing, Building2, CheckCircle2, Check, ChevronDown, ChevronRight, Clock3, Copy, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Users, Wallet, WalletCards, X, Zap } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
@@ -22,6 +22,8 @@ import { formatListingId, formatTradeId } from "@/lib/format-id";
 import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
+import { cn } from "@/lib/utils";
+import { SELLER_PRESTIGE_TIERS } from "@/lib/seller-prestige";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
 const WHATSAPP_URL = "https://wa.me/972525967649";
@@ -103,6 +105,14 @@ type TimelineStep = {
 function toNumber(value: string | number | null | undefined) {
   const normalized = String(value ?? "");
   return Number(normalized.replace(/[^\d.]/g, "")) || 0;
+}
+
+function availableAmountScaleClass(value: string | number | null | undefined) {
+  const digits = Math.max(1, Math.trunc(Math.abs(toNumber(value))).toString().length);
+  if (digits >= 7) return "seller-asset-usdt-value--compact";
+  if (digits >= 6) return "seller-asset-usdt-value--tight";
+  if (digits >= 4) return "seller-asset-usdt-value--balanced";
+  return "seller-asset-usdt-value--hero";
 }
 
 function parseMinutes(value: string | number | null | undefined) {
@@ -320,14 +330,48 @@ function sellerLevelLabel(level?: SellerLevel) {
   return "Bronze";
 }
 
+function sellerLevelToneKey(level?: SellerLevel) {
+  if (level === "legendary") return "legendary";
+  if (level === "diamond") return "diamond";
+  if (level === "platinum") return "platinum";
+  if (level === "gold") return "gold";
+  if (level === "silver") return "silver";
+  return "bronze";
+}
+
+function sellerMarketplaceRankPriority(listing: MarketplaceListing) {
+  if (listing.sellerProfile?.isOwner) return 0;
+  const level = listing.sellerReputation?.level;
+  if (level === "legendary") return 1;
+  if (level === "diamond") return 2;
+  if (level === "platinum") return 3;
+  if (level === "gold") return 4;
+  if (level === "silver") return 5;
+  return 6;
+}
+
+function deriveSellerProfileSlug(input: { fullName?: string; id?: string }) {
+  const base = (input.fullName || input.id || "seller").toString().trim().toLowerCase();
+  const normalized = base
+    .normalize("NFKD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+  return normalized || "seller";
+}
+
+function formatWholeNumber(value: number) {
+  return Math.round(Math.max(0, value)).toLocaleString("en-IL");
+}
+
 function sellerBadgeLabel(badge: SellerBadge) {
-  if (badge === "elite_seller") return "🥇 Elite Seller";
-  if (badge === "top_rated") return "💎 Top Rated";
-  if (badge === "fast_responder") return "⚡ Fast Responder";
-  if (badge === "trusted_seller") return "🛡 Trusted Seller";
-  if (badge === "most_active") return "🔥 Most Active";
-  if (badge === "platinum_seller") return "👑 Platinum Seller";
-  return "🚀 1000+ Trades";
+  if (badge === "elite_seller") return "Elite Seller";
+  if (badge === "top_rated") return "Top Rated";
+  if (badge === "fast_responder") return "Fast Responder";
+  if (badge === "trusted_seller") return "Trusted Seller";
+  if (badge === "most_active") return "Most Active";
+  if (badge === "platinum_seller") return "Platinum Seller";
+  return "1000+ Trades";
 }
 
 function roleBadgeVariantFromSession(user: SessionUser) {
@@ -400,6 +444,280 @@ function shouldRevealFaceToFaceContact(request: PurchaseRequest) {
   return Boolean(request.buyerSafetyAcknowledged && request.sellerSafetyAcknowledged);
 }
 
+// Memoized listing card — only re-renders when listing data or market price changes.
+type ListingCardProps = {
+  listing: MarketplaceListing;
+  isAr: boolean;
+  marketPricePerUsdt: number;
+  isOwnerListing: boolean;
+  isOwnListing: boolean;
+  isBuying: boolean;
+  onOpen: (listing: MarketplaceListing) => void;
+  onManageListing: (listing: MarketplaceListing) => void;
+};
+
+const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsdt, isOwnerListing, isOwnListing, isBuying, onOpen, onManageListing }: ListingCardProps) {
+  const sellerLevel = listing.sellerReputation?.level;
+  const sellerRankKey = sellerLevelToneKey(sellerLevel);
+  const formattedAvailableAmount = toNumber(listing.availableAmount).toLocaleString("en-IL");
+  const availableAmountClassName = availableAmountScaleClass(listing.availableAmount);
+  const sellerRankBorderColor: Record<string, string> = {
+    bronze: "rgba(201,122,69,0.62)",
+    silver: "rgba(194,205,220,0.68)",
+    gold: "rgba(212,175,55,0.7)",
+    platinum: "rgba(203,219,243,0.72)",
+    diamond: "rgba(138,197,255,0.74)",
+    legendary: "rgba(212,175,55,0.78)",
+  };
+  return (
+    <Card
+      className={cn(
+        "group seller-listing-shell border-white/10 bg-[#0B0B0B]/90 transition duration-300",
+        !isOwnerListing && `seller-rank-surface seller-rank-surface--${sellerRankKey} seller-rank-card seller-rank-card--${sellerRankKey}`,
+        isOwnerListing && "owner-legendary-surface",
+        isOwnerListing
+          ? "hover:border-red-500/50 hover:shadow-[0_22px_60px_rgba(220,38,38,0.35)]"
+          : "hover:border-[#C9A227]/28 hover:shadow-[0_18px_44px_rgba(0,0,0,0.32)]",
+      )}
+      style={{
+        borderLeft: isOwnerListing
+          ? "2px solid rgba(239,68,68,0.70)"
+          : `2px solid ${sellerRankBorderColor[sellerRankKey] ?? "rgba(255,255,255,0.1)"}`,
+        boxShadow: isOwnerListing ? "0 0 0 1px rgba(239,68,68,0.22), 0 0 28px rgba(220,38,38,0.18)" : undefined,
+      }}
+    >
+      {isOwnerListing ? (
+        <div className="flex items-center gap-2 rounded-t-xl border-b border-red-500/20 bg-gradient-to-r from-red-950/60 via-red-900/30 to-transparent px-4 py-2">
+          <Sparkles className="h-3.5 w-3.5 text-red-300" />
+          <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-red-300">Official Alpha Exchange Listing</span>
+          <span className="ml-auto text-[11px] text-red-400/70">Sold directly by the platform owner</span>
+        </div>
+      ) : null}
+      <CardHeader className="pb-3">
+        <div className={`flex items-center justify-between ${isAr ? "flex-row-reverse" : ""}`}>
+          <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
+            <div className={cn("relative seller-avatar-ring", `seller-avatar-ring--${isOwnerListing ? "legendary" : sellerRankKey}`, isOwnerListing && "after:absolute after:-inset-0.5 after:rounded-full after:border after:border-red-500/60 after:shadow-[0_0_14px_rgba(220,38,38,0.55)]")}>
+              {listing.sellerProfile?.profilePhotoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={listing.sellerProfile.profilePhotoUrl}
+                  alt={`${safeText(listing.sellerDisplayName, "Seller")} profile`}
+                  className={cn("h-11 w-11 rounded-full border border-transparent object-cover")}
+                />
+              ) : (
+                <div className={cn("inline-flex h-11 w-11 items-center justify-center rounded-full border border-transparent text-sm font-semibold", isOwnerListing ? "bg-red-950/60 text-red-200" : "bg-white/[0.04] text-[#D1D5DB]")}>
+                  {safeText(listing.sellerDisplayName, "Seller")
+                    .split(" ")
+                    .map((part) => part[0])
+                    .join("")
+                    .slice(0, 2)}
+                </div>
+              )}
+            </div>
+            <div>
+              <div className={`flex flex-wrap items-center gap-2 ${isAr ? "flex-row-reverse" : ""}`}>
+                <CardTitle className={cn("text-lg seller-listing-seller-name", isOwnerListing ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerRankKey}`)}>{safeText(listing.sellerDisplayName, "Seller")}</CardTitle>
+                {isOwnerListing ? <RoleBadge variant="owner" /> : null}
+              </div>
+              {isOwnerListing ? (
+                <p className="mt-0.5 text-[12px] font-semibold text-[#F87171]">Alpha Exchange Owner</p>
+              ) : null}
+              <p className="seller-listing-seller-subtitle mt-1 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">
+                <span className={cn("seller-listing-rank-label", `seller-listing-rank-label--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
+                  {isOwnerListing ? "Owner" : `${sellerLevelLabel(listing.sellerReputation?.level)} Seller`}
+                </span>
+                <span className="seller-listing-status-separator"> • </span>
+                <span className="seller-listing-presence">{listing.sellerProfile?.onlineStatus === "online" ? "Online" : "Offline"}</span>
+              </p>
+              <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#93C5FD]">Listing {shortListingRef(listing)}</p>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                <RoleBadge variant="approved_seller" className={cn("seller-rank-badge", `seller-rank-badge--${sellerRankKey}`)} />
+                <span className={cn("seller-rank-pill", `seller-rank-pill--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
+                  {isOwnerListing ? "Legendary Seller" : `${sellerLevelLabel(sellerLevel)} Seller`}
+                </span>
+                {isOwnerListing ? (
+                  <>
+                    <span className="rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300">✓ Email Verified</span>
+                    <span className="rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300">✓ Phone Verified</span>
+                    <span className="rounded-full border border-amber-500/35 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300">✓ Official Platform Account</span>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          </div>
+          <span className={cn("seller-listing-availability", `seller-listing-availability--${isOwnerListing ? "legendary" : sellerRankKey}`)}>{isAr ? "متاح" : "Available"}</span>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className={cn(
+          "rounded-2xl border p-4 shadow-[0_14px_36px_rgba(0,0,0,0.35)] transition duration-300",
+          isOwnerListing
+            ? "border-emerald-500/35 bg-[linear-gradient(135deg,rgba(16,185,129,0.18),rgba(5,5,5,0.88))] group-hover:border-emerald-400/55 group-hover:shadow-[0_18px_42px_rgba(16,185,129,0.25)]"
+            : `seller-rank-accent seller-rank-accent--${sellerRankKey}`,
+        )}>
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1.18fr)_auto_minmax(0,1fr)] md:items-stretch">
+            <div className="seller-asset-usdt-card seller-card-keymetric min-w-0 rounded-xl border p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-300">
+                {isAr ? "USDT المتاح" : "Available USDT"}
+              </p>
+              <div className="seller-asset-usdt-amount-row">
+                <div className="seller-asset-usdt-amount-content">
+                  <span className="seller-asset-usdt-amount-icon inline-flex h-8 w-8 items-center justify-center rounded-full border border-emerald-400/40 bg-emerald-500/20 text-emerald-200">
+                    ₮
+                  </span>
+                  <p className={cn("seller-asset-usdt-value text-[#D6FFE7]", availableAmountClassName)}>
+                    {formattedAvailableAmount}
+                  </p>
+                </div>
+              </div>
+              <p className="mt-2 text-sm font-medium text-emerald-100">USDT</p>
+              <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-400/45 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
+                {isAr ? "جاهز للتداول" : "Ready to trade"}
+              </span>
+            </div>
+            <div className={cn("mx-auto hidden w-px md:block", `seller-rank-separator seller-rank-separator--${isOwnerListing ? "legendary" : sellerRankKey}`)} />
+            <div className={cn("mx-auto h-px w-full md:hidden", `seller-rank-separator seller-rank-separator--${isOwnerListing ? "legendary" : sellerRankKey}`)} />
+            <div className={cn("rounded-xl border p-3 seller-rank-price seller-card-keymetric min-w-0", `seller-rank-price--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
+              <p className="text-[11px] uppercase tracking-[0.16em] text-[#D4AF37]">
+                {isAr ? "سعر العرض" : "Listing Price"}
+              </p>
+              <p className="seller-price-value mt-2 text-4xl font-semibold leading-none text-[#6EE7B7] md:text-5xl">
+                {toNumber(listing.price).toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
+              <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#E5E7EB]">ILS / USDT</p>
+              <div className="seller-live-market-panel mt-2 rounded-lg border p-2 text-[11px] text-[#CFCFCF]">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "السوق الحالي" : "Current Market"}</p>
+                    <p className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-[#D1D5DB]">USDT / ILS</p>
+                  </div>
+                  <span className="seller-live-market-badge">Live</span>
+                </div>
+                <p className="mt-2 text-base font-semibold text-white">
+                  {marketPricePerUsdt.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-center text-xs">
+          <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
+            <Star className="h-4 w-4 mx-auto text-[#F4D87A]" />
+            <p className="mt-1 break-words font-semibold leading-snug text-white">{(listing.sellerReputation?.rating ?? 0).toFixed(2)}</p>
+            <p className="text-[11px] text-[#9CA3AF]">{isAr ? "التقييم" : "Rating"}</p>
+          </div>
+          <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
+            <HandCoins className="h-4 w-4 mx-auto text-[#D1D5DB]" />
+            <p className="mt-1 break-words font-semibold leading-snug text-white">{(listing.sellerReputation?.completedTrades ?? 0).toLocaleString("en-IL")}</p>
+            <p className="text-[11px] text-[#9CA3AF]">{isAr ? "الصفقات" : "Trades"}</p>
+          </div>
+          <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
+            <Zap className="h-4 w-4 mx-auto text-[#F4D87A]" />
+            <p className="mt-1 break-words font-semibold leading-snug text-white">{safeText(listing.responseTime, "5 min")}</p>
+            <p className="text-[11px] text-[#9CA3AF]">{isAr ? "الاستجابة" : "Response Time"}</p>
+          </div>
+          <div className={cn("rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:bg-black/35", `seller-rank-microcard seller-rank-microcard--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
+            <ShieldCheck className="h-4 w-4 mx-auto text-[#93C5FD]" />
+            <p className="mt-1 break-words font-semibold leading-snug text-white">{(listing.sellerReputation?.trustScore ?? 0).toFixed(1)}</p>
+            <p className="text-[11px] text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust Score"}</p>
+          </div>
+        </div>
+        <div className="grid gap-3 text-xs text-[#9CA3AF] md:grid-cols-2">
+          <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
+            <p>{isAr ? "آخر نشاط" : "Last active"}: <span className="text-white">{formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt)}</span></p>
+            <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{safeText(listing.network)}</span></p>
+            <div>
+              <p>{isAr ? "الدفع" : "Payment"}:</p>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).map((method) => (
+                  <span key={`${listing.id}-${method}`} className="max-w-full break-words rounded-full border border-white/15 bg-white/[0.03] px-2 py-0.5 text-[11px] text-[#D1D5DB]">
+                    {paymentMethodLabel(method)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
+            <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{toNumber(listing.minimumTrade).toLocaleString("en-IL")} – {toNumber(listing.maximumTrade).toLocaleString("en-IL")} USDT</span></p>
+            <p>
+              {isAr ? "الضمان" : "Escrow"}:{" "}
+              <span className="seller-escrow-emphasis">
+                {isAr ? "مؤمّن عبر " : "Secured by "}
+                <span className="seller-escrow-brand">Alpha Traders</span>
+              </span>
+            </p>
+            <p>{isAr ? "المنطقة" : "Region"}: <span className="text-white">{safeText(listing.sellerProfile?.country, "Israel")}</span></p>
+          </div>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Link
+            href={`/exchange/seller/${deriveSellerProfileSlug({ fullName: listing.sellerDisplayName, id: listing.sellerId })}?sellerId=${encodeURIComponent(listing.sellerId)}`}
+            className={cn(
+              "seller-marketplace-action seller-marketplace-action--profile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-2 focus-visible:ring-offset-[#050505]",
+              isOwnerListing
+                ? "owner-cta-premium"
+                : `seller-rank-cta seller-rank-cta--${sellerRankKey}`,
+            )}
+          >
+            <span className="inline-flex items-center gap-2">
+              <Users className="h-4 w-4" />
+              {isAr ? "ملف البائع" : "Seller Profile"}
+            </span>
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+          {isOwnListing ? (
+            <Button
+              className={cn(
+                "seller-marketplace-action w-full justify-between rounded-2xl px-5 text-sm font-semibold transition duration-300",
+                isOwnerListing
+                  ? "owner-cta-premium text-black"
+                  : `seller-rank-cta seller-rank-cta--${sellerRankKey} text-black`,
+              )}
+              onClick={() => onManageListing(listing)}
+              aria-label={`Manage listing ${shortListingRef(listing)}`}
+            >
+              <span className="inline-flex items-center gap-2">
+                <Edit3 className="h-4 w-4" />
+                {isAr ? "إدارة العرض" : "Manage Listing"}
+              </span>
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button
+              className={cn(
+                "seller-marketplace-action w-full justify-between rounded-2xl px-5 text-sm font-semibold text-black transition duration-300",
+                isOwnerListing
+                  ? "owner-cta-premium"
+                  : `seller-rank-cta seller-rank-cta--${sellerRankKey}`,
+              )}
+              disabled={isBuying}
+              onClick={() => onOpen(listing)}
+              aria-label={`Open listing from ${safeText(listing.sellerDisplayName, "seller")}`}
+            >
+              <span className="inline-flex items-center gap-2">
+                {isBuying ? <Loader2 className="h-4 w-4 animate-spin" /> : <LockKeyhole className="h-4 w-4" />}
+                {isBuying ? (isAr ? "جارٍ بدء الصفقة..." : "Starting trade...") : (isAr ? "شراء USDT الآن" : "Buy USDT")}
+              </span>
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+});
+
+// Isolated counter so the 1-second tick never re-renders the parent page.
+function SecAgoCounter({ startTimeRef }: { startTimeRef: { current: number } }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  return <>{Math.max(0, Math.round((now - startTimeRef.current) / 1000))}</>;
+}
+
 export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const isAr = locale === "ar";
   const router = useRouter();
@@ -413,7 +731,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [isSellerApplicationLoading, setIsSellerApplicationLoading] = useState(true);
   const [notificationsInitialized, setNotificationsInitialized] = useState(false);
   const [deferredSellerPanelsReady, setDeferredSellerPanelsReady] = useState(false);
-  const [pulseNow, setPulseNow] = useState(() => Date.now());
   const listingsLoadedAtRef = useRef<number>(Date.now());
   const [applicationSubmitted, setApplicationSubmitted] = useState(false);
   const [purchaseSubmitted, setPurchaseSubmitted] = useState(false);
@@ -428,6 +745,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [showVerificationCta, setShowVerificationCta] = useState(false);
   const [isRedirectingToVerification, setIsRedirectingToVerification] = useState(false);
+  const [quickBuyListingId, setQuickBuyListingId] = useState<string | null>(null);
   const [sellerWorkspaceMessage, setSellerWorkspaceMessage] = useState<string | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [editingListingId, setEditingListingId] = useState<string | null>(null);
@@ -479,7 +797,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [listingCreateForm, setListingCreateForm] = useState({
     availableAmount: "",
     price: "",
-    currency: "ILS",
+    currency: "",
     network: "TRC20" as SupportedNetwork,
     paymentMethods: ["Bank Transfer"],
     bankName: "",
@@ -487,6 +805,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     maximumTrade: "",
     sellerDescription: "",
   });
+  const [listingCreateCurrencyManualOverride, setListingCreateCurrencyManualOverride] = useState(false);
   const [selectedPurchasePaymentMethod, setSelectedPurchasePaymentMethod] = useState<string>("Bank Transfer");
 
   const tradeReturnPath = selectedListing
@@ -698,7 +1017,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     }
   }, [tracedFetch]);
 
-  async function handleMarkAllNotificationsRead() {
+  const handleMarkAllNotificationsRead = useCallback(async () => {
     const response = await fetch("/api/alpha-exchange/notifications", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -710,9 +1029,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       return;
     }
     await refreshNotifications();
-  }
+  }, [refreshNotifications]);
 
-  async function handleNotificationReadState(notificationId: string, isRead: boolean) {
+  const handleNotificationReadState = useCallback(async (notificationId: string, isRead: boolean) => {
     const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -724,9 +1043,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       return;
     }
     await refreshNotifications();
-  }
+  }, [refreshNotifications]);
 
-  async function handleDeleteNotification(notificationId: string) {
+  const handleDeleteNotification = useCallback(async (notificationId: string) => {
     const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, { method: "DELETE" });
     await response.json();
     if (!response.ok) {
@@ -734,7 +1053,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       return;
     }
     await refreshNotifications();
-  }
+  }, [refreshNotifications]);
 
   async function handleNotificationPreferencesSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -823,7 +1142,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   }, [tracedFetch]);
 
   useEffect(() => {
-    if (!sessionUser || isLoadingListings) return;
+    if (!sessionUser) return;
     setIsWorkspaceWidgetsLoading(true);
     setIsSellerApplicationLoading(true);
     let cancelled = false;
@@ -850,12 +1169,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           }
         }
       })();
-    }, 200);
+    }, 0);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [isLoadingListings, refreshNotificationPreferences, refreshSellerWorkspace, sessionUser, tracedFetch]);
+  }, [refreshNotificationPreferences, refreshSellerWorkspace, sessionUser, tracedFetch]);
 
   useEffect(() => {
     if (!isApprovedSellerSession || isSessionResolving || deferredSellerPanelsReady) return;
@@ -888,10 +1207,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     if (!sessionUser || notificationsInitialized) return;
     if (isSessionResolving) return;
     if (isApprovedSellerSession && !deferredSellerPanelsReady) return;
-    const timer = window.setTimeout(() => {
-      setNotificationsInitialized(true);
-    }, 450);
-    return () => window.clearTimeout(timer);
+    setNotificationsInitialized(true);
   }, [deferredSellerPanelsReady, isApprovedSellerSession, isSessionResolving, notificationsInitialized, sessionUser]);
 
   useEffect(() => {
@@ -917,17 +1233,31 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     }
   }, [isSessionResolving]);
 
-  useEffect(() => {
-    const id = window.setInterval(() => setPulseNow(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, []);
-
   const scrollToCreateListingSection = useCallback(() => {
     if (typeof document === "undefined") return false;
     const target = document.getElementById("create-listing") ?? document.getElementById("create-listing-form");
     if (!target) return false;
     target.scrollIntoView({ behavior: "smooth", block: "start" });
     return true;
+  }, []);
+
+  const fetchSellerProfileData = useCallback(async (sellerId: string) => {
+    setIsSellerProfileLoading(true);
+    try {
+      const response = await fetch(`/api/alpha-exchange/sellers/${sellerId}/profile`, { cache: "no-store" });
+      const payload = (await response.json()) as { profile?: PremiumSellerProfileData; error?: string };
+      if (!response.ok || !payload.profile) {
+        setSellerProfileData(null);
+        setStatusMessage(payload.error ?? safeErrorMessage("workspace"));
+        return;
+      }
+      setSellerProfileData(payload.profile);
+    } catch {
+      setSellerProfileData(null);
+      setStatusMessage(safeErrorMessage("workspace"));
+    } finally {
+      setIsSellerProfileLoading(false);
+    }
   }, []);
 
   // Scroll to create-listing when navigated with hash, retrying briefly while deferred UI mounts.
@@ -970,7 +1300,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       usdtAmount: formatIntegerForInput(listing.minimumTrade || listing.availableAmount),
     }));
     void fetchSellerProfileData(listing.sellerId);
-  }, [isLoadingListings, listings, selectedListing, sessionUser, updateListingSelectionQuery]);
+  }, [isLoadingListings, listings, selectedListing, sessionUser, updateListingSelectionQuery, fetchSellerProfileData]);
 
   useEffect(() => {
     if (!qaCommissionModeEnabled || !qaCommissionResetEnabled) return;
@@ -1007,7 +1337,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     return () => { cancelled = true; };
   }, [commissionPayOpen, commissionNetwork]);
 
-  const features: FeatureCard[] = [
+  const features = useMemo<FeatureCard[]>(() => [
     {
       icon: ShieldCheck,
       title: isAr ? "مجتمع موثوق" : "Trusted Community",
@@ -1038,9 +1368,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       title: isAr ? "تجربة عملاء بريميوم" : "Premium Customer Experience",
       body: isAr ? "واجهة وتجربة احترافية تمنحك ثقة ووضوح في كل مرحلة." : "A premium, confidence-first experience with clear process visibility.",
     },
-  ];
+  ], [isAr]);
 
-  const timelineSteps: TimelineStep[] = [
+  const timelineSteps = useMemo<TimelineStep[]>(() => [
     {
       title: isAr ? "المشتري يرسل طلب الصفقة" : "Buyer submits trade request",
       body: isAr ? "يتم تسجيل طلب الصفقة فور الإرسال ضمن سجل زمني دائم." : "The request is recorded as a permanent timeline event immediately.",
@@ -1061,9 +1391,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       title: isAr ? "المشتري يؤكد الإتمام" : "Buyer confirms completion",
       body: isAr ? "تُقفل الصفقة تلقائيًا ثم تُفتح نافذة المراجعة." : "Trade auto-locks and review window opens after completion.",
     },
-  ];
+  ], [isAr]);
 
-  const faqs = [
+  const faqs = useMemo(() => [
     {
       q: isAr ? "كيف يعمل Alpha Exchange؟" : "How does Alpha Exchange work?",
       a: isAr
@@ -1088,7 +1418,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       q: isAr ? "كم تستغرق المعاملة عادة؟" : "How long does a transaction usually take?",
       a: isAr ? "المدة تعتمد على استجابة الطرفين والشبكة المختارة، ويتم التنسيق بشكل سريع عبر فريق Alpha Traders." : "Timing depends on both parties and selected network, with Alpha Traders coordinating for fast completion.",
     },
-  ];
+  ], [isAr]);
 
   const filteredListings = useMemo(() => {
     const filtered = listings.filter((listing) => {
@@ -1114,7 +1444,19 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
     const sorted = [...filtered];
     sorted.sort((a, b) => {
-      if (sortBy === "trust-desc") return (b.sellerReputation?.trustScore ?? 0) - (a.sellerReputation?.trustScore ?? 0);
+      if (sortBy === "trust-desc") {
+        const rankPriority = sellerMarketplaceRankPriority(a) - sellerMarketplaceRankPriority(b);
+        if (rankPriority !== 0) return rankPriority;
+        const featuredPriority = Number(Boolean(b.sellerProfile?.isFeaturedSeller)) - Number(Boolean(a.sellerProfile?.isFeaturedSeller));
+        if (featuredPriority !== 0) return featuredPriority;
+        const trustPriority = (b.sellerReputation?.trustScore ?? 0) - (a.sellerReputation?.trustScore ?? 0);
+        if (trustPriority !== 0) return trustPriority;
+        const ratingPriority = (b.sellerReputation?.rating ?? 0) - (a.sellerReputation?.rating ?? 0);
+        if (ratingPriority !== 0) return ratingPriority;
+        const responsePriority = (a.sellerReputation?.responseTimeMinutes ?? parseMinutes(a.responseTime)) - (b.sellerReputation?.responseTimeMinutes ?? parseMinutes(b.responseTime));
+        if (responsePriority !== 0) return responsePriority;
+        return (b.sellerReputation?.completedTrades ?? 0) - (a.sellerReputation?.completedTrades ?? 0);
+      }
       if (sortBy === "price-asc") return toNumber(a.price) - toNumber(b.price);
       if (sortBy === "amount-desc") return toNumber(b.availableAmount) - toNumber(a.availableAmount);
       if (sortBy === "trades-desc") return (b.sellerReputation?.completedTrades ?? 0) - (a.sellerReputation?.completedTrades ?? 0);
@@ -1127,32 +1469,21 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     return sorted;
   }, [listings, networkFilter, currencyFilter, paymentMethodFilter, minAmountFilter, maxAmountFilter, minPriceFilter, maxPriceFilter, trustScoreFilter, onlineOnlyFilter, sortBy]);
 
-  function requireAuth() {
+  const uniqueCurrencies = useMemo(
+    () => Array.from(new Set(listings.map((l) => l.currency))).sort(),
+    [listings]
+  );
+  const uniquePaymentMethods = useMemo(
+    () => Array.from(new Set(listings.flatMap((l) => l.paymentMethods?.length ? l.paymentMethods : [l.paymentMethod]))).sort(),
+    [listings]
+  );
+  const requireAuth = useCallback(() => {
     if (!sessionUser) {
       router.push("/login");
       return false;
     }
     return true;
-  }
-
-  async function fetchSellerProfileData(sellerId: string) {
-    setIsSellerProfileLoading(true);
-    try {
-      const response = await fetch(`/api/alpha-exchange/sellers/${sellerId}/profile`, { cache: "no-store" });
-      const payload = (await response.json()) as { profile?: PremiumSellerProfileData; error?: string };
-      if (!response.ok || !payload.profile) {
-        setSellerProfileData(null);
-        setStatusMessage(payload.error ?? safeErrorMessage("workspace"));
-        return;
-      }
-      setSellerProfileData(payload.profile);
-    } catch {
-      setSellerProfileData(null);
-      setStatusMessage(safeErrorMessage("workspace"));
-    } finally {
-      setIsSellerProfileLoading(false);
-    }
-  }
+  }, [sessionUser, router]);
 
   async function handleOwnerSellerProfileState(sellerId: string, state: { feature?: boolean; hidden?: boolean }, successMessage: string) {
     setIsOwnerProfileActionLoading(true);
@@ -1194,32 +1525,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     }
   }
 
-  async function handleOwnerModerateListing(listingId: string, action: "remove" | "hide" | "restore" | "feature") {
-    try {
-      const response = await fetch(`/api/alpha-exchange/admin/listings/${listingId}/moderate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
-      });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        setStatusMessage(payload.error ?? "Moderation action failed.");
-        return;
-      }
-      const messages: Record<string, string> = {
-        remove: "✅ Listing removed from marketplace.",
-        hide: "✅ Listing hidden from marketplace.",
-        restore: "✅ Listing restored to marketplace.",
-        feature: "✅ Listing featured in marketplace.",
-      };
-      setStatusMessage(messages[action] ?? "✅ Action completed.");
-      setListings((prev) => prev.filter((l) => action === "restore" ? true : l.id !== listingId));
-    } catch {
-      setStatusMessage("Moderation action failed. Please try again.");
-    }
-  }
-
-  function openListingModal(listing: MarketplaceListing) {
+  const openListingModal = useCallback((listing: MarketplaceListing) => {
     if (!requireAuth()) return;
     const supportedMethods = normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod);
     setSelectedListing(listing);
@@ -1236,7 +1542,98 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       ...prev,
       usdtAmount: formatIntegerForInput(listing.minimumTrade || listing.availableAmount),
     }));
-  }
+  }, [requireAuth, fetchSellerProfileData, updateListingSelectionQuery]);
+
+  const handleManageOwnedListing = useCallback((listing: MarketplaceListing) => {
+    if (!requireAuth()) return;
+    const target = document.getElementById("my-listings-section");
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    router.push("/dashboard/seller");
+    setStatusMessage(`Manage your listing in Seller Dashboard (${shortListingRef(listing)}).`);
+  }, [requireAuth, router]);
+
+  const handleQuickBuyFromListing = useCallback(async (listing: MarketplaceListing) => {
+    if (!requireAuth()) return;
+    if (quickBuyListingId) return;
+
+    const fallbackMessage = safeErrorMessage("purchase");
+    const supportedMethods = normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod);
+    const selectedMethod = supportedMethods[0] ?? normalizeMarketplacePaymentMethod(listing.paymentMethod) ?? "Bank Transfer";
+    const minTrade = Math.max(0, toNumber(listing.minimumTrade));
+    const maxTrade = toNumber(listing.maximumTrade || listing.availableAmount);
+    let quickTradeAmount = minTrade > 0 ? minTrade : 1;
+    if (maxTrade > 0) quickTradeAmount = Math.min(quickTradeAmount, maxTrade);
+    if (quickTradeAmount <= 0) {
+      setStatusMessage("This listing is currently unavailable for quick trade start.");
+      return;
+    }
+
+    const buyerName = String(buyerInfo.name ?? "").trim() || String(sessionUser?.fullName ?? "").trim();
+    const buyerWhatsapp = String(buyerInfo.whatsapp ?? "").trim() || String(sessionUser?.whatsappNumber ?? "").trim();
+    if (!buyerName || !buyerWhatsapp) {
+      setStatusMessage("Please complete your buyer profile details before starting a trade.");
+      openListingModal(listing);
+      return;
+    }
+
+    setQuickBuyListingId(listing.id);
+    setStatusMessage(null);
+    setShowVerificationCta(false);
+    setIsRedirectingToVerification(false);
+    try {
+      const response = await fetch("/api/alpha-exchange/purchase-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          listingId: listing.id,
+          usdtAmount: String(quickTradeAmount),
+          buyerName,
+          buyerWhatsapp,
+          buyerNotes: "Quick trade started from marketplace listing.",
+          paymentMethod: selectedMethod,
+          safetyAcknowledged: false,
+        }),
+      });
+
+      if (!response.ok) {
+        let errorMessage = fallbackMessage;
+        let errorCode = "";
+        try {
+          const payload = (await response.json()) as { error?: unknown; message?: unknown; code?: unknown; details?: unknown };
+          if (typeof payload.error === "string" && payload.error.trim()) errorMessage = payload.error;
+          else if (typeof payload.message === "string" && payload.message.trim()) errorMessage = payload.message;
+          else if (typeof payload.details === "string" && payload.details.trim()) errorMessage = payload.details;
+          if (typeof payload.code === "string" && payload.code.trim()) errorCode = payload.code;
+        } catch {
+          const fallbackText = (await response.text()).trim();
+          if (fallbackText && !/^<!doctype html>/i.test(fallbackText)) errorMessage = fallbackText;
+        }
+        const requiresVerification = response.status === 403
+          && sessionUser?.isPhotoVerified !== true
+          && (errorCode === "PHONE_VERIFICATION_REQUIRED" || /phone verification is required/i.test(errorMessage));
+        setShowVerificationCta(requiresVerification);
+        setStatusMessage(errorMessage);
+        return;
+      }
+
+      const data = (await response.json()) as { purchase?: PurchaseRequest };
+      if (!data.purchase?.id) {
+        setStatusMessage("Trade was created, but we could not open the trade room automatically.");
+        return;
+      }
+      setMyRequests((prev) => [data.purchase as PurchaseRequest, ...prev]);
+      prefetchTradeRoom(router, data.purchase.id);
+      router.push(`/trade-room/${data.purchase.id}`);
+    } catch (error) {
+      const message = error instanceof Error && error.message.trim() ? error.message : fallbackMessage;
+      setStatusMessage(message);
+    } finally {
+      setQuickBuyListingId(null);
+    }
+  }, [buyerInfo.name, buyerInfo.whatsapp, openListingModal, quickBuyListingId, requireAuth, router, sessionUser?.fullName, sessionUser?.isPhotoVerified, sessionUser?.whatsappNumber]);
 
   async function handleSellerApplicationSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1392,8 +1789,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const listingCreateAmount = toNumber(listingCreateForm.availableAmount);
   const listingCreateMinTrade = toNumber(listingCreateForm.minimumTrade);
   const listingCreateMaxTrade = toNumber(listingCreateForm.maximumTrade || listingCreateForm.availableAmount);
-  const listingCreateCurrency = listingCreateForm.currency.trim().toUpperCase();
-  const listingCreatePriceInvalid = listingCreateCurrency === "ILS" && listingCreatePrice > maxAllowedListingPrice;
+  const listingCreatePriceInvalid = listingCreatePrice > maxAllowedListingPrice;
   const listingCreatePriceValid = listingCreatePrice > 0 && !listingCreatePriceInvalid;
   const listingCreateTradeRangeInvalid = listingCreateMaxTrade <= 0 || listingCreateMaxTrade > listingCreateAmount || listingCreateMaxTrade < listingCreateMinTrade;
   const listingCreateSelectedMethods = normalizePaymentMethodList(listingCreateForm.paymentMethods, undefined);
@@ -1405,6 +1801,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     || (listingCreateRequiresBank && !listingCreateSelectedBanks.length)
     || !listingCommissionAgreement;
   const listingCreateTotalIls = listingCreateAmount * listingCreatePrice;
+  const listingCreateCurrencyValue = Number.isFinite(listingCreateTotalIls) ? Math.round(listingCreateTotalIls) : 0;
   const listingCreationBlocked = Boolean(sellerWorkspaceSummary && !sellerWorkspaceSummary.canCreateListing);
   const listingCreationBlockedReason = sellerWorkspaceSummary?.blockedReason ?? "Listing creation is currently blocked.";
   const listingBlockedByCommission = (sellerWorkspaceSummary?.pendingCommissionCount ?? 0) > 0;
@@ -1425,6 +1822,17 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     : listingCreatePriceValid
       ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-200"
       : "border-white/10 bg-black/20 text-[#D1D5DB]";
+  useEffect(() => {
+    const canAutoPopulate = listingCreateAmount > 0 && listingCreatePrice > 0 && !listingCreatePriceInvalid;
+    if (!canAutoPopulate) {
+      setListingCreateForm((prev) => (prev.currency === "" ? prev : { ...prev, currency: "" }));
+      setListingCreateCurrencyManualOverride(false);
+      return;
+    }
+    if (listingCreateCurrencyManualOverride) return;
+    const nextValue = formatWholeNumber(listingCreateCurrencyValue);
+    setListingCreateForm((prev) => (prev.currency === nextValue ? prev : { ...prev, currency: nextValue }));
+  }, [listingCreateAmount, listingCreateCurrencyManualOverride, listingCreateCurrencyValue, listingCreatePrice, listingCreatePriceInvalid]);
   const listingEditPrice = toNumber(listingEditForm.price);
   const listingEditAmount = toNumber(listingEditForm.availableAmount);
   const listingEditMinTrade = toNumber(listingEditForm.minimumTrade);
@@ -1453,7 +1861,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const selectedListingPaymentMethods = selectedListing ? normalizePaymentMethodList(selectedListing.paymentMethods, selectedListing.paymentMethod) : [];
   const selectedListingPaymentMethod = normalizeMarketplacePaymentMethod(selectedPurchasePaymentMethod) ?? selectedListingPaymentMethods[0] ?? null;
   const selectedListingRequiresSafetyNotice = listingRequiresFaceToFaceSafetyNotice(selectedListingPaymentMethod);
-  const todayDateKey = new Date().toISOString().slice(0, 10);
+  const todayDateKey = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   const sellerRequests = useMemo(() => myRequests.filter((request) => request.sellerId === sessionUser?.id), [myRequests, sessionUser?.id]);
   const buyerRequests = useMemo(() => myRequests.filter((request) => request.buyerId === sessionUser?.id), [myRequests, sessionUser?.id]);
@@ -1537,6 +1945,27 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       reputation: selfReputation,
     };
   }, [completedSellerRequests, myListings, myListingsById, pendingSellerRequests.length, sellerRequests]);
+  const sellerCurrentRank = sellerOverviewStats.reputation?.level ?? "bronze";
+  const sellerCurrentTier = SELLER_PRESTIGE_TIERS.find((tier) => tier.rank === sellerCurrentRank) ?? SELLER_PRESTIGE_TIERS[0];
+  const sellerNextTier = SELLER_PRESTIGE_TIERS.find((tier) => tier.minVolumeUsdt > sellerCurrentTier.minVolumeUsdt);
+  const sellerCompletedVolumeUsdt = Math.max(
+    0,
+    sellerOverviewStats.reputation?.lifetimeCompletedVolumeUsdt
+      ?? sellerOverviewStats.reputation?.prestigeVolumeUsdt
+      ?? sellerOverviewStats.reputation?.totalUsdtVolume
+      ?? sellerOverviewStats.totalUsdtSold,
+  );
+  const sellerRequiredVolumeUsdt = sellerNextTier?.minVolumeUsdt ?? sellerCompletedVolumeUsdt;
+  const sellerRemainingVolumeUsdt = sellerNextTier ? Math.max(0, sellerRequiredVolumeUsdt - sellerCompletedVolumeUsdt) : 0;
+  const sellerLevelProgressPercent = sellerNextTier
+    ? Math.min(
+      100,
+      Math.max(
+        0,
+        ((sellerCompletedVolumeUsdt - sellerCurrentTier.minVolumeUsdt) / Math.max(1, sellerNextTier.minVolumeUsdt - sellerCurrentTier.minVolumeUsdt)) * 100,
+      ),
+    )
+    : 100;
 
   const recentCompletedTrades = useMemo(
     () =>
@@ -1793,7 +2222,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         body: JSON.stringify({
           availableAmount: listingCreateForm.availableAmount,
           price: listingCreateForm.price,
-          currency: listingCreateForm.currency,
+          currency: "ILS",
           network: listingCreateForm.network,
           paymentMethods: listingCreateSelectedMethods,
           bankName: serializeIsraeliBankSelection(listingCreateSelectedBanks),
@@ -1814,12 +2243,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         ...prev,
         availableAmount: "",
         price: "",
+        currency: "",
         paymentMethods: ["Bank Transfer"],
         bankName: "",
         minimumTrade: "0",
         maximumTrade: "",
         sellerDescription: "",
       }));
+      setListingCreateCurrencyManualOverride(false);
       setListingCommissionAgreement(false);
       setSellerWorkspaceMessage("✅ Listing published successfully. Buyers can now see your listing in the marketplace.");
       backgroundRefreshSellerWorkspace();
@@ -2205,12 +2636,37 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         <div className="space-y-3">
           <div className="rounded-2xl border border-[#C9A227]/25 bg-[#C9A227]/10 p-4 text-sm text-[#E5E7EB]">
             <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">Seller Level Progress</p>
-            <p className="mt-2 text-white">
-              Current level: <span className="font-semibold text-[#F3D979]">{sellerLevelLabel(sellerOverviewStats.reputation?.level)}</span>
-            </p>
-            <p className="mt-1 text-xs">
-              {Math.max(0, 12 - sellerOverviewStats.completedTrades)} more completed trades to unlock your next tier.
-            </p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <p className="text-white">
+                Current Rank: <span className="font-semibold text-[#F3D979]">{sellerLevelLabel(sellerCurrentRank)}</span>
+              </p>
+              <p className="text-white">
+                Next Rank: <span className="font-semibold text-[#F3D979]">{sellerNextTier ? (<span className="inline-flex items-center gap-1"><Trophy className="h-3.5 w-3.5 text-[#F4D87A]" />{sellerLevelLabel(sellerNextTier.rank)}</span>) : "Top Tier Reached"}</span>
+              </p>
+              <p>Completed Volume: <span className="font-semibold text-white">{formatWholeNumber(sellerCompletedVolumeUsdt)} USDT</span></p>
+              <p>Required: <span className="font-semibold text-white">{formatWholeNumber(sellerRequiredVolumeUsdt)} USDT</span></p>
+              <p>Remaining: <span className="font-semibold text-white">{formatWholeNumber(sellerRemainingVolumeUsdt)} USDT</span></p>
+              <p>Progress: <span className="font-semibold text-white">{Math.round(sellerLevelProgressPercent)}%</span></p>
+            </div>
+            <div className="mt-3">
+              <div className="h-2.5 overflow-hidden rounded-full bg-black/35 ring-1 ring-white/10">
+                <motion.div
+                  className="relative h-full rounded-full bg-gradient-to-r from-[#B8860B] via-[#D4AF37] to-[#F7E7A6] shadow-[0_0_22px_rgba(212,175,55,0.6)]"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${sellerLevelProgressPercent}%` }}
+                  transition={{ type: "spring", stiffness: 90, damping: 20, mass: 0.7 }}
+                >
+                  <span className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-r from-transparent to-white/30" />
+                </motion.div>
+              </div>
+              <p className="mt-2 text-base font-semibold text-[#FDE68A]">
+                {sellerNextTier
+                  ? `Only ${formatWholeNumber(sellerRemainingVolumeUsdt)} USDT remaining to reach ${sellerLevelLabel(sellerNextTier.rank)}`
+                  : "You are already at the highest seller tier."}
+              </p>
+              {sellerNextTier ? <p className="mt-1 text-xs text-[#F4D87A]">Keep trading to unlock {sellerLevelLabel(sellerNextTier.rank)} benefits.</p> : null}
+              <p className="mt-1 text-xs text-[#F3F4F6]">{formatWholeNumber(sellerCompletedVolumeUsdt)} / {formatWholeNumber(sellerRequiredVolumeUsdt)} USDT completed</p>
+            </div>
           </div>
           <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
             <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Quick Actions</p>
@@ -2295,7 +2751,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   ) : null;
 
   return (
-    <section className="section-container page-shell">
+    <section className="section-container page-shell exchange-marketplace-shell">
       <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#0A0A0A]/90 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.4)] md:p-10">
         <div className="pointer-events-none absolute inset-0 opacity-40">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_16%,rgba(201,162,39,0.16),transparent_42%),radial-gradient(circle_at_82%_20%,rgba(201,162,39,0.12),transparent_40%),linear-gradient(120deg,rgba(201,162,39,0.08),transparent_40%)]" />
@@ -2439,7 +2895,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </div>
             <span className="text-[11px] text-[#9CA3AF]">
               {isAr ? "محدّث" : "Updated"}{" "}
-              {Math.max(0, Math.round((pulseNow - listingsLoadedAtRef.current) / 1000))}{" "}
+              <SecAgoCounter startTimeRef={listingsLoadedAtRef} />{" "}
               {isAr ? "ثانية" : "sec ago"}
             </span>
           </div>
@@ -2548,13 +3004,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <select value={currencyFilter} onChange={(event) => setCurrencyFilter(event.target.value)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
                   <option value="all">{isAr ? "Currency: الكل" : "Currency: All"}</option>
-                  {Array.from(new Set(listings.map((listing) => listing.currency))).sort().map((currency) => (
+                  {uniqueCurrencies.map((currency) => (
                     <option key={currency} value={currency}>{currency}</option>
                   ))}
                 </select>
                 <select value={paymentMethodFilter} onChange={(event) => setPaymentMethodFilter(event.target.value)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
                   <option value="all">{isAr ? "Payment: الكل" : "Payment: All"}</option>
-                  {Array.from(new Set(listings.flatMap((listing) => listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod]))).sort().map((method) => (
+                  {uniquePaymentMethods.map((method) => (
                     <option key={method} value={method}>{method}</option>
                   ))}
                 </select>
@@ -2566,7 +3022,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <option value="SOL">SOL</option>
                 </select>
                 <select value={sortBy} onChange={(event) => setSortBy(event.target.value as "trust-desc" | "price-asc" | "amount-desc" | "trades-desc" | "rating-desc" | "response-fast" | "newest")} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-1 focus-visible:ring-offset-[#050505]">
-                  <option value="trust-desc">{isAr ? "Sort: أفضل ثقة" : "Sort: Best Trust Score"}</option>
+                  <option value="trust-desc">{isAr ? "ترتيب: أفضل البائعين" : "Sort: Best Sellers"}</option>
                   <option value="price-asc">{isAr ? "Sort: أقل سعر" : "Sort: Lowest Price"}</option>
                   <option value="amount-desc">{isAr ? "Sort: أعلى كمية USDT" : "Sort: Highest Available USDT"}</option>
                   <option value="trades-desc">{isAr ? "Sort: أكثر صفقات مكتملة" : "Sort: Most Completed Trades"}</option>
@@ -2587,7 +3043,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           </Card>
         ) : null}
 
-        <div className="mt-5 grid gap-4 md:grid-cols-2">
+        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-2 min-[1440px]:grid-cols-3">
           {isLoadingListings
             ? Array.from({ length: 4 }).map((_, index) => (
                 <Card key={`skeleton-${index}`} className="border-white/10 bg-[#0B0B0B]/90">
@@ -2601,186 +3057,17 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 </Card>
               ))
             : filteredListings.map((listing) => (
-                <Card key={listing.id} className="group border-white/10 bg-[#0B0B0B]/90 transition duration-300 hover:-translate-y-1 hover:border-[#C9A227]/30 hover:shadow-[0_22px_60px_rgba(0,0,0,0.35)]" style={{ borderLeft: `2px solid ${listing.sellerReputation?.level === "gold" || listing.sellerReputation?.level === "diamond" ? "#C9A227" : "rgba(255,255,255,0.1)"}` }}>
-                  <CardHeader>
-                    <div className={`flex items-center justify-between ${isAr ? "flex-row-reverse" : ""}`}>
-                      <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
-                        {listing.sellerProfile?.profilePhotoUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={listing.sellerProfile.profilePhotoUrl}
-                            alt={`${safeText(listing.sellerDisplayName, "Seller")} profile`}
-                            className="h-11 w-11 rounded-full border border-white/15 object-cover"
-                          />
-                        ) : (
-                          <div className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-white/[0.04] text-sm font-semibold text-[#D1D5DB]">
-                            {safeText(listing.sellerDisplayName, "Seller")
-                              .split(" ")
-                              .map((part) => part[0])
-                              .join("")
-                              .slice(0, 2)}
-                          </div>
-                        )}
-                        <div>
-                          <CardTitle className="profile-identity-name--seller text-lg">{safeText(listing.sellerDisplayName, "Seller")}</CardTitle>
-                          <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">
-                            {sellerLevelLabel(listing.sellerReputation?.level)} Seller
-                            {listing.sellerProfile?.onlineStatus === "online" ? " • Online" : " • Offline"}
-                          </p>
-                          <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#93C5FD]">Listing {shortListingRef(listing)}</p>
-                          <div className="mt-1 flex flex-wrap gap-2">
-                            <RoleBadge variant="approved_seller" />
-                            {listing.sellerProfile?.isFoundingSeller ? (
-                              <span className="rounded-full border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 px-2 py-0.5 text-[11px] text-[#93C5FD]">Founding Seller</span>
-                            ) : null}
-                          </div>
-                        </div>
-                      </div>
-                      <span className="rounded-full border border-[#22C55E]/25 bg-[#22C55E]/10 px-3 py-1 text-xs text-[#86EFAC]">{isAr ? "متاح" : "Available"}</span>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="rounded-2xl border border-[#C9A227]/25 bg-[linear-gradient(135deg,rgba(201,162,39,0.14),rgba(5,5,5,0.88))] p-4 shadow-[0_14px_36px_rgba(0,0,0,0.35)] transition duration-300 group-hover:border-[#C9A227]/45 group-hover:shadow-[0_18px_42px_rgba(201,162,39,0.2)]">
-                      <div className="grid gap-4 md:grid-cols-[7fr_auto_3fr] md:items-stretch">
-                        <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 p-3 shadow-[0_0_25px_rgba(16,185,129,0.15)]">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-300">
-                            {isAr ? "USDT المتاح" : "Available USDT"}
-                          </p>
-                          <div className="mt-3 flex items-center gap-2">
-                            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-emerald-400/40 bg-emerald-500/20 text-emerald-200">
-                              ₮
-                            </span>
-                            <p className="text-5xl font-bold leading-none text-white md:text-6xl">
-                              {toNumber(listing.availableAmount).toLocaleString("en-IL")}
-                            </p>
-                          </div>
-                          <p className="mt-2 text-sm font-medium text-emerald-100">USDT</p>
-                          <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-400/45 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
-                            {isAr ? "جاهز للتداول" : "Ready to trade"}
-                          </span>
-                        </div>
-                        <div className="mx-auto hidden w-px bg-[#C9A227]/35 md:block" />
-                        <div className="mx-auto h-px w-full bg-[#C9A227]/35 md:hidden" />
-                        <div className="rounded-xl border border-[#C9A227]/30 bg-[#111111]/85 p-3">
-                          <p className="text-[11px] uppercase tracking-[0.16em] text-[#D4AF37]">
-                            {isAr ? "سعر العرض" : "Listing Price"}
-                          </p>
-                          <p className="mt-2 text-3xl font-semibold text-[#F4D87A] md:text-4xl">
-                            {toNumber(listing.price).toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </p>
-                          <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#E5E7EB]">ILS / USDT</p>
-                          <div className="mt-2 rounded-lg border border-white/10 bg-black/30 p-2 text-[11px] text-[#CFCFCF]">
-                            <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "سعر السوق" : "Market Rate"}</p>
-                            <p className="mt-0.5 text-white">
-                              {(marketPricePerUsdt - 0.03).toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              {" - "}
-                              {(marketPricePerUsdt + 0.02).toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ILS
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-center text-xs">
-                      <div className="rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/30 hover:bg-black/35">
-                        <p className="text-base">⭐</p>
-                        <p className="mt-1 font-semibold text-white">{(listing.sellerReputation?.rating ?? 0).toFixed(2)}</p>
-                        <p className="text-[11px] text-[#9CA3AF]">{isAr ? "التقييم" : "Rating"}</p>
-                      </div>
-                      <div className="rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/30 hover:bg-black/35">
-                        <p className="text-base">🤝</p>
-                        <p className="mt-1 font-semibold text-white">{(listing.sellerReputation?.completedTrades ?? 0).toLocaleString("en-IL")}</p>
-                        <p className="text-[11px] text-[#9CA3AF]">{isAr ? "الصفقات" : "Trades"}</p>
-                      </div>
-                      <div className="rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/30 hover:bg-black/35">
-                        <p className="text-base">⚡</p>
-                        <p className="mt-1 font-semibold text-white">{safeText(listing.responseTime, "5 min")}</p>
-                        <p className="text-[11px] text-[#9CA3AF]">{isAr ? "الاستجابة" : "Response Time"}</p>
-                      </div>
-                      <div className="rounded-xl border border-white/10 bg-black/25 p-3 text-[#D1D5DB] transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/30 hover:bg-black/35">
-                        <p className="text-base">🛡</p>
-                        <p className="mt-1 font-semibold text-white">{(listing.sellerReputation?.trustScore ?? 0).toFixed(1)}</p>
-                        <p className="text-[11px] text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust Score"}</p>
-                      </div>
-                    </div>
-                    <div className="grid gap-3 text-xs text-[#9CA3AF] md:grid-cols-2">
-                      <div className="space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
-                        <p>{isAr ? "آخر نشاط" : "Last active"}: <span className="text-white">{formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt)}</span></p>
-                        <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{safeText(listing.network)}</span></p>
-                        <div>
-                          <p>{isAr ? "الدفع" : "Payment"}:</p>
-                          <div className="mt-1 flex flex-wrap gap-1.5">
-                            {normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).map((method) => (
-                              <span key={`${listing.id}-${method}`} className="rounded-full border border-white/15 bg-white/[0.03] px-2 py-0.5 text-[11px] text-[#D1D5DB]">
-                                {paymentMethodEmoji(method)} {paymentMethodLabel(method)}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
-                        <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{toNumber(listing.minimumTrade).toLocaleString("en-IL")} – {toNumber(listing.maximumTrade).toLocaleString("en-IL")} USDT</span></p>
-                        <p>{isAr ? "الضمان" : "Escrow"}: <span className="text-white">{isAr ? "مؤمّن عبر Alpha Traders" : "Secured by Alpha Traders"}</span></p>
-                        <p>{isAr ? "المنطقة" : "Region"}: <span className="text-white">{safeText(listing.sellerProfile?.country, "Israel")}</span></p>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {(listing.sellerReputation?.badges ?? []).slice(0, 2).map((badge) => (
-                        <span key={`${listing.id}-${badge}`} className="rounded-full border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-2 py-1 text-[11px] text-[#93C5FD]">
-                          {sellerBadgeLabel(badge)}
-                        </span>
-                      ))}
-                      {parseIsraeliBankSelection(listing.bankName).length ? (
-                        <span className="rounded-full border border-white/15 bg-white/[0.03] px-2 py-1 text-[11px] text-[#D1D5DB]">
-                          🏦 {parseIsraeliBankSelection(listing.bankName).join(", ")}
-                        </span>
-                      ) : null}
-                    </div>
-                    <Button
-                      className="h-[60px] w-full justify-between rounded-2xl bg-gradient-to-r from-[#C9A227] via-[#E8C560] to-[#C9A227] px-5 text-sm font-semibold text-black shadow-[0_14px_32px_rgba(201,162,39,0.35)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_18px_42px_rgba(201,162,39,0.45)]"
-                      onClick={() => openListingModal(listing)}
-                      aria-label={`Open listing from ${safeText(listing.sellerDisplayName, "seller")}`}
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        <LockKeyhole className="h-4 w-4" />
-                        {isAr ? "شراء USDT الآن" : "Buy USDT"}
-                      </span>
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                    {(sessionUser?.role === "admin" || isAlphaExchangeOwnerEmail(sessionUser?.email ?? "")) ? (
-                      <div className="mt-2 flex flex-wrap gap-1.5 border-t border-white/[0.07] pt-2">
-                        <button
-                          type="button"
-                          className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-[11px] text-red-300 hover:bg-red-500/20 transition"
-                          onClick={() => void handleOwnerModerateListing(listing.id, "remove")}
-                        >
-                          Remove
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-300 hover:bg-amber-500/20 transition"
-                          onClick={() => void handleOwnerModerateListing(listing.id, "hide")}
-                        >
-                          Hide
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-300 hover:bg-emerald-500/20 transition"
-                          onClick={() => void handleOwnerModerateListing(listing.id, "restore")}
-                        >
-                          Restore
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-lg border border-[#C9A227]/30 bg-[#C9A227]/10 px-2 py-1 text-[11px] text-[#F4D87A] hover:bg-[#C9A227]/20 transition"
-                          onClick={() => void handleOwnerModerateListing(listing.id, "feature")}
-                        >
-                          Feature
-                        </button>
-                      </div>
-                    ) : null}
-                  </CardContent>
-                </Card>
+                <ListingCard
+                  key={listing.id}
+                  listing={listing}
+                  isAr={isAr}
+                  marketPricePerUsdt={marketPricePerUsdt}
+                  isOwnerListing={listing.sellerProfile?.isOwner === true}
+                  isOwnListing={sessionUser?.id === listing.sellerId}
+                  isBuying={quickBuyListingId === listing.id}
+                  onOpen={handleQuickBuyFromListing}
+                  onManageListing={handleManageOwnedListing}
+                />
               ))}
         </div>
 
@@ -3606,13 +3893,16 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   {listingCreateAmount > 0 ? <p>{listingCreateAmount.toLocaleString("en-IL")} USDT ≈ <span className="font-semibold text-white">{formatIls(listingCreateAmount * marketPricePerUsdt)}</span></p> : null}
                 </div>
               </div>
-              <form className="grid gap-3 md:grid-cols-2" onSubmit={handleSellerListingCreateSubmit}>
+              <form className="grid gap-4 md:grid-cols-2" onSubmit={handleSellerListingCreateSubmit}>
                 <div className="space-y-2">
                   <Input
                     placeholder="Available USDT *"
                     value={listingCreateForm.availableAmount}
-                    onChange={(event) => setListingCreateForm((prev) => ({ ...prev, availableAmount: formatIntegerForInput(event.target.value) }))}
-                    className={!listingCreateAmount ? "border-amber-400/70" : ""}
+                    onChange={(event) => {
+                      const nextAmount = formatIntegerForInput(event.target.value);
+                      setListingCreateForm((prev) => ({ ...prev, availableAmount: nextAmount, maximumTrade: nextAmount }));
+                    }}
+                    className={`h-11 ${!listingCreateAmount ? "border-amber-400/70" : ""}`}
                   />
                   <p className="text-xs text-[#9CA3AF]">Amount is auto-formatted while typing (e.g. 25,000).</p>
                 </div>
@@ -3621,7 +3911,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     placeholder="Price"
                     value={listingCreateForm.price}
                     onChange={(event) => setListingCreateForm((prev) => ({ ...prev, price: normalizeDecimalInput(event.target.value) }))}
-                    className={`transition-all duration-200 ${
+                    className={`h-11 transition-all duration-200 ${
                       listingCreatePriceInvalid
                         ? "border-red-500/85 shadow-[0_0_0_3px_rgba(239,68,68,0.2)]"
                         : listingCreatePriceValid
@@ -3639,8 +3929,21 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         : `Enter a price up to ${formatIls(maxAllowedListingPrice)}.`}
                   </p>
                 </div>
-                <Input placeholder="Currency (e.g. ILS)" value={listingCreateForm.currency} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, currency: event.target.value }))} />
-                <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={listingCreateForm.network} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
+                <div className="space-y-2">
+                  <Input
+                    placeholder="Currency (ILS)"
+                    value={listingCreateForm.currency}
+                    onChange={(event) => {
+                      setListingCreateCurrencyManualOverride(true);
+                      setListingCreateForm((prev) => ({ ...prev, currency: formatIntegerForInput(event.target.value) }));
+                    }}
+                    className="h-11"
+                  />
+                  <p className={`text-xs ${listingCreateCurrencyManualOverride ? "text-amber-300" : "text-emerald-300"}`}>
+                    {listingCreateCurrencyManualOverride ? "Manual Override" : "Auto Calculated"}
+                  </p>
+                </div>
+                <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white transition focus:border-[#C9A227]/60 focus:outline-none focus:ring-2 focus:ring-[#C9A227]/30" value={listingCreateForm.network} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
                   <option value="TRC20">TRC20</option>
                   <option value="ERC20">ERC20</option>
                   <option value="BEP20">BEP20</option>
@@ -3682,7 +3985,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     placeholder="Minimum Trade (Required)"
                     value={listingCreateForm.minimumTrade}
                     onChange={(event) => setListingCreateForm((prev) => ({ ...prev, minimumTrade: formatIntegerForInput(event.target.value) }))}
-                    className={!listingCreateMinTrade && listingCreateAmount > 0 ? "border-amber-400/70" : ""}
+                    className={`h-11 ${!listingCreateMinTrade && listingCreateAmount > 0 ? "border-amber-400/70" : ""}`}
                   />
                   <p className="text-xs text-[#9CA3AF]">The smallest trade amount you are willing to accept.</p>
                 </div>
@@ -3690,12 +3993,20 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <Input
                     placeholder="Maximum Trade (Required)"
                     value={listingCreateForm.maximumTrade}
-                    onChange={(event) => setListingCreateForm((prev) => ({ ...prev, maximumTrade: formatIntegerForInput(event.target.value) }))}
-                    className={listingCreateTradeRangeInvalid ? "border-amber-400/70" : ""}
+                    onChange={(event) => setListingCreateForm((prev) => {
+                      const listedAmount = toNumber(prev.availableAmount);
+                      if (listedAmount <= 0) {
+                        return { ...prev, maximumTrade: "" };
+                      }
+                      const requestedMax = toNumber(formatIntegerForInput(event.target.value));
+                      const clampedMax = Math.min(requestedMax || 0, listedAmount);
+                      return { ...prev, maximumTrade: clampedMax > 0 ? formatIntegerForInput(clampedMax) : "" };
+                    })}
+                    className={`h-11 ${listingCreateTradeRangeInvalid ? "border-amber-400/70" : ""}`}
                   />
-                  <p className="text-xs text-[#9CA3AF]">The largest amount a buyer can purchase in a single transaction.</p>
+                  <p className="text-xs text-[#9CA3AF]">Maximum trade cannot exceed your listed USDT amount.</p>
                 </div>
-                <Textarea className="md:col-span-2" placeholder="Seller Description" value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
+                <Textarea className="md:col-span-2 min-h-[96px]" placeholder="Seller Description" value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
                 {listingCreateRequiresBank ? (
                 <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
                   <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Supported banks *</p>
@@ -3770,7 +4081,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   </div>
                 </div>
                 <div className="md:col-span-2">
-                  <Button type="submit" disabled={isListingCreateSubmitDisabled || listingActionKey === "create:new"}>
+                  <Button type="submit" className="h-11 w-full sm:w-auto" disabled={isListingCreateSubmitDisabled || listingActionKey === "create:new"}>
                     {listingActionKey === "create:new" ? "Publishing..." : "Submit Listing"}
                   </Button>
                 </div>
@@ -3779,7 +4090,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           </Card>
 
           {sellerWorkspaceMessage ? (
-            <div className="order-25 flex items-start justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-100 shadow-[0_0_0_1px_rgba(16,185,129,0.08)]">
+            <div className="order-25 flex items-start justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-100 shadow-[0_0_0_1px_rgba(16,185,129,0.08)] animate-in fade-in-0 slide-in-from-top-1 duration-300">
               <span>{sellerWorkspaceMessage}</span>
               <button
                 type="button"
@@ -3808,11 +4119,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 ))
               ) : null}
               {!isWorkspaceWidgetsLoading && myListings.length === 0 ? (
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center">
+                <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center shadow-[0_8px_24px_rgba(2,6,23,0.35)]">
                   <Store className="mx-auto h-5 w-5 text-[#C9A227]" />
                   <p className="mt-2 text-sm font-medium text-white">{isAr ? "ليس لديك عروض نشطة حتى الآن" : "You don&apos;t have any active listings yet."}</p>
                   <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "أنشئ أول عرضك الآن ليبدأ المشترون بطلب الشراء." : "Create your first listing now and start receiving buyer requests."}</p>
-                  <Button type="button" size="sm" className="mt-3" onClick={() => { void scrollToCreateListingSection(); }}>
+                  <Button type="button" size="sm" className="mt-3 h-9" onClick={() => { void scrollToCreateListingSection(); }}>
                     {isAr ? "إنشاء عرض" : "Create Listing"}
                   </Button>
                 </div>
@@ -3821,7 +4132,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 const requestsCount = sellerRequests.filter((request) => request.listingId === listing.id).length;
                 const listingBusy = isListingActionBusy(listing.id);
                 return (
-                  <div key={listing.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div key={listing.id} className="rounded-2xl border border-white/10 bg-black/20 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#C9A227]/35 hover:shadow-[0_14px_30px_rgba(2,6,23,0.45)]">
                     <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-[#93C5FD]">Listing {shortListingRef(listing)}</p>
                     <div className="grid gap-2 text-sm md:grid-cols-4">
                       <p>Status: <span className="text-white">{safeText(listing.status)}</span></p>
@@ -3838,6 +4149,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         type="button"
                         size="sm"
                         variant="secondary"
+                        className="h-9"
                         disabled={listingBusy}
                         onClick={() => {
                           setEditingListingId(listing.id);
@@ -3858,25 +4170,25 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         Edit
                       </Button>
                       {listing.status === "paused" ? (
-                        <Button type="button" size="sm" variant="secondary" disabled={listingBusy} onClick={() => void handleSellerListingStatus(listing, "active")}>
+                        <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingStatus(listing, "active")}>
                           <PlayCircle className="h-4 w-4" />
                           {listingActionKey === `${listing.id}:resume` ? "Resuming..." : "Resume"}
                         </Button>
                       ) : listing.status === "active" ? (
-                        <Button type="button" size="sm" variant="secondary" disabled={listingBusy} onClick={() => void handleSellerListingStatus(listing, "paused")}>
+                        <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingStatus(listing, "paused")}>
                           <PauseCircle className="h-4 w-4" />
                           {listingActionKey === `${listing.id}:pause` ? "Pausing..." : "Pause"}
                         </Button>
                       ) : null}
-                      <Button type="button" size="sm" variant="secondary" disabled={listingBusy} onClick={() => void handleSellerListingRenew(listing)}>
+                      <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingRenew(listing)}>
                         <Clock3 className="h-4 w-4" />
                         {listingActionKey === `${listing.id}:renew` ? "Renewing..." : "Renew"}
                       </Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={listingBusy} onClick={() => void handleSellerListingDelete(listing)}>
+                      <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingDelete(listing)}>
                         <Trash2 className="h-4 w-4" />
                         {listingActionKey === `${listing.id}:delete` ? "Deleting..." : "Delete"}
                       </Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={listingBusy} onClick={() => void handleSellerListingDuplicate(listing)}>
+                      <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingDuplicate(listing)}>
                         <Copy className="h-4 w-4" />
                         {listingActionKey === `${listing.id}:duplicate` ? "Duplicating..." : "Duplicate Listing"}
                       </Button>
@@ -4916,10 +5228,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         </div>
                         <div className="space-y-2 text-sm text-[#D1D5DB]">
                           <div className="flex flex-wrap items-center gap-2">
-                            <p className="profile-identity-name--seller text-lg font-semibold">{sellerProfileData?.profile.sellerName ?? selectedListing.sellerDisplayName}</p>
-                            <RoleBadge variant="approved_seller" />
-                            {sellerProfileData?.profile.isFoundingSeller ? <span className="rounded-full border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 px-2 py-0.5 text-[11px] text-[#93C5FD]">Founding Seller</span> : null}
-                            {sellerProfileData?.profile.isFeaturedSeller ? <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5 text-[11px] text-[#C9A227]">Featured Seller</span> : null}
+                            <p className={cn("text-lg font-semibold", selectedListing.sellerProfile?.isOwner ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerLevelToneKey(sellerProfileData?.sellerLevel ?? selectedListing.sellerReputation?.level)}`)}>{sellerProfileData?.profile.sellerName ?? selectedListing.sellerDisplayName}</p>
+                            <RoleBadge variant="approved_seller" className={cn("seller-rank-badge", `seller-rank-badge--${sellerLevelToneKey(sellerProfileData?.sellerLevel ?? selectedListing.sellerReputation?.level)}`)} />
+                            <span className={cn("seller-rank-pill", `seller-rank-pill--${selectedListing.sellerProfile?.isOwner ? "legendary" : sellerLevelToneKey(sellerProfileData?.sellerLevel ?? selectedListing.sellerReputation?.level)}`)}>
+                              {selectedListing.sellerProfile?.isOwner ? "Legendary Seller" : `${sellerLevelLabel(sellerProfileData?.sellerLevel ?? selectedListing.sellerReputation?.level)} Seller`}
+                            </span>
                           </div>
                           <div className="grid gap-1 md:grid-cols-2">
                             <p>Seller Level: <span className="text-white">{sellerLevelLabel(sellerProfileData?.sellerLevel)}</span></p>
@@ -5007,9 +5320,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                             {sellerBadgeLabel(badge)}
                           </span>
                         ))}
-                        {sellerProfileData?.profile.isFoundingSeller ? (
-                          <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-1 text-[11px] text-[#C9A227]">🎖 Founding Seller</span>
-                        ) : null}
                       </div>
                     </div>
                   </div>

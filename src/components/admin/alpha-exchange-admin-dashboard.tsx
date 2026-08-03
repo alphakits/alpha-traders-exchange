@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Search, Settings, ShieldCheck, Star, Store, TrendingUp, Users, Users2, WalletCards, X, Zap } from "lucide-react";
+import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Search, Settings, ShieldCheck, Star, Store, TrendingUp, Trophy, Users, Users2, WalletCards, X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,15 @@ import { createExchangeDisplayLookup, replaceExchangeEntityIds } from "@/lib/alp
 import { formatCommissionId, formatListingId, formatRequestId, formatTradeId } from "@/lib/format-id";
 import { RoleBadge } from "@/components/ui/role-badge";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, AuditLogEntry, BetaAnnouncement, BetaAnnouncementType, BetaFeedbackCategory, CommissionRecord, MarketplaceListing, OwnerBusinessDashboardMetrics, OwnerPrivateBetaDashboardData, PurchaseRequest, SellerApplication, SellerAvailabilityStatus, SellerLevel, SellerReviewRecord, SupportedNetwork } from "@/types/alpha-exchange";
+
+const RANK_BADGE_COLOR: Record<SellerLevel, string> = {
+  bronze: "border-[#CD7F32]/30 bg-[#CD7F32]/10 text-[#E8A96A]",
+  silver: "border-[#C0C0C0]/30 bg-[#C0C0C0]/10 text-[#C9CED9]",
+  gold: "border-[#C9A227]/30 bg-[#C9A227]/10 text-[#FDE68A]",
+  platinum: "border-[#C8D1DF]/30 bg-[#C8D1DF]/10 text-[#C8D1DF]",
+  diamond: "border-[#7CC9FF]/30 bg-[#7CC9FF]/10 text-[#7CC9FF]",
+  legendary: "border-[#F8E7A0]/30 bg-[#F8E7A0]/10 text-[#F8E7A0]",
+};
 
 type AdminSummary = {
   usersCount: number;
@@ -74,6 +83,7 @@ type SectionKey =
   | "overview"
   | "seller-applications"
   | "approved-sellers"
+  | "seller-rank"
   | "marketplace-listings"
   | "purchase-requests"
   | "commissions"
@@ -91,6 +101,7 @@ const sectionItems: Array<{ key: SectionKey; label: string; icon: typeof BarChar
   { key: "overview", label: "Overview", icon: BarChart3 },
   { key: "seller-applications", label: "Seller Applications", icon: FileSearch },
   { key: "approved-sellers", label: "Approved Sellers", icon: Users },
+  { key: "seller-rank", label: "Seller Rank Management", icon: Trophy },
   { key: "marketplace-listings", label: "Marketplace Listings", icon: Store },
   { key: "purchase-requests", label: "Purchase Requests", icon: ListChecks },
   { key: "commissions", label: "Commissions", icon: Coins },
@@ -237,6 +248,14 @@ export function AlphaExchangeAdminDashboard() {
   const [broadcastTitle, setBroadcastTitle] = useState("");
   const [broadcastBody, setBroadcastBody] = useState("");
   const [broadcastType, setBroadcastType] = useState<"info" | "warning" | "success">("info");
+
+  const [rankMgmtSearch, setRankMgmtSearch] = useState("");
+  const [rankMgmtFilter, setRankMgmtFilter] = useState<"all" | SellerLevel>("all");
+  const [rankMgmtSelected, setRankMgmtSelected] = useState<Set<string>>(new Set());
+  const [rankMgmtSaving, setRankMgmtSaving] = useState<Set<string>>(new Set());
+  const [rankMgmtBulkRank, setRankMgmtBulkRank] = useState<SellerLevel>("bronze");
+  const [rankConfirmPending, setRankConfirmPending] = useState<{ sellerId: string; sellerName: string; fromRank: SellerLevel; toRank: SellerLevel } | null>(null);
+  const [rankConfirmReason, setRankConfirmReason] = useState("");
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -462,6 +481,37 @@ export function AlphaExchangeAdminDashboard() {
     return paginate(items, reviewsPage);
   }, [data?.sellerReviews, reviewsPage, reviewsQuery, sellersById]);
 
+  const trustScoreMap = useMemo(() => {
+    const map = new Map<string, number>();
+    const engine = data?.trustEngine;
+    if (!engine) return map;
+    for (const s of [...(engine.highestTrustSellers ?? []), ...(engine.lowestTrustSellers ?? []), ...(engine.flaggedSellers ?? [])]) {
+      if (!map.has(s.sellerId)) map.set(s.sellerId, s.trustScore);
+    }
+    return map;
+  }, [data?.trustEngine]);
+
+  const rankMgmtRows = useMemo(() => {
+    const query = rankMgmtSearch.trim().toLowerCase();
+    const items = (data?.approvedSellers ?? []).filter((seller) => {
+      if (rankMgmtFilter !== "all" && (seller.sellerPrestigeRank ?? "bronze") !== rankMgmtFilter) return false;
+      if (!query) return true;
+      return `${seller.fullName} ${seller.email}`.toLowerCase().includes(query);
+    });
+    return [...items].sort((a, b) => {
+      const rankWeight = (s: AdminSeller) => {
+        const r = s.sellerPrestigeRank ?? "bronze";
+        if (r === "legendary") return 6;
+        if (r === "diamond") return 5;
+        if (r === "platinum") return 4;
+        if (r === "gold") return 3;
+        if (r === "silver") return 2;
+        return 1;
+      };
+      return rankWeight(b) - rankWeight(a);
+    });
+  }, [data?.approvedSellers, rankMgmtFilter, rankMgmtSearch]);
+
   async function runAction(request: Promise<Response>, successMessage: string) {
     try {
       const response = await request;
@@ -499,6 +549,75 @@ export function AlphaExchangeAdminDashboard() {
       }),
       clearOverride ? "Prestige override cleared." : `Seller prestige set to ${sellerLevelLabel(rank)}.`,
     );
+  }
+
+  function handleRankMgmtChange(sellerId: string, toRank: SellerLevel) {
+    const seller = rankMgmtRows.find((s) => s.id === sellerId);
+    if (!seller) return;
+    const fromRank = seller.sellerPrestigeRank ?? "bronze";
+    if (fromRank === toRank) return;
+    setRankConfirmReason("");
+    setRankConfirmPending({
+      sellerId,
+      sellerName: seller.fullName ?? seller.email,
+      fromRank,
+      toRank,
+    });
+  }
+
+  async function handleRankConfirm() {
+    if (!rankConfirmPending) return;
+    const { sellerId, toRank } = rankConfirmPending;
+    const reason = rankConfirmReason.trim() || "Admin rank management — manual override";
+    setRankConfirmPending(null);
+    setRankConfirmReason("");
+    setRankMgmtSaving((prev) => new Set(prev).add(sellerId));
+    try {
+      await handleSellerPrestigeOverride(sellerId, toRank, reason);
+    } finally {
+      setRankMgmtSaving((prev) => {
+        const next = new Set(prev);
+        next.delete(sellerId);
+        return next;
+      });
+    }
+  }
+
+  async function handleBulkRankAction(action: "promote" | "demote" | "set" | "reset", targetRank?: SellerLevel) {
+    const RANK_ORDER: SellerLevel[] = ["bronze", "silver", "gold", "platinum", "diamond", "legendary"];
+    const sellers = rankMgmtRows.filter((s) => rankMgmtSelected.has(s.id));
+    if (sellers.length === 0) { pushToast("No sellers selected."); return; }
+    const eligibleSellers = sellers.filter((s) => !(s.roles ?? []).includes("owner") && s.role !== "owner");
+    if (eligibleSellers.length === 0) { pushToast("Owner accounts cannot be modified."); return; }
+    const label = action === "promote" ? "promote to next rank" : action === "demote" ? "demote to previous rank" : action === "reset" ? "reset to Bronze" : `set rank to ${targetRank ?? "selected"}`;
+    if (!window.confirm(`Apply "${label}" to ${eligibleSellers.length} seller(s)?`)) return;
+    for (const seller of eligibleSellers) {
+      const current = seller.sellerPrestigeRank ?? "bronze";
+      const currentIdx = RANK_ORDER.indexOf(current);
+      let newRank: SellerLevel;
+      if (action === "promote") newRank = RANK_ORDER[Math.min(RANK_ORDER.length - 1, currentIdx + 1)];
+      else if (action === "demote") newRank = RANK_ORDER[Math.max(0, currentIdx - 1)];
+      else if (action === "reset") newRank = "bronze";
+      else newRank = targetRank ?? "bronze";
+      if (newRank === current && action !== "set" && action !== "reset") continue;
+      setRankMgmtSaving((prev) => new Set(prev).add(seller.id));
+      try {
+        const response = await fetch(`/api/alpha-exchange/admin/sellers/${seller.id}/prestige`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ rank: newRank, reason: `Bulk admin action — ${label}` }),
+        });
+        if (!response.ok) {
+          const payload = await response.json() as { error?: string };
+          pushToast(payload.error ?? "Failed for one seller.");
+        }
+      } finally {
+        setRankMgmtSaving((prev) => { const next = new Set(prev); next.delete(seller.id); return next; });
+      }
+    }
+    setRankMgmtSelected(new Set());
+    pushToast(`Bulk rank action applied to ${eligibleSellers.length} seller(s).`);
+    await fetchData();
   }
 
   async function handleAdminListingAction(listingId: string, action: "renew" | "extend" | "close" | "force_close", successMessage: string, expirationHours?: number, reason?: string) {
@@ -1266,6 +1385,272 @@ export function AlphaExchangeAdminDashboard() {
                         {renderPagination(sellersRows.safePage, sellersRows.totalPages, setSellersPage)}
                       </CardContent>
                     </Card>
+                  ) : null}
+
+                  {activeSection === "seller-rank" ? (
+                    <div className="space-y-4">
+                      {/* Rank Distribution Summary */}
+                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                        {(["bronze", "silver", "gold", "platinum", "diamond", "legendary"] as SellerLevel[]).map((rank) => {
+                          const count = (data?.approvedSellers ?? []).filter((s) => (s.sellerPrestigeRank ?? "bronze") === rank).length;
+                          const rankColors: Record<SellerLevel, string> = {
+                            bronze: "border-[#CD7F32]/30 bg-[#CD7F32]/10 text-[#E8A96A]",
+                            silver: "border-[#C0C0C0]/30 bg-[#C0C0C0]/10 text-[#C9CED9]",
+                            gold: "border-[#C9A227]/30 bg-[#C9A227]/10 text-[#FDE68A]",
+                            platinum: "border-[#C8D1DF]/30 bg-[#C8D1DF]/10 text-[#C8D1DF]",
+                            diamond: "border-[#7CC9FF]/30 bg-[#7CC9FF]/10 text-[#7CC9FF]",
+                            legendary: "border-[#F8E7A0]/30 bg-[#F8E7A0]/10 text-[#F8E7A0]",
+                          };
+                          return (
+                            <button
+                              key={rank}
+                              type="button"
+                              onClick={() => setRankMgmtFilter(rankMgmtFilter === rank ? "all" : rank)}
+                              className={`rounded-xl border p-3 text-center transition hover:opacity-80 ${rankColors[rank]} ${rankMgmtFilter === rank ? "ring-1 ring-white/30" : ""}`}
+                            >
+                              <p className="text-xl font-bold">{count}</p>
+                              <p className="mt-0.5 text-[11px] uppercase tracking-[0.12em] capitalize">{rank}</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <Card className="border-white/10 bg-[#0B0B0B]/90">
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <Trophy className="h-5 w-5 text-[#C9A227]" />
+                            Seller Rank Management
+                          </CardTitle>
+                          <CardDescription>
+                            Manage seller prestige ranks directly. Changes are saved immediately and written to the audit log.
+                            Owner accounts are protected and cannot be modified.
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          {/* Filters */}
+                          <div className="grid gap-3 md:grid-cols-3">
+                            <div className="relative md:col-span-2">
+                              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
+                              <input
+                                type="text"
+                                className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] pl-9 pr-3 text-sm text-white placeholder:text-[#9CA3AF] focus:outline-none focus:ring-1 focus:ring-[#C9A227]/50"
+                                placeholder="Search seller by name or email..."
+                                value={rankMgmtSearch}
+                                onChange={(e) => setRankMgmtSearch(e.target.value)}
+                              />
+                            </div>
+                            <select
+                              value={rankMgmtFilter}
+                              onChange={(e) => setRankMgmtFilter(e.target.value as typeof rankMgmtFilter)}
+                              className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white"
+                            >
+                              <option value="all">Filter: All Ranks</option>
+                              <option value="bronze">Bronze</option>
+                              <option value="silver">Silver</option>
+                              <option value="gold">Gold</option>
+                              <option value="platinum">Platinum</option>
+                              <option value="diamond">Diamond</option>
+                              <option value="legendary">Legendary</option>
+                            </select>
+                          </div>
+
+                          {/* Bulk Actions */}
+                          {rankMgmtSelected.size > 0 ? (
+                            <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-[#C9A227]/25 bg-[#C9A227]/8 p-3">
+                              <span className="text-sm font-medium text-[#FDE68A]">{rankMgmtSelected.size} selected</span>
+                              <div className="ml-auto flex flex-wrap gap-2">
+                                <Button type="button" size="sm" variant="secondary" onClick={() => void handleBulkRankAction("promote")}>
+                                  Promote ↑
+                                </Button>
+                                <Button type="button" size="sm" variant="secondary" onClick={() => void handleBulkRankAction("demote")}>
+                                  Demote ↓
+                                </Button>
+                                <Button type="button" size="sm" variant="secondary" onClick={() => void handleBulkRankAction("reset")}>
+                                  Reset to Bronze
+                                </Button>
+                                <div className="flex items-center gap-1.5">
+                                  <select
+                                    value={rankMgmtBulkRank}
+                                    onChange={(e) => setRankMgmtBulkRank(e.target.value as SellerLevel)}
+                                    className="h-8 rounded-lg border border-white/15 bg-[#101010] px-2 text-xs text-white"
+                                  >
+                                    <option value="bronze">Bronze</option>
+                                    <option value="silver">Silver</option>
+                                    <option value="gold">Gold</option>
+                                    <option value="platinum">Platinum</option>
+                                    <option value="diamond">Diamond</option>
+                                    <option value="legendary">Legendary</option>
+                                  </select>
+                                  <Button type="button" size="sm" onClick={() => void handleBulkRankAction("set", rankMgmtBulkRank)}>
+                                    Set Rank
+                                  </Button>
+                                </div>
+                                <Button type="button" size="sm" variant="secondary" onClick={() => setRankMgmtSelected(new Set())}>
+                                  Clear
+                                </Button>
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {/* Table */}
+                          <div className="mt-4 overflow-x-auto rounded-xl border border-white/10">
+                            <table className="w-full min-w-[900px] text-sm">
+                              <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
+                                <tr>
+                                  <th className="w-10 px-4 py-3">
+                                    <input
+                                      type="checkbox"
+                                      className="h-4 w-4 rounded border-white/30 bg-transparent accent-[#C9A227]"
+                                      checked={rankMgmtSelected.size > 0 && rankMgmtRows.filter((s) => !(s.roles ?? []).includes("owner") && s.role !== "owner").every((s) => rankMgmtSelected.has(s.id))}
+                                      onChange={(e) => {
+                                        const eligibleIds = rankMgmtRows.filter((s) => !(s.roles ?? []).includes("owner") && s.role !== "owner").map((s) => s.id);
+                                        setRankMgmtSelected(e.target.checked ? new Set(eligibleIds) : new Set());
+                                      }}
+                                    />
+                                  </th>
+                                  <th className="px-4 py-3">Seller</th>
+                                  <th className="px-4 py-3">Current Rank</th>
+                                  <th className="px-4 py-3">Trust Score</th>
+                                  <th className="px-4 py-3">Volume (USDT)</th>
+                                  <th className="px-4 py-3">Status</th>
+                                  <th className="px-4 py-3">Set New Rank</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {rankMgmtRows.map((seller) => {
+                                  const isOwner = (seller.roles ?? []).includes("owner") || seller.role === "owner";
+                                  const currentRank: SellerLevel = seller.sellerPrestigeRank ?? "bronze";
+                                  const isSaving = rankMgmtSaving.has(seller.id);
+                                  const trustScore = trustScoreMap.get(seller.id);
+                                  return (
+                                    <tr key={seller.id} className={`border-t border-white/10 transition ${rankMgmtSelected.has(seller.id) ? "bg-white/[0.025]" : ""}`}>
+                                      <td className="px-4 py-3">
+                                        <input
+                                          type="checkbox"
+                                          disabled={isOwner}
+                                          className="h-4 w-4 rounded border-white/30 bg-transparent accent-[#C9A227] disabled:opacity-30"
+                                          checked={rankMgmtSelected.has(seller.id)}
+                                          onChange={(e) => {
+                                            setRankMgmtSelected((prev) => {
+                                              const next = new Set(prev);
+                                              if (e.target.checked) next.add(seller.id);
+                                              else next.delete(seller.id);
+                                              return next;
+                                            });
+                                          }}
+                                        />
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        <div className="flex items-center gap-2.5">
+                                          <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] text-sm font-semibold text-white">
+                                            {String(seller.fullName || seller.email || "?")
+                                              .trim()
+                                              .split(" ")
+                                              .map((p) => p[0])
+                                              .join("")
+                                              .slice(0, 2)
+                                              .toUpperCase()}
+                                          </div>
+                                          <div>
+                                            <p className="font-medium text-white">{seller.fullName || "—"}</p>
+                                            <p className="text-[11px] text-[#9CA3AF]">{seller.email}</p>
+                                            {isOwner ? <span className="mt-0.5 inline-block rounded-full border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-300">Owner — Protected</span> : null}
+                                          </div>
+                                        </div>
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        <div className="space-y-1">
+                                          <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] ${RANK_BADGE_COLOR[currentRank]}`}>
+                                            {sellerLevelLabel(currentRank)} Seller
+                                          </span>
+                                          {seller.sellerRankOverride ? (
+                                            <p className="text-[10px] text-[#FDE68A]">⚡ Override active</p>
+                                          ) : null}
+                                        </div>
+                                      </td>
+                                      <td className="px-4 py-3 text-[#D1D5DB]">
+                                        {trustScore !== undefined ? (
+                                          <span className={trustScore >= 70 ? "text-emerald-300" : trustScore >= 40 ? "text-amber-300" : "text-red-300"}>
+                                            {trustScore.toFixed(1)}/100
+                                          </span>
+                                        ) : <span className="text-[#9CA3AF]">—</span>}
+                                      </td>
+                                      <td className="px-4 py-3 text-[#D1D5DB]">
+                                        {Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? 0)).toLocaleString("en-IL")}
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        {seller.sellerStatus === "suspended" ? (
+                                          <span className="rounded-full border border-red-500/35 bg-red-500/10 px-2 py-0.5 text-[11px] text-red-300">Suspended</span>
+                                        ) : (
+                                          <span className="rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300">Active</span>
+                                        )}
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        {isOwner ? (
+                                          <span className="text-xs text-[#9CA3AF]">Protected</span>
+                                        ) : (
+                                          <div className="flex items-center gap-2">
+                                            <select
+                                              disabled={isSaving}
+                                              value={currentRank}
+                                              onChange={(e) => handleRankMgmtChange(seller.id, e.target.value as SellerLevel)}
+                                              className="h-9 rounded-lg border border-white/15 bg-[#101010] px-2 text-xs text-white disabled:opacity-50"
+                                            >
+                                              <option value="bronze">Bronze Seller</option>
+                                              <option value="silver">Silver Seller</option>
+                                              <option value="gold">Gold Seller</option>
+                                              <option value="platinum">Platinum Seller</option>
+                                              <option value="diamond">Diamond Seller</option>
+                                              <option value="legendary">Legendary Seller</option>
+                                            </select>
+                                            {isSaving ? (
+                                              <span className="text-[11px] text-[#9CA3AF]">Saving…</span>
+                                            ) : null}
+                                          </div>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                                {rankMgmtRows.length === 0 ? (
+                                  <tr>
+                                    <td colSpan={7} className="px-4 py-8 text-center text-sm text-[#9CA3AF]">
+                                      No sellers match your filters.
+                                    </td>
+                                  </tr>
+                                ) : null}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Rank change legend */}
+                          <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+                            <p className="text-xs font-medium uppercase tracking-[0.12em] text-[#9CA3AF]">Rank hierarchy (lowest → highest)</p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {(["bronze", "silver", "gold", "platinum", "diamond", "legendary"] as SellerLevel[]).map((rank, idx) => {
+                                const colors: Record<SellerLevel, string> = {
+                                  bronze: "border-[#CD7F32]/30 text-[#E8A96A]",
+                                  silver: "border-[#C0C0C0]/30 text-[#C9CED9]",
+                                  gold: "border-[#C9A227]/30 text-[#FDE68A]",
+                                  platinum: "border-[#C8D1DF]/30 text-[#C8D1DF]",
+                                  diamond: "border-[#7CC9FF]/30 text-[#7CC9FF]",
+                                  legendary: "border-[#F8E7A0]/30 text-[#F8E7A0]",
+                                };
+                                const volumes = { bronze: "0 USDT", silver: "15K+", gold: "50K+", platinum: "150K+", diamond: "300K+", legendary: "500K+" };
+                                return (
+                                  <span key={rank} className={`rounded-full border px-2.5 py-1 text-[11px] ${colors[rank]}`}>
+                                    {idx + 1}. {sellerLevelLabel(rank)} · {volumes[rank]}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                            <p className="mt-2 text-[11px] text-[#9CA3AF]">
+                              Every rank change shows a confirmation dialog before saving. You can optionally add a reason — it is written to the audit log alongside the admin, seller, previous rank, new rank, and timestamp.
+                            </p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
                   ) : null}
 
                   {activeSection === "marketplace-listings" ? (
@@ -2404,6 +2789,88 @@ export function AlphaExchangeAdminDashboard() {
                   </div>
                 </div>
               ) : null}
+            </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {rankConfirmPending ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+            onClick={() => { setRankConfirmPending(null); setRankConfirmReason(""); }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 8 }}
+              transition={{ duration: 0.18 }}
+              className="w-full max-w-md rounded-2xl border border-white/15 bg-[#0D0D0D] p-6 shadow-[0_24px_60px_rgba(0,0,0,0.7)]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="mb-5">
+                <div className="flex items-center gap-3 mb-1">
+                  <Trophy className="h-5 w-5 text-[#C9A227]" />
+                  <h3 className="text-base font-semibold text-white">Change Seller Rank?</h3>
+                </div>
+                <p className="text-xs text-[#9CA3AF] pl-8">This will immediately update the seller&apos;s public marketplace appearance.</p>
+              </div>
+
+              {/* Seller info */}
+              <div className="mb-5 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
+                <p className="text-xs text-[#9CA3AF] mb-2">You&apos;re about to change:</p>
+                <p className="text-sm font-medium text-white mb-3">{rankConfirmPending.sellerName}</p>
+                <div className="flex items-center gap-3">
+                  <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] ${RANK_BADGE_COLOR[rankConfirmPending.fromRank]}`}>
+                    {sellerLevelLabel(rankConfirmPending.fromRank)} Seller
+                  </span>
+                  <span className="text-[#9CA3AF] text-xs">→</span>
+                  <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] ${RANK_BADGE_COLOR[rankConfirmPending.toRank]}`}>
+                    {sellerLevelLabel(rankConfirmPending.toRank)} Seller
+                  </span>
+                </div>
+              </div>
+
+              {/* Optional reason */}
+              <div className="mb-6">
+                <label className="block text-xs font-medium text-[#9CA3AF] mb-1.5">
+                  Reason <span className="text-[#6B7280]">(optional — saved in audit log)</span>
+                </label>
+                <textarea
+                  value={rankConfirmReason}
+                  onChange={(e) => setRankConfirmReason(e.target.value)}
+                  placeholder="e.g. Outstanding reputation and consistently high trade completion rate."
+                  rows={2}
+                  maxLength={300}
+                  className="w-full resize-none rounded-lg border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white placeholder:text-[#4B5563] focus:border-[#C9A227]/50 focus:outline-none"
+                />
+                {rankConfirmReason.length > 0 && (
+                  <p className="mt-1 text-right text-[10px] text-[#6B7280]">{rankConfirmReason.length}/300</p>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="flex-1 border-white/15 bg-white/[0.05] text-[#D1D5DB] hover:bg-white/10"
+                  onClick={() => { setRankConfirmPending(null); setRankConfirmReason(""); }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  className="flex-1 border-[#C9A227]/40 bg-[#C9A227]/15 text-[#C9A227] hover:bg-[#C9A227]/25"
+                  onClick={() => void handleRankConfirm()}
+                >
+                  Confirm
+                </Button>
+              </div>
             </motion.div>
           </motion.div>
         ) : null}
