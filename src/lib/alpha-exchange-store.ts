@@ -3607,7 +3607,7 @@ export async function createSellerApplication(input: {
     details: "Your seller application is pending owner review.",
   });
 
-  await writeDb(db, { selectedTables: AUDIT_LOG_ONLY_TABLES });
+  await writeDb(db, { selectedTables: SELLER_APPLICATION_REVIEW_TABLES });
   return next;
 }
 
