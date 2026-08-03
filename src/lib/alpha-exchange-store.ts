@@ -3347,6 +3347,7 @@ export async function createAuthSession(userId: string, token: string, durationD
   };
   const repository = await getAlphaExchangeRepository();
   await repository.upsertAuthSession(session);
+  console.log("[auth-trace] createAuthSession: session created for userId:", userId, "expires:", session.expiresAt);
   const cachedSessions = dbCache?.value.authSessions ?? [];
   syncCachedAuthSessions([...cachedSessions.filter((item) => item.userId !== userId && item.token !== session.token), session]);
   return session;
@@ -3356,13 +3357,18 @@ export async function getSessionByToken(token: string) {
   const hashed = hashToken(token);
   const repository = await getAlphaExchangeRepository();
   const session = await repository.getAuthSession(hashed);
-  if (!session) return null;
+  if (!session) {
+    console.log("[auth-trace] getSessionByToken: NOT FOUND in DB for token hash");
+    return null;
+  }
   if (new Date(session.expiresAt) < new Date()) {
+    console.log("[auth-trace] getSessionByToken: session EXPIRED for userId:", session.userId);
     await repository.deleteAuthSession(hashed);
     const cachedSessions = dbCache?.value.authSessions ?? [];
     syncCachedAuthSessions(cachedSessions.filter((item) => item.token !== hashed));
     return null;
   }
+  console.log("[auth-trace] getSessionByToken: found session for userId:", session.userId, "expires:", session.expiresAt);
   return session;
 }
 
