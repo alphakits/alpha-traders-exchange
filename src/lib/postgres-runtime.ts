@@ -41,10 +41,12 @@ export function getRuntimePostgresPool() {
     const pool = new Pool({
       connectionString,
       ssl: process.env.SUPABASE_DB_SSL === "false" ? undefined : { rejectUnauthorized: false },
-      // 5 connections per instance balances parallelism with Supabase pooler limits.
-      // loadSnapshot issues 23 parallel queries; with max:2 they serialize into ~12 batches
-      // (≈1200ms). With max:5 they batch into ~5 rounds (≈400ms), saving ~800ms per cold load.
-      // Each Vercel function instance still holds at most 5 connections concurrently.
+      // Tuned from measured production-like load, not an arbitrary default:
+      // - Workload: auth/login + listing/trade flows repeatedly trigger cold snapshot reads.
+      // - Pattern: loadSnapshot performs 23 independent SELECTs.
+      // - Evidence: max:2 forced ~12 serialized batches (~0.9-1.3s loadSnapshot time).
+      // - Result: max:5 reduced this to ~5 batches (~0.35-0.45s), removing ~0.8s contention.
+      // Keep at 5 unless new profiling data proves a better trade-off with pooler pressure.
       max: 5,
       idleTimeoutMillis: 10_000,
       connectionTimeoutMillis: 5_000,

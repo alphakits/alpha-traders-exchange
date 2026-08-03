@@ -8,6 +8,8 @@ import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { appendLoginJourneyStep, incrementLoginJourneyApiCall } from "@/lib/login-journey-trace";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
+import { formatListingId, formatTradeId } from "@/lib/format-id";
+import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -63,6 +65,14 @@ function extractRequestIdFromTradeRoomHref(href: string | null) {
   const normalized = href.replace(/\/+$/, "");
   const requestId = normalized.slice(normalized.lastIndexOf("/") + 1).trim();
   return requestId || null;
+}
+
+function formatNotificationTitle(notification: AlphaExchangeNotification) {
+  return replaceExchangeEntityIdsWithHints(notification.title, notification);
+}
+
+function formatNotificationMessage(notification: AlphaExchangeNotification) {
+  return replaceExchangeEntityIdsWithHints(notification.message, notification);
 }
 
 export function NotificationBell({ locale }: { locale: AppLocale }) {
@@ -310,22 +320,18 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[#C9A227]" />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="truncate text-sm font-medium text-white">{notification.title}</p>
+                          <p className="truncate text-sm font-medium text-white">{formatNotificationTitle(notification)}</p>
                           <span className="shrink-0 text-[11px] text-[#9CA3AF]">{formatRelativeTime(notification.createdAt, locale)}</span>
                         </div>
-                        <p className="mt-1 line-clamp-2">{notification.message}</p>
+                        <p className="mt-1 line-clamp-2">{formatNotificationMessage(notification)}</p>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           {!notification.isRead ? <span className="inline-flex items-center rounded-full bg-[#C9A227]/20 px-2 py-0.5 text-[10px] text-[#C9A227]">Unread</span> : null}
-                          {notification.relatedTradeDisplayNumber
-                            ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Trade #{notification.relatedTradeDisplayNumber}</span>
-                            : notification.relatedTradeId
-                              ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Trade</span>
-                              : null}
-                          {notification.relatedListingDisplayNumber
-                            ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Listing #{notification.relatedListingDisplayNumber}</span>
-                            : notification.relatedListingId
-                              ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Listing</span>
-                              : null}
+                          {notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber
+                            ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Trade {formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId)}</span>
+                            : null}
+                          {notification.relatedListingId || notification.relatedListingDisplayNumber
+                            ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Listing {formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}</span>
+                            : null}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           <Button

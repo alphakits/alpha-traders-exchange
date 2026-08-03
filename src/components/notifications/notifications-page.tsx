@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
+import { formatListingId, formatTradeId } from "@/lib/format-id";
+import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -76,6 +78,14 @@ function extractRequestIdFromTradeRoomHref(href: string | null) {
   const normalized = href.replace(/\/+$/, "");
   const requestId = normalized.slice(normalized.lastIndexOf("/") + 1).trim();
   return requestId || null;
+}
+
+function formatNotificationTitle(notification: AlphaExchangeNotification) {
+  return replaceExchangeEntityIdsWithHints(notification.title, notification);
+}
+
+function formatNotificationMessage(notification: AlphaExchangeNotification) {
+  return replaceExchangeEntityIdsWithHints(notification.message, notification);
 }
 
 export function NotificationsPage({ locale }: { locale: AppLocale }) {
@@ -307,14 +317,14 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                     <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[#C9A227]" />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-start justify-between gap-2">
-                        <p className="text-sm font-medium text-white">{notification.title}</p>
+                        <p className="text-sm font-medium text-white">{formatNotificationTitle(notification)}</p>
                         <span className="text-[11px] text-[#9CA3AF]">{formatTimestamp(notification.createdAt, locale)}</span>
                       </div>
-                      <p className="mt-1 text-sm text-[#D1D5DB]">{notification.message}</p>
+                      <p className="mt-1 text-sm text-[#D1D5DB]">{formatNotificationMessage(notification)}</p>
                       <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-[#C9A227]">
                         {!notification.isRead ? <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5">Unread</span> : <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#9CA3AF]">Read</span>}
-                        {notification.relatedTradeDisplayNumber ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">Trade #{notification.relatedTradeDisplayNumber}</span> : notification.relatedTradeId ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">Trade</span> : null}
-                        {notification.relatedListingDisplayNumber ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">Listing #{notification.relatedListingDisplayNumber}</span> : null}
+                        {notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">Trade {formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId)}</span> : null}
+                        {notification.relatedListingId || notification.relatedListingDisplayNumber ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">Listing {formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}</span> : null}
                         {notification.tradeSnapshot?.usdtAmount ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">{notification.tradeSnapshot.usdtAmount} USDT</span> : null}
                         {notification.tradeSnapshot?.counterpartyName ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">{notification.tradeSnapshot.counterpartyName}</span> : null}
                       </div>

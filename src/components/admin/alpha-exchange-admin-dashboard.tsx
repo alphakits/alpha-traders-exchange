@@ -6,6 +6,8 @@ import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, L
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { createExchangeDisplayLookup, replaceExchangeEntityIds } from "@/lib/alpha-exchange-display";
+import { formatCommissionId, formatListingId, formatRequestId, formatTradeId } from "@/lib/format-id";
 import { RoleBadge } from "@/components/ui/role-badge";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, AuditLogEntry, BetaAnnouncement, BetaAnnouncementType, BetaFeedbackCategory, CommissionRecord, MarketplaceListing, OwnerBusinessDashboardMetrics, OwnerPrivateBetaDashboardData, PurchaseRequest, SellerApplication, SellerAvailabilityStatus, SellerLevel, SellerReviewRecord, SupportedNetwork } from "@/types/alpha-exchange";
 
@@ -121,6 +123,22 @@ function formatUsdt(value: number) {
 
 function formatPercent(value: number) {
   return `${value.toLocaleString("en-IL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+}
+
+function displayTradeId(request: Pick<PurchaseRequest, "displayNumber" | "tradeId" | "id"> | null | undefined, fallbackId?: string | null) {
+  return formatTradeId(request?.displayNumber, request?.tradeId ?? request?.id ?? fallbackId);
+}
+
+function displayListingId(listing: Pick<MarketplaceListing, "displayNumber" | "id"> | null | undefined, fallbackId?: string | null) {
+  return formatListingId(listing?.displayNumber, listing?.id ?? fallbackId);
+}
+
+function displayRequestId(request: Pick<PurchaseRequest, "displayNumber" | "id"> | null | undefined, fallbackId?: string | null) {
+  return formatRequestId(request?.displayNumber, request?.id ?? fallbackId);
+}
+
+function displayCommissionId(record: Pick<CommissionRecord, "displayNumber" | "id"> | null | undefined, fallbackId?: string | null) {
+  return formatCommissionId(record?.displayNumber, record?.id ?? fallbackId);
 }
 
 function sellerLevelLabel(level?: SellerLevel) {
@@ -285,6 +303,16 @@ export function AlphaExchangeAdminDashboard() {
     }
     return map;
   }, [data?.purchaseRequests]);
+  const displayLookup = useMemo(
+    () =>
+      createExchangeDisplayLookup({
+        listings: data?.listings,
+        requests: data?.purchaseRequests,
+        commissions: data?.commissionRecords,
+        applications: data?.applications,
+      }),
+    [data?.applications, data?.commissionRecords, data?.listings, data?.purchaseRequests],
+  );
 
   const applicationsRows = useMemo(() => {
     const items = (data?.applications ?? []).filter((application) => {
@@ -343,7 +371,7 @@ export function AlphaExchangeAdminDashboard() {
       if (!query) return true;
       const listing = listingById.get(request.listingId);
       const seller = sellersById.get(request.sellerId);
-      const haystack = `${request.tradeId ?? request.id} ${request.buyerName} ${request.buyerWhatsapp} ${seller?.fullName ?? request.sellerId} ${listing?.id ?? request.listingId}`.toLowerCase();
+      const haystack = `${request.tradeId ?? request.id} ${displayTradeId(request)} ${request.buyerName} ${request.buyerWhatsapp} ${seller?.fullName ?? request.sellerId} ${listing?.id ?? request.listingId} ${displayListingId(listing, request.listingId)}`.toLowerCase();
       return haystack.includes(query);
     });
     const sorted = [...items].sort((a, b) => {
@@ -360,7 +388,7 @@ export function AlphaExchangeAdminDashboard() {
       const query = commissionsQuery.trim().toLowerCase();
       if (!query) return true;
       const tradeId = request?.tradeId ?? record.tradeId ?? record.purchaseRequestId;
-      const haystack = `${record.id} ${tradeId} ${request?.buyerName ?? record.buyerId} ${seller?.fullName ?? record.sellerId}`.toLowerCase();
+      const haystack = `${record.id} ${displayCommissionId(record)} ${tradeId} ${request ? displayTradeId(request, record.purchaseRequestId) : displayTradeId(null, tradeId)} ${request?.buyerName ?? record.buyerId} ${seller?.fullName ?? record.sellerId}`.toLowerCase();
       return haystack.includes(query);
     });
     const sorted = [...items].sort((a, b) => {
@@ -378,7 +406,7 @@ export function AlphaExchangeAdminDashboard() {
       if (!query) return true;
       const actor = sellersById.get(entry.actorUserId)?.fullName ?? entry.actorUserId;
       const tradeId = entry.purchaseRequestId ? (requestsById.get(entry.purchaseRequestId)?.tradeId ?? entry.purchaseRequestId) : "";
-      const haystack = `${entry.action} ${entry.details ?? ""} ${actor} ${entry.listingId ?? ""} ${tradeId}`.toLowerCase();
+      const haystack = `${entry.action} ${entry.details ?? ""} ${replaceExchangeEntityIds(entry.details ?? "", displayLookup)} ${actor} ${entry.listingId ?? ""} ${entry.listingId ? displayListingId(listingById.get(entry.listingId), entry.listingId) : ""} ${tradeId}`.toLowerCase();
       return haystack.includes(query);
     });
     const sorted = [...items].sort((a, b) => {
@@ -386,18 +414,18 @@ export function AlphaExchangeAdminDashboard() {
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
     return paginate(sorted, auditPage);
-  }, [auditAction, auditPage, auditQuery, auditSort, data?.auditLogs, requestsById, sellersById]);
+  }, [auditAction, auditPage, auditQuery, auditSort, data?.auditLogs, displayLookup, listingById, requestsById, sellersById]);
 
   const notificationRows = useMemo(() => {
     const items = (data?.notifications ?? []).filter((entry) => {
       const query = notificationQuery.trim().toLowerCase();
       if (!query) return true;
       const seller = sellersById.get(entry.userId);
-      const haystack = `${entry.title} ${entry.message} ${entry.category} ${seller?.fullName ?? entry.userId} ${entry.relatedTradeId ?? ""} ${entry.relatedListingId ?? ""}`.toLowerCase();
+      const haystack = `${entry.title} ${entry.message} ${replaceExchangeEntityIds(entry.title, displayLookup)} ${replaceExchangeEntityIds(entry.message, displayLookup)} ${entry.category} ${seller?.fullName ?? entry.userId} ${entry.relatedTradeId ?? ""} ${entry.relatedListingId ?? ""}`.toLowerCase();
       return haystack.includes(query);
     });
     return paginate(items, notificationPage);
-  }, [data?.notifications, notificationPage, notificationQuery, sellersById]);
+  }, [data?.notifications, displayLookup, notificationPage, notificationQuery, sellersById]);
 
   const expirationHistory = useMemo(
     () => (data?.auditLogs ?? []).filter((entry) => entry.action === "listing_expired" || entry.action === "listing_renewed" || entry.action === "listing_expiration_extended" || entry.action === "admin_override"),
@@ -640,7 +668,7 @@ export function AlphaExchangeAdminDashboard() {
         const seller = sellersById.get(record.sellerId);
         const buyerName = request?.buyerName ?? record.buyerId;
         const sellerName = seller?.fullName ?? record.sellerId;
-        const tradeId = request?.tradeId ?? record.tradeId ?? record.purchaseRequestId;
+        const tradeId = displayTradeId(request, record.tradeId ?? record.purchaseRequestId);
         return [tradeId, buyerName, sellerName, record.grossAmount.toFixed(2), record.commissionAmount.toFixed(2), record.paymentStatus, record.createdAt].join(",");
       }),
     ];
@@ -660,8 +688,8 @@ export function AlphaExchangeAdminDashboard() {
       ...rows.map((request) => {
         const seller = sellersById.get(request.sellerId);
         return [
-          request.tradeId ?? "",
-          request.id,
+          displayTradeId(request),
+          displayRequestId(request),
           request.buyerName,
           seller?.fullName ?? request.sellerId,
           request.usdtAmount,
@@ -899,7 +927,7 @@ export function AlphaExchangeAdminDashboard() {
                             <p>Commission This Week: <span className="text-white">{formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek)}</span></p>
                             <p>Commission This Month: <span className="text-white">{formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth)}</span></p>
                             <p>Largest Trade: <span className="text-white">{formatUsdt(data.ownerBusiness.financialOverview.largestTradeUsdt)}</span></p>
-                            <p>Largest Trade ID: <span className="text-white">{data.ownerBusiness.financialOverview.largestTradeId}</span></p>
+                            <p>Largest Trade ID: <span className="font-mono font-medium text-white">{replaceExchangeEntityIds(data.ownerBusiness.financialOverview.largestTradeId, displayLookup)}</span></p>
                             <p>Largest Seller: <span className="text-white">{data.ownerBusiness.financialOverview.largestSeller}</span></p>
                             <p>Average Trade Size: <span className="text-white">{formatUsdt(data.ownerBusiness.financialOverview.averageTradeSizeUsdt)}</span></p>
                           </CardContent>
@@ -913,7 +941,7 @@ export function AlphaExchangeAdminDashboard() {
                           <CardContent className="max-h-[360px] space-y-2 overflow-y-auto text-sm text-[#D1D5DB]">
                             {data.ownerBusiness.liveActivity.slice(0, 10).map((entry) => (
                               <div key={entry.id} className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2">
-                                <p className="text-white">{entry.message}</p>
+                                <p className="text-white">{replaceExchangeEntityIds(entry.message, displayLookup)}</p>
                                 <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">
                                   {entry.type.replaceAll("_", " ")} • {formatDate(entry.createdAt)}
                                 </p>
@@ -1484,7 +1512,7 @@ export function AlphaExchangeAdminDashboard() {
                           <table className="w-full min-w-[980px] text-sm">
                             <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
                               <tr>
-                                <th className="px-4 py-3">Trade ID</th>
+                                <th className="w-[11rem] px-4 py-3 text-center">Trade ID</th>
                                 <th className="px-4 py-3">Buyer</th>
                                 <th className="px-4 py-3">Seller</th>
                                 <th className="px-4 py-3">Amount</th>
@@ -1501,11 +1529,11 @@ export function AlphaExchangeAdminDashboard() {
                                 const seller = sellersById.get(request.sellerId);
                                 return (
                                   <tr key={request.id} className="border-t border-white/10">
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{request.tradeId ?? request.id}</td>
+                                    <td className="w-[11rem] px-4 py-3 text-center font-mono font-medium whitespace-nowrap text-[#D1D5DB]">{displayTradeId(request)}</td>
                                     <td className="px-4 py-3 text-white">{request.buyerName}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{seller?.fullName ?? request.sellerId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{request.usdtAmount ?? listing?.availableAmount ?? "—"}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{request.listingId}</td>
+                                    <td className="px-4 py-3 font-mono font-medium whitespace-nowrap text-[#D1D5DB]">{displayListingId(listing, request.listingId)}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{request.bankName ?? listing?.bankName ?? "—"}</td>
                                     <td className="px-4 py-3">
                                       <span className="rounded-full border border-white/20 bg-white/5 px-2.5 py-1 text-xs text-white/80">{request.status}</span>
@@ -1529,7 +1557,7 @@ export function AlphaExchangeAdminDashboard() {
                           <div className="mt-3 space-y-2 text-xs text-[#D1D5DB]">
                             {timeoutHistory.slice(0, 10).map((request) => (
                               <div key={request.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                                <p className="text-white">{request.tradeId ?? request.id}</p>
+                                <p className="font-mono font-medium text-white">{displayTradeId(request)}</p>
                                 <p>{request.timeoutReason ?? "Trade timed out."}</p>
                                 <p className="text-[#9CA3AF]">{request.timedOutAt ? formatDate(request.timedOutAt) : "—"}</p>
                               </div>
@@ -1571,7 +1599,7 @@ export function AlphaExchangeAdminDashboard() {
                           <table className="w-full min-w-[980px] text-sm">
                             <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
                               <tr>
-                                <th className="px-4 py-3">Trade ID</th>
+                                <th className="w-[11rem] px-4 py-3 text-center">Trade ID</th>
                                 <th className="px-4 py-3">Buyer</th>
                                 <th className="px-4 py-3">Seller</th>
                                 <th className="px-4 py-3">Trade Value</th>
@@ -1587,7 +1615,7 @@ export function AlphaExchangeAdminDashboard() {
                                 const seller = sellersById.get(record.sellerId);
                                 return (
                                   <tr key={record.id} className="border-t border-white/10">
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{request?.tradeId ?? record.tradeId ?? record.purchaseRequestId}</td>
+                                    <td className="w-[11rem] px-4 py-3 text-center font-mono font-medium whitespace-nowrap text-[#D1D5DB]">{displayTradeId(request, record.tradeId ?? record.purchaseRequestId)}</td>
                                     <td className="px-4 py-3 text-white">{request?.buyerName ?? record.buyerId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{seller?.fullName ?? record.sellerId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{formatCurrency(record.grossAmount)}</td>
@@ -1729,9 +1757,15 @@ export function AlphaExchangeAdminDashboard() {
                                     <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(entry.createdAt)}</td>
                                     <td className="px-4 py-3 text-white">{actor?.fullName ?? entry.actorUserId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{entry.action}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{entry.listingId ?? (entry.purchaseRequestId ? (requestsById.get(entry.purchaseRequestId)?.tradeId ?? entry.purchaseRequestId) : undefined) ?? entry.targetUserId ?? "system"}</td>
+                                    <td className="px-4 py-3 font-mono font-medium whitespace-nowrap text-[#D1D5DB]">
+                                      {entry.listingId
+                                        ? `Listing ${displayListingId(listingById.get(entry.listingId), entry.listingId)}`
+                                        : entry.purchaseRequestId
+                                          ? `Trade ${displayTradeId(requestsById.get(entry.purchaseRequestId), entry.purchaseRequestId)}`
+                                          : entry.targetUserId ?? "system"}
+                                    </td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{entry.reason ?? "—"}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{entry.details ?? "—"}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{replaceExchangeEntityIds(entry.details ?? "—", displayLookup)}</td>
                                   </tr>
                                 );
                               })}
@@ -1762,8 +1796,8 @@ export function AlphaExchangeAdminDashboard() {
                                     <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(entry.createdAt)}</td>
                                     <td className="px-4 py-3 text-white">{sellersById.get(entry.userId)?.fullName ?? entry.userId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{entry.category}</td>
-                                    <td className="px-4 py-3 text-white">{entry.title}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{entry.message}</td>
+                                    <td className="px-4 py-3 text-white">{replaceExchangeEntityIds(entry.title, displayLookup)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{replaceExchangeEntityIds(entry.message, displayLookup)}</td>
                                   </tr>
                                 ))}
                                 {notificationRows.rows.length === 0 ? renderEmptyTableRow("No notifications match your search.", 5) : null}
@@ -1878,7 +1912,7 @@ export function AlphaExchangeAdminDashboard() {
                               {betaFeedbackRows.map((entry) => (
                                 <div key={entry.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs">
                                   <p className="text-white">{feedbackCategoryLabel(entry.category)} • {entry.status}</p>
-                                  <p className="mt-1 text-[#D1D5DB]">{entry.message}</p>
+                                  <p className="mt-1 text-[#D1D5DB]">{replaceExchangeEntityIds(entry.message, displayLookup)}</p>
                                   <p className="mt-1 text-[#9CA3AF]">{formatDate(entry.createdAt)}</p>
                                   <div className="mt-2 flex gap-2">
                                     <Button type="button" size="sm" variant="secondary" onClick={() => void handleFeedbackStatus(entry.id, "in_review")}>In Review</Button>
@@ -2282,11 +2316,11 @@ export function AlphaExchangeAdminDashboard() {
                 </button>
               </div>
               <div className="mt-4 grid gap-2 text-sm text-[#D1D5DB]">
-                <p>Request ID: <span className="text-white">{selectedRequest.id}</span></p>
-                <p>Trade ID: <span className="text-white">{selectedRequest.tradeId ?? selectedRequest.id}</span></p>
+                <p>Request ID: <span className="font-mono font-medium text-white">{displayRequestId(selectedRequest)}</span></p>
+                <p>Trade ID: <span className="font-mono font-medium text-white">{displayTradeId(selectedRequest)}</span></p>
                 <p>Buyer: <span className="text-white">{selectedRequest.buyerName}</span></p>
                 <p>WhatsApp: <span className="text-white">{selectedRequest.buyerWhatsapp}</span></p>
-                <p>Listing: <span className="text-white">{selectedRequest.listingId}</span></p>
+                <p>Listing: <span className="font-mono font-medium text-white">{displayListingId(listingById.get(selectedRequest.listingId), selectedRequest.listingId)}</span></p>
                 <p>Seller: <span className="text-white">{sellersById.get(selectedRequest.sellerId)?.fullName ?? selectedRequest.sellerId}</span></p>
                 <p>Status: <span className="text-white">{selectedRequest.status}</span></p>
                 <p>USDT Amount: <span className="text-white">{selectedRequest.usdtAmount}</span></p>

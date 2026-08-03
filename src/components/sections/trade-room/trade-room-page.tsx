@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { AlphaExchangeNotification, MarketplaceListing, PurchaseRequest, TradeChatMessage, TradeEvidenceFile, TradeTimelineEntry, UserRole } from "@/types/alpha-exchange";
+import { formatTradeId } from "@/lib/format-id";
 import { readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
 import { isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 
@@ -1460,7 +1461,7 @@ export function TradeRoomPage({
             <div className="grid gap-3 xl:grid-cols-[minmax(0,1.45fr)_320px] xl:items-end">
               <div>
                 <p className="text-xs uppercase tracking-[0.14em] text-[#C9A227]">{isAr ? "غرفة التداول" : "Trade Room"}</p>
-                <CardTitle className="mt-1 text-2xl font-semibold">{request.displayNumber ? `Trade #${request.displayNumber}` : request.tradeId ?? `Trade #${request.id.slice(-6)}`}</CardTitle>
+                <CardTitle className="mt-1 text-2xl font-semibold">{`Trade ${formatTradeId(request.displayNumber, request.tradeId ?? request.id)}`}</CardTitle>
                 <p className="mt-1 text-sm text-[#D1D5DB]">
                   {isAr ? "المبلغ:" : "Amount:"} <span className="font-semibold text-white">{toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT</span> • {toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}
                 </p>
