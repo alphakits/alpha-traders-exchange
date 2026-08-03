@@ -16,6 +16,7 @@ import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
 import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, isCardlessAtmPaymentMethod, isBankTransferPaymentMethod, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import { CLIENT_COMMISSION_WALLETS, COMMISSION_NETWORKS, type CommissionNetworkId } from "@/lib/commission-config";
+import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, finalizeLoginJourneyRedirectEnd, incrementLoginJourneyApiCall, isLoginJourneyTraceEnabled } from "@/lib/login-journey-trace";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
@@ -405,7 +406,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
+  const [isSessionResolving, setIsSessionResolving] = useState(true);
   const [isLoadingListings, setIsLoadingListings] = useState(true);
+  const [isWorkspaceWidgetsLoading, setIsWorkspaceWidgetsLoading] = useState(true);
+  const [isSellerApplicationLoading, setIsSellerApplicationLoading] = useState(true);
+  const [notificationsInitialized, setNotificationsInitialized] = useState(false);
   const [pulseNow, setPulseNow] = useState(() => Date.now());
   const listingsLoadedAtRef = useRef<number>(Date.now());
   const [applicationSubmitted, setApplicationSubmitted] = useState(false);
@@ -544,6 +549,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [notificationUnreadOnly, setNotificationUnreadOnly] = useState(false);
   const [notificationPreferences, setNotificationPreferences] = useState<{ inApp: boolean; email: boolean; sms: boolean }>({ inApp: true, email: false, sms: false });
   const notificationsRequestIdRef = useRef(0);
+  const bootstrapCompletedAtRef = useRef<number | null>(null);
+  const renderCompleteRecordedRef = useRef(false);
+  const interactivePaintRecordedRef = useRef(false);
+  const notificationsLoadRecordedRef = useRef(false);
 
   const [buyerInfo, setBuyerInfo] = useState({ name: "", whatsapp: "", notes: "", usdtAmount: "" });
   const [sellerForm, setSellerForm] = useState({
@@ -556,11 +565,26 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   });
   const [sellerApplicationMethods, setSellerApplicationMethods] = useState<SellerApplicationMethod[]>(["USDT (ERC20 / Ethereum)"]);
 
+  const tracedFetch = useCallback(async (label: string, input: string, init?: RequestInit) => {
+    const startedAt = Date.now();
+    incrementLoginJourneyApiCall(input);
+    const response = await fetch(input, init);
+    const endedAt = Date.now();
+    appendLoginJourneyStep(label, startedAt, endedAt, { endpoint: input.split("?")[0] ?? input, status: response.status });
+    if (input.startsWith("/api/auth/me")) {
+      appendLoginJourneyServerTimeline(response.headers.get("X-Auth-Me-Timeline"));
+    }
+    if (input.startsWith("/api/auth/profile")) {
+      appendLoginJourneyServerTimeline(response.headers.get("X-Auth-Profile-Timeline"));
+    }
+    return response;
+  }, []);
+
   const refreshSellerWorkspace = useCallback(async () => {
     try {
       const [requestsRes, myListingsRes] = await Promise.all([
-        fetch("/api/alpha-exchange/purchase-requests", { cache: "no-store" }),
-        fetch("/api/alpha-exchange/my-listings", { cache: "no-store" }),
+        tracedFetch("Workspace data loading: purchase requests", "/api/alpha-exchange/purchase-requests", { cache: "no-store" }),
+        tracedFetch("Workspace data loading: my listings", "/api/alpha-exchange/my-listings", { cache: "no-store" }),
       ]);
       if (requestsRes.ok) {
         const requestsJson = (await requestsRes.json()) as { requests: PurchaseRequest[] };
@@ -600,7 +624,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     } catch {
       setWorkspaceError(safeErrorMessage("workspace"));
     }
-  }, []);
+  }, [tracedFetch]);
 
   const syncListingState = useCallback((listing: MarketplaceListing | null, options?: { remove?: boolean }) => {
     if (!listing) return;
@@ -640,29 +664,34 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       if (category !== "all") params.set("category", category);
       if (query.trim()) params.set("q", query.trim());
       if (unreadOnly) params.set("unreadOnly", "1");
-      const response = await fetch(`/api/alpha-exchange/notifications?${params.toString()}`, { cache: "no-store" });
+      const notificationsStartedAt = Date.now();
+      const response = await tracedFetch("Notifications loading", `/api/alpha-exchange/notifications?${params.toString()}`, { cache: "no-store" });
       if (!response.ok) throw new Error("failed");
       const payload = (await response.json()) as { notifications: AlphaExchangeNotification[]; activity: AlphaExchangeActivityLogEntry[] };
       if (requestId !== notificationsRequestIdRef.current) return;
       setNotifications(payload.notifications ?? []);
       setActivityHistory(payload.activity ?? []);
+      if (!notificationsLoadRecordedRef.current) {
+        notificationsLoadRecordedRef.current = true;
+        appendLoginJourneyStep("Notifications loading (first dashboard load)", notificationsStartedAt, Date.now(), { firstLoad: true });
+      }
     } catch {
       setStatusMessage(safeErrorMessage("workspace"));
     } finally {
       setNotificationsLoading(false);
     }
-  }, [notificationCategory, notificationQuery, notificationUnreadOnly, sessionUser]);
+  }, [notificationCategory, notificationQuery, notificationUnreadOnly, sessionUser, tracedFetch]);
 
   const refreshNotificationPreferences = useCallback(async () => {
     try {
-      const response = await fetch("/api/alpha-exchange/notification-preferences", { cache: "no-store" });
+      const response = await tracedFetch("Workspace data loading: notification preferences", "/api/alpha-exchange/notification-preferences", { cache: "no-store" });
       if (!response.ok) return;
       const payload = (await response.json()) as { preferences: { inApp: boolean; email: boolean; sms: boolean } };
       if (payload.preferences) setNotificationPreferences(payload.preferences);
     } catch {
       // Keep silent to preserve UX messaging style.
     }
-  }, []);
+  }, [tracedFetch]);
 
   async function handleMarkAllNotificationsRead() {
     const response = await fetch("/api/alpha-exchange/notifications", {
@@ -718,22 +747,25 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   }
 
   useEffect(() => {
+    if (isLoginJourneyTraceEnabled()) {
+      finalizeLoginJourneyRedirectEnd(Date.now());
+    }
     const controller = new AbortController();
     let cancelled = false;
 
     async function bootstrap() {
+      const workspaceInitStartedAt = Date.now();
       try {
-        const [meRes, listingsRes] = await Promise.all([
-          fetch("/api/auth/me", { cache: "no-store", signal: controller.signal }),
-          fetch("/api/alpha-exchange/listings", { cache: "no-store", signal: controller.signal }),
-        ]);
+        const meRes = await tracedFetch("/api/auth/me", "/api/auth/me", { cache: "no-store", signal: controller.signal });
         if (cancelled) return;
         const meJson = (await meRes.json()) as { user: SessionUser | null };
-        const listingsJson = (await listingsRes.json()) as { listings: MarketplaceListing[] };
         if (cancelled) return;
         setSessionUser(meJson.user);
-        setListings(listingsJson.listings ?? []);
-        listingsLoadedAtRef.current = Date.now();
+        setIsSessionResolving(false);
+        const shellReadyAt = Date.now();
+        appendLoginJourneyStep("Dashboard shell ready", workspaceInitStartedAt, shellReadyAt);
+        bootstrapCompletedAtRef.current = shellReadyAt;
+        appendLoginJourneyStep("Workspace initialization", workspaceInitStartedAt, shellReadyAt);
 
         if (meJson.user) {
           const user = meJson.user;
@@ -749,8 +781,52 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             name: user.fullName,
             whatsapp: user.whatsappNumber || prev.whatsapp,
           }));
+        }
+
+        // Listings are not required to make the dashboard shell interactive.
+        // Load them in parallel and keep only the listings area in skeleton mode meanwhile.
+        void (async () => {
+          try {
+            const listingsRes = await tracedFetch("Dashboard data loading: listings", "/api/alpha-exchange/listings", { cache: "no-store", signal: controller.signal });
+            if (cancelled) return;
+            const listingsJson = (await listingsRes.json()) as { listings: MarketplaceListing[] };
+            if (cancelled) return;
+            setListings(listingsJson.listings ?? []);
+            listingsLoadedAtRef.current = Date.now();
+            appendLoginJourneyStep("Dashboard data loading", shellReadyAt, Date.now());
+          } catch (error) {
+            if (error instanceof Error && error.name === "AbortError") return;
+            if (!cancelled) setWorkspaceError(safeErrorMessage("workspace"));
+          } finally {
+            if (!cancelled) setIsLoadingListings(false);
+          }
+        })();
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") return;
+        setIsSessionResolving(false);
+        setIsLoadingListings(false);
+        setIsWorkspaceWidgetsLoading(false);
+        setIsSellerApplicationLoading(false);
+        setWorkspaceError(safeErrorMessage("workspace"));
+      }
+    }
+    void bootstrap();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [tracedFetch]);
+
+  useEffect(() => {
+    if (!sessionUser) return;
+    setIsWorkspaceWidgetsLoading(true);
+    setIsSellerApplicationLoading(true);
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
           const [applicationRes] = await Promise.all([
-            fetch("/api/alpha-exchange/seller-application", { cache: "no-store", signal: controller.signal }),
+            tracedFetch("Workspace data loading: seller application", "/api/alpha-exchange/seller-application", { cache: "no-store" }),
             refreshSellerWorkspace(),
             refreshNotificationPreferences(),
           ]);
@@ -760,25 +836,53 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             if (cancelled) return;
             setSellerApplication(applicationJson.application);
           }
+        } catch {
+          if (!cancelled) setWorkspaceError(safeErrorMessage("workspace"));
+        } finally {
+          if (!cancelled) {
+            setIsSellerApplicationLoading(false);
+            setIsWorkspaceWidgetsLoading(false);
+          }
         }
-      } catch (error) {
-        if (error instanceof Error && error.name === "AbortError") return;
-        setWorkspaceError(safeErrorMessage("workspace"));
-      } finally {
-        if (!cancelled) setIsLoadingListings(false);
-      }
-    }
-    void bootstrap();
+      })();
+    }, 150);
     return () => {
       cancelled = true;
-      controller.abort();
+      window.clearTimeout(timer);
     };
-  }, [refreshNotificationPreferences, refreshSellerWorkspace]);
+  }, [refreshNotificationPreferences, refreshSellerWorkspace, sessionUser, tracedFetch]);
 
   useEffect(() => {
-    if (!sessionUser) return;
+    if (!sessionUser || notificationsInitialized) return;
+    if (isSessionResolving) return;
+    const timer = window.setTimeout(() => {
+      setNotificationsInitialized(true);
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [isSessionResolving, notificationsInitialized, sessionUser]);
+
+  useEffect(() => {
+    if (!sessionUser || !notificationsInitialized) return;
     void refreshNotifications();
-  }, [sessionUser, notificationCategory, notificationQuery, notificationUnreadOnly, refreshNotifications]);
+  }, [sessionUser, notificationsInitialized, notificationCategory, notificationQuery, notificationUnreadOnly, refreshNotifications]);
+
+  useEffect(() => {
+    if (isSessionResolving) return;
+    if (renderCompleteRecordedRef.current) return;
+    renderCompleteRecordedRef.current = true;
+    const renderEndedAt = Date.now();
+    const renderStartedAt = bootstrapCompletedAtRef.current ?? renderEndedAt;
+    appendLoginJourneyStep("React render complete", renderStartedAt, renderEndedAt);
+
+    if (!interactivePaintRecordedRef.current) {
+      interactivePaintRecordedRef.current = true;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          appendLoginJourneyStep("First interactive paint", renderEndedAt, Date.now());
+        });
+      });
+    }
+  }, [isSessionResolving]);
 
   useEffect(() => {
     const id = window.setInterval(() => setPulseNow(Date.now()), 1000);
@@ -1954,10 +2058,15 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           </Button>
         </div>
         <div className="space-y-2">
+          {!notificationsInitialized ? (
+            <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#9CA3AF]">
+              Loading notification center…
+            </div>
+          ) : null}
           {notificationsLoading ? (
             <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#9CA3AF]">Loading notifications...</div>
           ) : null}
-          {!notificationsLoading && notifications.length === 0 ? (
+          {notificationsInitialized && !notificationsLoading && notifications.length === 0 ? (
             <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-center text-xs text-[#9CA3AF]">
               <BellRing className="mx-auto mb-2 h-4 w-4 text-[#9CA3AF]" />
               No notifications yet. You&apos;ll be notified here about trades, listings, reviews, and account activity.
@@ -2682,9 +2791,15 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-
-            {/* ── State 1: Buyer verification not complete ── */}
-            {sessionUser && sessionUser.isPhotoVerified !== true ? (
+            {isSellerApplicationLoading ? (
+              <div className="space-y-3">
+                <div className="h-4 w-44 animate-pulse rounded bg-white/10" />
+                <div className="h-20 w-full animate-pulse rounded-2xl bg-white/10" />
+                <div className="h-20 w-full animate-pulse rounded-2xl bg-white/10" />
+              </div>
+            ) : (
+            /* ── State 1: Buyer verification not complete ── */
+            sessionUser && sessionUser.isPhotoVerified !== true ? (
               <div className="rounded-2xl border border-amber-500/35 bg-amber-500/10 p-5">
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
@@ -2876,7 +2991,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     : "Seller approval is performed manually to protect buyers and maintain a trusted marketplace. Applications are reviewed individually and additional verification may be requested before approval."}
                 </p>
               </>
-            )}
+            ))}
           </CardContent>
         </Card>
 
@@ -2977,7 +3092,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-            {isLoadingListings
+            {isWorkspaceWidgetsLoading
               ? Array.from({ length: 6 }).map((_, index) => (
                   <Card key={`seller-stat-skeleton-${index}`} className="border-white/10 bg-[#0B0B0B]/90">
                     <CardContent className="space-y-3 p-6">
@@ -2987,7 +3102,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   </Card>
                 ))
               : null}
-            {!isLoadingListings
+            {!isWorkspaceWidgetsLoading
               ? [
               { label: "Active Listings", value: sellerOverviewStats.activeListings.toLocaleString("en-IL"), icon: TrendingUp },
               { label: "Pending Trades", value: sellerOverviewStats.pendingRequests.toLocaleString("en-IL"), icon: MessageCircle },
@@ -3629,7 +3744,16 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               <CardDescription>{isAr ? "إدارة جميع عروضك كبائع معتمد." : "Manage all of your approved seller listings."}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {!isLoadingListings && myListings.length === 0 ? (
+              {isWorkspaceWidgetsLoading ? (
+                Array.from({ length: 2 }).map((_, index) => (
+                  <div key={`my-listings-skeleton-${index}`} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="h-3 w-32 animate-pulse rounded bg-white/10" />
+                    <div className="mt-3 h-4 w-full animate-pulse rounded bg-white/10" />
+                    <div className="mt-2 h-4 w-4/5 animate-pulse rounded bg-white/10" />
+                  </div>
+                ))
+              ) : null}
+              {!isWorkspaceWidgetsLoading && myListings.length === 0 ? (
                 <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center">
                   <Store className="mx-auto h-5 w-5 text-[#C9A227]" />
                   <p className="mt-2 text-sm font-medium text-white">{isAr ? "ليس لديك عروض نشطة حتى الآن" : "You don&apos;t have any active listings yet."}</p>
@@ -3857,7 +3981,16 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <option value="cancelled">Cancelled</option>
                 </select>
               </div>
-              {!isLoadingListings && sellerRequests.length === 0 ? (
+              {isWorkspaceWidgetsLoading ? (
+                Array.from({ length: 2 }).map((_, index) => (
+                  <div key={`seller-requests-skeleton-${index}`} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="h-3 w-28 animate-pulse rounded bg-white/10" />
+                    <div className="mt-3 h-4 w-full animate-pulse rounded bg-white/10" />
+                    <div className="mt-2 h-4 w-3/4 animate-pulse rounded bg-white/10" />
+                  </div>
+                ))
+              ) : null}
+              {!isWorkspaceWidgetsLoading && sellerRequests.length === 0 ? (
                 <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center">
                   <MessageCircle className="mx-auto h-5 w-5 text-[#C9A227]" />
                   <p className="mt-2 text-sm font-medium text-white">{isAr ? "لا توجد طلبات شراء قيد الانتظار" : "No purchase requests yet."}</p>

@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, beginLoginJourney, noteLoginJourneyRedirectStart } from "@/lib/login-journey-trace";
 
 export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirectTo?: string }) {
   const isAr = locale === "ar";
@@ -70,13 +71,17 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
   }
 
   async function handleLoginSubmit(event: FormEvent<HTMLFormElement>) {
+    const clickStartedAt = Date.now();
     event.preventDefault();
     setStatusMessage(null);
     setErrorMessage(null);
     setRequiresEmailVerification(false);
     if (isLoginSubmitting) return;
     setIsLoginSubmitting(true);
+    beginLoginJourney();
+    appendLoginJourneyStep("User clicks Login", clickStartedAt, Date.now());
     try {
+      const loginFetchStartedAt = Date.now();
       const response = await fetch("/api/auth/login", {
         method: "POST",
         cache: "no-store",
@@ -84,6 +89,11 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
+      appendLoginJourneyStep("HTTP response returned", loginFetchStartedAt, Date.now(), {
+        endpoint: "/api/auth/login",
+        status: response.status,
+      });
+      appendLoginJourneyServerTimeline(response.headers?.get?.("X-Auth-Login-Timeline") ?? null);
       let payload: {
         error?: string;
         user?: { role?: string; roles?: string[]; sellerStatus?: string; onboardingSelection?: string; onboardingCompletedAt?: string };
@@ -115,6 +125,7 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
       }
 
       const target = resolveLoginRedirectTarget(redirectTo, userForRedirect);
+      noteLoginJourneyRedirectStart(Date.now());
       window.location.replace(toLocaleHref(target));
     } catch {
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");

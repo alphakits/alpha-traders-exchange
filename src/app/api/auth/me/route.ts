@@ -6,13 +6,31 @@ import { isPhotoVerificationBypassed, isVerified } from "@/lib/verification-bypa
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
 export async function GET() {
+  const routeStartedAt = Date.now();
+  const timeline: Array<{ name: string; startTime: number; endTime: number; durationMs: number }> = [];
+  const loadUserStartedAt = Date.now();
   const user = await getCurrentSessionUser();
+  const loadUserEndedAt = Date.now();
+  timeline.push({
+    name: "/api/auth/me",
+    startTime: loadUserStartedAt,
+    endTime: loadUserEndedAt,
+    durationMs: Math.max(0, loadUserEndedAt - loadUserStartedAt),
+  });
   if (!user) {
     const token = await getCurrentSessionToken();
     await clearUserSession(token);
     const cookieStore = await cookies();
     expireAuthCookies(cookieStore, process.env.NODE_ENV === "production");
-    return NextResponse.json({ user: null }, { status: 200, headers: AUTH_RESPONSE_HEADERS });
+    const routeMs = Date.now() - routeStartedAt;
+    return NextResponse.json({ user: null }, {
+      status: 200,
+      headers: {
+        ...AUTH_RESPONSE_HEADERS,
+        "X-Auth-Me-Route-Ms": String(routeMs),
+        "X-Auth-Me-Timeline": JSON.stringify(timeline),
+      },
+    });
   }
   const cookieStore = await cookies();
   const verificationBypassed = isPhotoVerificationBypassed(user.email);
@@ -27,6 +45,7 @@ export async function GET() {
       path: "/",
     });
   }
+  const routeMs = Date.now() - routeStartedAt;
   return NextResponse.json({
     user: {
       id: user.id,
@@ -66,5 +85,12 @@ export async function GET() {
       notificationPreferences: user.notificationPreferences ?? { inApp: true, email: false, sms: false },
       createdAt: user.createdAt,
     },
-  }, { headers: AUTH_RESPONSE_HEADERS });
+  }, {
+    headers: {
+      ...AUTH_RESPONSE_HEADERS,
+      "X-Auth-Me-Route-Ms": String(routeMs),
+      "X-Auth-Me-Timeline": JSON.stringify(timeline),
+      "Server-Timing": `route;dur=${routeMs}, me;dur=${Math.max(0, loadUserEndedAt - loadUserStartedAt)}`,
+    },
+  });
 }

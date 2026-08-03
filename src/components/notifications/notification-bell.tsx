@@ -6,6 +6,7 @@ import type { AppLocale } from "@/i18n/routing";
 import { Link, usePathname, useRouter } from "@/i18n/navigation";
 import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { appendLoginJourneyStep, incrementLoginJourneyApiCall } from "@/lib/login-journey-trace";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
 
 type NotificationsPayload = {
@@ -93,14 +94,17 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   }, [isOpen]);
 
   async function loadNotifications(limit: number) {
+    const startedAt = Date.now();
     setIsLoading(true);
     setError(null);
     try {
+      incrementLoginJourneyApiCall("/api/alpha-exchange/notifications");
       const response = await fetch(`/api/alpha-exchange/notifications?limit=${limit}&includeActivity=0`, { cache: "no-store" });
       if (!response.ok) throw new Error("Failed to load notifications.");
       const payload = (await response.json()) as NotificationsPayload;
       setNotifications(payload.notifications ?? []);
       setUnreadCount(payload.unreadCount ?? 0);
+      appendLoginJourneyStep("Notifications loading (header bell)", startedAt, Date.now(), { limit, status: response.status });
     } catch {
       setError("Failed to load notifications.");
     } finally {
@@ -109,7 +113,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   }
 
   useEffect(() => {
-    void loadNotifications(1);
+    void loadNotifications(20);
   }, []);
 
   useEffect(() => {
