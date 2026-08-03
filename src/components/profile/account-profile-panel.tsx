@@ -83,6 +83,24 @@ function normalizeRoleValues(values: Array<string | undefined>) {
   return values.map((value) => String(value ?? "").toLowerCase().trim()).filter(Boolean);
 }
 
+function resolveAdminProfileAccess(input: {
+  payload: AccountProfilePayload | null;
+  sessionRoles: string[];
+}) {
+  const payloadRoles = input.payload
+    ? normalizeRoleValues([...(input.payload.profile.roles ?? []), input.payload.profile.role])
+    : [];
+  const roleBadge = input.payload?.roleBadge;
+  const isOwner = roleBadge === "owner" || payloadRoles.includes("owner") || input.sessionRoles.includes("owner");
+  const hasAdminDashboardAccess = isOwner
+    || roleBadge === "administrator"
+    || payloadRoles.includes("admin")
+    || payloadRoles.includes("administrator")
+    || input.sessionRoles.includes("admin")
+    || input.sessionRoles.includes("administrator");
+  return { isOwner, hasAdminDashboardAccess, payloadRoles };
+}
+
 function AdministrationCard({ isAr, isOwner }: { isAr: boolean; isOwner: boolean }) {
   return (
     <Card className="border-[#C9A227]/25 bg-[linear-gradient(180deg,rgba(201,162,39,0.12),rgba(11,11,11,0.95))]">
@@ -409,8 +427,10 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
   }
 
   if (loading) {
-    const sessionIsOwner = sessionRoles.includes("owner");
-    const sessionHasAdminDashboardAccess = sessionIsOwner || sessionRoles.includes("admin") || sessionRoles.includes("administrator");
+    const { isOwner: sessionIsOwner, hasAdminDashboardAccess: sessionHasAdminDashboardAccess } = resolveAdminProfileAccess({
+      payload,
+      sessionRoles,
+    });
     return (
       <section className="section-container page-shell">
         <div className="mx-auto max-w-6xl space-y-5">
@@ -438,9 +458,10 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
   const isSeller = payload.stats.kind === "seller";
   const theme = profileTheme(payload.roleBadge);
   const statusCopy = isAr ? payload.accountStatuses.join(" • ") : payload.accountStatuses.join(" • ");
-  const roles = normalizeRoleValues([...(payload.profile.roles ?? []), payload.profile.role]);
-  const isOwner = roles.includes("owner");
-  const hasAdminDashboardAccess = isOwner || roles.includes("admin") || roles.includes("administrator");
+  const { isOwner, hasAdminDashboardAccess } = resolveAdminProfileAccess({
+    payload,
+    sessionRoles,
+  });
   const sellerRankKey = payload.stats.kind === "seller" ? tierVisualKey(payload.stats.sellerLevel) : "bronze";
   const sellerLevelForUi = payload.stats.kind === "seller" ? payload.stats.sellerLevel : "bronze";
 

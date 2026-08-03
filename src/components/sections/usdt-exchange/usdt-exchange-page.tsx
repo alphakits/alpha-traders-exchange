@@ -870,6 +870,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [notificationUnreadOnly, setNotificationUnreadOnly] = useState(false);
   const [notificationPreferences, setNotificationPreferences] = useState<{ inApp: boolean; email: boolean; sms: boolean }>({ inApp: true, email: false, sms: false });
   const notificationsRequestIdRef = useRef(0);
+  const deepLinkAppliedRef = useRef(false);
   const sellerDeferredPanelsSentinelRef = useRef<HTMLDivElement | null>(null);
   const bootstrapCompletedAtRef = useRef<number | null>(null);
   const renderCompleteRecordedRef = useRef(false);
@@ -1301,6 +1302,36 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     }));
     void fetchSellerProfileData(listing.sellerId);
   }, [isLoadingListings, listings, selectedListing, sessionUser, updateListingSelectionQuery, fetchSellerProfileData]);
+
+  useEffect(() => {
+    if (deepLinkAppliedRef.current) return;
+    if (typeof window === "undefined") return;
+    deepLinkAppliedRef.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const mode = params.get("mode");
+    const sort = params.get("sort");
+    const approvedOnly = params.get("approved") === "1";
+
+    if (sort && ["trust-desc", "price-asc", "amount-desc", "trades-desc", "rating-desc", "response-fast", "newest"].includes(sort)) {
+      setSortBy(sort as "trust-desc" | "price-asc" | "amount-desc" | "trades-desc" | "rating-desc" | "response-fast" | "newest");
+    }
+    if (approvedOnly) {
+      setShowMarketplaceFilters(true);
+      setOnlineOnlyFilter(true);
+      setTrustScoreFilter((prev) => prev || "40");
+    }
+    if (mode === "sell") {
+      requestAnimationFrame(() => {
+        scrollToCreateListingSection();
+      });
+      return;
+    }
+    if (mode === "buy") {
+      updateListingSelectionQuery(null);
+      const target = document.getElementById("marketplace-sellers") ?? document.getElementById("marketplace");
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [scrollToCreateListingSection, updateListingSelectionQuery]);
 
   useEffect(() => {
     if (!qaCommissionModeEnabled || !qaCommissionResetEnabled) return;
@@ -2878,6 +2909,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       </div>
 
       <div id="marketplace" className="mt-12">
+        <div id="marketplace-sellers" className="scroll-mt-28" />
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "السوق المباشر" : "Live Marketplace"}</h2>
           <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
@@ -2887,7 +2919,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         </div>
 
         {/* Marketplace Heartbeat */}
-        <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#0A0A0A]/90 shadow-[0_16px_48px_rgba(0,0,0,0.35)]">
+        <div id="market-overview" className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#0A0A0A]/90 shadow-[0_16px_48px_rgba(0,0,0,0.35)]">
           <div className="border-b border-white/[0.07] px-5 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs text-[#9CA3AF]">
               <Activity className="h-3.5 w-3.5 text-emerald-400" />

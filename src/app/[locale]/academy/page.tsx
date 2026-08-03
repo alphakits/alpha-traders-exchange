@@ -58,7 +58,7 @@ export default async function AcademyPage({ params }: { params: Promise<{ locale
             </CardContent>
           </Card>
         </div>
-        <div className="grid gap-4">
+        <div id="courses-overview" className="grid gap-4 scroll-mt-28">
           {!courses.length ? (
             <Card>
               <CardContent className="pt-6 text-sm text-[#9CA3AF]">

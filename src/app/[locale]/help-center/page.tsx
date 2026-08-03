@@ -39,6 +39,15 @@ export default async function HelpCenterPage({ params }: { params: Promise<{ loc
               : "Support: support@alphatraders.co.il or the official Alpha Traders WhatsApp channel."}
           </p>
         </div>
+
+        <div id="faq" className="mt-8 scroll-mt-28 rounded-2xl border border-white/10 bg-[#0B0B0B]/80 p-5">
+          <h2 className="text-lg font-semibold text-white">{isAr ? "الأسئلة الشائعة" : "Frequently Asked Questions"}</h2>
+          <div className="mt-3 space-y-3 text-sm text-[#D1D5DB]">
+            <p>{isAr ? "كيف أبدأ؟ أنشئ حسابًا ثم تحقق من البيانات الأساسية وادخل السوق." : "How do I start? Create your account, complete basic verification, then enter the marketplace."}</p>
+            <p>{isAr ? "هل التداول آمن؟ نعم، عمليات السوق تتم ضمن مسار تنسيقي مع حماية الإسكرو." : "Is trading secure? Yes, trades follow a coordinated workflow with escrow protection."}</p>
+            <p>{isAr ? "كيف أتواصل مع الدعم؟ عبر صفحة الدعم أو قنوات Alpha Traders الرسمية." : "How can I contact support? Use the support page or official Alpha Traders channels."}</p>
+          </div>
+        </div>
       </div>
     </section>
   );
