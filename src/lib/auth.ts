@@ -127,7 +127,7 @@ export async function getCurrentSessionUser() {
   }
   const session = await getSessionByToken(token);
   if (!session) {
-    console.log("[auth-trace] getCurrentSessionUser: session not found for token (hash:", hashToken ? "(hashed)" : "raw", ")");
+    console.log("[auth-trace] getCurrentSessionUser: session not found or expired in DB");
     return null;
   }
   const user = await findUserById(session.userId);

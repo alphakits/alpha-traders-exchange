@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { AUTH_COOKIE_NAME, getCurrentSessionToken } from "@/lib/auth";
+import { AUTH_COOKIE_NAME } from "@/lib/auth";
 import { getSessionByToken, findUserById } from "@/lib/alpha-exchange-store";
 import { hasRole } from "@/lib/roles";
 

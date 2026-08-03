@@ -155,6 +155,7 @@ export async function POST(request: NextRequest) {
       );
       const cookieWriteEndedAt = Date.now();
       pushTimelineStep(timeline, "Cookie write", cookieWriteStartedAt, cookieWriteEndedAt, { provider: "local" });
+      console.log("[auth-trace] login/local: cookie set — secureCookies:", secureCookies, "userId:", user.id, "rememberMe:", rememberMe);
       const routeMs = Date.now() - routeStartedAt;
       const dbMs = localAuthMs + upsertMs + sessionMs;
       return NextResponse.json({
@@ -256,6 +257,7 @@ export async function POST(request: NextRequest) {
     );
     const cookieWriteEndedAt = Date.now();
     pushTimelineStep(timeline, "Cookie write", cookieWriteStartedAt, cookieWriteEndedAt, { provider: "supabase" });
+    console.log("[auth-trace] login/supabase: cookie set — secureCookies:", secureCookies, "userId:", user.id, "rememberMe:", rememberMe);
     const routeMs = Date.now() - routeStartedAt;
     const dbMs = upsertMs + sessionMs;
     return NextResponse.json({
