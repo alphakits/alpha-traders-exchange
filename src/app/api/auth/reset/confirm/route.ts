@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { createSupabaseAuthClient } from "@/lib/supabase-auth-provider";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
@@ -10,15 +10,7 @@ function isExpiredOrInvalidTokenError(message: string) {
 }
 
 export async function POST(request: NextRequest) {
-  const rate = checkRateLimit({
-    headers: request.headers,
-    key: "auth:reset-confirm",
-    maxRequests: 8,
-    windowMs: 60_000,
-  });
-  if (!rate.allowed) {
-    return NextResponse.json({ error: "Too many reset attempts. Please try again shortly." }, { status: 429, headers: { ...AUTH_RESPONSE_HEADERS, "Retry-After": String(rate.retryAfterSeconds) } });
-  }
+  const clientIp = resolveClientIp(request.headers);
   try {
     const body = await request.json();
     const tokenHash = String(body?.tokenHash ?? body?.token_hash ?? "").trim();
@@ -39,7 +31,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Passwords do not match." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
 
-    const supabase = createSupabaseAuthClient();
+    const rate = checkRateLimit({
+      headers: request.headers,
+      key: "auth:reset-confirm",
+      identifier: `${clientIp}:${tokenHash.slice(0, 32)}`,
+      maxRequests: 20,
+      windowMs: 10 * 60_000,
+    });
+    if (!rate.allowed) {
+      return NextResponse.json({ error: "Too many reset attempts. Please try again shortly." }, { status: 429, headers: { ...AUTH_RESPONSE_HEADERS, "Retry-After": String(rate.retryAfterSeconds) } });
+    }
+
+    const supabase = createSupabaseAuthClient({ requestHeaders: request.headers });
     const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
       token_hash: tokenHash,
       type: tokenType === "recovery" ? "recovery" : "recovery",

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { getSiteUrl } from "@/lib/site-url";
 import { createSupabaseAuthClient, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 
@@ -10,16 +10,20 @@ function isAuthRateLimitError(message: string) {
   return normalized.includes("rate limit") || normalized.includes("too many requests");
 }
 
+function resetGenericMessage(locale: "ar" | "en") {
+  return locale === "ar"
+    ? "إذا كان هناك حساب مرتبط بهذا البريد الإلكتروني، فقد أرسلنا تعليمات إعادة تعيين كلمة المرور."
+    : "If an account exists for this email, we've sent password reset instructions.";
+}
+
+function logResetRequest(reason: string, details: Record<string, string | number | boolean | null>) {
+  if (process.env.NODE_ENV === "test") return;
+  console.warn("[auth/reset/request]", { reason, ...details });
+}
+
 export async function POST(request: NextRequest) {
-  const rate = checkRateLimit({
-    headers: request.headers,
-    key: "auth:reset-request",
-    maxRequests: 5,
-    windowMs: 60_000,
-  });
-  if (!rate.allowed) {
-    return NextResponse.json({ error: "Too many reset requests. Please try again shortly." }, { status: 429, headers: { ...AUTH_RESPONSE_HEADERS, "Retry-After": String(rate.retryAfterSeconds) } });
-  }
+  const locale = inferLocaleFromRequest(request);
+  const clientIp = resolveClientIp(request.headers);
   try {
     const body = await request.json();
     const email = String(body.email ?? "").trim().toLowerCase();
@@ -30,18 +34,62 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid email format." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
 
-    const locale = inferLocaleFromRequest(request);
+    const ipRate = checkRateLimit({
+      headers: request.headers,
+      key: "auth:reset-request:ip",
+      maxRequests: 80,
+      windowMs: 10 * 60_000,
+    });
+    if (!ipRate.allowed) {
+      logResetRequest("ip_limit_reached", {
+        ip: clientIp,
+        retryAfterSeconds: ipRate.retryAfterSeconds,
+      });
+      return NextResponse.json(
+        { ok: true, message: resetGenericMessage(locale) },
+        { headers: AUTH_RESPONSE_HEADERS },
+      );
+    }
+
+    const ipEmailRate = checkRateLimit({
+      headers: request.headers,
+      key: "auth:reset-request:ip-email",
+      identifier: `${clientIp}:${email}`,
+      maxRequests: 12,
+      windowMs: 10 * 60_000,
+    });
+    if (!ipEmailRate.allowed) {
+      logResetRequest("email_limit_reached", {
+        ip: clientIp,
+        email,
+        retryAfterSeconds: ipEmailRate.retryAfterSeconds,
+      });
+      return NextResponse.json(
+        { ok: true, message: resetGenericMessage(locale) },
+        { headers: AUTH_RESPONSE_HEADERS },
+      );
+    }
+
     const redirectTo = `${getSiteUrl()}/${locale}/reset-password`;
-    const supabase = createSupabaseAuthClient();
+    const supabase = createSupabaseAuthClient({ requestHeaders: request.headers });
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo,
     });
-    if (error && isAuthRateLimitError(error.message)) {
-      return NextResponse.json({ error: "Password reset is temporarily rate-limited. Please try again shortly." }, { status: 429, headers: AUTH_RESPONSE_HEADERS });
+    if (error) {
+      const reason = isAuthRateLimitError(error.message) ? "provider_rate_limit" : "provider_error";
+      logResetRequest(reason, {
+        ip: clientIp,
+        email,
+        provider: "supabase",
+      });
+      return NextResponse.json(
+        { ok: true, message: resetGenericMessage(locale) },
+        { headers: AUTH_RESPONSE_HEADERS },
+      );
     }
     return NextResponse.json({
       ok: true,
-      message: "If an account exists for this email, we've sent password reset instructions.",
+      message: resetGenericMessage(locale),
     }, { headers: AUTH_RESPONSE_HEADERS });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to request password reset." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });

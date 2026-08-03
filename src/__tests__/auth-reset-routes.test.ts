@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   checkRateLimit: vi.fn(),
+  resolveClientIp: vi.fn(),
   getSiteUrl: vi.fn(),
   inferLocaleFromRequest: vi.fn(),
   resetPasswordForEmail: vi.fn(),
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/rate-limit", () => ({
   checkRateLimit: mocks.checkRateLimit,
+  resolveClientIp: mocks.resolveClientIp,
 }));
 
 vi.mock("@/lib/site-url", () => ({
@@ -39,6 +41,7 @@ import { POST as confirmReset } from "@/app/api/auth/reset/confirm/route";
 describe("auth reset routes", () => {
   beforeEach(() => {
     mocks.checkRateLimit.mockReset();
+    mocks.resolveClientIp.mockReset();
     mocks.getSiteUrl.mockReset();
     mocks.inferLocaleFromRequest.mockReset();
     mocks.resetPasswordForEmail.mockReset();
@@ -48,6 +51,7 @@ describe("auth reset routes", () => {
     mocks.signOut.mockReset();
 
     mocks.checkRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
+    mocks.resolveClientIp.mockReturnValue("198.51.100.23");
     mocks.getSiteUrl.mockReturnValue("https://www.alphatraders.co.il");
     mocks.inferLocaleFromRequest.mockReturnValue("en");
     mocks.resetPasswordForEmail.mockResolvedValue({ error: null });
@@ -94,6 +98,25 @@ describe("auth reset routes", () => {
 
     expect(response.status).toBe(200);
     expect(payload.message).toBe("If an account exists for this email, we've sent password reset instructions.");
+  });
+
+  it("returns generic success when local limiter is exceeded", async () => {
+    mocks.checkRateLimit.mockReset();
+    mocks.checkRateLimit
+      .mockReturnValueOnce({ allowed: false, retryAfterSeconds: 42 })
+      .mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
+    const request = new NextRequest("http://localhost/api/auth/reset/request", {
+      method: "POST",
+      body: JSON.stringify({ email: "blocked@example.com" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const response = await requestReset(request);
+    const payload = await response.json() as { message?: string };
+
+    expect(response.status).toBe(200);
+    expect(payload.message).toBe("If an account exists for this email, we've sent password reset instructions.");
+    expect(mocks.resetPasswordForEmail).not.toHaveBeenCalled();
   });
 
   it("rejects reset confirmation when passwords do not match", async () => {

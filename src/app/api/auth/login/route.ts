@@ -3,8 +3,8 @@ import { cookies } from "next/headers";
 import { upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, authenticateLocalUser, createUserSession } from "@/lib/auth";
 import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
-import { checkRateLimit } from "@/lib/rate-limit";
-import { createSupabaseAuthClient } from "@/lib/supabase-auth-provider";
+import { checkRateLimit, resolveClientIp } from "@/lib/rate-limit";
+import { createSupabaseAuthClient, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 import { isMarketplacePhoneVerificationDisabled } from "@/lib/phone-verification";
 import { isVerified } from "@/lib/verification-bypass";
 
@@ -16,6 +16,12 @@ type LoginTimelineStep = {
   durationMs: number;
   meta?: Record<string, string | number | boolean | null>;
 };
+
+function loginRateLimitMessage(locale: "ar" | "en") {
+  return locale === "ar"
+    ? "تم تقييد تسجيل الدخول مؤقتًا. يُرجى المحاولة مرة أخرى بعد قليل."
+    : "Too many login attempts. Please try again shortly.";
+}
 
 function pushTimelineStep(
   timeline: LoginTimelineStep[],
@@ -89,20 +95,39 @@ export async function POST(request: NextRequest) {
   const timeline: LoginTimelineStep[] = [];
   const secureCookies = shouldUseSecureAuthCookie(request);
   const cookieStore = await cookies();
-  const rate = checkRateLimit({
-    headers: request.headers,
-    key: "auth:login",
-    maxRequests: 10,
-    windowMs: 60_000,
-  });
-  if (!rate.allowed) {
-    return NextResponse.json({ error: "Too many login attempts. Please try again shortly." }, { status: 429, headers: { ...AUTH_RESPONSE_HEADERS, "Retry-After": String(rate.retryAfterSeconds) } });
-  }
+  const locale = inferLocaleFromRequest(request);
+  const clientIp = resolveClientIp(request.headers);
   try {
     const body = await request.json();
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
     const rememberMe = body.rememberMe !== false;
+
+    const ipRate = checkRateLimit({
+      headers: request.headers,
+      key: "auth:login:ip",
+      maxRequests: 120,
+      windowMs: 10 * 60_000,
+    });
+    if (!ipRate.allowed) {
+      return NextResponse.json(
+        { error: loginRateLimitMessage(locale) },
+        { status: 429, headers: { ...AUTH_RESPONSE_HEADERS, "Retry-After": String(ipRate.retryAfterSeconds) } },
+      );
+    }
+    const ipEmailRate = checkRateLimit({
+      headers: request.headers,
+      key: "auth:login:ip-email",
+      identifier: `${clientIp}:${email}`,
+      maxRequests: 24,
+      windowMs: 10 * 60_000,
+    });
+    if (!ipEmailRate.allowed) {
+      return NextResponse.json(
+        { error: loginRateLimitMessage(locale) },
+        { status: 429, headers: { ...AUTH_RESPONSE_HEADERS, "Retry-After": String(ipEmailRate.retryAfterSeconds) } },
+      );
+    }
     if (!email || !password) {
       return NextResponse.json({ error: "Email and password are required." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
@@ -181,7 +206,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const supabase = createSupabaseAuthClient();
+    const supabase = createSupabaseAuthClient({ requestHeaders: request.headers });
     const supabaseAuthStartedAt = Date.now();
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     const supabaseAuthEndedAt = Date.now();
