@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getSiteUrl: vi.fn(),
   inferLocaleFromRequest: vi.fn(),
   resetPasswordForEmail: vi.fn(),
+  generateLink: vi.fn(),
   verifyOtp: vi.fn(),
   setSession: vi.fn(),
   updateUser: vi.fn(),
@@ -33,6 +34,13 @@ vi.mock("@/lib/supabase-auth-provider", () => ({
       signOut: mocks.signOut,
     },
   }),
+  createSupabaseAdminClient: () => ({
+    auth: {
+      admin: {
+        generateLink: mocks.generateLink,
+      },
+    },
+  }),
 }));
 
 import { POST as requestReset } from "@/app/api/auth/reset/request/route";
@@ -40,11 +48,13 @@ import { POST as confirmReset } from "@/app/api/auth/reset/confirm/route";
 
 describe("auth reset routes", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     mocks.checkRateLimit.mockReset();
     mocks.resolveClientIp.mockReset();
     mocks.getSiteUrl.mockReset();
     mocks.inferLocaleFromRequest.mockReset();
     mocks.resetPasswordForEmail.mockReset();
+    mocks.generateLink.mockReset();
     mocks.verifyOtp.mockReset();
     mocks.setSession.mockReset();
     mocks.updateUser.mockReset();
@@ -55,6 +65,10 @@ describe("auth reset routes", () => {
     mocks.getSiteUrl.mockReturnValue("https://www.alphatraders.co.il");
     mocks.inferLocaleFromRequest.mockReturnValue("en");
     mocks.resetPasswordForEmail.mockResolvedValue({ error: null });
+    mocks.generateLink.mockResolvedValue({
+      data: { properties: { action_link: "https://www.alphatraders.co.il/en/reset-password?token_hash=test-token&type=recovery" } },
+      error: null,
+    });
     mocks.verifyOtp.mockResolvedValue({
       data: {
         session: {
@@ -81,6 +95,30 @@ describe("auth reset routes", () => {
 
     expect(response.status).toBe(200);
     expect(payload.message).toBe("If an account exists for this email, we've sent password reset instructions.");
+  });
+
+  it("uses resend fallback when supabase reset email is rate-limited", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => "{}",
+      json: async () => ({ id: "mail-id" }),
+    }));
+    mocks.resetPasswordForEmail.mockResolvedValue({
+      error: { message: "email rate limit exceeded" },
+    });
+    const request = new NextRequest("http://localhost/api/auth/reset/request", {
+      method: "POST",
+      body: JSON.stringify({ email: "fallback@example.com" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const response = await requestReset(request);
+    const payload = await response.json() as { message?: string };
+
+    expect(response.status).toBe(200);
+    expect(payload.message).toBe("If an account exists for this email, we've sent password reset instructions.");
+    expect(mocks.generateLink).toHaveBeenCalled();
   });
 
   it("does not reveal account existence when provider returns a non-rate-limit error", async () => {
