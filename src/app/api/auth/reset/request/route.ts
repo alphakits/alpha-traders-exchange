@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { getSiteUrl } from "@/lib/site-url";
 import { createSupabaseAdminClient, createSupabaseAuthClient, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
+import { buildAuthEmail, sendAuthEmailViaResend } from "@/lib/auth-email-delivery";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -19,64 +20,6 @@ function resetGenericMessage(locale: "ar" | "en") {
 function logResetRequest(reason: string, details: Record<string, string | number | boolean | null>) {
   if (process.env.NODE_ENV === "test") return;
   console.warn("[auth/reset/request]", { reason, ...details });
-}
-
-function buildResetEmail(locale: "ar" | "en", resetLink: string) {
-  if (locale === "ar") {
-    return {
-      subject: "إعادة تعيين كلمة المرور - Alpha Traders",
-      text: `مرحبًا،\n\nتم طلب إعادة تعيين كلمة المرور لحسابك في Alpha Traders.\n\nاستخدم الرابط الآمن التالي لإعادة التعيين:\n${resetLink}\n\nإذا لم تطلب ذلك، تجاهل هذه الرسالة.\n`,
-      html: `<div dir="rtl" style="font-family:Arial,sans-serif;line-height:1.6;color:#111827;">
-  <p>مرحبًا،</p>
-  <p>تم طلب إعادة تعيين كلمة المرور لحسابك في <strong>Alpha Traders</strong>.</p>
-  <p><a href="${resetLink}" style="display:inline-block;padding:10px 14px;background:#C9A227;color:#111827;text-decoration:none;border-radius:8px;">إعادة تعيين كلمة المرور</a></p>
-  <p>إذا لم تطلب ذلك، يمكنك تجاهل هذه الرسالة.</p>
-</div>`,
-    };
-  }
-  return {
-    subject: "Reset your password - Alpha Traders",
-    text: `Hello,\n\nA password reset was requested for your Alpha Traders account.\n\nUse the secure link below to reset your password:\n${resetLink}\n\nIf you did not request this, you can ignore this email.\n`,
-    html: `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#111827;">
-  <p>Hello,</p>
-  <p>A password reset was requested for your <strong>Alpha Traders</strong> account.</p>
-  <p><a href="${resetLink}" style="display:inline-block;padding:10px 14px;background:#C9A227;color:#111827;text-decoration:none;border-radius:8px;">Reset password</a></p>
-  <p>If you did not request this, you can ignore this email.</p>
-</div>`,
-  };
-}
-
-async function sendRecoveryEmailWithResend(input: {
-  email: string;
-  locale: "ar" | "en";
-  resetLink: string;
-}) {
-  const apiKey = process.env.RESEND_API_KEY ?? "";
-  const from = process.env.EMAIL_FROM ?? "";
-  if (!apiKey || !from) {
-    return { ok: false, reason: "resend_not_configured" as const };
-  }
-
-  const mail = buildResetEmail(input.locale, input.resetLink);
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from,
-      to: [input.email],
-      subject: mail.subject,
-      html: mail.html,
-      text: mail.text,
-    }),
-  });
-
-  if (!response.ok) {
-    return { ok: false, reason: "resend_request_failed" as const };
-  }
-  return { ok: true as const };
 }
 
 export async function POST(request: NextRequest) {
@@ -197,10 +140,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const mailResult = await sendRecoveryEmailWithResend({
-      email,
-      locale,
-      resetLink: actionLink,
+    const mail = buildAuthEmail("recovery", locale, actionLink);
+    const mailResult = await sendAuthEmailViaResend({
+      to: email,
+      subject: mail.subject,
+      html: mail.html,
+      text: mail.text,
     });
     if (!mailResult.ok) {
       logResetRequest(mailResult.reason, {

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { findUserByEmail, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 import { checkRateLimit, resolveClientIp } from "@/lib/rate-limit";
-import { createSupabaseAdminClient, createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
+import { createSupabaseAdminClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
+import { buildAuthEmail, sendAuthEmailViaResend } from "@/lib/auth-email-delivery";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -10,66 +11,21 @@ function isDuplicateRegistrationError(message: string) {
   return normalized.includes("already registered") || normalized.includes("already exists");
 }
 
-function isAuthRateLimitError(message: string) {
-  const normalized = message.toLowerCase();
-  return normalized.includes("rate limit") || normalized.includes("too many requests");
-}
-
 function registrationRateLimitMessage(locale: "ar" | "en") {
   return locale === "ar"
     ? "تم تقييد التسجيل مؤقتًا. يُرجى المحاولة مرة أخرى خلال بضع دقائق."
     : "Registration is temporarily rate-limited. Please try again in a few minutes.";
 }
 
+function registrationSuccessMessage(locale: "ar" | "en") {
+  return locale === "ar"
+    ? "تم إنشاء الحساب. يرجى تأكيد بريدك الإلكتروني قبل تسجيل الدخول."
+    : "Your account has been created. Please verify your email before signing in.";
+}
+
 function logRegistrationRateLimit(reason: string, details: Record<string, string | number | boolean | null>) {
   if (process.env.NODE_ENV === "test") return;
   console.warn("[auth/register] rate-limited", { reason, ...details });
-}
-
-async function fallbackCreateSupabaseUser(input: {
-  email: string;
-  password: string;
-  fullName: string;
-  whatsappNumber: string;
-  locale: "ar" | "en";
-  requestHeaders: Headers;
-}) {
-  try {
-    const adminSupabase = createSupabaseAdminClient();
-    const { data, error } = await adminSupabase.auth.admin.createUser({
-      email: input.email,
-      password: input.password,
-      email_confirm: false,
-      user_metadata: {
-        full_name: input.fullName,
-        whatsapp_number: input.whatsappNumber,
-      },
-    });
-    if (error) {
-      return { ok: false as const, duplicate: isDuplicateRegistrationError(error.message) };
-    }
-
-    // Best effort: dispatch verification email for the admin-created account.
-    try {
-      const supabase = createSupabaseAuthClient({ requestHeaders: input.requestHeaders });
-      await supabase.auth.resend({
-        type: "signup",
-        email: input.email,
-        options: {
-          emailRedirectTo: getSupabaseEmailRedirectUrl(input.locale),
-        },
-      });
-    } catch {
-      // Registration succeeds even if dispatching the verification email needs a retry.
-    }
-
-    if (!data.user) {
-      return { ok: false as const, duplicate: false };
-    }
-    return { ok: true as const, duplicate: false };
-  } catch {
-    return { ok: false as const, duplicate: false };
-  }
 }
 
 export async function POST(request: NextRequest) {
@@ -150,73 +106,76 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Passwords do not match." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
 
-    const supabase = createSupabaseAuthClient({ requestHeaders: request.headers });
-    const { data, error } = await supabase.auth.signUp({
+    const adminSupabase = createSupabaseAdminClient();
+    const createResult = await adminSupabase.auth.admin.createUser({
       email,
       password,
-      options: {
-        emailRedirectTo: getSupabaseEmailRedirectUrl(locale),
-        data: {
-          full_name: fullName,
-          whatsapp_number: whatsappNumber,
-        },
+      email_confirm: false,
+      user_metadata: {
+        full_name: fullName,
+        whatsapp_number: whatsappNumber,
       },
     });
-    if (error) {
-      if (isDuplicateRegistrationError(error.message)) {
+    if (createResult.error) {
+      if (isDuplicateRegistrationError(createResult.error.message)) {
         logRegistrationRateLimit("duplicate_registration", {
           ip: clientIp,
           email,
-          provider: "supabase",
+          provider: "supabase_admin",
         });
         return NextResponse.json({ error: "Email already registered." }, { status: 409, headers: AUTH_RESPONSE_HEADERS });
       }
-      if (isAuthRateLimitError(error.message)) {
-        logRegistrationRateLimit("provider_rate_limit", {
-          ip: clientIp,
-          email,
-          provider: "supabase",
-        });
-        const fallback = await fallbackCreateSupabaseUser({
-          email,
-          password,
-          fullName,
-          whatsappNumber,
-          locale,
-          requestHeaders: request.headers,
-        });
-        if (fallback.ok) {
-          if (process.env.NODE_ENV !== "test") {
-            console.warn("[auth/register] provider rate-limit fallback applied", {
-              ip: clientIp,
-              email,
-              provider: "supabase_admin",
-            });
-          }
-          await upsertUserProfileForAuth({
-            fullName,
-            email,
-            whatsappNumber,
-            emailVerified: false,
-          });
-          return NextResponse.json({
-            ok: true,
-            message: "Your account has been created. Please verify your email before signing in.",
-          }, { headers: AUTH_RESPONSE_HEADERS });
-        }
-        if (fallback.duplicate) {
-          return NextResponse.json({ error: "Email already registered." }, { status: 409, headers: AUTH_RESPONSE_HEADERS });
-        }
-        return NextResponse.json({ error: registrationRateLimitMessage(locale) }, { status: 429, headers: AUTH_RESPONSE_HEADERS });
-      }
-      return NextResponse.json({ error: error.message }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+      logRegistrationRateLimit("provider_create_user_failed", {
+        ip: clientIp,
+        email,
+        provider: "supabase_admin",
+      });
+      return NextResponse.json({ error: "Registration failed. Please try again." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
-    if (!data.user) {
-      return NextResponse.json({ error: "Registration failed." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+
+    const linkResult = await adminSupabase.auth.admin.generateLink({
+      type: "invite",
+      email,
+      options: {
+        redirectTo: getSupabaseEmailRedirectUrl(locale),
+      },
+    });
+
+    if (linkResult.error) {
+      logRegistrationRateLimit("provider_generate_link_failed", {
+        ip: clientIp,
+        email,
+        provider: "supabase_admin",
+      });
+      return NextResponse.json({ error: "Registration failed. Please try again." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
-    if (Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-      return NextResponse.json({ error: "Email already registered." }, { status: 409, headers: AUTH_RESPONSE_HEADERS });
+
+    const actionLink = linkResult.data?.properties?.action_link;
+    if (typeof actionLink !== "string" || !actionLink.startsWith("http")) {
+      logRegistrationRateLimit("provider_generate_link_missing", {
+        ip: clientIp,
+        email,
+        provider: "supabase_admin",
+      });
+      return NextResponse.json({ error: "Registration failed. Please try again." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
+
+    const verificationMail = buildAuthEmail("verification", locale, actionLink);
+    const deliveryResult = await sendAuthEmailViaResend({
+      to: email,
+      subject: verificationMail.subject,
+      html: verificationMail.html,
+      text: verificationMail.text,
+    });
+    if (!deliveryResult.ok) {
+      logRegistrationRateLimit(deliveryResult.reason, {
+        ip: clientIp,
+        email,
+        provider: "resend",
+      });
+      return NextResponse.json({ error: "Registration failed. Please try again." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    }
+
     await upsertUserProfileForAuth({
       fullName,
       email,
@@ -226,7 +185,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      message: "Your account has been created. Please verify your email before signing in.",
+      message: registrationSuccessMessage(locale),
     }, { headers: AUTH_RESPONSE_HEADERS });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Registration failed." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });

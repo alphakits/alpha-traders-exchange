@@ -25,10 +25,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid verification link." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
     const tokenType = String(body?.type ?? "signup").trim().toLowerCase();
+    const verificationType = tokenType === "invite" ? "invite" : "signup";
     const supabase = createSupabaseAuthClient();
     const { error } = await supabase.auth.verifyOtp({
       token_hash: tokenHash,
-      type: tokenType === "signup" ? "signup" : "signup",
+      type: verificationType,
     });
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
