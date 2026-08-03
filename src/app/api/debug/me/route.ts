@@ -5,7 +5,12 @@ import { getSessionByToken, findUserById } from "@/lib/alpha-exchange-store";
 import { hasRole } from "@/lib/roles";
 
 // Debug endpoint — returns current session user with role diagnostics.
+// Disabled in production to avoid exposing account/role details.
 export async function GET() {
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Not found." }, { status: 404, headers: { "Cache-Control": "no-store" } });
+  }
+
   const cookieStore = await cookies();
   const rawToken = cookieStore.get(AUTH_COOKIE_NAME)?.value ?? null;
   const allCookieNames = cookieStore.getAll().map((c) => c.name);

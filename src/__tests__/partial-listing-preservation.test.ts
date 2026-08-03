@@ -11,7 +11,9 @@ import {
   getAccountProfileData,
   getCommissionRecordsForAdmin,
   getMyMarketplaceListings,
+  getMyPurchaseRequests,
   invalidateAlphaExchangeStoreCache,
+  TradeBlockedError,
   updateCommissionPaymentStatus,
   updateMarketplaceListingForSeller,
   updatePurchaseRequestStatus,
@@ -192,6 +194,53 @@ async function markCommissionPaid(purchaseRequestId: string) {
     actorUserId: OWNER_ID,
     paymentStatus: "paid",
     reason: "Settled during partial listing lifecycle regression test.",
+  });
+}
+
+async function advanceTradeToUsdtSent(input: { requestId: string; buyerId: string }) {
+  await updatePurchaseRequestStatus({
+    requestId: input.requestId,
+    actorUserId: SELLER_ID,
+    actorRole: "approved_seller",
+    nextStatus: "accepted",
+  });
+  await uploadTradeEvidence({
+    purchaseRequestId: input.requestId,
+    actorUserId: input.buyerId,
+    actorRole: "buyer",
+    side: "buyer",
+    fileName: "buyer-proof.png",
+    mimeType: "image/png",
+    sizeBytes: 68,
+    contentBase64: PNG_BASE64,
+  });
+  await updatePurchaseRequestStatus({
+    requestId: input.requestId,
+    actorUserId: SELLER_ID,
+    actorRole: "approved_seller",
+    nextStatus: "funds_received",
+  });
+  await updatePurchaseRequestStatus({
+    requestId: input.requestId,
+    actorUserId: SELLER_ID,
+    actorRole: "approved_seller",
+    nextStatus: "usdt_release_pending",
+  });
+  await uploadTradeEvidence({
+    purchaseRequestId: input.requestId,
+    actorUserId: SELLER_ID,
+    actorRole: "approved_seller",
+    side: "seller",
+    fileName: "seller-proof.png",
+    mimeType: "image/png",
+    sizeBytes: 68,
+    contentBase64: PNG_BASE64,
+  });
+  await updatePurchaseRequestStatus({
+    requestId: input.requestId,
+    actorUserId: SELLER_ID,
+    actorRole: "approved_seller",
+    nextStatus: "usdt_sent",
   });
 }
 
@@ -553,5 +602,285 @@ describe("partial listing preservation", () => {
       status: "completed",
       availableAmount: "0",
     });
+  });
+
+  it("covers full trade lifecycle transitions, notifications, and commission record creation", async () => {
+    const listing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "1000",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "1000",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+
+    const created = await createPurchaseRequest({
+      buyerId: BUYER_ONE_ID,
+      listingId: listing.id,
+      usdtAmount: "300",
+      buyerName: "Lifecycle Buyer",
+      buyerWhatsapp: "+972500000001",
+      buyerNotes: "Trade lifecycle QA",
+      actorUserId: BUYER_ONE_ID,
+    });
+
+    expect(created.request.status).toBe("pending");
+    let snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb & { __runtimeVersion: number };
+    expect(snapshot.notifications.some((entry) => entry.userId === SELLER_ID && entry.title === "New trade request" && entry.relatedRequestId === created.request.id)).toBe(true);
+
+    await advanceTradeToUsdtSent({ requestId: created.request.id, buyerId: BUYER_ONE_ID });
+
+    const completion = await updatePurchaseRequestStatus({
+      requestId: created.request.id,
+      actorUserId: BUYER_ONE_ID,
+      actorRole: "buyer",
+      nextStatus: "completed",
+    });
+    await completion.deferredTrustWrite?.();
+    expect(Boolean(completion.request.completedAt)).toBe(true);
+    expect(completion.request.status).toBe("review_open");
+
+    snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb & { __runtimeVersion: number };
+    const notificationsForBuyer = snapshot.notifications.filter((entry) => entry.userId === BUYER_ONE_ID).map((entry) => entry.title);
+    const notificationsForSeller = snapshot.notifications.filter((entry) => entry.userId === SELLER_ID).map((entry) => entry.title);
+    expect(notificationsForBuyer).toEqual(
+      expect.arrayContaining([
+        "Trade request accepted",
+        "Seller confirmed funds received",
+        "USDT release pending",
+        "Seller marked USDT sent",
+        "Trade completed",
+      ]),
+    );
+    expect(notificationsForSeller).toEqual(
+      expect.arrayContaining([
+        "New trade request",
+        "Buyer marked payment sent",
+        "Trade completed",
+      ]),
+    );
+
+    const commission = snapshot.commissionRecords.find((entry) => entry.purchaseRequestId === created.request.id);
+    expect(commission).toMatchObject({
+      listingId: listing.id,
+      sellerId: SELLER_ID,
+      buyerId: BUYER_ONE_ID,
+      paymentStatus: "pending",
+      grossAmount: 960,
+      commissionAmount: 3,
+    });
+  });
+
+  it("archives overdue buyer confirmation after usdt_sent and blocks new purchases", async () => {
+    const lockedListing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "500",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "500",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+    const freshListing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "600",
+      price: "3.25",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "600",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+
+    const created = await createPurchaseRequest({
+      buyerId: BUYER_ONE_ID,
+      listingId: lockedListing.id,
+      usdtAmount: "120",
+      buyerName: "Buyer One",
+      buyerWhatsapp: "+972500000001",
+      buyerNotes: "Timeout archive test",
+      actorUserId: BUYER_ONE_ID,
+    });
+
+    await advanceTradeToUsdtSent({ requestId: created.request.id, buyerId: BUYER_ONE_ID });
+
+    const snapshotBefore = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb & { __runtimeVersion: number };
+    const target = snapshotBefore.purchaseRequests.find((entry) => entry.id === created.request.id);
+    expect(target?.status).toBe("usdt_sent");
+    if (target) {
+      const staleSentAt = new Date(Date.now() - 6 * 60 * 1000).toISOString();
+      target.usdtSentAt = staleSentAt;
+      target.updatedAt = staleSentAt;
+      target.buyerConfirmationArchivedAt = undefined;
+    }
+
+    invalidateAlphaExchangeStoreCache();
+    await getMyPurchaseRequests(BUYER_ONE_ID, "buyer");
+
+    const snapshotAfter = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb & { __runtimeVersion: number };
+    const archived = snapshotAfter.purchaseRequests.find((entry) => entry.id === created.request.id);
+    expect(Boolean(archived?.buyerConfirmationArchivedAt)).toBe(true);
+    expect(snapshotAfter.notifications.some((entry) => entry.userId === BUYER_ONE_ID && entry.title === "Action Required — Confirm USDT Receipt")).toBe(true);
+
+    await expect(
+      createPurchaseRequest({
+        buyerId: BUYER_ONE_ID,
+        listingId: freshListing.id,
+        usdtAmount: "100",
+        buyerName: "Buyer One",
+        buyerWhatsapp: "+972500000001",
+        buyerNotes: "Should be blocked",
+        actorUserId: BUYER_ONE_ID,
+      }),
+    ).rejects.toMatchObject({
+      name: "TradeBlockedError",
+      code: "AWAITING_BUYER_CONFIRMATION",
+    });
+  });
+
+  it("supports cancellation before usdt_sent (seller decline and buyer cancel after accept)", async () => {
+    const listing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "900",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "900",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+
+    const sellerDeclined = await createPurchaseRequest({
+      buyerId: BUYER_TWO_ID,
+      listingId: listing.id,
+      usdtAmount: "100",
+      buyerName: "Buyer Two",
+      buyerWhatsapp: "+972500000002",
+      buyerNotes: "Seller decline flow",
+      actorUserId: BUYER_TWO_ID,
+    });
+    const declineResult = await updatePurchaseRequestStatus({
+      requestId: sellerDeclined.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "declined",
+    });
+    expect(declineResult.request.status).toBe("declined");
+
+    const buyerCancelled = await createPurchaseRequest({
+      buyerId: BUYER_THREE_ID,
+      listingId: listing.id,
+      usdtAmount: "120",
+      buyerName: "Buyer Three",
+      buyerWhatsapp: "+972500000003",
+      buyerNotes: "Buyer cancel flow",
+      actorUserId: BUYER_THREE_ID,
+    });
+    await updatePurchaseRequestStatus({
+      requestId: buyerCancelled.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "accepted",
+    });
+    const cancelResult = await updatePurchaseRequestStatus({
+      requestId: buyerCancelled.request.id,
+      actorUserId: BUYER_THREE_ID,
+      actorRole: "buyer",
+      nextStatus: "cancelled",
+    });
+    expect(cancelResult.request.status).toBe("cancelled");
+
+    const listings = await getMyMarketplaceListings(SELLER_ID);
+    expect(listings.find((entry) => entry.id === listing.id)?.status).toBe("active");
+  });
+
+  it("prevents buyers from opening a second active trade", async () => {
+    const primaryListing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "700",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "700",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+    const secondaryListing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "800",
+      price: "3.25",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "800",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+
+    const first = await createPurchaseRequest({
+      buyerId: BUYER_ONE_ID,
+      listingId: primaryListing.id,
+      usdtAmount: "150",
+      buyerName: "Buyer One",
+      buyerWhatsapp: "+972500000001",
+      buyerNotes: "First trade",
+      actorUserId: BUYER_ONE_ID,
+    });
+    await updatePurchaseRequestStatus({
+      requestId: first.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "accepted",
+    });
+
+    try {
+      await createPurchaseRequest({
+        buyerId: BUYER_ONE_ID,
+        listingId: secondaryListing.id,
+        usdtAmount: "100",
+        buyerName: "Buyer One",
+        buyerWhatsapp: "+972500000001",
+        buyerNotes: "Second active trade should fail",
+        actorUserId: BUYER_ONE_ID,
+      });
+      throw new Error("Expected ACTIVE_TRADE_EXISTS error.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(TradeBlockedError);
+      const blocked = error as TradeBlockedError;
+      expect(blocked.code).toBe("ACTIVE_TRADE_EXISTS");
+      expect(blocked.purchaseRequestId).toBe(first.request.id);
+    }
   });
 });

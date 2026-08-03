@@ -3044,6 +3044,38 @@ export async function selectGuestOnboarding(userId: string) {
   return db.users[index];
 }
 
+export async function activateBuyerOnboardingWithoutPhone(input: {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  displayName?: string;
+}) {
+  const db = await readDb();
+  const index = db.users.findIndex((user) => user.id === input.userId);
+  if (index === -1) throw new Error("User not found.");
+  const user = db.users[index];
+  const firstName = input.firstName.trim();
+  const lastName = input.lastName.trim();
+  if (!firstName || !lastName) {
+    throw new Error("First name and last name are required.");
+  }
+
+  const roles = addRole(removeRole(user.roles ?? [user.role], "guest"), "buyer");
+  db.users[index] = {
+    ...user,
+    roles,
+    role: resolvePrimaryRole(roles),
+    buyerFirstName: firstName,
+    buyerLastName: lastName,
+    buyerDisplayName: input.displayName?.trim() || undefined,
+    onboardingSelection: "buyer",
+    onboardingCompletedAt: nowIso(),
+    updatedAt: nowIso(),
+  };
+  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
+  return db.users[index];
+}
+
 export async function beginBuyerVerification(input: {
   userId: string;
   firstName: string;
@@ -3422,7 +3454,6 @@ export async function createAuthSession(userId: string, token: string, durationD
   };
   const repository = await getAlphaExchangeRepository();
   await repository.upsertAuthSession(session);
-  console.log("[auth-trace] createAuthSession: session created for userId:", userId, "expires:", session.expiresAt);
   const cachedSessions = dbCache?.value.authSessions ?? [];
   syncCachedAuthSessions([...cachedSessions.filter((item) => item.userId !== userId && item.token !== session.token), session]);
   return session;
@@ -3433,17 +3464,14 @@ export async function getSessionByToken(token: string) {
   const repository = await getAlphaExchangeRepository();
   const session = await repository.getAuthSession(hashed);
   if (!session) {
-    console.log("[auth-trace] getSessionByToken: NOT FOUND in DB for token hash");
     return null;
   }
   if (new Date(session.expiresAt) < new Date()) {
-    console.log("[auth-trace] getSessionByToken: session EXPIRED for userId:", session.userId);
     await repository.deleteAuthSession(hashed);
     const cachedSessions = dbCache?.value.authSessions ?? [];
     syncCachedAuthSessions(cachedSessions.filter((item) => item.token !== hashed));
     return null;
   }
-  console.log("[auth-trace] getSessionByToken: found session for userId:", session.userId, "expires:", session.expiresAt);
   return session;
 }
 
@@ -4629,6 +4657,16 @@ export async function createPurchaseRequest(input: {
       "AWAITING_BUYER_CONFIRMATION",
       "You have an outstanding trade awaiting your confirmation. Please confirm that you received your USDT before starting another purchase.",
       pendingConfirmationTrade.id,
+    );
+  }
+  const activeBuyerTrade = db.purchaseRequests.find(
+    (r) => r.buyerId === input.buyerId && isActiveTradeStatus(r.status) && !r.buyerConfirmationArchivedAt,
+  );
+  if (activeBuyerTrade) {
+    throw new TradeBlockedError(
+      "ACTIVE_TRADE_EXISTS",
+      "You already have an active trade in progress. Complete or cancel it before starting another purchase.",
+      activeBuyerTrade.id,
     );
   }
   const pendingFeedbackTrade = getBuyerPendingFeedbackTrade(db, input.buyerId);

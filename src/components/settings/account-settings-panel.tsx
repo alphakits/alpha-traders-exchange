@@ -73,7 +73,13 @@ function PillToggle({ checked, onChange }: { checked: boolean; onChange: (v: boo
   );
 }
 
-export function AccountSettingsPanel({ locale }: { locale: "ar" | "en" }) {
+export function AccountSettingsPanel({
+  locale,
+  phoneVerificationEnabled,
+}: {
+  locale: "ar" | "en";
+  phoneVerificationEnabled: boolean;
+}) {
   const isAr = locale === "ar";
   const [activeTab, setActiveTab] = useState<Tab>("security");
   const [userId, setUserId] = useState<string | null>(null);
@@ -302,6 +308,13 @@ export function AccountSettingsPanel({ locale }: { locale: "ar" | "en" }) {
               <CardTitle>{isAr ? "الأمان" : "Security"}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {!phoneVerificationEnabled ? (
+                <div className="rounded-xl border border-sky-400/25 bg-sky-500/10 p-4 text-sm text-sky-100">
+                  {isAr
+                    ? "التحقق من رقم الهاتف غير متاح مؤقتًا بينما نكمل تفعيل الخدمة. سيتوفر قريبًا."
+                    : "Phone verification is temporarily unavailable while we complete service activation. It will be available soon."}
+                </div>
+              ) : null}
               <div className="rounded-xl border border-[#C9A227]/25 bg-[#C9A227]/5 p-4">
                 <p className="mb-3 text-sm font-medium text-[#C9A227]">
                   {isAr ? "كيفية تغيير كلمة المرور:" : "To change your password:"}

@@ -619,7 +619,6 @@ export function TradeRoomPage({
       ts: new Date().toISOString(),
       ...(detail ?? {}),
     };
-    console.info("[review-submit-diag]", payload);
     if (typeof window !== "undefined") {
       type WindowWithReviewDiag = Window & { __reviewSubmitDiag?: unknown[] };
       const diagWindow = window as WindowWithReviewDiag;
@@ -1821,7 +1820,7 @@ export function TradeRoomPage({
                     </div>
                     {showDisputeComposer ? (
                       <div className="mt-2 space-y-2">
-                        <Textarea value={disputeReason} onChange={(event) => setDisputeReason(event.target.value)} placeholder={isAr ? "اكتب سبب النزاع..." : "Describe the dispute reason..."} />
+                        <Textarea value={disputeReason} onChange={(event) => setDisputeReason(event.target.value)} aria-label={isAr ? "سبب النزاع" : "Dispute reason"} placeholder={isAr ? "اكتب سبب النزاع..." : "Describe the dispute reason..."} />
                         <Button type="button" size="sm" disabled={disputeBusy} onClick={() => void handleOpenDispute()}>
                           {disputeBusy ? (isAr ? "جاري الإرسال..." : "Submitting...") : (isAr ? "تأكيد فتح النزاع" : "Submit Dispute")}
                         </Button>
@@ -2036,7 +2035,7 @@ export function TradeRoomPage({
                   )}
                 </div>
                 <form className="space-y-2" onSubmit={handleSendMessage}>
-                  <Textarea value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} placeholder={isAr ? "اكتب رسالة..." : "Type a message..."} />
+                  <Textarea value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} aria-label={isAr ? "رسالة التداول" : "Trade message"} placeholder={isAr ? "اكتب رسالة..." : "Type a message..."} />
                   <Button type="submit" className="w-full" disabled={chatBusy || !chatDraft.trim()}>
                     {chatBusy ? (isAr ? "جاري الإرسال..." : "Sending...") : (isAr ? "إرسال الرسالة" : "Send Message")}
                   </Button>

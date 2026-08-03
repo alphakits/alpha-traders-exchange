@@ -5,6 +5,7 @@ import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE
 import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { createSupabaseAuthClient } from "@/lib/supabase-auth-provider";
+import { isMarketplacePhoneVerificationDisabled } from "@/lib/phone-verification";
 import { isVerified } from "@/lib/verification-bypass";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
@@ -115,7 +116,6 @@ export async function POST(request: NextRequest) {
     const localAuthMs = localAuthEndedAt - localAuthStartedAt;
     pushTimelineStep(timeline, "Password hashing / verification", localAuthStartedAt, localAuthEndedAt, { provider: "local" });
     if (localUser) {
-      console.log("[auth/login] upserting local user profile", email);
       const upsertStartedAt = Date.now();
       const user = await upsertUserProfileForAuth({
         fullName: localUser.fullName,
@@ -124,7 +124,6 @@ export async function POST(request: NextRequest) {
         emailVerified: true,
       });
       const upsertMs = Date.now() - upsertStartedAt;
-      console.log("[auth/login] creating user session", user.id);
 
       const sessionStartedAt = Date.now();
       const { token, expiresAt } = await createUserSession(user.id, rememberMe ? 14 : 1);
@@ -151,11 +150,10 @@ export async function POST(request: NextRequest) {
         secureCookies,
         rememberMe,
         expiresAt,
-        process.env.ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION === "1" || isVerified(user),
+        isMarketplacePhoneVerificationDisabled() || isVerified(user),
       );
       const cookieWriteEndedAt = Date.now();
       pushTimelineStep(timeline, "Cookie write", cookieWriteStartedAt, cookieWriteEndedAt, { provider: "local" });
-      console.log("[auth-trace] login/local: cookie set — secureCookies:", secureCookies, "userId:", user.id, "rememberMe:", rememberMe);
       const routeMs = Date.now() - routeStartedAt;
       const dbMs = localAuthMs + upsertMs + sessionMs;
       return NextResponse.json({
@@ -217,7 +215,6 @@ export async function POST(request: NextRequest) {
         { status: 403, headers: AUTH_RESPONSE_HEADERS },
       );
     }
-    console.log("[auth/login] upserting supabase user profile", supabaseUser.email);
     const upsertStartedAt = Date.now();
     const user = await upsertUserProfileForAuth({
       fullName: String(supabaseUser.user_metadata?.full_name ?? supabaseUser.email.split("@")[0]),
@@ -226,7 +223,6 @@ export async function POST(request: NextRequest) {
       emailVerified: true,
     });
     const upsertMs = Date.now() - upsertStartedAt;
-    console.log("[auth/login] creating user session for supabase user", user.id);
 
     const sessionStartedAt = Date.now();
     const { token, expiresAt } = await createUserSession(user.id, rememberMe ? 14 : 1);
@@ -253,11 +249,10 @@ export async function POST(request: NextRequest) {
       secureCookies,
       rememberMe,
       expiresAt,
-      process.env.ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION === "1" || isVerified(user),
+      isMarketplacePhoneVerificationDisabled() || isVerified(user),
     );
     const cookieWriteEndedAt = Date.now();
     pushTimelineStep(timeline, "Cookie write", cookieWriteStartedAt, cookieWriteEndedAt, { provider: "supabase" });
-    console.log("[auth-trace] login/supabase: cookie set — secureCookies:", secureCookies, "userId:", user.id, "rememberMe:", rememberMe);
     const routeMs = Date.now() - routeStartedAt;
     const dbMs = upsertMs + sessionMs;
     return NextResponse.json({

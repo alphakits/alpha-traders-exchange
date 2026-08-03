@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
 import { hasRole } from "@/lib/roles";
 import { logEvent } from "@/lib/structured-logging";
+import { isMarketplacePhoneVerificationDisabled } from "@/lib/phone-verification";
 import { isVerified } from "@/lib/verification-bypass";
 
 export async function requireApiUser() {
@@ -42,7 +43,7 @@ export function requirePhoneVerificationForTrading(user: { id: string; role: str
   const isAdminOrOwner = user.role === "admin" || user.role === "owner" || (user.roles ?? []).includes("admin") || (user.roles ?? []).includes("owner");
   if (isAdminOrOwner) return null;
   // Platform-level bypass for pre-Twilio operation (set ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION=1 in Vercel env).
-  if (process.env.ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION === "1") return null;
+  if (isMarketplacePhoneVerificationDisabled()) return null;
   if (hasPhoneVerification(user)) return null;
   logEvent("warn", {
     event: "permission_denied",

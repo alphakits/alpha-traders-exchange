@@ -122,23 +122,19 @@ export async function clearUserSession(token: string | null | undefined) {
 export async function getCurrentSessionUser() {
   const token = await getCurrentSessionToken();
   if (!token) {
-    console.log("[auth-trace] getCurrentSessionUser: no token in cookie");
     return null;
   }
   const session = await getSessionByToken(token);
   if (!session) {
-    console.log("[auth-trace] getCurrentSessionUser: session not found or expired in DB");
     return null;
   }
   const user = await findUserById(session.userId);
   if (!user) {
-    console.log("[auth-trace] getCurrentSessionUser: user not found for userId:", session.userId);
     return null;
   }
   // emailVerified is enforced at login time (Supabase requires email_confirmed_at;
   // local auth sets emailVerified: true explicitly in upsertUserProfileForAuth).
   // Silently deleting sessions here causes a race: if the DB write during upsert
   // fails or the field is stale, the user is kicked out mid-session with no feedback.
-  console.log("[auth-trace] getCurrentSessionUser: OK — userId:", session.userId, "role:", user.role, "sellerStatus:", user.sellerStatus, "emailVerified:", user.emailVerified);
   return user;
 }

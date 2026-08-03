@@ -615,11 +615,11 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
             </CardHeader>
             <CardContent>
               <form className="grid gap-3 md:grid-cols-2 xl:gap-4" onSubmit={(event) => void handleSave(event)}>
-                <Input value={form.fullName} onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))} placeholder={isAr ? "الاسم الكامل" : "Full name"} />
-                <Input value={form.country} onChange={(event) => setForm((prev) => ({ ...prev, country: event.target.value }))} placeholder={isAr ? "الدولة" : "Country"} />
-                <Input value={form.language} onChange={(event) => setForm((prev) => ({ ...prev, language: event.target.value }))} placeholder={isAr ? "اللغة" : "Language"} />
-                <Input value={form.whatsappNumber} onChange={(event) => setForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} placeholder={isAr ? "رقم التواصل" : "Contact phone"} />
-                <Textarea className="md:col-span-2" value={form.bio} onChange={(event) => setForm((prev) => ({ ...prev, bio: event.target.value }))} placeholder={isAr ? "نبذة احترافية تبني الثقة" : "Write a professional bio that builds trust"} />
+                <Input value={form.fullName} onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))} aria-label={isAr ? "الاسم الكامل" : "Full name"} placeholder={isAr ? "الاسم الكامل" : "Full name"} />
+                <Input value={form.country} onChange={(event) => setForm((prev) => ({ ...prev, country: event.target.value }))} aria-label={isAr ? "الدولة" : "Country"} placeholder={isAr ? "الدولة" : "Country"} />
+                <Input value={form.language} onChange={(event) => setForm((prev) => ({ ...prev, language: event.target.value }))} aria-label={isAr ? "اللغة" : "Language"} placeholder={isAr ? "اللغة" : "Language"} />
+                <Input value={form.whatsappNumber} onChange={(event) => setForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} aria-label={isAr ? "رقم التواصل" : "Contact phone"} placeholder={isAr ? "رقم التواصل" : "Contact phone"} />
+                <Textarea className="md:col-span-2" value={form.bio} onChange={(event) => setForm((prev) => ({ ...prev, bio: event.target.value }))} aria-label={isAr ? "نبذة احترافية" : "Professional bio"} placeholder={isAr ? "نبذة احترافية تبني الثقة" : "Write a professional bio that builds trust"} />
 
                 <div className="md:col-span-2 grid gap-2 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB] xl:grid-cols-2">
                   <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "عناصر الخصوصية" : "Privacy controls"}</p>

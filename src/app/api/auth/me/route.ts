@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { AUTH_PHONE_VERIFIED_COOKIE_NAME, clearUserSession, expireAuthCookies, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
+import { isMarketplacePhoneVerificationDisabled } from "@/lib/phone-verification";
 import { isPhotoVerificationBypassed, isVerified } from "@/lib/verification-bypass";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
@@ -34,7 +35,7 @@ export async function GET() {
   }
   const cookieStore = await cookies();
   const verificationBypassed = isPhotoVerificationBypassed(user.email);
-  const verified = process.env.ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION === "1" || isVerified(user);
+  const verified = isMarketplacePhoneVerificationDisabled() || isVerified(user);
   const effectiveVerifiedPhone = verificationBypassed ? user.verifiedPhone || "bypassed" : user.verifiedPhone ?? "";
   const effectivePhoneVerifiedAt = verificationBypassed ? user.phoneVerifiedAt || new Date(0).toISOString() : user.phoneVerifiedAt ?? "";
   if (verified) {

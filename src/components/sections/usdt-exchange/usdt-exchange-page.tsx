@@ -4038,7 +4038,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   />
                   <p className="text-xs text-[#9CA3AF]">Maximum trade cannot exceed your listed USDT amount.</p>
                 </div>
-                <Textarea className="md:col-span-2 min-h-[96px]" placeholder="Seller Description" value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
+                <Textarea className="md:col-span-2 min-h-[96px]" aria-label="Seller description" placeholder="Seller Description" value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
                 {listingCreateRequiresBank ? (
                 <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
                   <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Supported banks *</p>
@@ -4290,7 +4290,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           </div>
                           <p className="mt-2 text-xs text-[#9CA3AF]">Select up to {MAX_LISTING_PAYMENT_METHODS} methods.</p>
                         </div>
-                        <Textarea className="md:col-span-2" value={listingEditForm.sellerDescription} onChange={(event) => setListingEditForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} placeholder="Seller Description" />
+                        <Textarea className="md:col-span-2" value={listingEditForm.sellerDescription} onChange={(event) => setListingEditForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} aria-label="Seller description" placeholder="Seller Description" />
                         {listingEditRequiresBank ? (
                         <div className="md:col-span-4 rounded-2xl border border-white/10 bg-black/20 p-3">
                           <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Supported banks *</p>
@@ -4611,7 +4611,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           void handleSubmitSellerResponse(request);
                         }}
                       >
-                        <Textarea placeholder="Respond to buyer review" value={sellerResponseDrafts[request.id] ?? ""} onChange={(event) => setSellerResponseDrafts((prev) => ({ ...prev, [request.id]: event.target.value }))} />
+                        <Textarea aria-label="Respond to buyer review" placeholder="Respond to buyer review" value={sellerResponseDrafts[request.id] ?? ""} onChange={(event) => setSellerResponseDrafts((prev) => ({ ...prev, [request.id]: event.target.value }))} />
                         <div>
                           <Button type="submit" size="sm" variant="secondary">Submit Seller Response</Button>
                         </div>
@@ -5073,7 +5073,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                                     void handleSubmitBuyerReview(request);
                                   }}
                                 >
-                                  <Textarea placeholder="Leave one review after completed trade" value={tradeReviewDrafts[request.id] ?? ""} onChange={(event) => setTradeReviewDrafts((prev) => ({ ...prev, [request.id]: event.target.value }))} />
+                                  <Textarea aria-label="Leave trade review" placeholder="Leave one review after completed trade" value={tradeReviewDrafts[request.id] ?? ""} onChange={(event) => setTradeReviewDrafts((prev) => ({ ...prev, [request.id]: event.target.value }))} />
                                   <div>
                                     <Button type="submit" size="sm" variant="secondary">Submit Buyer Review</Button>
                                   </div>
@@ -5485,7 +5485,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       </div>
                       <Input placeholder="Name" value={buyerInfo.name} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, name: event.target.value }))} />
                       <Input placeholder="WhatsApp" value={buyerInfo.whatsapp} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, whatsapp: event.target.value }))} />
-                      <Textarea placeholder="Notes" value={buyerInfo.notes} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, notes: event.target.value }))} />
+                      <Textarea aria-label="Buyer notes" placeholder="Notes" value={buyerInfo.notes} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, notes: event.target.value }))} />
                     </div>
                     {selectedListingRequiresSafetyNotice ? (
                       <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-xs text-amber-100">
