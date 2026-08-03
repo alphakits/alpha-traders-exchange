@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   signUp: vi.fn(),
   resend: vi.fn(),
   adminCreateUser: vi.fn(),
+  findUserByEmail: vi.fn(),
   upsertUserProfileForAuth: vi.fn(),
 }));
 
@@ -36,6 +37,7 @@ vi.mock("@/lib/supabase-auth-provider", () => ({
 }));
 
 vi.mock("@/lib/alpha-exchange-store", () => ({
+  findUserByEmail: mocks.findUserByEmail,
   upsertUserProfileForAuth: mocks.upsertUserProfileForAuth,
 }));
 
@@ -50,6 +52,7 @@ describe("auth register rate-limit hotfix", () => {
     mocks.signUp.mockReset();
     mocks.resend.mockReset();
     mocks.adminCreateUser.mockReset();
+    mocks.findUserByEmail.mockReset();
     mocks.upsertUserProfileForAuth.mockReset();
 
     mocks.resolveClientIp.mockReturnValue("198.51.100.23");
@@ -67,6 +70,7 @@ describe("auth register rate-limit hotfix", () => {
       data: { user: { id: "user-1" } },
       error: null,
     });
+    mocks.findUserByEmail.mockResolvedValue(null);
     mocks.upsertUserProfileForAuth.mockResolvedValue({});
   });
 
@@ -119,5 +123,14 @@ describe("auth register rate-limit hotfix", () => {
         identifier: "198.51.100.23:first@example.com",
       }),
     );
+  });
+
+  it("returns duplicate immediately before provider call when local profile already exists", async () => {
+    mocks.findUserByEmail.mockResolvedValue({ id: "existing-user" });
+    const response = await POST(makeRequest("existing@example.com", "en"));
+    const payload = await response.json() as { error?: string };
+    expect(response.status).toBe(409);
+    expect(payload.error).toBe("Email already registered.");
+    expect(mocks.signUp).not.toHaveBeenCalled();
   });
 });

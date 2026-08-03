@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
+import { findUserByEmail, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 import { checkRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { createSupabaseAdminClient, createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 
@@ -109,6 +109,16 @@ export async function POST(request: NextRequest) {
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json({ error: "Invalid email format." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    }
+
+    const existingUser = await findUserByEmail(email);
+    if (existingUser) {
+      logRegistrationRateLimit("duplicate_registration", {
+        ip: clientIp,
+        email,
+        provider: "local-profile",
+      });
+      return NextResponse.json({ error: "Email already registered." }, { status: 409, headers: AUTH_RESPONSE_HEADERS });
     }
 
     const ipEmailRate = checkRateLimit({
