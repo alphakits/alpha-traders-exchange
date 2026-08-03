@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
@@ -15,15 +15,36 @@ function isAuthRateLimitError(message: string) {
   return normalized.includes("rate limit") || normalized.includes("too many requests");
 }
 
+function registrationRateLimitMessage(locale: "ar" | "en") {
+  return locale === "ar"
+    ? "تم تقييد التسجيل مؤقتًا. يُرجى المحاولة مرة أخرى خلال بضع دقائق."
+    : "Registration is temporarily rate-limited. Please try again in a few minutes.";
+}
+
+function logRegistrationRateLimit(reason: string, details: Record<string, string | number | boolean | null>) {
+  if (process.env.NODE_ENV === "test") return;
+  console.warn("[auth/register] rate-limited", { reason, ...details });
+}
+
 export async function POST(request: NextRequest) {
-  const rate = checkRateLimit({
+  const locale = inferLocaleFromRequest(request);
+  const clientIp = resolveClientIp(request.headers);
+  const ipRate = checkRateLimit({
     headers: request.headers,
-    key: "auth:register",
-    maxRequests: 6,
-    windowMs: 60_000,
+    key: "auth:register:ip",
+    maxRequests: 25,
+    windowMs: 10 * 60_000,
   });
-  if (!rate.allowed) {
-    return NextResponse.json({ error: "Too many registration attempts. Please try again shortly." }, { status: 429, headers: { ...AUTH_RESPONSE_HEADERS, "Retry-After": String(rate.retryAfterSeconds) } });
+  if (!ipRate.allowed) {
+    logRegistrationRateLimit("ip_limit_reached", {
+      ip: clientIp,
+      retryAfterSeconds: ipRate.retryAfterSeconds,
+      path: request.nextUrl.pathname,
+    });
+    return NextResponse.json(
+      { error: registrationRateLimitMessage(locale) },
+      { status: 429, headers: { ...AUTH_RESPONSE_HEADERS, "Retry-After": String(ipRate.retryAfterSeconds) } },
+    );
   }
   try {
     const body = await request.json();
@@ -43,6 +64,26 @@ export async function POST(request: NextRequest) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json({ error: "Invalid email format." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
+
+    const ipEmailRate = checkRateLimit({
+      headers: request.headers,
+      key: "auth:register:ip-email",
+      identifier: `${clientIp}:${email}`,
+      maxRequests: 8,
+      windowMs: 10 * 60_000,
+    });
+    if (!ipEmailRate.allowed) {
+      logRegistrationRateLimit("email_limit_reached", {
+        ip: clientIp,
+        email,
+        retryAfterSeconds: ipEmailRate.retryAfterSeconds,
+      });
+      return NextResponse.json(
+        { error: registrationRateLimitMessage(locale) },
+        { status: 429, headers: { ...AUTH_RESPONSE_HEADERS, "Retry-After": String(ipEmailRate.retryAfterSeconds) } },
+      );
+    }
+
     if (!agreedToTerms) {
       return NextResponse.json({ error: "Terms must be accepted." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
@@ -53,8 +94,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Passwords do not match." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
 
-    const locale = inferLocaleFromRequest(request);
-    const supabase = createSupabaseAuthClient();
+    const supabase = createSupabaseAuthClient({ requestHeaders: request.headers });
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -68,10 +108,20 @@ export async function POST(request: NextRequest) {
     });
     if (error) {
       if (isDuplicateRegistrationError(error.message)) {
+        logRegistrationRateLimit("duplicate_registration", {
+          ip: clientIp,
+          email,
+          provider: "supabase",
+        });
         return NextResponse.json({ error: "Email already registered." }, { status: 409, headers: AUTH_RESPONSE_HEADERS });
       }
       if (isAuthRateLimitError(error.message)) {
-        return NextResponse.json({ error: "Registration is temporarily rate-limited. Please try again in a few minutes." }, { status: 429, headers: AUTH_RESPONSE_HEADERS });
+        logRegistrationRateLimit("provider_rate_limit", {
+          ip: clientIp,
+          email,
+          provider: "supabase",
+        });
+        return NextResponse.json({ error: registrationRateLimitMessage(locale) }, { status: 429, headers: AUTH_RESPONSE_HEADERS });
       }
       return NextResponse.json({ error: error.message }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }

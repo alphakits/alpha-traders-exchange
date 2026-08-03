@@ -19,6 +19,22 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  function localizeRegistrationError(error?: string) {
+    const message = String(error ?? "").trim();
+    if (!message) {
+      return isAr ? "فشل إنشاء الحساب." : "Registration failed.";
+    }
+    if (!isAr) return message;
+    const normalized = message.toLowerCase();
+    if (normalized.includes("temporarily rate-limited") || normalized.includes("too many registration attempts")) {
+      return "تم تقييد التسجيل مؤقتًا. يُرجى المحاولة مرة أخرى خلال بضع دقائق.";
+    }
+    if (normalized.includes("email already registered")) {
+      return "البريد الإلكتروني مسجل بالفعل.";
+    }
+    return message;
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setStatusMessage(null);
@@ -28,12 +44,15 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
     try {
       const response = await fetch("/api/auth/register", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Locale": locale,
+        },
         body: JSON.stringify(form),
       });
       const payload = (await response.json()) as { error?: string; message?: string };
       if (!response.ok) {
-        setErrorMessage(payload.error ?? "Registration failed.");
+        setErrorMessage(localizeRegistrationError(payload.error));
         return;
       }
       setStatusMessage(
