@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { LogoutButton } from "@/components/auth/logout-button";
+import { CreateListingQuickLink } from "@/components/layout/create-listing-quick-link";
 import { LocaleSwitcher } from "./locale-switcher";
 
 export async function SiteHeader({ locale }: { locale: AppLocale }) {
@@ -88,13 +89,10 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
             {dashboardLabel}
           </Link>
           {canAccessSellerWorkspace ? (
-            <Link
-              href="/usdt-exchange#create-listing-form"
-              locale={locale}
+            <CreateListingQuickLink
               className="hidden items-center gap-1.5 rounded-full border border-[#C9A227]/50 bg-gradient-to-r from-[#C9A227]/20 to-[#D4AF37]/10 px-3 py-1.5 text-xs font-semibold text-[#F4D87A] shadow-[0_4px_16px_rgba(201,162,39,0.25)] transition hover:border-[#C9A227]/70 hover:shadow-[0_6px_20px_rgba(201,162,39,0.35)] md:inline-flex"
-            >
-              ➕ {locale === "ar" ? "إنشاء عرض" : "Create Listing"}
-            </Link>
+              label={locale === "ar" ? "إنشاء عرض" : "Create Listing"}
+            />
           ) : null}
           {sessionUser ? <NotificationBell locale={locale} /> : null}
           {sessionUser ? (
@@ -140,9 +138,10 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
                     {dashboardLabel}
                   </Link>
                   {canAccessSellerWorkspace ? (
-                    <Link href="/usdt-exchange#create-listing-form" locale={locale} className="block rounded-xl px-3 py-2 text-sm font-medium text-[#F4D87A] transition hover:bg-[#C9A227]/10">
-                      ➕ {locale === "ar" ? "إنشاء عرض" : "Create Listing"}
-                    </Link>
+                    <CreateListingQuickLink
+                      className="block rounded-xl px-3 py-2 text-sm font-medium text-[#F4D87A] transition hover:bg-[#C9A227]/10"
+                      label={locale === "ar" ? "إنشاء عرض" : "Create Listing"}
+                    />
                   ) : null}
                   {sessionUser ? (
                     <Link href="/notifications" locale={locale} className="block rounded-xl px-3 py-2 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white">

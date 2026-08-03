@@ -13,10 +13,13 @@ import { LogoutButton } from "@/components/auth/logout-button";
 import { AlphaMarketCenter } from "@/components/market/alpha-market-center";
 import { useMarketFeed } from "@/components/market/use-market-feed";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
+import { hasRole } from "@/lib/roles";
 import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
 import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, isCardlessAtmPaymentMethod, isBankTransferPaymentMethod, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import { CLIENT_COMMISSION_WALLETS, COMMISSION_NETWORKS, type CommissionNetworkId } from "@/lib/commission-config";
 import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, finalizeLoginJourneyRedirectEnd, incrementLoginJourneyApiCall, isLoginJourneyTraceEnabled } from "@/lib/login-journey-trace";
+import { formatListingId, formatTradeId } from "@/lib/format-id";
+import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
@@ -186,13 +189,11 @@ function renderBankLogo(bank: (typeof ISRAELI_BANKS)[number]) {
 }
 
 function shortListingRef(listing: Pick<MarketplaceListing, "displayNumber" | "id">) {
-  return `#${listing.displayNumber ?? String(listing.id).slice(-6)}`;
+  return formatListingId(listing.displayNumber, listing.id);
 }
 
 function shortTradeRef(request: Pick<PurchaseRequest, "displayNumber" | "tradeId" | "id">) {
-  if (request.displayNumber) return `Trade #${request.displayNumber}`;
-  if (request.tradeId?.trim()) return request.tradeId;
-  return `Trade #${String(request.id).slice(-6)}`;
+  return `Trade ${formatTradeId(request.displayNumber, request.tradeId ?? request.id)}`;
 }
 
 function safeErrorMessage(context: "application" | "purchase" | "listing" | "request" | "settings" | "password" | "workspace" | "review" | "evidence") {
@@ -566,7 +567,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     additionalNotes: "",
   });
   const [sellerApplicationMethods, setSellerApplicationMethods] = useState<SellerApplicationMethod[]>(["USDT (ERC20 / Ethereum)"]);
-  const isApprovedSellerSession = sessionUser?.role === "approved_seller" && sessionUser?.sellerStatus === "approved_seller";
+  const isApprovedSellerSession = Boolean(sessionUser && hasRole(sessionUser, "approved_seller"));
+  const isAdminSession = Boolean(sessionUser && hasRole(sessionUser, "admin"));
 
   const tracedFetch = useCallback(async (label: string, input: string, init?: RequestInit) => {
     const startedAt = Date.now();
@@ -920,20 +922,30 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     return () => window.clearInterval(id);
   }, []);
 
-  // Scroll to the create-listing form when navigated here via the header "Create Listing" button.
-  // We wait for the page to finish loading before attempting the scroll so the element exists in the DOM.
+  const scrollToCreateListingSection = useCallback(() => {
+    if (typeof document === "undefined") return false;
+    const target = document.getElementById("create-listing") ?? document.getElementById("create-listing-form");
+    if (!target) return false;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    return true;
+  }, []);
+
+  // Scroll to create-listing when navigated with hash, retrying briefly while deferred UI mounts.
   useEffect(() => {
-    if (isLoadingListings) return;
     if (typeof window === "undefined") return;
-    const hash = window.location.hash;
-    if (!hash) return;
-    const el = document.getElementById(hash.replace("#", ""));
-    if (!el) return;
-    const timeout = window.setTimeout(() => {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 120);
-    return () => window.clearTimeout(timeout);
-  }, [isLoadingListings]);
+    const hash = window.location.hash.replace("#", "").trim();
+    if (hash !== "create-listing" && hash !== "create-listing-form") return;
+    if (scrollToCreateListingSection()) return;
+    const startedAt = Date.now();
+    let frame = 0;
+    const tryScroll = () => {
+      if (scrollToCreateListingSection()) return;
+      if (Date.now() - startedAt > 10000) return;
+      frame = window.requestAnimationFrame(tryScroll);
+    };
+    frame = window.requestAnimationFrame(tryScroll);
+    return () => window.cancelAnimationFrame(frame);
+  }, [isApprovedSellerSession, isLoadingListings, scrollToCreateListingSection]);
 
   useEffect(() => {
     if (isLoadingListings || selectedListing || !sessionUser) return;
@@ -1359,6 +1371,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const estimatedTotal = selectedAmount * selectedPrice + commission;
 
   const isApprovedSeller = isApprovedSellerSession;
+  const canAccessListingCreation = isApprovedSeller || isAdminSession;
   const isOwnerViewer = sessionUser?.role === "admin" && isAlphaExchangeOwnerEmail(sessionUser.email);
   const archivedConfirmationTrade = !isApprovedSeller
     ? myRequests.find((r) => r.status === "usdt_sent" && r.buyerConfirmationArchivedAt)
@@ -2117,13 +2130,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             <div key={notification.id} className={`rounded-xl border p-3 text-xs ${notification.isRead ? "border-white/10 bg-black/20 text-[#9CA3AF]" : "border-[#C9A227]/35 bg-[#C9A227]/10 text-[#F3F4F6]"}`}>
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="text-sm font-medium text-white">{notification.title}</p>
+                  <p className="text-sm font-medium text-white">{replaceExchangeEntityIdsWithHints(notification.title, notification)}</p>
                   <p className="mt-1 text-[11px] text-[#93C5FD]">
-                    {notification.relatedListingDisplayNumber ? `Listing #${notification.relatedListingDisplayNumber}` : null}
-                    {notification.relatedTradeDisplayNumber ? `${notification.relatedListingDisplayNumber ? " • " : ""}Trade #${notification.relatedTradeDisplayNumber}` : null}
-                    {notification.relatedRequestDisplayNumber && !notification.relatedTradeDisplayNumber ? `${notification.relatedListingDisplayNumber ? " • " : ""}Trade #${notification.relatedRequestDisplayNumber}` : null}
+                    {notification.relatedListingDisplayNumber ? `Listing ${formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}` : null}
+                    {notification.relatedTradeDisplayNumber ? `${notification.relatedListingDisplayNumber ? " • " : ""}Trade ${formatTradeId(notification.relatedTradeDisplayNumber, notification.relatedTradeId)}` : null}
+                    {notification.relatedRequestDisplayNumber && !notification.relatedTradeDisplayNumber ? `${notification.relatedListingDisplayNumber ? " • " : ""}Trade ${formatTradeId(notification.relatedRequestDisplayNumber, notification.relatedRequestId)}` : null}
                   </p>
-                  <p className="mt-1">{notification.message}</p>
+                  <p className="mt-1">{replaceExchangeEntityIdsWithHints(notification.message, notification)}</p>
                   <p className="mt-1 text-[11px]">{new Date(notification.createdAt).toLocaleString("en-IL")}</p>
                   {notification.actionHref ? (
                     <a href={notification.actionHref} className="mt-2 inline-flex items-center rounded-full border border-[#6CAEFF]/40 bg-[#6CAEFF]/10 px-2.5 py-1 text-[11px] text-[#93C5FD] transition hover:border-[#6CAEFF]/70">
@@ -2206,7 +2219,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 type="button"
                 size="sm"
                 variant="secondary"
-                onClick={() => document.getElementById("create-listing-form")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                onClick={() => { void scrollToCreateListingSection(); }}
               >
                 Create Listing
               </Button>
@@ -2780,7 +2793,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               <p className="mt-2 text-sm text-[#9CA3AF]">
                 {isAr ? "يمكن للبائعين المعتمدين إنشاء عرض من لوحة البائع." : "Approved sellers can create a listing from their Seller Dashboard."}
               </p>
-              {isApprovedSeller ? (
+              {canAccessListingCreation ? (
                 <Button type="button" className="mt-4" onClick={() => router.push("/dashboard/seller")}>
                   {isAr ? "إنشاء عرض" : "Create Listing"}
                 </Button>
@@ -3551,7 +3564,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </Card>
           ) : null}
 
-          <Card id="create-listing-form" className="order-30 border-white/10 bg-[#0B0B0B]/90">
+          <Card id="create-listing" className="order-30 border-white/10 bg-[#0B0B0B]/90">
             <CardHeader>
               <CardTitle>{isAr ? "إنشاء عرض جديد" : "Create Listing"}</CardTitle>
               <CardDescription>
@@ -3799,7 +3812,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <Store className="mx-auto h-5 w-5 text-[#C9A227]" />
                   <p className="mt-2 text-sm font-medium text-white">{isAr ? "ليس لديك عروض نشطة حتى الآن" : "You don&apos;t have any active listings yet."}</p>
                   <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "أنشئ أول عرضك الآن ليبدأ المشترون بطلب الشراء." : "Create your first listing now and start receiving buyer requests."}</p>
-                  <Button type="button" size="sm" className="mt-3" onClick={() => document.getElementById("create-listing-form")?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+                  <Button type="button" size="sm" className="mt-3" onClick={() => { void scrollToCreateListingSection(); }}>
                     {isAr ? "إنشاء عرض" : "Create Listing"}
                   </Button>
                 </div>
@@ -4413,7 +4426,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         type="button"
                         size="sm"
                         variant="secondary"
-                        onClick={() => document.getElementById("create-listing-form")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                        onClick={() => { void scrollToCreateListingSection(); }}
                       >
                         Create New Listing
                       </Button>
@@ -5079,7 +5092,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
                           <p className="font-medium text-white">Recent Trades</p>
                           {(sellerProfileData.ownerTools?.tradeHistory ?? []).slice(0, 3).map((entry) => (
-                            <p key={entry.id} className="mt-1">{entry.tradeId ?? entry.id} • {tradeStatusLabel(entry.status)}</p>
+                            <p key={entry.id} className="mt-1">{shortTradeRef(entry)} • {tradeStatusLabel(entry.status)}</p>
                           ))}
                         </div>
                       </div>
