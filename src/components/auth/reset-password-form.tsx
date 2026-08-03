@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
@@ -9,13 +9,37 @@ import { Input } from "@/components/ui/input";
 export function ResetPasswordForm({ locale }: { locale: "ar" | "en" }) {
   const isAr = locale === "ar";
   const searchParams = useSearchParams();
-  const tokenHash = searchParams.get("token_hash") ?? "";
-  const tokenType = searchParams.get("type") ?? "recovery";
+  const [tokenHash, setTokenHash] = useState(() => searchParams.get("token_hash") ?? searchParams.get("token") ?? "");
+  const [tokenType, setTokenType] = useState(() => searchParams.get("type") ?? "recovery");
+  const [accessToken, setAccessToken] = useState("");
+  const [refreshToken, setRefreshToken] = useState("");
+  const [authCode, setAuthCode] = useState(() => searchParams.get("code") ?? "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const hasToken = useMemo(() => Boolean(tokenHash.trim()), [tokenHash]);
+  const hasToken = useMemo(
+    () => Boolean(tokenHash.trim() || authCode.trim() || (accessToken.trim() && refreshToken.trim())),
+    [accessToken, authCode, refreshToken, tokenHash],
+  );
+
+  useEffect(() => {
+    const codeFromQuery = searchParams.get("code");
+    if (codeFromQuery) setAuthCode(codeFromQuery);
+
+    const rawHash = window.location.hash?.startsWith("#") ? window.location.hash.slice(1) : "";
+    if (!rawHash) return;
+    const hashParams = new URLSearchParams(rawHash);
+    const hashToken = hashParams.get("token_hash") ?? hashParams.get("token");
+    const hashType = hashParams.get("type");
+    const hashAccessToken = hashParams.get("access_token");
+    const hashRefreshToken = hashParams.get("refresh_token");
+
+    if (hashToken) setTokenHash(hashToken);
+    if (hashType) setTokenType(hashType);
+    if (hashAccessToken) setAccessToken(hashAccessToken);
+    if (hashRefreshToken) setRefreshToken(hashRefreshToken);
+  }, [searchParams]);
 
   function localizeResetError(message?: string) {
     const normalized = String(message ?? "").toLowerCase();
@@ -53,6 +77,9 @@ export function ResetPasswordForm({ locale }: { locale: "ar" | "en" }) {
         body: JSON.stringify({
           tokenHash,
           type: tokenType,
+          accessToken,
+          refreshToken,
+          code: authCode,
           password,
           confirmPassword,
           locale,

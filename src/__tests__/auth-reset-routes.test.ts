@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   resetPasswordForEmail: vi.fn(),
   generateLink: vi.fn(),
   verifyOtp: vi.fn(),
+  exchangeCodeForSession: vi.fn(),
   setSession: vi.fn(),
   updateUser: vi.fn(),
   signOut: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("@/lib/supabase-auth-provider", () => ({
     auth: {
       resetPasswordForEmail: mocks.resetPasswordForEmail,
       verifyOtp: mocks.verifyOtp,
+      exchangeCodeForSession: mocks.exchangeCodeForSession,
       setSession: mocks.setSession,
       updateUser: mocks.updateUser,
       signOut: mocks.signOut,
@@ -56,6 +58,7 @@ describe("auth reset routes", () => {
     mocks.resetPasswordForEmail.mockReset();
     mocks.generateLink.mockReset();
     mocks.verifyOtp.mockReset();
+    mocks.exchangeCodeForSession.mockReset();
     mocks.setSession.mockReset();
     mocks.updateUser.mockReset();
     mocks.signOut.mockReset();
@@ -74,6 +77,15 @@ describe("auth reset routes", () => {
         session: {
           access_token: "access-token",
           refresh_token: "refresh-token",
+        },
+      },
+      error: null,
+    });
+    mocks.exchangeCodeForSession.mockResolvedValue({
+      data: {
+        session: {
+          access_token: "code-access-token",
+          refresh_token: "code-refresh-token",
         },
       },
       error: null,
@@ -216,6 +228,23 @@ describe("auth reset routes", () => {
 
     expect(response.status).toBe(200);
     expect(payload.message).toBe("Your password has been updated successfully. Please sign in.");
+    expect(mocks.updateUser).toHaveBeenCalledWith({ password: "new-password-123" });
+  });
+
+  it("accepts code-based recovery links and updates the password", async () => {
+    const request = new NextRequest("http://localhost/api/auth/reset/confirm", {
+      method: "POST",
+      body: JSON.stringify({
+        code: "valid-code",
+        password: "new-password-123",
+        confirmPassword: "new-password-123",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const response = await confirmReset(request);
+    expect(response.status).toBe(200);
+    expect(mocks.exchangeCodeForSession).toHaveBeenCalledWith("valid-code");
     expect(mocks.updateUser).toHaveBeenCalledWith({ password: "new-password-123" });
   });
 });

@@ -13,12 +13,15 @@ export async function POST(request: NextRequest) {
   const clientIp = resolveClientIp(request.headers);
   try {
     const body = await request.json();
-    const tokenHash = String(body?.tokenHash ?? body?.token_hash ?? "").trim();
+    const tokenHash = String(body?.tokenHash ?? body?.token_hash ?? body?.token ?? "").trim();
     const tokenType = String(body?.type ?? "recovery").trim().toLowerCase();
+    const accessTokenInput = String(body?.accessToken ?? body?.access_token ?? "").trim();
+    const refreshTokenInput = String(body?.refreshToken ?? body?.refresh_token ?? "").trim();
+    const authCode = String(body?.code ?? "").trim();
     const newPassword = String(body?.password ?? "");
     const confirmPassword = String(body?.confirmPassword ?? "");
 
-    if (!tokenHash) {
+    if (!tokenHash && !authCode && !(accessTokenInput && refreshTokenInput)) {
       return NextResponse.json({ error: "Invalid reset link. Please request a new password reset email." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
     if (!newPassword || !confirmPassword) {
@@ -34,7 +37,7 @@ export async function POST(request: NextRequest) {
     const rate = checkRateLimit({
       headers: request.headers,
       key: "auth:reset-confirm",
-      identifier: `${clientIp}:${tokenHash.slice(0, 32)}`,
+      identifier: `${clientIp}:${(tokenHash || accessTokenInput || authCode).slice(0, 32)}`,
       maxRequests: 20,
       windowMs: 10 * 60_000,
     });
@@ -43,19 +46,36 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = createSupabaseAuthClient({ requestHeaders: request.headers });
-    const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
-      token_hash: tokenHash,
-      type: tokenType === "recovery" ? "recovery" : "recovery",
-    });
-    if (verifyError) {
-      if (isExpiredOrInvalidTokenError(verifyError.message)) {
-        return NextResponse.json({ error: "This reset link is invalid or expired. Please request a new one." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    let accessToken = accessTokenInput;
+    let refreshToken = refreshTokenInput;
+
+    if ((!accessToken || !refreshToken) && authCode) {
+      const { data: codeData, error: codeError } = await supabase.auth.exchangeCodeForSession(authCode);
+      if (codeError) {
+        if (isExpiredOrInvalidTokenError(codeError.message)) {
+          return NextResponse.json({ error: "This reset link is invalid or expired. Please request a new one." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+        }
+        return NextResponse.json({ error: "Unable to verify reset link. Please try again." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
       }
-      return NextResponse.json({ error: "Unable to verify reset link. Please try again." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+      accessToken = codeData?.session?.access_token ?? "";
+      refreshToken = codeData?.session?.refresh_token ?? "";
     }
 
-    const accessToken = verifyData?.session?.access_token;
-    const refreshToken = verifyData?.session?.refresh_token;
+    if ((!accessToken || !refreshToken) && tokenHash) {
+      const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
+        token_hash: tokenHash,
+        type: tokenType === "recovery" ? "recovery" : "recovery",
+      });
+      if (verifyError) {
+        if (isExpiredOrInvalidTokenError(verifyError.message)) {
+          return NextResponse.json({ error: "This reset link is invalid or expired. Please request a new one." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+        }
+        return NextResponse.json({ error: "Unable to verify reset link. Please try again." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+      }
+      accessToken = verifyData?.session?.access_token ?? "";
+      refreshToken = verifyData?.session?.refresh_token ?? "";
+    }
+
     if (!accessToken || !refreshToken) {
       return NextResponse.json({ error: "This reset link is invalid or expired. Please request a new one." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
