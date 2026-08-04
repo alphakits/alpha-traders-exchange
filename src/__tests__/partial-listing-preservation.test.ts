@@ -10,6 +10,7 @@ import {
   createPurchaseRequest,
   getAccountProfileData,
   getCommissionRecordsForAdmin,
+  getNotificationsForUser,
   getFirstActiveTradeForUser,
   getMyMarketplaceListings,
   getMyPurchaseRequests,
@@ -835,6 +836,111 @@ describe("partial listing preservation", () => {
 
     const listings = await getMyMarketplaceListings(SELLER_ID);
     expect(listings.find((entry) => entry.id === listing.id)?.status).toBe("active");
+  });
+
+  it("emits one notification per trade lifecycle event with deep links", async () => {
+    const listing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "600",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "600",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+    await approveListing(listing.id);
+
+    const request = await createPurchaseRequest({
+      buyerId: BUYER_ONE_ID,
+      listingId: listing.id,
+      usdtAmount: "120",
+      buyerName: "Buyer One",
+      buyerWhatsapp: "+972500000001",
+      buyerNotes: "Notification certification",
+      actorUserId: BUYER_ONE_ID,
+    });
+
+    const sellerNotificationsAfterRequest = await getNotificationsForUser({ userId: SELLER_ID });
+    const buyerNotificationsAfterRequest = await getNotificationsForUser({ userId: BUYER_ONE_ID });
+    expect(sellerNotificationsAfterRequest.notifications.filter((n) => n.relatedRequestId === request.request.id && n.title === "New trade request")).toHaveLength(1);
+    expect(buyerNotificationsAfterRequest.notifications.filter((n) => n.relatedRequestId === request.request.id)).toHaveLength(0);
+
+    await updatePurchaseRequestStatus({
+      requestId: request.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "accepted",
+    });
+    await uploadTradeEvidence({
+      purchaseRequestId: request.request.id,
+      actorUserId: BUYER_ONE_ID,
+      actorRole: "buyer",
+      side: "buyer",
+      fileName: "buyer-proof.png",
+      mimeType: "image/png",
+      sizeBytes: 68,
+      contentBase64: PNG_BASE64,
+    });
+    await updatePurchaseRequestStatus({
+      requestId: request.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "funds_received",
+    });
+    await updatePurchaseRequestStatus({
+      requestId: request.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "usdt_release_pending",
+    });
+    await uploadTradeEvidence({
+      purchaseRequestId: request.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      side: "seller",
+      fileName: "seller-proof.png",
+      mimeType: "image/png",
+      sizeBytes: 68,
+      contentBase64: PNG_BASE64,
+    });
+    await updatePurchaseRequestStatus({
+      requestId: request.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "usdt_sent",
+    });
+    await updatePurchaseRequestStatus({
+      requestId: request.request.id,
+      actorUserId: BUYER_ONE_ID,
+      actorRole: "buyer",
+      nextStatus: "completed",
+    });
+
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb & { __runtimeVersion: number };
+    const requestNotifications = snapshot.notifications.filter((entry) => entry.relatedRequestId === request.request.id || entry.relatedTradeId === request.request.tradeId);
+    const sellerNotifications = requestNotifications.filter((entry) => entry.userId === SELLER_ID).map((entry) => entry.title);
+    const buyerNotifications = requestNotifications.filter((entry) => entry.userId === BUYER_ONE_ID).map((entry) => entry.title);
+
+    expect(requestNotifications.filter((entry) => entry.title === "New trade request")).toHaveLength(1);
+    expect(requestNotifications.filter((entry) => entry.title === "Trade request accepted")).toHaveLength(1);
+    expect(requestNotifications.filter((entry) => entry.title === "Buyer marked payment sent")).toHaveLength(1);
+    expect(requestNotifications.filter((entry) => entry.title === "Seller confirmed funds received")).toHaveLength(1);
+    expect(requestNotifications.filter((entry) => entry.title === "USDT release pending")).toHaveLength(1);
+    expect(requestNotifications.filter((entry) => entry.title === "Seller marked USDT sent")).toHaveLength(1);
+    expect(requestNotifications.filter((entry) => entry.userId === BUYER_ONE_ID && entry.title === "Trade completed")).toHaveLength(1);
+    expect(requestNotifications.filter((entry) => entry.userId === SELLER_ID && entry.title === "Trade completed")).toHaveLength(1);
+    expect(requestNotifications.filter((entry) => entry.userId === BUYER_ONE_ID && entry.title === "Review available")).toHaveLength(1);
+    expect(sellerNotifications).toContain("Buyer marked payment sent");
+    expect(buyerNotifications).toContain("Trade completed");
+    expect(buyerNotifications).toContain("Review available");
+    expect(requestNotifications.every((entry, index, arr) => arr.findIndex((item) => item.id === entry.id) === index)).toBe(true);
+    expect(requestNotifications.every((entry) => Boolean(entry.relatedHref) || Boolean(entry.actionHref))).toBe(true);
   });
 
   it("prevents buyers from opening a second active trade", async () => {
