@@ -1696,6 +1696,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         setShowVerificationCta(false);
         setIsRedirectingToVerification(false);
         setStatusMessage(null);
+        closeListingModal();
+        router.push(`/trade-room/${data.purchase.id}`);
       }
     } catch (error) {
       const message = error instanceof Error && error.message.trim()
