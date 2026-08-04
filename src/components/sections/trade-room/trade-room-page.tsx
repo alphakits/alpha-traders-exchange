@@ -697,7 +697,7 @@ export function TradeRoomPage({
     if (!reviewFormVisible) {
       reviewFormVisibleRef.current = false;
     }
-  }, [actor.role, logReviewDiagnostic, reviewDeferred, room?.request]);
+  }, [actor.role, logReviewDiagnostic, room?.request]);
 
   useEffect(() => {
     const currentRequest = room?.request;
@@ -1735,20 +1735,7 @@ export function TradeRoomPage({
                     </div>
                   </CardContent>
                 </Card>
-              ) : null}
-              {isActorBuyer && !request.buyerReview && reviewDeferred ? (
-                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
-                  <p className="font-medium">{isAr ? "تم تأجيل التقييم" : "Feedback deferred"}</p>
-                  <p className="mt-1 text-xs">
-                    {isAr
-                      ? "قبل إنشاء طلب شراء جديد، ستحتاج إلى إكمال تقييم هذه الصفقة."
-                      : "Before creating another purchase request, you will need to complete feedback for this trade."}
-                  </p>
-                  <Button type="button" variant="secondary" className="mt-2" onClick={() => setReviewDeferred(false)}>
-                    {isAr ? "إكمال التقييم الآن" : "Complete Feedback Now"}
-                  </Button>
-                </div>
-              ) : null}
+              ) : null}
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="secondary" onClick={() => router.push("/usdt-exchange")}>
                   {isAr ? "عرض سجل الصفقات" : "View Trade History"}
