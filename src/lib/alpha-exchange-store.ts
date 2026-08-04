@@ -4967,8 +4967,13 @@ function filterTradesForUser(db: AlphaExchangeDb, userId: string, role: UserRole
 
 export async function getFirstActiveTradeForUser(userId: string, role: UserRole) {
   const db = await readDb();
+  // Include "pending" only when the user is the buyer waiting for seller acceptance —
+  // sellers and admins must not be locked into the trade room by an unaccepted request.
   const activeTrades = filterTradesForUser(db, userId, role)
-    .filter((request) => isActiveTradeStatus(request.status))
+    .filter((request) =>
+      isActiveTradeStatus(request.status) ||
+      (request.status === "pending" && request.buyerId === userId),
+    )
     .sort(sortTradesByUpdatedAtDesc);
   return activeTrades[0] ? enrichRequestWithEvidence(db, activeTrades[0]) : null;
 }

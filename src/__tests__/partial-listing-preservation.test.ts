@@ -10,9 +10,11 @@ import {
   createPurchaseRequest,
   getAccountProfileData,
   getCommissionRecordsForAdmin,
+  getFirstActiveTradeForUser,
   getMyMarketplaceListings,
   getMyPurchaseRequests,
   invalidateAlphaExchangeStoreCache,
+  reviewMarketplaceListingByOwner,
   TradeBlockedError,
   updateCommissionPaymentStatus,
   updateMarketplaceListingForSeller,
@@ -80,6 +82,7 @@ function seedDb(): AlphaExchangeDb & { __runtimeVersion: number } {
       createUser(BUYER_ONE_ID, "buyer-one@example.com", "buyer"),
       createUser(BUYER_TWO_ID, "buyer-two@example.com", "buyer"),
       createUser(BUYER_THREE_ID, "buyer-three@example.com", "buyer"),
+      createUser(OWNER_ID, "owner@example.com", "owner"),
     ] as AlphaExchangeDb["users"],
     sellerApplications: [],
     marketplaceListings: [],
@@ -102,6 +105,14 @@ function seedDb(): AlphaExchangeDb & { __runtimeVersion: number } {
     sellerReviews: [],
     __runtimeVersion: 0,
   };
+}
+
+async function approveListing(listingId: string) {
+  await reviewMarketplaceListingByOwner({
+    listingId,
+    ownerUserId: OWNER_ID,
+    decision: "approve",
+  });
 }
 
 async function completeTrade(input: {
@@ -269,6 +280,7 @@ describe("partial listing preservation", () => {
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
     });
+    await approveListing(listing.id);
 
     const created = await createPurchaseRequest({
       buyerId: BUYER_ONE_ID,
@@ -395,6 +407,7 @@ describe("partial listing preservation", () => {
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
     });
+    await approveListing(listing.id);
 
     const created = await createPurchaseRequest({
       buyerId: BUYER_ONE_ID,
@@ -429,6 +442,7 @@ describe("partial listing preservation", () => {
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
     });
+    await approveListing(listing.id);
 
     const beforeSeller = await getAccountProfileData(SELLER_ID);
     const beforeBuyer = await getAccountProfileData(BUYER_ONE_ID);
@@ -473,6 +487,7 @@ describe("partial listing preservation", () => {
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
     });
+    await approveListing(listing.id);
 
     await completeTrade({
       listingId: listing.id,
@@ -543,6 +558,7 @@ describe("partial listing preservation", () => {
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
     });
+    await approveListing(listing.id);
 
     const firstRequestId = await completeTrade({
       listingId: listing.id,
@@ -620,6 +636,7 @@ describe("partial listing preservation", () => {
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
     });
+    await approveListing(listing.id);
 
     const created = await createPurchaseRequest({
       buyerId: BUYER_ONE_ID,
@@ -709,6 +726,8 @@ describe("partial listing preservation", () => {
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
     });
+    await approveListing(lockedListing.id);
+    await approveListing(freshListing.id);
 
     const created = await createPurchaseRequest({
       buyerId: BUYER_ONE_ID,
@@ -772,6 +791,7 @@ describe("partial listing preservation", () => {
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
     });
+    await approveListing(listing.id);
 
     const sellerDeclined = await createPurchaseRequest({
       buyerId: BUYER_TWO_ID,
@@ -848,6 +868,8 @@ describe("partial listing preservation", () => {
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
     });
+    await approveListing(primaryListing.id);
+    await approveListing(secondaryListing.id);
 
     const first = await createPurchaseRequest({
       buyerId: BUYER_ONE_ID,
@@ -882,5 +904,43 @@ describe("partial listing preservation", () => {
       expect(blocked.code).toBe("ACTIVE_TRADE_EXISTS");
       expect(blocked.purchaseRequestId).toBe(first.request.id);
     }
+  });
+
+  it("redirects buyer but not seller for a pending (pre-acceptance) trade", async () => {
+    const listing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "500",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "500",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+    await approveListing(listing.id);
+
+    await createPurchaseRequest({
+      buyerId: BUYER_ONE_ID,
+      listingId: listing.id,
+      usdtAmount: "100",
+      buyerName: "Buyer One",
+      buyerWhatsapp: "+972500000001",
+      buyerNotes: "Pending trade test",
+      actorUserId: BUYER_ONE_ID,
+    });
+
+    // Buyer should be redirected into trade room (pending = buyer is waiting)
+    const buyerTrade = await getFirstActiveTradeForUser(BUYER_ONE_ID, "buyer");
+    expect(buyerTrade).not.toBeNull();
+    expect(buyerTrade?.status).toBe("pending");
+
+    // Seller should NOT be redirected — pending request is unaccepted, seller can still browse
+    const sellerTrade = await getFirstActiveTradeForUser(SELLER_ID, "approved_seller");
+    expect(sellerTrade).toBeNull();
   });
 });

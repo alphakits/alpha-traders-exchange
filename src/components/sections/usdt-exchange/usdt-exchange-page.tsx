@@ -1510,11 +1510,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   );
   const requireAuth = useCallback(() => {
     if (!sessionUser) {
-      router.push("/login");
+      router.push(`/login?redirectTo=${encodeURIComponent(tradeReturnPath)}`);
       return false;
     }
     return true;
-  }, [sessionUser, router]);
+  }, [sessionUser, router, tradeReturnPath]);
 
   async function handleOwnerSellerProfileState(sellerId: string, state: { feature?: boolean; hidden?: boolean }, successMessage: string) {
     setIsOwnerProfileActionLoading(true);
