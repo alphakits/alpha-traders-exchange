@@ -1725,6 +1725,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const archivedConfirmationTrade = !isApprovedSeller
     ? myRequests.find((r) => r.status === "usdt_sent" && r.buyerConfirmationArchivedAt)
     : undefined;
+  const pendingBuyerReviewTrade = !isApprovedSeller
+    ? myRequests.find((r) => r.status === "review_open" && !r.buyerReview)
+    : undefined;
   useEffect(() => {
     if (!sessionUser) return;
     if (typeof window === "undefined") return;
@@ -4752,7 +4755,35 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         </div>
       ) : (
         <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)] xl:items-start">
-          {archivedConfirmationTrade ? (
+          {pendingBuyerReviewTrade ? (
+            <Card className="md:col-span-2 border-[#C9A227]/40 bg-[#C9A227]/10">
+              <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl">?</span>
+                  <div>
+                    <p className="font-semibold text-[#FDE68A]">{isAr ? "???? ????? ?????? ??????? ?????" : "Complete your previous trade first"}</p>
+                    <p className="mt-0.5 text-sm text-[#E5E7EB]">
+                      {isAr
+                        ? "??? ??? ???? ?????? ???? ????? ?????? ?? ????? ??????? ????????."
+                        : "Before starting another trade, please rate your previous seller."}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+                  <Link href={`/trade-room/${pendingBuyerReviewTrade.id}`}>
+                    <Button size="sm" className="w-full sm:w-auto">
+                      {isAr ? "???? ???????" : "Leave Feedback"}
+                    </Button>
+                  </Link>
+                  <Link href={`/trade-room/${pendingBuyerReviewTrade.id}`}>
+                    <Button size="sm" variant="secondary" className="w-full sm:w-auto">
+                      {isAr ? "??? ?????? ???????" : "View Previous Trade"}
+                    </Button>
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
+          ) : archivedConfirmationTrade ? (
             <Card className="md:col-span-2 border-[#C9A227]/40 bg-[#C9A227]/10">
               <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-start gap-3">
