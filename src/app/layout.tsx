@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import { getLocale } from "next-intl/server";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import { GlobalBlockchainBackground } from "@/components/layout/global-blockchain-background";
 import { getSiteUrlObject, getSiteUrl } from "@/lib/site-url";
 import { localeDirection, type AppLocale } from "@/i18n/routing";
@@ -78,6 +79,7 @@ export default async function RootLayout({
       <body className="relative bg-background text-foreground antialiased" suppressHydrationWarning>
         <GlobalBlockchainBackground />
         <div className="relative z-10">{children}</div>
+        <SpeedInsights />
       </body>
     </html>
   );
