@@ -40,6 +40,7 @@ import type {
   AuditLogEntry,
   AuthSession,
   CommissionRecord,
+  ListingApprovalStatus,
   ListingStatus,
   MarketplaceListing,
   OwnerBusinessDashboardMetrics,
@@ -506,6 +507,15 @@ function normalizeListingStatus(value: string): ListingStatus {
   return "draft";
 }
 
+function normalizeListingApprovalStatus(value: string | undefined, listingStatus: ListingStatus): ListingApprovalStatus | undefined {
+  if (value === "pending" || value === "approved" || value === "rejected" || value === "changes_requested") {
+    return value;
+  }
+  if (listingStatus === "draft") return "pending";
+  if (listingStatus === "active") return "approved";
+  return undefined;
+}
+
 function normalizeSellerAvailabilityStatus(value: string | undefined): SellerAvailabilityStatus {
   if (value === "away" || value === "vacation") return value;
   return "available";
@@ -519,7 +529,7 @@ function normalizeCommissionPaymentStatus(value: string | undefined, dueAt?: str
 }
 
 function isListingCountedAgainstCreateLimit(status: ListingStatus) {
-  return status === "active" || status === "matched" || status === "in_trade";
+  return status === "draft" || status === "active" || status === "matched" || status === "in_trade";
 }
 
 function isListingLocked(status: ListingStatus) {
@@ -528,6 +538,10 @@ function isListingLocked(status: ListingStatus) {
 
 function canListingReceiveRequests(listing: MarketplaceListing) {
   return listing.status === "active" && toNumber(listing.availableAmount) > 0;
+}
+
+function isListingPendingApproval(listing: MarketplaceListing) {
+  return listing.status === "draft" && (listing.approvalStatus ?? "pending") === "pending";
 }
 
 function isSellerUnavailableForNewBuyers(availabilityStatus: SellerAvailabilityStatus) {
@@ -830,7 +844,7 @@ function buildPublicUserProfileDataForUser(input: {
           reviewsWritten,
           reviewsReceived,
           activeListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "active").length,
-          pendingListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "draft").length,
+          pendingListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && isListingPendingApproval(listing)).length,
         }
       : null,
   };
@@ -1797,6 +1811,12 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       closedAt: typeof (listing as { closedAt?: string }).closedAt === "string" ? (listing as { closedAt: string }).closedAt : undefined,
       blockingReason: typeof (listing as { blockingReason?: string }).blockingReason === "string" ? (listing as { blockingReason: string }).blockingReason : undefined,
       status: normalizeListingStatus(String((listing as { status?: string }).status ?? "")),
+      approvalStatus: normalizeListingApprovalStatus(
+        typeof (listing as { approvalStatus?: string }).approvalStatus === "string"
+          ? (listing as { approvalStatus: string }).approvalStatus
+          : undefined,
+        normalizeListingStatus(String((listing as { status?: string }).status ?? "")),
+      ),
       network:
         typeof (listing as { network?: string }).network === "string" && isSupportedNetwork((listing as { network: string }).network)
           ? ((listing as { network: SupportedNetwork }).network)
@@ -3611,8 +3631,8 @@ export async function createSellerApplication(input: {
   return next;
 }
 
-export async function getSellerApplicationByUserId(userId: string) {
-  const db = await readDb();
+export async function getSellerApplicationByUserId(userId: string, dbInput?: AlphaExchangeDb) {
+  const db = dbInput ?? await readDb();
   return db.sellerApplications.find((item) => item.userId === userId) ?? null;
 }
 
@@ -3955,7 +3975,7 @@ export async function getMarketplaceListingsForAdmin(dbInput?: AlphaExchangeDb) 
 
 export async function getPendingMarketplaceListingsForOwner(dbInput?: AlphaExchangeDb) {
   const db = dbInput ?? await readDb();
-  const pending = db.marketplaceListings.filter((listing) => listing.status === "draft");
+  const pending = db.marketplaceListings.filter((listing) => isListingPendingApproval(listing));
   return enrichListingsWithSellerData(db, pending);
 }
 
@@ -4045,7 +4065,8 @@ export async function createMarketplaceListing(input: {
     notes: input.notes?.trim() || "",
     sellerDescription: input.sellerDescription?.trim() || "",
     responseTime: input.responseTime.trim() || "5 min",
-    status: "active",
+    status: "draft",
+    approvalStatus: "pending",
     createdAt: now,
     updatedAt: now,
   };
@@ -4075,18 +4096,18 @@ export async function createMarketplaceListing(input: {
     pushNotification(db, {
       userId: owner.id,
       category: "listing",
-      title: "New listing published",
-      message: `${input.sellerDisplayName} published listing ${listing.id}.`,
+      title: "New Listing Pending Review",
+      message: `${input.sellerDisplayName} submitted listing ${listing.id} for admin approval.`,
       relatedListingId: listing.id,
-      relatedHref: "/admin/alpha-exchange",
+      relatedHref: "/admin/alpha-exchange?tab=listings&status=draft",
     });
   }
   logProfile("pushNotification");
   pushActivityLog(db, {
     userId: input.sellerId,
     category: "listing",
-    title: "Listing published",
-    details: `Listing ${listing.id} is now live.`,
+    title: "Listing submitted for review",
+    details: `Listing ${listing.id} is pending admin approval before going live.`,
   });
   logProfile("pushActivityLog");
   await recalculateTrustEngine(db, { reason: "Listing created", triggeredBy: input.actorUserId });
@@ -4147,6 +4168,12 @@ export async function updateMarketplaceListingForSeller(input: {
   if (input.status && input.status !== "active" && input.status !== "paused") {
     throw new Error("Sellers can only switch listings between active and paused.");
   }
+  if (current.status === "draft" && input.status === "active") {
+    throw new Error("Pending approval listings cannot be activated by sellers.");
+  }
+  const shouldResubmitForApproval = current.status === "draft" && (
+    current.approvalStatus === "rejected" || current.approvalStatus === "changes_requested"
+  );
   const updatedAt = nowIso();
   const normalizedPaymentMethods = input.paymentMethods
     ? resolveListingPaymentMethods(input.paymentMethods, input.paymentMethod).slice(0, MAX_LISTING_PAYMENT_METHODS)
@@ -4193,6 +4220,14 @@ export async function updateMarketplaceListingForSeller(input: {
     sellerDescription: input.sellerDescription?.trim() ?? current.sellerDescription,
     responseTime: input.responseTime?.trim() || current.responseTime,
     status: input.status || current.status,
+    approvalStatus: shouldResubmitForApproval
+      ? "pending"
+      : input.status === "active"
+        ? "approved"
+        : current.approvalStatus,
+    ownerReviewReason: shouldResubmitForApproval ? undefined : current.ownerReviewReason,
+    ownerReviewedAt: shouldResubmitForApproval ? undefined : current.ownerReviewedAt,
+    ownerReviewedBy: shouldResubmitForApproval ? undefined : current.ownerReviewedBy,
     updatedAt,
   };
   next.paymentMethod = next.paymentMethods[0] ?? next.paymentMethod;
@@ -4211,12 +4246,33 @@ export async function updateMarketplaceListingForSeller(input: {
     targetUserId: input.sellerId,
     listingId: next.id,
     details:
-      input.status === "paused"
+      shouldResubmitForApproval
+        ? `Resubmitted listing ${next.id} for admin approval`
+        : input.status === "paused"
         ? `Paused listing ${next.id}`
         : input.status === "active" && current.status === "paused"
           ? `Resumed listing ${next.id}`
           : `Edited listing ${next.id}`,
   });
+  if (shouldResubmitForApproval) {
+    const owner = getOwnerUser(db);
+    if (owner) {
+      pushNotification(db, {
+        userId: owner.id,
+        category: "listing",
+        title: "New Listing Pending Review",
+        message: `${next.sellerDisplayName} resubmitted listing ${next.id} for admin approval.`,
+        relatedListingId: next.id,
+        relatedHref: "/admin/alpha-exchange?tab=listings&status=draft",
+      });
+    }
+    pushActivityLog(db, {
+      userId: next.sellerId,
+      category: "listing",
+      title: "Listing resubmitted for review",
+      details: `Listing ${next.id} was resubmitted and is pending admin approval.`,
+    });
+  }
   await recalculateTrustEngine(db, { reason: "Seller listing updated", triggeredBy: input.actorUserId });
   await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
   if (current.availableAmount !== next.availableAmount) {
@@ -4247,6 +4303,7 @@ export async function renewMarketplaceListing(input: {
     }
   }
   if (isListingLocked(listing.status)) throw new Error("This listing is locked by an active trade and cannot be renewed.");
+  if (listing.status === "draft") throw new Error("Pending approval listings cannot be renewed.");
   if (listing.status === "completed" || listing.status === "cancelled" || listing.status === "closed") {
     throw new Error("This listing can no longer be renewed.");
   }
@@ -4483,13 +4540,15 @@ export async function reviewMarketplaceListingByOwner(input: {
     throw new Error("Reason is required.");
   }
   const now = nowIso();
-  const nextStatus: ListingStatus =
-    input.decision === "approve" ? "active" : input.decision === "reject" ? "cancelled" : "draft";
+  const nextStatus: ListingStatus = input.decision === "approve" ? "active" : "draft";
+  const nextApprovalStatus: ListingApprovalStatus =
+    input.decision === "approve" ? "approved" : input.decision === "reject" ? "rejected" : "changes_requested";
 
   db.marketplaceListings[index] = {
     ...current,
     status: nextStatus,
-    ownerReviewReason: trimmedReason || undefined,
+    approvalStatus: nextApprovalStatus,
+    ownerReviewReason: input.decision === "approve" ? undefined : trimmedReason || undefined,
     ownerReviewedAt: now,
     ownerReviewedBy: input.ownerUserId,
     updatedAt: now,
@@ -4499,30 +4558,29 @@ export async function reviewMarketplaceListingByOwner(input: {
     action:
       input.decision === "approve"
         ? "listing_resumed"
-        : input.decision === "reject"
-          ? "listing_cancelled"
-          : "listing_edited",
+        : "listing_edited",
     actorUserId: input.ownerUserId,
     targetUserId: current.sellerId,
     listingId: current.id,
     details:
       input.decision === "approve"
-        ? `Owner activated listing ${current.id}`
+        ? `Owner approved listing ${current.id}`
         : input.decision === "reject"
-          ? `Owner cancelled listing ${current.id}: ${trimmedReason}`
-          : `Owner returned listing ${current.id} to draft: ${trimmedReason}`,
+          ? `Owner rejected listing ${current.id}: ${trimmedReason}`
+          : `Owner requested changes for listing ${current.id}: ${trimmedReason}`,
+    reason: trimmedReason || undefined,
   });
   pushNotification(db, {
     userId: current.sellerId,
     category: "listing",
     title:
-      input.decision === "approve" ? "Listing activated" : input.decision === "reject" ? "Listing cancelled" : "Listing returned to draft",
+      input.decision === "approve" ? "Listing Approved" : input.decision === "reject" ? "Listing Rejected" : "Listing Needs Changes",
     message:
       input.decision === "approve"
-        ? `Listing ${current.id} is now live.`
+        ? "Your listing has been approved and is now live in the marketplace."
         : input.decision === "reject"
-          ? `Listing ${current.id} was cancelled. ${trimmedReason}`
-          : `Owner requested changes for listing ${current.id}. ${trimmedReason}`,
+          ? `Your listing was rejected.\nReason: ${trimmedReason}`
+          : `Your listing needs updates before approval.\nReason: ${trimmedReason}`,
     relatedListingId: current.id,
     relatedHref: "/usdt-exchange",
   });
@@ -4530,12 +4588,14 @@ export async function reviewMarketplaceListingByOwner(input: {
     userId: current.sellerId,
     category: "listing",
     title:
-      input.decision === "approve" ? "Listing activated" : input.decision === "reject" ? "Listing cancelled" : "Listing returned to draft",
-    details: input.decision === "approve" ? `Listing ${current.id} approved.` : trimmedReason || "Owner decision recorded.",
+      input.decision === "approve" ? "Listing approved" : input.decision === "reject" ? "Listing rejected" : "Listing changes requested",
+    details: input.decision === "approve"
+      ? `Listing ${current.id} approved and now live.`
+      : `Reason: ${trimmedReason}`,
   });
   await recalculateTrustEngine(db, {
     reason:
-      input.decision === "approve" ? "Listing activated" : input.decision === "reject" ? "Listing cancelled" : "Listing returned to draft",
+      input.decision === "approve" ? "Listing approved" : input.decision === "reject" ? "Listing rejected" : "Listing changes requested",
     triggeredBy: input.ownerUserId,
   });
   await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
@@ -4574,8 +4634,8 @@ export async function deleteMarketplaceListingForSeller(input: {
   publishRealtimeEvent({ type: "listing.removed", payload: { listingId: input.listingId } });
 }
 
-export async function getMyMarketplaceListings(sellerId: string, status?: string) {
-  const db = await readDb();
+export async function getMyMarketplaceListings(sellerId: string, status?: string, dbInput?: AlphaExchangeDb) {
+  const db = dbInput ?? await readDb();
   const rawListings =
     !status || status === "all"
       ? db.marketplaceListings.filter((listing) => listing.sellerId === sellerId)
@@ -4583,8 +4643,8 @@ export async function getMyMarketplaceListings(sellerId: string, status?: string
   return enrichListingsWithSellerData(db, rawListings);
 }
 
-export async function getSellerListingWorkspaceSummary(sellerId: string) {
-  const db = await readDb();
+export async function getSellerListingWorkspaceSummary(sellerId: string, dbInput?: AlphaExchangeDb) {
+  const db = dbInput ?? await readDb();
   const blockedReason = getSellerListingBlockReason(db, sellerId);
   return {
     activeListingLimit: MAX_ACTIVE_LISTINGS_PER_SELLER,
@@ -4596,8 +4656,8 @@ export async function getSellerListingWorkspaceSummary(sellerId: string) {
   };
 }
 
-export async function getSellerCommissionStatus(sellerId: string) {
-  const db = await readDb();
+export async function getSellerCommissionStatus(sellerId: string, dbInput?: AlphaExchangeDb) {
+  const db = dbInput ?? await readDb();
   const pendingRecords = db.commissionRecords
     .filter((record) => record.sellerId === sellerId)
     .map((record) => ({
@@ -4635,6 +4695,38 @@ export function getCommissionQaModeStatus() {
 
 export function getCommissionQaResetStatus() {
   return isQaResetModeEnabled();
+}
+
+export async function getWorkspaceBootstrapData(input: {
+  userId: string;
+  role: UserRole;
+  includeSellerWorkspace: boolean;
+}) {
+  const db = await readDb();
+  const purchaseRequests = await getMyPurchaseRequests(input.userId, input.role, db);
+  const sellerApplication = await getSellerApplicationByUserId(input.userId, db);
+  if (!input.includeSellerWorkspace) {
+    return {
+      purchaseRequests,
+      sellerApplication,
+      myListings: [] as MarketplaceListing[],
+      sellerWorkspaceSummary: null,
+      sellerCommissionStatus: null,
+    };
+  }
+
+  const [myListings, sellerWorkspaceSummary, sellerCommissionStatus] = await Promise.all([
+    getMyMarketplaceListings(input.userId, "all", db),
+    getSellerListingWorkspaceSummary(input.userId, db),
+    getSellerCommissionStatus(input.userId, db),
+  ]);
+  return {
+    purchaseRequests,
+    sellerApplication,
+    myListings,
+    sellerWorkspaceSummary,
+    sellerCommissionStatus,
+  };
 }
 
 export async function createPurchaseRequest(input: {
@@ -4825,8 +4917,8 @@ export async function createPurchaseRequest(input: {
   };
 }
 
-export async function getMyPurchaseRequests(userId: string, role: UserRole) {
-  const db = await readDb();
+export async function getMyPurchaseRequests(userId: string, role: UserRole, dbInput?: AlphaExchangeDb) {
+  const db = dbInput ?? await readDb();
   if (role === "admin" || role === "owner") return db.purchaseRequests.map((request) => enrichRequestWithEvidence(db, request));
   return db.purchaseRequests
     .filter((request) => request.buyerId === userId || request.sellerId === userId)
@@ -5251,7 +5343,7 @@ export async function getAccountProfileData(userId: string): Promise<{
       trustScore: reputation.trustScore,
       completedTrades: sellerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length,
       activeListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "active").length,
-      pendingListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "draft").length,
+      pendingListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && isListingPendingApproval(listing)).length,
       averageRating: reputation.rating,
     };
     return { profile, stats };
@@ -5993,19 +6085,67 @@ export async function updatePurchaseRequestStatus(input: {
       });
     }
     if (listing.sellerId !== input.actorUserId && !isAdmin) {
-      throw new Error("Only the seller can accept this trade.");
+      throw new TradeBlockedError("seller-mismatch", "Only the seller can accept this trade.", request.id, {
+        guard: "seller-ownership",
+        listingId: listing.id,
+        listingSellerId: listing.sellerId,
+        actorUserId: input.actorUserId,
+        nextStatus: input.nextStatus,
+      });
     }
     if (listing.activeTradeRequestId && listing.activeTradeRequestId !== request.id) {
-      throw new Error("This listing already has another buyer in progress.");
+      throw new TradeBlockedError("listing-already-matched", "This listing already has another buyer in progress.", request.id, {
+        guard: "listing-active-trade-slot",
+        listingId: listing.id,
+        listingActiveTradeRequestId: listing.activeTradeRequestId,
+        thisRequestId: request.id,
+        nextStatus: input.nextStatus,
+      });
     }
-    if (listing.status !== "active" && !(listing.activeTradeRequestId === request.id && isListingLocked(listing.status))) {
-      throw new Error("This listing is not open for matching.");
+    // Allow acceptance if: listing is active, OR listing is locked by this request (re-entry after crash),
+    // OR listing is expired/paused but this request was already pending against it (expired after request was submitted).
+    const listingIsOpenForAccept =
+      listing.status === "active" ||
+      (listing.activeTradeRequestId === request.id && isListingLocked(listing.status)) ||
+      (listing.status === "expired" && !listing.activeTradeRequestId);
+    if (!listingIsOpenForAccept) {
+      console.error("[trade-accept-guard] listing-not-open", {
+        requestId: input.requestId,
+        listingId: listing.id,
+        listingStatus: listing.status,
+        listingApprovalStatus: listing.approvalStatus,
+        activeTradeRequestId: listing.activeTradeRequestId,
+        actorUserId: input.actorUserId,
+      });
+      throw new TradeBlockedError("listing-not-open", "This listing is not open for matching.", request.id, {
+        guard: "listing-status-open",
+        listingId: listing.id,
+        listingStatus: listing.status,
+        listingApprovalStatus: listing.approvalStatus,
+        activeTradeRequestId: listing.activeTradeRequestId,
+        nextStatus: input.nextStatus,
+      });
     }
     if (isFaceToFaceTrade && !next.sellerSafetyAcknowledged && input.safetyAcknowledged !== true) {
-      throw new Error("Seller must acknowledge the Face-to-Face safety guidelines before starting this trade.");
+      throw new TradeBlockedError("safety-acknowledgment-required", "Seller must acknowledge the Face-to-Face safety guidelines before starting this trade.", request.id, {
+        guard: "face-to-face-safety",
+        paymentMethod: requestPaymentMethod,
+        nextStatus: input.nextStatus,
+      });
     }
-    if (getSellerPendingCommissionCount(db, request.sellerId) > 0) {
-      throw new Error("You have a pending commission payment. Settle it before accepting new trades.");
+    const pendingCommissionCount = getSellerPendingCommissionCount(db, request.sellerId);
+    if (pendingCommissionCount > 0) {
+      console.error("[trade-accept-guard] commission-locked", {
+        requestId: input.requestId,
+        sellerId: request.sellerId,
+        pendingCommissionCount,
+      });
+      throw new TradeBlockedError("commission-due", "You have a pending commission payment. Settle it before accepting new trades.", request.id, {
+        guard: "seller-commission-clear",
+        sellerId: request.sellerId,
+        pendingCommissionCount,
+        nextStatus: input.nextStatus,
+      });
     }
     next.status = "accepted";
     if (isFaceToFaceTrade) {
@@ -7862,8 +8002,8 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
       newSellers: db.sellerApplications.filter((application) => application.status === "approved" && isToday(application.updatedAt)).length,
       newListings: db.marketplaceListings.filter((listing) => isToday(listing.createdAt)).length,
       listingsApproved: db.marketplaceListings.filter((listing) => listing.status === "active" && isToday(listing.ownerReviewedAt)).length,
-      listingsRejected: db.marketplaceListings.filter((listing) => listing.status === "cancelled" && isToday(listing.ownerReviewedAt)).length,
-      pendingListings: db.marketplaceListings.filter((listing) => listing.status === "draft").length,
+      listingsRejected: db.marketplaceListings.filter((listing) => listing.approvalStatus === "rejected" && isToday(listing.ownerReviewedAt)).length,
+      pendingListings: db.marketplaceListings.filter((listing) => isListingPendingApproval(listing)).length,
       pendingSellerApplications: db.sellerApplications.filter((application) => application.status === "pending").length,
       openDisputes: db.disputes.filter((dispute) => dispute.status === "open").length,
       resolvedDisputes: db.disputes.filter((dispute) => dispute.status === "resolved" && isToday(dispute.updatedAt)).length,
@@ -7902,7 +8042,7 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
       activeSellers: activeSellerSet.size,
       activeBuyers: activeBuyerSet.size,
       listingsSold: db.marketplaceListings.filter((listing) => listing.status === "completed").length,
-      listingsWaitingApproval: db.marketplaceListings.filter((listing) => listing.status === "draft").length,
+      listingsWaitingApproval: db.marketplaceListings.filter((listing) => isListingPendingApproval(listing)).length,
     },
     financialOverview: {
       estimatedCommissionToday: Number(todayCommission.toFixed(2)),
@@ -8257,7 +8397,7 @@ export async function getAlphaExchangeSummaryForAdmin(dbInput?: AlphaExchangeDb)
     usersCount: db.users.length,
     approvedSellersCount: db.users.filter((user) => user.sellerStatus === "approved_seller").length,
     pendingApplicationsCount: db.sellerApplications.filter((item) => item.status === "pending").length,
-    pendingListingsCount: db.marketplaceListings.filter((item) => item.status === "draft").length,
+    pendingListingsCount: db.marketplaceListings.filter((item) => isListingPendingApproval(item)).length,
     rejectedApplicationsCount: db.sellerApplications.filter((item) => item.status === "rejected").length,
     suspendedSellersCount: db.users.filter((user) => user.sellerStatus === "suspended").length,
     listingsCount: db.marketplaceListings.length,
