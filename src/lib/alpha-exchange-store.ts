@@ -4967,8 +4967,10 @@ function filterTradesForUser(db: AlphaExchangeDb, userId: string, role: UserRole
 
 export async function getFirstActiveTradeForUser(userId: string, role: UserRole) {
   const db = await readDb();
+  // Include "pending" so buyers navigating to the exchange while waiting for seller
+  // acceptance are redirected into their trade room (fixes mobile locale-routing).
   const activeTrades = filterTradesForUser(db, userId, role)
-    .filter((request) => isActiveTradeStatus(request.status))
+    .filter((request) => isActionableTradeStatus(request.status))
     .sort(sortTradesByUpdatedAtDesc);
   return activeTrades[0] ? enrichRequestWithEvidence(db, activeTrades[0]) : null;
 }

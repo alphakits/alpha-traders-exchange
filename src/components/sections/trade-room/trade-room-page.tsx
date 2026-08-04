@@ -587,6 +587,7 @@ export function TradeRoomPage({
   const [reviewComment, setReviewComment] = useState("");
   const [reviewCommentError, setReviewCommentError] = useState<string | null>(null);
   const [reviewDeferred, setReviewDeferred] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
   const [buyerCompletionSuccessActive, setBuyerCompletionSuccessActive] = useState(false);
   const [buyerRedirectPending, setBuyerRedirectPending] = useState(false);
   const [buyerSuccessFadingOut, setBuyerSuccessFadingOut] = useState(false);
@@ -1300,6 +1301,29 @@ export function TradeRoomPage({
     }
   }, [disputeReason, fetchRoom, isAr, request]);
 
+  const handleCancelTrade = useCallback(async () => {
+    if (!request || request.status !== "pending" || cancelBusy) return;
+    setCancelBusy(true);
+    setStatusMessage(null);
+    try {
+      const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "cancelled" }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setStatusMessage(payload.error ?? (isAr ? "تعذر إلغاء الطلب." : "Failed to cancel the request."));
+        return;
+      }
+      router.push("/usdt-exchange");
+    } catch {
+      setStatusMessage(isAr ? "تعذر إلغاء الطلب." : "Failed to cancel the request.");
+    } finally {
+      setCancelBusy(false);
+    }
+  }, [cancelBusy, isAr, request, router]);
+
   const handleSubmitBuyerReview = useCallback(async () => {
     if (actionBusy || Boolean(actionInFlightRef.current)) {
       logReviewDiagnostic("validation-failed", { reason: "trade-status-update-in-flight" });
@@ -1807,6 +1831,26 @@ export function TradeRoomPage({
                         ? "بانتظار المشتري لرفع إيصال الدفع. لا يمكنك المتابعة قبل إرسال الدفع."
                         : "Waiting for the buyer to upload their payment receipt. You cannot continue until the buyer submits payment."}
                     </p>
+                  </div>
+                ) : null}
+
+                {isActorBuyer && request.status === "pending" ? (
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                    <p className="text-sm text-[#9CA3AF]">
+                      {isAr
+                        ? "لم يقبل البائع الطلب بعد. يمكنك إلغاء الطلب إذا كنت لا تريد الانتظار."
+                        : "The seller has not accepted yet. You can cancel if you no longer wish to wait."}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="mt-2"
+                      disabled={cancelBusy}
+                      onClick={() => void handleCancelTrade()}
+                    >
+                      {cancelBusy ? (isAr ? "جاري الإلغاء..." : "Cancelling...") : (isAr ? "إلغاء الطلب" : "Cancel Request")}
+                    </Button>
                   </div>
                 ) : null}
 
