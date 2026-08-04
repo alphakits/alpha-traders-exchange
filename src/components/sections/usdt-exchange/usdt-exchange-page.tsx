@@ -5138,7 +5138,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     </span>
                   </p>
                 </div>
-                <button type="button" aria-label="Close listing details" onClick={closeListingModal} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227]">
+                <button type="button" aria-label="Close Buy USDT sheet" onClick={closeListingModal} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227]">
                   <X className="h-4 w-4" />
                 </button>
               </div>
@@ -5215,27 +5215,39 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     ))}
                   </div>
 
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
-                      <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">About Seller</p>
-                      <p className="mt-2">{safeText(sellerProfileData?.profile.bio || selectedListing.sellerDescription, "Not provided yet.")}</p>
-                      <div className="mt-3 grid gap-1 text-xs">
-                        <p>Trading Experience: <span className="text-white">{safeText(sellerProfileData?.profile.tradingExperience, "Not provided yet.")}</span></p>
-                        <p>Languages: <span className="text-white">{(sellerProfileData?.profile.languages ?? []).join(", ") || "Not provided yet."}</span></p>
-                        <p>Working Hours: <span className="text-white">{safeText(sellerProfileData?.profile.workingHours, "Not provided yet.")}</span></p>
-                        <p>Payment Methods: <span className="text-white">{normalizePaymentMethodList(sellerProfileData?.profile.preferredPaymentMethods, selectedListing.paymentMethod).map((method) => `${paymentMethodEmoji(method)} ${paymentMethodLabel(method)}`).join(", ")}</span></p>
-                        <p>Supported Networks: <span className="text-white">{(sellerProfileData?.profile.preferredNetworks ?? [selectedListing.network]).join(", ")}</span></p>
-                        <p>Country: <span className="text-white">{safeText(sellerProfileData?.profile.country, "Not provided yet.")}</span></p>
-                        {sellerProfileData?.profile.city ? <p>City: <span className="text-white">{sellerProfileData.profile.city}</span></p> : null}
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Buy USDT</p>
+                          <p className="mt-1 text-lg font-semibold text-white">Start your trade with {sellerProfileData?.profile.sellerName ?? selectedListing.sellerDisplayName}</p>
+                          <p className="mt-1 text-xs text-[#9CA3AF]">{safeText(sellerProfileData?.profile.bio || selectedListing.sellerDescription, "Approved seller on Alpha Exchange.")}</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-xs">
+                          <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1">Trust Score: <span className="text-white">{sellerProfileData?.trustScore.toFixed(1) ?? (selectedListing.sellerReputation?.trustScore ?? 0).toFixed(1)}</span></span>
+                          <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1">Response: <span className="text-white">{(sellerProfileData?.responseTimeMinutes ?? selectedListing.sellerReputation?.responseTimeMinutes ?? 0).toFixed(1)} min</span></span>
+                          <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1">Completed: <span className="text-white">{sellerProfileData?.completedTrades ?? selectedListing.sellerReputation?.completedTrades ?? 0}</span></span>
+                          <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1">Rating: <span className="text-white">{(sellerProfileData?.averageRating ?? selectedListing.sellerReputation?.rating ?? 0).toFixed(2)}★</span></span>
+                        </div>
+                        <div className="grid gap-2 text-xs sm:grid-cols-2">
+                          <p>Payment Methods: <span className="text-white">{normalizePaymentMethodList(sellerProfileData?.profile.preferredPaymentMethods, selectedListing.paymentMethod).map((method) => `${paymentMethodEmoji(method)} ${paymentMethodLabel(method)}`).join(", ")}</span></p>
+                          <p>Supported Networks: <span className="text-white">{(sellerProfileData?.profile.preferredNetworks ?? [selectedListing.network]).join(", ")}</span></p>
+                          <p>Status: <span className="text-white">{sellerProfileData?.profile.onlineStatus === "online" ? "Online" : "Offline"}</span></p>
+                          <p>Last Active: <span className="text-white">{formatRelativeMinutesLabel(sellerProfileData?.profile.lastActiveAt)}</span></p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {(sellerProfileData?.badges ?? selectedListing.sellerReputation?.badges ?? []).map((badge) => (
+                            <span key={`seller-profile-badge-${badge}`} className="rounded-full border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-2 py-1 text-[11px] text-[#93C5FD]">
+                              {sellerBadgeLabel(badge)}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                    <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
-                      <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Listing & Trade Quote</p>
                       <motion.div
                         initial={{ opacity: 0, y: 8 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.22, ease: "easeOut" }}
-                        className="mt-3 rounded-2xl border border-[#C9A227]/30 bg-gradient-to-r from-emerald-500/10 via-black/60 to-[#C9A227]/12 p-4 shadow-[0_0_24px_rgba(16,185,129,0.12)] transition-transform duration-300 hover:-translate-y-0.5"
+                        className="w-full max-w-xl rounded-2xl border border-[#C9A227]/30 bg-gradient-to-r from-emerald-500/10 via-black/60 to-[#C9A227]/12 p-4 shadow-[0_0_24px_rgba(16,185,129,0.12)]"
                       >
                         <div className="grid gap-4 md:grid-cols-[1fr_auto_1fr] md:items-center">
                           <div className="text-center md:text-left">
@@ -5257,55 +5269,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                             <p className="mt-2 text-xs uppercase tracking-[0.12em] text-[#D1D5DB]">ILS per USDT</p>
                           </div>
                         </div>
+                        <div className="mt-3 space-y-1 text-xs">
+                          <p>Network: <span className="text-white">{selectedListing.network}</span></p>
+                          <p>Commission (1%): <span className="text-white">₪{commission.toFixed(2)}</span></p>
+                          <p className="font-medium">Estimated Total: <span className="text-[#C9A227]">₪{estimatedTotal.toFixed(2)}</span></p>
+                          <p>Trade Instructions: <span className="text-white">{paymentMethodTradeInstruction(selectedListingPaymentMethod ?? selectedListing.paymentMethod, "buyer")}</span></p>
+                          <p>Safety Guidance: <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link></p>
+                        </div>
                       </motion.div>
-                      <div className="mt-3 space-y-1 text-xs">
-                        <p>Network: <span className="text-white">{selectedListing.network}</span></p>
-                        <p>Commission (1%): <span className="text-white">₪{commission.toFixed(2)}</span></p>
-                        <p className="font-medium">Estimated Total: <span className="text-[#C9A227]">₪{estimatedTotal.toFixed(2)}</span></p>
-                        <p>Trade Instructions: <span className="text-white">{paymentMethodTradeInstruction(selectedListingPaymentMethod ?? selectedListing.paymentMethod, "buyer")}</span></p>
-                        <p>Safety Guidance: <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link></p>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {(sellerProfileData?.badges ?? selectedListing.sellerReputation?.badges ?? []).map((badge) => (
-                          <span key={`seller-profile-badge-${badge}`} className="rounded-full border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-2 py-1 text-[11px] text-[#93C5FD]">
-                            {sellerBadgeLabel(badge)}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
-                      <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Latest Reviews</p>
-                      {!sellerProfileData?.latestReviews?.length ? <p className="mt-2 text-xs text-[#9CA3AF]">No reviews yet.</p> : null}
-                      <div className="mt-2 space-y-2">
-                        {(sellerProfileData?.latestReviews ?? []).slice(0, 4).map((review) => (
-                          <div key={review.id} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs">
-                            <p className="text-white">{review.buyerName} • {review.rating.toFixed(1)}★ {review.verifiedPurchase ? "• Verified Purchase" : ""}</p>
-                            <p className="mt-1">{review.comment}</p>
-                            <p className="mt-1 text-[#9CA3AF]">{new Date(review.createdAt).toLocaleString("en-IL")}</p>
-                            {review.sellerResponse ? (
-                              <div className="mt-2 rounded-lg border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-2 text-[#D1D5DB]">
-                                <p className="font-medium text-white">Seller Response</p>
-                                <p className="mt-1">{review.sellerResponse.message}</p>
-                              </div>
-                            ) : null}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
-                      <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Recent Activity</p>
-                      <div className="mt-2 space-y-2">
-                        {(sellerProfileData?.recentActivity ?? []).slice(0, 6).map((activity) => (
-                          <div key={activity.id} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs">
-                            <p className="text-white">{activity.message}</p>
-                            <p className="mt-1 text-[#9CA3AF]">{new Date(activity.createdAt).toLocaleString("en-IL")}</p>
-                          </div>
-                        ))}
-                        {!sellerProfileData?.recentActivity?.length ? <p className="text-xs text-[#9CA3AF]">No activity published yet.</p> : null}
-                      </div>
                     </div>
                   </div>
 
