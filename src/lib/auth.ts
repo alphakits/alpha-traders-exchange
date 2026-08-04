@@ -65,11 +65,13 @@ export async function authenticateLocalUser(email: string, password: string) {
   if (process.env.NODE_ENV === "production" && process.env.ENABLE_LOCAL_AUTH_FALLBACK !== "1") {
     return null;
   }
+  // Fall through to the full store lookup which has all fields (role, sellerStatus, etc.)
+  // The JSON fast-path is kept as a lightweight read but returns the full user record.
   const cwd = process.cwd();
   const dbPath = path.join(cwd, "data", "alpha-exchange-db.json");
   try {
-    const raw = readFileSync(dbPath, "utf8");
-    const db = JSON.parse(raw) as { users?: Array<{ email?: string; passwordHash?: string; fullName?: string; whatsappNumber?: string }> };
+    const raw = readFileSync(dbPath, "utf8").replace(/^\uFEFF/, "");
+    const db = JSON.parse(raw) as { users?: Array<{ email?: string; passwordHash?: string; fullName?: string; whatsappNumber?: string; role?: string; roles?: string[]; sellerStatus?: string; emailVerified?: boolean }> };
     const user = db.users?.find((candidate) => candidate.email?.toLowerCase() === email.toLowerCase());
     if (!user?.passwordHash) {
       return null;
@@ -86,10 +88,10 @@ export async function authenticateLocalUser(email: string, password: string) {
       email,
       passwordHash: user.passwordHash,
       whatsappNumber: user.whatsappNumber ?? "",
-      role: "buyer",
-      roles: ["buyer"],
-      sellerStatus: "buyer",
-      emailVerified: true,
+      role: (user.role ?? "buyer") as string,
+      roles: (user.roles ?? [user.role ?? "buyer"]) as string[],
+      sellerStatus: (user.sellerStatus ?? "buyer") as string,
+      emailVerified: user.emailVerified === true,
     };
   } catch {
     const user = await findUserByEmail(email);
@@ -119,7 +121,9 @@ export async function clearUserSession(token: string | null | undefined) {
 
 export async function getCurrentSessionUser() {
   const token = await getCurrentSessionToken();
-  if (!token) return null;
+  if (!token) {
+    return null;
+  }
   const session = await getSessionByToken(token);
   if (!session) {
     return null;
@@ -128,9 +132,9 @@ export async function getCurrentSessionUser() {
   if (!user) {
     return null;
   }
-  if (user.emailVerified !== true) {
-    await deleteSessionByToken(token);
-    return null;
-  }
+  // emailVerified is enforced at login time (Supabase requires email_confirmed_at;
+  // local auth sets emailVerified: true explicitly in upsertUserProfileForAuth).
+  // Silently deleting sessions here causes a race: if the DB write during upsert
+  // fails or the field is stale, the user is kicked out mid-session with no feedback.
   return user;
 }

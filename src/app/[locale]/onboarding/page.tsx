@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { GuestOnboarding } from "@/components/auth/guest-onboarding";
 import { getCurrentSessionUser } from "@/lib/auth";
+import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { buildPageMetadata } from "@/lib/seo";
 import { hasRole } from "@/lib/roles";
 
@@ -48,6 +49,7 @@ export default async function OnboardingPage({
       locale={locale as "ar" | "en"}
       isBuyer={hasRole(user, "buyer")}
       sellerStatus={user.sellerStatus}
+      phoneVerificationEnabled={isMarketplacePhoneVerificationEnabled()}
     />
   );
 }

@@ -6,7 +6,10 @@ import type { AppLocale } from "@/i18n/routing";
 import { Link, usePathname, useRouter } from "@/i18n/navigation";
 import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { appendLoginJourneyStep, incrementLoginJourneyApiCall } from "@/lib/login-journey-trace";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
+import { formatListingId, formatTradeId } from "@/lib/format-id";
+import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -69,9 +72,18 @@ function extractRequestIdFromTradeRoomHref(href: string | null) {
   return requestId || null;
 }
 
+function formatNotificationTitle(notification: AlphaExchangeNotification) {
+  return replaceExchangeEntityIdsWithHints(notification.title, notification);
+}
+
+function formatNotificationMessage(notification: AlphaExchangeNotification) {
+  return replaceExchangeEntityIdsWithHints(notification.message, notification);
+}
+
 export function NotificationBell({ locale }: { locale: AppLocale }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [notifications, setNotifications] = useState<AlphaExchangeNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -98,14 +110,17 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   }, [isOpen]);
 
   async function loadNotifications(limit: number) {
+    const startedAt = Date.now();
     setIsLoading(true);
     setError(null);
     try {
+      incrementLoginJourneyApiCall("/api/alpha-exchange/notifications");
       const response = await fetch(`/api/alpha-exchange/notifications?limit=${limit}&includeActivity=0`, { cache: "no-store" });
       if (!response.ok) throw new Error("Failed to load notifications.");
       const payload = (await response.json()) as NotificationsPayload;
       setNotifications(payload.notifications ?? []);
       setUnreadCount(payload.unreadCount ?? 0);
+      appendLoginJourneyStep("Notifications loading (header bell)", startedAt, Date.now(), { limit, status: response.status });
     } catch {
       setError("Failed to load notifications.");
     } finally {
@@ -114,7 +129,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   }
 
   useEffect(() => {
-    void loadNotifications(1);
+    void loadNotifications(20);
   }, []);
 
   useEffect(() => {
@@ -193,37 +208,83 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   }
 
   async function handleOpenNotification(notification: AlphaExchangeNotification) {
-    const tradeRoomHref = resolveTradeRoomHref(notification)
-      ?? await resolveActiveTradeHref({ notificationId: notification.id, includePending: true });
+    const destination = await resolveNotificationDestination(notification);
     if (TRADE_ROOM_DEBUG) {
-      console.log("[trade-room-open] notification click", {
+      console.log("[notification-open] notification click", {
         notificationId: notification.id,
+        category: notification.category,
         relatedRequestId: notification.relatedRequestId ?? null,
         relatedListingId: notification.relatedListingId ?? null,
         relatedTradeId: notification.relatedTradeId ?? null,
-        destination: tradeRoomHref,
+        destination,
       });
     }
     if (!notification.isRead) {
       void handleMarkOneRead(notification.id);
     }
-    if (tradeRoomHref) {
-      const requestId = extractRequestIdFromTradeRoomHref(tradeRoomHref);
+    if (destination) {
+      const requestId = extractRequestIdFromTradeRoomHref(destination);
       if (requestId) prefetchTradeRoom(router, requestId);
-      router.push(tradeRoomHref);
+      router.push(destination);
       setIsOpen(false);
-      return;
     }
-    if (notification.relatedHref) {
-      if (TRADE_ROOM_DEBUG) {
-        console.log("[trade-room-open] fallback related href", {
-          notificationId: notification.id,
-          destination: notification.relatedHref,
-        });
+  }
+
+  function isTradeNotification(notification: AlphaExchangeNotification) {
+    return notification.category === "trade";
+  }
+
+  async function resolveNotificationDestination(notification: AlphaExchangeNotification) {
+    if (isTradeNotification(notification)) {
+      return resolveTradeRoomHref(notification)
+        ?? await resolveActiveTradeHref({ notificationId: notification.id, includePending: true });
+    }
+    return notification.actionHref ?? notification.relatedHref ?? null;
+  }
+
+  function extractSellerApplicationId(notification: AlphaExchangeNotification) {
+    const href = (notification.actionHref ?? notification.relatedHref ?? "").trim();
+    if (!href) return null;
+    try {
+      const parsed = new URL(href, "https://www.alphatraders.co.il");
+      const byQuery = parsed.searchParams.get("sellerApplication");
+      if (byQuery?.trim()) return byQuery.trim();
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  async function handleSellerApplicationDecision(notification: AlphaExchangeNotification, decision: "approve" | "reject") {
+    const applicationId = extractSellerApplicationId(notification);
+    if (!applicationId) return;
+    const actionKey = `${notification.id}:${decision}`;
+    if (actionLoading[actionKey]) return;
+    setActionLoading((prev) => ({ ...prev, [actionKey]: true }));
+    try {
+      const reason = decision === "approve" ? "Approved from notification workflow" : "Rejected from notification workflow";
+      const response = await fetch(`/api/alpha-exchange/admin/seller-applications/${encodeURIComponent(applicationId)}/${decision}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      if (response.ok) {
+        if (!notification.isRead) {
+          await handleMarkOneRead(notification.id);
+        }
+        await loadNotifications(20);
       }
-      router.push(notification.relatedHref);
-      setIsOpen(false);
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [actionKey]: false }));
     }
+  }
+
+  function resolveNotificationActionLabel(notification: AlphaExchangeNotification) {
+    if (notification.actionLabel?.trim()) return notification.actionLabel.trim();
+    if (notification.category === "application") return "Review Application";
+    if (notification.category === "listing") return "Manage Listing";
+    if (isTradeNotification(notification)) return "Open Trade Room";
+    return "Open";
   }
 
   function resolveTradeRoomHref(notification: AlphaExchangeNotification) {
@@ -313,22 +374,18 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[#C9A227]" />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="truncate text-sm font-medium text-white">{notification.title}</p>
+                          <p className="truncate text-sm font-medium text-white">{formatNotificationTitle(notification)}</p>
                           <span className="shrink-0 text-[11px] text-[#9CA3AF]">{formatRelativeTime(notification.createdAt, locale)}</span>
                         </div>
-                        <p className="mt-1 line-clamp-2">{notification.message}</p>
+                        <p className="mt-1 line-clamp-2">{formatNotificationMessage(notification)}</p>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           {!notification.isRead ? <span className="inline-flex items-center rounded-full bg-[#C9A227]/20 px-2 py-0.5 text-[10px] text-[#C9A227]">Unread</span> : null}
-                          {notification.relatedTradeDisplayNumber
-                            ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Trade #{notification.relatedTradeDisplayNumber}</span>
-                            : notification.relatedTradeId
-                              ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Trade</span>
-                              : null}
-                          {notification.relatedListingDisplayNumber
-                            ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Listing #{notification.relatedListingDisplayNumber}</span>
-                            : notification.relatedListingId
-                              ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Listing</span>
-                              : null}
+                          {isTradeNotification(notification) && (notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber)
+                            ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Trade {formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId)}</span>
+                            : null}
+                          {notification.relatedListingId || notification.relatedListingDisplayNumber
+                            ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Listing {formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}</span>
+                            : null}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           <Button
@@ -337,37 +394,80 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                             variant="secondary"
                             className="h-7 px-2.5 text-[11px]"
                             onMouseEnter={() => {
+                              if (!isTradeNotification(notification)) return;
                               const href = resolveTradeRoomHref(notification);
                               const requestId = extractRequestIdFromTradeRoomHref(href);
                               if (requestId) prefetchTradeRoom(router, requestId);
                             }}
                             onFocus={() => {
+                              if (!isTradeNotification(notification)) return;
                               const href = resolveTradeRoomHref(notification);
                               const requestId = extractRequestIdFromTradeRoomHref(href);
                               if (requestId) prefetchTradeRoom(router, requestId);
                             }}
                             onClick={() => void handleOpenNotification(notification)}
                           >
-                            Open Trade Room
+                            {resolveNotificationActionLabel(notification)}
                           </Button>
-                          {!notification.isRead ? (
-                            <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleMarkOneRead(notification.id)}>
-                              Mark read
-                            </Button>
-                          ) : null}
-                          {notification.relatedHref ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                router.push(notification.relatedHref!);
-                                setIsOpen(false);
-                              }}
-                              className={buttonVariants({ variant: "secondary", size: "sm" })}
-                            >
-                              <ExternalLink className="h-3 w-3" />
-                              Related
-                            </button>
-                          ) : null}
+                          {notification.category === "application" && extractSellerApplicationId(notification) ? (
+                            <>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-7 px-2.5 text-[11px]"
+                                disabled={Boolean(actionLoading[`${notification.id}:approve`])}
+                                onClick={() => void handleSellerApplicationDecision(notification, "approve")}
+                              >
+                                Approve
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-7 px-2.5 text-[11px]"
+                                disabled={Boolean(actionLoading[`${notification.id}:reject`])}
+                                onClick={() => void handleSellerApplicationDecision(notification, "reject")}
+                              >
+                                Reject
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-7 px-2.5 text-[11px]"
+                                onClick={() => {
+                                  if (!notification.isRead) {
+                                    void handleMarkOneRead(notification.id);
+                                  }
+                                  setIsOpen(false);
+                                }}
+                              >
+                                Later
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              {!notification.isRead ? (
+                                <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleMarkOneRead(notification.id)}>
+                                  Mark read
+                                </Button>
+                              ) : null}
+                              {notification.relatedHref ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    router.push(notification.relatedHref!);
+                                    setIsOpen(false);
+                                  }}
+                                  className={buttonVariants({ variant: "secondary", size: "sm" })}
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  Related
+                                </button>
+                              ) : null}
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>

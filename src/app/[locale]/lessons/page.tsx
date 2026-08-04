@@ -14,12 +14,23 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   });
 }
 
-export default async function LessonsPage({ params }: { params: Promise<{ locale: string }> }) {
+export default async function LessonsPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ locale: string }>;
+  searchParams: Promise<{ q?: string }>;
+}) {
   const { locale } = await params;
+  const { q } = await searchParams;
   await getLocale();
   const user = await getCurrentSessionUser();
   if (!user) {
-    redirect(`/${locale}/login?redirectTo=/${locale}/lessons`);
+    const lessonsTarget = new URL(`/${locale}/lessons`, "http://localhost");
+    if (typeof q === "string" && q.trim()) {
+      lessonsTarget.searchParams.set("q", q.trim());
+    }
+    redirect(`/${locale}/login?redirectTo=${encodeURIComponent(`${lessonsTarget.pathname}${lessonsTarget.search}`)}`);
   }
-  return <LessonsBrowser />;
+  return <LessonsBrowser initialQuery={typeof q === "string" ? q : ""} />;
 }

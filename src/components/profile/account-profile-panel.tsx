@@ -83,6 +83,24 @@ function normalizeRoleValues(values: Array<string | undefined>) {
   return values.map((value) => String(value ?? "").toLowerCase().trim()).filter(Boolean);
 }
 
+function resolveAdminProfileAccess(input: {
+  payload: AccountProfilePayload | null;
+  sessionRoles: string[];
+}) {
+  const payloadRoles = input.payload
+    ? normalizeRoleValues([...(input.payload.profile.roles ?? []), input.payload.profile.role])
+    : [];
+  const roleBadge = input.payload?.roleBadge;
+  const isOwner = roleBadge === "owner" || payloadRoles.includes("owner") || input.sessionRoles.includes("owner");
+  const hasAdminDashboardAccess = isOwner
+    || roleBadge === "administrator"
+    || payloadRoles.includes("admin")
+    || payloadRoles.includes("administrator")
+    || input.sessionRoles.includes("admin")
+    || input.sessionRoles.includes("administrator");
+  return { isOwner, hasAdminDashboardAccess, payloadRoles };
+}
+
 function AdministrationCard({ isAr, isOwner }: { isAr: boolean; isOwner: boolean }) {
   return (
     <Card className="border-[#C9A227]/25 bg-[linear-gradient(180deg,rgba(201,162,39,0.12),rgba(11,11,11,0.95))]">
@@ -125,6 +143,16 @@ function tierLabel(level: string, isAr: boolean) {
   return level;
 }
 
+function tierVisualKey(level: string) {
+  const normalized = level.toLowerCase();
+  if (normalized === "silver") return "silver";
+  if (normalized === "gold") return "gold";
+  if (normalized === "platinum") return "platinum";
+  if (normalized === "diamond") return "diamond";
+  if (normalized === "legendary") return "legendary";
+  return "bronze";
+}
+
 function profileTheme(variant: RoleBadgeVariant) {
   if (variant === "approved_seller") {
     return {
@@ -135,7 +163,16 @@ function profileTheme(variant: RoleBadgeVariant) {
       trustLabelAr: "هوية تداول موثقة",
     };
   }
-  if (variant === "owner" || variant === "administrator") {
+  if (variant === "owner") {
+    return {
+      coverTone: "from-[#1B0E0E] via-[#220f0f] to-[#090909]",
+      frameClass: "border-[#F87171]/45 shadow-[0_0_36px_rgba(248,113,113,0.18)]",
+      usernameClass: "profile-identity-name--owner",
+      trustLabel: "Platform operations authority",
+      trustLabelAr: "صلاحية إدارة المنصة",
+    };
+  }
+  if (variant === "administrator") {
     return {
       coverTone: "from-[#1B0E0E] via-[#220f0f] to-[#090909]",
       frameClass: "border-[#F87171]/45 shadow-[0_0_36px_rgba(248,113,113,0.18)]",
@@ -390,8 +427,10 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
   }
 
   if (loading) {
-    const sessionIsOwner = sessionRoles.includes("owner");
-    const sessionHasAdminDashboardAccess = sessionIsOwner || sessionRoles.includes("admin") || sessionRoles.includes("administrator");
+    const { isOwner: sessionIsOwner, hasAdminDashboardAccess: sessionHasAdminDashboardAccess } = resolveAdminProfileAccess({
+      payload,
+      sessionRoles,
+    });
     return (
       <section className="section-container page-shell">
         <div className="mx-auto max-w-6xl space-y-5">
@@ -419,14 +458,17 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
   const isSeller = payload.stats.kind === "seller";
   const theme = profileTheme(payload.roleBadge);
   const statusCopy = isAr ? payload.accountStatuses.join(" • ") : payload.accountStatuses.join(" • ");
-  const roles = normalizeRoleValues([...(payload.profile.roles ?? []), payload.profile.role]);
-  const isOwner = roles.includes("owner");
-  const hasAdminDashboardAccess = isOwner || roles.includes("admin") || roles.includes("administrator");
+  const { isOwner, hasAdminDashboardAccess } = resolveAdminProfileAccess({
+    payload,
+    sessionRoles,
+  });
+  const sellerRankKey = payload.stats.kind === "seller" ? tierVisualKey(payload.stats.sellerLevel) : "bronze";
+  const sellerLevelForUi = payload.stats.kind === "seller" ? payload.stats.sellerLevel : "bronze";
 
   return (
     <section className="section-container page-shell">
       <div className="mx-auto max-w-7xl space-y-5 xl:space-y-6">
-        <Card className="overflow-hidden border-white/10 bg-[#0B0B0B]/95 p-0">
+        <Card className={cn("overflow-hidden border-white/10 bg-[#0B0B0B]/95 p-0", isSeller && `seller-rank-profile-shell seller-rank-profile-shell--${isOwner ? "legendary" : sellerRankKey}`)}>
           <div className={cn("relative h-44 border-b border-white/10 bg-gradient-to-r md:h-52", theme.coverTone)}>
             {coverUrl ? <Image src={coverUrl} alt="Cover" fill unoptimized className="object-cover opacity-90" /> : null}
             <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-black/75" />
@@ -461,7 +503,7 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
           <div className="relative px-6 pb-6 pt-0 md:px-8">
             <div className="-mt-14 flex flex-wrap items-end justify-between gap-4 md:-mt-16">
               <div className="flex items-end gap-4">
-                <div className={cn("relative h-24 w-24 overflow-hidden rounded-2xl border bg-black/80 md:h-28 md:w-28", theme.frameClass)}>
+                <div className={cn("relative h-24 w-24 overflow-hidden rounded-2xl border bg-black/80 md:h-28 md:w-28", theme.frameClass, isSeller && `seller-rank-avatar-frame seller-rank-avatar-frame--${isOwner ? "legendary" : sellerRankKey}`)}>
                   {avatarUrl ? (
                     <Image src={avatarUrl} alt="Profile" width={112} height={112} unoptimized className="h-full w-full object-cover" />
                   ) : (
@@ -469,8 +511,15 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
                   )}
                 </div>
                 <div className="pb-1">
-                  <p className={cn("text-2xl font-semibold text-white md:text-3xl", theme.usernameClass)}>{payload.profile.fullName}</p>
-                  <p className="mt-1 text-sm text-[#A6AFBE]">@{payload.profile.username}</p>
+                  <p className={cn("text-2xl font-semibold text-white md:text-3xl", isOwner && "text-[2.05rem] font-extrabold tracking-[0.015em] md:text-[2.2rem]", isSeller && `seller-rank-name seller-rank-name--${sellerRankKey}`, theme.usernameClass)}>{payload.profile.fullName}</p>
+                  {isOwner ? (
+                    <div className="mt-1">
+                      <p className="text-sm font-semibold text-[#F87171]">Alpha Exchange Owner</p>
+                      <p className="text-xs text-[#9CA3AF]">Full platform access • All permissions</p>
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-sm text-[#A6AFBE]">@{payload.profile.username}</p>
+                  )}
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <RoleBadge variant={payload.roleBadge} />
                     <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium text-[#D1D5DB]">
@@ -481,6 +530,11 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
                       <span className="inline-flex items-center gap-1 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2.5 py-1 text-[11px] font-semibold text-[#F4D87A]">
                         <ShieldCheck className="h-3.5 w-3.5" />
                         {isAr ? "بائع موثق" : "Verified Seller"}
+                      </span>
+                    ) : null}
+                    {isSeller ? (
+                      <span className={cn("seller-rank-pill", `seller-rank-pill--${isOwner ? "legendary" : sellerRankKey}`)}>
+                        {isOwner ? (isAr ? "بائع أسطوري" : "Legendary Seller") : `${tierLabel(sellerLevelForUi, isAr)} Seller`}
                       </span>
                     ) : null}
                   </div>
@@ -550,7 +604,7 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
         {coverError ? <p className="text-xs text-red-400">{coverError}</p> : null}
 
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_360px] xl:items-start">
-          <Card className="border-white/10 bg-[#0B0B0B]/95">
+          <Card className={cn("border-white/10 bg-[#0B0B0B]/95", isSeller && `seller-rank-profile-panel seller-rank-profile-panel--${isOwner ? "legendary" : sellerRankKey}`)}>
             <CardHeader>
               <CardTitle>{isAr ? "هوية التداول العامة" : "Public trading identity"}</CardTitle>
               <CardDescription>
@@ -561,11 +615,11 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
             </CardHeader>
             <CardContent>
               <form className="grid gap-3 md:grid-cols-2 xl:gap-4" onSubmit={(event) => void handleSave(event)}>
-                <Input value={form.fullName} onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))} placeholder={isAr ? "الاسم الكامل" : "Full name"} />
-                <Input value={form.country} onChange={(event) => setForm((prev) => ({ ...prev, country: event.target.value }))} placeholder={isAr ? "الدولة" : "Country"} />
-                <Input value={form.language} onChange={(event) => setForm((prev) => ({ ...prev, language: event.target.value }))} placeholder={isAr ? "اللغة" : "Language"} />
-                <Input value={form.whatsappNumber} onChange={(event) => setForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} placeholder={isAr ? "رقم التواصل" : "Contact phone"} />
-                <Textarea className="md:col-span-2" value={form.bio} onChange={(event) => setForm((prev) => ({ ...prev, bio: event.target.value }))} placeholder={isAr ? "نبذة احترافية تبني الثقة" : "Write a professional bio that builds trust"} />
+                <Input value={form.fullName} onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))} aria-label={isAr ? "الاسم الكامل" : "Full name"} placeholder={isAr ? "الاسم الكامل" : "Full name"} />
+                <Input value={form.country} onChange={(event) => setForm((prev) => ({ ...prev, country: event.target.value }))} aria-label={isAr ? "الدولة" : "Country"} placeholder={isAr ? "الدولة" : "Country"} />
+                <Input value={form.language} onChange={(event) => setForm((prev) => ({ ...prev, language: event.target.value }))} aria-label={isAr ? "اللغة" : "Language"} placeholder={isAr ? "اللغة" : "Language"} />
+                <Input value={form.whatsappNumber} onChange={(event) => setForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} aria-label={isAr ? "رقم التواصل" : "Contact phone"} placeholder={isAr ? "رقم التواصل" : "Contact phone"} />
+                <Textarea className="md:col-span-2" value={form.bio} onChange={(event) => setForm((prev) => ({ ...prev, bio: event.target.value }))} aria-label={isAr ? "نبذة احترافية" : "Professional bio"} placeholder={isAr ? "نبذة احترافية تبني الثقة" : "Write a professional bio that builds trust"} />
 
                 <div className="md:col-span-2 grid gap-2 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB] xl:grid-cols-2">
                   <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "عناصر الخصوصية" : "Privacy controls"}</p>
@@ -614,16 +668,16 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
               <AdministrationCard isAr={isAr} isOwner={isOwner} />
             ) : null}
 
-            <Card className="border-white/10 bg-[#0B0B0B]/95">
+            <Card className={cn("border-white/10 bg-[#0B0B0B]/95", isSeller && `seller-rank-profile-panel seller-rank-profile-panel--${isOwner ? "legendary" : sellerRankKey}`)}>
               <CardHeader>
                 <CardTitle>{isAr ? "لوحة السمعة" : "Reputation board"}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 {payload.stats.kind === "seller" ? (
                   <>
-                    <div className="rounded-2xl border border-[#C9A227]/25 bg-[#C9A227]/10 p-4">
-                      <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "مستوى البائع" : "Seller tier"}</p>
-                      <p className="mt-2 text-xl font-semibold text-white">{tierLabel(payload.stats.sellerLevel, isAr)}</p>
+                    <div className={cn("seller-rank-tier-card rounded-2xl border p-4", `seller-rank-tier-card--${sellerRankKey}`)}>
+                      <p className={cn("text-xs uppercase tracking-[0.14em]", `seller-rank-tier-label seller-rank-tier-label--${sellerRankKey}`)}>{isAr ? "مستوى البائع" : "Seller tier"}</p>
+                      <p className={cn("mt-2 text-xl font-semibold", `seller-rank-name seller-rank-name--${sellerRankKey}`)}>{tierLabel(sellerLevelForUi, isAr)}</p>
                       <p className="mt-1 text-xs text-[#E5E7EB]">
                         {payload.stats.nextLevel
                           ? `${isAr ? "المستوى التالي" : "Next tier"}: ${tierLabel(payload.stats.nextLevel, isAr)}`
@@ -632,7 +686,7 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
                             : "Top tier reached."}
                       </p>
                       <div className="mt-3 h-2.5 rounded-full bg-black/35">
-                        <div className="h-full rounded-full bg-gradient-to-r from-[#C9A227] via-[#F4D87A] to-[#C9A227]" style={{ width: `${Math.max(3, Math.min(100, payload.stats.progressToNextLevelPercent))}%` }} />
+                        <div className={cn("h-full rounded-full", `seller-rank-progress seller-rank-progress--${sellerRankKey}`)} style={{ width: `${Math.max(3, Math.min(100, payload.stats.progressToNextLevelPercent))}%` }} />
                       </div>
                       <p className="mt-2 text-xs text-[#E5E7EB]">
                         {isAr

@@ -34,12 +34,16 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ listing });
     }
     if (action === "renew" || action === "extend" || action === "close" || action === "force_close") {
+      const reason = String(body.reason ?? "").trim();
+      if (!reason) {
+        return NextResponse.json({ error: "Reason is required." }, { status: 400 });
+      }
       const listing = await adminOverrideMarketplaceListing({
         listingId,
         adminUserId: user.id,
         action,
         expirationHours: body.expirationHours,
-        reason: body.reason ? String(body.reason) : undefined,
+        reason,
       });
       return NextResponse.json({ listing });
     }

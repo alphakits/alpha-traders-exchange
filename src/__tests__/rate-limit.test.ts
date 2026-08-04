@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { checkRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
+import { checkRateLimit, createRateLimitResponse, resolveClientIp } from "@/lib/rate-limit";
 
 function makeHeaders(ip = "1.2.3.4") {
   return new Headers({ "x-forwarded-for": ip });
@@ -53,5 +53,28 @@ describe("checkRateLimit", () => {
     const response = createRateLimitResponse(12);
     expect(response.status).toBe(429);
     expect(response.headers.get("Retry-After")).toBe("12");
+  });
+
+  it("resolves the real client ip using vercel forwarding headers", () => {
+    const headers = new Headers({
+      "x-forwarded-for": "10.0.0.1, 54.33.22.11",
+      "x-vercel-forwarded-for": "88.10.20.30",
+    });
+    expect(resolveClientIp(headers)).toBe("88.10.20.30");
+  });
+
+  it("supports explicit rate-limit identifiers", () => {
+    const headers = makeHeaders("203.0.113.1");
+    const opts = {
+      headers,
+      key: "test-identifier",
+      identifier: "203.0.113.1:alpha@example.com",
+      maxRequests: 1,
+      windowMs: 60_000,
+    };
+    const first = checkRateLimit(opts);
+    const second = checkRateLimit(opts);
+    expect(first.allowed).toBe(true);
+    expect(second.allowed).toBe(false);
   });
 });

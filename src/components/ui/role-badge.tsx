@@ -1,4 +1,4 @@
-import { Bolt, Crown, ShieldCheck, Sparkles, UserRound } from "lucide-react";
+import { Crown, ShieldCheck, Sparkles, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type RoleBadgeVariant = "guest" | "student" | "buyer" | "pending_seller" | "approved_seller" | "moderator" | "administrator" | "owner";
@@ -50,18 +50,17 @@ const badgeMeta: Record<
     iconClassName: "text-[#F0DD95]",
   },
   owner: {
-    label: "Owner",
-    icon: Bolt,
+    label: "OWNER",
+    icon: Crown,
     className: "role-badge--owner",
-    emblem: "OWNER",
+    iconClassName: "text-[#ffd5d5]",
   },
 };
 
 export function RoleBadge({ variant, className }: RoleBadgeProps) {
   const meta = badgeMeta[variant];
   const Icon = meta.icon;
-
-  return (
+  const badgeNode = (
     <span className={cn("role-badge", meta.className, className)}>
       <span className="role-badge__shine" />
       <span className="role-badge__content">
@@ -69,6 +68,20 @@ export function RoleBadge({ variant, className }: RoleBadgeProps) {
         <span>{meta.label}</span>
         {variant === "owner" ? <Sparkles className="h-3.5 w-3.5 text-[#F87171]" /> : null}
         {meta.emblem ? <span className="role-badge__emblem">{meta.emblem}</span> : null}
+      </span>
+    </span>
+  );
+
+  if (variant !== "owner") return badgeNode;
+
+  return (
+    <span className="role-badge-with-tooltip">
+      {badgeNode}
+      <span role="tooltip" className="role-badge__tooltip">
+        <span className="font-semibold text-[#FDE68A]">Alpha Exchange Owner</span>
+        <span>Official platform account</span>
+        <span>Full administrative authority</span>
+        <span>Verified by Alpha Exchange</span>
       </span>
     </span>
   );

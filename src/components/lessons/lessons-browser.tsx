@@ -8,10 +8,10 @@ import { lessons, searchAcademyLessons } from "@/lib/content";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
-export function LessonsBrowser() {
+export function LessonsBrowser({ initialQuery = "" }: { initialQuery?: string }) {
   const locale = useLocale();
   const isAr = locale === "ar";
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
 
   const filtered = useMemo(() => searchAcademyLessons(query, locale as "ar" | "en"), [locale, query]);
 
@@ -32,6 +32,53 @@ export function LessonsBrowser() {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
+      </div>
+
+      <div className="mt-6 grid gap-4 md:grid-cols-2">
+        <Card id="beginner-guides" className="scroll-mt-28 border-white/10 bg-[#0B0B0B]/90">
+          <CardHeader>
+            <CardTitle>{isAr ? "أدلة المبتدئين" : "Beginner Guides"}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-[#9CA3AF]">{isAr ? "ابدأ بالأساسيات لبناء فهم متين للسوق." : "Start with the foundations to build strong market understanding."}</p>
+            <Link href={`/lessons/candles-foundation`} className="mt-3 inline-flex text-sm text-[#C9A227] hover:underline">
+              {isAr ? "فتح درس المبتدئين" : "Open beginner lesson"}
+            </Link>
+          </CardContent>
+        </Card>
+        <Card id="advanced-strategies" className="scroll-mt-28 border-white/10 bg-[#0B0B0B]/90">
+          <CardHeader>
+            <CardTitle>{isAr ? "استراتيجيات متقدمة" : "Advanced Strategies"}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-[#9CA3AF]">{isAr ? "توسّع في قراءة الاتجاهات والتخطيط متعدد الأطر الزمنية." : "Go deeper into trend structure and multi-timeframe planning."}</p>
+            <Link href={`/lessons/full-strategy-time-frame-explained`} className="mt-3 inline-flex text-sm text-[#C9A227] hover:underline">
+              {isAr ? "فتح درس متقدم" : "Open advanced lesson"}
+            </Link>
+          </CardContent>
+        </Card>
+        <Card id="risk-management" className="scroll-mt-28 border-white/10 bg-[#0B0B0B]/90">
+          <CardHeader>
+            <CardTitle>{isAr ? "إدارة المخاطر" : "Risk Management"}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-[#9CA3AF]">{isAr ? "ضبط المخاطر والانضباط قبل تنفيذ أي صفقة." : "Control downside and execution discipline before every trade."}</p>
+            <Link href={`/lessons/support-resistance-engine`} className="mt-3 inline-flex text-sm text-[#C9A227] hover:underline">
+              {isAr ? "فتح درس إدارة المخاطر" : "Open risk management lesson"}
+            </Link>
+          </CardContent>
+        </Card>
+        <Card id="trading-psychology" className="scroll-mt-28 border-white/10 bg-[#0B0B0B]/90">
+          <CardHeader>
+            <CardTitle>{isAr ? "علم نفس التداول" : "Trading Psychology"}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-[#9CA3AF]">{isAr ? "ابنِ عقلية تنفيذ مستقرة وتجنّب قرارات الانفعال." : "Build a consistent execution mindset and avoid emotional decisions."}</p>
+            <Link href={`/lessons/chart-patterns-rsi-integration`} className="mt-3 inline-flex text-sm text-[#C9A227] hover:underline">
+              {isAr ? "فتح درس علم النفس" : "Open psychology lesson"}
+            </Link>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">

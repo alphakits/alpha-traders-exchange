@@ -516,23 +516,13 @@ describe("AlphaExchangeRepository", () => {
     expect(repository.saveSnapshot).toHaveBeenCalledTimes(2);
   });
 
-  it("retries an aborted transaction with a fresh client so auth sessions still persist", async () => {
-    const firstClient = {
-      query: vi.fn().mockRejectedValueOnce(new Error("current transaction is aborted, commands ignored until end of transaction block")),
-      release: vi.fn(),
-    };
-    const secondClient = {
-      query: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ next_index: "0" }] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] }),
-      release: vi.fn(),
-    };
+  it("persists auth sessions via a single CTE pool.query (no manual client checkout)", async () => {
+    // upsertAuthSession was refactored from a 5-step transaction (BEGIN/DELETE/SELECT MAX/INSERT/COMMIT)
+    // to a single atomic CTE using pool.query(). The pg pool handles connection health internally,
+    // so manual client checkout + release(true) retry is no longer needed.
     const pool = {
       query: vi.fn().mockResolvedValue({ rows: [] }),
-      connect: vi.fn().mockResolvedValueOnce(firstClient).mockResolvedValueOnce(secondClient),
+      connect: vi.fn(),
       on: vi.fn(),
     } as unknown as Pool;
 
@@ -545,8 +535,13 @@ describe("AlphaExchangeRepository", () => {
       expiresAt: new Date().toISOString(),
     })).resolves.toBeUndefined();
 
-    expect(firstClient.release).toHaveBeenCalledWith(true);
-    expect(secondClient.release).toHaveBeenCalled();
+    // pool.query should have been called with the CTE (no pool.connect needed)
+    expect(pool.connect).not.toHaveBeenCalled();
+    const calls = (pool.query as ReturnType<typeof vi.fn>).mock.calls as [string, unknown[]][];
+    const cteCall = calls.find(([sql]) => typeof sql === "string" && sql.includes("WITH del AS"));
+    expect(cteCall).toBeDefined();
+    expect(cteCall![1][0]).toBe("user-1");
+    expect(cteCall![1][1]).toBe("session-token");
   });
 
   it("retries after an advisory lock timeout so saveSnapshot can continue", async () => {

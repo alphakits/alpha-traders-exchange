@@ -1,10 +1,12 @@
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
-import { BadgeCheck, Network, ShieldCheck, Star, TrendingUp, WalletCards } from "lucide-react";
+import { ArrowRight, BadgeCheck, HandCoins, MessageCircle, Network, Settings, ShieldCheck, Sparkles, Star, TrendingUp, WalletCards, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { RoleBadge } from "@/components/ui/role-badge";
 import { UsdtIcon } from "@/components/ui/usdt-icon";
 import { buildSellerReviewStats, getVisibleSellerReviews } from "@/lib/reviews";
+import { cn } from "@/lib/utils";
 import type { PremiumSellerProfileData, SellerBadge, SellerLevel } from "@/types/alpha-exchange";
 
 function formatSellerLevelLabel(level?: SellerLevel) {
@@ -35,6 +37,25 @@ function sellerRankTheme(level?: SellerLevel) {
   return "text-[#B8824B]";
 }
 
+function sellerLevelToneKey(level?: SellerLevel) {
+  if (level === "legendary") return "legendary";
+  if (level === "diamond") return "diamond";
+  if (level === "platinum") return "platinum";
+  if (level === "gold") return "gold";
+  if (level === "silver") return "silver";
+  return "bronze";
+}
+
+function heroRankLabel(level?: SellerLevel, isOwner = false) {
+  if (isOwner) return "OWNER";
+  if (level === "legendary") return "LEGENDARY SELLER";
+  if (level === "diamond") return "DIAMOND SELLER";
+  if (level === "platinum") return "PLATINUM SELLER";
+  if (level === "gold") return "GOLD SELLER";
+  if (level === "silver") return "SILVER SELLER";
+  return "BRONZE SELLER";
+}
+
 function badgeLabel(badge: SellerBadge) {
   return formatSellerBadgeLabel(badge);
 }
@@ -53,6 +74,7 @@ function StatCard({ label, value, accent = false, isUsdt = false }: { label: str
 
 type PremiumSellerProfilePageProps = {
   locale: "ar" | "en";
+  viewerOwnsProfile?: boolean;
   data: {
     profile: PremiumSellerProfileData | null;
     sellerListings: Array<{
@@ -77,7 +99,7 @@ type PremiumSellerProfilePageProps = {
   };
 };
 
-export function PremiumSellerProfilePage({ locale, data }: PremiumSellerProfilePageProps) {
+export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, data }: PremiumSellerProfilePageProps) {
   const isAr = locale === "ar";
   const profile = data.profile;
   const seller = profile?.profile;
@@ -88,6 +110,44 @@ export function PremiumSellerProfilePage({ locale, data }: PremiumSellerProfileP
 
   const visibleReviews = getVisibleSellerReviews(profile.latestReviews as never[]);
   const reviewStats = buildSellerReviewStats(visibleReviews as never[]);
+  const paymentMethods = seller.preferredPaymentMethods?.length
+    ? seller.preferredPaymentMethods
+    : Array.from(new Set(data.sellerListings.map((listing) => listing.paymentMethod).filter(Boolean)));
+  const publicContact = [seller.contact?.email, seller.contact?.phone].filter(Boolean).join(" • ");
+  const isOwnerSeller = seller.isOwner === true;
+  const sellerRankKey = isOwnerSeller ? "legendary" : sellerLevelToneKey(profile.sellerLevel);
+  const heroBadgeItems = [
+    seller.isFeaturedSeller ? "Featured Seller" : null,
+    seller.isFoundingSeller ? "Founding Seller" : null,
+    ...profile.badges.slice(0, 2).map((badge) => badgeLabel(badge)),
+  ].filter(Boolean) as string[];
+  const heroStats = [
+    {
+      label: isAr ? "التقييم" : "Rating",
+      value: `${reviewStats.averageRating.toFixed(2)}★`,
+      icon: <Star className="h-3.5 w-3.5" />,
+    },
+    {
+      label: isAr ? "الصفقات" : "Completed Trades",
+      value: profile.completedTrades.toLocaleString("en-IL"),
+      icon: <HandCoins className="h-3.5 w-3.5" />,
+    },
+    {
+      label: isAr ? "الحجم" : "Trade Volume",
+      value: `${(profile.tradeVolume ?? profile.lifetimeCompletedVolumeUsdt).toLocaleString("en-IL")} USDT`,
+      icon: <WalletCards className="h-3.5 w-3.5" />,
+    },
+    {
+      label: isAr ? "الاستجابة" : "Response Time",
+      value: `${profile.responseTimeMinutes.toFixed(0)} min`,
+      icon: <Zap className="h-3.5 w-3.5" />,
+    },
+  ];
+  const availabilityLabel = seller.availabilityStatus === "available"
+    ? (isAr ? "متاح" : "Available")
+    : seller.availabilityStatus === "away"
+      ? (isAr ? "مشغول" : "Away")
+      : (isAr ? "إجازة" : "Vacation");
   const stats: Array<{ label: string; value: string; isUsdt?: boolean }> = [
     { label: isAr ? "صفقات مكتملة" : "Completed trades", value: profile.completedTrades.toString() },
     { label: isAr ? "حجم التداول" : "Trade volume", value: `${profile.tradeVolume?.toLocaleString("en-IL") ?? profile.lifetimeCompletedVolumeUsdt.toLocaleString("en-IL")} USDT`, isUsdt: true },
@@ -102,47 +162,142 @@ export function PremiumSellerProfilePage({ locale, data }: PremiumSellerProfileP
   return (
     <main className="min-h-screen bg-[#050505] text-white">
       <div className="section-container page-shell flex flex-col gap-8">
-        <Card className="overflow-hidden border-white/10 bg-[#0B0B0B]/95">
+        <Card
+          className={cn(
+            "seller-listing-shell overflow-hidden border-white/10 bg-[#0B0B0B]/95",
+            isOwnerSeller
+              ? "owner-legendary-surface"
+              : `seller-rank-surface seller-rank-surface--${sellerRankKey} seller-rank-card seller-rank-card--${sellerRankKey}`,
+          )}
+        >
+          {isOwnerSeller ? (
+            <div className="flex items-center gap-2 rounded-t-xl border-b border-red-500/20 bg-gradient-to-r from-red-950/60 via-red-900/30 to-transparent px-4 py-2">
+              <Sparkles className="h-3.5 w-3.5 text-red-300" />
+              <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-red-300">Official Alpha Exchange Profile</span>
+              <span className="ml-auto text-[11px] text-red-400/70">Verified owner identity</span>
+            </div>
+          ) : null}
           <div
-            className="relative h-56 md:h-72"
+            className="relative h-[19rem] md:h-[22rem]"
             style={{
               backgroundImage: seller.coverBannerUrl
-                ? `linear-gradient(180deg, rgba(5,5,5,0.2), rgba(5,5,5,0.85)), url(${seller.coverBannerUrl})`
-                : "linear-gradient(135deg, rgba(201,162,39,0.28), rgba(0,0,0,0.92))",
+                ? `linear-gradient(180deg, rgba(5,5,5,0.16), rgba(5,5,5,0.86)), url(${seller.coverBannerUrl})`
+                : undefined,
               backgroundSize: "cover",
               backgroundPosition: "center",
             }}
           >
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(201,162,39,0.15),transparent_40%)]" />
-            <div className="absolute bottom-0 left-0 right-0 flex flex-col gap-4 p-6 md:flex-row md:items-end md:justify-between">
-              <div className={`flex items-end gap-4 ${isAr ? "flex-row-reverse" : ""}`}>
-                <div className="relative">
-                  {seller.profilePhotoUrl ? (
-                    <Image src={seller.profilePhotoUrl} alt={seller.sellerName} width={110} height={110} unoptimized className="h-24 w-24 rounded-full border-4 border-[#050505] object-cover shadow-[0_0_0_1px_rgba(201,162,39,0.3)] md:h-28 md:w-28" />
-                  ) : (
-                    <div className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-[#050505] bg-[#C9A227]/20 text-2xl font-semibold text-[#FDE68A] md:h-28 md:w-28">
-                      {seller.sellerName.slice(0, 2).toUpperCase()}
+            <div className={cn("seller-profile-hero-material absolute inset-0", isOwnerSeller ? "seller-profile-hero-material--owner" : `seller-profile-hero-material--${sellerRankKey}`)} />
+            <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/25 to-black/85" />
+            <div className={cn("absolute inset-0 opacity-95", !seller.coverBannerUrl && (isOwnerSeller ? "owner-legendary-surface" : `seller-rank-surface seller-rank-surface--${sellerRankKey}`))} />
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.1),transparent_24%),radial-gradient(circle_at_bottom_left,rgba(255,255,255,0.05),transparent_30%)]" />
+            <div className="absolute bottom-0 left-0 right-0 p-5 md:p-6">
+              <div className={cn(
+                "rounded-[1.6rem] border border-white/10 bg-black/35 p-5 shadow-[0_24px_60px_rgba(0,0,0,0.42)] backdrop-blur-xl md:p-6",
+                isOwnerSeller ? "border-red-500/25" : `seller-rank-accent seller-rank-accent--${sellerRankKey}`,
+              )}>
+                <div className={cn("flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between", isAr ? "lg:flex-row-reverse" : "")}>
+                  <div className={cn("flex items-end gap-4", isAr ? "flex-row-reverse" : "")}>
+                    <div className={cn("relative seller-avatar-ring", `seller-avatar-ring--${sellerRankKey}`)}>
+                      {seller.profilePhotoUrl ? (
+                        <Image src={seller.profilePhotoUrl} alt={seller.sellerName} width={128} height={128} unoptimized className="h-24 w-24 rounded-full border border-transparent object-cover md:h-28 md:w-28" />
+                      ) : (
+                        <div className={cn("flex h-24 w-24 items-center justify-center rounded-full border border-transparent text-2xl font-semibold md:h-28 md:w-28", isOwnerSeller ? "bg-red-950/60 text-red-200" : "bg-white/[0.04] text-[#F5E7C1]")}>
+                          {seller.sellerName.slice(0, 2).toUpperCase()}
+                        </div>
+                      )}
+                      <span className={cn("absolute bottom-1 flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold shadow-[0_10px_20px_rgba(0,0,0,0.25)]", isAr ? "left-1" : "right-1", seller.onlineStatus === "online" ? "bg-emerald-500/90 text-white" : "bg-white/20 text-white")}>
+                        <span className={cn("h-1.5 w-1.5 rounded-full", seller.onlineStatus === "online" ? "bg-white" : "bg-[#D1D5DB]")} />
+                        {seller.onlineStatus === "online" ? "Online" : "Offline"}
+                      </span>
                     </div>
-                  )}
-                  <span className={`absolute bottom-1 ${isAr ? "left-1" : "right-1"} h-4 w-4 rounded-full border-2 border-[#050505] ${seller.onlineStatus === "online" ? "bg-[#22C55E]" : "bg-[#9CA3AF]"}`} />
-                </div>
-                <div>
-                  <div className={`flex items-center gap-2 ${isAr ? "flex-row-reverse" : ""}`}>
-                    <h1 className={`text-2xl font-semibold text-white md:text-3xl ${isAr ? "text-right" : ""}`}>{seller.sellerName}</h1>
-                    <BadgeCheck className="h-5 w-5 text-[#C9A227]" />
+                    <div className={isAr ? "text-right" : ""}>
+                      <div className={cn("flex items-center gap-2", isAr ? "flex-row-reverse" : "")}>
+                        <h1 className={cn("seller-listing-seller-name text-3xl font-extrabold md:text-[2.35rem]", isOwnerSeller ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerRankKey}`)}>{seller.sellerName}</h1>
+                        <BadgeCheck className={cn("h-5 w-5", isOwnerSeller ? "text-red-300" : "text-[#C9A227]")} />
+                      </div>
+                      {seller.username ? (
+                        <p className="mt-1 text-sm text-[#B7BDC8]">@{seller.username}</p>
+                      ) : null}
+                      <p className="seller-listing-seller-subtitle mt-2 text-[12px] uppercase tracking-[0.16em] text-[#9CA3AF]">
+                        <span className={cn("seller-listing-rank-label", `seller-listing-rank-label--${sellerRankKey}`)}>
+                          {heroRankLabel(profile.sellerLevel, isOwnerSeller)}
+                        </span>
+                        <span className="seller-listing-status-separator"> • </span>
+                        <span className="text-[#D1D5DB]">{seller.onlineStatus === "online" ? "ONLINE" : "OFFLINE"}</span>
+                      </p>
+                      <div className={cn("mt-3 flex flex-wrap gap-2", isAr ? "justify-end" : "")}>
+                        {isOwnerSeller ? <RoleBadge variant="owner" /> : null}
+                        <RoleBadge variant="approved_seller" className={cn("seller-rank-badge", `seller-rank-badge--${sellerRankKey}`)} />
+                        <span className={cn("seller-rank-pill", `seller-rank-pill--${sellerRankKey}`)}>{formatSellerLevelLabel(profile.sellerLevel)}</span>
+                        <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 text-xs text-[#E5E7EB]">{isAr ? "بائع موثّق" : "Verified Seller"}</span>
+                        {heroBadgeItems.map((badge) => (
+                          <span key={badge} className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs text-[#D1D5DB]">{badge}</span>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                  <div className={`mt-2 flex flex-wrap items-center gap-2 text-sm ${isAr ? "flex-row-reverse" : ""}`}>
-                    <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-3 py-1 text-[#FDE68A]">{formatSellerLevelLabel(profile.sellerLevel)}</span>
-                    <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-[#D1D5DB]">{isAr ? "بائع موثّق" : "Verified Seller"}</span>
-                    <span className="rounded-full border border-[#22C55E]/20 bg-[#22C55E]/10 px-3 py-1 text-[#86EFAC]">{seller.onlineStatus === "online" ? (isAr ? "متصل الآن" : "Online now") : (isAr ? "غير متصل" : "Offline")}</span>
-                  </div>
-                </div>
-              </div>
 
-              <div className={`rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm backdrop-blur ${isAr ? "text-right" : ""}`}>
-                <p className="text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust Score"}</p>
-                <p className="mt-1 text-2xl font-semibold text-[#C9A227]">{profile.trustScore.toFixed(1)}/100</p>
-                <p className="mt-1 text-[#D1D5DB]">{isAr ? "المستوى" : "Level"}: {profile.sellerLevel}</p>
+                  <div className={cn("grid gap-3 lg:min-w-[260px]", isAr ? "text-right" : "")}>
+                    <div className={cn("rounded-2xl border bg-black/35 px-4 py-3 text-sm backdrop-blur-md", isOwnerSeller ? "border-red-500/25" : `seller-rank-card seller-rank-card--${sellerRankKey}`)}>
+                      <p className="text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust Score"}</p>
+                      <p className={cn("mt-1 text-2xl font-semibold", isOwnerSeller ? "text-red-200" : `seller-listing-rank-label seller-listing-rank-label--${sellerRankKey}`)}>{profile.trustScore.toFixed(1)}/100</p>
+                      <p className="mt-1 text-[#D1D5DB]">{isAr ? "المستوى" : "Level"}: {formatSellerLevelLabel(profile.sellerLevel)}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className={cn("seller-listing-availability", `seller-listing-availability--${sellerRankKey}`)}>{availabilityLabel}</span>
+                      <span className="rounded-full border border-[#B91C1C]/20 bg-[#B91C1C]/10 px-3 py-1 text-xs font-medium text-[#FCA5A5]">{isAr ? "ضمان Alpha Traders" : "Escrow protected"}</span>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+                      {viewerOwnsProfile ? (
+                        <>
+                          <Link href="/settings" locale={locale} className={cn("seller-marketplace-action seller-marketplace-action--profile", isOwnerSeller ? "owner-cta-premium" : `seller-rank-cta seller-rank-cta--${sellerRankKey}`)}>
+                            <span className="inline-flex items-center gap-2">
+                              <Settings className="h-4 w-4" />
+                              {isAr ? "تعديل الملف" : "Edit Profile"}
+                            </span>
+                            <ArrowRight className="h-4 w-4" />
+                          </Link>
+                          <Link href="/dashboard/seller" locale={locale} className="seller-marketplace-action seller-marketplace-action--profile border border-white/15 bg-black/25 text-white hover:border-[#C9A227] hover:bg-black/35">
+                            <span className="inline-flex items-center gap-2">
+                              <WalletCards className="h-4 w-4" />
+                              {isAr ? "إدارة العروض" : "Manage Listings"}
+                            </span>
+                            <ArrowRight className="h-4 w-4" />
+                          </Link>
+                        </>
+                      ) : (
+                        <>
+                          <a href="#seller-active-listings" className={cn("seller-marketplace-action seller-marketplace-action--profile", isOwnerSeller ? "owner-cta-premium" : `seller-rank-cta seller-rank-cta--${sellerRankKey}`)}>
+                            <span className="inline-flex items-center gap-2">
+                              <Zap className="h-4 w-4" />
+                              {isAr ? "ابدأ الصفقة" : "Start Trade"}
+                            </span>
+                            <ArrowRight className="h-4 w-4" />
+                          </a>
+                          <a href="#seller-public-account" className="seller-marketplace-action seller-marketplace-action--profile border border-white/15 bg-black/25 text-white hover:border-[#C9A227] hover:bg-black/35">
+                            <span className="inline-flex items-center gap-2">
+                              <MessageCircle className="h-4 w-4" />
+                              {isAr ? "راسل البائع" : "Message Seller"}
+                            </span>
+                            <ArrowRight className="h-4 w-4" />
+                          </a>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  {heroStats.map((stat) => (
+                    <div key={stat.label} className={cn("seller-hero-stat rounded-2xl border px-4 py-3", isOwnerSeller ? "border-red-500/20 bg-red-950/10" : `seller-rank-microcard seller-rank-microcard--${sellerRankKey}`)}>
+                      <p className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">
+                        <span className={cn("seller-listing-rank-label", `seller-listing-rank-label--${sellerRankKey}`)}>{stat.icon}</span>
+                        {stat.label}
+                      </p>
+                      <p className="mt-2 text-sm font-semibold text-white md:text-base">{stat.value}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -165,6 +320,14 @@ export function PremiumSellerProfilePage({ locale, data }: PremiumSellerProfileP
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "وقت الرد" : "Response time"}</p>
                   <p className="mt-2 font-medium text-white">{profile.responseTimeMinutes.toFixed(0)} min</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "المدينة" : "City"}</p>
+                  <p className="mt-2 font-medium text-white">{seller.city || "—"}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "التوفر" : "Availability"}</p>
+                  <p className="mt-2 font-medium text-white">{availabilityLabel}</p>
                 </div>
               </div>
 
@@ -212,12 +375,33 @@ export function PremiumSellerProfilePage({ locale, data }: PremiumSellerProfileP
                   </div>
                 </div>
               </div>
+
+              <div id="seller-public-account" className="rounded-3xl border border-white/10 bg-gradient-to-br from-[#0B0B0B] to-[#141414] p-5">
+                <div className={`flex items-center gap-2 ${isAr ? "flex-row-reverse" : ""}`}>
+                  <WalletCards className="h-5 w-5 text-[#C9A227]" />
+                  <h2 className="text-lg font-semibold text-white">{isAr ? "ملف الحساب العام" : "Public account profile"}</h2>
+                </div>
+                <div className={`mt-4 grid gap-3 text-sm ${isAr ? "text-right" : ""}`}>
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                    <p className="text-[#9CA3AF]">{isAr ? "طرق الدفع" : "Payment methods"}</p>
+                    <p className="mt-1 font-medium text-white">{paymentMethods.length ? paymentMethods.join(", ") : "—"}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                    <p className="text-[#9CA3AF]">{isAr ? "الرسائل المباشرة" : "Direct messages"}</p>
+                    <p className="mt-1 font-medium text-white">{seller.allowDirectMessages ? (isAr ? "مفعلة" : "Enabled") : (isAr ? "معطلة" : "Disabled")}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                    <p className="text-[#9CA3AF]">{isAr ? "الاتصال العام" : "Public contact"}</p>
+                    <p className="mt-1 font-medium text-white">{publicContact || "—"}</p>
+                  </div>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
 
         <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <Card className="border-white/10 bg-[#0B0B0B]/95">
+          <Card id="seller-active-listings" className="border-white/10 bg-[#0B0B0B]/95">
             <CardHeader>
               <CardTitle>{isAr ? "إحصائيات الثقة" : "Trust statistics"}</CardTitle>
               <CardDescription>{isAr ? "مقاييس الأداء التي تعكس موثوقية البائع." : "Performance metrics that frame the seller's reliability."}</CardDescription>
@@ -301,6 +485,7 @@ export function PremiumSellerProfilePage({ locale, data }: PremiumSellerProfileP
                   <div className={`mt-3 flex flex-wrap items-center gap-2 text-sm text-[#D1D5DB] ${isAr ? "flex-row-reverse" : ""}`}>
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1"><WalletCards className="h-4 w-4 text-[#C9A227]" />{listing.paymentMethod}</span>
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1"><Network className="h-4 w-4 text-[#C9A227]" />{listing.network}</span>
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-[#B91C1C]/20 bg-[#B91C1C]/10 px-2.5 py-1 text-[#FCA5A5]"><ShieldCheck className="h-4 w-4" />{isAr ? "ضمان Alpha Traders" : "Escrow protected by Alpha Traders"}</span>
                   </div>
                   <Button className="mt-4 w-full">{isAr ? "شراء" : "Buy"}</Button>
                 </div>
@@ -328,7 +513,7 @@ export function PremiumSellerProfilePage({ locale, data }: PremiumSellerProfileP
                   <span className="text-[#9CA3AF]">{sellerItem.trustScore.toFixed(1)}/100</span>
                   <span className="text-[#C9A227] capitalize">{sellerItem.sellerLevel}</span>
                 </div>
-                <Link href={`/exchange/seller/${slugify(sellerItem.sellerName)}`} className="mt-4 inline-flex text-sm text-[#C9A227] hover:underline">{isAr ? "عرض الملف" : "View profile"}</Link>
+                <Link href={`/exchange/seller/${slugify(sellerItem.sellerName)}?sellerId=${encodeURIComponent(sellerItem.sellerId)}`} className="mt-4 inline-flex text-sm text-[#C9A227] hover:underline">{isAr ? "عرض الملف" : "View profile"}</Link>
               </div>
             )) : <p className="empty-state-panel">{isAr ? "لا توجد توصيات متاحة." : "No similar sellers available."}</p>}
           </CardContent>

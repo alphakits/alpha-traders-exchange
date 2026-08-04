@@ -5,6 +5,7 @@ import { AlertTriangle, BadgeCheck, Clock3, History, ShieldCheck, Star } from "l
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { formatListingId } from "@/lib/format-id";
 import type { MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
 
 type Payload = {
@@ -129,7 +130,7 @@ export function OwnerPendingListingsDashboard() {
                     <div className="grid grid-cols-2 gap-2">
                       {(listing.photos?.length ? listing.photos : ["/images/brand/alpha-traders-logo.png"]).slice(0, 4).map((photo, index) => (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img key={`${listing.id}-photo-${index}`} src={photo} alt={`Listing ${listing.id} photo ${index + 1}`} className="h-24 w-full rounded-lg border border-white/10 object-cover" />
+                        <img key={`${listing.id}-photo-${index}`} src={photo} alt={`Listing ${formatListingId(listing.displayNumber, listing.id)} photo ${index + 1}`} className="h-24 w-full rounded-lg border border-white/10 object-cover" />
                       ))}
                     </div>
                     <Input

@@ -86,4 +86,15 @@ describe("LoginForm", () => {
       value: originalLocation,
     });
   });
+
+  it("shows a dedicated forgot-password link under the password field", () => {
+    render(<LoginForm locale="en" />);
+    const forgotLink = screen.getByRole("link", { name: "Forgot your password?" });
+    expect(forgotLink.getAttribute("href")).toBe("/forgot-password");
+  });
+
+  it("shows password-reset success confirmation when arriving from reset flow", () => {
+    render(<LoginForm locale="en" passwordResetSuccess />);
+    expect(screen.getByText("Your password has been updated successfully. Please sign in.")).toBeTruthy();
+  });
 });

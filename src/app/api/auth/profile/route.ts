@@ -40,11 +40,30 @@ function roleLabelFor(variant: RoleBadgeVariant): "Guest" | "Student" | "Buyer" 
 }
 
 export async function GET() {
+  const routeStartedAt = Date.now();
+  const timeline: Array<{ name: string; startTime: number; endTime: number; durationMs: number }> = [];
+  const authStartedAt = Date.now();
   const { user, unauthorized } = await requireApiUser();
+  const authEndedAt = Date.now();
+  timeline.push({
+    name: "/api/auth/profile:auth",
+    startTime: authStartedAt,
+    endTime: authEndedAt,
+    durationMs: Math.max(0, authEndedAt - authStartedAt),
+  });
   if (!user) return unauthorized;
 
+  const profileLoadStartedAt = Date.now();
   const payload = await getAccountProfileData(user.id);
+  const profileLoadEndedAt = Date.now();
+  timeline.push({
+    name: "/api/auth/profile:data",
+    startTime: profileLoadStartedAt,
+    endTime: profileLoadEndedAt,
+    durationMs: Math.max(0, profileLoadEndedAt - profileLoadStartedAt),
+  });
   const roleBadge = toRoleBadgeVariant(user);
+  const routeMs = Date.now() - routeStartedAt;
   return NextResponse.json({
     profile: {
       ...payload.profile,
@@ -56,6 +75,12 @@ export async function GET() {
     roleBadge,
     roleLabel: roleLabelFor(roleBadge),
     accountStatuses: accountStatuses(user),
+  }, {
+    headers: {
+      "X-Auth-Profile-Route-Ms": String(routeMs),
+      "X-Auth-Profile-Timeline": JSON.stringify(timeline),
+      "Server-Timing": `route;dur=${routeMs}, auth;dur=${Math.max(0, authEndedAt - authStartedAt)}, profile;dur=${Math.max(0, profileLoadEndedAt - profileLoadStartedAt)}`,
+    },
   });
 }
 

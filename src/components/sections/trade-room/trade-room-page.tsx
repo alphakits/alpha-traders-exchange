@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { AlphaExchangeNotification, MarketplaceListing, PurchaseRequest, TradeChatMessage, TradeEvidenceFile, TradeTimelineEntry, UserRole } from "@/types/alpha-exchange";
+import { formatTradeId } from "@/lib/format-id";
 import { readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
 import { isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 
@@ -589,6 +590,7 @@ export function TradeRoomPage({
   const [reviewComment, setReviewComment] = useState("");
   const [reviewCommentError, setReviewCommentError] = useState<string | null>(null);
   const [reviewDeferred, setReviewDeferred] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
   const [buyerCompletionSuccessActive, setBuyerCompletionSuccessActive] = useState(false);
   const [buyerRedirectPending, setBuyerRedirectPending] = useState(false);
   const [buyerSuccessFadingOut, setBuyerSuccessFadingOut] = useState(false);
@@ -624,7 +626,6 @@ export function TradeRoomPage({
       ts: new Date().toISOString(),
       ...(detail ?? {}),
     };
-    console.info("[review-submit-diag]", payload);
     if (typeof window !== "undefined") {
       type WindowWithReviewDiag = Window & { __reviewSubmitDiag?: unknown[] };
       const diagWindow = window as WindowWithReviewDiag;
@@ -693,7 +694,7 @@ export function TradeRoomPage({
       reviewFormVisibleRef.current = false;
       return;
     }
-    const reviewFormVisible = actor.role === "buyer" && !currentRequest.buyerReview && !reviewDeferred && COMPLETED_TRADE_STATUSES.has(currentRequest.status);
+    const reviewFormVisible = actor.role === "buyer" && !currentRequest.buyerReview && COMPLETED_TRADE_STATUSES.has(currentRequest.status);
     if (reviewFormVisible && !reviewFormVisibleRef.current) {
       logReviewDiagnostic("review-form-rendered", { status: currentRequest.status });
       reviewFormVisibleRef.current = true;
@@ -1071,7 +1072,7 @@ export function TradeRoomPage({
         setCompletedActionLabel(null);
         completedActionTimeoutRef.current = null;
       }, 2000);
-      const pendingBuyerReview = request.buyerId === actor.id && !request.buyerReview && !reviewDeferred;
+      const pendingBuyerReview = request.buyerId === actor.id && !request.buyerReview;
       if (nextStatus === "completed" && request.buyerId === actor.id && !pendingBuyerReview) {
         startBuyerCompletionSuccessFlow(request.id);
       }
@@ -1091,7 +1092,7 @@ export function TradeRoomPage({
           setCompletedActionLabel(null);
           completedActionTimeoutRef.current = null;
         }, 2000);
-        const pendingBuyerReview = request.buyerId === actor.id && !request.buyerReview && !reviewDeferred;
+        const pendingBuyerReview = request.buyerId === actor.id && !request.buyerReview;
         if (nextStatus === "completed" && request.buyerId === actor.id && !pendingBuyerReview) {
           startBuyerCompletionSuccessFlow(request.id);
         }
@@ -1114,7 +1115,7 @@ export function TradeRoomPage({
       actionInFlightRef.current = null;
       setActionBusy(false);
     }
-  }, [actor.id, fetchRoom, isAr, request, requestId, reviewDeferred, room, startBuyerCompletionSuccessFlow, streamConnected]);
+  }, [actor.id, fetchRoom, isAr, request, requestId, room, startBuyerCompletionSuccessFlow, streamConnected]);
 
   const handleSendMessage = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1315,6 +1316,29 @@ export function TradeRoomPage({
     }
   }, [disputeReason, fetchRoom, isAr, request]);
 
+  const handleCancelTrade = useCallback(async () => {
+    if (!request || request.status !== "pending" || cancelBusy) return;
+    setCancelBusy(true);
+    setStatusMessage(null);
+    try {
+      const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "cancelled" }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setStatusMessage(payload.error ?? (isAr ? "تعذر إلغاء الطلب." : "Failed to cancel the request."));
+        return;
+      }
+      router.push("/usdt-exchange");
+    } catch {
+      setStatusMessage(isAr ? "تعذر إلغاء الطلب." : "Failed to cancel the request.");
+    } finally {
+      setCancelBusy(false);
+    }
+  }, [cancelBusy, isAr, request, router]);
+
   const handleSubmitBuyerReview = useCallback(async () => {
     if (actionBusy || Boolean(actionInFlightRef.current)) {
       logReviewDiagnostic("validation-failed", { reason: "trade-status-update-in-flight" });
@@ -1496,7 +1520,7 @@ export function TradeRoomPage({
             <div className="grid gap-3 xl:grid-cols-[minmax(0,1.45fr)_320px] xl:items-end">
               <div>
                 <p className="text-xs uppercase tracking-[0.14em] text-[#C9A227]">{isAr ? "غرفة التداول" : "Trade Room"}</p>
-                <CardTitle className="mt-1 text-2xl font-semibold">{request.displayNumber ? `Trade #${request.displayNumber}` : request.tradeId ?? `Trade #${request.id.slice(-6)}`}</CardTitle>
+                <CardTitle className="mt-1 text-2xl font-semibold">{`Trade ${formatTradeId(request.displayNumber, request.tradeId ?? request.id)}`}</CardTitle>
                 <p className="mt-1 text-sm text-[#D1D5DB]">
                   {isAr ? "المبلغ:" : "Amount:"} <span className="font-semibold text-white">{toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT</span> • {toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}
                 </p>
@@ -1664,7 +1688,7 @@ export function TradeRoomPage({
                   <p className="text-xs">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
                 </div>
               ) : null}
-              {isActorBuyer && !request.buyerReview && !reviewDeferred ? (
+              {isActorBuyer && !request.buyerReview ? (
                 <div className="rounded-xl border border-emerald-400/30 bg-black/20 p-3">
                   <p className="mb-2 font-medium text-white">{isAr ? "مطلوب قبل الصفقة التالية: قيّم البائع" : "Required before your next trade: Rate Seller & Leave Feedback"}</p>
                   {!showSuccessScreen || actionBusy || Boolean(actionInFlightRef.current) ? (
@@ -1730,22 +1754,7 @@ export function TradeRoomPage({
                     </Button>
                   </form>
                   ) : null}
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="mt-2 ms-2"
-                    disabled={reviewBusy || actionBusy || Boolean(actionInFlightRef.current)}
-                    onClick={() => {
-                      setReviewDeferred(true);
-                      setStatusMessage(
-                        isAr
-                          ? "يمكنك المتابعة الآن، لكن يجب إكمال تقييم الصفقة السابقة قبل بدء صفقة جديدة."
-                          : "You can continue now, but you must complete this feedback before starting a new trade.",
-                      );
-                    }}
-                  >
-                    {isAr ? "ذكرني لاحقًا" : "Remind Me Later"}
-                  </Button>
+
                 </div>
               ) : null}
               {!showSuccessScreen && isBuyerCompletionSyncInFlight ? (
@@ -1846,6 +1855,26 @@ export function TradeRoomPage({
                   </div>
                 ) : null}
 
+                {isActorBuyer && request.status === "pending" ? (
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                    <p className="text-sm text-[#9CA3AF]">
+                      {isAr
+                        ? "لم يقبل البائع الطلب بعد. يمكنك إلغاء الطلب إذا كنت لا تريد الانتظار."
+                        : "The seller has not accepted yet. You can cancel if you no longer wish to wait."}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="mt-2"
+                      disabled={cancelBusy}
+                      onClick={() => void handleCancelTrade()}
+                    >
+                      {cancelBusy ? (isAr ? "جاري الإلغاء..." : "Cancelling...") : (isAr ? "إلغاء الطلب" : "Cancel Request")}
+                    </Button>
+                  </div>
+                ) : null}
+
                 {room.canOpenDispute && !room.hasOpenDispute ? (
                   <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
                     <div className="flex items-center justify-between gap-2">
@@ -1856,7 +1885,7 @@ export function TradeRoomPage({
                     </div>
                     {showDisputeComposer ? (
                       <div className="mt-2 space-y-2">
-                        <Textarea value={disputeReason} onChange={(event) => setDisputeReason(event.target.value)} placeholder={isAr ? "اكتب سبب النزاع..." : "Describe the dispute reason..."} />
+                        <Textarea value={disputeReason} onChange={(event) => setDisputeReason(event.target.value)} aria-label={isAr ? "سبب النزاع" : "Dispute reason"} placeholder={isAr ? "اكتب سبب النزاع..." : "Describe the dispute reason..."} />
                         <Button type="button" size="sm" disabled={disputeBusy} onClick={() => void handleOpenDispute()}>
                           {disputeBusy ? (isAr ? "جاري الإرسال..." : "Submitting...") : (isAr ? "تأكيد فتح النزاع" : "Submit Dispute")}
                         </Button>

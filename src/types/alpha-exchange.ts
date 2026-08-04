@@ -179,10 +179,13 @@ export interface SellerApplication {
 }
 
 export type ListingStatus = "draft" | "active" | "paused" | "matched" | "in_trade" | "expired" | "completed" | "cancelled" | "closed";
+export type ListingApprovalStatus = "pending" | "approved" | "rejected" | "changes_requested";
 
 export interface SellerPublicProfile {
   sellerId: string;
   sellerName: string;
+  fullName?: string;
+  username?: string;
   profilePhotoUrl: string;
   memberSince: string;
   languages: string[];
@@ -196,7 +199,17 @@ export interface SellerPublicProfile {
   coverBannerUrl?: string;
   isFoundingSeller?: boolean;
   isFeaturedSeller?: boolean;
+  isFoundingMember?: boolean;
   isProfileHidden?: boolean;
+  isOwner?: boolean;
+  role?: UserRole;
+  roles?: UserRole[];
+  sellerStatus?: SellerStatus;
+  allowDirectMessages?: boolean;
+  contact?: {
+    email: string;
+    phone: string;
+  };
   onlineStatus: SellerOnlineStatus;
   availabilityStatus: SellerAvailabilityStatus;
   lastActiveAt?: string;
@@ -343,6 +356,7 @@ export interface MarketplaceListing {
   sellerDescription: string;
   responseTime: string;
   status: ListingStatus;
+  approvalStatus?: ListingApprovalStatus;
   activeTradeRequestId?: string;
   lockedAt?: string;
   ownerReviewReason?: string;

@@ -40,6 +40,7 @@ import type {
   AuditLogEntry,
   AuthSession,
   CommissionRecord,
+  ListingApprovalStatus,
   ListingStatus,
   MarketplaceListing,
   OwnerBusinessDashboardMetrics,
@@ -321,6 +322,8 @@ function resolveTradeRequiredAction(request: PurchaseRequest, recipientIsSeller:
 
 function resolveNotificationActionLabel(notification: Pick<AlphaExchangeNotification, "title" | "message" | "centerCategory" | "relatedTradeId" | "relatedRequestId">, request?: PurchaseRequest) {
   const text = `${notification.title} ${notification.message}`.toLowerCase();
+  if (text.includes("seller application")) return "Review Application";
+  if (text.includes("listing")) return "Manage Listing";
   if (text.includes("verify") || text.includes("payment sent")) return "Verify Payment";
   if (text.includes("confirm") && text.includes("completed")) return "Confirm Completion";
   if (text.includes("review") || request?.status === "review_open" || request?.status === "completed") return "Leave Review";
@@ -388,7 +391,8 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
   const priorityRank = typeof notification.priorityRank === "number"
     ? notification.priorityRank
     : resolveNotificationPriority({ ...notification, centerCategory }).rank;
-  const relatedHref = request
+  const isTradeNotification = notification.category === "trade";
+  const relatedHref = isTradeNotification && request
     ? requestDetailsHref(request.id)
     : notification.relatedHref;
   const actionHref = notification.actionHref?.trim() || relatedHref;
@@ -418,7 +422,9 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     relatedHref,
     actionHref,
     actionLabel: notification.actionLabel?.trim() || resolveNotificationActionLabel(notification, request),
-    tradeSnapshot: notification.tradeSnapshot ?? buildTradeSnapshotForNotification(db, notification.userId, request),
+    tradeSnapshot: isTradeNotification
+      ? (notification.tradeSnapshot ?? buildTradeSnapshotForNotification(db, notification.userId, request))
+      : undefined,
     updatedAt: notification.updatedAt ?? notification.createdAt,
   };
 }
@@ -511,6 +517,15 @@ function normalizeListingStatus(value: string): ListingStatus {
   return "draft";
 }
 
+function normalizeListingApprovalStatus(value: string | undefined, listingStatus: ListingStatus): ListingApprovalStatus | undefined {
+  if (value === "pending" || value === "approved" || value === "rejected" || value === "changes_requested") {
+    return value;
+  }
+  if (listingStatus === "draft") return "pending";
+  if (listingStatus === "active") return "approved";
+  return undefined;
+}
+
 function normalizeSellerAvailabilityStatus(value: string | undefined): SellerAvailabilityStatus {
   if (value === "away" || value === "vacation") return value;
   return "available";
@@ -524,7 +539,7 @@ function normalizeCommissionPaymentStatus(value: string | undefined, dueAt?: str
 }
 
 function isListingCountedAgainstCreateLimit(status: ListingStatus) {
-  return status === "active" || status === "matched" || status === "in_trade";
+  return status === "draft" || status === "active" || status === "matched" || status === "in_trade";
 }
 
 function isListingLocked(status: ListingStatus) {
@@ -533,6 +548,10 @@ function isListingLocked(status: ListingStatus) {
 
 function canListingReceiveRequests(listing: MarketplaceListing) {
   return listing.status === "active" && toNumber(listing.availableAmount) > 0;
+}
+
+function isListingPendingApproval(listing: MarketplaceListing) {
+  return listing.status === "draft" && (listing.approvalStatus ?? "pending") === "pending";
 }
 
 function isSellerUnavailableForNewBuyers(availabilityStatus: SellerAvailabilityStatus) {
@@ -734,6 +753,7 @@ function buildSellerPublicProfile(user: AlphaExchangeUser): SellerPublicProfile 
   return {
     sellerId: user.id,
     sellerName: user.fullName,
+    fullName: user.fullName,
     profilePhotoUrl: user.profilePhotoUrl,
     memberSince: user.createdAt,
     languages: user.languages,
@@ -746,12 +766,115 @@ function buildSellerPublicProfile(user: AlphaExchangeUser): SellerPublicProfile 
     city: user.city,
     coverBannerUrl: user.coverBannerUrl,
     isFoundingSeller: user.isFoundingSeller === true,
+    isFoundingMember: user.isFoundingMember === true,
     isFeaturedSeller: user.isFeaturedSeller === true,
     isProfileHidden: user.isProfileHidden === true,
+    isOwner: isAlphaExchangeOwnerEmail(user.email),
+    role: user.role,
+    roles: user.roles ?? [user.role],
+    sellerStatus: user.sellerStatus,
+    allowDirectMessages: user.allowDirectMessages !== false,
+    contact: {
+      email: user.showEmailPublic === true ? user.email : "",
+      phone: user.showPhonePublic === true ? user.whatsappNumber : "",
+    },
     onlineStatus: user.onlineStatus,
     availabilityStatus: user.availabilityStatus,
     lastActiveAt: user.lastActiveAt,
   };
+}
+
+function buildPublicUserProfileDataForUser(input: {
+  db: AlphaExchangeDb;
+  user: AlphaExchangeUser;
+  viewerUserId?: string;
+  viewerRole?: UserRole;
+  enforceSearchVisibility?: boolean;
+}) {
+  const { db, enforceSearchVisibility = true, user, viewerRole, viewerUserId } = input;
+  const viewerIsPrivileged = viewerRole === "admin" || viewerRole === "owner";
+  const viewerIsOwner = viewerUserId === user.id;
+  const canBypassVisibility = viewerIsOwner || viewerIsPrivileged;
+
+  if (user.isProfileHidden === true && !canBypassVisibility) return null;
+  if (enforceSearchVisibility && user.allowProfileSearch === false && !canBypassVisibility) return null;
+
+  const username = deriveSellerRouteUsername({ fullName: user.fullName, email: user.email, id: user.id });
+  const trustSnapshot = isTrustEligibleSeller(user) ? computeSellerReputationSnapshot(db, user.id) : null;
+  const buyerRequests = db.purchaseRequests.filter((request) => request.buyerId === user.id);
+  const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === user.id);
+  const completedAsBuyer = buyerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length;
+  const completedAsSeller = sellerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length;
+  const reviewsWritten = buyerRequests.filter((request) => Boolean(request.buyerReview)).length;
+  const reviewsReceived = sellerRequests.filter((request) => Boolean(request.buyerReview)).length;
+
+  const showStats = user.showTradeStats !== false || canBypassVisibility;
+  const showLastActive = user.showLastActive !== false || canBypassVisibility;
+  const showPhone = user.showPhonePublic === true || canBypassVisibility;
+  const showEmail = user.showEmailPublic === true || canBypassVisibility;
+
+  return {
+    profile: {
+      id: user.id,
+      username,
+      fullName: user.fullName,
+      role: user.role,
+      roles: user.roles ?? [user.role],
+      sellerStatus: user.sellerStatus,
+      memberSince: user.createdAt,
+      lastActiveAt: showLastActive ? user.lastActiveAt ?? user.updatedAt : null,
+      country: user.country ?? "",
+      city: user.city ?? "",
+      languages: user.languages ?? [],
+      bio: user.bio ?? "",
+      profilePhotoUrl: user.profilePhotoUrl ?? "",
+      coverBannerUrl: user.coverBannerUrl ?? "",
+      isFeaturedSeller: user.isFeaturedSeller === true,
+      isFoundingMember: user.isFoundingMember === true,
+      isFoundingSeller: user.isFoundingSeller === true,
+      allowDirectMessages: user.allowDirectMessages !== false || canBypassVisibility,
+      contact: {
+        email: showEmail ? user.email : "",
+        phone: showPhone ? user.whatsappNumber : "",
+      },
+    },
+    reputation: trustSnapshot
+      ? {
+          level: user.sellerPrestigeRank ?? trustSnapshot.level,
+          trustScore: trustSnapshot.trustScore,
+          publicVolumeRange: trustSnapshot.publicVolumeRange,
+          rating: trustSnapshot.rating,
+          badges: trustSnapshot.badges,
+        }
+      : null,
+    stats: showStats
+      ? {
+          completedAsBuyer,
+          completedAsSeller,
+          reviewsWritten,
+          reviewsReceived,
+          activeListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "active").length,
+          pendingListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && isListingPendingApproval(listing)).length,
+        }
+      : null,
+  };
+}
+
+export async function getPublicUserProfileById(input: {
+  userId: string;
+  viewerUserId?: string;
+  viewerRole?: UserRole;
+}) {
+  const db = await readDb();
+  const user = db.users.find((row) => row.id === input.userId);
+  if (!user) return null;
+  return buildPublicUserProfileDataForUser({
+    db,
+    user,
+    viewerUserId: input.viewerUserId,
+    viewerRole: input.viewerRole,
+    enforceSearchVisibility: true,
+  });
 }
 
 function deriveSellerRouteUsername(input: { fullName?: string; email?: string; id?: string }) {
@@ -943,13 +1066,17 @@ function enrichListingsWithSellerData(db: AlphaExchangeDb, listings: Marketplace
 
 export async function getSellerProfileRouteData(input: {
   username: string;
+  sellerId?: string;
   viewerUserId?: string;
   viewerRole?: UserRole;
   viewerEmail?: string;
 }) {
   const db = await readDb();
   const normalizedUsername = input.username.trim().toLowerCase();
-  const seller = db.users.find((user) => deriveSellerRouteUsername({ fullName: user.fullName, email: user.email, id: user.id }) === normalizedUsername);
+  const normalizedSellerId = String(input.sellerId ?? "").trim();
+  const seller = normalizedSellerId
+    ? db.users.find((user) => user.id === normalizedSellerId)
+    : db.users.find((user) => deriveSellerRouteUsername({ fullName: user.fullName, email: user.email, id: user.id }) === normalizedUsername);
   if (!seller || (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended")) {
     return null;
   }
@@ -991,73 +1118,12 @@ export async function getPublicUserProfileRouteData(input: {
   const normalizedUsername = input.username.trim().toLowerCase();
   const user = db.users.find((row) => deriveSellerRouteUsername({ fullName: row.fullName, email: row.email, id: row.id }) === normalizedUsername);
   if (!user) return null;
-
-  const viewerIsPrivileged = input.viewerRole === "admin" || input.viewerRole === "owner";
-  const viewerIsOwner = input.viewerUserId === user.id;
-  const canBypassVisibility = viewerIsOwner || viewerIsPrivileged;
-
-  if (user.isProfileHidden === true && !canBypassVisibility) return null;
-  if (user.allowProfileSearch === false && !canBypassVisibility) return null;
-
-  const username = deriveSellerRouteUsername({ fullName: user.fullName, email: user.email, id: user.id });
-  const trustSnapshot = isTrustEligibleSeller(user) ? computeSellerReputationSnapshot(db, user.id) : null;
-  const buyerRequests = db.purchaseRequests.filter((request) => request.buyerId === user.id);
-  const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === user.id);
-  const completedAsBuyer = buyerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length;
-  const completedAsSeller = sellerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length;
-  const reviewsWritten = buyerRequests.filter((request) => Boolean(request.buyerReview)).length;
-  const reviewsReceived = sellerRequests.filter((request) => Boolean(request.buyerReview)).length;
-
-  const showStats = user.showTradeStats !== false || canBypassVisibility;
-  const showLastActive = user.showLastActive !== false || canBypassVisibility;
-  const showPhone = user.showPhonePublic === true || canBypassVisibility;
-  const showEmail = user.showEmailPublic === true || canBypassVisibility;
-
-  return {
-    profile: {
-      id: user.id,
-      username,
-      fullName: user.fullName,
-      role: user.role,
-      roles: user.roles ?? [user.role],
-      sellerStatus: user.sellerStatus,
-      memberSince: user.createdAt,
-      lastActiveAt: showLastActive ? user.lastActiveAt ?? user.updatedAt : null,
-      country: user.country ?? "",
-      city: user.city ?? "",
-      languages: user.languages ?? [],
-      bio: user.bio ?? "",
-      profilePhotoUrl: user.profilePhotoUrl ?? "",
-      coverBannerUrl: user.coverBannerUrl ?? "",
-      isFeaturedSeller: user.isFeaturedSeller === true,
-      isFoundingMember: user.isFoundingMember === true,
-      isFoundingSeller: user.isFoundingSeller === true,
-      allowDirectMessages: user.allowDirectMessages !== false || canBypassVisibility,
-      contact: {
-        email: showEmail ? user.email : "",
-        phone: showPhone ? user.whatsappNumber : "",
-      },
-    },
-    reputation: trustSnapshot
-      ? {
-          level: user.sellerPrestigeRank ?? trustSnapshot.level,
-          trustScore: trustSnapshot.trustScore,
-          publicVolumeRange: trustSnapshot.publicVolumeRange,
-          rating: trustSnapshot.rating,
-          badges: trustSnapshot.badges,
-        }
-      : null,
-    stats: showStats
-      ? {
-          completedAsBuyer,
-          completedAsSeller,
-          reviewsWritten,
-          reviewsReceived,
-          activeListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "active").length,
-          pendingListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "draft").length,
-        }
-      : null,
-  };
+  return buildPublicUserProfileDataForUser({
+    db,
+    user,
+    viewerUserId: input.viewerUserId,
+    viewerRole: input.viewerRole,
+  });
 }
 
 export async function getPremiumSellerProfile(input: {
@@ -1071,10 +1137,17 @@ export async function getPremiumSellerProfile(input: {
   const seller = db.users.find((user) => user.id === input.sellerId);
   if (!seller) return null;
   if (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended") return null;
+  const publicAccount = buildPublicUserProfileDataForUser({
+    db,
+    user: seller,
+    viewerUserId: input.viewerUserId,
+    viewerRole: input.viewerRole,
+    enforceSearchVisibility: false,
+  });
+  if (!publicAccount) return null;
   const viewerIsOwner = input.viewerRole === "owner" || (input.viewerRole === "admin" && isAlphaExchangeOwnerEmail(input.viewerEmail ?? ""));
   const viewerIsSellerOwner = input.viewerUserId === seller.id;
   const canSeeExactSellerStats = viewerIsOwner || viewerIsSellerOwner;
-  if (seller.isProfileHidden === true && !viewerIsOwner) return null;
 
   const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === seller.id);
   const completedStatuses = new Set<PurchaseRequestStatus>(["completed", "locked", "review_open"]);
@@ -1150,7 +1223,28 @@ export async function getPremiumSellerProfile(input: {
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
     .slice(0, 12);
 
-  const profile = buildSellerPublicProfile(seller);
+  const profile: SellerPublicProfile = {
+    ...buildSellerPublicProfile(seller),
+    sellerName: publicAccount.profile.fullName,
+    fullName: publicAccount.profile.fullName,
+    username: publicAccount.profile.username,
+    profilePhotoUrl: publicAccount.profile.profilePhotoUrl,
+    memberSince: publicAccount.profile.memberSince,
+    languages: publicAccount.profile.languages,
+    bio: publicAccount.profile.bio,
+    country: publicAccount.profile.country,
+    city: publicAccount.profile.city,
+    coverBannerUrl: publicAccount.profile.coverBannerUrl,
+    isFeaturedSeller: publicAccount.profile.isFeaturedSeller,
+    isFoundingMember: publicAccount.profile.isFoundingMember,
+    isFoundingSeller: publicAccount.profile.isFoundingSeller,
+    role: publicAccount.profile.role,
+    roles: publicAccount.profile.roles,
+    sellerStatus: publicAccount.profile.sellerStatus,
+    allowDirectMessages: publicAccount.profile.allowDirectMessages,
+    contact: publicAccount.profile.contact,
+    lastActiveAt: publicAccount.profile.lastActiveAt ?? undefined,
+  };
   const lifetimeCompletedVolumeUsdt = Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? trustSnapshot.totalUsdtVolume));
   const sellerAchievements = seller.sellerAchievements ?? [];
   const hallOfFameEligible = (seller.sellerPrestigeRank ?? trustSnapshot.level) === "legendary";
@@ -1727,6 +1821,12 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       closedAt: typeof (listing as { closedAt?: string }).closedAt === "string" ? (listing as { closedAt: string }).closedAt : undefined,
       blockingReason: typeof (listing as { blockingReason?: string }).blockingReason === "string" ? (listing as { blockingReason: string }).blockingReason : undefined,
       status: normalizeListingStatus(String((listing as { status?: string }).status ?? "")),
+      approvalStatus: normalizeListingApprovalStatus(
+        typeof (listing as { approvalStatus?: string }).approvalStatus === "string"
+          ? (listing as { approvalStatus: string }).approvalStatus
+          : undefined,
+        normalizeListingStatus(String((listing as { status?: string }).status ?? "")),
+      ),
       network:
         typeof (listing as { network?: string }).network === "string" && isSupportedNetwork((listing as { network: string }).network)
           ? ((listing as { network: SupportedNetwork }).network)
@@ -1816,7 +1916,13 @@ const ADMIN_LISTING_OVERRIDE_TABLES = ["listings", "purchase_requests", "notific
 async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<string, Buffer>; traceTag?: string; selectedTables?: readonly SnapshotTableName[] }) {
   const normalized = normalizeDb(db);
   ensureDisplayNumbers(normalized);
+  const tables = options?.selectedTables ?? ["(all)"];
+  const storeWriteStart = process.env.ALPHA_EXCHANGE_PERF === "1" ? Date.now() : 0;
   const writeTask = dbWriteInFlight.then(async () => {
+    if (process.env.ALPHA_EXCHANGE_PERF === "1") {
+      const waitedMs = Date.now() - storeWriteStart;
+      console.log(`[STORE-PERF] writeDb[${tables.join(",")}] waited_for_prev_write ${waitedMs}ms`);
+    }
     const repository = await getAlphaExchangeRepository();
     await repository.saveSnapshot(normalized, {
       evidenceOverrides: options?.evidenceOverrides,
@@ -1827,6 +1933,9 @@ async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<
   dbWriteInFlight = writeTask.catch(() => undefined);
   try {
     await writeTask;
+    if (process.env.ALPHA_EXCHANGE_PERF === "1") {
+      console.log(`[STORE-PERF] writeDb[${tables.join(",")}] total ${Date.now() - storeWriteStart}ms`);
+    }
     dbCache = { value: normalized, updatedAt: Date.now() };
   } finally {
     dbReadInFlight = null;
@@ -2974,6 +3083,38 @@ export async function selectGuestOnboarding(userId: string) {
   return db.users[index];
 }
 
+export async function activateBuyerOnboardingWithoutPhone(input: {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  displayName?: string;
+}) {
+  const db = await readDb();
+  const index = db.users.findIndex((user) => user.id === input.userId);
+  if (index === -1) throw new Error("User not found.");
+  const user = db.users[index];
+  const firstName = input.firstName.trim();
+  const lastName = input.lastName.trim();
+  if (!firstName || !lastName) {
+    throw new Error("First name and last name are required.");
+  }
+
+  const roles = addRole(removeRole(user.roles ?? [user.role], "guest"), "buyer");
+  db.users[index] = {
+    ...user,
+    roles,
+    role: resolvePrimaryRole(roles),
+    buyerFirstName: firstName,
+    buyerLastName: lastName,
+    buyerDisplayName: input.displayName?.trim() || undefined,
+    onboardingSelection: "buyer",
+    onboardingCompletedAt: nowIso(),
+    updatedAt: nowIso(),
+  };
+  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
+  return db.users[index];
+}
+
 export async function beginBuyerVerification(input: {
   userId: string;
   firstName: string;
@@ -3361,7 +3502,9 @@ export async function getSessionByToken(token: string) {
   const hashed = hashToken(token);
   const repository = await getAlphaExchangeRepository();
   const session = await repository.getAuthSession(hashed);
-  if (!session) return null;
+  if (!session) {
+    return null;
+  }
   if (new Date(session.expiresAt) < new Date()) {
     await repository.deleteAuthSession(hashed);
     const cachedSessions = dbCache?.value.authSessions ?? [];
@@ -3485,9 +3628,10 @@ export async function createSellerApplication(input: {
     pushNotification(db, {
       userId: owner.id,
       category: "application",
-      title: "New seller application",
-      message: `${next.fullName} submitted a seller application.`,
-      relatedHref: "/admin/alpha-exchange",
+      title: "New Approved Seller Application",
+      message: `${next.fullName} has applied to become an Approved Seller.`,
+      actionLabel: "Review Application",
+      relatedHref: `/admin/alpha-exchange?section=seller-applications&sellerApplication=${encodeURIComponent(next.id)}`,
     });
   }
   pushActivityLog(db, {
@@ -3497,12 +3641,12 @@ export async function createSellerApplication(input: {
     details: "Your seller application is pending owner review.",
   });
 
-  await writeDb(db, { selectedTables: AUDIT_LOG_ONLY_TABLES });
+  await writeDb(db, { selectedTables: SELLER_APPLICATION_REVIEW_TABLES });
   return next;
 }
 
-export async function getSellerApplicationByUserId(userId: string) {
-  const db = await readDb();
+export async function getSellerApplicationByUserId(userId: string, dbInput?: AlphaExchangeDb) {
+  const db = dbInput ?? await readDb();
   return db.sellerApplications.find((item) => item.userId === userId) ?? null;
 }
 
@@ -3845,7 +3989,7 @@ export async function getMarketplaceListingsForAdmin(dbInput?: AlphaExchangeDb) 
 
 export async function getPendingMarketplaceListingsForOwner(dbInput?: AlphaExchangeDb) {
   const db = dbInput ?? await readDb();
-  const pending = db.marketplaceListings.filter((listing) => listing.status === "draft");
+  const pending = db.marketplaceListings.filter((listing) => isListingPendingApproval(listing));
   return enrichListingsWithSellerData(db, pending);
 }
 
@@ -3935,7 +4079,8 @@ export async function createMarketplaceListing(input: {
     notes: input.notes?.trim() || "",
     sellerDescription: input.sellerDescription?.trim() || "",
     responseTime: input.responseTime.trim() || "5 min",
-    status: "active",
+    status: "draft",
+    approvalStatus: "pending",
     createdAt: now,
     updatedAt: now,
   };
@@ -3965,18 +4110,18 @@ export async function createMarketplaceListing(input: {
     pushNotification(db, {
       userId: owner.id,
       category: "listing",
-      title: "New listing published",
-      message: `${input.sellerDisplayName} published listing ${listing.id}.`,
+      title: "New Listing Pending Review",
+      message: `${input.sellerDisplayName} submitted listing ${listing.id} for admin approval.`,
       relatedListingId: listing.id,
-      relatedHref: "/admin/alpha-exchange",
+      relatedHref: "/admin/alpha-exchange?tab=listings&status=draft",
     });
   }
   logProfile("pushNotification");
   pushActivityLog(db, {
     userId: input.sellerId,
     category: "listing",
-    title: "Listing published",
-    details: `Listing ${listing.id} is now live.`,
+    title: "Listing submitted for review",
+    details: `Listing ${listing.id} is pending admin approval before going live.`,
   });
   logProfile("pushActivityLog");
   await recalculateTrustEngine(db, { reason: "Listing created", triggeredBy: input.actorUserId });
@@ -4037,6 +4182,12 @@ export async function updateMarketplaceListingForSeller(input: {
   if (input.status && input.status !== "active" && input.status !== "paused") {
     throw new Error("Sellers can only switch listings between active and paused.");
   }
+  if (current.status === "draft" && input.status === "active") {
+    throw new Error("Pending approval listings cannot be activated by sellers.");
+  }
+  const shouldResubmitForApproval = current.status === "draft" && (
+    current.approvalStatus === "rejected" || current.approvalStatus === "changes_requested"
+  );
   const updatedAt = nowIso();
   const normalizedPaymentMethods = input.paymentMethods
     ? resolveListingPaymentMethods(input.paymentMethods, input.paymentMethod).slice(0, MAX_LISTING_PAYMENT_METHODS)
@@ -4083,6 +4234,14 @@ export async function updateMarketplaceListingForSeller(input: {
     sellerDescription: input.sellerDescription?.trim() ?? current.sellerDescription,
     responseTime: input.responseTime?.trim() || current.responseTime,
     status: input.status || current.status,
+    approvalStatus: shouldResubmitForApproval
+      ? "pending"
+      : input.status === "active"
+        ? "approved"
+        : current.approvalStatus,
+    ownerReviewReason: shouldResubmitForApproval ? undefined : current.ownerReviewReason,
+    ownerReviewedAt: shouldResubmitForApproval ? undefined : current.ownerReviewedAt,
+    ownerReviewedBy: shouldResubmitForApproval ? undefined : current.ownerReviewedBy,
     updatedAt,
   };
   next.paymentMethod = next.paymentMethods[0] ?? next.paymentMethod;
@@ -4101,12 +4260,33 @@ export async function updateMarketplaceListingForSeller(input: {
     targetUserId: input.sellerId,
     listingId: next.id,
     details:
-      input.status === "paused"
+      shouldResubmitForApproval
+        ? `Resubmitted listing ${next.id} for admin approval`
+        : input.status === "paused"
         ? `Paused listing ${next.id}`
         : input.status === "active" && current.status === "paused"
           ? `Resumed listing ${next.id}`
           : `Edited listing ${next.id}`,
   });
+  if (shouldResubmitForApproval) {
+    const owner = getOwnerUser(db);
+    if (owner) {
+      pushNotification(db, {
+        userId: owner.id,
+        category: "listing",
+        title: "New Listing Pending Review",
+        message: `${next.sellerDisplayName} resubmitted listing ${next.id} for admin approval.`,
+        relatedListingId: next.id,
+        relatedHref: "/admin/alpha-exchange?tab=listings&status=draft",
+      });
+    }
+    pushActivityLog(db, {
+      userId: next.sellerId,
+      category: "listing",
+      title: "Listing resubmitted for review",
+      details: `Listing ${next.id} was resubmitted and is pending admin approval.`,
+    });
+  }
   await recalculateTrustEngine(db, { reason: "Seller listing updated", triggeredBy: input.actorUserId });
   await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
   if (current.availableAmount !== next.availableAmount) {
@@ -4137,6 +4317,7 @@ export async function renewMarketplaceListing(input: {
     }
   }
   if (isListingLocked(listing.status)) throw new Error("This listing is locked by an active trade and cannot be renewed.");
+  if (listing.status === "draft") throw new Error("Pending approval listings cannot be renewed.");
   if (listing.status === "completed" || listing.status === "cancelled" || listing.status === "closed") {
     throw new Error("This listing can no longer be renewed.");
   }
@@ -4373,13 +4554,15 @@ export async function reviewMarketplaceListingByOwner(input: {
     throw new Error("Reason is required.");
   }
   const now = nowIso();
-  const nextStatus: ListingStatus =
-    input.decision === "approve" ? "active" : input.decision === "reject" ? "cancelled" : "draft";
+  const nextStatus: ListingStatus = input.decision === "approve" ? "active" : "draft";
+  const nextApprovalStatus: ListingApprovalStatus =
+    input.decision === "approve" ? "approved" : input.decision === "reject" ? "rejected" : "changes_requested";
 
   db.marketplaceListings[index] = {
     ...current,
     status: nextStatus,
-    ownerReviewReason: trimmedReason || undefined,
+    approvalStatus: nextApprovalStatus,
+    ownerReviewReason: input.decision === "approve" ? undefined : trimmedReason || undefined,
     ownerReviewedAt: now,
     ownerReviewedBy: input.ownerUserId,
     updatedAt: now,
@@ -4389,30 +4572,29 @@ export async function reviewMarketplaceListingByOwner(input: {
     action:
       input.decision === "approve"
         ? "listing_resumed"
-        : input.decision === "reject"
-          ? "listing_cancelled"
-          : "listing_edited",
+        : "listing_edited",
     actorUserId: input.ownerUserId,
     targetUserId: current.sellerId,
     listingId: current.id,
     details:
       input.decision === "approve"
-        ? `Owner activated listing ${current.id}`
+        ? `Owner approved listing ${current.id}`
         : input.decision === "reject"
-          ? `Owner cancelled listing ${current.id}: ${trimmedReason}`
-          : `Owner returned listing ${current.id} to draft: ${trimmedReason}`,
+          ? `Owner rejected listing ${current.id}: ${trimmedReason}`
+          : `Owner requested changes for listing ${current.id}: ${trimmedReason}`,
+    reason: trimmedReason || undefined,
   });
   pushNotification(db, {
     userId: current.sellerId,
     category: "listing",
     title:
-      input.decision === "approve" ? "Listing activated" : input.decision === "reject" ? "Listing cancelled" : "Listing returned to draft",
+      input.decision === "approve" ? "Listing Approved" : input.decision === "reject" ? "Listing Rejected" : "Listing Needs Changes",
     message:
       input.decision === "approve"
-        ? `Listing ${current.id} is now live.`
+        ? "Your listing has been approved and is now live in the marketplace."
         : input.decision === "reject"
-          ? `Listing ${current.id} was cancelled. ${trimmedReason}`
-          : `Owner requested changes for listing ${current.id}. ${trimmedReason}`,
+          ? `Your listing was rejected.\nReason: ${trimmedReason}`
+          : `Your listing needs updates before approval.\nReason: ${trimmedReason}`,
     relatedListingId: current.id,
     relatedHref: "/usdt-exchange",
   });
@@ -4420,12 +4602,14 @@ export async function reviewMarketplaceListingByOwner(input: {
     userId: current.sellerId,
     category: "listing",
     title:
-      input.decision === "approve" ? "Listing activated" : input.decision === "reject" ? "Listing cancelled" : "Listing returned to draft",
-    details: input.decision === "approve" ? `Listing ${current.id} approved.` : trimmedReason || "Owner decision recorded.",
+      input.decision === "approve" ? "Listing approved" : input.decision === "reject" ? "Listing rejected" : "Listing changes requested",
+    details: input.decision === "approve"
+      ? `Listing ${current.id} approved and now live.`
+      : `Reason: ${trimmedReason}`,
   });
   await recalculateTrustEngine(db, {
     reason:
-      input.decision === "approve" ? "Listing activated" : input.decision === "reject" ? "Listing cancelled" : "Listing returned to draft",
+      input.decision === "approve" ? "Listing approved" : input.decision === "reject" ? "Listing rejected" : "Listing changes requested",
     triggeredBy: input.ownerUserId,
   });
   await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
@@ -4464,8 +4648,8 @@ export async function deleteMarketplaceListingForSeller(input: {
   publishRealtimeEvent({ type: "listing.removed", payload: { listingId: input.listingId } });
 }
 
-export async function getMyMarketplaceListings(sellerId: string, status?: string) {
-  const db = await readDb();
+export async function getMyMarketplaceListings(sellerId: string, status?: string, dbInput?: AlphaExchangeDb) {
+  const db = dbInput ?? await readDb();
   const rawListings =
     !status || status === "all"
       ? db.marketplaceListings.filter((listing) => listing.sellerId === sellerId)
@@ -4473,8 +4657,8 @@ export async function getMyMarketplaceListings(sellerId: string, status?: string
   return enrichListingsWithSellerData(db, rawListings);
 }
 
-export async function getSellerListingWorkspaceSummary(sellerId: string) {
-  const db = await readDb();
+export async function getSellerListingWorkspaceSummary(sellerId: string, dbInput?: AlphaExchangeDb) {
+  const db = dbInput ?? await readDb();
   const blockedReason = getSellerListingBlockReason(db, sellerId);
   return {
     activeListingLimit: MAX_ACTIVE_LISTINGS_PER_SELLER,
@@ -4486,8 +4670,8 @@ export async function getSellerListingWorkspaceSummary(sellerId: string) {
   };
 }
 
-export async function getSellerCommissionStatus(sellerId: string) {
-  const db = await readDb();
+export async function getSellerCommissionStatus(sellerId: string, dbInput?: AlphaExchangeDb) {
+  const db = dbInput ?? await readDb();
   const pendingRecords = db.commissionRecords
     .filter((record) => record.sellerId === sellerId)
     .map((record) => ({
@@ -4527,6 +4711,38 @@ export function getCommissionQaResetStatus() {
   return isQaResetModeEnabled();
 }
 
+export async function getWorkspaceBootstrapData(input: {
+  userId: string;
+  role: UserRole;
+  includeSellerWorkspace: boolean;
+}) {
+  const db = await readDb();
+  const purchaseRequests = await getMyPurchaseRequests(input.userId, input.role, db);
+  const sellerApplication = await getSellerApplicationByUserId(input.userId, db);
+  if (!input.includeSellerWorkspace) {
+    return {
+      purchaseRequests,
+      sellerApplication,
+      myListings: [] as MarketplaceListing[],
+      sellerWorkspaceSummary: null,
+      sellerCommissionStatus: null,
+    };
+  }
+
+  const [myListings, sellerWorkspaceSummary, sellerCommissionStatus] = await Promise.all([
+    getMyMarketplaceListings(input.userId, "all", db),
+    getSellerListingWorkspaceSummary(input.userId, db),
+    getSellerCommissionStatus(input.userId, db),
+  ]);
+  return {
+    purchaseRequests,
+    sellerApplication,
+    myListings,
+    sellerWorkspaceSummary,
+    sellerCommissionStatus,
+  };
+}
+
 export async function createPurchaseRequest(input: {
   buyerId: string;
   listingId: string;
@@ -4555,9 +4771,23 @@ export async function createPurchaseRequest(input: {
       pendingConfirmationTrade.id,
     );
   }
+  const activeBuyerTrade = db.purchaseRequests.find(
+    (r) => r.buyerId === input.buyerId && isActiveTradeStatus(r.status) && !r.buyerConfirmationArchivedAt,
+  );
+  if (activeBuyerTrade) {
+    throw new TradeBlockedError(
+      "ACTIVE_TRADE_EXISTS",
+      "You already have an active trade in progress. Complete or cancel it before starting another purchase.",
+      activeBuyerTrade.id,
+    );
+  }
   const pendingFeedbackTrade = getBuyerPendingFeedbackTrade(db, input.buyerId);
   if (pendingFeedbackTrade) {
-    throw new Error("Please complete your feedback for your previous trade before starting a new one.");
+    throw new TradeBlockedError(
+      "PENDING_BUYER_FEEDBACK",
+      "Please complete your feedback for your previous trade before starting a new one.",
+      pendingFeedbackTrade.id,
+    );
   }
   const listing = db.marketplaceListings.find((item) => item.id === input.listingId);
   if (!listing) throw new Error("Listing not found.");
@@ -4719,8 +4949,8 @@ export async function createPurchaseRequest(input: {
   };
 }
 
-export async function getMyPurchaseRequests(userId: string, role: UserRole) {
-  const db = await readDb();
+export async function getMyPurchaseRequests(userId: string, role: UserRole, dbInput?: AlphaExchangeDb) {
+  const db = dbInput ?? await readDb();
   if (role === "admin" || role === "owner") return db.purchaseRequests.map((request) => enrichRequestWithEvidence(db, request));
   return db.purchaseRequests
     .filter((request) => request.buyerId === userId || request.sellerId === userId)
@@ -4769,8 +4999,13 @@ function filterTradesForUser(db: AlphaExchangeDb, userId: string, role: UserRole
 
 export async function getFirstActiveTradeForUser(userId: string, role: UserRole) {
   const db = await readDb();
+  // Include "pending" only when the user is the buyer waiting for seller acceptance —
+  // sellers and admins must not be locked into the trade room by an unaccepted request.
   const activeTrades = filterTradesForUser(db, userId, role)
-    .filter((request) => isActiveTradeStatus(request.status))
+    .filter((request) =>
+      isActiveTradeStatus(request.status) ||
+      (request.status === "pending" && request.buyerId === userId),
+    )
     .sort(sortTradesByUpdatedAtDesc);
   return activeTrades[0] ? enrichRequestWithEvidence(db, activeTrades[0]) : null;
 }
@@ -5233,7 +5468,7 @@ export async function getAccountProfileData(userId: string): Promise<{
       trustScore: reputation.trustScore,
       completedTrades: sellerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length,
       activeListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "active").length,
-      pendingListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "draft").length,
+      pendingListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && isListingPendingApproval(listing)).length,
       averageRating: reputation.rating,
     };
     return { profile, stats };
@@ -5975,19 +6210,67 @@ export async function updatePurchaseRequestStatus(input: {
       });
     }
     if (listing.sellerId !== input.actorUserId && !isAdmin) {
-      throw new Error("Only the seller can accept this trade.");
+      throw new TradeBlockedError("seller-mismatch", "Only the seller can accept this trade.", request.id, {
+        guard: "seller-ownership",
+        listingId: listing.id,
+        listingSellerId: listing.sellerId,
+        actorUserId: input.actorUserId,
+        nextStatus: input.nextStatus,
+      });
     }
     if (listing.activeTradeRequestId && listing.activeTradeRequestId !== request.id) {
-      throw new Error("This listing already has another buyer in progress.");
+      throw new TradeBlockedError("listing-already-matched", "This listing already has another buyer in progress.", request.id, {
+        guard: "listing-active-trade-slot",
+        listingId: listing.id,
+        listingActiveTradeRequestId: listing.activeTradeRequestId,
+        thisRequestId: request.id,
+        nextStatus: input.nextStatus,
+      });
     }
-    if (listing.status !== "active" && !(listing.activeTradeRequestId === request.id && isListingLocked(listing.status))) {
-      throw new Error("This listing is not open for matching.");
+    // Allow acceptance if: listing is active, OR listing is locked by this request (re-entry after crash),
+    // OR listing is expired/paused but this request was already pending against it (expired after request was submitted).
+    const listingIsOpenForAccept =
+      listing.status === "active" ||
+      (listing.activeTradeRequestId === request.id && isListingLocked(listing.status)) ||
+      (listing.status === "expired" && !listing.activeTradeRequestId);
+    if (!listingIsOpenForAccept) {
+      console.error("[trade-accept-guard] listing-not-open", {
+        requestId: input.requestId,
+        listingId: listing.id,
+        listingStatus: listing.status,
+        listingApprovalStatus: listing.approvalStatus,
+        activeTradeRequestId: listing.activeTradeRequestId,
+        actorUserId: input.actorUserId,
+      });
+      throw new TradeBlockedError("listing-not-open", "This listing is not open for matching.", request.id, {
+        guard: "listing-status-open",
+        listingId: listing.id,
+        listingStatus: listing.status,
+        listingApprovalStatus: listing.approvalStatus,
+        activeTradeRequestId: listing.activeTradeRequestId,
+        nextStatus: input.nextStatus,
+      });
     }
     if (isFaceToFaceTrade && !next.sellerSafetyAcknowledged && input.safetyAcknowledged !== true) {
-      throw new Error("Seller must acknowledge the Face-to-Face safety guidelines before starting this trade.");
+      throw new TradeBlockedError("safety-acknowledgment-required", "Seller must acknowledge the Face-to-Face safety guidelines before starting this trade.", request.id, {
+        guard: "face-to-face-safety",
+        paymentMethod: requestPaymentMethod,
+        nextStatus: input.nextStatus,
+      });
     }
-    if (getSellerPendingCommissionCount(db, request.sellerId) > 0) {
-      throw new Error("You have a pending commission payment. Settle it before accepting new trades.");
+    const pendingCommissionCount = getSellerPendingCommissionCount(db, request.sellerId);
+    if (pendingCommissionCount > 0) {
+      console.error("[trade-accept-guard] commission-locked", {
+        requestId: input.requestId,
+        sellerId: request.sellerId,
+        pendingCommissionCount,
+      });
+      throw new TradeBlockedError("commission-due", "You have a pending commission payment. Settle it before accepting new trades.", request.id, {
+        guard: "seller-commission-clear",
+        sellerId: request.sellerId,
+        pendingCommissionCount,
+        nextStatus: input.nextStatus,
+      });
     }
     next.status = "accepted";
     if (isFaceToFaceTrade) {
@@ -7844,8 +8127,8 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
       newSellers: db.sellerApplications.filter((application) => application.status === "approved" && isToday(application.updatedAt)).length,
       newListings: db.marketplaceListings.filter((listing) => isToday(listing.createdAt)).length,
       listingsApproved: db.marketplaceListings.filter((listing) => listing.status === "active" && isToday(listing.ownerReviewedAt)).length,
-      listingsRejected: db.marketplaceListings.filter((listing) => listing.status === "cancelled" && isToday(listing.ownerReviewedAt)).length,
-      pendingListings: db.marketplaceListings.filter((listing) => listing.status === "draft").length,
+      listingsRejected: db.marketplaceListings.filter((listing) => listing.approvalStatus === "rejected" && isToday(listing.ownerReviewedAt)).length,
+      pendingListings: db.marketplaceListings.filter((listing) => isListingPendingApproval(listing)).length,
       pendingSellerApplications: db.sellerApplications.filter((application) => application.status === "pending").length,
       openDisputes: db.disputes.filter((dispute) => dispute.status === "open").length,
       resolvedDisputes: db.disputes.filter((dispute) => dispute.status === "resolved" && isToday(dispute.updatedAt)).length,
@@ -7884,7 +8167,7 @@ export async function getOwnerBusinessDashboardForAdmin(dbInput?: AlphaExchangeD
       activeSellers: activeSellerSet.size,
       activeBuyers: activeBuyerSet.size,
       listingsSold: db.marketplaceListings.filter((listing) => listing.status === "completed").length,
-      listingsWaitingApproval: db.marketplaceListings.filter((listing) => listing.status === "draft").length,
+      listingsWaitingApproval: db.marketplaceListings.filter((listing) => isListingPendingApproval(listing)).length,
     },
     financialOverview: {
       estimatedCommissionToday: Number(todayCommission.toFixed(2)),
@@ -8239,7 +8522,7 @@ export async function getAlphaExchangeSummaryForAdmin(dbInput?: AlphaExchangeDb)
     usersCount: db.users.length,
     approvedSellersCount: db.users.filter((user) => user.sellerStatus === "approved_seller").length,
     pendingApplicationsCount: db.sellerApplications.filter((item) => item.status === "pending").length,
-    pendingListingsCount: db.marketplaceListings.filter((item) => item.status === "draft").length,
+    pendingListingsCount: db.marketplaceListings.filter((item) => isListingPendingApproval(item)).length,
     rejectedApplicationsCount: db.sellerApplications.filter((item) => item.status === "rejected").length,
     suspendedSellersCount: db.users.filter((user) => user.sellerStatus === "suspended").length,
     listingsCount: db.marketplaceListings.length,

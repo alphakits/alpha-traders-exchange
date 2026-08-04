@@ -1,22 +1,41 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { AUTH_PHONE_VERIFIED_COOKIE_NAME, clearUserSession, expireAuthCookies, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
+import { isMarketplacePhoneVerificationDisabled } from "@/lib/phone-verification";
 import { isPhotoVerificationBypassed, isVerified } from "@/lib/verification-bypass";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
 export async function GET() {
+  const routeStartedAt = Date.now();
+  const timeline: Array<{ name: string; startTime: number; endTime: number; durationMs: number }> = [];
+  const loadUserStartedAt = Date.now();
   const user = await getCurrentSessionUser();
+  const loadUserEndedAt = Date.now();
+  timeline.push({
+    name: "/api/auth/me",
+    startTime: loadUserStartedAt,
+    endTime: loadUserEndedAt,
+    durationMs: Math.max(0, loadUserEndedAt - loadUserStartedAt),
+  });
   if (!user) {
     const token = await getCurrentSessionToken();
     await clearUserSession(token);
     const cookieStore = await cookies();
     expireAuthCookies(cookieStore, process.env.NODE_ENV === "production");
-    return NextResponse.json({ user: null }, { status: 200, headers: AUTH_RESPONSE_HEADERS });
+    const routeMs = Date.now() - routeStartedAt;
+    return NextResponse.json({ user: null }, {
+      status: 200,
+      headers: {
+        ...AUTH_RESPONSE_HEADERS,
+        "X-Auth-Me-Route-Ms": String(routeMs),
+        "X-Auth-Me-Timeline": JSON.stringify(timeline),
+      },
+    });
   }
   const cookieStore = await cookies();
   const verificationBypassed = isPhotoVerificationBypassed(user.email);
-  const verified = process.env.ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION === "1" || isVerified(user);
+  const verified = isMarketplacePhoneVerificationDisabled() || isVerified(user);
   const effectiveVerifiedPhone = verificationBypassed ? user.verifiedPhone || "bypassed" : user.verifiedPhone ?? "";
   const effectivePhoneVerifiedAt = verificationBypassed ? user.phoneVerifiedAt || new Date(0).toISOString() : user.phoneVerifiedAt ?? "";
   if (verified) {
@@ -27,6 +46,7 @@ export async function GET() {
       path: "/",
     });
   }
+  const routeMs = Date.now() - routeStartedAt;
   return NextResponse.json({
     user: {
       id: user.id,
@@ -66,5 +86,12 @@ export async function GET() {
       notificationPreferences: user.notificationPreferences ?? { inApp: true, email: false, sms: false },
       createdAt: user.createdAt,
     },
-  }, { headers: AUTH_RESPONSE_HEADERS });
+  }, {
+    headers: {
+      ...AUTH_RESPONSE_HEADERS,
+      "X-Auth-Me-Route-Ms": String(routeMs),
+      "X-Auth-Me-Timeline": JSON.stringify(timeline),
+      "Server-Timing": `route;dur=${routeMs}, me;dur=${Math.max(0, loadUserEndedAt - loadUserStartedAt)}`,
+    },
+  });
 }

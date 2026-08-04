@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
@@ -9,20 +9,66 @@ import { Input } from "@/components/ui/input";
 export function ResetPasswordForm({ locale }: { locale: "ar" | "en" }) {
   const isAr = locale === "ar";
   const searchParams = useSearchParams();
-  const tokenHash = searchParams.get("token_hash") ?? "";
-  const tokenType = searchParams.get("type") ?? "recovery";
+  const [tokenHash, setTokenHash] = useState(() => searchParams.get("token_hash") ?? searchParams.get("token") ?? "");
+  const [tokenType, setTokenType] = useState(() => searchParams.get("type") ?? "recovery");
+  const [accessToken, setAccessToken] = useState("");
+  const [refreshToken, setRefreshToken] = useState("");
+  const [authCode, setAuthCode] = useState(() => searchParams.get("code") ?? "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const hasToken = useMemo(() => Boolean(tokenHash.trim()), [tokenHash]);
+  const hasToken = useMemo(
+    () => Boolean(tokenHash.trim() || authCode.trim() || (accessToken.trim() && refreshToken.trim())),
+    [accessToken, authCode, refreshToken, tokenHash],
+  );
+
+  useEffect(() => {
+    const codeFromQuery = searchParams.get("code");
+    if (codeFromQuery) setAuthCode(codeFromQuery);
+
+    const rawHash = window.location.hash?.startsWith("#") ? window.location.hash.slice(1) : "";
+    if (!rawHash) return;
+    const hashParams = new URLSearchParams(rawHash);
+    const hashToken = hashParams.get("token_hash") ?? hashParams.get("token");
+    const hashType = hashParams.get("type");
+    const hashAccessToken = hashParams.get("access_token");
+    const hashRefreshToken = hashParams.get("refresh_token");
+
+    if (hashToken) setTokenHash(hashToken);
+    if (hashType) setTokenType(hashType);
+    if (hashAccessToken) setAccessToken(hashAccessToken);
+    if (hashRefreshToken) setRefreshToken(hashRefreshToken);
+  }, [searchParams]);
+
+  function localizeResetError(message?: string) {
+    const normalized = String(message ?? "").toLowerCase();
+    if (normalized.includes("invalid") || normalized.includes("expired")) {
+      return isAr
+        ? "رابط إعادة التعيين غير صالح أو منتهي الصلاحية. اطلب رابطًا جديدًا."
+        : "This reset link is invalid or expired. Request a new password reset link.";
+    }
+    if (normalized.includes("match")) {
+      return isAr ? "كلمتا المرور غير متطابقتين." : "Passwords do not match.";
+    }
+    if (normalized.includes("at least 8")) {
+      return isAr ? "يجب أن تتكون كلمة المرور من 8 أحرف على الأقل." : "Password must be at least 8 characters.";
+    }
+    return isAr ? "تعذر تحديث كلمة المرور." : "Unable to update password.";
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorMessage(null);
-    setStatusMessage(null);
     if (isSubmitting || !hasToken) return;
+    if (password.length < 8) {
+      setErrorMessage(isAr ? "يجب أن تتكون كلمة المرور من 8 أحرف على الأقل." : "Password must be at least 8 characters.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setErrorMessage(isAr ? "كلمتا المرور غير متطابقتين." : "Passwords do not match.");
+      return;
+    }
     setIsSubmitting(true);
     try {
       const response = await fetch("/api/auth/reset/confirm", {
@@ -31,23 +77,22 @@ export function ResetPasswordForm({ locale }: { locale: "ar" | "en" }) {
         body: JSON.stringify({
           tokenHash,
           type: tokenType,
+          accessToken,
+          refreshToken,
+          code: authCode,
           password,
           confirmPassword,
+          locale,
         }),
       });
       const payload = (await response.json()) as { error?: string; message?: string };
       if (!response.ok) {
-        setErrorMessage(payload.error ?? (isAr ? "تعذر تحديث كلمة المرور." : "Unable to update password."));
+        setErrorMessage(localizeResetError(payload.error));
         return;
       }
-      setStatusMessage(
-        payload.message ??
-          (isAr
-            ? "تم تحديث كلمة المرور بنجاح. يمكنك الآن تسجيل الدخول."
-            : "Your password has been updated successfully. You can now sign in."),
-      );
       setPassword("");
       setConfirmPassword("");
+      window.location.replace(`/${locale}/login?reset=success`);
     } catch {
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
     } finally {
@@ -100,13 +145,9 @@ export function ResetPasswordForm({ locale }: { locale: "ar" | "en" }) {
         )}
 
         {errorMessage ? <p className="mt-3 text-sm text-rose-300" role="status" aria-live="polite">{errorMessage}</p> : null}
-        {statusMessage ? <p className="mt-3 text-sm text-emerald-300" role="status" aria-live="polite">{statusMessage}</p> : null}
-
         <p className="mt-5 text-sm text-[#9CA3AF]">
-          <Link href={statusMessage ? "/login" : "/forgot-password"} className="text-[#C9A227] hover:underline">
-            {statusMessage
-              ? (isAr ? "العودة إلى تسجيل الدخول" : "Back to Sign In")
-              : (isAr ? "طلب رابط جديد" : "Request a new reset link")}
+          <Link href="/forgot-password" className="text-[#C9A227] hover:underline">
+            {isAr ? "طلب رابط جديد" : "Request a new reset link"}
           </Link>
         </p>
       </div>

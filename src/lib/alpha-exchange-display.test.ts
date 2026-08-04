@@ -13,7 +13,7 @@ describe("alpha exchange display helpers", () => {
       listings: [{ id: "listing-abc", displayNumber: 23 }],
       requests: [{ id: "request-def", displayNumber: 105, tradeId: "trade-xyz" }],
     });
-    expect(replaceExchangeEntityIds("Listing listing-abc approved.", lookup)).toBe("Listing #23 approved.");
-    expect(replaceExchangeEntityIds("Buyer accepted trade-xyz.", lookup)).toBe("Buyer accepted Trade #105.");
+    expect(replaceExchangeEntityIds("Listing listing-abc approved.", lookup)).toBe("Listing #LS-000023 approved.");
+    expect(replaceExchangeEntityIds("Buyer accepted trade-xyz.", lookup)).toBe("Buyer accepted Trade #TR-000105.");
   });
 });
