@@ -179,9 +179,9 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     if (error instanceof Error && error.message.trim()) {
-      const blocked = error as Error & { code?: string; purchaseRequestId?: string };
+      const blocked = error as Error & { code?: string; purchaseRequestId?: string; details?: Record<string, unknown> };
       const code = blocked.code ?? "PURCHASE_REQUEST_VALIDATION_FAILED";
-      const details: Record<string, unknown> = { errorName: error.name };
+      const details: Record<string, unknown> = { ...(blocked.details ?? {}), errorName: error.name };
       if (blocked.purchaseRequestId) details.purchaseRequestId = blocked.purchaseRequestId;
       return denied(error.message, 400, code, undefined, details);
     }
