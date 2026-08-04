@@ -129,6 +129,15 @@ export interface NotificationPreferences {
   inApp: boolean;
   email: boolean;
   sms: boolean;
+  browserPush?: boolean;
+  browserPushTradeUpdates?: boolean;
+  browserPushChatMessages?: boolean;
+  browserPushListings?: boolean;
+  browserPushFeedback?: boolean;
+  browserPushAdminAlerts?: boolean;
+  browserPushPromptDismissedAt?: string;
+  browserPushPermissionState?: "default" | "granted" | "denied";
+  browserPushSubscriptionHash?: string;
 }
 
 export type NotificationCenterCategory = "trades" | "listings" | "account" | "reviews" | "system" | "announcements";
@@ -430,8 +439,15 @@ export interface TradeChatMessage {
   senderUserId: string;
   senderRole: UserRole;
   message: string;
+  imageUrl?: string;
+  imageName?: string;
+  imageMimeType?: string;
   createdAt: string;
+  sentAt?: string;
+  deliveredAt?: string;
+  seenAt?: string;
   readByUserIds: string[];
+  deletedAt?: string;
 }
 
 export type NotificationCategory = "trade" | "listing" | "account" | "trust" | "application" | "dispute" | "report" | "system" | "review";
@@ -460,6 +476,21 @@ export interface AlphaExchangeNotification {
   tradeSnapshot?: NotificationTradeSnapshot;
   archivedAt?: string;
   updatedAt?: string;
+  createdAt: string;
+}
+
+export interface AlphaExchangeTradeReminder {
+  requestId: string;
+  tradeId: string;
+  displayNumber?: number;
+  title: string;
+  message: string;
+  actionLabel: string;
+  actionHref: string;
+  relatedListingId?: string;
+  relatedListingDisplayNumber?: number;
+  priority: "high" | "critical";
+  kind: "buyer_action_required" | "seller_action_required" | "feedback_required";
   createdAt: string;
 }
 

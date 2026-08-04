@@ -20,7 +20,12 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       markMessagesRead: false,
       strongConsistency: false,
     });
-    return NextResponse.json({ messages: room.messages });
+    return NextResponse.json({
+      messages: room.messages,
+      trade: room.request,
+      listing: room.listing,
+      counterpart: room.counterpart,
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to load messages." },
@@ -49,12 +54,15 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   try {
     const { requestId } = await context.params;
-    const body = (await request.json()) as { message?: string };
+    const body = (await request.json()) as { message?: string; imageUrl?: string; imageName?: string; imageMimeType?: string };
     const posted = await postTradeRoomMessage({
       purchaseRequestId: requestId,
       actorUserId: user.id,
       actorRole: user.role,
       message: String(body.message ?? ""),
+      imageUrl: body.imageUrl,
+      imageName: body.imageName,
+      imageMimeType: body.imageMimeType,
     });
     const routeMs = Date.now() - routeStartedAt;
     const queueMs = Math.max(0, routeMs - posted.metrics.totalMs);

@@ -46,6 +46,11 @@ function notificationIcon(notification: AlphaExchangeNotification) {
   return BellDot;
 }
 
+function isActionRequiredNotification(notification: AlphaExchangeNotification) {
+  const text = `${notification.title} ${notification.message}`.toLowerCase();
+  return text.includes("action required") || text.includes("feedback required") || text.includes("confirm usdt receipt");
+}
+
 function extractTradeRoomHrefFromRelatedHref(relatedHref?: string) {
   const href = relatedHref?.trim();
   if (!href) return null;
@@ -244,6 +249,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   }
 
   const hasUnread = unreadCount > 0;
+  const hasActionRequired = notifications.some(isActionRequiredNotification);
   const wrapperDirection = useMemo(() => (locale === "ar" ? "rtl" : "ltr"), [locale]);
 
   return (
@@ -260,6 +266,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         ) : null}
+        {hasActionRequired ? <span className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-amber-400" /> : null}
       </button>
 
       <div

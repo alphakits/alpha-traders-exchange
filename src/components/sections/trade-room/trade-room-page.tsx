@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { motion } from "framer-motion";
 import { AlertTriangle, CheckCircle2, Clock3, LoaderCircle, MessageCircle, ShieldCheck, WalletCards } from "lucide-react";
+import Image from "next/image";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -571,6 +572,8 @@ export function TradeRoomPage({
   const [stepPulse, setStepPulse] = useState(false);
   const [chatBusy, setChatBusy] = useState(false);
   const [chatDraft, setChatDraft] = useState("");
+  const [chatImage, setChatImage] = useState<File | null>(null);
+  const [chatTypingUserId, setChatTypingUserId] = useState<string | null>(null);
   const [disputeReason, setDisputeReason] = useState("");
   const [showDisputeComposer, setShowDisputeComposer] = useState(false);
   const [disputeBusy, setDisputeBusy] = useState(false);
@@ -598,6 +601,9 @@ export function TradeRoomPage({
   const buyerEvidenceInputRef = useRef<HTMLInputElement | null>(null);
   const sellerEvidenceInputRef = useRef<HTMLInputElement | null>(null);
   const reviewCommentInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const typingTimeoutRef = useRef<number | null>(null);
   const statusBannerRef = useRef<HTMLDivElement | null>(null);
   const evidenceSectionRef = useRef<HTMLDivElement | null>(null);
   const previousStatusRef = useRef<PurchaseRequest["status"] | null>(null);
@@ -1114,7 +1120,7 @@ export function TradeRoomPage({
     event.preventDefault();
     if (!request) return;
     const message = chatDraft.trim();
-    if (!message) return;
+    if (!message && !chatImage) return;
     // Optimistically append the message so it appears instantly for the sender.
     const optimisticMsg: import("@/types/alpha-exchange").TradeChatMessage = {
       id: `optimistic-msg-${Date.now()}`,
@@ -1124,7 +1130,10 @@ export function TradeRoomPage({
       senderRole: actor.role,
       message,
       createdAt: new Date().toISOString(),
+      sentAt: new Date().toISOString(),
       readByUserIds: [actor.id],
+      imageName: chatImage?.name,
+      imageMimeType: chatImage?.type,
     };
     setRoom((prev) => prev ? { ...prev, messages: [optimisticMsg, ...prev.messages] } : prev);
     setChatDraft("");
@@ -1133,7 +1142,12 @@ export function TradeRoomPage({
       const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({
+          message,
+          imageUrl: chatImage ? await encodeFileToDataUrl(chatImage) : undefined,
+          imageName: chatImage?.name,
+          imageMimeType: chatImage?.type,
+        }),
       });
       const payload = (await response.json()) as { error?: string; message?: string };
       if (!response.ok) {
@@ -1142,13 +1156,14 @@ export function TradeRoomPage({
         setChatDraft(message);
         throw new Error(readApiErrorFallback(payload, isAr ? "تعذر إرسال الرسالة." : "Failed to send message."));
       }
+      setChatImage(null);
       // The SSE stream will deliver the authoritative snapshot with the confirmed message.
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : (isAr ? "تعذر إرسال الرسالة." : "Failed to send message."));
     } finally {
       setChatBusy(false);
     }
-  }, [actor.id, actor.role, chatDraft, isAr, request]);
+  }, [actor.id, actor.role, chatDraft, chatImage, isAr, request]);
 
   const handleUploadEvidence = useCallback(async (side: "buyer" | "seller") => {
     if (!request || !room) return;
@@ -1404,6 +1419,30 @@ export function TradeRoomPage({
     void handleSubmitBuyerReview();
   }, [handleSubmitBuyerReview, logReviewDiagnostic]);
 
+  useEffect(() => () => {
+    if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
+  }, []);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [room?.messages.length, chatTypingUserId]);
+
+  const isActorBuyer = request?.buyerId === actor.id;
+  const actorSide: "buyer" | "seller" = isActorBuyer ? "buyer" : "seller";
+  const chatCounterpartName = counterpartName ?? (isActorBuyer ? request?.sellerId ?? "Seller" : request?.buyerId ?? "Buyer");
+
+  const handleChatDraftChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
+    setChatDraft(event.target.value);
+    if (!request) return;
+    const otherPartyId = actorSide === "buyer" ? request.sellerId : request.buyerId;
+    setChatTypingUserId(otherPartyId);
+    if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = window.setTimeout(() => {
+      setChatTypingUserId(null);
+      typingTimeoutRef.current = null;
+    }, 3500);
+  }, [actorSide, request]);
+
   if (isLoading) {
     return (
       <main className="min-h-screen bg-[#050505] px-4 py-6 text-white md:px-6">
@@ -1448,9 +1487,6 @@ export function TradeRoomPage({
       </main>
     );
   }
-
-  const isActorBuyer = request.buyerId === actor.id;
-  const actorSide: "buyer" | "seller" = isActorBuyer ? "buyer" : "seller";
 
   return (
     <main className="min-h-screen bg-[#050505] px-3 py-4 text-white md:px-5 md:py-5 xl:px-6">
@@ -2005,16 +2041,35 @@ export function TradeRoomPage({
                 <CardTitle className="flex items-center gap-2 text-lg"><MessageCircle className="h-4 w-4 text-[#C9A227]" />{isAr ? "الدردشة المباشرة" : "Live Chat"}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="max-h-[380px] space-y-2 overflow-y-auto rounded-xl border border-white/10 bg-black/30 p-3">
+                <div className="mb-3 rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-[#D1D5DB]">
+                  <div className="grid gap-1 md:grid-cols-2 xl:grid-cols-3">
+                    <p><span className="text-[#9CA3AF]">{isAr ? "الحالة" : "Status"}:</span> {tradeStatusLabel(request.status, isAr, isOverdueTrade)}</p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "البائع" : "Seller"}:</span> {request.sellerId === actor.id ? actor.fullName : counterpartName}</p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "المشتري" : "Buyer"}:</span> {request.buyerId === actor.id ? actor.fullName : counterpartName}</p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "المبلغ" : "Amount"}:</span> {toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT</p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "الشبكة" : "Network"}:</span> {request.network}</p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "الإجراء" : "Action"}:</span> {turn?.detail}</p>
+                  </div>
+                </div>
+                <div ref={chatScrollRef} className="max-h-[420px] space-y-3 overflow-y-auto rounded-2xl border border-white/10 bg-black/30 p-3">
                   {room.messages.length ? (
                     room.messages.map((message) => {
                       const ownMessage = message.senderUserId === actor.id;
                       const counterpartyId = ownMessage ? (isSeller ? request.buyerId : request.sellerId) : "";
                       const readByCounterparty = ownMessage && message.readByUserIds.includes(counterpartyId);
+                      const statusIcon = message.deletedAt
+                        ? (isAr ? "تم حذف الرسالة" : "Message deleted")
+                        : message.seenAt
+                          ? "👁"
+                          : message.deliveredAt
+                            ? "✓✓"
+                            : message.sentAt
+                              ? "✓"
+                              : "🕒";
                       return (
                         <div
                           key={message.id}
-                          className={`max-w-[92%] rounded-xl px-3 py-2 text-sm ${
+                          className={`max-w-[92%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
                             message.kind === "system"
                               ? "mx-auto border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 text-[#D1D5DB]"
                               : ownMessage
@@ -2022,23 +2077,46 @@ export function TradeRoomPage({
                                 : "border border-white/10 bg-black/40 text-[#E5E7EB]"
                           }`}
                         >
-                          <p>{message.message}</p>
-                          <p className="mt-1 text-[11px] text-[#9CA3AF]">
-                            {new Date(message.createdAt).toLocaleTimeString("en-IL", { hour: "2-digit", minute: "2-digit" })}
-                            {ownMessage ? ` • ${readByCounterparty ? (isAr ? "تمت القراءة" : "Read") : (isAr ? "تم الإرسال" : "Sent")}` : ""}
-                          </p>
+                          <div className="flex items-start gap-2">
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/30 text-xs font-semibold">
+                              {ownMessage ? actor.fullName.slice(0, 1) : chatCounterpartName.slice(0, 1)}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="whitespace-pre-wrap break-words">{message.message || (isAr ? "صورة مرفقة" : "Image attachment")}</p>
+                              {message.imageUrl ? (
+                                <a href={message.imageUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block overflow-hidden rounded-xl border border-white/10">
+                                  <Image src={message.imageUrl} alt={message.imageName ?? "chat attachment"} width={640} height={480} className="h-auto w-full object-cover" />
+                                </a>
+                              ) : null}
+                              <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-[#9CA3AF]">
+                                <span>{new Date(message.createdAt).toLocaleTimeString("en-IL", { hour: "2-digit", minute: "2-digit" })}</span>
+                                <span>{statusIcon}{ownMessage ? ` • ${readByCounterparty ? (isAr ? "مرئية" : "Seen") : (isAr ? "مرسلة" : "Sent")}` : ""}</span>
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       );
                     })
                   ) : (
                     <p className="text-sm text-[#9CA3AF]">{isAr ? "لا توجد رسائل بعد." : "No messages yet."}</p>
                   )}
+                  {chatTypingUserId ? (
+                    <p className="text-xs text-[#C9A227]">{chatTypingUserId === request.buyerId ? (isAr ? "المشتري يكتب..." : "Buyer is typing...") : (isAr ? "البائع يكتب..." : "Seller is typing...")}</p>
+                  ) : null}
+                  <div ref={chatEndRef} />
                 </div>
-                <form className="space-y-2" onSubmit={handleSendMessage}>
-                  <Textarea value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} placeholder={isAr ? "اكتب رسالة..." : "Type a message..."} />
-                  <Button type="submit" className="w-full" disabled={chatBusy || !chatDraft.trim()}>
-                    {chatBusy ? (isAr ? "جاري الإرسال..." : "Sending...") : (isAr ? "إرسال الرسالة" : "Send Message")}
-                  </Button>
+                <form className="space-y-2 rounded-2xl border border-white/10 bg-black/20 p-3" onSubmit={handleSendMessage}>
+                  <Textarea value={chatDraft} onChange={handleChatDraftChange} placeholder={isAr ? "اكتب رسالة..." : "Type a message..."} className="min-h-[96px] resize-none" />
+                  <Input type="file" accept="image/png,image/jpeg,image/webp" capture="environment" onChange={(event) => setChatImage(event.target.files?.[0] ?? null)} />
+                  {chatImage ? <p className="text-xs text-[#9CA3AF]">{chatImage.name}</p> : null}
+                  <div className="flex items-center gap-2">
+                    <Button type="submit" className="flex-1" disabled={chatBusy || (!chatDraft.trim() && !chatImage)}>
+                      {chatBusy ? (isAr ? "جاري الإرسال..." : "Sending...") : (isAr ? "إرسال الرسالة" : "Send Message")}
+                    </Button>
+                    <Button type="button" variant="secondary" onClick={() => navigator.clipboard.writeText(chatDraft)}>
+                      {isAr ? "نسخ" : "Copy"}
+                    </Button>
+                  </div>
                 </form>
               </CardContent>
             </Card>

@@ -10,9 +10,9 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   const { locale, username } = await params;
   return buildPageMetadata({
     locale: locale as "ar" | "en",
-    title: locale === "ar" ? `الهوية العامة • ${username}` : `Trading Identity • ${username}`,
-    description: locale === "ar" ? "هوية تداول عامة لمستخدم Alpha Traders." : "Public trading identity for an Alpha Traders member.",
-    path: `/u/${username}`,
+    title: locale === "ar" ? `البائع • ${username}` : `Seller • ${username}`,
+    description: locale === "ar" ? "ملف بائع عام في Alpha Traders." : "Public seller profile for Alpha Traders.",
+    path: `/seller/${username}`,
   });
 }
 

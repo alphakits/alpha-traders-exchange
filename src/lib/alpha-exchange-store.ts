@@ -71,6 +71,7 @@ import type {
   TradeEvidenceSide,
   TradeChatMessage,
   TradeTimelineEventType,
+  AlphaExchangeTradeReminder,
   OwnerPrivateBetaDashboardData,
   OnboardingSelection,
   UserRole,
@@ -230,6 +231,15 @@ function normalizeNotificationPreferences(input?: NotificationPreferences): Noti
     inApp: input?.inApp !== false,
     email: input?.email === true,
     sms: input?.sms === true,
+    browserPush: input?.browserPush === true,
+    browserPushTradeUpdates: input?.browserPushTradeUpdates !== false,
+    browserPushChatMessages: input?.browserPushChatMessages !== false,
+    browserPushListings: input?.browserPushListings !== false,
+    browserPushFeedback: input?.browserPushFeedback !== false,
+    browserPushAdminAlerts: input?.browserPushAdminAlerts === true,
+    browserPushPermissionState: input?.browserPushPermissionState ?? "default",
+    browserPushPromptDismissedAt: input?.browserPushPromptDismissedAt,
+    browserPushSubscriptionHash: input?.browserPushSubscriptionHash,
   };
 }
 
@@ -1934,6 +1944,10 @@ function getOwnerUser(db: AlphaExchangeDb) {
 
 function getAdminNotificationRecipients(db: AlphaExchangeDb) {
   return db.users.filter((user) => hasRole(user, "owner") || hasRole(user, "admin"));
+}
+
+function getListingBroadcastRecipients(db: AlphaExchangeDb, creatorUserId: string) {
+  return db.users.filter((user) => user.id !== creatorUserId && user.sellerStatus !== "suspended" && (hasRole(user, "buyer") || hasRole(user, "approved_seller") || hasRole(user, "admin") || hasRole(user, "owner")));
 }
 
 function pushNotification(
@@ -4661,6 +4675,20 @@ export async function createPurchaseRequest(input: {
     relatedListingId: request.listingId,
     relatedHref: requestDetailsHref(request.id),
   });
+  const newListingRecipients = getListingBroadcastRecipients(db, input.actorUserId);
+  if (newListingRecipients.length > 0) {
+    const listingSummary = `${listing.availableAmount} USDT on ${listing.network} at ${listing.price} ${listing.currency}/USDT`;
+    for (const recipient of newListingRecipients) {
+      pushNotification(db, {
+        userId: recipient.id,
+        category: "listing",
+        title: "🟢 New USDT Listing Available",
+        message: `A new seller has listed ${listingSummary}.`,
+        relatedListingId: listing.id,
+        relatedHref: "/usdt-exchange",
+      });
+    }
+  }
   pushActivityLog(db, {
     userId: input.buyerId,
     category: "trade",
@@ -4745,6 +4773,73 @@ export async function getFirstActiveTradeForUser(userId: string, role: UserRole)
     .filter((request) => isActiveTradeStatus(request.status))
     .sort(sortTradesByUpdatedAtDesc);
   return activeTrades[0] ? enrichRequestWithEvidence(db, activeTrades[0]) : null;
+}
+
+export async function getTradeReminderForUser(userId: string, role: UserRole): Promise<AlphaExchangeTradeReminder | null> {
+  const db = await readDb();
+  const trade = await getFirstActiveTradeForUser(userId, role);
+  if (!trade) return null;
+  const isBuyer = trade.buyerId === userId;
+  const isSeller = trade.sellerId === userId;
+  if (!isBuyer && !isSeller) return null;
+
+  const listing = db.marketplaceListings.find((item) => item.id === trade.listingId) ?? null;
+  const tradeRef = trade.displayNumber ? `Trade #${trade.displayNumber}` : `Trade ${trade.tradeId ?? trade.id}`;
+  const listingDisplayNumber = listing?.displayNumber;
+  const actionHref = `/trade-room/${trade.id}`;
+
+  if (trade.status === "review_open") {
+    return {
+      requestId: trade.id,
+      tradeId: trade.tradeId ?? trade.id,
+      displayNumber: trade.displayNumber,
+      title: "Feedback required",
+      message: `${tradeRef} is waiting for your feedback to continue trading.`,
+      actionLabel: "Leave feedback",
+      actionHref,
+      relatedListingId: trade.listingId,
+      relatedListingDisplayNumber: listingDisplayNumber,
+      priority: "high",
+      kind: "feedback_required",
+      createdAt: trade.updatedAt,
+    };
+  }
+
+  if (isBuyer && (trade.status === "accepted" || trade.status === "payment_sent" || trade.status === "funds_received" || trade.status === "usdt_release_pending")) {
+    return {
+      requestId: trade.id,
+      tradeId: trade.tradeId ?? trade.id,
+      displayNumber: trade.displayNumber,
+      title: "Action required",
+      message: `${tradeRef} is waiting for your confirmation.`,
+      actionLabel: "Open trade room",
+      actionHref,
+      relatedListingId: trade.listingId,
+      relatedListingDisplayNumber: listingDisplayNumber,
+      priority: trade.status === "usdt_release_pending" ? "critical" : "high",
+      kind: "buyer_action_required",
+      createdAt: trade.updatedAt,
+    };
+  }
+
+  if (isSeller && (trade.status === "pending" || trade.status === "accepted" || trade.status === "payment_sent" || trade.status === "funds_received" || trade.status === "usdt_release_pending")) {
+    return {
+      requestId: trade.id,
+      tradeId: trade.tradeId ?? trade.id,
+      displayNumber: trade.displayNumber,
+      title: "Action required",
+      message: `${tradeRef} is waiting for your next step.`,
+      actionLabel: "Open trade room",
+      actionHref,
+      relatedListingId: trade.listingId,
+      relatedListingDisplayNumber: listingDisplayNumber,
+      priority: trade.status === "usdt_release_pending" ? "critical" : "high",
+      kind: "seller_action_required",
+      createdAt: trade.updatedAt,
+    };
+  }
+
+  return null;
 }
 
 export async function getFirstActionableTradeForUser(userId: string, role: UserRole) {
@@ -4890,11 +4985,14 @@ export async function getTradeRoomData(input: {
   const messages = [...allMessages].sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
 
   let changed = false;
+  const seenAt = nowIso();
   if (input.markMessagesRead !== false) {
     for (const message of messages) {
       if (message.senderUserId === input.actorUserId) continue;
       if (message.readByUserIds.includes(input.actorUserId)) continue;
       message.readByUserIds.push(input.actorUserId);
+      message.seenAt = seenAt;
+      if (!message.deliveredAt) message.deliveredAt = seenAt;
       changed = true;
     }
     if (changed) {
@@ -4951,6 +5049,9 @@ export async function postTradeRoomMessage(input: {
   actorUserId: string;
   actorRole: UserRole;
   message: string;
+  imageUrl?: string;
+  imageName?: string;
+  imageMimeType?: string;
 }) {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
@@ -4977,7 +5078,11 @@ export async function postTradeRoomMessage(input: {
     senderRole,
     message,
     createdAt: nowIso(),
+    sentAt: nowIso(),
     readByUserIds: [input.actorUserId],
+    imageUrl: input.imageUrl?.trim() || undefined,
+    imageName: input.imageName?.trim() || undefined,
+    imageMimeType: input.imageMimeType?.trim() || undefined,
   };
   // Store messages in request.messages (persisted inside purchase_requests.payload JSON).
   // Also keep db.tradeMessages in sync for backward compatibility.
@@ -4995,6 +5100,17 @@ export async function postTradeRoomMessage(input: {
       requestId: request.id,
       messageId: nextMessage.id,
     },
+  });
+  const otherParticipantId = request.buyerId === input.actorUserId ? request.sellerId : request.buyerId;
+  pushNotification(db, {
+    userId: otherParticipantId,
+    category: "trade",
+    title: "New trade message",
+    message: input.message.trim() ? input.message.trim().slice(0, 120) : "You received a new image in the trade room.",
+    relatedRequestId: request.id,
+    relatedTradeId: request.tradeId,
+    relatedListingId: request.listingId,
+    relatedHref: requestDetailsHref(request.id),
   });
   const sseMs = Date.now() - sseStartedAt;
   return {

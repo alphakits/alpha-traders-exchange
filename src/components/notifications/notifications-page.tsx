@@ -50,6 +50,11 @@ function isReview(notification: AlphaExchangeNotification) {
   return notification.category === "review" || `${notification.title} ${notification.message}`.toLowerCase().includes("review");
 }
 
+function isActionRequired(notification: AlphaExchangeNotification) {
+  const text = `${notification.title} ${notification.message}`.toLowerCase();
+  return text.includes("action required") || text.includes("feedback required") || text.includes("confirm usdt receipt");
+}
+
 function matchesFilter(notification: AlphaExchangeNotification, filter: NotificationFilter) {
   if (filter === "history") return notification.state === "archived";
   if (filter === "all") return true;
@@ -147,6 +152,11 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
       return haystack.includes(normalizedSearch);
     });
   }, [filter, notifications, search]);
+
+  const highlightedReminder = useMemo(
+    () => notifications.find((notification) => isActionRequired(notification) && !notification.isRead) ?? notifications.find(isActionRequired) ?? null,
+    [notifications],
+  );
 
   const totalPages = Math.max(1, Math.ceil(filteredNotifications.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -256,6 +266,12 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
             ) : null}
           </CardTitle>
           <CardDescription>Complete notification history for your account.</CardDescription>
+          {highlightedReminder ? (
+            <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+              <p className="font-semibold">{highlightedReminder.title}</p>
+              <p className="mt-1">{highlightedReminder.message}</p>
+            </div>
+          ) : null}
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-2 md:grid-cols-[1fr_auto]">
