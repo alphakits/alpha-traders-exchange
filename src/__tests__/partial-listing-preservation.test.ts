@@ -13,6 +13,7 @@ import {
   getMyMarketplaceListings,
   getMyPurchaseRequests,
   invalidateAlphaExchangeStoreCache,
+  reviewMarketplaceListingByOwner,
   TradeBlockedError,
   updateCommissionPaymentStatus,
   updateMarketplaceListingForSeller,
@@ -80,6 +81,7 @@ function seedDb(): AlphaExchangeDb & { __runtimeVersion: number } {
       createUser(BUYER_ONE_ID, "buyer-one@example.com", "buyer"),
       createUser(BUYER_TWO_ID, "buyer-two@example.com", "buyer"),
       createUser(BUYER_THREE_ID, "buyer-three@example.com", "buyer"),
+      createUser(OWNER_ID, "owner@example.com", "owner"),
     ] as AlphaExchangeDb["users"],
     sellerApplications: [],
     marketplaceListings: [],
@@ -102,6 +104,14 @@ function seedDb(): AlphaExchangeDb & { __runtimeVersion: number } {
     sellerReviews: [],
     __runtimeVersion: 0,
   };
+}
+
+async function approveListing(listingId: string) {
+  await reviewMarketplaceListingByOwner({
+    listingId,
+    ownerUserId: OWNER_ID,
+    decision: "approve",
+  });
 }
 
 async function completeTrade(input: {
@@ -269,6 +279,7 @@ describe("partial listing preservation", () => {
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
     });
+    await approveListing(listing.id);
 
     const created = await createPurchaseRequest({
       buyerId: BUYER_ONE_ID,
@@ -395,6 +406,7 @@ describe("partial listing preservation", () => {
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
     });
+    await approveListing(listing.id);
 
     const created = await createPurchaseRequest({
       buyerId: BUYER_ONE_ID,
@@ -429,6 +441,7 @@ describe("partial listing preservation", () => {
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
     });
+    await approveListing(listing.id);
 
     const beforeSeller = await getAccountProfileData(SELLER_ID);
     const beforeBuyer = await getAccountProfileData(BUYER_ONE_ID);
@@ -473,6 +486,7 @@ describe("partial listing preservation", () => {
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
     });
+    await approveListing(listing.id);
 
     await completeTrade({
       listingId: listing.id,
@@ -543,6 +557,7 @@ describe("partial listing preservation", () => {
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
     });
+    await approveListing(listing.id);
 
     const firstRequestId = await completeTrade({
       listingId: listing.id,
@@ -620,6 +635,7 @@ describe("partial listing preservation", () => {
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
     });
+    await approveListing(listing.id);
 
     const created = await createPurchaseRequest({
       buyerId: BUYER_ONE_ID,
@@ -709,6 +725,8 @@ describe("partial listing preservation", () => {
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
     });
+    await approveListing(lockedListing.id);
+    await approveListing(freshListing.id);
 
     const created = await createPurchaseRequest({
       buyerId: BUYER_ONE_ID,
@@ -772,6 +790,7 @@ describe("partial listing preservation", () => {
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
     });
+    await approveListing(listing.id);
 
     const sellerDeclined = await createPurchaseRequest({
       buyerId: BUYER_TWO_ID,
@@ -848,6 +867,8 @@ describe("partial listing preservation", () => {
       acceptedCommissionPolicy: true,
       actorUserId: SELLER_ID,
     });
+    await approveListing(primaryListing.id);
+    await approveListing(secondaryListing.id);
 
     const first = await createPurchaseRequest({
       buyerId: BUYER_ONE_ID,

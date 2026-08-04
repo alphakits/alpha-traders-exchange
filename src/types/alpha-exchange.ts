@@ -170,6 +170,7 @@ export interface SellerApplication {
 }
 
 export type ListingStatus = "draft" | "active" | "paused" | "matched" | "in_trade" | "expired" | "completed" | "cancelled" | "closed";
+export type ListingApprovalStatus = "pending" | "approved" | "rejected" | "changes_requested";
 
 export interface SellerPublicProfile {
   sellerId: string;
@@ -346,6 +347,7 @@ export interface MarketplaceListing {
   sellerDescription: string;
   responseTime: string;
   status: ListingStatus;
+  approvalStatus?: ListingApprovalStatus;
   activeTradeRequestId?: string;
   lockedAt?: string;
   ownerReviewReason?: string;
