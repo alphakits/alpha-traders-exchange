@@ -10,6 +10,7 @@ import {
   createPurchaseRequest,
   getAccountProfileData,
   getCommissionRecordsForAdmin,
+  getFirstActiveTradeForUser,
   getMyMarketplaceListings,
   getMyPurchaseRequests,
   invalidateAlphaExchangeStoreCache,
@@ -903,5 +904,43 @@ describe("partial listing preservation", () => {
       expect(blocked.code).toBe("ACTIVE_TRADE_EXISTS");
       expect(blocked.purchaseRequestId).toBe(first.request.id);
     }
+  });
+
+  it("redirects buyer but not seller for a pending (pre-acceptance) trade", async () => {
+    const listing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "500",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "500",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+    await approveListing(listing.id);
+
+    await createPurchaseRequest({
+      buyerId: BUYER_ONE_ID,
+      listingId: listing.id,
+      usdtAmount: "100",
+      buyerName: "Buyer One",
+      buyerWhatsapp: "+972500000001",
+      buyerNotes: "Pending trade test",
+      actorUserId: BUYER_ONE_ID,
+    });
+
+    // Buyer should be redirected into trade room (pending = buyer is waiting)
+    const buyerTrade = await getFirstActiveTradeForUser(BUYER_ONE_ID, "buyer");
+    expect(buyerTrade).not.toBeNull();
+    expect(buyerTrade?.status).toBe("pending");
+
+    // Seller should NOT be redirected — pending request is unaccepted, seller can still browse
+    const sellerTrade = await getFirstActiveTradeForUser(SELLER_ID, "approved_seller");
+    expect(sellerTrade).toBeNull();
   });
 });
