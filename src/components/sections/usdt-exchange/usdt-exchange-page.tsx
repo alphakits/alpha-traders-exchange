@@ -1678,13 +1678,16 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             || /phone verification is required/i.test(errorMessage)
           );
         setShowVerificationCta(requiresVerification);
-        if (errorCode === "AWAITING_BUYER_CONFIRMATION") {
-          const blockingId = typeof errorDetails.purchaseRequestId === "string" ? errorDetails.purchaseRequestId : null;
-          if (blockingId) {
-            setMyRequests((prev) =>
-              prev.map((r) => r.id === blockingId ? { ...r, buyerConfirmationArchivedAt: new Date().toISOString() } : r),
-            );
-          }
+        const blockingId = typeof errorDetails.purchaseRequestId === "string" ? errorDetails.purchaseRequestId : null;
+        if (errorCode === "AWAITING_BUYER_CONFIRMATION" && blockingId) {
+          setMyRequests((prev) =>
+            prev.map((r) => r.id === blockingId ? { ...r, buyerConfirmationArchivedAt: new Date().toISOString() } : r),
+          );
+        }
+        if (errorCode === "PENDING_BUYER_FEEDBACK" && blockingId) {
+          closeListingModal();
+          router.push(`/trade-room/${blockingId}`);
+          return;
         }
         setStatusMessage(errorMessage);
         return;

@@ -586,7 +586,6 @@ export function TradeRoomPage({
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
   const [reviewCommentError, setReviewCommentError] = useState<string | null>(null);
-  const [reviewDeferred, setReviewDeferred] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [buyerCompletionSuccessActive, setBuyerCompletionSuccessActive] = useState(false);
   const [buyerRedirectPending, setBuyerRedirectPending] = useState(false);
@@ -1399,7 +1398,6 @@ export function TradeRoomPage({
       }
       logReviewDiagnostic("success-handler-executed", { status: response.status });
       setReviewComment("");
-      setReviewDeferred(false);
       if (payload.sellerProgress?.promoted) {
         const previous = payload.sellerProgress.previousRank ?? "previous";
         const current = payload.sellerProgress.newRank ?? "current";
