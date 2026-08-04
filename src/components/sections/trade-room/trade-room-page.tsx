@@ -688,7 +688,7 @@ export function TradeRoomPage({
       reviewFormVisibleRef.current = false;
       return;
     }
-    const reviewFormVisible = actor.role === "buyer" && !currentRequest.buyerReview && !reviewDeferred && COMPLETED_TRADE_STATUSES.has(currentRequest.status);
+    const reviewFormVisible = actor.role === "buyer" && !currentRequest.buyerReview && COMPLETED_TRADE_STATUSES.has(currentRequest.status);
     if (reviewFormVisible && !reviewFormVisibleRef.current) {
       logReviewDiagnostic("review-form-rendered", { status: currentRequest.status });
       reviewFormVisibleRef.current = true;
@@ -1066,7 +1066,7 @@ export function TradeRoomPage({
         setCompletedActionLabel(null);
         completedActionTimeoutRef.current = null;
       }, 2000);
-      const pendingBuyerReview = request.buyerId === actor.id && !request.buyerReview && !reviewDeferred;
+      const pendingBuyerReview = request.buyerId === actor.id && !request.buyerReview;
       if (nextStatus === "completed" && request.buyerId === actor.id && !pendingBuyerReview) {
         startBuyerCompletionSuccessFlow(request.id);
       }
@@ -1086,7 +1086,7 @@ export function TradeRoomPage({
           setCompletedActionLabel(null);
           completedActionTimeoutRef.current = null;
         }, 2000);
-        const pendingBuyerReview = request.buyerId === actor.id && !request.buyerReview && !reviewDeferred;
+        const pendingBuyerReview = request.buyerId === actor.id && !request.buyerReview;
         if (nextStatus === "completed" && request.buyerId === actor.id && !pendingBuyerReview) {
           startBuyerCompletionSuccessFlow(request.id);
         }
@@ -1109,7 +1109,7 @@ export function TradeRoomPage({
       actionInFlightRef.current = null;
       setActionBusy(false);
     }
-  }, [actor.id, fetchRoom, isAr, request, requestId, reviewDeferred, room, startBuyerCompletionSuccessFlow, streamConnected]);
+  }, [actor.id, fetchRoom, isAr, request, requestId, room, startBuyerCompletionSuccessFlow, streamConnected]);
 
   const handleSendMessage = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1652,7 +1652,7 @@ export function TradeRoomPage({
                   <p className="text-xs">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
                 </div>
               ) : null}
-              {isActorBuyer && !request.buyerReview && !reviewDeferred ? (
+              {isActorBuyer && !request.buyerReview ? (
                 <div className="rounded-xl border border-emerald-400/30 bg-black/20 p-3">
                   <p className="mb-2 font-medium text-white">{isAr ? "مطلوب قبل الصفقة التالية: قيّم البائع" : "Required before your next trade: Rate Seller & Leave Feedback"}</p>
                   {!showSuccessScreen || actionBusy || Boolean(actionInFlightRef.current) ? (
@@ -1718,22 +1718,7 @@ export function TradeRoomPage({
                     </Button>
                   </form>
                   ) : null}
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="mt-2 ms-2"
-                    disabled={reviewBusy || actionBusy || Boolean(actionInFlightRef.current)}
-                    onClick={() => {
-                      setReviewDeferred(true);
-                      setStatusMessage(
-                        isAr
-                          ? "يمكنك المتابعة الآن، لكن يجب إكمال تقييم الصفقة السابقة قبل بدء صفقة جديدة."
-                          : "You can continue now, but you must complete this feedback before starting a new trade.",
-                      );
-                    }}
-                  >
-                    {isAr ? "ذكرني لاحقًا" : "Remind Me Later"}
-                  </Button>
+
                 </div>
               ) : null}
               {!showSuccessScreen && isBuyerCompletionSyncInFlight ? (
