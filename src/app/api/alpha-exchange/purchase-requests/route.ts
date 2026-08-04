@@ -183,7 +183,7 @@ export async function POST(request: NextRequest) {
       const code = blocked.code ?? "PURCHASE_REQUEST_VALIDATION_FAILED";
       const details: Record<string, unknown> = { ...(blocked.details ?? {}), errorName: error.name };
       if (blocked.purchaseRequestId) details.purchaseRequestId = blocked.purchaseRequestId;
-      return denied(error.message, 400, code, undefined, details);
+      return denied(error.message, 400, code, undefined, undefined, details);
     }
     return failed("Failed to submit purchase request.");
   }
