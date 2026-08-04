@@ -745,7 +745,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [showVerificationCta, setShowVerificationCta] = useState(false);
   const [isRedirectingToVerification, setIsRedirectingToVerification] = useState(false);
-  const [quickBuyListingId, setQuickBuyListingId] = useState<string | null>(null);
   const [sellerWorkspaceMessage, setSellerWorkspaceMessage] = useState<string | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [editingListingId, setEditingListingId] = useState<string | null>(null);
@@ -1585,86 +1584,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     router.push("/dashboard/seller");
     setStatusMessage(`Manage your listing in Seller Dashboard (${shortListingRef(listing)}).`);
   }, [requireAuth, router]);
-
-  const handleQuickBuyFromListing = useCallback(async (listing: MarketplaceListing) => {
-    if (!requireAuth()) return;
-    if (quickBuyListingId) return;
-
-    const fallbackMessage = safeErrorMessage("purchase");
-    const supportedMethods = normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod);
-    const selectedMethod = supportedMethods[0] ?? normalizeMarketplacePaymentMethod(listing.paymentMethod) ?? "Bank Transfer";
-    const minTrade = Math.max(0, toNumber(listing.minimumTrade));
-    const maxTrade = toNumber(listing.maximumTrade || listing.availableAmount);
-    let quickTradeAmount = minTrade > 0 ? minTrade : 1;
-    if (maxTrade > 0) quickTradeAmount = Math.min(quickTradeAmount, maxTrade);
-    if (quickTradeAmount <= 0) {
-      setStatusMessage("This listing is currently unavailable for quick trade start.");
-      return;
-    }
-
-    const buyerName = String(buyerInfo.name ?? "").trim() || String(sessionUser?.fullName ?? "").trim();
-    const buyerWhatsapp = String(buyerInfo.whatsapp ?? "").trim() || String(sessionUser?.whatsappNumber ?? "").trim();
-    if (!buyerName || !buyerWhatsapp) {
-      setStatusMessage("Please complete your buyer profile details before starting a trade.");
-      openListingModal(listing);
-      return;
-    }
-
-    setQuickBuyListingId(listing.id);
-    setStatusMessage(null);
-    setShowVerificationCta(false);
-    setIsRedirectingToVerification(false);
-    try {
-      const response = await fetch("/api/alpha-exchange/purchase-requests", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          listingId: listing.id,
-          usdtAmount: String(quickTradeAmount),
-          buyerName,
-          buyerWhatsapp,
-          buyerNotes: "Quick trade started from marketplace listing.",
-          paymentMethod: selectedMethod,
-          safetyAcknowledged: false,
-        }),
-      });
-
-      if (!response.ok) {
-        let errorMessage = fallbackMessage;
-        let errorCode = "";
-        try {
-          const payload = (await response.json()) as { error?: unknown; message?: unknown; code?: unknown; details?: unknown };
-          if (typeof payload.error === "string" && payload.error.trim()) errorMessage = payload.error;
-          else if (typeof payload.message === "string" && payload.message.trim()) errorMessage = payload.message;
-          else if (typeof payload.details === "string" && payload.details.trim()) errorMessage = payload.details;
-          if (typeof payload.code === "string" && payload.code.trim()) errorCode = payload.code;
-        } catch {
-          const fallbackText = (await response.text()).trim();
-          if (fallbackText && !/^<!doctype html>/i.test(fallbackText)) errorMessage = fallbackText;
-        }
-        const requiresVerification = response.status === 403
-          && sessionUser?.isPhotoVerified !== true
-          && (errorCode === "PHONE_VERIFICATION_REQUIRED" || /phone verification is required/i.test(errorMessage));
-        setShowVerificationCta(requiresVerification);
-        setStatusMessage(errorMessage);
-        return;
-      }
-
-      const data = (await response.json()) as { purchase?: PurchaseRequest };
-      if (!data.purchase?.id) {
-        setStatusMessage("Trade was created, but we could not open the trade room automatically.");
-        return;
-      }
-      setMyRequests((prev) => [data.purchase as PurchaseRequest, ...prev]);
-      prefetchTradeRoom(router, data.purchase.id);
-      router.push(`/trade-room/${data.purchase.id}`);
-    } catch (error) {
-      const message = error instanceof Error && error.message.trim() ? error.message : fallbackMessage;
-      setStatusMessage(message);
-    } finally {
-      setQuickBuyListingId(null);
-    }
-  }, [buyerInfo.name, buyerInfo.whatsapp, openListingModal, quickBuyListingId, requireAuth, router, sessionUser?.fullName, sessionUser?.isPhotoVerified, sessionUser?.whatsappNumber]);
 
   async function handleSellerApplicationSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -3096,8 +3015,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   marketPricePerUsdt={marketPricePerUsdt}
                   isOwnerListing={listing.sellerProfile?.isOwner === true}
                   isOwnListing={sessionUser?.id === listing.sellerId}
-                  isBuying={quickBuyListingId === listing.id}
-                  onOpen={handleQuickBuyFromListing}
+                  isBuying={false}
+                  onOpen={openListingModal}
                   onManageListing={handleManageOwnedListing}
                 />
               ))}
