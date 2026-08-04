@@ -4769,7 +4769,11 @@ export async function createPurchaseRequest(input: {
   }
   const pendingFeedbackTrade = getBuyerPendingFeedbackTrade(db, input.buyerId);
   if (pendingFeedbackTrade) {
-    throw new Error("Please complete your feedback for your previous trade before starting a new one.");
+    throw new TradeBlockedError(
+      "PENDING_BUYER_FEEDBACK",
+      "Please complete your feedback for your previous trade before starting a new one.",
+      pendingFeedbackTrade.id,
+    );
   }
   const listing = db.marketplaceListings.find((item) => item.id === input.listingId);
   if (!listing) throw new Error("Listing not found.");
