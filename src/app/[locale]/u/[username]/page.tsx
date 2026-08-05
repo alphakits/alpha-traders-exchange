@@ -37,14 +37,14 @@ export default async function PublicUserProfilePage({
       <div className="surface-panel mx-auto w-full max-w-5xl overflow-hidden p-0">
         <div className="relative h-44 border-b border-white/10 bg-gradient-to-r from-black via-[#1B1403] to-black">
           {data.profile.coverBannerUrl ? (
-            <Image src={data.profile.coverBannerUrl} alt={data.profile.fullName} fill unoptimized className="object-cover opacity-90" />
+            <Image src={data.profile.coverBannerUrl} alt={data.profile.fullName} fill sizes="(max-width: 768px) 100vw, 1024px" className="object-cover opacity-90" priority />
           ) : null}
         </div>
         <div className="p-6 md:p-8">
           <div className="-mt-16 mb-5 flex flex-wrap items-end gap-4">
             <div className="h-24 w-24 overflow-hidden rounded-2xl border border-[#C9A227]/35 bg-black/60 shadow-[0_12px_32px_rgba(0,0,0,0.35)]">
               {data.profile.profilePhotoUrl ? (
-                <Image src={data.profile.profilePhotoUrl} alt={data.profile.fullName} width={96} height={96} unoptimized className="h-full w-full object-cover" />
+                <Image src={data.profile.profilePhotoUrl} alt={data.profile.fullName} width={96} height={96} sizes="96px" className="h-full w-full object-cover" />
               ) : (
                 <div className="flex h-full w-full items-center justify-center text-2xl font-semibold text-[#F4D87A]">{initials}</div>
               )}

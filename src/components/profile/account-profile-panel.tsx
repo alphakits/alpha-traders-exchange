@@ -63,6 +63,37 @@ type AccountProfilePayload = {
   accountStatuses: string[];
 };
 
+type OnboardingRoleResponse = {
+  user?: {
+    role?: string;
+    roles?: string[];
+    onboardingSelection?: "guest" | "student" | "buyer" | "seller_applicant";
+    onboardingCompletedAt?: string;
+  };
+  error?: string;
+};
+
+function deriveRoleBadgeFromRoles(roles: string[]): RoleBadgeVariant {
+  if (roles.includes("owner")) return "owner";
+  if (roles.includes("admin")) return "administrator";
+  if (roles.includes("approved_seller")) return "approved_seller";
+  if (roles.includes("pending_seller_approval")) return "pending_seller";
+  if (roles.includes("buyer")) return "buyer";
+  if (roles.includes("student")) return "student";
+  if (roles.includes("guest")) return "guest";
+  return "guest";
+}
+
+function roleLabelFromBadge(variant: RoleBadgeVariant): AccountProfilePayload["roleLabel"] {
+  if (variant === "owner") return "Owner";
+  if (variant === "administrator") return "Administrator";
+  if (variant === "pending_seller") return "Pending Seller";
+  if (variant === "approved_seller") return "Approved Seller";
+  if (variant === "student") return "Student";
+  if (variant === "guest") return "Guest";
+  return "Buyer";
+}
+
 export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
   const isAr = locale === "ar";
   const [payload, setPayload] = useState<AccountProfilePayload | null>(null);
@@ -210,15 +241,28 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
     setRoleActionLoading("student");
     try {
       const response = await fetch("/api/auth/onboarding/student", { method: "POST" });
-      const data = (await response.json()) as { error?: string };
+      const data = (await response.json()) as OnboardingRoleResponse;
       if (!response.ok) {
         setMessage(data.error ?? (isAr ? "تعذر تفعيل دور الطالب." : "Failed to activate student role."));
         return;
       }
-      const refreshed = await fetch("/api/auth/profile", { cache: "no-store" });
-      if (refreshed.ok) {
-        setPayload((await refreshed.json()) as AccountProfilePayload);
-      }
+      setPayload((prev) => {
+        if (!prev) return prev;
+        const roles = data.user?.roles ?? (data.user?.role ? [data.user.role] : prev.profile.roles ?? [prev.profile.role]);
+        const nextBadge = deriveRoleBadgeFromRoles(roles);
+        return {
+          ...prev,
+          profile: {
+            ...prev.profile,
+            roles,
+            role: data.user?.role ?? prev.profile.role,
+            onboardingSelection: data.user?.onboardingSelection ?? prev.profile.onboardingSelection,
+            onboardingCompletedAt: data.user?.onboardingCompletedAt ?? prev.profile.onboardingCompletedAt,
+          },
+          roleBadge: nextBadge,
+          roleLabel: roleLabelFromBadge(nextBadge),
+        };
+      });
       setMessage(isAr ? "تم تفعيل دور الطالب." : "Student role activated.");
     } finally {
       setRoleActionLoading(null);
@@ -230,15 +274,28 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
     setRoleActionLoading("guest");
     try {
       const response = await fetch("/api/auth/onboarding/guest", { method: "POST" });
-      const data = (await response.json()) as { error?: string };
+      const data = (await response.json()) as OnboardingRoleResponse;
       if (!response.ok) {
         setMessage(data.error ?? (isAr ? "تعذر تحديث تفضيل الدور." : "Failed to update role preference."));
         return;
       }
-      const refreshed = await fetch("/api/auth/profile", { cache: "no-store" });
-      if (refreshed.ok) {
-        setPayload((await refreshed.json()) as AccountProfilePayload);
-      }
+      setPayload((prev) => {
+        if (!prev) return prev;
+        const roles = data.user?.roles ?? (data.user?.role ? [data.user.role] : prev.profile.roles ?? [prev.profile.role]);
+        const nextBadge = deriveRoleBadgeFromRoles(roles);
+        return {
+          ...prev,
+          profile: {
+            ...prev.profile,
+            roles,
+            role: data.user?.role ?? prev.profile.role,
+            onboardingSelection: data.user?.onboardingSelection ?? prev.profile.onboardingSelection,
+            onboardingCompletedAt: data.user?.onboardingCompletedAt ?? prev.profile.onboardingCompletedAt,
+          },
+          roleBadge: nextBadge,
+          roleLabel: roleLabelFromBadge(nextBadge),
+        };
+      });
       setMessage(isAr ? "تم تحديث الاختيار إلى ضيف." : "Role selection updated to Guest.");
     } finally {
       setRoleActionLoading(null);
@@ -265,7 +322,7 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
       <div className="mx-auto mb-6 max-w-5xl">
         <div className="relative h-28 w-full overflow-hidden rounded-2xl border border-white/10">
           {coverUrl ? (
-            <Image src={coverUrl} alt="Cover" fill unoptimized className="object-cover" />
+            <Image src={coverUrl} alt="Cover" fill sizes="(max-width: 1024px) 100vw, 1024px" className="object-cover" priority />
           ) : (
             <button
               type="button"
@@ -317,7 +374,7 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
                 <div className="relative">
                   <div className="h-20 w-20 overflow-hidden rounded-full border border-white/15 bg-black/30">
                     {avatarUrl ? (
-                      <Image src={avatarUrl} alt="Profile" width={80} height={80} unoptimized className="h-full w-full object-cover" />
+                      <Image src={avatarUrl} alt="Profile" width={80} height={80} sizes="80px" className="h-full w-full object-cover" />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center bg-[#1a1400] text-2xl font-semibold text-[#C9A227]">
                         {initials}

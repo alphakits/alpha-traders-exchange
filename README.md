@@ -88,6 +88,11 @@ npm run dev:clean
 - `.next-runtime-build`
 - `.next-stale`
 
+If `npm run dev` starts but `/en/login` or `/` returns missing-manifest or chunk errors
+(`Cannot find module './5611.js'`, `routes-manifest.json`, `prerender-manifest.json`,
+or `clientReferenceManifest`), stop every repo-local Next process, run `npm run clean`,
+then restart with `npm run dev:clean`.
+
 ## Production build
 
 ```bash
@@ -234,6 +239,27 @@ Admin lesson/media uploads are stored in the Supabase Storage bucket `admin-medi
 
 ```bash
 npm run lint
+```
+
+## Discord infrastructure automation
+
+This repository now includes a production-ready Discord provisioning package for Alpha Traders.
+
+- Blueprint: `scripts/discord/alpha-discord-blueprint.json`
+- Provisioning script: `scripts/discord/provision-alpha-discord.mjs`
+- Slash command registration: `scripts/discord/register-alpha-slash-commands.mjs`
+- Full operational documentation: `docs/discord/alpha-discord-blueprint.md`
+
+Run provisioning after setting Discord environment variables:
+
+```bash
+npm run discord:provision
+```
+
+Register slash commands (optional bot expansion):
+
+```bash
+npm run discord:commands
 ```
 
 ## Common troubleshooting

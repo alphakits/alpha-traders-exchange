@@ -369,8 +369,8 @@ function fromPayloadRows<T>(rows: Array<{ payload: T }>) {
   return rows.map((row) => row.payload);
 }
 
-function cloneSnapshot(db: AlphaExchangeDb) {
-  return structuredClone(db);
+function cloneSnapshot<T>(value: T): T {
+  return structuredClone(value);
 }
 
 const tables = [
@@ -1754,11 +1754,167 @@ export class AlphaExchangeRepository {
       }
     });
   }
+
+  async savePurchaseRequestCreationSnapshotTargeted(delta: {
+    purchaseRequest: PurchaseRequest;
+    users: AlphaExchangeUser[];
+    trustSnapshots: TrustSnapshotRecord[];
+    newAuditLogs: AuditLogEntry[];
+    newNotifications: AlphaExchangeNotification[];
+    newActivityLogs: AlphaExchangeActivityLogEntry[];
+    newTrustHistoryEntries: TrustScoreChangeLog[];
+  }): Promise<void> {
+    await this.ensureReady();
+    const pool = this.pool;
+
+    if (this.usesMemoryFallback || !pool) {
+      ensureMemorySeed();
+      const current = cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion);
+      current.users = cloneSnapshot(delta.users);
+      current.purchaseRequests.push(cloneSnapshot(delta.purchaseRequest));
+      if (delta.newAuditLogs.length) current.auditLogs.unshift(...cloneSnapshot(delta.newAuditLogs));
+      if (delta.newNotifications.length) current.notifications.unshift(...cloneSnapshot(delta.newNotifications));
+      if (delta.newActivityLogs.length) current.activityLog.unshift(...cloneSnapshot(delta.newActivityLogs));
+      if (delta.newTrustHistoryEntries.length) current.trustScoreHistory.unshift(...cloneSnapshot(delta.newTrustHistoryEntries));
+      for (const snap of delta.trustSnapshots) {
+        const idx = current.trustSnapshots.findIndex((entry) => entry.sellerId === snap.sellerId);
+        if (idx >= 0) {
+          current.trustSnapshots[idx] = snap;
+        } else {
+          current.trustSnapshots.push(snap);
+        }
+      }
+      globalThis.__alphaExchangeMemorySnapshot = attachVersion(
+        current,
+        getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion) + 1,
+      );
+      return;
+    }
+
+    let client: PoolClient | null = null;
+    try {
+      client = await pool.connect();
+      await client.query("begin");
+      try {
+        await client.query("select pg_advisory_xact_lock(61422917)");
+      } catch {
+        // pg-mem does not implement advisory locks; local tests stay single-process.
+      }
+
+      const currentMeta = await queryWithLogging(client,
+        "select version::text as version from alpha_exchange.runtime_meta where singleton = true",
+      );
+      const currentVersion = Number(currentMeta?.rows?.[0]?.version ?? "0");
+
+      await upsertUsersTable(client, delta.users);
+
+      await client.query(
+        `insert into alpha_exchange.purchase_requests
+          (id, trade_id, listing_id, seller_id, buyer_id, status, timed_out_at, completed_at, created_at, updated_at, sort_index, payload)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+           (select coalesce(max(sort_index), -1) + 1 from alpha_exchange.purchase_requests),
+           $11::jsonb)`,
+        [
+          delta.purchaseRequest.id,
+          delta.purchaseRequest.tradeId ?? null,
+          delta.purchaseRequest.listingId,
+          delta.purchaseRequest.sellerId,
+          delta.purchaseRequest.buyerId,
+          delta.purchaseRequest.status,
+          toTimestamp(delta.purchaseRequest.timedOutAt),
+          toTimestamp(delta.purchaseRequest.completedAt),
+          delta.purchaseRequest.createdAt,
+          delta.purchaseRequest.updatedAt,
+          json(delta.purchaseRequest),
+        ],
+      );
+
+      for (const entry of delta.newAuditLogs) {
+        await client.query(
+          `insert into alpha_exchange.audit_logs
+            (id, action, actor_user_id, target_user_id, listing_id, purchase_request_id, created_at, sort_index, payload)
+           values ($1,$2,$3,$4,$5,$6,$7,
+             (select coalesce(min(sort_index), 1) - 1 from alpha_exchange.audit_logs),
+             $8::jsonb)`,
+          [entry.id, entry.action, entry.actorUserId, entry.targetUserId ?? null, entry.listingId ?? null, entry.purchaseRequestId ?? null, entry.createdAt, json(entry)],
+        );
+      }
+
+      for (const notif of delta.newNotifications) {
+        await client.query(
+          `insert into alpha_exchange.notifications
+            (id, user_id, category, is_read, created_at, sort_index, payload)
+           values ($1,$2,$3,$4,$5,
+             (select coalesce(min(sort_index), 1) - 1 from alpha_exchange.notifications),
+             $6::jsonb)`,
+          [notif.id, notif.userId, notif.category, notif.isRead, notif.createdAt, json(notif)],
+        );
+      }
+
+      for (const entry of delta.newActivityLogs) {
+        await client.query(
+          `insert into alpha_exchange.activity_logs
+            (id, user_id, category, created_at, sort_index, payload)
+           values ($1,$2,$3,$4,
+             (select coalesce(min(sort_index), 1) - 1 from alpha_exchange.activity_logs),
+             $5::jsonb)`,
+          [entry.id, entry.userId, entry.category, entry.createdAt, json(entry)],
+        );
+      }
+
+      for (const snap of delta.trustSnapshots) {
+        await client.query(
+          `insert into alpha_exchange.trust_snapshots (seller_id, updated_at, sort_index, payload)
+           values ($1, $2,
+             coalesce(
+               (select sort_index from alpha_exchange.trust_snapshots where seller_id = $1),
+               (select coalesce(max(sort_index), -1) + 1 from alpha_exchange.trust_snapshots)
+             ),
+             $3::jsonb)
+           on conflict (seller_id) do update set
+             updated_at = excluded.updated_at,
+             payload = excluded.payload`,
+          [snap.sellerId, snap.updatedAt, json(snap)],
+        );
+      }
+
+      for (const entry of delta.newTrustHistoryEntries) {
+        await client.query(
+          `insert into alpha_exchange.trust_score_history
+            (id, seller_id, created_at, sort_index, payload)
+           values ($1,$2,$3,
+             (select coalesce(min(sort_index), 1) - 1 from alpha_exchange.trust_score_history),
+             $4::jsonb)`,
+          [entry.id, entry.sellerId, entry.createdAt, json(entry)],
+        );
+      }
+
+      await queryWithLogging(client,
+        "update alpha_exchange.runtime_meta set version = $1, updated_at = now() where singleton = true",
+        [currentVersion + 1],
+      );
+      await client.query("commit");
+    } catch (error) {
+      if (client) {
+        try { await client.query("rollback"); } catch { /* ignore rollback failure */ }
+      }
+      throw error;
+    } finally {
+      if (client) {
+        client.release();
+      }
+    }
+  }
 }
 
 export async function getAlphaExchangeRepository() {
   if (!globalThis.__alphaExchangeRepositoryPromise) {
     globalThis.__alphaExchangeRepositoryPromise = Promise.resolve(new AlphaExchangeRepository(getRuntimePostgresPool()));
+  }
+  const repository = await globalThis.__alphaExchangeRepositoryPromise;
+  if (typeof repository.savePurchaseRequestCreationSnapshotTargeted !== "function") {
+    globalThis.__alphaExchangeRepositoryPromise = Promise.resolve(new AlphaExchangeRepository(getRuntimePostgresPool()));
+    return globalThis.__alphaExchangeRepositoryPromise;
   }
   return globalThis.__alphaExchangeRepositoryPromise;
 }

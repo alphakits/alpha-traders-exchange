@@ -1,8 +1,8 @@
 "use client";
 
 import Image from "next/image";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, BadgePercent, BellRing, CheckCircle2, ChevronDown, Clock3, Copy, Edit3, HandCoins, Layers3, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Users, WalletCards, X } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -12,7 +12,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { UsdtIcon } from "@/components/ui/usdt-icon";
-import { ExchangeMarketStats } from "@/components/sections/usdt-exchange/exchange-market-stats";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { getSellerPrestigeProgress, getSellerPublicVolumeLabel } from "@/lib/seller-prestige";
 import { hasRole } from "@/lib/roles";
@@ -22,9 +21,19 @@ import { getIsraeliBankOption, getIsraeliBankOptions } from "@/lib/israeli-banks
 import { getSellerWorkspaceHighlights, type SellerWorkspaceTab } from "@/lib/premium-seller-dashboard";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, BetaAnnouncement, BetaFeedbackCategory, BetaFeedbackEntry, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerAvailabilityStatus, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
+const ExchangeMarketStats = dynamic(
+  () => import("@/components/sections/usdt-exchange/exchange-market-stats").then((mod) => mod.ExchangeMarketStats),
+);
+
 const WHATSAPP_URL = "https://wa.me/972525967649";
 const MAX_EVIDENCE_SIZE_BYTES = 8 * 1024 * 1024;
 const ALLOWED_EVIDENCE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
+const MOBILE_VIEWPORT_QUERY = "(max-width: 768px)";
+const MOBILE_MARKETPLACE_BATCH_SIZE = 6;
+const MOBILE_TRADE_BATCH_SIZE = 5;
+const MOBILE_REALTIME_DEFER_MS = 1800;
+const MAX_ACTIVITY_ITEMS = 60;
+const MAX_NOTIFICATION_ITEMS = 60;
 
 type Locale = "ar" | "en";
 
@@ -115,15 +124,6 @@ function safeText(value: unknown, fallback = "—") {
   return fallback;
 }
 
-function isLocalTesterSellerName(value: unknown) {
-  return process.env.NODE_ENV !== "production" && typeof value === "string" && value.trim().toLowerCase() === "test account";
-}
-
-function isLocalTesterListing(listing: MarketplaceListing) {
-  return isLocalTesterSellerName(listing.sellerDisplayName);
-}
-
-
 function safeErrorMessage(context: "application" | "purchase" | "listing" | "request" | "settings" | "password" | "workspace" | "review" | "evidence") {
   const map = {
     application: "We could not submit your application right now. Please try again.",
@@ -141,21 +141,65 @@ function safeErrorMessage(context: "application" | "purchase" | "listing" | "req
 
 async function readApiErrorMessage(response: Response, fallback: string) {
   const fallbackText = fallback.trim();
-  const responseClone = response.clone();
+  let rawBody = "";
   try {
-    const payload = (await response.json()) as { error?: unknown; message?: unknown; details?: unknown };
+    rawBody = (await response.text()).trim();
+  } catch {
+    return fallbackText;
+  }
+
+  if (!rawBody) return fallbackText;
+  if (/^<!doctype html>/i.test(rawBody) || /^<html[\s>]/i.test(rawBody)) return fallbackText;
+
+  try {
+    const payload = JSON.parse(rawBody) as { error?: unknown; message?: unknown; details?: unknown };
     if (typeof payload.error === "string" && payload.error.trim()) return payload.error;
     if (typeof payload.message === "string" && payload.message.trim()) return payload.message;
     if (typeof payload.details === "string" && payload.details.trim()) return payload.details;
   } catch {
-    try {
-      const text = (await responseClone.text()).trim();
-      if (text && !/^<!doctype html>/i.test(text)) return text;
-    } catch {
-      return fallbackText;
+    return fallbackText;
+  }
+
+  if (rawBody.length > 0 && rawBody.length < 2048 && !rawBody.includes("{")) return fallbackText;
+  return fallbackText;
+}
+
+async function parseJsonWithDiagnostics<T>(
+  response: Response,
+  label: string,
+  options?: { allowEmptyBody?: boolean; emptyBodyValue?: T },
+) {
+  const rawBody = await response.text();
+  if (!rawBody.trim()) {
+    if (options?.allowEmptyBody) {
+      console.warn(
+        `[alpha-exchange:json-empty-body] ${JSON.stringify({
+          label,
+          url: response.url,
+          status: response.status,
+          contentType: response.headers.get("content-type") ?? "",
+        })}`,
+      );
+      return options.emptyBodyValue as T;
     }
   }
-  return fallbackText;
+  try {
+    return JSON.parse(rawBody) as T;
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const details = {
+      label,
+      url: response.url,
+      status: response.status,
+      contentType: response.headers.get("content-type") ?? "",
+      responseLength: rawBody.length,
+      responsePreview: rawBody.slice(0, 400),
+      error: err.message,
+      stack: err.stack,
+    };
+    console.error(`[alpha-exchange:json-parse-failed] ${JSON.stringify(details)}`);
+    throw err;
+  }
 }
 
 function tradeStatusLabel(status: PurchaseRequest["status"]) {
@@ -225,6 +269,11 @@ function sellerBadgeLabel(badge: SellerBadge) {
   if (badge === "most_active") return "🔥 Most Active";
   if (badge === "platinum_seller") return "👑 Platinum Seller";
   return "🚀 1000+ Trades";
+}
+
+function keepLatestItems<T>(items: T[], limit: number) {
+  if (items.length <= limit) return items;
+  return items.slice(0, limit);
 }
 
 function betaFeedbackCategoryLabel(category: BetaFeedbackCategory) {
@@ -340,6 +389,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const isAr = locale === "ar";
   const router = useRouter();
   const showLegacyNotificationCenter = false;
+  const [isMobileViewport, setIsMobileViewport] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia(MOBILE_VIEWPORT_QUERY).matches;
+  });
 
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
@@ -436,6 +489,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [betaFeedbackCategory, setBetaFeedbackCategory] = useState<BetaFeedbackCategory>("suggestion");
   const [betaFeedbackMessage, setBetaFeedbackMessage] = useState("");
   const [activeSellerWorkspaceTab, setActiveSellerWorkspaceTab] = useState<SellerWorkspaceTab>("overview");
+  const [mobileVisibleListingsCount, setMobileVisibleListingsCount] = useState(MOBILE_MARKETPLACE_BATCH_SIZE);
+  const [mobileVisibleSellerTradesCount, setMobileVisibleSellerTradesCount] = useState(MOBILE_TRADE_BATCH_SIZE);
+  const [mobileVisibleBuyerTradesCount, setMobileVisibleBuyerTradesCount] = useState(MOBILE_TRADE_BATCH_SIZE);
+  const [expandedSellerTradeId, setExpandedSellerTradeId] = useState<string | null>(null);
+  const [expandedBuyerTradeId, setExpandedBuyerTradeId] = useState<string | null>(null);
   const [promotionModalRank, setPromotionModalRank] = useState<SellerLevel | null>(null);
   const [prestigeModalOpen, setPrestigeModalOpen] = useState(false);
   const [prestigeModalStats, setPrestigeModalStats] = useState<{
@@ -461,6 +519,56 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const notificationsRequestIdRef = useRef(0);
   const createListingFormRef = useRef<HTMLDivElement | null>(null);
   const realtimeEventSourceRef = useRef<EventSource | null>(null);
+  const deferredBootstrapWorkRef = useRef<number | null>(null);
+  const [showDeferredSections, setShowDeferredSections] = useState(false);
+  const [showDeepDeferredSections, setShowDeepDeferredSections] = useState(false);
+  const [realtimeReady, setRealtimeReady] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia(MOBILE_VIEWPORT_QUERY);
+    const update = () => setIsMobileViewport(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => {
+      media.removeEventListener("change", update);
+    };
+  }, []);
+
+  useEffect(() => {
+    const timerId = window.setTimeout(() => {
+      setShowDeferredSections(true);
+    }, isMobileViewport ? 420 : 180);
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [isMobileViewport]);
+
+  useEffect(() => {
+    const timerId = window.setTimeout(() => {
+      setShowDeepDeferredSections(true);
+    }, isMobileViewport ? 1200 : 260);
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [isMobileViewport]);
+
+  useEffect(() => {
+    if (!sessionUser?.id) {
+      setRealtimeReady(false);
+      return;
+    }
+    if (!isMobileViewport) {
+      setRealtimeReady(true);
+      return;
+    }
+    setRealtimeReady(false);
+    const timerId = window.setTimeout(() => {
+      setRealtimeReady(true);
+    }, MOBILE_REALTIME_DEFER_MS);
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [isMobileViewport, sessionUser?.id]);
 
   useEffect(() => {
     if (!sessionUser?.email) return;
@@ -553,8 +661,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       if (!response.ok) throw new Error("failed");
       const payload = (await response.json()) as { notifications: AlphaExchangeNotification[]; activity: AlphaExchangeActivityLogEntry[] };
       if (requestId !== notificationsRequestIdRef.current) return;
-      setNotifications(payload.notifications ?? []);
-      setActivityHistory(payload.activity ?? []);
+      setNotifications(keepLatestItems(payload.notifications ?? [], MAX_NOTIFICATION_ITEMS));
+      setActivityHistory(keepLatestItems(payload.activity ?? [], MAX_ACTIVITY_ITEMS));
     } catch {
       setStatusMessage(safeErrorMessage("workspace"));
     } finally {
@@ -708,8 +816,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           fetch("/api/alpha-exchange/listings", { cache: "no-store", next: { revalidate: 0 }, signal: controller.signal }),
         ]);
         if (cancelled) return;
-        const meJson = (await meRes.json()) as { user: SessionUser | null };
-        const listingsJson = (await listingsRes.json()) as { listings: MarketplaceListing[] };
+        const meJson = await parseJsonWithDiagnostics<{ user: SessionUser | null }>(meRes, "bootstrap:auth-me", {
+          allowEmptyBody: true,
+          emptyBodyValue: { user: null },
+        });
+        const listingsJson = await parseJsonWithDiagnostics<{ listings: MarketplaceListing[] }>(listingsRes, "bootstrap:listings");
         if (cancelled) return;
         setSessionUser(meJson.user);
         setListings(listingsJson.listings ?? []);
@@ -750,13 +861,23 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             shouldLoadSellerWorkspace
               ? fetch("/api/alpha-exchange/seller-application", { cache: "no-store", next: { revalidate: 0 }, signal: controller.signal })
               : Promise.resolve(null),
-            shouldLoadSellerWorkspace ? refreshSellerWorkspace() : Promise.resolve(undefined),
-            refreshNotificationPreferences(),
-            refreshBetaChannels(),
+            !isMobileViewport && shouldLoadSellerWorkspace ? refreshSellerWorkspace() : Promise.resolve(undefined),
+            !isMobileViewport ? refreshNotificationPreferences() : Promise.resolve(undefined),
+            !isMobileViewport ? refreshBetaChannels() : Promise.resolve(undefined),
           ]);
+          if (isMobileViewport) {
+            deferredBootstrapWorkRef.current = window.setTimeout(() => {
+              if (cancelled) return;
+              if (shouldLoadSellerWorkspace) {
+                void refreshSellerWorkspace();
+              }
+              void refreshNotificationPreferences();
+              void refreshBetaChannels();
+            }, 900);
+          }
           if (cancelled) return;
           if (applicationRes?.ok) {
-            const applicationJson = (await applicationRes.json()) as { application: SellerApplication | null };
+            const applicationJson = await parseJsonWithDiagnostics<{ application: SellerApplication | null }>(applicationRes, "bootstrap:seller-application");
             if (cancelled) return;
             setSellerApplication(applicationJson.application);
           }
@@ -771,9 +892,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     void bootstrap();
     return () => {
       cancelled = true;
+      if (deferredBootstrapWorkRef.current !== null) {
+        window.clearTimeout(deferredBootstrapWorkRef.current);
+        deferredBootstrapWorkRef.current = null;
+      }
       controller.abort();
     };
-  }, [refreshBetaChannels, refreshNotificationPreferences, refreshSellerWorkspace]);
+  }, [isMobileViewport, refreshBetaChannels, refreshNotificationPreferences, refreshSellerWorkspace]);
 
   useEffect(() => {
     if (!showLegacyNotificationCenter || !sessionUser) return;
@@ -781,7 +906,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   }, [notificationCategory, notificationQuery, notificationUnreadOnly, refreshNotifications, sessionUser, showLegacyNotificationCenter]);
 
   useEffect(() => {
-    if (!sessionUser?.id) return;
+    if (!sessionUser?.id || !realtimeReady) return;
     if (realtimeEventSourceRef.current) {
       realtimeEventSourceRef.current.close();
       realtimeEventSourceRef.current = null;
@@ -814,7 +939,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           } : request)));
         }
         if (nextEvent.type === "notification.created") {
-          setNotifications((current) => [((nextEvent.payload as { notification: AlphaExchangeNotification }).notification), ...current.filter((item) => item.id !== ((nextEvent.payload as { notification: AlphaExchangeNotification }).notification).id)]);
+          setNotifications((current) => keepLatestItems([((nextEvent.payload as { notification: AlphaExchangeNotification }).notification), ...current.filter((item) => item.id !== ((nextEvent.payload as { notification: AlphaExchangeNotification }).notification).id)], MAX_NOTIFICATION_ITEMS));
         }
         if (nextEvent.type === "seller.status_changed") {
           setSellerProfileData((current) => current && current.profile.sellerId === (nextEvent.payload as { sellerId: string; onlineStatus: "online" | "offline" }).sellerId ? { ...current, profile: { ...current.profile, onlineStatus: (nextEvent.payload as { sellerId: string; onlineStatus: "online" | "offline" }).onlineStatus } } : current);
@@ -844,9 +969,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         realtimeEventSourceRef.current = null;
       }
     };
-  }, [sessionUser?.id]);
+  }, [realtimeReady, sessionUser?.id]);
 
-  const features: FeatureCard[] = [
+  const features = useMemo<FeatureCard[]>(() => [
     {
       icon: ShieldCheck,
       title: isAr ? "مجتمع موثوق" : "Trusted Community",
@@ -877,9 +1002,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       title: isAr ? "تجربة عملاء بريميوم" : "Premium Customer Experience",
       body: isAr ? "واجهة وتجربة احترافية تمنحك ثقة ووضوح في كل مرحلة." : "A premium, confidence-first experience with clear process visibility.",
     },
-  ];
+  ], [isAr]);
 
-  const timelineSteps: TimelineStep[] = [
+  const timelineSteps = useMemo<TimelineStep[]>(() => [
     {
       title: isAr ? "المشتري يرسل طلب الصفقة" : "Buyer submits trade request",
       body: isAr ? "يتم تسجيل طلب الصفقة فور الإرسال ضمن سجل زمني دائم." : "The request is recorded as a permanent timeline event immediately.",
@@ -900,9 +1025,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       title: isAr ? "المشتري يؤكد الإتمام" : "Buyer confirms completion",
       body: isAr ? "تُقفل الصفقة تلقائيًا ثم تُفتح نافذة المراجعة." : "Trade auto-locks and review window opens after completion.",
     },
-  ];
+  ], [isAr]);
 
-  const faqs = [
+  const faqs = useMemo(() => [
     {
       q: isAr ? "كيف يعمل Alpha Exchange؟" : "How does Alpha Exchange work?",
       a: isAr
@@ -927,7 +1052,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       q: isAr ? "كم تستغرق المعاملة عادة؟" : "How long does a transaction usually take?",
       a: isAr ? "المدة تعتمد على استجابة الطرفين والشبكة المختارة، ويتم التنسيق بشكل سريع عبر فريق Alpha Traders." : "Timing depends on both parties and selected network, with Alpha Traders coordinating for fast completion.",
     },
-  ];
+  ], [isAr]);
 
   const filteredListings = useMemo(() => {
     const filtered = listings.filter((listing) => {
@@ -965,11 +1090,31 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     if (sortBy === "newest") {
       sorted.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     }
-    if (process.env.NODE_ENV !== "production") {
-      sorted.sort((a, b) => Number(isLocalTesterListing(a)) - Number(isLocalTesterListing(b)));
-    }
     return sorted;
   }, [listings, networkFilter, currencyFilter, paymentMethodFilter, bankFilter, minAmountFilter, maxAmountFilter, minPriceFilter, maxPriceFilter, trustScoreFilter, onlineOnlyFilter, sortBy]);
+
+  useEffect(() => {
+    if (!isMobileViewport) return;
+    setMobileVisibleListingsCount(MOBILE_MARKETPLACE_BATCH_SIZE);
+  }, [
+    isMobileViewport,
+    currencyFilter,
+    paymentMethodFilter,
+    bankFilter,
+    networkFilter,
+    minAmountFilter,
+    maxAmountFilter,
+    minPriceFilter,
+    maxPriceFilter,
+    trustScoreFilter,
+    onlineOnlyFilter,
+    sortBy,
+  ]);
+
+  const visibleListings = useMemo(() => {
+    if (!isMobileViewport) return filteredListings;
+    return filteredListings.slice(0, mobileVisibleListingsCount);
+  }, [filteredListings, isMobileViewport, mobileVisibleListingsCount]);
 
   const marketStats = useMemo(() => {
     const uniqueSellers = new Set(listings.map((l) => l.sellerId ?? l.sellerDisplayName));
@@ -1163,6 +1308,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       successRate: fallbackSuccessRate,
     });
   }, [sellerActiveListingsCount, sellerBankReadyCount, sellerPendingActionCount, sellerRequests]);
+  const showSellerWorkspace = !isMobileViewport || showDeepDeferredSections;
   const filteredBuyerRequests = useMemo(() => {
     return buyerRequests.filter((request) => {
       if (buyerTradeStatus !== "all" && request.status !== buyerTradeStatus) return false;
@@ -1181,12 +1327,36 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       return haystack.includes(query);
     });
   }, [sellerRequests, sellerTradeQuery, sellerTradeStatus]);
+  useEffect(() => {
+    if (!isMobileViewport) return;
+    setMobileVisibleSellerTradesCount(MOBILE_TRADE_BATCH_SIZE);
+    setExpandedSellerTradeId(null);
+  }, [isMobileViewport, sellerTradeQuery, sellerTradeStatus, activeSellerWorkspaceTab]);
+
+  useEffect(() => {
+    if (!isMobileViewport) return;
+    setMobileVisibleBuyerTradesCount(MOBILE_TRADE_BATCH_SIZE);
+    setExpandedBuyerTradeId(null);
+  }, [isMobileViewport, buyerTradeQuery, buyerTradeStatus]);
+
+  const visibleSellerRequests = useMemo(() => {
+    if (!isMobileViewport) return filteredSellerRequests;
+    return filteredSellerRequests.slice(0, mobileVisibleSellerTradesCount);
+  }, [filteredSellerRequests, isMobileViewport, mobileVisibleSellerTradesCount]);
+
+  const visibleBuyerRequests = useMemo(() => {
+    if (!isMobileViewport) return filteredBuyerRequests;
+    return filteredBuyerRequests.slice(0, mobileVisibleBuyerTradesCount);
+  }, [filteredBuyerRequests, isMobileViewport, mobileVisibleBuyerTradesCount]);
   const pendingSellerRequests = useMemo(() => sellerRequests.filter((request) => request.status === "pending"), [sellerRequests]);
   const completedSellerRequests = useMemo(
     () => sellerRequests.filter((request) => request.status === "completed" || request.status === "review_open" || Boolean(request.completedAt)),
     [sellerRequests],
   );
   const myListingsById = useMemo(() => new Map(myListings.map((listing) => [listing.id, listing])), [myListings]);
+  const showSellerListingsPanel = activeSellerWorkspaceTab === "listings" || (!isMobileViewport && activeSellerWorkspaceTab === "overview");
+  const showSellerTradesPanel = activeSellerWorkspaceTab === "trades" || (!isMobileViewport && activeSellerWorkspaceTab === "overview");
+  const showSellerSettingsPanel = activeSellerWorkspaceTab === "settings" || (!isMobileViewport && activeSellerWorkspaceTab === "overview");
 
   const createListingPriceValidationError = useMemo(() => {
     return getListingPriceValidationError({ price: listingCreateForm.price, currency: listingCreateForm.currency, marketRate });
@@ -1925,7 +2095,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   ) : null;
 
   return (
-    <section className="section-container page-shell">
+    <section className="section-container page-shell overflow-x-clip">
       <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#0A0A0A]/90 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.4)] md:p-10">
         <div className="pointer-events-none absolute inset-0 opacity-40">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_16%,rgba(201,162,39,0.16),transparent_42%),radial-gradient(circle_at_82%_20%,rgba(201,162,39,0.12),transparent_40%),linear-gradient(120deg,rgba(201,162,39,0.08),transparent_40%)]" />
@@ -2170,7 +2340,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   </CardContent>
                 </Card>
               ))
-            : filteredListings.map((listing) => {
+            : visibleListings.map((listing) => {
                 const trustScore = listing.sellerReputation?.trustScore ?? 0;
                 const completedTrades = listing.sellerReputation?.completedTrades ?? 0;
                 const completionRate = listing.sellerReputation?.completionRate ?? 0;
@@ -2193,7 +2363,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 return (
                   <Card
                     key={listing.id}
-                    className="group relative overflow-hidden border-white/10 bg-[#0B0B0B]/95 transition-all duration-300 hover:-translate-y-1 hover:border-[#C9A227]/35 hover:shadow-[0_20px_60px_rgba(0,0,0,0.45),0_0_0_1px_rgba(201,162,39,0.08)]"
+                    className="group relative overflow-hidden border-white/10 bg-[#0B0B0B]/95 [content-visibility:auto] [contain-intrinsic-size:620px] transition-all duration-300 hover:-translate-y-1 hover:border-[#C9A227]/35 hover:shadow-[0_20px_60px_rgba(0,0,0,0.45),0_0_0_1px_rgba(201,162,39,0.08)]"
                   >
                     {/* Top gold accent bar — appears on hover */}
                     <div
@@ -2204,7 +2374,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     <CardHeader className="pb-3 pt-5">
                       <div className={`flex items-start justify-between gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                         {/* Avatar + seller info */}
-                        <div className={`flex items-start gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
+                        <div className={`flex min-w-0 items-start gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                           {/* Avatar with online ring + status dot */}
                           <div className="relative flex-shrink-0">
                             {listing.sellerProfile?.profilePhotoUrl ? (
@@ -2232,18 +2402,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                             />
                           </div>
                           {/* Name + level + badges */}
-                          <div>
+                          <div className="min-w-0">
                             <CardTitle className={`text-lg leading-tight ${isAr ? "text-right" : ""}`}>
                               <span className="inline-flex flex-wrap items-center gap-2">
-                                <span className={sellerRankTheme(sellerRank)}>{safeText(listing.sellerDisplayName, "Seller")}</span>
-                                {isLocalTesterSellerName(listing.sellerDisplayName) ? (
-                                  <span className="inline-flex items-center rounded-full border border-red-400/50 bg-red-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-red-200">
-                                    TEST ACCOUNT - DO NOT BUY
-                                  </span>
-                                ) : null}
+                                <span className={`min-w-0 break-words ${sellerRankTheme(sellerRank)}`}>{safeText(listing.sellerDisplayName, "Seller")}</span>
                               </span>
                             </CardTitle>
-                            <p className={`mt-0.5 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF] ${isAr ? "text-right" : ""}`}>
+                            <p className={`mt-0.5 break-words text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF] ${isAr ? "text-right" : ""}`}>
                               {sellerLevelLabel(sellerRank)} Seller
                             </p>
                             <div className={`mt-1.5 flex flex-wrap gap-1.5 ${isAr ? "flex-row-reverse" : ""}`}>
@@ -2339,13 +2504,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
                       {/* ── Payment + range + last active ── */}
                       <div className={`space-y-1 text-xs text-[#9CA3AF] ${isAr ? "text-right" : ""}`}>
-                        <p>
+                        <p className="break-words">
                           <span className="text-white/45">{isAr ? "الدفع: " : "Payment: "}</span>
                           {(listing.paymentMethods?.length ? listing.paymentMethods : [listing.paymentMethod])
                             .slice(0, 3)
                             .join(" • ")}
                         </p>
-                        <p>
+                        <p className="break-words">
                           <span className="text-white/45">{isAr ? "البنك: " : "Bank: "}</span>
                           {getIsraeliBankOption(listing.bankName ?? listing.paymentMethod).name}
                         </p>
@@ -2465,8 +2630,21 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </CardContent>
           </Card>
         ) : null}
+
+        {!isLoadingListings && isMobileViewport && filteredListings.length > visibleListings.length ? (
+          <div className="mt-4 flex justify-center">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setMobileVisibleListingsCount((prev) => prev + MOBILE_MARKETPLACE_BATCH_SIZE)}
+            >
+              {isAr ? "عرض المزيد" : "Load More Listings"}
+            </Button>
+          </div>
+        ) : null}
       </div>
 
+      {showDeferredSections ? (
       <div className="mt-12">
         <p className="mb-2 text-xs uppercase tracking-[0.2em] text-[#C9A227]">{isAr ? "المزايا" : "Why Choose Us"}</p>
         <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "لماذا Alpha Exchange" : "Why Alpha Exchange"}</h2>
@@ -2491,7 +2669,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           })}
         </div>
       </div>
+      ) : null}
 
+      {showDeferredSections ? (
       <div className="mt-12 grid gap-6 xl:grid-cols-2">
         <Card className="border-white/10 bg-[#0B0B0B]/90">
           <CardHeader>
@@ -2596,8 +2776,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           </CardContent>
         </Card>
       </div>
+      ) : null}
 
-      {isApprovedSeller ? (
+      {isApprovedSeller && showSellerWorkspace ? (
         <div className="mt-8 space-y-6">
           <div className="rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top_left,_rgba(201,162,39,0.2),_transparent_30%),linear-gradient(135deg,_rgba(10,10,10,0.98),_rgba(16,16,16,0.94))] p-4 shadow-[0_22px_55px_rgba(0,0,0,0.26)]">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -2612,7 +2793,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 <Button type="button" size="sm" variant="secondary" className="text-[#E5E7EB]" onClick={() => setActiveSellerWorkspaceTab("settings")}>Update profile</Button>
               </div>
             </div>
-            <div className="mt-4 flex flex-wrap gap-2">
+                <div className="mt-4 flex flex-wrap gap-2">
               {sellerWorkspaceTabs.map((tab) => {
                 const active = activeSellerWorkspaceTab === tab.key;
                 return (
@@ -2623,7 +2804,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     className={`rounded-full border px-3 py-1.5 text-sm transition ${active ? "border-[#C9A227]/40 bg-[#C9A227]/15 text-white" : "border-white/10 bg-black/20 text-[#9CA3AF] hover:border-white/20 hover:text-[#E5E7EB]"}`}
                   >
                     <span className="font-medium">{tab.label}</span>
-                    <span className="ml-2 text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{tab.description}</span>
+                    <span className="hidden text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF] sm:ml-2 sm:inline">{tab.description}</span>
                   </button>
                 );
               })}
@@ -2692,7 +2873,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           </div>
           ) : null}
 
-          {(activeSellerWorkspaceTab === "overview" || activeSellerWorkspaceTab === "listings") ? (
+          {showSellerListingsPanel ? (
             <>
               <div ref={createListingFormRef}>
             <Card className="border-white/10 bg-[#0B0B0B]/90">
@@ -2779,7 +2960,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </>
           ) : null}
 
-          {(activeSellerWorkspaceTab === "overview" || activeSellerWorkspaceTab === "listings") ? (
+          {showSellerListingsPanel ? (
             <Card className="border-white/10 bg-[#0B0B0B]/90">
             <CardHeader>
               <CardTitle>{isAr ? "عروضي النشطة" : "My Active Listings"}</CardTitle>
@@ -2811,7 +2992,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 const views = 120 + String(listing.id ?? "").split("").reduce((acc, char) => acc + char.charCodeAt(0), 0) % 900;
                 const isLockedListing = listing.status === "matched" || listing.status === "in_trade";
                 return (
-                  <div key={listing.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div key={listing.id} className="rounded-2xl border border-white/10 bg-black/20 p-4 [content-visibility:auto] [contain-intrinsic-size:380px]">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <p className="inline-flex items-center gap-1.5 text-sm font-medium text-white">
@@ -2901,7 +3082,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </Card>
           ) : null}
 
-          {(activeSellerWorkspaceTab === "overview" || activeSellerWorkspaceTab === "trades") ? (
+          {showSellerTradesPanel ? (
             <Card className="border-white/10 bg-[#0B0B0B]/90">
             <CardHeader>
               <CardTitle>{isAr ? "طلبات الشراء" : "Purchase Requests"}</CardTitle>
@@ -2930,23 +3111,38 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "ستظهر طلبات المشترين هنا عند وصولها." : "Incoming buyer requests will appear here."}</p>
                 </div>
               ) : null}
-              {filteredSellerRequests.map((request) => {
+              {visibleSellerRequests.map((request) => {
+                const isSellerTradeExpanded = !isMobileViewport || expandedSellerTradeId === request.id;
                 return (
-                  <div key={request.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div key={request.id} className="rounded-2xl border border-white/10 bg-black/20 p-4 [content-visibility:auto] [contain-intrinsic-size:460px]">
                     <div className="grid gap-2 text-sm md:grid-cols-3">
-                      <p>Trade ID: <span className="text-white">{request.tradeId ?? "Pending Creation"}</span></p>
+                      <p>Trade ID: <span className="break-all text-white">{request.tradeId ?? "Pending Creation"}</span></p>
                       <p>Buyer Name: <span className="text-white">{request.buyerName}</span></p>
-                      <p>WhatsApp: <span className="text-white">{request.buyerWhatsapp}</span></p>
+                      <p>WhatsApp: <span className="break-all text-white">{request.buyerWhatsapp}</span></p>
                       <p className="inline-flex items-center gap-1.5">USDT Amount: <UsdtIcon /> <span className="text-white">{request.usdtAmount}</span></p>
                       <p>Fiat Amount: <span className="text-white">{request.fiatAmount} {request.currency}</span></p>
                       <p>Network: <span className="text-white">{request.network}</span></p>
                       <p>Payment Method: <span className="text-white">{request.paymentMethod}</span></p>
-                      <p>Listing: <span className="text-white">{request.listingId}</span></p>
+                      <p>Listing: <span className="break-all text-white">{request.listingId}</span></p>
                       <p>Submitted: <span className="text-white">{new Date(request.createdAt).toLocaleString("en-IL")}</span></p>
                       <p>Status: <span className="text-white">{tradeStatusLabel(request.status)}</span></p>
                       {request.completedAt ? <p>Completed: <span className="text-white">{new Date(request.completedAt).toLocaleString("en-IL")}</span></p> : null}
                       {request.reviewUnlockedAt ? <p>Review Unlocked: <span className="text-white">{new Date(request.reviewUnlockedAt).toLocaleString("en-IL")}</span></p> : null}
                     </div>
+                    {isMobileViewport ? (
+                      <div className="mt-3">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => setExpandedSellerTradeId((prev) => (prev === request.id ? null : request.id))}
+                        >
+                          {isSellerTradeExpanded ? (isAr ? "إخفاء تفاصيل الصفقة" : "Hide Trade Room") : (isAr ? "فتح غرفة الصفقة" : "Open Trade Room")}
+                        </Button>
+                      </div>
+                    ) : null}
+                    {isSellerTradeExpanded ? (
+                      <>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Button type="button" size="sm" loading={Boolean(tradeActionLoading[`${request.id}:accepted`])} loadingLabel="Accepting..." disabled={request.status !== "pending"} onClick={() => handleSellerRequestAction(request.id, "accepted")}>Accept</Button>
                       <Button type="button" size="sm" variant="secondary" loading={Boolean(tradeActionLoading[`${request.id}:declined`])} loadingLabel="Declining..." disabled={request.status !== "pending"} onClick={() => handleSellerRequestAction(request.id, "declined")}>Decline</Button>
@@ -3092,14 +3288,28 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         <p className="mt-1">{request.sellerResponse.message}</p>
                       </div>
                     ) : null}
+                      </>
+                    ) : null}
                   </div>
                 );
               })}
+              {isMobileViewport && filteredSellerRequests.length > visibleSellerRequests.length ? (
+                <div className="mt-2 flex justify-center">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setMobileVisibleSellerTradesCount((prev) => prev + MOBILE_TRADE_BATCH_SIZE)}
+                  >
+                    {isAr ? "عرض المزيد من الصفقات" : "Load More Trades"}
+                  </Button>
+                </div>
+              ) : null}
             </CardContent>
             </Card>
           ) : null}
 
-          {(activeSellerWorkspaceTab === "overview" || activeSellerWorkspaceTab === "settings") ? (
+          {showSellerSettingsPanel ? (
             <>
               <div className="grid gap-4 xl:grid-cols-3">
                 <Card className="border-white/10 bg-[#0B0B0B]/90">
@@ -3313,6 +3523,15 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </>
           ) : null}
         </div>
+      ) : isApprovedSeller ? (
+        <div className="mt-8 md:hidden">
+          <Card className="border-white/10 bg-[#0B0B0B]/90">
+            <CardContent className="p-4">
+              <div className="h-5 w-40 animate-pulse rounded bg-white/10" />
+              <div className="mt-3 h-16 animate-pulse rounded-2xl bg-white/10" />
+            </CardContent>
+          </Card>
+        </div>
       ) : (
         <div className="mt-8 grid gap-4 md:grid-cols-2">
           <Card className="border-white/10 bg-[#0B0B0B]/85">
@@ -3418,11 +3637,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   </select>
                 </div>
                 {!filteredBuyerRequests.length ? <div className="empty-state-panel">No trades found for current filters.</div> : null}
-                {filteredBuyerRequests.map((request) => (
+                {visibleBuyerRequests.map((request) => {
+                  const isBuyerTradeExpanded = !isMobileViewport || expandedBuyerTradeId === request.id;
+                  return (
                   <div key={request.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <div className="grid gap-2 text-sm md:grid-cols-3">
-                      <p>Trade ID: <span className="text-white">{request.tradeId ?? "Pending Creation"}</span></p>
-                      <p>Listing: <span className="text-white">{request.listingId}</span></p>
+                      <p>Trade ID: <span className="break-all text-white">{request.tradeId ?? "Pending Creation"}</span></p>
+                      <p>Listing: <span className="break-all text-white">{request.listingId}</span></p>
                       <p>Status: <span className="text-white">{tradeStatusLabel(request.status)}</span></p>
                       <p className="inline-flex items-center gap-1.5">USDT Amount: <UsdtIcon /> <span className="text-white">{request.usdtAmount}</span></p>
                       <p>Fiat Amount: <span className="text-white">{request.fiatAmount} {request.currency}</span></p>
@@ -3431,6 +3652,20 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <p>Submitted: <span className="text-white">{new Date(request.createdAt).toLocaleString("en-IL")}</span></p>
                       {request.completedAt ? <p>Completed: <span className="text-white">{new Date(request.completedAt).toLocaleString("en-IL")}</span></p> : null}
                     </div>
+                    {isMobileViewport ? (
+                      <div className="mt-3">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => setExpandedBuyerTradeId((prev) => (prev === request.id ? null : request.id))}
+                        >
+                          {isBuyerTradeExpanded ? (isAr ? "إخفاء تفاصيل الصفقة" : "Hide Trade Room") : (isAr ? "فتح غرفة الصفقة" : "Open Trade Room")}
+                        </Button>
+                      </div>
+                    ) : null}
+                    {isBuyerTradeExpanded ? (
+                      <>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Button type="button" size="sm" loading={Boolean(tradeActionLoading[`${request.id}:payment_sent`])} loadingLabel="Submitting..." disabled={request.status !== "accepted" || !request.buyerEvidence} onClick={() => handleBuyerTradeStatus(request.id, "payment_sent")}>
                         Mark Bank Transfer Sent
@@ -3574,8 +3809,23 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         <p className="mt-1">{request.sellerResponse.message}</p>
                       </div>
                     ) : null}
+                      </>
+                    ) : null}
                   </div>
-                ))}
+                );
+                })}
+                {isMobileViewport && filteredBuyerRequests.length > visibleBuyerRequests.length ? (
+                  <div className="mt-2 flex justify-center">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setMobileVisibleBuyerTradesCount((prev) => prev + MOBILE_TRADE_BATCH_SIZE)}
+                    >
+                      {isAr ? "عرض المزيد من الصفقات" : "Load More Trades"}
+                    </Button>
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           ) : null}
@@ -3604,6 +3854,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         </div>
       )}
 
+      {showDeepDeferredSections ? (
       <div className="mt-12 grid gap-4 md:grid-cols-4">
         {[
           { value: "900+", labelAr: "عضو في المجتمع", label: "Community Members", icon: Users },
@@ -3625,7 +3876,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           );
         })}
       </div>
+      ) : null}
 
+      {showDeepDeferredSections ? (
       <div className="mt-12">
         <p className="mb-2 text-xs uppercase tracking-[0.2em] text-[#C9A227]">{isAr ? "أسئلة شائعة" : "Frequently Asked"}</p>
         <h2 className="text-2xl font-semibold md:text-3xl">FAQ</h2>
@@ -3641,7 +3894,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           ))}
         </div>
       </div>
+      ) : null}
 
+      {showDeepDeferredSections ? (
       <Card className="mt-12 overflow-hidden border-[#C9A227]/25 bg-[#0A0A0A]/95">
         <CardContent className="relative p-6 md:p-8">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_14%_20%,rgba(201,162,39,0.16),transparent_42%),radial-gradient(circle_at_86%_78%,rgba(201,162,39,0.12),transparent_40%)]" />
@@ -3664,11 +3919,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           </div>
         </CardContent>
       </Card>
+      ) : null}
 
-      <AnimatePresence>
+      <>
         {selectedListing ? (
-          <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div className="modal-panel max-h-[90vh] w-full max-w-2xl overflow-y-auto" initial={{ opacity: 0, y: 24, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.97 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+            <div className="modal-panel max-h-[90vh] w-full max-w-2xl overflow-y-auto">
               <div className={`mb-4 flex items-start justify-between gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                 <div>
                   <h3 className="text-2xl font-semibold">{isAr ? "ملف البائع" : "Seller Business Profile"}</h3>
@@ -3966,12 +4222,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   </div>
                 </div>
               )}
-            </motion.div>
-          </motion.div>
+            </div>
+          </div>
         ) : null}
         {prestigeModalOpen && prestigeModalStats ? (
-          <motion.div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8, scale: 0.98 }} className="w-full max-w-3xl overflow-hidden rounded-3xl border border-[#C9A227]/30 bg-[#090909]/95 shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-3xl overflow-hidden rounded-3xl border border-[#C9A227]/30 bg-[#090909]/95 shadow-[0_24px_90px_rgba(0,0,0,0.6)]">
               <div className="border-b border-white/10 bg-[linear-gradient(135deg,rgba(201,162,39,0.18),rgba(255,255,255,0.02))] p-6">
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -4047,22 +4303,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   <Button type="button" className="w-full" onClick={() => setPrestigeModalOpen(false)}>Close</Button>
                 </div>
               </div>
-            </motion.div>
-          </motion.div>
+            </div>
+          </div>
         ) : null}
         {promotionModalRank ? (
-          <motion.div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 12, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 8, scale: 0.98 }}
-              className="modal-panel w-full max-w-md border-[#C9A227]/35 text-center"
-            >
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+            <div className="modal-panel w-full max-w-md border-[#C9A227]/35 text-center">
               <p className="text-xs uppercase tracking-[0.16em] text-[#9CA3AF]">Congratulations!</p>
               <p className="mt-2 text-2xl font-semibold text-white">You reached:</p>
               <p className={cn("mt-1 text-3xl font-bold capitalize", sellerRankTheme(promotionModalRank))}>
@@ -4074,10 +4320,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   Continue
                 </Button>
               </div>
-            </motion.div>
-          </motion.div>
+            </div>
+          </div>
         ) : null}
-      </AnimatePresence>
+      </>
     </section>
   );
 }

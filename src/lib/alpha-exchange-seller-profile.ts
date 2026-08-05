@@ -52,9 +52,8 @@ export async function getSellerProfilePageData(input: {
 }
 
 export function formatSellerLevelLabel(level?: SellerLevel) {
-  if (level === "legendary") return "Alpha Legendary Seller";
+  if (level === "elite") return "Alpha Elite Seller";
   if (level === "diamond") return "Alpha Diamond Seller";
-  if (level === "platinum") return "Alpha Platinum Seller";
   if (level === "gold") return "Alpha Gold Seller";
   if (level === "silver") return "Alpha Silver Seller";
   return "Alpha Bronze Seller";

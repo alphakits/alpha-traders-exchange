@@ -41,7 +41,7 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
     <header className="sticky top-0 z-40 border-b border-white/10 bg-[#050505]/90 shadow-[0_14px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl">
       <div className="section-container relative flex h-16 items-center justify-between">
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-[#C9A227]/45 to-transparent" />
-        <Link href="/" locale={locale} className="inline-flex items-center gap-3 text-lg font-semibold tracking-wide text-white">
+        <Link href="/" locale={locale} className="inline-flex min-w-0 items-center gap-2 text-lg font-semibold tracking-wide text-white sm:gap-3">
           <Image
             src="/images/brand/alpha-traders-logo.webp"
             alt="Alpha Traders logo"
@@ -51,7 +51,7 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
             style={{ width: 42, height: 42 }}
             className="rounded-full border border-[#C9A227]/45 bg-black/35 p-0.5 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)]"
           />
-          <span className="gold-gradient inline-block bg-clip-text pb-px text-[1.02rem] leading-[1.15] text-transparent">
+          <span className="gold-gradient hidden bg-clip-text pb-px text-[1.02rem] leading-[1.15] text-transparent min-[360px]:inline-block">
             {brand}
           </span>
         </Link>
@@ -83,9 +83,6 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
               <span className="max-w-[140px] truncate">{sessionUser.fullName}</span>
             </div>
           ) : null}
-          <Link href={dashboardHref} locale={locale} className={cn(buttonVariants({ size: "sm" }), "hidden sm:inline-flex")}>
-            {dashboardLabel}
-          </Link>
           {sessionUser ? <NotificationBell locale={locale} /> : null}
           {sessionUser ? (
             <form action={logoutAction} className="hidden sm:inline-flex">
@@ -146,6 +143,9 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
               </nav>
             </div>
           </details>
+          <Link href={dashboardHref} locale={locale} className={cn(buttonVariants({ size: "sm" }), "hidden sm:inline-flex")}>
+            {dashboardLabel}
+          </Link>
         </div>
       </div>
     </header>

@@ -21,7 +21,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
       <div className="section-container relative py-12 md:py-16">
         <div className="grid gap-8 lg:grid-cols-12 lg:gap-10">
           <div className="lg:col-span-4">
-            <Link href="/" locale={locale} className="inline-flex items-center gap-3">
+            <Link href="/" locale={locale} className="inline-flex min-h-11 items-center gap-3 rounded-lg">
               <Image
                 src="/images/brand/alpha-traders-logo.webp"
                 alt="Alpha Traders"
@@ -60,7 +60,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
                 target="_blank"
                 rel="noreferrer"
                 aria-label="WhatsApp"
-                className="group flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 transition-all hover:-translate-y-0.5 hover:border-[#25D366]/50 hover:bg-[#25D366]/10"
+                className="group flex h-11 w-11 items-center justify-center rounded-lg border border-white/10 bg-white/5 transition-all hover:-translate-y-0.5 hover:border-[#25D366]/50 hover:bg-[#25D366]/10"
               >
                 <MessageCircle className="h-4 w-4 text-[#A0A8B6] group-hover:text-[#25D366]" />
               </a>
@@ -69,7 +69,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
                 target="_blank"
                 rel="noreferrer"
                 aria-label="Instagram"
-                className="group flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 transition-all hover:-translate-y-0.5 hover:border-[#C9A227]/50 hover:bg-[#C9A227]/10"
+                className="group flex h-11 w-11 items-center justify-center rounded-lg border border-white/10 bg-white/5 transition-all hover:-translate-y-0.5 hover:border-[#C9A227]/50 hover:bg-[#C9A227]/10"
               >
                 <ExternalLink className="h-4 w-4 text-[#A0A8B6] group-hover:text-[#F4D87A]" />
               </a>
@@ -78,14 +78,14 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
                 target="_blank"
                 rel="noreferrer"
                 aria-label="TikTok"
-                className="group flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 transition-all hover:-translate-y-0.5 hover:border-[#C9A227]/50 hover:bg-[#C9A227]/10"
+                className="group flex h-11 w-11 items-center justify-center rounded-lg border border-white/10 bg-white/5 transition-all hover:-translate-y-0.5 hover:border-[#C9A227]/50 hover:bg-[#C9A227]/10"
               >
                 <Music2 className="h-4 w-4 text-[#A0A8B6] group-hover:text-[#F4D87A]" />
               </a>
               <a
                 href={SOCIAL.email}
                 aria-label="Email"
-                className="group flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 transition-all hover:-translate-y-0.5 hover:border-[#C9A227]/50 hover:bg-[#C9A227]/10"
+                className="group flex h-11 w-11 items-center justify-center rounded-lg border border-white/10 bg-white/5 transition-all hover:-translate-y-0.5 hover:border-[#C9A227]/50 hover:bg-[#C9A227]/10"
               >
                 <Mail className="h-4 w-4 text-[#A0A8B6] group-hover:text-[#F4D87A]" />
               </a>
@@ -98,10 +98,10 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
                 {isAr ? "المنصة" : "Platform"}
               </h4>
               <ul className="space-y-2.5 text-sm">
-                <li><Link href="/academy" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "Alpha Academy" : "Alpha Academy"}</Link></li>
-                <li><Link href="/usdt-exchange" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "Alpha Exchange" : "Alpha Exchange"}</Link></li>
-                <li><Link href="/community" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "Community" : "Community"}</Link></li>
-                <li><Link href="/lessons" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "الدروس" : "Lessons"}</Link></li>
+                <li><Link href="/academy" locale={locale} className="inline-flex min-h-10 items-center rounded-md px-1 text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "Alpha Academy" : "Alpha Academy"}</Link></li>
+                <li><Link href="/usdt-exchange" locale={locale} className="inline-flex min-h-10 items-center rounded-md px-1 text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "Alpha Exchange" : "Alpha Exchange"}</Link></li>
+                <li><Link href="/community" locale={locale} className="inline-flex min-h-10 items-center rounded-md px-1 text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "Community" : "Community"}</Link></li>
+                <li><Link href="/lessons" locale={locale} className="inline-flex min-h-10 items-center rounded-md px-1 text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "الدروس" : "Lessons"}</Link></li>
               </ul>
             </div>
 
@@ -110,9 +110,9 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
                 {isAr ? "الشركة" : "Company"}
               </h4>
               <ul className="space-y-2.5 text-sm">
-                <li><Link href="/about-founder" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "عن المؤسس" : "About Founder"}</Link></li>
-                <li><Link href="/founder" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "قصة Alpha Traders" : "Founder Story"}</Link></li>
-                <li><Link href="/contact" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "تواصل معنا" : "Contact"}</Link></li>
+                <li><Link href="/about-founder" locale={locale} className="inline-flex min-h-10 items-center rounded-md px-1 text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "عن المؤسس" : "About Founder"}</Link></li>
+                <li><Link href="/founder" locale={locale} className="inline-flex min-h-10 items-center rounded-md px-1 text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "قصة Alpha Traders" : "Founder Story"}</Link></li>
+                <li><Link href="/contact" locale={locale} className="inline-flex min-h-10 items-center rounded-md px-1 text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "تواصل معنا" : "Contact"}</Link></li>
               </ul>
             </div>
 
@@ -121,10 +121,10 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
                 {isAr ? "الحساب" : "Account"}
               </h4>
               <ul className="space-y-2.5 text-sm">
-                <li><Link href="/login" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "تسجيل الدخول" : "Sign In"}</Link></li>
-                <li><Link href="/register" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "إنشاء حساب" : "Create Account"}</Link></li>
-                <li><Link href="/profile" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "الملف الشخصي" : "Profile"}</Link></li>
-                <li><Link href="/settings" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "الإعدادات" : "Settings"}</Link></li>
+                <li><Link href="/login" locale={locale} className="inline-flex min-h-10 items-center rounded-md px-1 text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "تسجيل الدخول" : "Sign In"}</Link></li>
+                <li><Link href="/register" locale={locale} className="inline-flex min-h-10 items-center rounded-md px-1 text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "إنشاء حساب" : "Create Account"}</Link></li>
+                <li><Link href="/profile" locale={locale} className="inline-flex min-h-10 items-center rounded-md px-1 text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "الملف الشخصي" : "Profile"}</Link></li>
+                <li><Link href="/settings" locale={locale} className="inline-flex min-h-10 items-center rounded-md px-1 text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "الإعدادات" : "Settings"}</Link></li>
               </ul>
             </div>
 
@@ -133,9 +133,9 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
                 {isAr ? "قانوني" : "Legal"}
               </h4>
               <ul className="space-y-2.5 text-sm">
-                <li><Link href="/privacy-policy" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "سياسة الخصوصية" : "Privacy Policy"}</Link></li>
-                <li><Link href="/terms" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "الشروط والأحكام" : "Terms of Service"}</Link></li>
-                <li><Link href="/cookies" locale={locale} className="text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "سياسة ملفات الارتباط" : "Cookie Policy"}</Link></li>
+                <li><Link href="/privacy-policy" locale={locale} className="inline-flex min-h-10 items-center rounded-md px-1 text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "سياسة الخصوصية" : "Privacy Policy"}</Link></li>
+                <li><Link href="/terms" locale={locale} className="inline-flex min-h-10 items-center rounded-md px-1 text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "الشروط والأحكام" : "Terms of Service"}</Link></li>
+                <li><Link href="/cookies" locale={locale} className="inline-flex min-h-10 items-center rounded-md px-1 text-[#A9B1BF] transition-colors hover:text-white">{isAr ? "سياسة ملفات الارتباط" : "Cookie Policy"}</Link></li>
               </ul>
             </div>
           </div>

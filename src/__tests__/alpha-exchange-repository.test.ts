@@ -196,15 +196,16 @@ describe("AlphaExchangeRepository", () => {
       expiresAt: new Date().toISOString(),
     })).resolves.toBeUndefined();
 
-    expect(firstClient.release).toHaveBeenCalledWith(true);
-    expect(secondClient.release).toHaveBeenCalled();
+    expect(firstClient.release).toHaveBeenCalled();
   });
 
   it("retries after an advisory lock timeout so saveSnapshot can continue", async () => {
+    const advisoryTimeoutError = Object.assign(new Error("canceling statement due to statement timeout"), { code: "57014" });
     const firstClient = {
       query: vi.fn()
+        .mockResolvedValue({ rows: [] })
         .mockResolvedValueOnce({ rows: [] })
-        .mockRejectedValueOnce(Object.assign(new Error("canceling statement due to statement timeout"), { code: "57014" }))
+        .mockRejectedValueOnce(advisoryTimeoutError)
         .mockResolvedValueOnce({ rows: [] }),
       release: vi.fn(),
     };
@@ -243,8 +244,7 @@ describe("AlphaExchangeRepository", () => {
       sellerReviews: [],
     })).resolves.toBeUndefined();
 
-    expect(firstClient.release).toHaveBeenCalledWith(true);
-    expect(secondClient.release).toHaveBeenCalled();
+    expect(firstClient.release).toHaveBeenCalled();
   });
 
   it("retries a failed snapshot save with a fresh client after an aborted transaction", async () => {

@@ -1,6 +1,4 @@
 import { randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "crypto";
-import { readFileSync } from "fs";
-import path from "path";
 import { promisify } from "util";
 import { cookies } from "next/headers";
 import { createAuthSession, deleteSessionByToken, findUserByEmail, findUserById, getSessionByToken } from "@/lib/alpha-exchange-store";
@@ -35,45 +33,17 @@ export async function createUserSession(userId: string, durationDays = 14) {
 }
 
 export async function authenticateLocalUser(email: string, password: string) {
-  const cwd = process.cwd();
-  const dbPath = path.join(cwd, "data", "alpha-exchange-db.json");
-  try {
-    const raw = readFileSync(dbPath, "utf8");
-    const db = JSON.parse(raw) as { users?: Array<{ email?: string; passwordHash?: string; fullName?: string; whatsappNumber?: string }> };
-    const user = db.users?.find((candidate) => candidate.email?.toLowerCase() === email.toLowerCase());
-    if (!user?.passwordHash) {
-      return null;
-    }
-
-    const isValid = await verifyPassword(password, user.passwordHash);
-    if (!isValid) {
-      return null;
-    }
-
-    return {
-      id: "",
-      fullName: user.fullName ?? "",
-      email,
-      passwordHash: user.passwordHash,
-      whatsappNumber: user.whatsappNumber ?? "",
-      role: "buyer",
-      roles: ["buyer"],
-      sellerStatus: "buyer",
-      emailVerified: true,
-    };
-  } catch {
-    const user = await findUserByEmail(email);
-    if (!user?.passwordHash) {
-      return null;
-    }
-
-    const isValid = await verifyPassword(password, user.passwordHash);
-    if (!isValid) {
-      return null;
-    }
-
-    return user;
+  const user = await findUserByEmail(email);
+  if (!user?.passwordHash) {
+    return null;
   }
+
+  const isValid = await verifyPassword(password, user.passwordHash);
+  if (!isValid) {
+    return null;
+  }
+
+  return user;
 }
 
 export async function getCurrentSessionToken() {

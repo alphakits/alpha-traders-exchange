@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -79,26 +79,33 @@ export function AccountSettingsPanel({ locale }: { locale: "ar" | "en" }) {
   const [userId, setUserId] = useState<string | null>(null);
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>(defaultNotifications());
   const [notifChannels, setNotifChannels] = useState({ inApp: true, email: false, sms: false });
+  const [notifChannelsLoaded, setNotifChannelsLoaded] = useState(false);
   const [privacyPrefs, setPrivacyPrefs] = useState<PrivacyPrefs>(defaultPrivacy());
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
   const [showDeleteCard, setShowDeleteCard] = useState(false);
+  const privacySaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const privacySaveAbortRef = useRef<AbortController | null>(null);
+  const channelSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const channelSaveAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     void (async () => {
       const res = await fetch("/api/auth/profile", { cache: "no-store" });
       if (!res.ok) return;
-      const data = (await res.json()) as { profile?: {
-        id?: string;
-        isProfileHidden?: boolean;
-        showTradeStats?: boolean;
-        showLastActive?: boolean;
-        allowDirectMessages?: boolean;
-        allowProfileSearch?: boolean;
-        showPhonePublic?: boolean;
-        showEmailPublic?: boolean;
-      } };
+      const data = (await res.json()) as {
+        profile?: {
+          id?: string;
+          isProfileHidden?: boolean;
+          showTradeStats?: boolean;
+          showLastActive?: boolean;
+          allowDirectMessages?: boolean;
+          allowProfileSearch?: boolean;
+          showPhonePublic?: boolean;
+          showEmailPublic?: boolean;
+        };
+      };
       const id = data.profile?.id ?? "unknown";
       setUserId(id);
       if (data.profile) {
@@ -112,15 +119,6 @@ export function AccountSettingsPanel({ locale }: { locale: "ar" | "en" }) {
           show_email: data.profile.showEmailPublic === true,
         });
       }
-      const channelRes = await fetch("/api/alpha-exchange/notification-preferences", { cache: "no-store" });
-      if (channelRes.ok) {
-        const channelData = (await channelRes.json()) as { preferences?: { inApp?: boolean; email?: boolean; sms?: boolean } };
-        setNotifChannels({
-          inApp: channelData.preferences?.inApp !== false,
-          email: channelData.preferences?.email === true,
-          sms: channelData.preferences?.sms === true,
-        });
-      }
       try {
         const rawNotif = localStorage.getItem(`notification_prefs_${id}`);
         if (rawNotif) setNotifPrefs(JSON.parse(rawNotif) as NotificationPrefs);
@@ -130,6 +128,35 @@ export function AccountSettingsPanel({ locale }: { locale: "ar" | "en" }) {
     })();
   }, []);
 
+  useEffect(() => {
+    if (activeTab !== "notifications" || notifChannelsLoaded) return;
+    let mounted = true;
+    void (async () => {
+      const channelRes = await fetch("/api/alpha-exchange/notification-preferences", { cache: "no-store" });
+      if (!mounted || !channelRes.ok) return;
+      const channelData = (await channelRes.json()) as { preferences?: { inApp?: boolean; email?: boolean; sms?: boolean } };
+      setNotifChannels({
+        inApp: channelData.preferences?.inApp !== false,
+        email: channelData.preferences?.email === true,
+        sms: channelData.preferences?.sms === true,
+      });
+      setNotifChannelsLoaded(true);
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [activeTab, notifChannelsLoaded]);
+
+  useEffect(() => {
+    return () => {
+      if (privacySaveTimeoutRef.current) clearTimeout(privacySaveTimeoutRef.current);
+      if (channelSaveTimeoutRef.current) clearTimeout(channelSaveTimeoutRef.current);
+      privacySaveAbortRef.current?.abort();
+      channelSaveAbortRef.current?.abort();
+    };
+  }, []);
+
   function saveNotifPrefs(prefs: NotificationPrefs) {
     setNotifPrefs(prefs);
     if (userId) localStorage.setItem(`notification_prefs_${userId}`, JSON.stringify(prefs));
@@ -137,39 +164,55 @@ export function AccountSettingsPanel({ locale }: { locale: "ar" | "en" }) {
 
   async function savePrivacyPrefs(prefs: PrivacyPrefs) {
     setPrivacyPrefs(prefs);
-    try {
-      const response = await fetch("/api/auth/profile", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          isProfileHidden: !prefs.public_profile,
-          showTradeStats: prefs.show_trade_stats,
-          showLastActive: prefs.show_last_active,
-          allowDirectMessages: prefs.allow_messages,
-          allowProfileSearch: prefs.search_visibility,
-          showPhonePublic: prefs.show_phone,
-          showEmailPublic: prefs.show_email,
-        }),
-      });
-      if (!response.ok) {
+    if (privacySaveTimeoutRef.current) clearTimeout(privacySaveTimeoutRef.current);
+    privacySaveTimeoutRef.current = setTimeout(async () => {
+      privacySaveAbortRef.current?.abort();
+      const controller = new AbortController();
+      privacySaveAbortRef.current = controller;
+      try {
+        const response = await fetch("/api/auth/profile", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            isProfileHidden: !prefs.public_profile,
+            showTradeStats: prefs.show_trade_stats,
+            showLastActive: prefs.show_last_active,
+            allowDirectMessages: prefs.allow_messages,
+            allowProfileSearch: prefs.search_visibility,
+            showPhonePublic: prefs.show_phone,
+            showEmailPublic: prefs.show_email,
+          }),
+        });
+        if (!response.ok) {
+          setDeleteMessage(isAr ? "تعذر حفظ إعدادات الخصوصية." : "Failed to save privacy settings.");
+        }
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") return;
         setDeleteMessage(isAr ? "تعذر حفظ إعدادات الخصوصية." : "Failed to save privacy settings.");
       }
-    } catch {
-      setDeleteMessage(isAr ? "تعذر حفظ إعدادات الخصوصية." : "Failed to save privacy settings.");
-    }
+    }, 350);
   }
 
   async function saveNotificationChannels(next: { inApp: boolean; email: boolean; sms: boolean }) {
     setNotifChannels(next);
-    try {
-      await fetch("/api/alpha-exchange/notification-preferences", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(next),
-      });
-    } catch {
-      // keep optimistic state
-    }
+    if (channelSaveTimeoutRef.current) clearTimeout(channelSaveTimeoutRef.current);
+    channelSaveTimeoutRef.current = setTimeout(async () => {
+      channelSaveAbortRef.current?.abort();
+      const controller = new AbortController();
+      channelSaveAbortRef.current = controller;
+      try {
+        await fetch("/api/alpha-exchange/notification-preferences", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify(next),
+        });
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") return;
+        // keep optimistic state
+      }
+    }, 300);
   }
 
   const tabs: { key: Tab; labelEn: string; labelAr: string }[] = [

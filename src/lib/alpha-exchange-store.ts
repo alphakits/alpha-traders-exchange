@@ -10,6 +10,7 @@ import { runEnvValidation } from "@/lib/env-validation";
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import { addRole, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
 import { publishRealtimeEvent } from "@/lib/realtime";
+import { normalizeSellerLevel } from "@/types/alpha-exchange";
 import type {
   AlphaExchangeActivityLogEntry,
   BetaAnnouncement,
@@ -512,9 +513,8 @@ function levelRank(level: SellerLevel) {
 function summarizePromotionBenefits(rank: SellerLevel) {
   if (rank === "silver") return "Higher marketplace visibility and stronger buyer trust.";
   if (rank === "gold") return "Priority placement and stronger trust signaling on seller cards.";
-  if (rank === "platinum") return "Premium placement and increased visibility with serious buyers.";
-  if (rank === "diamond") return "Top-tier visibility and premium reputation with buyers.";
-  if (rank === "legendary") return "Legendary recognition across Alpha Exchange and maximum buyer trust.";
+  if (rank === "diamond") return "Premium placement and increased visibility with serious buyers.";
+  if (rank === "elite") return "Elite recognition across Alpha Exchange and maximum buyer trust.";
   return "Starter prestige level unlocked.";
 }
 
@@ -592,10 +592,10 @@ function buildHallOfFameEntry(db: AlphaExchangeDb, seller: AlphaExchangeUser) {
 function normalizePromotionHistoryEntry(raw: unknown): SellerPromotionHistoryEntry | null {
   if (!raw || typeof raw !== "object") return null;
   const entry = raw as Record<string, unknown>;
-  const rank = String(entry.rank ?? "");
-  if (!isValidSellerLevel(rank)) return null;
+  const rank = normalizeSellerLevel(String(entry.rank ?? ""));
+  if (!rank) return null;
   const previousRankRaw = String(entry.previousRank ?? "");
-  const previousRank = isValidSellerLevel(previousRankRaw) ? previousRankRaw : undefined;
+  const previousRank = normalizeSellerLevel(previousRankRaw) ?? undefined;
   const promotedAt = typeof entry.promotedAt === "string" ? entry.promotedAt : nowIso();
   const lifetimeCompletedVolumeUsdt = Math.max(0, Number(entry.lifetimeCompletedVolumeUsdt ?? 0));
   const source = entry.source === "admin_override" ? "admin_override" : "automatic";
@@ -610,10 +610,6 @@ function normalizePromotionHistoryEntry(raw: unknown): SellerPromotionHistoryEnt
     reason: typeof entry.reason === "string" ? entry.reason : undefined,
     actorUserId: typeof entry.actorUserId === "string" ? entry.actorUserId : undefined,
   };
-}
-
-function isValidSellerLevel(value: string): value is SellerLevel {
-  return value === "bronze" || value === "silver" || value === "gold" || value === "platinum" || value === "diamond" || value === "legendary";
 }
 
 function buildPrestigeFieldsForSnapshot(input: { volumeUsdt: number; rank: SellerLevel; isOverridden: boolean }) {
@@ -833,6 +829,7 @@ function enrichListingsWithSellerData(db: AlphaExchangeDb, listings: Marketplace
     if (!seller) return listing;
     return {
       ...listing,
+      sellerDisplayName: seller.fullName,
       sellerProfile: buildSellerPublicProfile(seller),
       sellerReputation: snapshots.get(seller.id) ?? computeSellerReputationSnapshot(db, seller.id),
     };
@@ -1051,7 +1048,7 @@ export async function getPremiumSellerProfile(input: {
   const profile = buildSellerPublicProfile(seller);
   const lifetimeCompletedVolumeUsdt = Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? trustSnapshot.totalUsdtVolume));
   const sellerAchievements = seller.sellerAchievements ?? [];
-  const hallOfFameEligible = (seller.sellerPrestigeRank ?? trustSnapshot.level) === "legendary";
+  const hallOfFameEligible = (seller.sellerPrestigeRank ?? trustSnapshot.level) === "elite";
   const currentRank = seller.sellerPrestigeRank ?? trustSnapshot.level;
   const prestigeProgress = getSellerPrestigeProgress(lifetimeCompletedVolumeUsdt, currentRank);
   const ownerTools = viewerIsOwner
@@ -1207,12 +1204,13 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
           : undefined;
       const lifetimeCompletedVolumeUsdt = Math.max(0, Number((user as { lifetimeCompletedVolumeUsdt?: number }).lifetimeCompletedVolumeUsdt ?? 0));
       const sellerPrestigeRankRaw = String((user as { sellerPrestigeRank?: string }).sellerPrestigeRank ?? "");
-      const sellerPrestigeRank = isValidSellerLevel(sellerPrestigeRankRaw) ? sellerPrestigeRankRaw : resolveSellerPrestigeRank(lifetimeCompletedVolumeUsdt);
+      const sellerPrestigeRank = normalizeSellerLevel(sellerPrestigeRankRaw) ?? resolveSellerPrestigeRank(lifetimeCompletedVolumeUsdt);
       const sellerRankOverrideRaw = (user as { sellerRankOverride?: { rank?: string; reason?: string; setAt?: string; setByUserId?: string } }).sellerRankOverride;
+      const normalizedOverrideRank = normalizeSellerLevel(String(sellerRankOverrideRaw?.rank ?? ""));
       const sellerRankOverride =
-        sellerRankOverrideRaw && isValidSellerLevel(String(sellerRankOverrideRaw.rank ?? ""))
+        sellerRankOverrideRaw && normalizedOverrideRank
           ? {
-              rank: String(sellerRankOverrideRaw.rank) as SellerLevel,
+              rank: normalizedOverrideRank,
               reason: String(sellerRankOverrideRaw.reason ?? "").trim(),
               setAt: typeof sellerRankOverrideRaw.setAt === "string" ? sellerRankOverrideRaw.setAt : nowIso(),
               setByUserId: typeof sellerRankOverrideRaw.setByUserId === "string" ? sellerRankOverrideRaw.setByUserId : SYSTEM_ACTOR_USER_ID,
@@ -1619,7 +1617,10 @@ async function readDb(): Promise<AlphaExchangeDb> {
         const numberingChanged = ensureDisplayNumbers(normalized);
         const changed = await applyMarketplaceReliabilityRules(normalized);
         if (changed || numberingChanged) {
-          await writeDb(normalized);
+          dbCache = { value: normalized, updatedAt: Date.now() };
+          void writeDb(normalized).catch((error) => {
+            console.warn("[alpha-exchange-store] Background normalization write failed:", error instanceof Error ? error.message : error);
+          });
           return normalized;
         }
         dbCache = { value: normalized, updatedAt: Date.now() };
@@ -1642,6 +1643,32 @@ async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<
       evidenceOverrides: options?.evidenceOverrides,
       traceTag: options?.traceTag,
     });
+  });
+  dbWriteInFlight = writeTask.catch(() => undefined);
+  try {
+    await writeTask;
+    dbCache = { value: normalized, updatedAt: Date.now() };
+  } finally {
+    dbReadInFlight = null;
+  }
+}
+
+type PurchaseRequestCreationWriteDelta = {
+  purchaseRequest: PurchaseRequest;
+  users: AlphaExchangeUser[];
+  trustSnapshots: TrustSnapshotRecord[];
+  newAuditLogs: AuditLogEntry[];
+  newNotifications: AlphaExchangeNotification[];
+  newActivityLogs: AlphaExchangeActivityLogEntry[];
+  newTrustHistoryEntries: TrustScoreChangeLog[];
+};
+
+async function writeDbForPurchaseRequestCreation(db: AlphaExchangeDb, delta: PurchaseRequestCreationWriteDelta) {
+  const normalized = normalizeDb(db);
+  ensureDisplayNumbers(normalized);
+  const writeTask = dbWriteInFlight.then(async () => {
+    const repository = await getAlphaExchangeRepository();
+    await repository.savePurchaseRequestCreationSnapshotTargeted(delta);
   });
   dbWriteInFlight = writeTask.catch(() => undefined);
   try {
@@ -3180,7 +3207,7 @@ export async function getApprovedSellersForAdmin(dbInput?: AlphaExchangeDb) {
 export async function getHallOfFameEntries() {
   const db = await readDb();
   return db.users
-    .filter((user) => (user.sellerPrestigeRank ?? "bronze") === "legendary")
+    .filter((user) => (user.sellerPrestigeRank ?? "bronze") === "elite")
     .map((user) => buildHallOfFameEntry(db, user))
     .sort((left, right) => new Date(right.promotedAt).getTime() - new Date(left.promotedAt).getTime());
 }
@@ -3264,6 +3291,7 @@ export async function overrideSellerPrestigeByAdmin(input: {
 
 export async function getMarketplaceListings(status?: string) {
   const db = await readDb();
+  await ensureDevelopmentTesterMarketplaceListing(db);
   const nowMs = Date.now();
   const sellerById = new Map(db.users.map((user) => [user.id, user]));
   const hiddenSellerIds = new Set(
@@ -3356,6 +3384,58 @@ export async function getMarketplaceListingById(id: string) {
 
 function isListingCreateProfilingEnabled() {
   return process.env.ALPHA_EXCHANGE_PROFILE_LISTING_CREATE === "1";
+}
+
+function isDevelopmentTesterSeedEnabled() {
+  return process.env.NODE_ENV !== "production";
+}
+
+function isTesterSellerAccount(user: AlphaExchangeUser) {
+  return user.email.trim().toLowerCase() === "marksally11@yahoo.com";
+}
+
+function hasTesterMarketplaceListing(db: AlphaExchangeDb, sellerId: string) {
+  return db.marketplaceListings.some((listing) => listing.sellerId === sellerId && listing.status === "active");
+}
+
+function refreshTesterMarketplaceListingSellerDisplayName(db: AlphaExchangeDb, testerSeller: AlphaExchangeUser) {
+  let changed = false;
+  for (const listing of db.marketplaceListings) {
+    if (listing.sellerId !== testerSeller.id) continue;
+    if (listing.sellerDisplayName === testerSeller.fullName) continue;
+    listing.sellerDisplayName = testerSeller.fullName;
+    changed = true;
+  }
+  return changed;
+}
+
+async function ensureDevelopmentTesterMarketplaceListing(db: AlphaExchangeDb) {
+  if (!isDevelopmentTesterSeedEnabled()) return;
+  const testerSeller = db.users.find((user) => isTesterSellerAccount(user) && user.sellerStatus === "approved_seller");
+  if (!testerSeller) return;
+  const refreshed = refreshTesterMarketplaceListingSellerDisplayName(db, testerSeller);
+  if (hasTesterMarketplaceListing(db, testerSeller.id)) {
+    if (refreshed) await writeDb(db);
+    return;
+  }
+
+  await createMarketplaceListing({
+    sellerId: testerSeller.id,
+    sellerDisplayName: testerSeller.fullName,
+    availableAmount: "250",
+    price: "3.25",
+    currency: "ILS",
+    network: "TRC20",
+    paymentMethod: "Bank Transfer",
+    paymentMethods: ["Bank Transfer"],
+    bankName: "Bank Leumi",
+    minimumTrade: "50",
+    maximumTrade: "250",
+    notes: "Development tester listing. Do not buy.",
+    sellerDescription: "Development tester listing. Do not buy.",
+    responseTime: "5 min",
+    actorUserId: testerSeller.id,
+  });
 }
 function createStoreProfileLogger(scope: string) {
   const startedAt = Date.now();
@@ -4022,6 +4102,12 @@ export async function createPurchaseRequest(input: {
     updatedAt: now,
   };
   db.purchaseRequests.push(request);
+  const startingAuditLogCount = db.auditLogs.length;
+  const startingNotificationCount = db.notifications.length;
+  const startingActivityLogCount = db.activityLog.length;
+  const startingTrustHistoryCount = db.trustScoreHistory.length;
+  const startingUsersById = new Map(db.users.map((user) => [user.id, user] as const));
+  const startingTrustSnapshotsBySellerId = new Map(db.trustSnapshots.map((snapshot) => [snapshot.sellerId, snapshot] as const));
   await appendAuditLog(db, {
     action: "purchase_request_submitted",
     actorUserId: input.actorUserId,
@@ -4050,7 +4136,21 @@ export async function createPurchaseRequest(input: {
     type: "trade.request_created",
     payload: { request: enrichRequestWithEvidence(db, request) },
   });
-  await writeDb(db);
+  const newAuditLogs = db.auditLogs.slice(0, db.auditLogs.length - startingAuditLogCount);
+  const newNotifications = db.notifications.slice(0, db.notifications.length - startingNotificationCount);
+  const newActivityLogs = db.activityLog.slice(0, db.activityLog.length - startingActivityLogCount);
+  const newTrustHistoryEntries = db.trustScoreHistory.slice(0, db.trustScoreHistory.length - startingTrustHistoryCount);
+  const updatedUsers = db.users.filter((user) => user !== startingUsersById.get(user.id));
+  const updatedTrustSnapshots = db.trustSnapshots.filter((snapshot) => snapshot !== startingTrustSnapshotsBySellerId.get(snapshot.sellerId));
+  await writeDbForPurchaseRequestCreation(db, {
+    purchaseRequest: request,
+    users: updatedUsers.length ? updatedUsers : db.users,
+    trustSnapshots: updatedTrustSnapshots.length ? updatedTrustSnapshots : db.trustSnapshots,
+    newAuditLogs,
+    newNotifications,
+    newActivityLogs,
+    newTrustHistoryEntries,
+  });
   return request;
 }
 

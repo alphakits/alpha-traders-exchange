@@ -413,7 +413,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-[#9CA3AF]">{locale === "ar" ? lesson.descriptionAr : lesson.description}</p>
-                <Link href={`/lessons/${lesson.slug}`} className="mt-4 inline-flex text-sm text-[#C9A227] hover:underline">
+                <Link href={`/lessons/${lesson.slug}`} className="mt-4 inline-flex min-h-11 items-center rounded-lg px-1 text-sm text-[#C9A227] hover:underline">
                   {locale === "ar" ? "ابدأ الدرس" : "Start lesson"}
                 </Link>
               </CardContent>

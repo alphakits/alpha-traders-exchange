@@ -13,6 +13,8 @@ type NotificationsPayload = {
   unreadCount: number;
 };
 
+const BELL_REFRESH_WINDOW_MS = 30_000;
+
 function formatRelativeTime(isoDate: string, locale: AppLocale) {
   const date = new Date(isoDate);
   const diffMs = Date.now() - date.getTime();
@@ -44,6 +46,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   const [notifications, setNotifications] = useState<AlphaExchangeNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [lastLoadedAt, setLastLoadedAt] = useState(0);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const router = useRouter();
   const pathname = usePathname();
@@ -75,6 +78,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
       const payload = (await response.json()) as NotificationsPayload;
       setNotifications(payload.notifications ?? []);
       setUnreadCount(payload.unreadCount ?? 0);
+      setLastLoadedAt(Date.now());
     } catch {
       setError("Failed to load notifications.");
     } finally {
@@ -90,11 +94,17 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
     const nextOpen = !isOpen;
     setIsOpen(nextOpen);
     if (nextOpen) {
-      await loadNotifications(20);
+      router.prefetch("/notifications");
+      const isFresh = Date.now() - lastLoadedAt < BELL_REFRESH_WINDOW_MS;
+      if (!isFresh || notifications.length === 0) {
+        await loadNotifications(20);
+      }
     }
   }
 
   async function handleMarkOneRead(notificationId: string) {
+    const target = notifications.find((item) => item.id === notificationId);
+    if (!target || target.isRead) return;
     try {
       const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
         method: "PATCH",
@@ -105,7 +115,8 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
         setError("Failed to update notification.");
         return;
       }
-      await loadNotifications(20);
+      setNotifications((prev) => prev.map((item) => (item.id === notificationId ? { ...item, isRead: true } : item)));
+      setUnreadCount((prev) => Math.max(0, prev - 1));
     } catch {
       setError("Failed to update notification.");
     }
@@ -122,7 +133,8 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
         setError("Failed to update notifications.");
         return;
       }
-      await loadNotifications(20);
+      setNotifications((prev) => prev.map((item) => ({ ...item, isRead: true })));
+      setUnreadCount(0);
     } catch {
       setError("Failed to update notifications.");
     }

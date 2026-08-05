@@ -8,9 +8,8 @@ import { buildSellerReviewStats, getVisibleSellerReviews } from "@/lib/reviews";
 import type { PremiumSellerProfileData, SellerBadge, SellerLevel } from "@/types/alpha-exchange";
 
 function formatSellerLevelLabel(level?: SellerLevel) {
-  if (level === "legendary") return "Alpha Legendary Seller";
+  if (level === "elite") return "Alpha Elite Seller";
   if (level === "diamond") return "Alpha Diamond Seller";
-  if (level === "platinum") return "Alpha Platinum Seller";
   if (level === "gold") return "Alpha Gold Seller";
   if (level === "silver") return "Alpha Silver Seller";
   return "Alpha Bronze Seller";
@@ -27,9 +26,8 @@ function formatSellerBadgeLabel(badge: string) {
 }
 
 function sellerRankTheme(level?: SellerLevel) {
-  if (level === "legendary") return "from-[#F8E7A0] via-white to-[#C9A227] text-transparent bg-clip-text";
+  if (level === "elite") return "from-[#F8E7A0] via-white to-[#C9A227] text-transparent bg-clip-text";
   if (level === "diamond") return "text-[#7CC9FF]";
-  if (level === "platinum") return "text-[#C8D1DF]";
   if (level === "gold") return "text-[#E8C547]";
   if (level === "silver") return "text-[#C9CED9]";
   return "text-[#B8824B]";
@@ -118,7 +116,7 @@ export function PremiumSellerProfilePage({ locale, data }: PremiumSellerProfileP
               <div className={`flex items-end gap-4 ${isAr ? "flex-row-reverse" : ""}`}>
                 <div className="relative">
                   {seller.profilePhotoUrl ? (
-                    <Image src={seller.profilePhotoUrl} alt={seller.sellerName} width={110} height={110} unoptimized className="h-24 w-24 rounded-full border-4 border-[#050505] object-cover shadow-[0_0_0_1px_rgba(201,162,39,0.3)] md:h-28 md:w-28" />
+                    <Image src={seller.profilePhotoUrl} alt={seller.sellerName} width={110} height={110} sizes="(max-width: 768px) 96px, 112px" className="h-24 w-24 rounded-full border-4 border-[#050505] object-cover shadow-[0_0_0_1px_rgba(201,162,39,0.3)] md:h-28 md:w-28" />
                   ) : (
                     <div className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-[#050505] bg-[#C9A227]/20 text-2xl font-semibold text-[#FDE68A] md:h-28 md:w-28">
                       {seller.sellerName.slice(0, 2).toUpperCase()}

@@ -15,7 +15,7 @@ function isValidNetwork(value: unknown): value is SupportedNetwork {
 
 export async function GET() {
   const listings = await getMarketplaceListings();
-  return NextResponse.json({ listings });
+  return NextResponse.json({ listings }, { status: 200 });
 }
 
 function isListingCreateProfilingEnabled() {

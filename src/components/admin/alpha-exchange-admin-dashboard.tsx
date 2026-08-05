@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { RoleBadge } from "@/components/ui/role-badge";
-import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, AuditLogEntry, BetaAnnouncement, BetaAnnouncementType, BetaFeedbackCategory, CommissionRecord, MarketplaceListing, OwnerBusinessDashboardMetrics, OwnerPrivateBetaDashboardData, PurchaseRequest, SellerApplication, SellerAvailabilityStatus, SellerLevel, SupportedNetwork } from "@/types/alpha-exchange";
+import { normalizeSellerLevel, type AlphaExchangeActivityLogEntry, type AlphaExchangeNotification, type AuditLogEntry, type BetaAnnouncement, type BetaAnnouncementType, type BetaFeedbackCategory, type CommissionRecord, type MarketplaceListing, type OwnerBusinessDashboardMetrics, type OwnerPrivateBetaDashboardData, type PurchaseRequest, type SellerApplication, type SellerAvailabilityStatus, type SellerLevel, type SupportedNetwork } from "@/types/alpha-exchange";
 
 type AdminSummary = {
   usersCount: number;
@@ -114,16 +114,11 @@ function formatPercent(value: number) {
 }
 
 function sellerLevelLabel(level?: SellerLevel) {
-  if (level === "legendary") return "Legendary";
+  if (level === "elite") return "Elite";
   if (level === "diamond") return "Diamond";
-  if (level === "platinum") return "Platinum";
   if (level === "gold") return "Gold";
   if (level === "silver") return "Silver";
   return "Bronze";
-}
-
-function isSellerLevel(value: string): value is SellerLevel {
-  return value === "bronze" || value === "silver" || value === "gold" || value === "platinum" || value === "diamond" || value === "legendary";
 }
 
 function feedbackCategoryLabel(value: BetaFeedbackCategory) {
@@ -1038,10 +1033,10 @@ export function AlphaExchangeAdminDashboard() {
                                           size="sm"
                                           variant="secondary"
                                           onClick={() => {
-                                            const nextRank = window.prompt("Set rank (bronze, silver, gold, platinum, diamond, legendary)", seller.sellerPrestigeRank ?? "bronze");
+                                            const nextRank = window.prompt("Set rank (bronze, silver, gold, diamond, elite)", seller.sellerPrestigeRank ?? "bronze");
                                             if (!nextRank) return;
-                                            const rankInput = nextRank.trim().toLowerCase();
-                                            if (!isSellerLevel(rankInput)) {
+                                            const rankInput = normalizeSellerLevel(nextRank);
+                                            if (!rankInput) {
                                               pushToast("Invalid prestige rank.");
                                               return;
                                             }
@@ -1784,10 +1779,10 @@ export function AlphaExchangeAdminDashboard() {
                   size="sm"
                   variant="secondary"
                   onClick={() => {
-                    const nextRank = window.prompt("Set rank (bronze, silver, gold, platinum, diamond, legendary)", selectedSeller.sellerPrestigeRank ?? "bronze");
+                    const nextRank = window.prompt("Set rank (bronze, silver, gold, diamond, elite)", selectedSeller.sellerPrestigeRank ?? "bronze");
                     if (!nextRank) return;
-                    const rankInput = nextRank.trim().toLowerCase();
-                    if (!isSellerLevel(rankInput)) {
+                    const rankInput = normalizeSellerLevel(nextRank);
+                    if (!rankInput) {
                       pushToast("Invalid prestige rank.");
                       return;
                     }

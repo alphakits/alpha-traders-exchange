@@ -10,7 +10,25 @@ export type OnboardingSelection = "guest" | "student" | "buyer" | "seller_applic
 export type SellerStatus = "buyer" | "pending_seller_approval" | "approved_seller" | "rejected" | "suspended";
 export type SellerOnlineStatus = "online" | "offline";
 export type SellerAvailabilityStatus = "available" | "away" | "vacation";
-export type SellerLevel = "bronze" | "silver" | "gold" | "platinum" | "diamond" | "legendary";
+export const SELLER_LEVELS = ["bronze", "silver", "gold", "diamond", "elite"] as const;
+export type SellerLevel = (typeof SELLER_LEVELS)[number];
+
+const LEGACY_SELLER_LEVEL_MAP: Record<string, SellerLevel> = {
+  platinum: "diamond",
+  legendary: "elite",
+};
+
+export function isSellerLevel(value: string): value is SellerLevel {
+  return (SELLER_LEVELS as readonly string[]).includes(value);
+}
+
+export function normalizeSellerLevel(value: string | null | undefined): SellerLevel | null {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) return null;
+  if (isSellerLevel(normalized)) return normalized;
+  return LEGACY_SELLER_LEVEL_MAP[normalized] ?? null;
+}
+
 export type SellerBadge = "elite_seller" | "top_rated" | "fast_responder" | "trusted_seller" | "most_active" | "platinum_seller" | "trades_1000_plus";
 export type SupportedNetwork = "TRC20" | "ERC20" | "BEP20" | "SOL";
 

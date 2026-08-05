@@ -8,7 +8,7 @@ export async function GET() {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
   const requests = await getMyPurchaseRequests(user.id, user.role);
-  return NextResponse.json({ requests });
+  return NextResponse.json({ requests }, { status: 200 });
 }
 
 export async function POST(request: NextRequest) {
@@ -64,6 +64,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ purchase }, { status: 201 });
   } catch (error) {
+    console.error("[purchase-requests] POST failed", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to submit purchase request." }, { status: 400 });
   }
 }
