@@ -174,7 +174,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                 key={item}
                 type="button"
                 onClick={() => setFilter(item)}
-                className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                className={`inline-flex min-h-10 items-center rounded-full border px-3 text-sm transition ${
                   filter === item
                     ? "border-[#C9A227]/50 bg-[#C9A227]/15 text-[#C9A227]"
                     : "border-white/15 bg-black/20 text-[#D1D5DB] hover:border-white/25 hover:text-white"
@@ -221,7 +221,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                           type="button"
                           size="sm"
                           variant="secondary"
-                          className="h-8 px-3 text-xs"
+                            className="h-10 px-3 text-xs md:h-8"
                           onClick={() => {
                             if (!notification.isRead) {
                               void handleMarkOneRead(notification.id);
@@ -238,7 +238,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                             type="button"
                             size="sm"
                             variant="secondary"
-                            className="h-8 px-3 text-xs"
+                            className="h-10 px-3 text-xs md:h-8"
                             loading={Boolean(itemLoading[`read:${notification.id}`])}
                             loadingLabel="Saving..."
                             onClick={() => void handleMarkOneRead(notification.id)}
@@ -247,7 +247,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                           </Button>
                         ) : null}
                         {notification.relatedHref ? (
-                          <Button type="button" size="sm" variant="secondary" className="h-8 px-3 text-xs" onClick={() => router.push(notification.relatedHref!)}>
+                          <Button type="button" size="sm" variant="secondary" className="h-10 px-3 text-xs md:h-8" onClick={() => router.push(notification.relatedHref!)}>
                             Open related page
                           </Button>
                         ) : null}
@@ -264,13 +264,13 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
               Showing {pageItems.length ? pageStart + 1 : 0}-{Math.min(pageStart + PAGE_SIZE, filteredNotifications.length)} of {filteredNotifications.length}
             </p>
             <div className="flex items-center gap-2">
-              <Button type="button" size="sm" variant="secondary" className="h-8 px-3 text-xs" disabled={currentPage <= 1} onClick={() => setPage((prev) => Math.max(1, prev - 1))}>
+              <Button type="button" size="sm" variant="secondary" className="h-10 px-3 text-xs md:h-8" disabled={currentPage <= 1} onClick={() => setPage((prev) => Math.max(1, prev - 1))}>
                 Previous
               </Button>
               <span className="text-xs text-[#D1D5DB]">
                 {currentPage}/{totalPages}
               </span>
-              <Button type="button" size="sm" variant="secondary" className="h-8 px-3 text-xs" disabled={currentPage >= totalPages} onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}>
+              <Button type="button" size="sm" variant="secondary" className="h-10 px-3 text-xs md:h-8" disabled={currentPage >= totalPages} onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}>
                 Next
               </Button>
             </div>

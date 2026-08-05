@@ -146,7 +146,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
       <button
         type="button"
         onClick={() => void handleToggleOpen()}
-        className="relative inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-white/[0.02] text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227]"
+        className="relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/[0.02] text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227] md:h-9 md:w-9"
         aria-label="Notifications"
       >
         <Bell className="h-4 w-4" />
@@ -158,7 +158,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
       </button>
 
       <div
-        className={`absolute end-0 top-11 z-50 w-[22rem] origin-top-right rounded-2xl border border-white/15 bg-[#0b0b0b]/95 shadow-2xl backdrop-blur-xl transition-all duration-200 ${
+        className={`absolute end-0 top-11 z-50 w-[min(22rem,calc(100vw-1rem))] origin-top-right rounded-2xl border border-white/15 bg-[#0b0b0b]/95 shadow-2xl backdrop-blur-xl transition-all duration-200 ${
           isOpen ? "visible scale-100 opacity-100" : "invisible scale-95 opacity-0"
         }`}
       >

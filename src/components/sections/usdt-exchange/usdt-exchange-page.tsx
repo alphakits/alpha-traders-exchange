@@ -115,6 +115,14 @@ function safeText(value: unknown, fallback = "—") {
   return fallback;
 }
 
+function isLocalTesterSellerName(value: unknown) {
+  return process.env.NODE_ENV !== "production" && typeof value === "string" && value.trim().toLowerCase() === "test account";
+}
+
+function isLocalTesterListing(listing: MarketplaceListing) {
+  return isLocalTesterSellerName(listing.sellerDisplayName);
+}
+
 
 function safeErrorMessage(context: "application" | "purchase" | "listing" | "request" | "settings" | "password" | "workspace" | "review" | "evidence") {
   const map = {
@@ -178,9 +186,8 @@ function formatRelativeMinutesLabel(value?: string) {
 }
 
 function sellerLevelLabel(level?: SellerLevel) {
-  if (level === "legendary") return "Alpha Legendary Seller";
+  if (level === "elite") return "Alpha Elite Seller";
   if (level === "diamond") return "Alpha Diamond Seller";
-  if (level === "platinum") return "Alpha Platinum Seller";
   if (level === "gold") return "Alpha Gold Seller";
   if (level === "silver") return "Alpha Silver Seller";
   return "Alpha Bronze Seller";
@@ -191,9 +198,8 @@ function sellerLevelDisplayName(level?: SellerLevel) {
 }
 
 function sellerRankTheme(level?: SellerLevel) {
-  if (level === "legendary") return "from-[#F8E7A0] via-[#FFFFFF] to-[#C9A227] text-transparent bg-clip-text";
+  if (level === "elite") return "from-[#F8E7A0] via-[#FFFFFF] to-[#C9A227] text-transparent bg-clip-text";
   if (level === "diamond") return "text-[#7CC9FF]";
-  if (level === "platinum") return "text-[#C8D1DF]";
   if (level === "gold") return "text-[#E8C547]";
   if (level === "silver") return "text-[#C9CED9]";
   return "text-[#B8824B]";
@@ -202,9 +208,8 @@ function sellerRankTheme(level?: SellerLevel) {
 function summarizePromotionBenefits(rank: SellerLevel) {
   if (rank === "silver") return "Higher marketplace visibility and stronger buyer trust.";
   if (rank === "gold") return "Priority placement and stronger trust signaling on seller cards.";
-  if (rank === "platinum") return "Premium placement and increased visibility with serious buyers.";
-  if (rank === "diamond") return "Top-tier visibility and premium reputation with buyers.";
-  if (rank === "legendary") return "Legendary recognition across Alpha Exchange and maximum buyer trust.";
+  if (rank === "diamond") return "Premium placement and increased visibility with serious buyers.";
+  if (rank === "elite") return "Elite recognition across Alpha Exchange and maximum buyer trust.";
   return "Starter prestige level unlocked.";
 }
 
@@ -213,7 +218,7 @@ function prestigeBadgeLabel(rank?: SellerLevel) {
 }
 
 function sellerBadgeLabel(badge: SellerBadge) {
-  if (badge === "elite_seller") return "✨ Legendary Seller";
+  if (badge === "elite_seller") return "✨ Elite Seller";
   if (badge === "top_rated") return "💎 Top Rated";
   if (badge === "fast_responder") return "⚡ Fast Responder";
   if (badge === "trusted_seller") return "🛡 Trusted Seller";
@@ -960,6 +965,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     if (sortBy === "newest") {
       sorted.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     }
+    if (process.env.NODE_ENV !== "production") {
+      sorted.sort((a, b) => Number(isLocalTesterListing(a)) - Number(isLocalTesterListing(b)));
+    }
     return sorted;
   }, [listings, networkFilter, currencyFilter, paymentMethodFilter, bankFilter, minAmountFilter, maxAmountFilter, minPriceFilter, maxPriceFilter, trustScoreFilter, onlineOnlyFilter, sortBy]);
 
@@ -1251,7 +1259,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     const currentRank = sellerOverviewStats.currentPrestigeRank;
     const previousRank = previousPrestigeRankRef.current;
     if (previousRank && previousRank !== currentRank) {
-      const rankOrder: SellerLevel[] = ["bronze", "silver", "gold", "platinum", "diamond", "legendary"];
+      const rankOrder: SellerLevel[] = ["bronze", "silver", "gold", "diamond", "elite"];
       if (rankOrder.indexOf(currentRank) > rankOrder.indexOf(previousRank)) {
         setPromotionModalRank(currentRank);
       }
@@ -2226,7 +2234,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           {/* Name + level + badges */}
                           <div>
                             <CardTitle className={`text-lg leading-tight ${isAr ? "text-right" : ""}`}>
-                              <span className={sellerRankTheme(sellerRank)}>{safeText(listing.sellerDisplayName, "Seller")}</span>
+                              <span className="inline-flex flex-wrap items-center gap-2">
+                                <span className={sellerRankTheme(sellerRank)}>{safeText(listing.sellerDisplayName, "Seller")}</span>
+                                {isLocalTesterSellerName(listing.sellerDisplayName) ? (
+                                  <span className="inline-flex items-center rounded-full border border-red-400/50 bg-red-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-red-200">
+                                    TEST ACCOUNT - DO NOT BUY
+                                  </span>
+                                ) : null}
+                              </span>
                             </CardTitle>
                             <p className={`mt-0.5 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF] ${isAr ? "text-right" : ""}`}>
                               {sellerLevelLabel(sellerRank)} Seller
@@ -3617,7 +3632,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         <div className="mt-5 space-y-3">
           {faqs.map((item) => (
             <details key={item.q} className="group rounded-2xl border border-white/10 bg-[#0B0B0B]/85 p-5 transition-colors hover:border-white/20">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-base font-medium text-white">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-base font-medium text-white">
                 {item.q}
                 <ChevronDown className="h-4 w-4 flex-shrink-0 text-[#C9A227] transition-transform duration-200 group-open:rotate-180" />
               </summary>

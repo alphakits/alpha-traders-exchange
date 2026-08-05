@@ -212,7 +212,7 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
               <input type="checkbox" checked={form.rememberMe} onChange={(event) => setForm((prev) => ({ ...prev, rememberMe: event.target.checked }))} className="h-4 w-4 rounded border-white/30 bg-transparent accent-[#C9A227]" />
               {isAr ? "تذكرني" : "Remember Me"}
             </label>
-            <button type="button" onClick={() => setResetMode((prev) => !prev)} className="text-[#C9A227] hover:underline">
+            <button type="button" onClick={() => setResetMode((prev) => !prev)} className="inline-flex min-h-11 items-center text-[#C9A227] hover:underline">
               {isAr ? "نسيت كلمة المرور" : "Forgot Password"}
             </button>
           </div>
@@ -254,7 +254,7 @@ export function LoginForm({ locale, redirectTo }: { locale: "ar" | "en"; redirec
 
         <p className="mt-5 text-sm text-[#9CA3AF]">
           {isAr ? "ليس لديك حساب؟" : "Don’t have an account?"}{" "}
-          <Link href="/register" className="text-[#C9A227] hover:underline">
+          <Link href="/register" className="inline-flex min-h-11 items-center rounded-md px-1 text-[#C9A227] hover:underline">
             {isAr ? "أنشئ حسابًا" : "Create Account"}
           </Link>
         </p>
