@@ -868,7 +868,8 @@ describe("partial listing preservation", () => {
     const sellerNotificationsAfterRequest = await getNotificationsForUser({ userId: SELLER_ID });
     const buyerNotificationsAfterRequest = await getNotificationsForUser({ userId: BUYER_ONE_ID });
     expect(sellerNotificationsAfterRequest.notifications.filter((n) => n.relatedRequestId === request.request.id && n.title === "New trade request")).toHaveLength(1);
-    expect(buyerNotificationsAfterRequest.notifications.filter((n) => n.relatedRequestId === request.request.id)).toHaveLength(0);
+    expect(buyerNotificationsAfterRequest.notifications.filter((n) => n.title === "New trade request")).toHaveLength(0);
+    expect(buyerNotificationsAfterRequest.notifications.filter((n) => n.title === "🟢 New USDT Listing Available" && n.relatedListingId === listing.id)).toHaveLength(1);
 
     await updatePurchaseRequestStatus({
       requestId: request.request.id,

@@ -1,0 +1,80 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  buildMarketplaceEmail,
+  sendMarketplaceEmail,
+  type MarketplaceEmailPayload,
+} from "@/lib/marketplace-email-delivery";
+
+const payload: MarketplaceEmailPayload = {
+  event: "trade_accepted",
+  recipientName: "Mark <Trader>",
+  title: "Trade Accepted",
+  message: "The seller accepted your request.",
+  actionLabel: "Open Trade Room",
+  actionUrl: "https://www.alphatraders.co.il/en/trade-room/request-1",
+  referenceLabel: "trade-1",
+};
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
+
+describe("marketplace email delivery", () => {
+  it("builds a branded mobile-friendly transactional email", () => {
+    const email = buildMarketplaceEmail(payload);
+
+    expect(email.subject).toBe("Trade Accepted | Alpha Exchange");
+    expect(email.text).toContain("Open Trade Room");
+    expect(email.html).toContain("Alpha Exchange");
+    expect(email.html).toContain("max-width:560px");
+    expect(email.html).toContain("Mark &lt;Trader&gt;");
+    expect(email.html).not.toContain("Mark <Trader>");
+  });
+
+  it("does not call Resend when email delivery is not configured", async () => {
+    vi.stubEnv("RESEND_API_KEY", "");
+    vi.stubEnv("EMAIL_FROM", "");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(sendMarketplaceEmail({ ...payload, to: "mark@example.com" })).resolves.toEqual({
+      ok: false,
+      reason: "resend_not_configured",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends the rendered email through Resend", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test-api-key");
+    vi.stubEnv("EMAIL_FROM", "Alpha Exchange <notifications@example.com>");
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(sendMarketplaceEmail({ ...payload, to: "mark@example.com" })).resolves.toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.resend.com/emails",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ Authorization: "Bearer test-api-key" }),
+      }),
+    );
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(request.body))).toEqual(expect.objectContaining({
+      from: "Alpha Exchange <notifications@example.com>",
+      to: ["mark@example.com"],
+      subject: "Trade Accepted | Alpha Exchange",
+    }));
+  });
+
+  it("reports Resend network failures without rejecting the trade side effect", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test-api-key");
+    vi.stubEnv("EMAIL_FROM", "Alpha Exchange <notifications@example.com>");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network unavailable")));
+
+    await expect(sendMarketplaceEmail({ ...payload, to: "mark@example.com" })).resolves.toEqual({
+      ok: false,
+      reason: "resend_network_failed",
+    });
+  });
+});

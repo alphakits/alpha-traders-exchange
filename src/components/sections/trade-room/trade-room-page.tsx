@@ -70,9 +70,7 @@ const ALLOWED_EVIDENCE_TYPES = new Set(["image/png", "image/jpeg", "image/webp",
 const MAX_EVIDENCE_SIZE_BYTES = 8 * 1024 * 1024;
 const TRADE_ROOM_DEBUG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
 const COMPLETED_TRADE_STATUSES = new Set<PurchaseRequest["status"]>(["review_open", "completed", "locked"]);
-// Performance timing logs are always-on during RC5 QA so timings are visible in
-// the browser console without needing a special env var set on production.
-const PERF_LOG = true;
+const PERF_LOG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
 
 const STEP_ORDER: Array<{ id: StepId; icon: string; label: { en: string; ar: string } }> = [
   { id: "request", icon: "📝", label: { en: "Request", ar: "الطلب" } },
@@ -139,6 +137,7 @@ function getPrimaryAction(request: PurchaseRequest, isSeller: boolean, isAr: boo
       nextStatus: "accepted",
     };
   }
+
   if (request.status === "accepted" && !isSeller) {
     if (!request.buyerEvidence) {
       return {
@@ -206,6 +205,46 @@ function getPrimaryAction(request: PurchaseRequest, isSeller: boolean, isAr: boo
     };
   }
   return null;
+}
+
+function getWaitingEstimate(request: PurchaseRequest, isSeller: boolean, isAr: boolean, isOverdue: boolean) {
+  if (request.status === "pending") return isAr ? "حتى يراجع البائع الطلب" : "Until the seller reviews the request";
+  if (request.status === "accepted") return isSeller
+    ? (isAr ? "حتى يرسل المشتري إثبات الدفع" : "Until the buyer submits payment proof")
+    : (isAr ? "نفّذ الدفع وارفع الإيصال الآن" : "Pay and upload the receipt now");
+  if (request.status === "payment_sent") return isSeller
+    ? (isAr ? "تحقق من حسابك الآن" : "Verify your account now")
+    : (isAr ? "عادةً بضع دقائق للتحقق" : "Usually a few minutes for verification");
+  if (request.status === "funds_received") return isSeller
+    ? (isAr ? "ابدأ إصدار USDT الآن" : "Start the USDT release now")
+    : (isAr ? "حتى يبدأ البائع الإصدار" : "Until the seller starts the release");
+  if (request.status === "usdt_release_pending") {
+    if (isOverdue) return isAr ? "المهلة منتهية — يلزم الإجراء فورًا" : "Deadline exceeded — action is required now";
+    return isAr ? "ضمن مهلة إصدار مدتها 45 دقيقة" : "Within the 45-minute release window";
+  }
+  if (request.status === "usdt_sent") return isSeller
+    ? (isAr ? "حتى يؤكد المشتري الاستلام" : "Until the buyer confirms receipt")
+    : (isAr ? "أكد الاستلام فور وصول USDT" : "Confirm as soon as USDT arrives");
+  return isAr ? "لا يوجد وقت انتظار" : "No waiting time";
+}
+
+function getDeliveryConfirmation(request: PurchaseRequest, isAr: boolean) {
+  if (request.status === "pending") {
+    return isAr ? "تم إرسال إشعار للبائع. تتم معالجة البريد الإلكتروني في الخلفية." : "Seller notification sent. Email delivery is processed in the background.";
+  }
+  if (request.status === "accepted" || request.status === "declined") {
+    return isAr ? "تم إرسال إشعار للمشتري. تتم معالجة البريد الإلكتروني في الخلفية." : "Buyer notification sent. Email delivery is processed in the background.";
+  }
+  if (request.status === "payment_sent") {
+    return isAr ? "تم إرسال إشعار للبائع. تتم معالجة البريد الإلكتروني في الخلفية." : "Seller notification sent. Email delivery is processed in the background.";
+  }
+  if (request.status === "usdt_sent") {
+    return isAr ? "تم إرسال إشعار للمشتري. تتم معالجة البريد الإلكتروني في الخلفية." : "Buyer notification sent. Email delivery is processed in the background.";
+  }
+  if (request.status === "review_open" || request.status === "completed" || request.status === "locked" || request.status === "cancelled") {
+    return isAr ? "تم إرسال إشعار للطرفين. تتم معالجة البريد الإلكتروني في الخلفية." : "Both parties notified. Email delivery is processed in the background.";
+  }
+  return isAr ? "تتم مزامنة التحديثات مباشرة داخل غرفة الصفقة." : "Updates are synchronized live in the Trade Room.";
 }
 
 function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isAr: boolean, primaryAction: PrimaryAction | null, isOverdue: boolean) {
@@ -341,6 +380,28 @@ function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isA
           counterpartyAction: isAr ? "البائع أرسل USDT" : "Seller has already sent the USDT",
           tradeStatus: currentStatus,
         };
+  }
+  if (request.status === "declined") {
+    return {
+      icon: "✕",
+      title: isAr ? "الحالة النهائية" : "Final Status",
+      headline: isAr ? "رفض البائع طلب الصفقة" : "Seller Rejected the Trade Request",
+      detail: isAr ? "تم إغلاق الطلب ولم تعد هناك أي دفعة مطلوبة." : "The request is closed and no payment is required.",
+      yourAction: isAr ? "ارجع إلى السوق لاختيار عرض آخر" : "Return to the marketplace to choose another listing",
+      counterpartyAction: isAr ? "لا يوجد إجراء مطلوب" : "No further action is required",
+      tradeStatus: currentStatus,
+    };
+  }
+  if (request.status === "cancelled") {
+    return {
+      icon: "✕",
+      title: isAr ? "الحالة النهائية" : "Final Status",
+      headline: isAr ? "تم إلغاء الصفقة" : "Trade Cancelled",
+      detail: isAr ? "تم إغلاق الصفقة وإيقاف جميع الخطوات التالية." : "The trade is closed and all remaining steps have stopped.",
+      yourAction: isAr ? "ارجع إلى السوق عندما تكون مستعدًا" : "Return to the marketplace when you are ready",
+      counterpartyAction: isAr ? "لا يوجد إجراء مطلوب" : "No further action is required",
+      tradeStatus: currentStatus,
+    };
   }
   return {
     icon: "⭐",
@@ -497,12 +558,30 @@ function createOptimisticEvidence(request: PurchaseRequest, side: "buyer" | "sel
   };
 }
 
-function buildOptimisticRoom(room: TradeRoomData, nextStatus: PrimaryStatus) {
+function buildOptimisticRoom(room: TradeRoomData, nextStatus: PrimaryStatus, actor: ActorSession) {
   const now = new Date();
   const nextRequest: PurchaseRequest = {
     ...room.request,
+    timeline: [...(room.request.timeline ?? [])],
   };
   applyOptimisticStatusFields(nextRequest, nextStatus, now);
+  const timelineByStatus: Record<PrimaryStatus, Pick<TradeTimelineEntry, "type" | "message">> = {
+    accepted: { type: "request_accepted", message: "Seller accepted request" },
+    payment_sent: { type: "payment_sent", message: "Buyer marked payment sent" },
+    funds_received: { type: "seller_confirmed_funds", message: "Seller confirmed funds received" },
+    usdt_release_pending: { type: "usdt_release_started", message: "Seller started USDT release" },
+    usdt_sent: { type: "usdt_sent", message: "Seller marked USDT sent" },
+    completed: { type: "buyer_confirmed_receipt", message: "Buyer confirmed USDT receipt" },
+  };
+  const timelineEvent = timelineByStatus[nextStatus];
+  nextRequest.timeline.push({
+    id: `optimistic-${nextStatus}-${now.getTime()}`,
+    type: timelineEvent.type,
+    actorUserId: actor.id,
+    actorRole: actor.role,
+    message: timelineEvent.message,
+    createdAt: now.toISOString(),
+  });
   return applyRequestToRoom(room, nextRequest);
 }
 
@@ -810,9 +889,11 @@ export function TradeRoomPage({
   }, [markOutstandingBuyerReminderCompleted, router]);
 
   useEffect(() => {
+    if (!room?.releaseDeadlineActive) return;
+    setClockTick(Date.now());
     const id = window.setInterval(() => setClockTick(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [room?.releaseDeadlineActive]);
 
   useEffect(() => {
     const stream = new EventSource(`/api/alpha-exchange/trade-room/${requestId}/stream`);
@@ -852,6 +933,7 @@ export function TradeRoomPage({
           roomRef.current = payload;
           writeTradeRoomCache(requestId, payload);
           setRoom(payload);
+          setIsLoading(false);
         }
         setStreamConnected(true);
         setErrorMessage(null);
@@ -909,6 +991,8 @@ export function TradeRoomPage({
   const primaryAction = request ? getPrimaryAction(request, isSeller, isAr, sellerEvidenceRequired) : null;
   const isOverdueTrade = Boolean(room?.isOverdue);
   const statusBanner = request ? getStatusBannerContent(request, isSeller, isAr, primaryAction, isOverdueTrade) : null;
+  const waitingEstimate = request ? getWaitingEstimate(request, isSeller, isAr, isOverdueTrade) : null;
+  const deliveryConfirmation = request ? getDeliveryConfirmation(request, isAr) : null;
   const showSuccessScreen = request?.status === "review_open" || request?.status === "completed" || request?.status === "locked";
   const isBuyerCompletionSyncInFlight = Boolean(
     request
@@ -978,7 +1062,7 @@ export function TradeRoomPage({
     if (actionInFlightRef.current === mutationKey) return;
     actionInFlightRef.current = mutationKey;
     const previousRoom = room;
-    const optimisticRoom = buildOptimisticRoom(room, nextStatus);
+    const optimisticRoom = buildOptimisticRoom(room, nextStatus, actor);
     const payload = nextStatus === "accepted"
       ? { status: nextStatus, safetyAcknowledged: true }
       : { status: nextStatus };
@@ -1115,7 +1199,7 @@ export function TradeRoomPage({
       actionInFlightRef.current = null;
       setActionBusy(false);
     }
-  }, [actor.id, fetchRoom, isAr, request, requestId, room, startBuyerCompletionSuccessFlow, streamConnected]);
+  }, [actor, fetchRoom, isAr, request, requestId, room, startBuyerCompletionSuccessFlow, streamConnected]);
 
   const handleSendMessage = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1607,10 +1691,11 @@ export function TradeRoomPage({
                   </div>
                   <div>
                     <CardTitle className="text-2xl">{statusBanner.headline}</CardTitle>
-                    <p className="mt-2 text-sm text-[#E5E7EB]">{statusBanner.detail}</p>
+                    <p className="mt-2 text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "ما الذي حدث" : "What just happened"}</p>
+                    <p className="mt-1 text-sm text-[#E5E7EB]">{statusBanner.detail}</p>
                   </div>
                 </div>
-                <div className="grid gap-2 text-sm xl:min-w-[300px]">
+                <div className="grid gap-2 text-sm md:grid-cols-2 xl:min-w-[430px]">
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "إجراك الحالي" : "Your action"}</p>
                     <p className="mt-1 text-white">{statusBanner.yourAction}</p>
@@ -1620,8 +1705,12 @@ export function TradeRoomPage({
                     <p className="mt-1 text-white">{statusBanner.counterpartyAction}</p>
                   </div>
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-                    <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "حالة الصفقة" : "Trade status"}</p>
-                    <p className="mt-1 text-white">{statusBanner.tradeStatus}</p>
+                    <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "وقت الانتظار المتوقع" : "Expected wait"}</p>
+                    <p className="mt-1 text-white">{waitingEstimate}</p>
+                  </div>
+                  <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/5 p-3">
+                    <p className="text-[11px] uppercase tracking-[0.12em] text-emerald-200/70">{isAr ? "التحديثات المرسلة" : "Updates sent"}</p>
+                    <p className="mt-1 text-emerald-50">{deliveryConfirmation}</p>
                   </div>
                 </div>
               </div>

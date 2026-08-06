@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { getTradeEvidenceForRequest, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { prepareTradeEventEmails } from "@/lib/marketplace-email-events";
 
 type RouteContext = {
   params: Promise<{ requestId: string }>;
@@ -79,6 +80,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
       sizeBytes: Number.isFinite(suppliedSize) && suppliedSize > 0 ? suppliedSize : Math.ceil((payload.contentBase64.length * 3) / 4),
       contentBase64: payload.contentBase64,
     });
+    if (uploaded.metrics.autoAdvancedToPaymentSent) {
+      const deliverTradeEmails = await prepareTradeEventEmails({ event: "buyer_payment_sent", request: uploaded.request });
+      after(deliverTradeEmails);
+    }
     const routeMs = Date.now() - routeStartedAt;
     console.log("[trade-room-perf] evidence timings", {
       requestId,

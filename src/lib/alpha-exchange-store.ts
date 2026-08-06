@@ -2096,6 +2096,17 @@ function getListingBroadcastRecipients(db: AlphaExchangeDb, creatorUserId: strin
   return db.users.filter((user) => user.id !== creatorUserId && user.sellerStatus !== "suspended" && (hasRole(user, "buyer") || hasRole(user, "approved_seller") || hasRole(user, "admin") || hasRole(user, "owner")));
 }
 
+export async function getListingBroadcastEmailRecipients(creatorUserId: string) {
+  const db = await readDb();
+  return getListingBroadcastRecipients(db, creatorUserId)
+    .filter((user) => user.notificationPreferences?.email === true)
+    .map((user) => ({
+      id: user.id,
+      fullName: user.fullName,
+      email: user.email,
+    }));
+}
+
 function pushNotification(
   db: AlphaExchangeDb,
   input: {
@@ -4712,6 +4723,20 @@ export async function reviewMarketplaceListingByOwner(input: {
     relatedListingId: current.id,
     relatedHref: "/usdt-exchange",
   });
+  if (input.decision === "approve") {
+    const listing = db.marketplaceListings[index];
+    const listingSummary = `${listing.availableAmount} USDT on ${listing.network} at ${listing.price} ${listing.currency}/USDT`;
+    for (const recipient of getListingBroadcastRecipients(db, listing.sellerId)) {
+      pushNotification(db, {
+        userId: recipient.id,
+        category: "listing",
+        title: "🟢 New USDT Listing Available",
+        message: `${listing.sellerDisplayName} published ${listingSummary}.`,
+        relatedListingId: listing.id,
+        relatedHref: "/usdt-exchange",
+      });
+    }
+  }
   pushActivityLog(db, {
     userId: current.sellerId,
     category: "listing",
@@ -5025,20 +5050,6 @@ export async function createPurchaseRequest(input: {
     relatedListingId: request.listingId,
     relatedHref: requestDetailsHref(request.id),
   });
-  const newListingRecipients = getListingBroadcastRecipients(db, input.actorUserId);
-  if (newListingRecipients.length > 0) {
-    const listingSummary = `${listing.availableAmount} USDT on ${listing.network} at ${listing.price} ${listing.currency}/USDT`;
-    for (const recipient of newListingRecipients) {
-      pushNotification(db, {
-        userId: recipient.id,
-        category: "listing",
-        title: "🟢 New USDT Listing Available",
-        message: `A new seller has listed ${listingSummary}.`,
-        relatedListingId: listing.id,
-        relatedHref: "/usdt-exchange",
-      });
-    }
-  }
   pushActivityLog(db, {
     userId: input.buyerId,
     category: "trade",
@@ -6184,6 +6195,7 @@ export async function updatePurchaseRequestStatus(input: {
   let timelineMs = 0;
   let chatMs = 0;
   let notificationMs = 0;
+  const additionallyDeclinedRequests: PurchaseRequest[] = [];
   let requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.requestId);
   if (requestIndex === -1) {
     throw new TradeBlockedError("purchase-request-not-found", "Purchase request not found.", input.requestId, {
@@ -6438,6 +6450,7 @@ export async function updatePurchaseRequestStatus(input: {
         createdAt: now,
       });
       db.purchaseRequests[siblingIndex] = declinedSibling;
+      additionallyDeclinedRequests.push(declinedSibling);
       pushNotification(db, {
         userId: sibling.buyerId,
         category: "trade",
@@ -6484,6 +6497,17 @@ export async function updatePurchaseRequestStatus(input: {
     appendTradeTimelineEntry(next, { type: "request_cancelled", actorUserId: input.actorUserId, actorRole, message: "Buyer cancelled request", createdAt: now });
     if (listing && listing.activeTradeRequestId === request.id) {
       unlockListingAfterCancelledTrade(db, listing, input.actorUserId, request, "Buyer cancelled the trade.");
+    }
+    for (const userId of [request.buyerId, request.sellerId]) {
+      pushNotification(db, {
+        userId,
+        category: "trade",
+        title: "Trade cancelled",
+        message: "The buyer cancelled this trade request.",
+        relatedTradeId: next.tradeId,
+        relatedListingId: request.listingId,
+        relatedHref: requestDetailsHref(request.id),
+      });
     }
   } else if (input.nextStatus === "payment_sent") {
     const buyerEvidence = getTradeEvidenceFile(db, request.id, "buyer");
@@ -6860,6 +6884,7 @@ export async function updatePurchaseRequestStatus(input: {
   }
   return {
     request: enriched,
+    additionallyDeclinedRequests,
     // When trust was recalculated, return a deferred task that writes the trust tables.
     // The route handler runs this via after() so the HTTP response is sent first.
     deferredTrustWrite: shouldRecalculateTrust
