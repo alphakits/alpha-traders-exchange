@@ -1,6 +1,6 @@
 import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
-import { TradeBlockedError, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
+import { sanitizePurchaseRequestForActor, TradeBlockedError, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { prepareTradeEventEmails, tradeEmailEventForStatus } from "@/lib/marketplace-email-events";
@@ -121,7 +121,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       console.log("[usdt-sent-trace] before response", { traceId, requestId, updatedStatus: updated.status });
     }
     const routeMs = Date.now() - startedAt;
-    const responseBody = { request: updated, metrics };
+    const responseBody = { request: sanitizePurchaseRequestForActor(updated, user.id, user.role), metrics };
     const queueMs = Math.max(0, routeMs - metrics.totalMs);
     // Always log server-side timings so production performance is visible in Vercel logs.
     console.log("[trade-room-perf] server timings", {

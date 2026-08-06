@@ -8,6 +8,9 @@ export type MarketplaceEmailEvent =
   | "trade_cancelled"
   | "listing_approved"
   | "listing_rejected"
+  | "listing_submitted"
+  | "listing_expired"
+  | "listing_renewed"
   | "new_listing_published";
 
 export type MarketplaceEmailPayload = {
@@ -82,7 +85,7 @@ export function buildMarketplaceEmail(input: MarketplaceEmailPayload) {
   };
 }
 
-export async function sendMarketplaceEmail(input: MarketplaceEmailPayload & { to: string }) {
+export async function sendMarketplaceEmail(input: MarketplaceEmailPayload & { to: string; idempotencyKey?: string }) {
   const apiKey = process.env.RESEND_API_KEY?.trim() ?? "";
   const from = process.env.EMAIL_FROM?.trim() ?? "";
   if (!apiKey || !from) {
@@ -96,6 +99,7 @@ export async function sendMarketplaceEmail(input: MarketplaceEmailPayload & { to
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
+        ...(input.idempotencyKey ? { "Idempotency-Key": input.idempotencyKey } : {}),
       },
       body: JSON.stringify({
         from,

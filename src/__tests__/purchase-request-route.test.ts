@@ -89,6 +89,7 @@ describe("purchase request route", () => {
         usdtAmount: "500",
         buyerName: "Buyer One",
         buyerWhatsapp: "0500000000",
+        buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
       }),
       headers: { "Content-Type": "application/json" },
     });

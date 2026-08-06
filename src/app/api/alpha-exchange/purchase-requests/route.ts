@@ -130,6 +130,13 @@ export async function POST(request: NextRequest) {
     }
 
     const buyerNotes = String(body.buyerNotes ?? "").slice(0, 2000);
+    const buyerReceivingWalletAddress = String(body.buyerReceivingWalletAddress ?? "").trim();
+    if (!buyerReceivingWalletAddress) {
+      return denied("Receiving wallet address is required.", 400, "RECEIVING_WALLET_REQUIRED");
+    }
+    if (buyerReceivingWalletAddress.length > 128) {
+      return denied("Receiving wallet address is too long.", 400, "RECEIVING_WALLET_INVALID");
+    }
     const usdtAmount = String(body.usdtAmount ?? "").trim();
     const paymentMethod = String(body.paymentMethod ?? "").trim();
     if (!usdtAmount) {
@@ -145,6 +152,7 @@ export async function POST(request: NextRequest) {
       buyerName,
       buyerWhatsapp,
       buyerNotes,
+      buyerReceivingWalletAddress,
       paymentMethod: paymentMethod || undefined,
       bankName: bankName || undefined,
       safetyAcknowledged,

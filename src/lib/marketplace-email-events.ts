@@ -52,7 +52,7 @@ async function deliver(input: Omit<MarketplaceEmailPayload, "recipientName"> & {
 }
 
 function tradeEmailContent(
-  event: Exclude<MarketplaceEmailEvent, "listing_approved" | "listing_rejected" | "new_listing_published">,
+  event: Exclude<MarketplaceEmailEvent, "listing_approved" | "listing_rejected" | "listing_submitted" | "listing_expired" | "listing_renewed" | "new_listing_published">,
   request: PurchaseRequest,
 ) {
   const referenceLabel = request.tradeId ?? request.id;
@@ -80,7 +80,7 @@ function tradeEmailContent(
 }
 
 export async function prepareTradeEventEmails(input: {
-  event: Exclude<MarketplaceEmailEvent, "listing_approved" | "listing_rejected" | "new_listing_published">;
+  event: Exclude<MarketplaceEmailEvent, "listing_approved" | "listing_rejected" | "listing_submitted" | "listing_expired" | "listing_renewed" | "new_listing_published">;
   request: PurchaseRequest;
 }) {
   // Trade lifecycle messages are transactional safety notices and are sent

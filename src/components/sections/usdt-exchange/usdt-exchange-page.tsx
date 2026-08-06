@@ -22,6 +22,7 @@ import { formatListingId, formatTradeId } from "@/lib/format-id";
 import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
+import { getWalletAddressValidationError, normalizeWalletAddress } from "@/lib/wallet-address";
 import { cn } from "@/lib/utils";
 import { SELLER_PRESTIGE_TIERS } from "@/lib/seller-prestige";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
@@ -920,7 +921,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     return () => window.clearTimeout(timerId);
   }, [isMobileViewport]);
 
-  const [buyerInfo, setBuyerInfo] = useState({ name: "", whatsapp: "", notes: "", usdtAmount: "" });
+  const [buyerInfo, setBuyerInfo] = useState({ name: "", whatsapp: "", notes: "", usdtAmount: "", receivingWalletAddress: "" });
   const [sellerForm, setSellerForm] = useState({
     firstName: "",
     lastName: "",
@@ -1342,6 +1343,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     setBuyerInfo((prev) => ({
       ...prev,
       usdtAmount: formatIntegerForInput(listing.minimumTrade || listing.availableAmount),
+      receivingWalletAddress: "",
     }));
     void fetchSellerProfileData(listing.sellerId);
   }, [isLoadingListings, listings, selectedListing, sessionUser, updateListingSelectionQuery, fetchSellerProfileData]);
@@ -1637,6 +1639,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     setBuyerInfo((prev) => ({
       ...prev,
       usdtAmount: formatIntegerForInput(listing.minimumTrade || listing.availableAmount),
+      receivingWalletAddress: "",
     }));
   }, [requireAuth, fetchSellerProfileData, updateListingSelectionQuery]);
 
@@ -1703,6 +1706,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       setStatusMessage(`Trade amount must be between ${minTrade.toLocaleString("en-IL")} and ${maxTrade.toLocaleString("en-IL")} USDT.`);
       return;
     }
+    const walletValidationError = getWalletAddressValidationError(selectedListing.network, buyerInfo.receivingWalletAddress);
+    if (walletValidationError) {
+      setStatusMessage(walletValidationError);
+      return;
+    }
     const fallbackMessage = "We could not start this trade due to an unexpected server error.";
     setIsSubmittingPurchase(true);
     try {
@@ -1715,6 +1723,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           buyerName: buyerInfo.name,
           buyerWhatsapp: buyerInfo.whatsapp,
           buyerNotes: notesOverride ?? buyerInfo.notes,
+          buyerReceivingWalletAddress: normalizeWalletAddress(buyerInfo.receivingWalletAddress),
           paymentMethod: selectedListingPaymentMethod ?? undefined,
           safetyAcknowledged: faceToFaceSafetyAcknowledged,
         }),
@@ -1882,6 +1891,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const selectedMinTrade = selectedListing ? Math.max(0, toNumber(selectedListing.minimumTrade)) : 0;
   const selectedMaxTrade = selectedListing ? toNumber(selectedListing.maximumTrade || selectedListing.availableAmount) : 0;
   const buyerTradeAmountInvalid = !!selectedListing && (buyerTradeAmount < selectedMinTrade || buyerTradeAmount > selectedMaxTrade);
+  const buyerWalletValidationError = selectedListing
+    ? getWalletAddressValidationError(selectedListing.network, buyerInfo.receivingWalletAddress)
+    : null;
+  const buyerWalletInvalid = buyerWalletValidationError !== null;
   const selectedListingPaymentMethods = selectedListing ? normalizePaymentMethodList(selectedListing.paymentMethods, selectedListing.paymentMethod) : [];
   const selectedListingPaymentMethod = normalizeMarketplacePaymentMethod(selectedPurchasePaymentMethod) ?? selectedListingPaymentMethods[0] ?? null;
   const selectedListingRequiresSafetyNotice = listingRequiresFaceToFaceSafetyNotice(selectedListingPaymentMethod);
@@ -5508,6 +5521,31 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <Input placeholder="Name" value={buyerInfo.name} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, name: event.target.value }))} />
                       <Input placeholder="WhatsApp" value={buyerInfo.whatsapp} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, whatsapp: event.target.value }))} />
                       <Textarea aria-label="Buyer notes" placeholder="Notes" value={buyerInfo.notes} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, notes: event.target.value }))} />
+                      <div className="space-y-2 md:col-span-3">
+                        <label htmlFor="buyer-receiving-wallet" className="text-sm font-medium text-white">
+                          Receiving Wallet Address <span className="text-red-300">*</span>
+                        </label>
+                        <Input
+                          id="buyer-receiving-wallet"
+                          required
+                          autoComplete="off"
+                          spellCheck={false}
+                          placeholder={`${selectedListing.network} wallet address`}
+                          value={buyerInfo.receivingWalletAddress}
+                          onChange={(event) => setBuyerInfo((prev) => ({ ...prev, receivingWalletAddress: event.target.value }))}
+                          className={buyerInfo.receivingWalletAddress && buyerWalletInvalid ? "border-red-500/80" : ""}
+                          aria-describedby="buyer-wallet-guidance"
+                          aria-invalid={buyerInfo.receivingWalletAddress ? buyerWalletInvalid : undefined}
+                        />
+                        <p
+                          id="buyer-wallet-guidance"
+                          className={`text-xs ${buyerInfo.receivingWalletAddress && buyerWalletInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}
+                        >
+                          {buyerInfo.receivingWalletAddress && buyerWalletValidationError
+                            ? buyerWalletValidationError
+                            : `Enter the address where you want to receive USDT on ${selectedListing.network}. It stays hidden from the seller until you mark payment as sent.`}
+                        </p>
+                      </div>
                     </div>
                     {selectedListingRequiresSafetyNotice ? (
                       <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-xs text-amber-100">
@@ -5535,7 +5573,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     ) : null}
                     <div className="sticky bottom-0 z-10 rounded-xl border border-[#C9A227]/30 bg-[#0B0B0B]/95 p-3">
                       <div className="grid gap-2 md:grid-cols-2">
-                        <Button type="submit" className="w-full" disabled={isSubmittingPurchase || buyerTradeAmountInvalid || (selectedListingRequiresSafetyNotice && !faceToFaceSafetyAcknowledged)}>
+                        <Button type="submit" className="w-full" disabled={isSubmittingPurchase || buyerTradeAmountInvalid || buyerWalletInvalid || (selectedListingRequiresSafetyNotice && !faceToFaceSafetyAcknowledged)}>
                           {isSubmittingPurchase ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                           {isSubmittingPurchase ? "Starting trade..." : "Start Trade"}
                         </Button>
@@ -5543,7 +5581,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           type="button"
                           variant="secondary"
                           className="w-full"
-                          disabled={isSubmittingPurchase || buyerTradeAmountInvalid || (selectedListingRequiresSafetyNotice && !faceToFaceSafetyAcknowledged)}
+                          disabled={isSubmittingPurchase || buyerTradeAmountInvalid || buyerWalletInvalid || (selectedListingRequiresSafetyNotice && !faceToFaceSafetyAcknowledged)}
                           onClick={() => void submitPurchaseRequest("Please proceed with this trade.")}
                         >
                           {isSubmittingPurchase ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
