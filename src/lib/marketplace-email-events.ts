@@ -41,10 +41,12 @@ async function deliver(input: Omit<MarketplaceEmailPayload, "recipientName"> & {
     recipientName: input.recipient.fullName,
   });
   if (!result.ok) {
-    console.warn("[marketplace-email] delivery skipped or failed", {
+    console.error("[marketplace-email] delivery failed", {
       event: input.event,
       recipientUserId: input.recipient.id,
       reason: result.reason,
+      providerStatus: "providerStatus" in result ? result.providerStatus : undefined,
+      providerMessage: "providerMessage" in result ? result.providerMessage : undefined,
     });
   }
 }
