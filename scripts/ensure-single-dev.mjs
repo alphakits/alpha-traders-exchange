@@ -4,6 +4,14 @@ import path from "node:path";
 const cwd = process.cwd().toLowerCase();
 const selfPid = process.pid;
 
+function decodeWmicEntities(value) {
+  return value
+    .replaceAll("&amp;", "&")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">");
+}
+
 function collectProcesses() {
   try {
     if (process.platform === "win32") {
@@ -15,7 +23,7 @@ function collectProcesses() {
         .map((line) => {
           const parts = line.split(",");
           const pid = Number(parts[parts.length - 1] ?? "");
-          const command = parts.slice(1, -1).join(",").trim();
+          const command = decodeWmicEntities(parts.slice(1, -1).join(",").trim());
           return { pid, command };
         })
         .filter((item) => Number.isFinite(item.pid) && item.pid > 0 && item.command);

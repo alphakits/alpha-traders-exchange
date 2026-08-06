@@ -10,7 +10,7 @@ export async function GET() {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
   const requests = await getMyPurchaseRequests(user.id, user.role);
-  return NextResponse.json({ requests });
+  return NextResponse.json({ requests }, { status: 200 });
 }
 
 export async function POST(request: NextRequest) {

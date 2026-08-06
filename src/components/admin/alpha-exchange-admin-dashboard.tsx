@@ -10,15 +10,14 @@ import { Input } from "@/components/ui/input";
 import { createExchangeDisplayLookup, replaceExchangeEntityIds } from "@/lib/alpha-exchange-display";
 import { formatCommissionId, formatListingId, formatRequestId, formatTradeId } from "@/lib/format-id";
 import { RoleBadge } from "@/components/ui/role-badge";
-import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, AuditLogEntry, BetaAnnouncement, BetaAnnouncementType, BetaFeedbackCategory, CommissionRecord, MarketplaceListing, OwnerBusinessDashboardMetrics, OwnerPrivateBetaDashboardData, PurchaseRequest, SellerApplication, SellerAvailabilityStatus, SellerLevel, SellerReviewRecord, SupportedNetwork } from "@/types/alpha-exchange";
+import { SELLER_LEVELS, normalizeSellerLevel, type AlphaExchangeActivityLogEntry, type AlphaExchangeNotification, type AuditLogEntry, type BetaAnnouncement, type BetaAnnouncementType, type BetaFeedbackCategory, type CommissionRecord, type MarketplaceListing, type OwnerBusinessDashboardMetrics, type OwnerPrivateBetaDashboardData, type PurchaseRequest, type SellerApplication, type SellerAvailabilityStatus, type SellerLevel, type SellerReviewRecord, type SupportedNetwork } from "@/types/alpha-exchange";
 
 const RANK_BADGE_COLOR: Record<SellerLevel, string> = {
   bronze: "border-[#CD7F32]/30 bg-[#CD7F32]/10 text-[#E8A96A]",
   silver: "border-[#C0C0C0]/30 bg-[#C0C0C0]/10 text-[#C9CED9]",
   gold: "border-[#C9A227]/30 bg-[#C9A227]/10 text-[#FDE68A]",
-  platinum: "border-[#C8D1DF]/30 bg-[#C8D1DF]/10 text-[#C8D1DF]",
   diamond: "border-[#7CC9FF]/30 bg-[#7CC9FF]/10 text-[#7CC9FF]",
-  legendary: "border-[#F8E7A0]/30 bg-[#F8E7A0]/10 text-[#F8E7A0]",
+  elite: "border-[#F8E7A0]/30 bg-[#F8E7A0]/10 text-[#F8E7A0]",
 };
 
 type AdminSummary = {
@@ -154,16 +153,11 @@ function displayCommissionId(record: Pick<CommissionRecord, "displayNumber" | "i
 }
 
 function sellerLevelLabel(level?: SellerLevel) {
-  if (level === "legendary") return "Legendary";
+  if (level === "elite") return "Elite";
   if (level === "diamond") return "Diamond";
-  if (level === "platinum") return "Platinum";
   if (level === "gold") return "Gold";
   if (level === "silver") return "Silver";
   return "Bronze";
-}
-
-function isSellerLevel(value: string): value is SellerLevel {
-  return value === "bronze" || value === "silver" || value === "gold" || value === "platinum" || value === "diamond" || value === "legendary";
 }
 
 function feedbackCategoryLabel(value: BetaFeedbackCategory) {
@@ -520,12 +514,7 @@ export function AlphaExchangeAdminDashboard() {
     return [...items].sort((a, b) => {
       const rankWeight = (s: AdminSeller) => {
         const r = s.sellerPrestigeRank ?? "bronze";
-        if (r === "legendary") return 6;
-        if (r === "diamond") return 5;
-        if (r === "platinum") return 4;
-        if (r === "gold") return 3;
-        if (r === "silver") return 2;
-        return 1;
+        return SELLER_LEVELS.indexOf(r) + 1;
       };
       return rankWeight(b) - rankWeight(a);
     });
@@ -603,7 +592,7 @@ export function AlphaExchangeAdminDashboard() {
   }
 
   async function handleBulkRankAction(action: "promote" | "demote" | "set" | "reset", targetRank?: SellerLevel) {
-    const RANK_ORDER: SellerLevel[] = ["bronze", "silver", "gold", "platinum", "diamond", "legendary"];
+    const RANK_ORDER: readonly SellerLevel[] = SELLER_LEVELS;
     const sellers = rankMgmtRows.filter((s) => rankMgmtSelected.has(s.id));
     if (sellers.length === 0) { pushToast("No sellers selected."); return; }
     const eligibleSellers = sellers.filter((s) => !(s.roles ?? []).includes("owner") && s.role !== "owner");
@@ -1364,10 +1353,10 @@ export function AlphaExchangeAdminDashboard() {
                                           size="sm"
                                           variant="secondary"
                                           onClick={() => {
-                                            const nextRank = window.prompt("Set rank (bronze, silver, gold, platinum, diamond, legendary)", seller.sellerPrestigeRank ?? "bronze");
+                                            const nextRank = window.prompt("Set rank (bronze, silver, gold, diamond, elite)", seller.sellerPrestigeRank ?? "bronze");
                                             if (!nextRank) return;
-                                            const rankInput = nextRank.trim().toLowerCase();
-                                            if (!isSellerLevel(rankInput)) {
+                                            const rankInput = normalizeSellerLevel(nextRank);
+                                            if (!rankInput) {
                                               pushToast("Invalid prestige rank.");
                                               return;
                                             }
@@ -1410,15 +1399,14 @@ export function AlphaExchangeAdminDashboard() {
                     <div className="space-y-4">
                       {/* Rank Distribution Summary */}
                       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                        {(["bronze", "silver", "gold", "platinum", "diamond", "legendary"] as SellerLevel[]).map((rank) => {
+                        {SELLER_LEVELS.map((rank) => {
                           const count = (data?.approvedSellers ?? []).filter((s) => (s.sellerPrestigeRank ?? "bronze") === rank).length;
                           const rankColors: Record<SellerLevel, string> = {
                             bronze: "border-[#CD7F32]/30 bg-[#CD7F32]/10 text-[#E8A96A]",
                             silver: "border-[#C0C0C0]/30 bg-[#C0C0C0]/10 text-[#C9CED9]",
                             gold: "border-[#C9A227]/30 bg-[#C9A227]/10 text-[#FDE68A]",
-                            platinum: "border-[#C8D1DF]/30 bg-[#C8D1DF]/10 text-[#C8D1DF]",
                             diamond: "border-[#7CC9FF]/30 bg-[#7CC9FF]/10 text-[#7CC9FF]",
-                            legendary: "border-[#F8E7A0]/30 bg-[#F8E7A0]/10 text-[#F8E7A0]",
+                            elite: "border-[#F8E7A0]/30 bg-[#F8E7A0]/10 text-[#F8E7A0]",
                           };
                           return (
                             <button
@@ -1467,9 +1455,8 @@ export function AlphaExchangeAdminDashboard() {
                               <option value="bronze">Bronze</option>
                               <option value="silver">Silver</option>
                               <option value="gold">Gold</option>
-                              <option value="platinum">Platinum</option>
                               <option value="diamond">Diamond</option>
-                              <option value="legendary">Legendary</option>
+                              <option value="elite">Elite</option>
                             </select>
                           </div>
 
@@ -1496,9 +1483,8 @@ export function AlphaExchangeAdminDashboard() {
                                     <option value="bronze">Bronze</option>
                                     <option value="silver">Silver</option>
                                     <option value="gold">Gold</option>
-                                    <option value="platinum">Platinum</option>
                                     <option value="diamond">Diamond</option>
-                                    <option value="legendary">Legendary</option>
+                                    <option value="elite">Elite</option>
                                   </select>
                                   <Button type="button" size="sm" onClick={() => void handleBulkRankAction("set", rankMgmtBulkRank)}>
                                     Set Rank
@@ -1618,9 +1604,8 @@ export function AlphaExchangeAdminDashboard() {
                                               <option value="bronze">Bronze Seller</option>
                                               <option value="silver">Silver Seller</option>
                                               <option value="gold">Gold Seller</option>
-                                              <option value="platinum">Platinum Seller</option>
                                               <option value="diamond">Diamond Seller</option>
-                                              <option value="legendary">Legendary Seller</option>
+                                              <option value="elite">Elite Seller</option>
                                             </select>
                                             {isSaving ? (
                                               <span className="text-[11px] text-[#9CA3AF]">Saving…</span>
@@ -1646,16 +1631,15 @@ export function AlphaExchangeAdminDashboard() {
                           <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
                             <p className="text-xs font-medium uppercase tracking-[0.12em] text-[#9CA3AF]">Rank hierarchy (lowest → highest)</p>
                             <div className="mt-2 flex flex-wrap gap-2">
-                              {(["bronze", "silver", "gold", "platinum", "diamond", "legendary"] as SellerLevel[]).map((rank, idx) => {
+                              {SELLER_LEVELS.map((rank, idx) => {
                                 const colors: Record<SellerLevel, string> = {
                                   bronze: "border-[#CD7F32]/30 text-[#E8A96A]",
                                   silver: "border-[#C0C0C0]/30 text-[#C9CED9]",
                                   gold: "border-[#C9A227]/30 text-[#FDE68A]",
-                                  platinum: "border-[#C8D1DF]/30 text-[#C8D1DF]",
                                   diamond: "border-[#7CC9FF]/30 text-[#7CC9FF]",
-                                  legendary: "border-[#F8E7A0]/30 text-[#F8E7A0]",
+                                  elite: "border-[#F8E7A0]/30 text-[#F8E7A0]",
                                 };
-                                const volumes = { bronze: "0 USDT", silver: "15K+", gold: "50K+", platinum: "150K+", diamond: "300K+", legendary: "500K+" };
+                                const volumes: Record<SellerLevel, string> = { bronze: "0 USDT", silver: "15K+", gold: "50K+", diamond: "150K+", elite: "500K+" };
                                 return (
                                   <span key={rank} className={`rounded-full border px-2.5 py-1 text-[11px] ${colors[rank]}`}>
                                     {idx + 1}. {sellerLevelLabel(rank)} · {volumes[rank]}
@@ -2675,10 +2659,10 @@ export function AlphaExchangeAdminDashboard() {
                   size="sm"
                   variant="secondary"
                   onClick={() => {
-                    const nextRank = window.prompt("Set rank (bronze, silver, gold, platinum, diamond, legendary)", selectedSeller.sellerPrestigeRank ?? "bronze");
+                    const nextRank = window.prompt("Set rank (bronze, silver, gold, diamond, elite)", selectedSeller.sellerPrestigeRank ?? "bronze");
                     if (!nextRank) return;
-                    const rankInput = nextRank.trim().toLowerCase();
-                    if (!isSellerLevel(rankInput)) {
+                    const rankInput = normalizeSellerLevel(nextRank);
+                    if (!rankInput) {
                       pushToast("Invalid prestige rank.");
                       return;
                     }

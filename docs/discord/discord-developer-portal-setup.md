@@ -1,0 +1,133 @@
+# Alpha Traders Discord Developer Portal Setup Guide
+
+This guide sets up a brand-new Discord application and bot for your existing Alpha Traders Discord server, then runs the inspection workflow.
+
+## Prerequisites
+
+- You are server owner (or have Administrator) in your target Discord server.
+- You are logged into Discord in a browser.
+- Node.js and npm are installed locally.
+
+## 1) Create the Discord Application
+
+1. Open Discord Developer Portal:
+   https://discord.com/developers/applications
+2. Click New Application.
+3. Name it: Alpha Traders Bot.
+4. Open the General Information tab.
+5. Copy and save Application ID. This value is your DISCORD_APPLICATION_ID.
+
+## 2) Create the Bot User
+
+1. In the left menu, open Bot.
+2. Click Add Bot, then confirm.
+3. Optional but recommended:
+   - Disable Public Bot (if you only want private use).
+   - Enable Presence Intent if you plan to use presence-based features later.
+   - Keep all privileged intents disabled for now unless your future bot logic needs them.
+4. Click Reset Token (or Copy Token if newly created) and save the value securely.
+   - This value is your DISCORD_BOT_TOKEN.
+   - Never share this token.
+
+## 3) OAuth2 Scopes and Bot Permissions
+
+Open OAuth2 -> URL Generator.
+
+Select scopes:
+- bot
+- applications.commands
+
+Select bot permissions (recommended for Alpha setup automation):
+- View Channels
+- Manage Channels
+- Manage Roles
+- Manage Server
+- View Audit Log
+- Send Messages
+- Embed Links
+- Attach Files
+- Read Message History
+- Manage Messages
+- Manage Threads
+- Moderate Members
+- Kick Members
+- Ban Members
+- Mention @everyone, @here, and All Roles
+
+Notes:
+- These permissions match the provisioning, moderation baseline, logging, and slash command setup.
+- If you prefer least-privilege hardening later, you can reduce permissions after initial deployment.
+
+## 4) Generate Invite URL and Invite to Existing Server
+
+1. With scopes and permissions selected, copy the generated URL at the bottom.
+2. Open the URL in your browser.
+3. Choose your existing Alpha Traders server (do not create a new server).
+4. Authorize the bot.
+5. Complete Discord captcha if prompted.
+
+## 5) Obtain DISCORD_GUILD_ID
+
+1. In Discord app, enable Developer Mode:
+   User Settings -> Advanced -> Developer Mode.
+2. Right-click your target server icon.
+3. Click Copy Server ID.
+4. This value is your DISCORD_GUILD_ID.
+
+## 6) Configure .env.local
+
+Create or update .env.local in the repo root with:
+
+DISCORD_BOT_TOKEN=YOUR_BOT_TOKEN
+DISCORD_GUILD_ID=YOUR_EXISTING_SERVER_ID
+DISCORD_APPLICATION_ID=YOUR_APPLICATION_ID
+DISCORD_BLUEPRINT_PATH=scripts/discord/alpha-discord-blueprint.json
+DISCORD_DRY_RUN=0
+
+Optional report path override:
+DISCORD_REPORT_DIR=docs/discord/reports
+
+Important:
+- Keep .env.local private.
+- Never commit bot tokens.
+
+## 7) Verify Bot Can Connect
+
+Run:
+npm run discord:verify
+
+Expected result:
+- Bot identity printed (username and id)
+- Guild access confirmed for your DISCORD_GUILD_ID
+
+## 8) Continue Automatically With Inspection
+
+After verification succeeds, run:
+npm run discord:post-setup
+
+This command will:
+1. Verify bot authentication and guild access
+2. Run inspection
+3. Generate migration reports in docs/discord/reports
+
+Expected output files:
+- discord-migration-report-<timestamp>.json
+- discord-migration-report-<timestamp>.md
+
+## 9) If You Get Errors
+
+- Missing DISCORD_BOT_TOKEN:
+  Confirm token exists in .env.local and terminal loaded env.
+- Unknown Guild or Missing Access:
+  Confirm bot was invited to the same server ID you copied.
+- Missing Permissions:
+  Re-open OAuth2 URL Generator, include required permissions, re-invite bot.
+- 403 on integrations endpoint:
+  Some integration details may require elevated rights; core inspection still runs.
+
+## 10) Security Best Practices
+
+- Rotate token if it was exposed.
+- Store secrets in env vars only.
+- Limit who can manage the bot application.
+- After successful deployment, review and remove unnecessary permissions.

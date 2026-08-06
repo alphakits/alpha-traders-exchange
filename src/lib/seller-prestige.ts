@@ -4,15 +4,13 @@ export const SELLER_PRESTIGE_TIERS: Array<{ rank: SellerLevel; minVolumeUsdt: nu
   { rank: "bronze", minVolumeUsdt: 0, publicLabel: "0+" },
   { rank: "silver", minVolumeUsdt: 15_000, publicLabel: "15K+" },
   { rank: "gold", minVolumeUsdt: 50_000, publicLabel: "50K+" },
-  { rank: "platinum", minVolumeUsdt: 150_000, publicLabel: "150K+" },
-  { rank: "diamond", minVolumeUsdt: 300_000, publicLabel: "300K+" },
-  { rank: "legendary", minVolumeUsdt: 500_000, publicLabel: "500K+" },
+  { rank: "diamond", minVolumeUsdt: 150_000, publicLabel: "150K+" },
+  { rank: "elite", minVolumeUsdt: 500_000, publicLabel: "500K+" },
 ];
 
 export function sellerPrestigeRankWeight(rank: SellerLevel) {
-  if (rank === "legendary") return 6;
-  if (rank === "diamond") return 5;
-  if (rank === "platinum") return 4;
+  if (rank === "elite") return 5;
+  if (rank === "diamond") return 4;
   if (rank === "gold") return 3;
   if (rank === "silver") return 2;
   return 1;

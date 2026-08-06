@@ -29,8 +29,8 @@ function deriveSellerBadges(input: {
   recentActivityScore: number;
 }) {
   const badges: SellerBadge[] = [];
-  if (input.level === "legendary") badges.push("elite_seller");
-  if (input.level === "platinum" || input.level === "diamond" || input.level === "legendary") badges.push("platinum_seller");
+  if (input.level === "elite") badges.push("elite_seller");
+  if (input.level === "diamond" || input.level === "elite") badges.push("platinum_seller");
   if (input.rating >= 4.9) badges.push("top_rated");
   if (input.responseTimeMinutes <= 2) badges.push("fast_responder");
   if (input.trustScore >= 85 && input.completionRate >= 95) badges.push("trusted_seller");
@@ -41,7 +41,7 @@ function deriveSellerBadges(input: {
 
 function reputationSummaryFromScore(score: number, level: SellerLevel) {
   if (score >= 95) return "Excellent";
-  if (score >= 88) return level === "diamond" || level === "legendary" ? "Diamond Seller" : "Top Rated Seller";
+  if (score >= 88) return level === "diamond" || level === "elite" ? "Diamond Seller" : "Top Rated Seller";
   if (score >= 75) return "Trusted Professional";
   if (score >= 60) return "Reliable Seller";
   return "Growing Seller";

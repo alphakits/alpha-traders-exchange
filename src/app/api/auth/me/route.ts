@@ -18,6 +18,7 @@ export async function GET() {
     endTime: loadUserEndedAt,
     durationMs: Math.max(0, loadUserEndedAt - loadUserStartedAt),
   });
+
   if (!user) {
     const token = await getCurrentSessionToken();
     await clearUserSession(token);
@@ -33,6 +34,7 @@ export async function GET() {
       },
     });
   }
+
   const cookieStore = await cookies();
   const verificationBypassed = isPhotoVerificationBypassed(user.email);
   const verified = isMarketplacePhoneVerificationDisabled() || isVerified(user);

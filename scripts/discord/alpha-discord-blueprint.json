@@ -1,0 +1,200 @@
+{
+  "guild": {
+    "name": "Alpha Traders",
+    "description": "Premium black-and-gold trading community",
+    "verification_level": 3,
+    "default_message_notifications": 1,
+    "explicit_content_filter": 2,
+    "preferred_locale": "en-US"
+  },
+  "roles": [
+    { "key": "owner", "name": "Owner", "color": 16766720, "hoist": true, "mentionable": false, "permissions": ["ADMINISTRATOR"] },
+    { "key": "admin", "name": "Admin", "color": 15105570, "hoist": true, "mentionable": false, "permissions": ["MANAGE_GUILD", "MANAGE_CHANNELS", "MANAGE_ROLES", "KICK_MEMBERS", "BAN_MEMBERS", "MODERATE_MEMBERS", "MANAGE_MESSAGES", "VIEW_AUDIT_LOG"] },
+    { "key": "head_moderator", "name": "Head Moderator", "color": 16095437, "hoist": true, "mentionable": false, "permissions": ["MANAGE_MESSAGES", "MODERATE_MEMBERS", "KICK_MEMBERS", "BAN_MEMBERS", "MANAGE_THREADS", "MOVE_MEMBERS", "MUTE_MEMBERS", "DEAFEN_MEMBERS", "VIEW_AUDIT_LOG"] },
+    { "key": "moderator", "name": "Moderator", "color": 14202964, "hoist": true, "mentionable": false, "permissions": ["MANAGE_MESSAGES", "MODERATE_MEMBERS", "KICK_MEMBERS", "MANAGE_THREADS", "MOVE_MEMBERS", "MUTE_MEMBERS", "DEAFEN_MEMBERS"] },
+    { "key": "support", "name": "Support Team", "color": 10238955, "hoist": true, "mentionable": true, "permissions": ["MANAGE_THREADS", "MANAGE_MESSAGES"] },
+    { "key": "approved_seller", "name": "Approved Seller", "color": 13158600, "hoist": true, "mentionable": true, "permissions": [] },
+    { "key": "buyer", "name": "Buyer", "color": 7506394, "hoist": true, "mentionable": true, "permissions": [] },
+    { "key": "student", "name": "Student", "color": 5592575, "hoist": false, "mentionable": true, "permissions": [] },
+    { "key": "verified", "name": "Verified", "color": 9498256, "hoist": false, "mentionable": false, "permissions": [] },
+    { "key": "newcomer", "name": "Newcomer", "color": 8618883, "hoist": false, "mentionable": false, "permissions": [] },
+    { "key": "muted", "name": "Muted", "color": 7895160, "hoist": false, "mentionable": false, "permissions": [] },
+    { "key": "bot", "name": "Alpha Bot", "color": 16766720, "hoist": false, "mentionable": false, "permissions": ["MANAGE_MESSAGES", "MANAGE_THREADS", "VIEW_AUDIT_LOG", "SEND_MESSAGES", "EMBED_LINKS", "ATTACH_FILES", "READ_MESSAGE_HISTORY"] }
+  ],
+  "categories": [
+    {
+      "key": "start_here",
+      "name": "00 START HERE",
+      "position": 0,
+      "overwrites": [
+        { "subject": "@everyone", "allow": ["VIEW_CHANNEL", "READ_MESSAGE_HISTORY"] },
+        { "subject": "muted", "deny": ["SEND_MESSAGES", "ADD_REACTIONS"] }
+      ],
+      "channels": [
+        { "name": "welcome", "type": "text", "topic": "Welcome to Alpha Traders. Start here.", "overwrites": [{ "subject": "@everyone", "deny": ["SEND_MESSAGES"] }] },
+        { "name": "rules-and-compliance", "type": "text", "topic": "Server rules, risk disclosures, and compliance expectations.", "overwrites": [{ "subject": "@everyone", "deny": ["SEND_MESSAGES"] }] },
+        { "name": "verify-here", "type": "text", "topic": "React or follow instructions to unlock Verified role.", "rateLimitPerUser": 10 },
+        { "name": "start-here-faq", "type": "forum", "topic": "Ask onboarding questions before opening tickets." }
+      ]
+    },
+    {
+      "key": "community",
+      "name": "01 COMMUNITY",
+      "position": 1,
+      "overwrites": [
+        { "subject": "@everyone", "allow": ["VIEW_CHANNEL", "READ_MESSAGE_HISTORY"] },
+        { "subject": "newcomer", "deny": ["SEND_MESSAGES", "ADD_REACTIONS"] },
+        { "subject": "verified", "allow": ["SEND_MESSAGES", "ADD_REACTIONS", "EMBED_LINKS", "ATTACH_FILES"] },
+        { "subject": "muted", "deny": ["SEND_MESSAGES", "ADD_REACTIONS"] }
+      ],
+      "channels": [
+        { "name": "announcements", "type": "announcement", "topic": "Official Alpha Traders announcements only.", "overwrites": [{ "subject": "@everyone", "deny": ["SEND_MESSAGES"] }, { "subject": "admin", "allow": ["SEND_MESSAGES", "MENTION_EVERYONE"] }] },
+        { "name": "changelog", "type": "text", "topic": "Website, bot, and community updates.", "overwrites": [{ "subject": "@everyone", "deny": ["SEND_MESSAGES"] }, { "subject": "admin", "allow": ["SEND_MESSAGES"] }] },
+        { "name": "introductions", "type": "text", "topic": "Introduce yourself to the community." },
+        { "name": "general-chat", "type": "text", "topic": "General Alpha Traders community chat." },
+        { "name": "wins-and-reviews", "type": "text", "topic": "Post milestones, testimonials, and progress." }
+      ]
+    },
+    {
+      "key": "education",
+      "name": "02 EDUCATION",
+      "position": 2,
+      "overwrites": [
+        { "subject": "@everyone", "allow": ["VIEW_CHANNEL", "READ_MESSAGE_HISTORY"] },
+        { "subject": "newcomer", "deny": ["SEND_MESSAGES"] },
+        { "subject": "verified", "allow": ["SEND_MESSAGES", "ADD_REACTIONS"] },
+        { "subject": "muted", "deny": ["SEND_MESSAGES"] }
+      ],
+      "channels": [
+        { "name": "market-education", "type": "text", "topic": "Educational market context only. No financial advice." },
+        { "name": "academy-updates", "type": "text", "topic": "Alpha Traders academy updates." },
+        { "name": "question-lab", "type": "forum", "topic": "Members ask in-depth education questions." }
+      ]
+    },
+    {
+      "key": "marketplace",
+      "name": "03 MARKETPLACE",
+      "position": 3,
+      "overwrites": [
+        { "subject": "@everyone", "allow": ["VIEW_CHANNEL", "READ_MESSAGE_HISTORY"] },
+        { "subject": "newcomer", "deny": ["SEND_MESSAGES", "CREATE_PUBLIC_THREADS"] },
+        { "subject": "verified", "allow": ["SEND_MESSAGES", "CREATE_PUBLIC_THREADS", "SEND_MESSAGES_IN_THREADS"] },
+        { "subject": "muted", "deny": ["SEND_MESSAGES", "SEND_MESSAGES_IN_THREADS"] }
+      ],
+      "channels": [
+        { "name": "marketplace-status", "type": "text", "topic": "Automated service status and liquidity summaries.", "overwrites": [{ "subject": "@everyone", "deny": ["SEND_MESSAGES"] }, { "subject": "bot", "allow": ["SEND_MESSAGES", "EMBED_LINKS"] }] },
+        { "name": "approved-seller-showcase", "type": "text", "topic": "Only approved sellers can post listing snapshots.", "overwrites": [{ "subject": "approved_seller", "allow": ["SEND_MESSAGES"] }, { "subject": "buyer", "allow": ["ADD_REACTIONS"] }, { "subject": "@everyone", "deny": ["SEND_MESSAGES"] }] },
+        { "name": "request-a-seller", "type": "forum", "topic": "Open a buyer request with amount, network, and payment method." },
+        { "name": "completed-trades", "type": "text", "topic": "Automated completed trade feed from Alpha Exchange.", "overwrites": [{ "subject": "@everyone", "deny": ["SEND_MESSAGES"] }, { "subject": "bot", "allow": ["SEND_MESSAGES", "EMBED_LINKS"] }] }
+      ]
+    },
+    {
+      "key": "support",
+      "name": "04 SUPPORT",
+      "position": 4,
+      "overwrites": [
+        { "subject": "@everyone", "allow": ["VIEW_CHANNEL", "READ_MESSAGE_HISTORY"] },
+        { "subject": "newcomer", "deny": ["SEND_MESSAGES"] },
+        { "subject": "verified", "allow": ["SEND_MESSAGES", "CREATE_PUBLIC_THREADS", "SEND_MESSAGES_IN_THREADS"] },
+        { "subject": "support", "allow": ["MANAGE_THREADS", "MANAGE_MESSAGES"] },
+        { "subject": "muted", "deny": ["SEND_MESSAGES"] }
+      ],
+      "channels": [
+        { "name": "support-center", "type": "text", "topic": "How to open the right support ticket." },
+        { "name": "tickets", "type": "forum", "topic": "Create a ticket thread. One issue per ticket.", "defaultAutoArchiveDuration": 10080 },
+        { "name": "report-user", "type": "text", "topic": "Report suspicious behavior. Include evidence.", "overwrites": [{ "subject": "@everyone", "deny": ["SEND_MESSAGES"] }, { "subject": "verified", "allow": ["SEND_MESSAGES"] }, { "subject": "support", "allow": ["VIEW_CHANNEL", "MANAGE_MESSAGES"] }] }
+      ]
+    },
+    {
+      "key": "staff",
+      "name": "05 STAFF OPS",
+      "position": 5,
+      "overwrites": [
+        { "subject": "@everyone", "deny": ["VIEW_CHANNEL"] },
+        { "subject": "admin", "allow": ["VIEW_CHANNEL", "SEND_MESSAGES", "READ_MESSAGE_HISTORY"] },
+        { "subject": "head_moderator", "allow": ["VIEW_CHANNEL", "SEND_MESSAGES", "READ_MESSAGE_HISTORY"] },
+        { "subject": "moderator", "allow": ["VIEW_CHANNEL", "SEND_MESSAGES", "READ_MESSAGE_HISTORY"] },
+        { "subject": "support", "allow": ["VIEW_CHANNEL", "SEND_MESSAGES", "READ_MESSAGE_HISTORY"] }
+      ],
+      "channels": [
+        { "name": "mod-chat", "type": "text", "topic": "Moderator coordination." },
+        { "name": "incident-room", "type": "text", "topic": "Active incidents, escalations, and fraud analysis." },
+        { "name": "staff-playbooks", "type": "text", "topic": "Standard operating procedures." }
+      ]
+    },
+    {
+      "key": "logs",
+      "name": "06 LOGS",
+      "position": 6,
+      "overwrites": [
+        { "subject": "@everyone", "deny": ["VIEW_CHANNEL"] },
+        { "subject": "admin", "allow": ["VIEW_CHANNEL", "READ_MESSAGE_HISTORY"] },
+        { "subject": "head_moderator", "allow": ["VIEW_CHANNEL", "READ_MESSAGE_HISTORY"] },
+        { "subject": "bot", "allow": ["VIEW_CHANNEL", "SEND_MESSAGES", "EMBED_LINKS", "READ_MESSAGE_HISTORY"] }
+      ],
+      "channels": [
+        { "name": "mod-log", "type": "text", "topic": "Moderation actions and case links." },
+        { "name": "security-log", "type": "text", "topic": "Suspicious joins, raid alerts, and anti-scam events." },
+        { "name": "marketplace-log", "type": "text", "topic": "Marketplace events from website webhook integration." },
+        { "name": "bot-log", "type": "text", "topic": "Bot startup, slash command, and automation diagnostics." }
+      ]
+    },
+    {
+      "key": "voice",
+      "name": "07 VOICE LOUNGES",
+      "position": 7,
+      "overwrites": [
+        { "subject": "@everyone", "allow": ["VIEW_CHANNEL", "CONNECT", "SPEAK"] },
+        { "subject": "newcomer", "deny": ["SPEAK"] },
+        { "subject": "muted", "deny": ["SPEAK", "CONNECT"] }
+      ],
+      "channels": [
+        { "name": "market-floor", "type": "voice", "userLimit": 50 },
+        { "name": "seller-lounge", "type": "voice", "userLimit": 25, "overwrites": [{ "subject": "approved_seller", "allow": ["CONNECT", "SPEAK"] }, { "subject": "@everyone", "deny": ["CONNECT"] }, { "subject": "buyer", "allow": ["CONNECT"] }] },
+        { "name": "support-voice", "type": "voice", "userLimit": 10, "overwrites": [{ "subject": "support", "allow": ["MOVE_MEMBERS", "MUTE_MEMBERS"] }] }
+      ]
+    }
+  ],
+  "welcomeScreen": {
+    "enabled": true,
+    "description": "Welcome to Alpha Traders: premium, secure, and community-driven.",
+    "channels": [
+      { "name": "welcome", "description": "Start here and learn the flow.", "emoji_name": "\ud83d\udc4b" },
+      { "name": "verify-here", "description": "Complete verification to unlock full access.", "emoji_name": "\u2705" },
+      { "name": "announcements", "description": "Stay updated with official Alpha updates.", "emoji_name": "\ud83d\udce2" },
+      { "name": "tickets", "description": "Open support tickets when you need help.", "emoji_name": "\ud83c\udf9f\ufe0f" }
+    ]
+  },
+  "automod": [
+    {
+      "name": "Block Scam Links",
+      "event_type": 1,
+      "trigger_type": 1,
+      "trigger_metadata": {
+        "keyword_filter": ["discord.gg/", "bit.ly", "tinyurl.com", "t.me/"]
+      },
+      "actions": [
+        { "type": 1, "metadata": { "custom_message": "Links are restricted. Use approved channels and verified references only." } },
+        { "type": 2, "metadata": { "channel_name": "security-log" } },
+        { "type": 3, "metadata": { "duration_seconds": 300 } }
+      ],
+      "enabled": true,
+      "exempt_roles": ["admin", "head_moderator"],
+      "exempt_channels": ["staff-playbooks"]
+    },
+    {
+      "name": "Anti Mention Spam",
+      "event_type": 1,
+      "trigger_type": 5,
+      "trigger_metadata": {
+        "mention_total_limit": 5
+      },
+      "actions": [
+        { "type": 1, "metadata": { "custom_message": "Too many mentions. Slow down and try again." } },
+        { "type": 2, "metadata": { "channel_name": "mod-log" } }
+      ],
+      "enabled": true,
+      "exempt_roles": ["admin", "head_moderator"]
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
+const isDev = process.env.NODE_ENV !== "production";
 
 const securityHeaders = [
   { key: "X-DNS-Prefetch-Control", value: "on" },
@@ -33,6 +34,9 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Keep development artifacts separate from production build artifacts.
+  // This prevents dev-server module resolution failures when `.next` is cleaned or reused by other workflows.
+  distDir: isDev ? ".next-dev" : ".next",
   outputFileTracingRoot: process.cwd(),
   images: {
     formats: ["image/avif", "image/webp"],
@@ -55,12 +59,27 @@ const nextConfig: NextConfig = {
           { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
         ],
       },
+      {
+        source: "/uploads/:path*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=86400" },
+        ],
+      },
+      {
+        source: "/files/:path*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=86400" },
+        ],
+      },
     ];
   },
   webpack: (config) => {
     // Exclude the runtime data directory from HMR watching.
     // Without this, every DB write (login, session creation, etc.) triggers
     // a Fast Refresh rebuild that interrupts async JS execution in the browser.
+    if (process.env.NODE_ENV !== "production") {
+      config.cache = false;
+    }
     config.watchOptions = {
       ...config.watchOptions,
       ignored: [

@@ -1,182 +1,236 @@
-{
-  "users": [
-    {
-      "id": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
-      "fullName": "markjozen",
-      "email": "jozenmark834@yahoo.com",
-      "passwordHash": "6145174e37a8edf996f934700dd3c2ba:7cbd191355cda685241a5278deef29b66b723ff72e5b86faadb37737527558d4b0ee62130fe3be90c38f9a1a0f8782901b8d53c1a141fab5113fedb5bb2b37ea",
-      "whatsappNumber": "9725967649",
-      "role": "admin",
-      "createdAt": "2026-07-19T08:14:44.504Z",
-      "updatedAt": "2026-07-28T05:41:20.922Z",
-      "sellerStatus": "buyer",
-      "preferredNetworks": [],
-      "profilePhotoUrl": "",
-      "languages": [
-        "English"
-      ],
-      "bio": "",
-      "onlineStatus": "online",
-      "tradingExperience": "",
-      "workingHours": "",
-      "preferredPaymentMethods": [],
-      "country": "Israel",
-      "city": "",
-      "coverBannerUrl": "",
-      "lastActiveAt": "2026-07-19T19:21:38.893Z",
-      "isFeaturedSeller": false,
-      "isProfileHidden": false,
-      "notificationPreferences": {
-        "inApp": true,
-        "email": false,
-        "sms": false
-      },
-      "isFoundingMember": false,
-      "isFoundingSeller": false,
-      "availabilityStatus": "available",
-      "roles": [
-        "owner",
-        "admin"
-      ],
-      "emailVerified": true,
-      "emailVerifiedAt": "2026-07-28T05:41:20.922Z",
-      "emailVerificationTokenHash": null,
-      "emailVerificationTokenExpiresAt": null,
-      "emailVerificationSentAt": null,
-      "onboardingSelection": null,
-      "onboardingCompletedAt": null,
-      "lifetimeCompletedVolumeUsdt": 0,
-      "sellerPrestigeRank": "bronze",
-      "sellerRankOverride": null,
-      "sellerPromotionHistory": [],
-      "sellerAchievements": []
-    },
-    {
-      "id": "user-efdcb18b-0a78-44af-b7a9-fc5ff0849216",
-      "fullName": "Mark Wick",
-      "email": "markwick99@yahoo.com",
-      "passwordHash": "49772e3055d68152a4d393cf25141b07:03494147178579e6b21c357f19f5c6b113938bf6846566f483630bfd90872e4b730daa96e144fec61006642f8b6face3051572315fdd333745f7e0c34ebb6ea0",
-      "whatsappNumber": "0000000000",
-      "role": "buyer",
-      "roles": [
-        "buyer"
-      ],
-      "sellerStatus": "buyer",
-      "availabilityStatus": "available",
-      "onlineStatus": "online",
-      "preferredNetworks": [],
-      "preferredPaymentMethods": [],
-      "profilePhotoUrl": "",
-      "languages": [
-        "English"
-      ],
-      "bio": "",
-      "tradingExperience": "",
-      "workingHours": "",
-      "country": "Israel",
-      "city": "",
-      "coverBannerUrl": "",
-      "isFeaturedSeller": false,
-      "isProfileHidden": false,
-      "notificationPreferences": {
-        "inApp": true,
-        "email": false,
-        "sms": false
-      },
-      "isFoundingMember": false,
-      "isFoundingSeller": false,
-      "emailVerified": true,
-      "emailVerifiedAt": "2026-07-28T05:41:20.922Z",
-      "emailVerificationTokenHash": null,
-      "emailVerificationTokenExpiresAt": null,
-      "emailVerificationSentAt": null,
-      "onboardingSelection": null,
-      "onboardingCompletedAt": null,
-      "lifetimeCompletedVolumeUsdt": 0,
-      "sellerPrestigeRank": "bronze",
-      "sellerRankOverride": null,
-      "sellerPromotionHistory": [],
-      "sellerAchievements": [],
-      "createdAt": "2026-07-28T05:41:20.922Z",
-      "updatedAt": "2026-07-28T05:41:20.922Z"
-    },
-    {
-      "id": "user-9fdc8219-b0eb-4c64-a2c8-4f12b3830b81",
-      "fullName": "Mark Sally",
-      "email": "marksally11@yahoo.com",
-      "passwordHash": "39d86240c4ac90e534ea6de7cf8c44ad:03a99b4111ded45b8a6b95451ed4ca67199e6b01f9e9513aa958dbe98a4ac3528eb59d2285c9a2f35d026f4e68fbbc0af5e278629fd848fc8fd016e6d9833f18",
-      "whatsappNumber": "0000000000",
-      "role": "approved_seller",
-      "roles": [
-        "approved_seller"
-      ],
-      "sellerStatus": "approved_seller",
-      "availabilityStatus": "available",
-      "onlineStatus": "online",
-      "preferredNetworks": [
-        "TRC20"
-      ],
-      "preferredPaymentMethods": [
-        "USDT"
-      ],
-      "profilePhotoUrl": "",
-      "languages": [
-        "English"
-      ],
-      "bio": "Approved seller account for testing.",
-      "tradingExperience": "Test seller",
-      "workingHours": "24/7",
-      "country": "Israel",
-      "city": "",
-      "coverBannerUrl": "",
-      "isFeaturedSeller": false,
-      "isProfileHidden": false,
-      "notificationPreferences": {
-        "inApp": true,
-        "email": false,
-        "sms": false
-      },
-      "isFoundingMember": false,
-      "isFoundingSeller": false,
-      "emailVerified": true,
-      "emailVerifiedAt": "2026-07-28T05:41:20.922Z",
-      "emailVerificationTokenHash": null,
-      "emailVerificationTokenExpiresAt": null,
-      "emailVerificationSentAt": null,
-      "onboardingSelection": null,
-      "onboardingCompletedAt": null,
-      "lifetimeCompletedVolumeUsdt": 0,
-      "sellerPrestigeRank": "bronze",
-      "sellerRankOverride": null,
-      "sellerPromotionHistory": [],
-      "sellerAchievements": [],
-      "createdAt": "2026-07-28T05:41:20.922Z",
-      "updatedAt": "2026-07-28T05:41:20.922Z"
-    }
-  ],
-  "sellerApplications": [],
-  "marketplaceListings": [],
-  "purchaseRequests": [],
-  "commissionRecords": [],
-  "auditLogs": [],
-  "authSessions": [
-    {
-      "token": "b56a575ad0e0a9756ec47719db969bb1dc4596cc08372690c27a6790484e92c1",
-      "userId": "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
-      "createdAt": "2026-07-20T11:49:09.198Z",
-      "expiresAt": "2026-08-03T11:49:09.198Z"
-    }
-  ],
-  "passwordResetTokens": [],
-  "notifications": [],
-  "activityLog": [],
-  "disputes": [],
-  "sellerReports": [],
-  "trustSnapshots": [],
-  "trustScoreHistory": [],
-  "tradeEvidenceFiles": [],
-  "privateBetaInvites": [],
-  "privateBetaInviteUses": [],
-  "betaFeedback": [],
-  "betaAnnouncements": []
+﻿{
+    "users":  [
+                  {
+                      "id":  "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
+                      "fullName":  "markjozen",
+                      "email":  "jozenmark834@yahoo.com",
+                      "passwordHash":  "6145174e37a8edf996f934700dd3c2ba:7cbd191355cda685241a5278deef29b66b723ff72e5b86faadb37737527558d4b0ee62130fe3be90c38f9a1a0f8782901b8d53c1a141fab5113fedb5bb2b37ea",
+                      "whatsappNumber":  "9725967649",
+                      "role":  "admin",
+                      "createdAt":  "2026-07-19T08:14:44.504Z",
+                      "updatedAt":  "2026-07-28T05:41:20.922Z",
+                      "sellerStatus":  "buyer",
+                      "preferredNetworks":  [
+
+                                            ],
+                      "profilePhotoUrl":  "",
+                      "languages":  [
+                                        "English"
+                                    ],
+                      "bio":  "",
+                      "onlineStatus":  "online",
+                      "tradingExperience":  "",
+                      "workingHours":  "",
+                      "preferredPaymentMethods":  [
+
+                                                  ],
+                      "country":  "Israel",
+                      "city":  "",
+                      "coverBannerUrl":  "",
+                      "lastActiveAt":  "2026-07-19T19:21:38.893Z",
+                      "isFeaturedSeller":  false,
+                      "isProfileHidden":  false,
+                      "notificationPreferences":  {
+                                                      "inApp":  true,
+                                                      "email":  false,
+                                                      "sms":  false
+                                                  },
+                      "isFoundingMember":  false,
+                      "isFoundingSeller":  false,
+                      "availabilityStatus":  "available",
+                      "roles":  [
+                                    "owner",
+                                    "admin"
+                                ],
+                      "emailVerified":  true,
+                      "emailVerifiedAt":  "2026-07-28T05:41:20.922Z",
+                      "emailVerificationTokenHash":  null,
+                      "emailVerificationTokenExpiresAt":  null,
+                      "emailVerificationSentAt":  null,
+                      "onboardingSelection":  null,
+                      "onboardingCompletedAt":  null,
+                      "lifetimeCompletedVolumeUsdt":  0,
+                      "sellerPrestigeRank":  "bronze",
+                      "sellerRankOverride":  null,
+                      "sellerPromotionHistory":  [
+
+                                                 ],
+                      "sellerAchievements":  [
+
+                                             ]
+                  },
+                  {
+                      "id":  "user-efdcb18b-0a78-44af-b7a9-fc5ff0849216",
+                      "fullName":  "Mark Wick",
+                      "email":  "markwick99@yahoo.com",
+                      "passwordHash":  "49772e3055d68152a4d393cf25141b07:03494147178579e6b21c357f19f5c6b113938bf6846566f483630bfd90872e4b730daa96e144fec61006642f8b6face3051572315fdd333745f7e0c34ebb6ea0",
+                      "whatsappNumber":  "0000000000",
+                      "role":  "buyer",
+                      "roles":  [
+                                    "buyer"
+                                ],
+                      "sellerStatus":  "buyer",
+                      "availabilityStatus":  "available",
+                      "onlineStatus":  "online",
+                      "preferredNetworks":  [
+
+                                            ],
+                      "preferredPaymentMethods":  [
+
+                                                  ],
+                      "profilePhotoUrl":  "",
+                      "languages":  [
+                                        "English"
+                                    ],
+                      "bio":  "",
+                      "tradingExperience":  "",
+                      "workingHours":  "",
+                      "country":  "Israel",
+                      "city":  "",
+                      "coverBannerUrl":  "",
+                      "isFeaturedSeller":  false,
+                      "isProfileHidden":  false,
+                      "notificationPreferences":  {
+                                                      "inApp":  true,
+                                                      "email":  false,
+                                                      "sms":  false
+                                                  },
+                      "isFoundingMember":  false,
+                      "isFoundingSeller":  false,
+                      "emailVerified":  true,
+                      "emailVerifiedAt":  "2026-07-28T05:41:20.922Z",
+                      "emailVerificationTokenHash":  null,
+                      "emailVerificationTokenExpiresAt":  null,
+                      "emailVerificationSentAt":  null,
+                      "onboardingSelection":  null,
+                      "onboardingCompletedAt":  null,
+                      "lifetimeCompletedVolumeUsdt":  0,
+                      "sellerPrestigeRank":  "bronze",
+                      "sellerRankOverride":  null,
+                      "sellerPromotionHistory":  [
+
+                                                 ],
+                      "sellerAchievements":  [
+
+                                             ],
+                      "createdAt":  "2026-07-28T05:41:20.922Z",
+                      "updatedAt":  "2026-07-28T05:41:20.922Z"
+                  },
+                  {
+                      "id":  "user-9fdc8219-b0eb-4c64-a2c8-4f12b3830b81",
+                      "fullName":  "Test account",
+                      "email":  "marksally11@yahoo.com",
+                      "passwordHash":  "39d86240c4ac90e534ea6de7cf8c44ad:03a99b4111ded45b8a6b95451ed4ca67199e6b01f9e9513aa958dbe98a4ac3528eb59d2285c9a2f35d026f4e68fbbc0af5e278629fd848fc8fd016e6d9833f18",
+                      "whatsappNumber":  "0000000000",
+                      "role":  "approved_seller",
+                      "roles":  [
+                                    "approved_seller"
+                                ],
+                      "sellerStatus":  "approved_seller",
+                      "availabilityStatus":  "available",
+                      "onlineStatus":  "online",
+                      "preferredNetworks":  [
+                                                "TRC20"
+                                            ],
+                      "preferredPaymentMethods":  [
+                                                      "USDT"
+                                                  ],
+                      "profilePhotoUrl":  "",
+                      "languages":  [
+                                        "English"
+                                    ],
+                      "bio":  "Approved seller account for testing.",
+                      "tradingExperience":  "Test seller",
+                      "workingHours":  "24/7",
+                      "country":  "Israel",
+                      "city":  "",
+                      "coverBannerUrl":  "",
+                      "isFeaturedSeller":  false,
+                      "isProfileHidden":  false,
+                      "notificationPreferences":  {
+                                                      "inApp":  true,
+                                                      "email":  false,
+                                                      "sms":  false
+                                                  },
+                      "isFoundingMember":  false,
+                      "isFoundingSeller":  false,
+                      "emailVerified":  true,
+                      "emailVerifiedAt":  "2026-07-28T05:41:20.922Z",
+                      "emailVerificationTokenHash":  null,
+                      "emailVerificationTokenExpiresAt":  null,
+                      "emailVerificationSentAt":  null,
+                      "onboardingSelection":  null,
+                      "onboardingCompletedAt":  null,
+                      "lifetimeCompletedVolumeUsdt":  0,
+                      "sellerPrestigeRank":  "bronze",
+                      "sellerRankOverride":  null,
+                      "sellerPromotionHistory":  [
+
+                                                 ],
+                      "sellerAchievements":  [
+
+                                             ],
+                      "createdAt":  "2026-07-28T05:41:20.922Z",
+                      "updatedAt":  "2026-07-28T05:41:20.922Z"
+                  }
+              ],
+    "sellerApplications":  [
+
+                           ],
+    "marketplaceListings":  [
+
+                            ],
+    "purchaseRequests":  [
+
+                         ],
+    "commissionRecords":  [
+
+                          ],
+    "auditLogs":  [
+
+                  ],
+    "authSessions":  [
+                         {
+                             "token":  "b56a575ad0e0a9756ec47719db969bb1dc4596cc08372690c27a6790484e92c1",
+                             "userId":  "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
+                             "createdAt":  "2026-07-20T11:49:09.198Z",
+                             "expiresAt":  "2026-08-03T11:49:09.198Z"
+                         }
+                     ],
+    "passwordResetTokens":  [
+
+                            ],
+    "notifications":  [
+
+                      ],
+    "activityLog":  [
+
+                    ],
+    "disputes":  [
+
+                 ],
+    "sellerReports":  [
+
+                      ],
+    "trustSnapshots":  [
+
+                       ],
+    "trustScoreHistory":  [
+
+                          ],
+    "tradeEvidenceFiles":  [
+
+                           ],
+    "privateBetaInvites":  [
+
+                           ],
+    "privateBetaInviteUses":  [
+
+                              ],
+    "betaFeedback":  [
+
+                     ],
+    "betaAnnouncements":  [
+
+                          ]
 }

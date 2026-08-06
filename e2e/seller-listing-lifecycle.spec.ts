@@ -1,18 +1,30 @@
 import { request, test, expect, type APIRequestContext, type Browser, type Page } from "@playwright/test";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
+import { cleanupBuyerFixture, resolveBuyerFixture, type BuyerFixture } from "./support/buyer-fixture";
 
 const OWNER_EMAIL = (process.env.E2E_OWNER_EMAIL ?? "").toLowerCase();
 const OWNER_PASSWORD = process.env.E2E_OWNER_PASSWORD ?? "";
 const ADMIN_EMAIL = (process.env.E2E_ADMIN_EMAIL ?? "").toLowerCase();
 const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? "";
-const BUYER_EMAIL = (process.env.E2E_BUYER_EMAIL ?? "").toLowerCase();
-const BUYER_PASSWORD = process.env.E2E_BUYER_PASSWORD ?? "";
+let BUYER_EMAIL = (process.env.E2E_BUYER_EMAIL ?? "").toLowerCase();
+let BUYER_PASSWORD = process.env.E2E_BUYER_PASSWORD ?? "";
 const SELLER_EMAIL = (process.env.E2E_SELLER_EMAIL ?? "").toLowerCase();
 const SELLER_PASSWORD = process.env.E2E_SELLER_PASSWORD ?? "";
 const TEST_EVIDENCE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9Wl8cAAAAASUVORK5CYII=";
 const TEST_SUPPORT_HEADERS = {
   "x-alpha-test-support": "enabled",
 };
+let buyerFixture: BuyerFixture | undefined;
+
+test.beforeAll(async () => {
+  buyerFixture = await resolveBuyerFixture(BUYER_EMAIL, BUYER_PASSWORD);
+  BUYER_EMAIL = buyerFixture.email;
+  BUYER_PASSWORD = buyerFixture.password;
+});
+
+test.afterAll(async () => {
+  await cleanupBuyerFixture(buyerFixture);
+});
 
 async function readRuntimeDb(request: APIRequestContext) {
   const response = await request.get("/api/testing/alpha-exchange-state", { headers: TEST_SUPPORT_HEADERS });
@@ -405,11 +417,21 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   await expect(seller.page.getByText("You already have 2 active listings. Close one before creating another.").first()).toBeVisible({ timeout: 10_000 });
 
   const sellerListingsResponse = await seller.page.request.get("/api/alpha-exchange/my-listings");
-  const sellerListingsPayload = (await sellerListingsResponse.json()) as { listings: Array<{ id: string; status: string; availableAmount: string }> };
+  const sellerListingsPayload = (await sellerListingsResponse.json()) as {
+    listings: Array<{ id: string; status: string; approvalStatus?: string; availableAmount: string }>;
+  };
   const [primaryListing] = sellerListingsPayload.listings;
-  expect(primaryListing.status).toBe("active");
+  expect(primaryListing).toMatchObject({ status: "draft", approvalStatus: "pending" });
 
   const owner = await createSession(browser, OWNER_EMAIL, OWNER_PASSWORD);
+  const approvalResponse = await owner.page.request.patch(`/api/alpha-exchange/admin/listings/${primaryListing.id}`, {
+    data: { action: "approve" },
+  });
+  expect(approvalResponse.ok()).toBeTruthy();
+  expect(await approvalResponse.json()).toMatchObject({
+    listing: { id: primaryListing.id, status: "active", approvalStatus: "approved" },
+  });
+
   const buyer = await createSession(browser, BUYER_EMAIL, BUYER_PASSWORD);
   const firstRequest = await createRequest(buyer.page.request, primaryListing.id, "300");
 
@@ -418,7 +440,7 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   let firstTrade = await readPurchaseFromPatchResponse(response);
   expect(firstTrade.status).toBe("accepted");
   await seller.page.reload();
-  await expect(seller.page.getByRole("link", { name: "Resume Trade" })).toBeVisible({ timeout: 10_000 });
+  await expect(seller.page).toHaveURL(`/en/trade-room/${firstRequest.purchase.id}`, { timeout: 10_000 });
 
   response = await seller.page.request.patch(`/api/alpha-exchange/listings/${primaryListing.id}`, {
     data: { price: "3.30" },
@@ -497,6 +519,15 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   expect(buyerNotificationsAfterFirstTrade.some((item) => item.title === "Trade completed")).toBeTruthy();
   expect(buyerNotificationsAfterFirstTrade.some((item) => item.title === "Review available")).toBeTruthy();
 
+  response = await buyer.page.request.post(`/api/alpha-exchange/purchase-requests/${firstRequest.purchase.id}/review`, {
+    data: {
+      mode: "buyer_review",
+      rating: 5,
+      comment: "Lifecycle verification completed successfully.",
+    },
+  });
+  expect(response.ok()).toBeTruthy();
+
   response = await seller.page.request.get("/api/alpha-exchange/my-listings");
   const payload = (await response.json()) as { listings: Array<{ id: string; status: string; availableAmount: string }> };
   const reopenedListing = payload.listings.find((listing) => listing.id === primaryListing.id);
@@ -536,7 +567,7 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
   await seller.page.reload();
   await expect(seller.page.getByRole("button", { name: "Renew" }).first()).toBeVisible({ timeout: 10_000 });
   await seller.page.getByRole("button", { name: "Renew" }).first().click();
-  await expect(seller.page.getByText("Listing renewed and visible to buyers again.")).toBeVisible({ timeout: 10_000 });
+  await expect(seller.page.getByText(/Listing renewed.*refreshed expiry/)).toBeVisible({ timeout: 10_000 });
 
   const sellerListingsAfterRenew = await seller.page.request.get("/api/alpha-exchange/my-listings");
   expect(sellerListingsAfterRenew.ok()).toBeTruthy();
@@ -569,7 +600,10 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
     },
   });
   expect(response.status()).toBe(400);
-  expect(await response.json()).toMatchObject({ error: expect.stringMatching(/unavailable/i) });
+  expect(await response.json()).toMatchObject({
+    code: "PURCHASE_REQUEST_VALIDATION_FAILED",
+    message: expect.stringMatching(/unavailable/i),
+  });
 
   const buyerNotificationsAfterBlock = await getDbNotificationsForEmail(BUYER_EMAIL);
   expect(buyerNotificationsAfterBlock.some((item) => item.title === "Listing unavailable")).toBeTruthy();
@@ -629,7 +663,7 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
   await Promise.all([seller.context.close(), owner.context.close(), buyer.context.close()]);
 });
 
-test("admin dashboard listing overrides update state, notifications, and audit history", async ({ browser, page }) => {
+test("admin dashboard listing overrides update state, notifications, and audit history", async ({ browser }) => {
   test.setTimeout(180_000);
   const hasFixtures = await resetLifecycleFixtures();
   test.skip(!hasFixtures, "Set E2E owner/seller credentials and seed matching runtime accounts to run lifecycle tests.");
@@ -651,7 +685,8 @@ test("admin dashboard listing overrides update state, notifications, and audit h
   await createListing(seller.page.request, { availableAmount: "222", price: "3.12" });
   await waitForPersistence();
 
-  await login(page, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const admin = await createSession(browser, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const page = admin.page;
   await page.goto("/en/admin/alpha-exchange");
   await page.getByText("Marketplace Listings", { exact: true }).click();
 
@@ -664,19 +699,28 @@ test("admin dashboard listing overrides update state, notifications, and audit h
 
   const extendRow = page.locator("tr").filter({ hasText: "222" }).first();
   await runWithDialogs(page, () => extendRow.getByRole("button", { name: "Extend Expiration" }).click(), [
+    { type: "confirm" },
     { type: "prompt", value: "24" },
     { type: "prompt", value: "Extend listing for launch QA" },
   ]);
   await expect(page.getByText("Listing expiration extended.")).toBeVisible({ timeout: 10_000 });
 
+  await page.reload();
+  await page.getByText("Marketplace Listings", { exact: true }).click();
   const closeRow = page.locator("tr").filter({ hasText: "111" }).first();
-  await runWithDialogs(page, () => closeRow.getByRole("button", { name: "Close" }).click(), [
+  const closeButton = closeRow.getByRole("button", { name: "Close" });
+  await expect(closeButton).toBeVisible({ timeout: 30_000 });
+  await runWithDialogs(page, () => closeButton.click(), [
     { type: "confirm" },
     { type: "prompt", value: "Closing listing for launch QA" },
   ]);
   await expect(page.getByText("Listing closed by admin.")).toBeVisible({ timeout: 10_000 });
 
   const forceCloseCandidate = await createListing(seller.page.request, { availableAmount: "444", price: "3.14" });
+  const approvalResponse = await page.request.patch(`/api/alpha-exchange/admin/listings/${forceCloseCandidate.listing.id}`, {
+    data: { action: "approve" },
+  });
+  expect(approvalResponse.ok()).toBeTruthy();
   const buyer = await createSession(browser, BUYER_EMAIL, BUYER_PASSWORD);
   const forceRequest = await createRequest(buyer.page.request, forceCloseCandidate.listing.id, "100");
   const response = await seller.page.request.patch(`/api/alpha-exchange/purchase-requests/${forceRequest.purchase.id}`, { data: { status: "accepted" } });
@@ -686,7 +730,6 @@ test("admin dashboard listing overrides update state, notifications, and audit h
   await page.getByText("Marketplace Listings", { exact: true }).click();
   const forceRow = page.locator("tr").filter({ hasText: "444" }).first();
   await runWithDialogs(page, () => forceRow.getByRole("button", { name: "Force Close" }).click(), [
-    { type: "confirm" },
     { type: "prompt", value: "Admin override" },
   ]);
   await expect(page.getByText("Listing force closed.")).toBeVisible({ timeout: 10_000 });
@@ -710,5 +753,5 @@ test("admin dashboard listing overrides update state, notifications, and audit h
   await expect(page.getByText("Notification History")).toBeVisible();
   await expect(page.locator("tbody tr").filter({ hasText: "Listing force closed" }).first()).toBeVisible();
 
-  await Promise.all([seller.context.close(), buyer.context.close()]);
+  await Promise.all([seller.context.close(), buyer.context.close(), admin.context.close()]);
 });

@@ -44,7 +44,7 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
     <header className="sticky top-0 z-40 border-b border-white/10 bg-[#050505]/90 shadow-[0_14px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl">
       <div className="section-container relative flex h-16 items-center justify-between">
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-[#C9A227]/45 to-transparent" />
-        <Link href="/" locale={locale} className="inline-flex items-center gap-3 text-lg font-semibold tracking-wide text-white">
+        <Link href="/" locale={locale} className="inline-flex min-w-0 items-center gap-2 text-lg font-semibold tracking-wide text-white sm:gap-3">
           <Image
             src="/images/brand/alpha-traders-logo.webp"
             alt="Alpha Traders logo"
@@ -54,7 +54,7 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
             style={{ width: 42, height: 42 }}
             className="rounded-full border border-[#C9A227]/45 bg-black/35 p-0.5 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)]"
           />
-          <span className="gold-gradient inline-block bg-clip-text pb-px text-[1.02rem] leading-[1.15] text-transparent">
+          <span className="gold-gradient hidden bg-clip-text pb-px text-[1.02rem] leading-[1.15] text-transparent min-[360px]:inline-block">
             {brand}
           </span>
         </Link>
@@ -110,7 +110,7 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
               <Menu className="h-4 w-4" />
               <span className="sr-only">Open menu</span>
             </summary>
-            <div className="absolute end-0 top-12 w-60 rounded-2xl border border-white/15 bg-[#0b0b0b]/95 p-3 shadow-2xl backdrop-blur-xl">
+            <div className="absolute end-0 top-12 z-50 w-[min(18rem,calc(100vw-2rem))] max-h-[calc(100vh-5rem)] overflow-y-auto rounded-2xl border border-white/15 bg-[#0b0b0b]/95 p-3 shadow-2xl backdrop-blur-xl">
               <nav className="space-y-1">
                 {nav.map((item) => (
                   <Link
@@ -119,8 +119,8 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
                     locale={locale}
                     className={
                       item.cta
-                        ? "group relative block overflow-hidden rounded-full border border-[#6CAEFF]/45 bg-gradient-to-r from-[#1B60ED]/85 via-[#2A7BFF]/80 to-[#3A9DFF]/75 px-3 py-2 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(36,121,255,0.32)] backdrop-blur-xl transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(36,121,255,0.42)]"
-                        : "block rounded-xl px-3 py-2 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white"
+                        ? "group relative flex min-h-11 items-center overflow-hidden rounded-full border border-[#6CAEFF]/45 bg-gradient-to-r from-[#1B60ED]/85 via-[#2A7BFF]/80 to-[#3A9DFF]/75 px-3 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(36,121,255,0.32)] backdrop-blur-xl transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(36,121,255,0.42)]"
+                        : "flex min-h-11 items-center rounded-xl px-3 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white"
                     }
                   >
                     {item.label}
@@ -135,7 +135,7 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
                       {sessionUser.fullName}
                     </div>
                   ) : null}
-                  <Link href={dashboardHref} locale={locale} className="block rounded-xl px-3 py-2 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white">
+                  <Link href={dashboardHref} locale={locale} className="flex min-h-11 items-center rounded-xl px-3 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white">
                     {dashboardLabel}
                   </Link>
                   {canAccessSellerWorkspace ? (
@@ -145,7 +145,7 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
                     />
                   ) : null}
                   {sessionUser ? (
-                    <Link href="/notifications" locale={locale} className="block rounded-xl px-3 py-2 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white">
+                    <Link href="/notifications" locale={locale} className="flex min-h-11 items-center rounded-xl px-3 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white">
                       {t("notifications")}
                     </Link>
                   ) : null}
@@ -162,7 +162,7 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
                     <LogoutButton
                       locale={locale}
                       variant="ghost"
-                      className="mt-1 block w-full justify-start rounded-xl px-3 py-2 text-start text-sm text-[#D1D5DB] hover:bg-white/5 hover:text-white"
+                      className="mt-1 w-full justify-start rounded-xl px-3 text-start text-sm text-[#D1D5DB] hover:bg-white/5 hover:text-white"
                       idleLabel={t("signOut")}
                     />
                   ) : null}
@@ -170,6 +170,9 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
               </nav>
             </div>
           </details>
+          <Link href={dashboardHref} locale={locale} className={cn(buttonVariants({ size: "sm" }), "hidden sm:inline-flex")}>
+            {dashboardLabel}
+          </Link>
         </div>
       </div>
       {sessionUser && (tradeReminder || activeTrade) ? (

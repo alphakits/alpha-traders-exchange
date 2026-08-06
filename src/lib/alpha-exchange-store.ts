@@ -11,6 +11,7 @@ import { runEnvValidation } from "@/lib/env-validation";
 import { getAlphaExchangeRepository, type SnapshotTableName } from "@/lib/alpha-exchange-repository";
 import { addRole, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
 import { publishRealtimeEvent } from "@/lib/realtime";
+import { normalizeSellerLevel } from "@/types/alpha-exchange";
 import {
   MAX_LISTING_PAYMENT_METHODS,
   isBankTransferPaymentMethod,
@@ -633,9 +634,8 @@ function levelRank(level: SellerLevel) {
 function summarizePromotionBenefits(rank: SellerLevel) {
   if (rank === "silver") return "Higher marketplace visibility and stronger buyer trust.";
   if (rank === "gold") return "Priority placement and stronger trust signaling on seller cards.";
-  if (rank === "platinum") return "Premium placement and increased visibility with serious buyers.";
-  if (rank === "diamond") return "Top-tier visibility and premium reputation with buyers.";
-  if (rank === "legendary") return "Legendary recognition across Alpha Exchange and maximum buyer trust.";
+  if (rank === "diamond") return "Premium placement and increased visibility with serious buyers.";
+  if (rank === "elite") return "Elite recognition across Alpha Exchange and maximum buyer trust.";
   return "Starter prestige level unlocked.";
 }
 
@@ -713,10 +713,10 @@ function buildHallOfFameEntry(db: AlphaExchangeDb, seller: AlphaExchangeUser) {
 function normalizePromotionHistoryEntry(raw: unknown): SellerPromotionHistoryEntry | null {
   if (!raw || typeof raw !== "object") return null;
   const entry = raw as Record<string, unknown>;
-  const rank = String(entry.rank ?? "");
-  if (!isValidSellerLevel(rank)) return null;
+  const rank = normalizeSellerLevel(String(entry.rank ?? ""));
+  if (!rank) return null;
   const previousRankRaw = String(entry.previousRank ?? "");
-  const previousRank = isValidSellerLevel(previousRankRaw) ? previousRankRaw : undefined;
+  const previousRank = normalizeSellerLevel(previousRankRaw) ?? undefined;
   const promotedAt = typeof entry.promotedAt === "string" ? entry.promotedAt : nowIso();
   const lifetimeCompletedVolumeUsdt = Math.max(0, Number(entry.lifetimeCompletedVolumeUsdt ?? 0));
   const source = entry.source === "admin_override" ? "admin_override" : "automatic";
@@ -731,10 +731,6 @@ function normalizePromotionHistoryEntry(raw: unknown): SellerPromotionHistoryEnt
     reason: typeof entry.reason === "string" ? entry.reason : undefined,
     actorUserId: typeof entry.actorUserId === "string" ? entry.actorUserId : undefined,
   };
-}
-
-function isValidSellerLevel(value: string): value is SellerLevel {
-  return value === "bronze" || value === "silver" || value === "gold" || value === "platinum" || value === "diamond" || value === "legendary";
 }
 
 function buildPrestigeFieldsForSnapshot(input: { volumeUsdt: number; rank: SellerLevel; isOverridden: boolean }) {
@@ -799,7 +795,7 @@ function buildPublicUserProfileDataForUser(input: {
   if (user.isProfileHidden === true && !canBypassVisibility) return null;
   if (enforceSearchVisibility && user.allowProfileSearch === false && !canBypassVisibility) return null;
 
-  const username = deriveSellerRouteUsername({ fullName: user.fullName, email: user.email, id: user.id });
+  const username = derivePublicProfileUsername({ fullName: user.fullName, email: user.email, id: user.id });
   const trustSnapshot = isTrustEligibleSeller(user) ? computeSellerReputationSnapshot(db, user.id) : null;
   const buyerRequests = db.purchaseRequests.filter((request) => request.buyerId === user.id);
   const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === user.id);
@@ -877,11 +873,12 @@ export async function getPublicUserProfileById(input: {
   });
 }
 
-function deriveSellerRouteUsername(input: { fullName?: string; email?: string; id?: string }) {
-  const base = (input.fullName || input.email || input.id || "seller")
+function normalizeSellerRouteUsername(value: string | undefined) {
+  const base = (value || "seller")
     .toString()
     .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .split("@")[0];
 
   const normalized = base
     .normalize("NFKD")
@@ -893,7 +890,19 @@ function deriveSellerRouteUsername(input: { fullName?: string; email?: string; i
 }
 
 export function derivePublicProfileUsername(input: { fullName?: string; email?: string; id?: string }) {
-  return deriveSellerRouteUsername(input);
+  return normalizeSellerRouteUsername(input.email || input.fullName || input.id);
+}
+
+export function matchesPublicProfileUsername(
+  input: { fullName?: string; email?: string; id?: string },
+  username: string,
+) {
+  const normalizedUsername = normalizeSellerRouteUsername(username);
+  const aliases = new Set([
+    derivePublicProfileUsername(input),
+    normalizeSellerRouteUsername(input.fullName || input.email || input.id),
+  ]);
+  return aliases.has(normalizedUsername);
 }
 
 function isTrustEligibleSeller(user: AlphaExchangeUser) {
@@ -1058,6 +1067,7 @@ function enrichListingsWithSellerData(db: AlphaExchangeDb, listings: Marketplace
     if (!seller) return listing;
     return {
       ...listing,
+      sellerDisplayName: seller.fullName,
       sellerProfile: buildSellerPublicProfile(seller),
       sellerReputation: snapshots.get(seller.id) ?? computeSellerReputationSnapshot(db, seller.id),
     };
@@ -1076,7 +1086,7 @@ export async function getSellerProfileRouteData(input: {
   const normalizedSellerId = String(input.sellerId ?? "").trim();
   const seller = normalizedSellerId
     ? db.users.find((user) => user.id === normalizedSellerId)
-    : db.users.find((user) => deriveSellerRouteUsername({ fullName: user.fullName, email: user.email, id: user.id }) === normalizedUsername);
+    : db.users.find((user) => matchesPublicProfileUsername({ fullName: user.fullName, email: user.email, id: user.id }, normalizedUsername));
   if (!seller || (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended")) {
     return null;
   }
@@ -1116,7 +1126,7 @@ export async function getPublicUserProfileRouteData(input: {
 }) {
   const db = await readDb();
   const normalizedUsername = input.username.trim().toLowerCase();
-  const user = db.users.find((row) => deriveSellerRouteUsername({ fullName: row.fullName, email: row.email, id: row.id }) === normalizedUsername);
+  const user = db.users.find((row) => matchesPublicProfileUsername({ fullName: row.fullName, email: row.email, id: row.id }, normalizedUsername));
   if (!user) return null;
   return buildPublicUserProfileDataForUser({
     db,
@@ -1247,7 +1257,7 @@ export async function getPremiumSellerProfile(input: {
   };
   const lifetimeCompletedVolumeUsdt = Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? trustSnapshot.totalUsdtVolume));
   const sellerAchievements = seller.sellerAchievements ?? [];
-  const hallOfFameEligible = (seller.sellerPrestigeRank ?? trustSnapshot.level) === "legendary";
+  const hallOfFameEligible = (seller.sellerPrestigeRank ?? trustSnapshot.level) === "elite";
   const currentRank = seller.sellerPrestigeRank ?? trustSnapshot.level;
   const prestigeProgress = getSellerPrestigeProgress(lifetimeCompletedVolumeUsdt, currentRank);
   const ownerTools = viewerIsOwner
@@ -1407,12 +1417,13 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
           : undefined;
       const lifetimeCompletedVolumeUsdt = Math.max(0, Number((user as { lifetimeCompletedVolumeUsdt?: number }).lifetimeCompletedVolumeUsdt ?? 0));
       const sellerPrestigeRankRaw = String((user as { sellerPrestigeRank?: string }).sellerPrestigeRank ?? "");
-      const sellerPrestigeRank = isValidSellerLevel(sellerPrestigeRankRaw) ? sellerPrestigeRankRaw : resolveSellerPrestigeRank(lifetimeCompletedVolumeUsdt);
+      const sellerPrestigeRank = normalizeSellerLevel(sellerPrestigeRankRaw) ?? resolveSellerPrestigeRank(lifetimeCompletedVolumeUsdt);
       const sellerRankOverrideRaw = (user as { sellerRankOverride?: { rank?: string; reason?: string; setAt?: string; setByUserId?: string } }).sellerRankOverride;
+      const normalizedOverrideRank = normalizeSellerLevel(String(sellerRankOverrideRaw?.rank ?? ""));
       const sellerRankOverride =
-        sellerRankOverrideRaw && isValidSellerLevel(String(sellerRankOverrideRaw.rank ?? ""))
+        sellerRankOverrideRaw && normalizedOverrideRank
           ? {
-              rank: String(sellerRankOverrideRaw.rank) as SellerLevel,
+              rank: normalizedOverrideRank,
               reason: String(sellerRankOverrideRaw.reason ?? "").trim(),
               setAt: typeof sellerRankOverrideRaw.setAt === "string" ? sellerRankOverrideRaw.setAt : nowIso(),
               setByUserId: typeof sellerRankOverrideRaw.setByUserId === "string" ? sellerRankOverrideRaw.setByUserId : SYSTEM_ACTOR_USER_ID,
@@ -1936,6 +1947,32 @@ async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<
     if (process.env.ALPHA_EXCHANGE_PERF === "1") {
       console.log(`[STORE-PERF] writeDb[${tables.join(",")}] total ${Date.now() - storeWriteStart}ms`);
     }
+    dbCache = { value: normalized, updatedAt: Date.now() };
+  } finally {
+    dbReadInFlight = null;
+  }
+}
+
+type PurchaseRequestCreationWriteDelta = {
+  purchaseRequest: PurchaseRequest;
+  users: AlphaExchangeUser[];
+  trustSnapshots: TrustSnapshotRecord[];
+  newAuditLogs: AuditLogEntry[];
+  newNotifications: AlphaExchangeNotification[];
+  newActivityLogs: AlphaExchangeActivityLogEntry[];
+  newTrustHistoryEntries: TrustScoreChangeLog[];
+};
+
+async function writeDbForPurchaseRequestCreation(db: AlphaExchangeDb, delta: PurchaseRequestCreationWriteDelta) {
+  const normalized = normalizeDb(db);
+  ensureDisplayNumbers(normalized);
+  const writeTask = dbWriteInFlight.then(async () => {
+    const repository = await getAlphaExchangeRepository();
+    await repository.savePurchaseRequestCreationSnapshotTargeted(delta);
+  });
+  dbWriteInFlight = writeTask.catch(() => undefined);
+  try {
+    await writeTask;
     dbCache = { value: normalized, updatedAt: Date.now() };
   } finally {
     dbReadInFlight = null;
@@ -3821,7 +3858,7 @@ export async function getApprovedSellersForAdmin(dbInput?: AlphaExchangeDb) {
 export async function getHallOfFameEntries() {
   const db = await readDb();
   return db.users
-    .filter((user) => (user.sellerPrestigeRank ?? "bronze") === "legendary")
+    .filter((user) => (user.sellerPrestigeRank ?? "bronze") === "elite")
     .map((user) => buildHallOfFameEntry(db, user))
     .sort((left, right) => new Date(right.promotedAt).getTime() - new Date(left.promotedAt).getTime());
 }
@@ -3905,6 +3942,7 @@ export async function overrideSellerPrestigeByAdmin(input: {
 
 export async function getMarketplaceListings(status?: string) {
   const db = await readDb();
+  await ensureDevelopmentTesterMarketplaceListing(db);
   const nowMs = Date.now();
   const sellerById = new Map(db.users.map((user) => [user.id, user]));
   const sellersBlockedByCommission = new Set(
@@ -4003,6 +4041,82 @@ export async function getMarketplaceListingById(id: string) {
 
 function isListingCreateProfilingEnabled() {
   return process.env.ALPHA_EXCHANGE_PROFILE_LISTING_CREATE === "1";
+}
+
+function isDevelopmentTesterSeedEnabled() {
+  return process.env.NODE_ENV !== "production"
+    && process.env.ALPHA_EXCHANGE_SEED_DEVELOPMENT_TESTER_LISTING === "1";
+}
+
+function isTesterSellerAccount(user: AlphaExchangeUser) {
+  return user.email.trim().toLowerCase() === "marksally11@yahoo.com";
+}
+
+function findTesterMarketplaceListing(db: AlphaExchangeDb, sellerId: string) {
+  return db.marketplaceListings.find(
+    (listing) => listing.sellerId === sellerId
+      && (listing.status === "active" || isListingPendingApproval(listing)),
+  );
+}
+
+function refreshTesterMarketplaceListingSellerDisplayName(db: AlphaExchangeDb, testerSeller: AlphaExchangeUser) {
+  let changed = false;
+  for (const listing of db.marketplaceListings) {
+    if (listing.sellerId !== testerSeller.id) continue;
+    if (listing.sellerDisplayName === testerSeller.fullName) continue;
+    listing.sellerDisplayName = testerSeller.fullName;
+    changed = true;
+  }
+  return changed;
+}
+
+async function ensureDevelopmentTesterMarketplaceListing(db: AlphaExchangeDb) {
+  if (!isDevelopmentTesterSeedEnabled()) return;
+  const testerSeller = db.users.find((user) => isTesterSellerAccount(user) && user.sellerStatus === "approved_seller");
+  if (!testerSeller) return;
+  const refreshed = refreshTesterMarketplaceListingSellerDisplayName(db, testerSeller);
+  const owner = db.users.find((user) => hasRole(user, "owner"));
+  const existingListing = findTesterMarketplaceListing(db, testerSeller.id);
+  if (existingListing) {
+    if (isListingPendingApproval(existingListing) && owner) {
+      await reviewMarketplaceListingByOwner({
+        listingId: existingListing.id,
+        ownerUserId: owner.id,
+        decision: "approve",
+        reason: "Development tester listing.",
+      });
+    } else if (refreshed) {
+      await writeDb(db);
+    }
+    return;
+  }
+
+  const listing = await createMarketplaceListing({
+    sellerId: testerSeller.id,
+    sellerDisplayName: testerSeller.fullName,
+    availableAmount: "250",
+    price: "3.25",
+    currency: "ILS",
+    network: "TRC20",
+    paymentMethod: "Bank Transfer",
+    paymentMethods: ["Bank Transfer"],
+    bankName: "Bank Leumi",
+    minimumTrade: "50",
+    maximumTrade: "250",
+    notes: "Development tester listing. Do not buy.",
+    sellerDescription: "Development tester listing. Do not buy.",
+    responseTime: "5 min",
+    acceptedCommissionPolicy: true,
+    actorUserId: testerSeller.id,
+  });
+  if (owner) {
+    await reviewMarketplaceListingByOwner({
+      listingId: listing.id,
+      ownerUserId: owner.id,
+      decision: "approve",
+      reason: "Development tester listing.",
+    });
+  }
 }
 function createStoreProfileLogger(scope: string) {
   const startedAt = Date.now();
@@ -4887,6 +5001,12 @@ export async function createPurchaseRequest(input: {
     updatedAt: now,
   };
   db.purchaseRequests.push(request);
+  const startingAuditLogCount = db.auditLogs.length;
+  const startingNotificationCount = db.notifications.length;
+  const startingActivityLogCount = db.activityLog.length;
+  const startingTrustHistoryCount = db.trustScoreHistory.length;
+  const startingUsersById = new Map(db.users.map((user) => [user.id, user] as const));
+  const startingTrustSnapshotsBySellerId = new Map(db.trustSnapshots.map((snapshot) => [snapshot.sellerId, snapshot] as const));
   await appendAuditLog(db, {
     action: "purchase_request_submitted",
     actorUserId: input.actorUserId,
@@ -4926,8 +5046,22 @@ export async function createPurchaseRequest(input: {
     details: `Trade ${request.tradeId} was submitted.`,
   });
   const businessMs = Date.now() - businessStartedAt;
+  const newAuditLogs = db.auditLogs.slice(0, db.auditLogs.length - startingAuditLogCount);
+  const newNotifications = db.notifications.slice(0, db.notifications.length - startingNotificationCount);
+  const newActivityLogs = db.activityLog.slice(0, db.activityLog.length - startingActivityLogCount);
+  const newTrustHistoryEntries = db.trustScoreHistory.slice(0, db.trustScoreHistory.length - startingTrustHistoryCount);
+  const updatedUsers = db.users.filter((user) => user !== startingUsersById.get(user.id));
+  const updatedTrustSnapshots = db.trustSnapshots.filter((snapshot) => snapshot !== startingTrustSnapshotsBySellerId.get(snapshot.sellerId));
   const writeStartedAt = Date.now();
-  await writeDb(db, { selectedTables: PURCHASE_REQUEST_CREATE_TABLES });
+  await writeDbForPurchaseRequestCreation(db, {
+    purchaseRequest: request,
+    users: updatedUsers.length ? updatedUsers : db.users,
+    trustSnapshots: updatedTrustSnapshots.length ? updatedTrustSnapshots : db.trustSnapshots,
+    newAuditLogs,
+    newNotifications,
+    newActivityLogs,
+    newTrustHistoryEntries,
+  });
   const writeMs = Date.now() - writeStartedAt;
   const sseStartedAt = Date.now();
   publishRealtimeEvent({
@@ -5417,9 +5551,7 @@ export async function getAccountProfileData(userId: string): Promise<{
   const user = db.users.find((row) => row.id === userId);
   if (!user) throw new Error("User not found.");
 
-  const username = user.email.includes("@")
-    ? user.email.split("@")[0].trim().toLowerCase()
-    : user.fullName.trim().toLowerCase().replace(/\s+/g, "");
+  const username = derivePublicProfileUsername({ fullName: user.fullName, email: user.email, id: user.id });
   const lastLogin = db.authSessions
     .filter((session) => session.userId === user.id)
     .map((session) => new Date(session.createdAt).getTime())

@@ -35,7 +35,7 @@ const ACHIEVEMENT_DESCRIPTIONS: Record<SellerAchievementKey, string> = {
   trades_100: "Completed 100 successful trades.",
   fast_responder: "Maintained an average response time under 2 minutes for at least 100 completed trades.",
   customer_favorite: "Maintained a 4.95+ rating with at least 100 reviews.",
-  volume_500k: "Reached the Legendary Seller prestige tier.",
+  volume_500k: "Reached the Elite Seller prestige tier.",
   perfect_month: "Achieved a 100% completion rate in a calendar month with at least 20 completed trades.",
   rising_star: "Reached Gold Seller within 30 days of becoming an approved seller.",
   trusted_veteran: "Remained an approved seller for one full year.",
@@ -75,7 +75,7 @@ export function evaluateSellerAchievements(input: SellerAchievementEvaluationInp
   if (input.reviewCount >= 100 && input.averageRating >= 4.95) {
     achievements.push(buildAchievement("customer_favorite", input, { averageRating: input.averageRating, reviewCount: input.reviewCount }));
   }
-  if (input.rank === "legendary" || input.lifetimeVolumeUsdt >= 500_000) {
+  if (input.rank === "elite" || input.lifetimeVolumeUsdt >= 500_000) {
     achievements.push(buildAchievement("volume_500k", input, { lifetimeVolumeUsdt: input.lifetimeVolumeUsdt }));
   }
   if (input.completionRate === 100 && input.completedTradeMonths.some((month) => month) && input.completedTrades >= 20) {

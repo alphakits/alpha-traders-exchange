@@ -12,15 +12,27 @@
  */
 
 import { test, expect } from "@playwright/test";
+import { cleanupBuyerFixture, resolveBuyerFixture, type BuyerFixture } from "./support/buyer-fixture";
 
 const OWNER_EMAIL = process.env.E2E_OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.E2E_OWNER_PASSWORD ?? "";
 const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? "";
-const BUYER_EMAIL = process.env.E2E_BUYER_EMAIL ?? "";
-const BUYER_PASSWORD = process.env.E2E_BUYER_PASSWORD ?? "";
+let BUYER_EMAIL = process.env.E2E_BUYER_EMAIL ?? "";
+let BUYER_PASSWORD = process.env.E2E_BUYER_PASSWORD ?? "";
 const SELLER_EMAIL = process.env.E2E_SELLER_EMAIL ?? "";
 const SELLER_PASSWORD = process.env.E2E_SELLER_PASSWORD ?? "";
+let buyerFixture: BuyerFixture | undefined;
+
+test.beforeAll(async () => {
+  buyerFixture = await resolveBuyerFixture(BUYER_EMAIL, BUYER_PASSWORD);
+  BUYER_EMAIL = buyerFixture.email;
+  BUYER_PASSWORD = buyerFixture.password;
+});
+
+test.afterAll(async () => {
+  await cleanupBuyerFixture(buyerFixture);
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -118,6 +130,7 @@ test.describe("Authentication", () => {
   });
 
   test("invalid credentials show error message", async ({ page }) => {
+    await page.request.post("/api/auth/logout").catch(() => {});
     await page.goto("/en/login");
     await page.waitForSelector('form[data-hydrated="true"]', { timeout: 15_000 });
     await page.getByLabel("Email").fill("nobody@example.com");

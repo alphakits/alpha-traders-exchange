@@ -65,6 +65,37 @@ type AccountProfilePayload = {
   accountStatuses: string[];
 };
 
+type OnboardingRoleResponse = {
+  user?: {
+    role?: string;
+    roles?: string[];
+    onboardingSelection?: "guest" | "student" | "buyer" | "seller_applicant";
+    onboardingCompletedAt?: string;
+  };
+  error?: string;
+};
+
+function deriveRoleBadgeFromRoles(roles: string[]): RoleBadgeVariant {
+  if (roles.includes("owner")) return "owner";
+  if (roles.includes("admin")) return "administrator";
+  if (roles.includes("approved_seller")) return "approved_seller";
+  if (roles.includes("pending_seller_approval")) return "pending_seller";
+  if (roles.includes("buyer")) return "buyer";
+  if (roles.includes("student")) return "student";
+  if (roles.includes("guest")) return "guest";
+  return "guest";
+}
+
+function roleLabelFromBadge(variant: RoleBadgeVariant): AccountProfilePayload["roleLabel"] {
+  if (variant === "owner") return "Owner";
+  if (variant === "administrator") return "Administrator";
+  if (variant === "pending_seller") return "Pending Seller";
+  if (variant === "approved_seller") return "Approved Seller";
+  if (variant === "student") return "Student";
+  if (variant === "guest") return "Guest";
+  return "Buyer";
+}
+
 type ProfileFormState = {
   fullName: string;
   bio: string;
@@ -203,6 +234,7 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
   const [photoRemoving, setPhotoRemoving] = useState(false);
   const [coverRemoving, setCoverRemoving] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
+  const [roleActionLoading, setRoleActionLoading] = useState<null | "student" | "guest">(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [coverError, setCoverError] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -426,6 +458,71 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
     }
   }
 
+  async function activateStudentRole() {
+    if (roleActionLoading) return;
+    setRoleActionLoading("student");
+    try {
+      const response = await fetch("/api/auth/onboarding/student", { method: "POST" });
+      const data = (await response.json()) as OnboardingRoleResponse;
+      if (!response.ok) {
+        setMessage(data.error ?? (isAr ? "تعذر تفعيل دور الطالب." : "Failed to activate student role."));
+        return;
+      }
+      setPayload((prev) => {
+        if (!prev) return prev;
+        const roles = data.user?.roles ?? (data.user?.role ? [data.user.role] : prev.profile.roles ?? [prev.profile.role]);
+        const nextBadge = deriveRoleBadgeFromRoles(roles);
+        return {
+          ...prev,
+          profile: {
+            ...prev.profile,
+            roles,
+            role: data.user?.role ?? prev.profile.role,
+            onboardingSelection: data.user?.onboardingSelection ?? prev.profile.onboardingSelection,
+            onboardingCompletedAt: data.user?.onboardingCompletedAt ?? prev.profile.onboardingCompletedAt,
+          },
+          roleBadge: nextBadge,
+          roleLabel: roleLabelFromBadge(nextBadge),
+        };
+      });
+      setMessage(isAr ? "تم تفعيل دور الطالب." : "Student role activated.");
+    } finally {
+      setRoleActionLoading(null);
+    }
+  }
+
+  async function continueAsGuest() {
+    if (roleActionLoading) return;
+    setRoleActionLoading("guest");
+    try {
+      const response = await fetch("/api/auth/onboarding/guest", { method: "POST" });
+      const data = (await response.json()) as OnboardingRoleResponse;
+      if (!response.ok) {
+        setMessage(data.error ?? (isAr ? "تعذر تحديث تفضيل الدور." : "Failed to update role preference."));
+        return;
+      }
+      setPayload((prev) => {
+        if (!prev) return prev;
+        const roles = data.user?.roles ?? (data.user?.role ? [data.user.role] : prev.profile.roles ?? [prev.profile.role]);
+        const nextBadge = deriveRoleBadgeFromRoles(roles);
+        return {
+          ...prev,
+          profile: {
+            ...prev.profile,
+            roles,
+            role: data.user?.role ?? prev.profile.role,
+            onboardingSelection: data.user?.onboardingSelection ?? prev.profile.onboardingSelection,
+            onboardingCompletedAt: data.user?.onboardingCompletedAt ?? prev.profile.onboardingCompletedAt,
+          },
+          roleBadge: nextBadge,
+          roleLabel: roleLabelFromBadge(nextBadge),
+        };
+      });
+      setMessage(isAr ? "تم تحديث الاختيار إلى ضيف." : "Role selection updated to Guest.");
+    } finally {
+      setRoleActionLoading(null);
+    }
+  }
   if (loading) {
     const { isOwner: sessionIsOwner, hasAdminDashboardAccess: sessionHasAdminDashboardAccess } = resolveAdminProfileAccess({
       payload,
@@ -614,6 +711,22 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
               </CardDescription>
             </CardHeader>
             <CardContent>
+              <div className="mb-4 rounded-2xl border border-[#C9A227]/25 bg-black/30 p-4">
+                <p className="text-sm text-[#D1D5DB]">
+                  {isAr ? "إدارة مسار حسابك:" : "Manage your account path:"}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button type="button" variant="secondary" loading={roleActionLoading === "student"} loadingLabel={isAr ? "جاري التفعيل..." : "Activating..."} onClick={() => void activateStudentRole()}>
+                    {isAr ? "تفعيل دور الطالب" : "Join Alpha Academy"}
+                  </Button>
+                  <Link href="/onboarding?mode=manage" className={buttonVariants({ variant: "secondary" })}>
+                    {isAr ? "اختيار دور المشتري" : "Become a Buyer"}
+                  </Link>
+                  <Button type="button" variant="secondary" loading={roleActionLoading === "guest"} loadingLabel={isAr ? "جاري التحديث..." : "Updating..."} onClick={() => void continueAsGuest()}>
+                    {isAr ? "المتابعة كضيف" : "Continue as Guest"}
+                  </Button>
+                </div>
+              </div>
               <form className="grid gap-3 md:grid-cols-2 xl:gap-4" onSubmit={(event) => void handleSave(event)}>
                 <Input value={form.fullName} onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))} aria-label={isAr ? "الاسم الكامل" : "Full name"} placeholder={isAr ? "الاسم الكامل" : "Full name"} />
                 <Input value={form.country} onChange={(event) => setForm((prev) => ({ ...prev, country: event.target.value }))} aria-label={isAr ? "الدولة" : "Country"} placeholder={isAr ? "الدولة" : "Country"} />

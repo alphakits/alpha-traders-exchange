@@ -10,9 +10,8 @@ import { cn } from "@/lib/utils";
 import type { PremiumSellerProfileData, SellerBadge, SellerLevel } from "@/types/alpha-exchange";
 
 function formatSellerLevelLabel(level?: SellerLevel) {
-  if (level === "legendary") return "Alpha Legendary Seller";
+  if (level === "elite") return "Alpha Elite Seller";
   if (level === "diamond") return "Alpha Diamond Seller";
-  if (level === "platinum") return "Alpha Platinum Seller";
   if (level === "gold") return "Alpha Gold Seller";
   if (level === "silver") return "Alpha Silver Seller";
   return "Alpha Bronze Seller";
@@ -29,18 +28,16 @@ function formatSellerBadgeLabel(badge: string) {
 }
 
 function sellerRankTheme(level?: SellerLevel) {
-  if (level === "legendary") return "from-[#F8E7A0] via-white to-[#C9A227] text-transparent bg-clip-text";
+  if (level === "elite") return "from-[#F8E7A0] via-white to-[#C9A227] text-transparent bg-clip-text";
   if (level === "diamond") return "text-[#7CC9FF]";
-  if (level === "platinum") return "text-[#C8D1DF]";
   if (level === "gold") return "text-[#E8C547]";
   if (level === "silver") return "text-[#C9CED9]";
   return "text-[#B8824B]";
 }
 
 function sellerLevelToneKey(level?: SellerLevel) {
-  if (level === "legendary") return "legendary";
+  if (level === "elite") return "legendary";
   if (level === "diamond") return "diamond";
-  if (level === "platinum") return "platinum";
   if (level === "gold") return "gold";
   if (level === "silver") return "silver";
   return "bronze";
@@ -48,9 +45,8 @@ function sellerLevelToneKey(level?: SellerLevel) {
 
 function heroRankLabel(level?: SellerLevel, isOwner = false) {
   if (isOwner) return "OWNER";
-  if (level === "legendary") return "LEGENDARY SELLER";
+  if (level === "elite") return "ELITE SELLER";
   if (level === "diamond") return "DIAMOND SELLER";
-  if (level === "platinum") return "PLATINUM SELLER";
   if (level === "gold") return "GOLD SELLER";
   if (level === "silver") return "SILVER SELLER";
   return "BRONZE SELLER";

@@ -257,7 +257,7 @@ export function LoginForm({
                   <input type="checkbox" checked={form.rememberMe} onChange={(event) => setForm((prev) => ({ ...prev, rememberMe: event.target.checked }))} className="h-4 w-4 rounded border-white/30 bg-transparent accent-[#C9A227]" />
                   {isAr ? "تذكرني" : "Remember Me"}
                 </label>
-                <Link href="/forgot-password" className="text-[#C9A227] transition hover:text-[#F4D87A] hover:underline">
+                <Link href="/forgot-password" className="inline-flex min-h-11 items-center rounded-md px-1 text-[#C9A227] transition hover:text-[#F4D87A] hover:underline">
                   {isAr ? "هل نسيت كلمة المرور؟" : "Forgot your password?"}
                 </Link>
               </div>
@@ -283,7 +283,7 @@ export function LoginForm({
 
             <p className="mt-6 text-sm text-[#9CA3AF]">
               {isAr ? "ليس لديك حساب؟" : "Don’t have an account?"}{" "}
-              <Link href="/register" className="text-[#C9A227] transition hover:text-[#F4D87A] hover:underline">
+              <Link href="/register" className="inline-flex min-h-11 items-center rounded-md px-1 text-[#C9A227] transition hover:text-[#F4D87A] hover:underline">
                 {isAr ? "أنشئ حسابًا" : "Create Account"}
               </Link>
             </p>
