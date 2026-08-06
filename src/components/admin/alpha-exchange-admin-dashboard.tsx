@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Search, Settings, ShieldCheck, Star, Store, TrendingUp, Trophy, Users, Users2, WalletCards, X, Zap } from "lucide-react";
+import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Megaphone, Search, Settings, ShieldCheck, Star, Store, TrendingUp, Trophy, Users, Users2, WalletCards, X, Zap } from "lucide-react";
+import { AdminAnnouncementsPanel } from "@/components/admin/admin-announcements-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -88,6 +89,7 @@ type SectionKey =
   | "purchase-requests"
   | "commissions"
   | "audit-logs"
+  | "announcements"
   | "private-beta"
   | "settings"
   | "users"
@@ -106,6 +108,7 @@ const sectionItems: Array<{ key: SectionKey; label: string; icon: typeof BarChar
   { key: "purchase-requests", label: "Purchase Requests", icon: ListChecks },
   { key: "commissions", label: "Commissions", icon: Coins },
   { key: "audit-logs", label: "Audit Logs", icon: FileClock },
+  { key: "announcements", label: "Marketing · Announcements", icon: Megaphone },
   { key: "private-beta", label: "Access Control", icon: ShieldCheck },
   { key: "analytics", label: "Analytics", icon: TrendingUp },
   { key: "users", label: "User Management", icon: Users2 },
@@ -2197,6 +2200,8 @@ export function AlphaExchangeAdminDashboard() {
                       </CardContent>
                     </Card>
                   ) : null}
+
+                  {activeSection === "announcements" ? <AdminAnnouncementsPanel /> : null}
 
                   {activeSection === "private-beta" ? (
                     <div className="space-y-6">
