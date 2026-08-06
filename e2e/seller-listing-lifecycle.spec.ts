@@ -250,6 +250,7 @@ async function createRequest(request: APIRequestContext, listingId: string, usdt
       buyerName: "Lifecycle Buyer",
       buyerWhatsapp: "+972500000000",
       buyerNotes: `Buying ${usdtAmount} USDT`,
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
     },
   });
   expect(response.ok()).toBeTruthy();
@@ -601,6 +602,7 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
       buyerName: "Vacation Buyer",
       buyerWhatsapp: "+972500000001",
       buyerNotes: "Testing vacation mode",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
     },
   });
   expect(response.status()).toBe(400);

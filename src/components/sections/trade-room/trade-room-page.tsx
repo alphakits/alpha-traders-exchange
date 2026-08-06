@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, CheckCircle2, Clock3, LoaderCircle, MessageCircle, ShieldCheck, WalletCards } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, Copy, LoaderCircle, MessageCircle, ShieldCheck, WalletCards } from "lucide-react";
 import Image from "next/image";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
@@ -46,7 +46,7 @@ type ActorSession = {
   fullName: string;
 };
 
-type StepId = "request" | "accepted" | "payment" | "released" | "completed";
+type StepId = "request" | "accepted" | "payment" | "verifying" | "release" | "completed";
 
 type PrimaryStatus = "accepted" | "declined" | "payment_sent" | "funds_received" | "usdt_release_pending" | "usdt_sent" | "completed";
 
@@ -74,11 +74,12 @@ const COMPLETED_TRADE_STATUSES = new Set<PurchaseRequest["status"]>(["review_ope
 const PERF_LOG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
 
 const STEP_ORDER: Array<{ id: StepId; icon: string; label: { en: string; ar: string } }> = [
-  { id: "request", icon: "📝", label: { en: "Request", ar: "الطلب" } },
-  { id: "accepted", icon: "🤝", label: { en: "Accepted", ar: "مقبول" } },
-  { id: "payment", icon: "💳", label: { en: "Payment", ar: "الدفع" } },
-  { id: "released", icon: "₮", label: { en: "USDT Released", ar: "إرسال USDT" } },
-  { id: "completed", icon: "⭐", label: { en: "Completed", ar: "مكتملة" } },
+  { id: "request", icon: "📝", label: { en: "Request Submitted", ar: "تم إرسال الطلب" } },
+  { id: "accepted", icon: "🤝", label: { en: "Seller Accepted", ar: "وافق البائع" } },
+  { id: "payment", icon: "💳", label: { en: "Buyer Sent Payment", ar: "أرسل المشتري الدفع" } },
+  { id: "verifying", icon: "🔍", label: { en: "Seller Verifying Payment", ar: "البائع يتحقق من الدفع" } },
+  { id: "release", icon: "₮", label: { en: "Release USDT", ar: "إرسال USDT" } },
+  { id: "completed", icon: "⭐", label: { en: "Trade Completed", ar: "اكتملت الصفقة" } },
 ];
 
 function toNumber(value: string | number | null | undefined) {
@@ -117,9 +118,10 @@ function tradeStatusLabel(status: PurchaseRequest["status"], isAr: boolean, isOv
 }
 
 function getStepId(status: PurchaseRequest["status"]): StepId {
-  if (status === "accepted") return "accepted";
-  if (status === "payment_sent" || status === "funds_received") return "payment";
-  if (status === "usdt_release_pending" || status === "usdt_sent") return "released";
+  if (status === "accepted") return "payment";
+  if (status === "payment_sent") return "verifying";
+  if (status === "funds_received" || status === "usdt_release_pending") return "release";
+  if (status === "usdt_sent") return "completed";
   if (status === "review_open" || status === "completed" || status === "locked") return "completed";
   return "request";
 }
@@ -288,7 +290,7 @@ function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isA
           icon: "🧾",
           title: isAr ? "الحالة الحالية" : "Current Status",
           headline: isAr ? "ارفع إيصال الدفع للمتابعة" : "Upload Your Payment Receipt to Continue",
-          detail: isAr ? "عند نجاح الرفع سيتم إرسال الدفع وإبلاغ البائع فورًا." : "A successful receipt upload immediately submits payment and notifies the seller.",
+          detail: isAr ? "أرسل الدفع باستخدام تفاصيل دفع البائع، ثم ارفع الإيصال." : "Send payment using the seller's payment details, then upload the receipt.",
           yourAction: primaryAction?.label ?? (isAr ? "رفع إيصال الدفع" : "Upload Payment Receipt"),
           counterpartyAction: isAr ? "البائع بانتظار إثبات الدفع" : "Seller is waiting for your payment proof",
           tradeStatus: currentStatus,
@@ -300,7 +302,7 @@ function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isA
           icon: "✅",
           title: isAr ? "الحالة الحالية" : "Current Status",
           headline: isAr ? "أكد استلام الأموال" : "Confirm Money Received",
-          detail: isAr ? "المشتري رفع الإثبات. أكّد الاستلام لبدء مرحلة إصدار USDT." : "The buyer already uploaded payment evidence. Confirm receipt to unlock USDT release.",
+          detail: isAr ? "تحقق من وصول الدفع إلى حسابك البنكي. لا ترسل USDT قبل التأكد." : "Verify payment has arrived in your bank account. Do not release USDT until it is confirmed.",
           yourAction: primaryAction?.label ?? (isAr ? "تأكيد استلام الأموال" : "Confirm Money Received"),
           counterpartyAction: isAr ? "المشتري أرسل الدفع" : "Buyer has already submitted payment",
           tradeStatus: currentStatus,
@@ -321,7 +323,7 @@ function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isA
           icon: "₮",
           title: isAr ? "الحالة الحالية" : "Current Status",
           headline: isAr ? "إصدار USDT هو الإجراء التالي" : "Release USDT is the Next Step",
-          detail: isAr ? "ابدأ مرحلة إصدار USDT لبدء مهلة الـ45 دقيقة." : "Start USDT release to begin the 45-minute SLA window.",
+          detail: isAr ? "أرسل USDT المشتراة فقط إلى محفظة المشتري المعروضة أدناه." : "Send the purchased USDT ONLY to the buyer wallet shown below.",
           yourAction: primaryAction?.label ?? (isAr ? "إصدار USDT" : "Release USDT"),
           counterpartyAction: isAr ? "المشتري بانتظار تحويل USDT" : "Buyer is waiting for USDT release",
           tradeStatus: currentStatus,
@@ -342,7 +344,7 @@ function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isA
           icon: "🚀",
           title: isAr ? "الحالة الحالية" : "Current Status",
           headline: isAr ? "أكمل إصدار USDT الآن" : "Finish Releasing USDT Now",
-          detail: isAr ? "أرسل الإثبات وأكمل المرحلة قبل انتهاء المهلة." : "Upload proof and complete the release before the deadline expires.",
+          detail: isAr ? "أرسل USDT فقط إلى المحفظة أدناه، ثم ارفع الإثبات وأكمل المرحلة." : "Send USDT ONLY to the wallet shown below, then upload proof and complete the release.",
           yourAction: primaryAction?.label ?? (isAr ? "إصدار USDT" : "Release USDT"),
           counterpartyAction: isAr ? "المشتري بانتظار التأكيد النهائي" : "Buyer is waiting for your final confirmation",
           tradeStatus: currentStatus,
@@ -496,8 +498,9 @@ function getTurnPanel(request: PurchaseRequest, isSeller: boolean, isAr: boolean
 function timelineStepForEvent(event: TradeTimelineEntry): StepId {
   if (event.type === "request_submitted") return "request";
   if (event.type === "request_accepted") return "accepted";
-  if (event.type === "payment_sent" || event.type === "seller_confirmed_funds" || event.type === "buyer_evidence_uploaded") return "payment";
-  if (event.type === "usdt_release_started" || event.type === "usdt_sent" || event.type === "seller_evidence_uploaded") return "released";
+  if (event.type === "payment_sent" || event.type === "buyer_evidence_uploaded") return "payment";
+  if (event.type === "seller_confirmed_funds") return "verifying";
+  if (event.type === "usdt_release_started" || event.type === "usdt_sent" || event.type === "seller_evidence_uploaded") return "release";
   return "completed";
 }
 
@@ -675,6 +678,8 @@ export function TradeRoomPage({
   const [buyerCompletionSuccessActive, setBuyerCompletionSuccessActive] = useState(false);
   const [buyerRedirectPending, setBuyerRedirectPending] = useState(false);
   const [buyerSuccessFadingOut, setBuyerSuccessFadingOut] = useState(false);
+  const [walletQrDataUrl, setWalletQrDataUrl] = useState<string | null>(null);
+  const [walletCopied, setWalletCopied] = useState(false);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const actionNoticeTimeoutRef = useRef<number | null>(null);
   const actionInFlightRef = useRef<string | null>(null);
@@ -982,6 +987,7 @@ export function TradeRoomPage({
 
   const isSeller = room ? room.request.sellerId === actor.id : actor.role === "approved_seller";
   const request = room?.request ?? null;
+  const sellerWalletAddress = isSeller ? request?.buyerReceivingWalletAddress : undefined;
   const requestPaymentMethod = request ? (normalizeMarketplacePaymentMethod(request.paymentMethod) ?? request.paymentMethod) : "";
   const sellerEvidenceRequired = request ? isSellerEvidenceRequiredForPaymentMethod(requestPaymentMethod) : false;
   const counterpartName = request
@@ -1024,6 +1030,37 @@ export function TradeRoomPage({
     if (!request) return [] as TradeTimelineEntry[];
     return [...(request.timeline ?? [])].sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
   }, [request]);
+
+  useEffect(() => {
+    if (!sellerWalletAddress) {
+      setWalletQrDataUrl(null);
+      return;
+    }
+    let cancelled = false;
+    void import("qrcode").then((QRCode) => {
+      void QRCode.toDataURL(sellerWalletAddress, {
+        width: 176,
+        margin: 1,
+        color: { dark: "#000000", light: "#ffffff" },
+      }).then((url: string) => {
+        if (!cancelled) setWalletQrDataUrl(url);
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sellerWalletAddress]);
+
+  const copySellerWallet = useCallback(async () => {
+    if (!sellerWalletAddress) return;
+    try {
+      await navigator.clipboard.writeText(sellerWalletAddress);
+      setWalletCopied(true);
+      window.setTimeout(() => setWalletCopied(false), 1800);
+    } catch {
+      setActionError(isAr ? "تعذر نسخ عنوان المحفظة." : "Could not copy the wallet address.");
+    }
+  }, [isAr, sellerWalletAddress]);
 
   const selectedStepEvent = useMemo(() => {
     if (!request) return null;
@@ -1654,7 +1691,7 @@ export function TradeRoomPage({
           <div className="overflow-x-auto">
             <div className="flex min-w-max items-start gap-2">
               {STEP_ORDER.map((step, index) => {
-                const isCompleted = index < currentStepIndex;
+                const isCompleted = index < currentStepIndex || (index === currentStepIndex && COMPLETED_TRADE_STATUSES.has(request.status));
                 const isCurrent = index === currentStepIndex;
                 return (
                   <div key={step.id} className="flex min-w-[104px] items-center gap-2 sm:min-w-[120px]">
@@ -1953,6 +1990,35 @@ export function TradeRoomPage({
                         ? "بانتظار المشتري لرفع إيصال الدفع. لا يمكنك المتابعة قبل إرسال الدفع."
                         : "Waiting for the buyer to upload their payment receipt. You cannot continue until the buyer submits payment."}
                     </p>
+                  </div>
+                ) : null}
+
+                {sellerWalletAddress ? (
+                  <div className="rounded-2xl border-2 border-[#C9A227]/65 bg-gradient-to-br from-[#C9A227]/20 via-black/70 to-[#6CAEFF]/10 p-4 shadow-[0_0_28px_rgba(201,162,39,0.18)]">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#FDE68A]">
+                          {isAr ? "محفظة استلام المشتري" : "Buyer Receiving Wallet"}
+                        </p>
+                        <p className="mt-2 text-sm text-[#D1D5DB]">
+                          {isAr
+                            ? `أرسل USDT فقط عبر شبكة ${request.network} إلى هذا العنوان.`
+                            : `Send USDT ONLY on ${request.network} to this address.`}
+                        </p>
+                        <p className="mt-3 break-all rounded-xl border border-white/10 bg-black/45 p-3 font-mono text-sm text-white">
+                          {sellerWalletAddress}
+                        </p>
+                        <Button type="button" variant="secondary" className="mt-3 w-full sm:w-auto" onClick={() => void copySellerWallet()}>
+                          <Copy className="mr-2 h-4 w-4" />
+                          {walletCopied ? (isAr ? "تم النسخ" : "Copied") : (isAr ? "نسخ العنوان" : "Copy Address")}
+                        </Button>
+                      </div>
+                      {walletQrDataUrl ? (
+                        <div className="self-center rounded-xl bg-white p-2">
+                          <Image src={walletQrDataUrl} alt={isAr ? "رمز QR لمحفظة المشتري" : "Buyer wallet QR code"} width={176} height={176} unoptimized />
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 ) : null}
 

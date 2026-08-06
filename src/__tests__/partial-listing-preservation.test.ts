@@ -26,6 +26,7 @@ import {
 const PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9Wl8cAAAAASUVORK5CYII=";
 
 const SELLER_ID = "seller-1";
+const SELLER_TWO_ID = "seller-2";
 const BUYER_ONE_ID = "buyer-1";
 const BUYER_TWO_ID = "buyer-2";
 const BUYER_THREE_ID = "buyer-3";
@@ -129,6 +130,7 @@ async function completeTrade(input: {
     buyerName: input.buyerName,
     buyerWhatsapp: "+972500000001",
     buyerNotes: `Buying ${input.amount} USDT`,
+    buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
     bankName: "Bank Hapoalim",
     actorUserId: input.buyerId,
   });
@@ -289,6 +291,7 @@ describe("partial listing preservation", () => {
       buyerName: "Buyer One",
       buyerWhatsapp: "+972500000001",
       buyerNotes: "Buying 250 USDT",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
       bankName: "Bank Hapoalim",
       actorUserId: BUYER_ONE_ID,
     });
@@ -416,6 +419,7 @@ describe("partial listing preservation", () => {
       buyerName: "Buyer One",
       buyerWhatsapp: "+972500000001",
       buyerNotes: "Meet in person",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
       paymentMethod: "Face-to-Face (Meet in Person)",
       safetyAcknowledged: true,
       actorUserId: BUYER_ONE_ID,
@@ -598,6 +602,7 @@ describe("partial listing preservation", () => {
         buyerName: "Buyer Three",
         buyerWhatsapp: "+972500000003",
         buyerNotes: "Attempting over-purchase",
+        buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
         bankName: "Bank Hapoalim",
         actorUserId: BUYER_THREE_ID,
       }),
@@ -645,6 +650,7 @@ describe("partial listing preservation", () => {
       buyerName: "Lifecycle Buyer",
       buyerWhatsapp: "+972500000001",
       buyerNotes: "Trade lifecycle QA",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
       actorUserId: BUYER_ONE_ID,
     });
 
@@ -736,6 +742,7 @@ describe("partial listing preservation", () => {
       buyerName: "Buyer One",
       buyerWhatsapp: "+972500000001",
       buyerNotes: "Timeout archive test",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
       actorUserId: BUYER_ONE_ID,
     });
 
@@ -767,6 +774,7 @@ describe("partial listing preservation", () => {
         buyerName: "Buyer One",
         buyerWhatsapp: "+972500000001",
         buyerNotes: "Should be blocked",
+        buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
         actorUserId: BUYER_ONE_ID,
       }),
     ).rejects.toMatchObject({
@@ -800,6 +808,7 @@ describe("partial listing preservation", () => {
       buyerName: "Buyer Two",
       buyerWhatsapp: "+972500000002",
       buyerNotes: "Seller decline flow",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
       actorUserId: BUYER_TWO_ID,
     });
     const declineResult = await updatePurchaseRequestStatus({
@@ -817,6 +826,7 @@ describe("partial listing preservation", () => {
       buyerName: "Buyer Three",
       buyerWhatsapp: "+972500000003",
       buyerNotes: "Buyer cancel flow",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
       actorUserId: BUYER_THREE_ID,
     });
     await updatePurchaseRequestStatus({
@@ -838,6 +848,8 @@ describe("partial listing preservation", () => {
   });
 
   it("emits one notification per trade lifecycle event with deep links", async () => {
+    const seededDb = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    seededDb.users.push(createUser(SELLER_TWO_ID, "seller-two@example.com", "approved_seller"));
     const listing = await createMarketplaceListing({
       sellerId: SELLER_ID,
       sellerDisplayName: "Seller One",
@@ -854,6 +866,10 @@ describe("partial listing preservation", () => {
       actorUserId: SELLER_ID,
     });
     await approveListing(listing.id);
+    const listingOwnerNotifications = await getNotificationsForUser({ userId: SELLER_ID });
+    const unrelatedSellerNotifications = await getNotificationsForUser({ userId: SELLER_TWO_ID });
+    expect(listingOwnerNotifications.notifications.some((notification) => notification.title === "Listing submitted" && notification.relatedListingId === listing.id)).toBe(true);
+    expect(unrelatedSellerNotifications.notifications.some((notification) => notification.title === "🟢 New USDT Listing Available" && notification.relatedListingId === listing.id)).toBe(false);
 
     const request = await createPurchaseRequest({
       buyerId: BUYER_ONE_ID,
@@ -862,6 +878,7 @@ describe("partial listing preservation", () => {
       buyerName: "Buyer One",
       buyerWhatsapp: "+972500000001",
       buyerNotes: "Notification certification",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
       actorUserId: BUYER_ONE_ID,
     });
 
@@ -984,6 +1001,7 @@ describe("partial listing preservation", () => {
       buyerName: "Buyer One",
       buyerWhatsapp: "+972500000001",
       buyerNotes: "First trade",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
       actorUserId: BUYER_ONE_ID,
     });
     await updatePurchaseRequestStatus({
@@ -1001,6 +1019,7 @@ describe("partial listing preservation", () => {
         buyerName: "Buyer One",
         buyerWhatsapp: "+972500000001",
         buyerNotes: "Second active trade should fail",
+        buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
         actorUserId: BUYER_ONE_ID,
       });
       throw new Error("Expected ACTIVE_TRADE_EXISTS error.");
@@ -1037,6 +1056,7 @@ describe("partial listing preservation", () => {
       buyerName: "Buyer One",
       buyerWhatsapp: "+972500000001",
       buyerNotes: "Pending trade test",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
       actorUserId: BUYER_ONE_ID,
     });
 

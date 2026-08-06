@@ -369,6 +369,8 @@ export interface MarketplaceListing {
   maximumTrade: string;
   expiresAt?: string;
   expiredAt?: string;
+  expirationEmailPendingAt?: string;
+  expirationEmailSentAt?: string;
   lastRenewedAt?: string;
   notes?: string;
   sellerDescription: string;
@@ -624,6 +626,7 @@ export interface PurchaseRequest {
   fiatAmount: string;
   currency: string;
   network: SupportedNetwork;
+  buyerReceivingWalletAddress?: string;
   paymentMethod: string;
   buyerSafetyAcknowledged?: boolean;
   sellerSafetyAcknowledged?: boolean;
