@@ -6247,6 +6247,7 @@ export async function updatePurchaseRequestStatus(input: {
     const enriched = enrichRequestWithEvidence(db, request);
     return {
       request: enriched,
+      statusChanged: false,
       metrics: {
         totalMs: Date.now() - startedAt,
         readDbMs,
@@ -6269,6 +6270,7 @@ export async function updatePurchaseRequestStatus(input: {
         const enriched = enrichRequestWithEvidence(strongDb, strongRequest);
         return {
           request: enriched,
+          statusChanged: false,
           metrics: {
             totalMs: Date.now() - startedAt,
             readDbMs,
@@ -6884,6 +6886,7 @@ export async function updatePurchaseRequestStatus(input: {
   }
   return {
     request: enriched,
+    statusChanged: true,
     additionallyDeclinedRequests,
     // When trust was recalculated, return a deferred task that writes the trust tables.
     // The route handler runs this via after() so the HTTP response is sent first.
