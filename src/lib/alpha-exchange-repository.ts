@@ -5,6 +5,7 @@ import alphaExchangeSeed from "../../data/alpha-exchange-db.json";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import type {
   AlphaExchangeDb,
+  AdminAnnouncementRun,
   AlphaExchangeNotification,
   AlphaExchangeUser,
   AuditLogEntry,
@@ -264,6 +265,18 @@ const SCHEMA_SQL = [
     sort_index integer not null,
     payload jsonb not null
   )`,
+  `create table if not exists alpha_exchange.admin_announcement_runs (
+    id text primary key,
+    request_key text not null,
+    audience text not null,
+    status text not null,
+    created_by_user_id text not null references alpha_exchange.users(id) on delete cascade,
+    created_at timestamptz not null,
+    updated_at timestamptz not null,
+    sort_index integer not null,
+    payload jsonb not null
+  )`,
+  "alter table alpha_exchange.admin_announcement_runs add column if not exists request_key text",
   "create index if not exists idx_alpha_exchange_users_email on alpha_exchange.users (email)",
   "create index if not exists idx_alpha_exchange_users_role on alpha_exchange.users (role)",
   "create index if not exists idx_alpha_exchange_listings_seller_status on alpha_exchange.listings (seller_id, status)",
@@ -278,6 +291,8 @@ const SCHEMA_SQL = [
   "create index if not exists idx_alpha_exchange_sessions_user_expires on alpha_exchange.sessions (user_id, expires_at)",
   "create index if not exists idx_alpha_exchange_seller_applications_status on alpha_exchange.seller_applications (status, created_at)",
   "create index if not exists idx_alpha_exchange_trades_status on alpha_exchange.trades (status, created_at desc)",
+  "create index if not exists idx_alpha_exchange_announcement_runs_created_at on alpha_exchange.admin_announcement_runs (created_at desc)",
+  "create unique index if not exists idx_alpha_exchange_announcement_runs_request_key on alpha_exchange.admin_announcement_runs (created_by_user_id, request_key)",
 ];
 
 const DEFAULT_DB = alphaExchangeSeed as unknown as AlphaExchangeDb;
@@ -319,6 +334,7 @@ const SNAPSHOT_TABLE_NAMES = [
   "private_beta_invite_uses",
   "beta_feedback",
   "beta_announcements",
+  "admin_announcement_runs",
 ] as const;
 
 export type SnapshotTableName = (typeof SNAPSHOT_TABLE_NAMES)[number];
@@ -875,6 +891,27 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
       ]);
     },
   },
+  {
+    name: "admin_announcement_runs",
+    selectSql: "select payload from alpha_exchange.admin_announcement_runs order by sort_index asc",
+    values: (db) => db.adminAnnouncementRuns ?? [],
+    insert: async (tx, rows: AdminAnnouncementRun[]) => {
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.admin_announcement_runs (id, request_key, audience, status, created_by_user_id, created_at, updated_at, sort_index, payload)
+SELECT id, request_key, audience, status, created_by_user_id, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[])
+  AS t(id,request_key,audience,status,created_by_user_id,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.requestKey),
+        rows.map(r => r.audience),
+        rows.map(r => r.status),
+        rows.map(r => r.createdByUserId),
+        rows.map(r => r.createdAt),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
+    },
+  },
 ] as Array<RepoTable<unknown>>;
 
 const tableByName = new Map(tables.map((table) => [table.name, table]));
@@ -983,6 +1020,7 @@ function emptySnapshotCollections(): AlphaExchangeDb {
     privateBetaInviteUses: [],
     betaFeedback: [],
     betaAnnouncements: [],
+    adminAnnouncementRuns: [],
     sellerReviews: [],
   };
 }
@@ -1050,6 +1088,9 @@ function snapshotFromTableRows(
         break;
       case "beta_announcements":
         snapshot.betaAnnouncements = fromPayloadRows(rows as Array<{ payload: BetaAnnouncement }>);
+        break;
+      case "admin_announcement_runs":
+        snapshot.adminAnnouncementRuns = fromPayloadRows(rows as Array<{ payload: AdminAnnouncementRun }>);
         break;
       default:
         break;
@@ -1120,6 +1161,15 @@ function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchang
     mergedPurchaseRequests[index] = incomingUpdatedAt > latestUpdatedAt ? request : latestRequest;
   }
   const getCollection = <T>(value: T[] | undefined, fallback: T[]) => Array.isArray(value) ? value : fallback;
+  const mergedAnnouncementRuns = new Map(
+    getCollection(latest.adminAnnouncementRuns, []).map((run) => [run.id, run]),
+  );
+  for (const run of getCollection(incoming.adminAnnouncementRuns, [])) {
+    const latestRun = mergedAnnouncementRuns.get(run.id);
+    if (!latestRun || new Date(run.updatedAt).getTime() > new Date(latestRun.updatedAt).getTime()) {
+      mergedAnnouncementRuns.set(run.id, run);
+    }
+  }
 
   return {
     ...latest,
@@ -1143,6 +1193,8 @@ function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchang
     privateBetaInviteUses: getCollection(incoming.privateBetaInviteUses, latest.privateBetaInviteUses),
     betaFeedback: getCollection(incoming.betaFeedback, latest.betaFeedback),
     betaAnnouncements: getCollection(incoming.betaAnnouncements, latest.betaAnnouncements),
+    adminAnnouncementRuns: [...mergedAnnouncementRuns.values()]
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()),
     sellerReviews: getCollection(incoming.sellerReviews, latest.sellerReviews),
   };
 }
@@ -1302,6 +1354,102 @@ export class AlphaExchangeRepository {
     }
     await pool.query("select 1");
     return "ok" as const;
+  }
+
+  async acquireAdminAnnouncementBatchLock(input: {
+    run: AdminAnnouncementRun;
+    staleBefore: string;
+  }) {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      if (process.env.NODE_ENV === "production") {
+        throw new Error("Durable announcement delivery is unavailable while the database is offline.");
+      }
+      const snapshot = getLatestAvailableFallbackSnapshot();
+      const index = (snapshot.adminAnnouncementRuns ?? []).findIndex((run) => run.id === input.run.id);
+      if (index === -1) return false;
+      const existing = snapshot.adminAnnouncementRuns[index];
+      const lockedAt = existing.batchLockedAt ? new Date(existing.batchLockedAt).getTime() : 0;
+      if (existing.finishedAt || (lockedAt && lockedAt >= new Date(input.staleBefore).getTime())) return false;
+      snapshot.adminAnnouncementRuns[index] = cloneSnapshot(input.run);
+      syncMemoryFallbackSnapshot(snapshot, getVersion(snapshot) + 1);
+      return true;
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("select pg_advisory_xact_lock(61422917)");
+      const result = await client.query(
+        `update alpha_exchange.admin_announcement_runs
+         set status = $3, updated_at = $4::timestamptz, payload = $5::jsonb
+         where id = $1
+           and status in ('queued', 'sending')
+           and (
+             payload->>'batchLockedAt' is null
+             or (payload->>'batchLockedAt')::timestamptz < $2::timestamptz
+           )
+         returning id`,
+        [input.run.id, input.staleBefore, input.run.status, input.run.updatedAt, json(input.run)],
+      );
+      if (result.rowCount !== 1) {
+        await client.query("ROLLBACK");
+        return false;
+      }
+      await client.query("update alpha_exchange.runtime_meta set version = version + 1, updated_at = now() where singleton = true");
+      await client.query("COMMIT");
+      return true;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async commitAdminAnnouncementBatch(input: {
+    run: AdminAnnouncementRun;
+    batchLockId: string;
+  }) {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      if (process.env.NODE_ENV === "production") {
+        throw new Error("Durable announcement delivery is unavailable while the database is offline.");
+      }
+      const snapshot = getLatestAvailableFallbackSnapshot();
+      const index = (snapshot.adminAnnouncementRuns ?? []).findIndex((run) => run.id === input.run.id);
+      if (index === -1 || snapshot.adminAnnouncementRuns[index].batchLockId !== input.batchLockId) return false;
+      snapshot.adminAnnouncementRuns[index] = cloneSnapshot(input.run);
+      syncMemoryFallbackSnapshot(snapshot, getVersion(snapshot) + 1);
+      return true;
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("select pg_advisory_xact_lock(61422917)");
+      const result = await client.query(
+        `update alpha_exchange.admin_announcement_runs
+         set status = $3, updated_at = $4::timestamptz, payload = $5::jsonb
+         where id = $1 and payload->>'batchLockId' = $2
+         returning id`,
+        [input.run.id, input.batchLockId, input.run.status, input.run.updatedAt, json(input.run)],
+      );
+      if (result.rowCount !== 1) {
+        await client.query("ROLLBACK");
+        return false;
+      }
+      await client.query("update alpha_exchange.runtime_meta set version = version + 1, updated_at = now() where singleton = true");
+      await client.query("COMMIT");
+      return true;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async loadSnapshot(): Promise<SnapshotWithVersion> {
@@ -1897,6 +2045,7 @@ export class AlphaExchangeRepository {
         privateBetaInviteUses: [],
         betaFeedback: [],
         betaAnnouncements: [],
+        adminAnnouncementRuns: [],
         sellerReviews: [],
       } as AlphaExchangeDb;
     } catch (error) {

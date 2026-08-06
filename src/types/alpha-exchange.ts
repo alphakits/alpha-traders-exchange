@@ -612,6 +612,54 @@ export interface BetaAnnouncement {
   updatedAt: string;
 }
 
+export type AdminAnnouncementAudience =
+  | "all_verified_users"
+  | "buyers"
+  | "approved_sellers"
+  | "administrators";
+
+export type AdminAnnouncementStatus =
+  | "queued"
+  | "sending"
+  | "completed"
+  | "partial_failure"
+  | "failed";
+
+export type AdminAnnouncementRecipientStatus = "pending" | "sent" | "failed";
+
+export interface AdminAnnouncementRecipient {
+  userId: string;
+  email: string;
+  name: string;
+  status: AdminAnnouncementRecipientStatus;
+  attemptedAt?: string;
+  providerStatus?: number;
+  failureReason?: string;
+}
+
+export interface AdminAnnouncementRun {
+  id: string;
+  requestKey: string;
+  audience: AdminAnnouncementAudience;
+  subject: string;
+  title: string;
+  content: string;
+  ctaText: string;
+  ctaUrl: string;
+  status: AdminAnnouncementStatus;
+  recipientCount: number;
+  successCount: number;
+  failureCount: number;
+  recipients: AdminAnnouncementRecipient[];
+  createdByUserId: string;
+  startedAt: string;
+  finishedAt?: string;
+  batchLockedAt?: string;
+  batchLockId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PurchaseRequest {
   id: string;
   tradeId?: string;
@@ -722,6 +770,8 @@ export type AuditAction =
   | "beta_feedback_status_updated"
   | "beta_announcement_created"
   | "beta_announcement_updated"
+  | "admin_announcement_started"
+  | "admin_announcement_completed"
   | "trade_evidence_uploaded"
   | "trade_evidence_replaced"
   | "trade_evidence_viewed_by_owner"
@@ -796,6 +846,7 @@ export interface AlphaExchangeDb {
   privateBetaInviteUses: PrivateBetaInviteUse[];
   betaFeedback: BetaFeedbackEntry[];
   betaAnnouncements: BetaAnnouncement[];
+  adminAnnouncementRuns: AdminAnnouncementRun[];
   sellerReviews: SellerReviewRecord[];
 }
 

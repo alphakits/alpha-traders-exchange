@@ -12,6 +12,12 @@ import { getAlphaExchangeRepository, type SnapshotTableName } from "@/lib/alpha-
 import { addRole, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { sendMarketplaceEmail, type MarketplaceEmailEvent } from "@/lib/marketplace-email-delivery";
+import {
+  isRetryableAnnouncementDeliveryFailure,
+  sendAdminAnnouncementEmail,
+  validateAdminAnnouncementContent,
+  type AdminAnnouncementEmailContent,
+} from "@/lib/admin-announcement-email";
 import { getSiteUrl } from "@/lib/site-url";
 import { normalizeSellerLevel } from "@/types/alpha-exchange";
 import {
@@ -31,6 +37,9 @@ import {
 } from "@/lib/israeli-banks";
 import type {
   AlphaExchangeActivityLogEntry,
+  AdminAnnouncementAudience,
+  AdminAnnouncementRun,
+  AdminAnnouncementStatus,
   BetaAnnouncement,
   BetaAnnouncementType,
   BetaFeedbackCategory,
@@ -170,6 +179,7 @@ const defaultDb: AlphaExchangeDb = {
   privateBetaInviteUses: [],
   betaFeedback: [],
   betaAnnouncements: [],
+  adminAnnouncementRuns: [],
   sellerReviews: [],
 };
 
@@ -1759,6 +1769,14 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       title: String((item as { title?: string }).title ?? "").trim(),
       message: String((item as { message?: string }).message ?? "").trim(),
     })),
+    adminAnnouncementRuns: (db.adminAnnouncementRuns ?? []).map((run) => ({
+      ...run,
+      requestKey: String(run.requestKey ?? run.id),
+      recipients: Array.isArray(run.recipients) ? run.recipients : [],
+      recipientCount: Math.max(0, Number(run.recipientCount ?? 0)),
+      successCount: Math.max(0, Number(run.successCount ?? 0)),
+      failureCount: Math.max(0, Number(run.failureCount ?? 0)),
+    })),
     sellerReviews: (db.sellerReviews ?? []).map((review) => ({
       ...review,
       id: String((review as { id?: string }).id ?? `review-${randomUUID()}`),
@@ -1939,6 +1957,7 @@ const DISPUTE_WRITE_TABLES = ["purchase_requests", "disputes", "notifications", 
 const SELLER_REPORT_TABLES = ["seller_reports", "notifications", "activity_logs"] as const satisfies readonly SnapshotTableName[];
 const BETA_ANNOUNCEMENT_TABLES = ["beta_announcements", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const BETA_ANNOUNCEMENT_STATE_TABLES = ["beta_announcements", "audit_logs"] as const satisfies readonly SnapshotTableName[];
+const ADMIN_ANNOUNCEMENT_TABLES = ["admin_announcement_runs", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const ADMIN_LISTING_OVERRIDE_TABLES = ["listings", "purchase_requests", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 
 async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<string, Buffer>; traceTag?: string; selectedTables?: readonly SnapshotTableName[] }) {
@@ -8151,6 +8170,261 @@ export async function updateBetaAnnouncementState(input: {
 export async function getActiveBetaAnnouncements() {
   const db = await readDb();
   return db.betaAnnouncements.filter((item) => item.isActive);
+}
+
+export function isAdminAnnouncementAudience(value: string): value is AdminAnnouncementAudience {
+  return value === "all_verified_users"
+    || value === "buyers"
+    || value === "approved_sellers"
+    || value === "administrators";
+}
+
+function requireAnnouncementAdmin(db: AlphaExchangeDb, userId: string) {
+  const user = db.users.find((candidate) => candidate.id === userId);
+  if (!user || (!hasRole(user, "admin") && !hasRole(user, "owner"))) {
+    throw new Error("Administrator access required.");
+  }
+  return user;
+}
+
+export function selectAdminAnnouncementRecipients(
+  users: AlphaExchangeUser[],
+  audience: AdminAnnouncementAudience,
+) {
+  const matching = users.filter((user) => {
+    if (user.emailVerified !== true || user.disabled === true || !user.email.trim()) return false;
+    if (audience === "all_verified_users") return true;
+    if (audience === "approved_sellers") return hasRole(user, "approved_seller");
+    if (audience === "administrators") return hasRole(user, "admin") || hasRole(user, "owner");
+    return (user.role === "buyer" || (user.roles ?? []).includes("buyer"))
+      && !hasRole(user, "approved_seller")
+      && !hasRole(user, "admin")
+      && !hasRole(user, "owner");
+  });
+
+  const byEmail = new Map<string, AlphaExchangeUser>();
+  for (const user of matching.sort((left, right) => left.id.localeCompare(right.id))) {
+    const normalizedEmail = user.email.trim().toLowerCase();
+    if (!byEmail.has(normalizedEmail)) byEmail.set(normalizedEmail, user);
+  }
+  return [...byEmail.values()].map((user) => ({
+    userId: user.id,
+    email: user.email.trim().toLowerCase(),
+    name: user.fullName.trim() || "Trader",
+  }));
+}
+
+export async function getAdminAnnouncementOverview(audience: AdminAnnouncementAudience) {
+  const db = await readDb();
+  return {
+    recipientCount: selectAdminAnnouncementRecipients(db.users, audience).length,
+    runs: [...db.adminAnnouncementRuns]
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+      .slice(0, 20),
+  };
+}
+
+export async function createAdminAnnouncementRun(input: {
+  adminUserId: string;
+  requestKey: string;
+  audience: AdminAnnouncementAudience;
+  expectedRecipientCount: number;
+  content: AdminAnnouncementEmailContent;
+}) {
+  const db = await readDb({ bypassCache: true });
+  requireAnnouncementAdmin(db, input.adminUserId);
+  const requestKey = input.requestKey.trim();
+  if (!/^[a-f0-9-]{36}$/i.test(requestKey)) throw new Error("A valid announcement request key is required.");
+  const existing = db.adminAnnouncementRuns.find((run) => (
+    run.createdByUserId === input.adminUserId && run.requestKey === requestKey
+  ));
+  if (existing) return existing;
+  const content = validateAdminAnnouncementContent(input.content);
+  const recipients = selectAdminAnnouncementRecipients(db.users, input.audience);
+  if (recipients.length === 0) throw new Error("No verified recipients match this audience.");
+  if (recipients.length !== input.expectedRecipientCount) {
+    throw new Error(`Recipient count changed from ${input.expectedRecipientCount} to ${recipients.length}. Review the audience before sending.`);
+  }
+
+  const timestamp = nowIso();
+  const run: AdminAnnouncementRun = {
+    id: `admin-announcement-${requestKey}`,
+    requestKey,
+    audience: input.audience,
+    ...content,
+    status: "queued",
+    recipientCount: recipients.length,
+    successCount: 0,
+    failureCount: 0,
+    recipients: recipients.map((recipient) => ({ ...recipient, status: "pending" })),
+    createdByUserId: input.adminUserId,
+    startedAt: timestamp,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  db.adminAnnouncementRuns.unshift(run);
+  await appendAuditLog(db, {
+    action: "admin_announcement_started",
+    actorUserId: input.adminUserId,
+    details: `Started announcement ${run.id} for ${run.audience} with ${run.recipientCount} recipients.`,
+    newValue: {
+      announcementId: run.id,
+      audience: run.audience,
+      recipientCount: run.recipientCount,
+      startedAt: run.startedAt,
+    },
+  });
+  await writeDb(db, { selectedTables: ADMIN_ANNOUNCEMENT_TABLES });
+  return run;
+}
+
+const ANNOUNCEMENT_BATCH_SIZE = 20;
+const ANNOUNCEMENT_CONCURRENCY = 5;
+const ANNOUNCEMENT_LOCK_TIMEOUT_MS = 5 * 60_000;
+
+export async function deliverAdminAnnouncementBatch(input: {
+  adminUserId: string;
+  announcementId: string;
+}) {
+  let db = await readDb({ bypassCache: true });
+  requireAnnouncementAdmin(db, input.adminUserId);
+  let runIndex = db.adminAnnouncementRuns.findIndex((candidate) => candidate.id === input.announcementId);
+  if (runIndex === -1) throw new Error("Announcement delivery run not found.");
+  const current = db.adminAnnouncementRuns[runIndex];
+  if (current.finishedAt) return current;
+
+  const lockedAt = current.batchLockedAt ? new Date(current.batchLockedAt).getTime() : 0;
+  if (lockedAt && Number.isFinite(lockedAt) && Date.now() - lockedAt < ANNOUNCEMENT_LOCK_TIMEOUT_MS) {
+    throw new Error("An announcement batch is already being delivered.");
+  }
+
+  const batch = current.recipients.filter((recipient) => recipient.status === "pending").slice(0, ANNOUNCEMENT_BATCH_SIZE);
+  if (batch.length === 0) throw new Error("Announcement has no pending recipients.");
+  const batchLockId = randomUUID();
+  current.status = "sending";
+  current.batchLockedAt = nowIso();
+  current.batchLockId = batchLockId;
+  current.updatedAt = current.batchLockedAt;
+  const repository = await getAlphaExchangeRepository();
+  const lockAcquired = await repository.acquireAdminAnnouncementBatchLock({
+    run: current,
+    staleBefore: new Date(Date.now() - ANNOUNCEMENT_LOCK_TIMEOUT_MS).toISOString(),
+  });
+  if (!lockAcquired) throw new Error("An announcement batch is already being delivered.");
+  dbCache = null;
+
+  const results: Array<{
+    userId: string;
+    result: Awaited<ReturnType<typeof sendAdminAnnouncementEmail>>;
+  }> = [];
+  for (let index = 0; index < batch.length; index += ANNOUNCEMENT_CONCURRENCY) {
+    const group = batch.slice(index, index + ANNOUNCEMENT_CONCURRENCY);
+    results.push(...await Promise.all(group.map(async (recipient) => ({
+      userId: recipient.userId,
+      result: await sendAdminAnnouncementEmail({
+        to: recipient.email,
+        subject: current.subject,
+        title: current.title,
+        content: current.content,
+        ctaText: current.ctaText,
+        ctaUrl: current.ctaUrl,
+        idempotencyKey: `${current.id}-${recipient.userId}`,
+      }),
+    }))));
+  }
+
+  db = await readDb({ bypassCache: true });
+  requireAnnouncementAdmin(db, input.adminUserId);
+  runIndex = db.adminAnnouncementRuns.findIndex((candidate) => candidate.id === input.announcementId);
+  if (runIndex === -1) throw new Error("Announcement delivery run not found after delivery.");
+  const run = db.adminAnnouncementRuns[runIndex];
+  if (run.batchLockId !== batchLockId) {
+    throw new Error("Announcement delivery lock changed before results could be recorded.");
+  }
+  const attemptedAt = nowIso();
+  let hasRetryableFailure = false;
+  for (const { userId, result } of results) {
+    const recipient = run.recipients.find((candidate) => candidate.userId === userId);
+    if (!recipient) continue;
+    recipient.attemptedAt = attemptedAt;
+    if (result.ok) {
+      recipient.status = "sent";
+      recipient.failureReason = undefined;
+      recipient.providerStatus = undefined;
+      continue;
+    }
+    const providerStatus = "providerStatus" in result ? result.providerStatus : undefined;
+    const retryable = isRetryableAnnouncementDeliveryFailure({
+      reason: result.reason,
+      providerStatus,
+    });
+    recipient.status = retryable ? "pending" : "failed";
+    recipient.failureReason = result.reason;
+    recipient.providerStatus = providerStatus;
+    hasRetryableFailure ||= retryable;
+  }
+  run.successCount = run.recipients.filter((recipient) => recipient.status === "sent").length;
+  run.failureCount = run.recipients.filter((recipient) => recipient.status === "failed").length;
+  run.batchLockedAt = undefined;
+  run.batchLockId = undefined;
+  run.updatedAt = attemptedAt;
+  const hasPending = run.recipients.some((recipient) => recipient.status === "pending");
+  if (!hasPending) {
+    const status: AdminAnnouncementStatus = run.failureCount === 0
+      ? "completed"
+      : run.successCount === 0
+        ? "failed"
+        : "partial_failure";
+    run.status = status;
+    run.finishedAt = attemptedAt;
+  }
+  const committed = await repository.commitAdminAnnouncementBatch({ run, batchLockId });
+  if (!committed) throw new Error("Announcement delivery results could not be committed safely.");
+  dbCache = null;
+
+  if (run.finishedAt) {
+    const auditDb = await readDb({ bypassCache: true });
+    await appendAuditLog(auditDb, {
+      action: "admin_announcement_completed",
+      actorUserId: input.adminUserId,
+      details: `Finished announcement ${run.id}: ${run.successCount} succeeded and ${run.failureCount} failed.`,
+      newValue: {
+        announcementId: run.id,
+        audience: run.audience,
+        startedAt: run.startedAt,
+        finishedAt: run.finishedAt,
+        successCount: run.successCount,
+        failureCount: run.failureCount,
+      },
+    });
+    await writeDb(auditDb, { selectedTables: AUDIT_LOG_ONLY_TABLES });
+  }
+  if (hasRetryableFailure) {
+    throw new Error("Announcement delivery paused after a temporary email provider failure. Resume it after the provider is available.");
+  }
+  return run;
+}
+
+export async function sendAdminAnnouncementTest(input: {
+  adminUserId: string;
+  recipientEmail: string;
+  content: AdminAnnouncementEmailContent;
+}) {
+  const db = await readDb({ bypassCache: true });
+  requireAnnouncementAdmin(db, input.adminUserId);
+  const email = input.recipientEmail.trim().toLowerCase();
+  const recipient = db.users.find((user) => (
+    user.email.trim().toLowerCase() === email
+    && user.emailVerified === true
+    && user.disabled !== true
+  ));
+  if (!recipient) throw new Error("Test recipient must be an active, verified registered user.");
+  const content = validateAdminAnnouncementContent(input.content);
+  return sendAdminAnnouncementEmail({
+    ...content,
+    to: recipient.email,
+    idempotencyKey: `admin-announcement-test-${input.adminUserId}-${randomUUID()}`,
+  });
 }
 
 async function ensureTrustSnapshots(db: AlphaExchangeDb) {
