@@ -40,11 +40,30 @@ function roleLabelFor(variant: RoleBadgeVariant): "Guest" | "Student" | "Buyer" 
 }
 
 export async function GET() {
+  const routeStartedAt = Date.now();
+  const timeline: Array<{ name: string; startTime: number; endTime: number; durationMs: number }> = [];
+  const authStartedAt = Date.now();
   const { user, unauthorized } = await requireApiUser();
+  const authEndedAt = Date.now();
+  timeline.push({
+    name: "/api/auth/profile:auth",
+    startTime: authStartedAt,
+    endTime: authEndedAt,
+    durationMs: Math.max(0, authEndedAt - authStartedAt),
+  });
   if (!user) return unauthorized;
 
+  const profileLoadStartedAt = Date.now();
   const payload = await getAccountProfileData(user.id);
+  const profileLoadEndedAt = Date.now();
+  timeline.push({
+    name: "/api/auth/profile:data",
+    startTime: profileLoadStartedAt,
+    endTime: profileLoadEndedAt,
+    durationMs: Math.max(0, profileLoadEndedAt - profileLoadStartedAt),
+  });
   const roleBadge = toRoleBadgeVariant(user);
+  const routeMs = Date.now() - routeStartedAt;
   return NextResponse.json({
     profile: {
       ...payload.profile,
@@ -56,10 +75,17 @@ export async function GET() {
     roleBadge,
     roleLabel: roleLabelFor(roleBadge),
     accountStatuses: accountStatuses(user),
+  }, {
+    headers: {
+      "X-Auth-Profile-Route-Ms": String(routeMs),
+      "X-Auth-Profile-Timeline": JSON.stringify(timeline),
+      "Server-Timing": `route;dur=${routeMs}, auth;dur=${Math.max(0, authEndedAt - authStartedAt)}, profile;dur=${Math.max(0, profileLoadEndedAt - profileLoadStartedAt)}`,
+    },
   });
 }
 
 export async function PATCH(request: NextRequest) {
+  const routeStartedAt = Date.now();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
   const rate = checkRateLimit({ headers: request.headers, key: "auth:profile-update", maxRequests: 20, windowMs: 60_000 });
@@ -68,6 +94,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   try {
+    const validationStartedAt = Date.now();
     const body = await request.json();
     const fullName = body.fullName !== undefined ? String(body.fullName).trim().slice(0, 100) : undefined;
     const profilePhotoUrl = body.profilePhotoUrl !== undefined ? String(body.profilePhotoUrl).trim().slice(0, 500) : undefined;
@@ -87,7 +114,9 @@ export async function PATCH(request: NextRequest) {
     if (fullName !== undefined && !fullName) {
       return NextResponse.json({ error: "Full name is required." }, { status: 400 });
     }
+    const validationMs = Date.now() - validationStartedAt;
 
+    const logicStartedAt = Date.now();
     await updateAccountProfileData({
       userId: user.id,
       profilePhotoUrl,
@@ -108,6 +137,8 @@ export async function PATCH(request: NextRequest) {
 
     const payload = await getAccountProfileData(user.id);
     const roleBadge = toRoleBadgeVariant(user);
+    const logicMs = Date.now() - logicStartedAt;
+    const routeMs = Date.now() - routeStartedAt;
     return NextResponse.json({
       profile: {
         ...payload.profile,
@@ -119,6 +150,13 @@ export async function PATCH(request: NextRequest) {
       roleBadge,
       roleLabel: roleLabelFor(roleBadge),
       accountStatuses: accountStatuses(user),
+    }, {
+      headers: {
+        "X-Trade-Route-Ms": String(routeMs),
+        "X-Trade-Validation-Ms": String(validationMs),
+        "X-Trade-Logic-Ms": String(logicMs),
+        "Server-Timing": `route;dur=${routeMs}, validate;dur=${validationMs}, logic;dur=${logicMs}`,
+      },
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update profile." }, { status: 400 });

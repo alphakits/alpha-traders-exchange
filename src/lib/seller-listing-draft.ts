@@ -15,8 +15,8 @@ export function createDefaultSellerListingDraft(): SellerListingDraft {
     price: "",
     currency: "ILS",
     network: "TRC20",
-    paymentMethods: "Bank transfer",
-    bankName: "Bank transfer",
+    paymentMethods: "Bank Transfer",
+    bankName: "",
     minimumTrade: "0",
     maximumTrade: "",
   };

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
+import { invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
 const TEST_SUPPORT_HEADER = "x-alpha-test-support";
@@ -30,6 +31,7 @@ export async function PUT(request: NextRequest) {
   const snapshot = (await request.json()) as AlphaExchangeDb;
   const repository = await getAlphaExchangeRepository();
   await repository.saveSnapshot(snapshot);
+  invalidateAlphaExchangeStoreCache();
 
   return NextResponse.json({ ok: true }, {
     headers: {

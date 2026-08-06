@@ -138,6 +138,7 @@ export interface AlphaExchangeUser {
   sellerRankOverride?: SellerRankOverride;
   sellerPromotionHistory?: SellerPromotionHistoryEntry[];
   sellerAchievements?: SellerAchievement[];
+  disabled?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -146,6 +147,15 @@ export interface NotificationPreferences {
   inApp: boolean;
   email: boolean;
   sms: boolean;
+  browserPush?: boolean;
+  browserPushTradeUpdates?: boolean;
+  browserPushChatMessages?: boolean;
+  browserPushListings?: boolean;
+  browserPushFeedback?: boolean;
+  browserPushAdminAlerts?: boolean;
+  browserPushPromptDismissedAt?: string;
+  browserPushPermissionState?: "default" | "granted" | "denied";
+  browserPushSubscriptionHash?: string;
 }
 
 export type NotificationCenterCategory = "trades" | "listings" | "account" | "reviews" | "system" | "announcements";
@@ -187,10 +197,13 @@ export interface SellerApplication {
 }
 
 export type ListingStatus = "draft" | "active" | "paused" | "matched" | "in_trade" | "expired" | "completed" | "cancelled" | "closed";
+export type ListingApprovalStatus = "pending" | "approved" | "rejected" | "changes_requested";
 
 export interface SellerPublicProfile {
   sellerId: string;
   sellerName: string;
+  fullName?: string;
+  username?: string;
   profilePhotoUrl: string;
   memberSince: string;
   languages: string[];
@@ -204,7 +217,17 @@ export interface SellerPublicProfile {
   coverBannerUrl?: string;
   isFoundingSeller?: boolean;
   isFeaturedSeller?: boolean;
+  isFoundingMember?: boolean;
   isProfileHidden?: boolean;
+  isOwner?: boolean;
+  role?: UserRole;
+  roles?: UserRole[];
+  sellerStatus?: SellerStatus;
+  allowDirectMessages?: boolean;
+  contact?: {
+    email: string;
+    phone: string;
+  };
   onlineStatus: SellerOnlineStatus;
   availabilityStatus: SellerAvailabilityStatus;
   lastActiveAt?: string;
@@ -351,6 +374,7 @@ export interface MarketplaceListing {
   sellerDescription: string;
   responseTime: string;
   status: ListingStatus;
+  approvalStatus?: ListingApprovalStatus;
   activeTradeRequestId?: string;
   lockedAt?: string;
   ownerReviewReason?: string;
@@ -387,13 +411,18 @@ export type TradeTimelineEventType =
   | "usdt_release_started"
   | "usdt_sent"
   | "trade_completed"
+  | "trade_timed_out"
   | "trade_locked"
   | "review_unlocked"
+  | "dispute_opened"
+  | "commission_recorded"
+  | "commission_paid"
   | "buyer_evidence_uploaded"
   | "seller_evidence_uploaded"
   | "request_declined"
   | "request_cancelled"
-  | "buyer_confirmed_receipt";
+  | "buyer_confirmed_receipt"
+  | "buyer_confirmation_overdue";
 
 export interface TradeTimelineEntry {
   id: string;
@@ -409,6 +438,8 @@ export interface TradeReview {
   rating: number;
   comment: string;
   createdAt: string;
+  hidden?: boolean;
+  hiddenReason?: string;
 }
 
 export interface TradeReviewResponse {
@@ -431,6 +462,24 @@ export interface TradeEvidenceFile {
   sizeBytes: number;
   storagePath: string;
   status: TradeEvidenceStatus;
+}
+
+export interface TradeChatMessage {
+  id: string;
+  purchaseRequestId: string;
+  kind: "user" | "system";
+  senderUserId: string;
+  senderRole: UserRole;
+  message: string;
+  imageUrl?: string;
+  imageName?: string;
+  imageMimeType?: string;
+  createdAt: string;
+  sentAt?: string;
+  deliveredAt?: string;
+  seenAt?: string;
+  readByUserIds: string[];
+  deletedAt?: string;
 }
 
 export type NotificationCategory = "trade" | "listing" | "account" | "trust" | "application" | "dispute" | "report" | "system" | "review";
@@ -459,6 +508,21 @@ export interface AlphaExchangeNotification {
   tradeSnapshot?: NotificationTradeSnapshot;
   archivedAt?: string;
   updatedAt?: string;
+  createdAt: string;
+}
+
+export interface AlphaExchangeTradeReminder {
+  requestId: string;
+  tradeId: string;
+  displayNumber?: number;
+  title: string;
+  message: string;
+  actionLabel: string;
+  actionHref: string;
+  relatedListingId?: string;
+  relatedListingDisplayNumber?: number;
+  priority: "high" | "critical";
+  kind: "buyer_action_required" | "seller_action_required" | "feedback_required";
   createdAt: string;
 }
 
@@ -561,6 +625,8 @@ export interface PurchaseRequest {
   currency: string;
   network: SupportedNetwork;
   paymentMethod: string;
+  buyerSafetyAcknowledged?: boolean;
+  sellerSafetyAcknowledged?: boolean;
   bankName?: string;
   timeline: TradeTimelineEntry[];
   tradeCreatedAt?: string;
@@ -572,12 +638,14 @@ export interface PurchaseRequest {
   completedAt?: string;
   timedOutAt?: string;
   timeoutReason?: string;
+  buyerConfirmationArchivedAt?: string;
   lockedAt?: string;
   reviewUnlockedAt?: string;
   buyerEvidence?: TradeEvidenceFile;
   sellerEvidence?: TradeEvidenceFile;
   buyerReview?: TradeReview;
   sellerResponse?: TradeReviewResponse;
+  messages?: TradeChatMessage[];
   status: PurchaseRequestStatus;
   createdAt: string;
   updatedAt: string;
@@ -588,6 +656,7 @@ export type CommissionPaymentStatus = "pending" | "paid" | "overdue";
 export interface CommissionRecord {
   id: string;
   purchaseRequestId: string;
+  tradeId?: string;
   displayNumber?: number;
   listingId: string;
   sellerId: string;
@@ -596,6 +665,14 @@ export interface CommissionRecord {
   grossAmount: number;
   commissionAmount: number;
   paymentStatus: CommissionPaymentStatus;
+  paymentProvider?: "phantom" | "crypto_wallet" | "qa_reset";
+  paymentNetwork?: string;
+  payerWalletAddress?: string;
+  recipientWalletAddress?: string;
+  paymentSignature?: string;
+  paymentVerificationStatus?: "pending_verification" | "verified" | "failed";
+  paymentVerificationNotes?: string;
+  paymentSubmittedAt?: string;
   dueAt?: string;
   paidAt?: string;
   overdueNotifiedAt?: string;
@@ -711,6 +788,7 @@ export interface AlphaExchangeDb {
   trustSnapshots: TrustSnapshotRecord[];
   trustScoreHistory: TrustScoreChangeLog[];
   tradeEvidenceFiles: TradeEvidenceFile[];
+  tradeMessages?: TradeChatMessage[];
   privateBetaInvites: PrivateBetaInviteCode[];
   privateBetaInviteUses: PrivateBetaInviteUse[];
   betaFeedback: BetaFeedbackEntry[];

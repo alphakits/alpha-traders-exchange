@@ -53,4 +53,48 @@ describe("LoginForm", () => {
       value: originalLocation,
     });
   });
+
+  it("sends owner accounts to the normal homepage after login", async () => {
+    const replaceSpy = vi.fn();
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...originalLocation, replace: replaceSpy },
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        user: {
+          role: "owner",
+          roles: ["owner"],
+          sellerStatus: "approved_seller",
+        },
+      }),
+    }));
+
+    render(<LoginForm locale="en" />);
+
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "owner@example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "abc12345" } });
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith("/en"));
+
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: originalLocation,
+    });
+  });
+
+  it("shows a dedicated forgot-password link under the password field", () => {
+    render(<LoginForm locale="en" />);
+    const forgotLink = screen.getByRole("link", { name: "Forgot your password?" });
+    expect(forgotLink.getAttribute("href")).toBe("/forgot-password");
+  });
+
+  it("shows password-reset success confirmation when arriving from reset flow", () => {
+    render(<LoginForm locale="en" passwordResetSuccess />);
+    expect(screen.getByText("Your password has been updated successfully. Please sign in.")).toBeTruthy();
+  });
 });

@@ -564,10 +564,10 @@ export function LessonManagementDashboard() {
                       patchSelectedLesson({ estimatedDurationMinutes: value, durationMinutes: value });
                     }} placeholder="Estimated Duration (min)" />
                     <Input type="number" value={selectedLesson.xpReward || 100} onChange={(event) => patchSelectedLesson({ xpReward: Number(event.target.value) || 0 })} placeholder="XP Reward" />
-                    <Input value={selectedLesson.instructor || ""} onChange={(event) => patchSelectedLesson({ instructor: event.target.value })} placeholder="Instructor" />
+                    <Input value={selectedLesson.instructor || ""} onChange={(event) => patchSelectedLesson({ instructor: event.target.value })} aria-label="Instructor" placeholder="Instructor" />
                   </div>
-                  <Textarea value={selectedLesson.description} onChange={(event) => patchSelectedLesson({ description: event.target.value })} placeholder="Description" />
-                  <Textarea value={selectedLesson.summary} onChange={(event) => patchSelectedLesson({ summary: event.target.value })} placeholder="Summary" />
+                  <Textarea value={selectedLesson.description} onChange={(event) => patchSelectedLesson({ description: event.target.value })} aria-label="Lesson description" placeholder="Description" />
+                  <Textarea value={selectedLesson.summary} onChange={(event) => patchSelectedLesson({ summary: event.target.value })} aria-label="Lesson summary" placeholder="Summary" />
                 </CardContent>
               </Card>
 

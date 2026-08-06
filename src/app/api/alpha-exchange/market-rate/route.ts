@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { fetchUsdIlsMarketRate } from "@/lib/listing-price-validation";
+import { getMarketSnapshot } from "@/lib/market-service";
 
 export async function GET() {
-  const rate = await fetchUsdIlsMarketRate();
-  return NextResponse.json({ rate });
+  const snapshot = await getMarketSnapshot();
+  return NextResponse.json({ rate: snapshot.pairs.usdtIls.price, market: snapshot });
 }

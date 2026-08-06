@@ -6,6 +6,10 @@ import type { AppLocale } from "@/i18n/routing";
 import { Link, usePathname, useRouter } from "@/i18n/navigation";
 import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { appendLoginJourneyStep, incrementLoginJourneyApiCall } from "@/lib/login-journey-trace";
+import { prefetchTradeRoom } from "@/lib/trade-room-client";
+import { formatListingId, formatTradeId } from "@/lib/format-id";
+import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -14,6 +18,13 @@ type NotificationsPayload = {
 };
 
 const BELL_REFRESH_WINDOW_MS = 30_000;
+
+type NotificationsStreamPayload = {
+  notifications: AlphaExchangeNotification[];
+  unreadCount: number;
+};
+
+const TRADE_ROOM_DEBUG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
 
 function formatRelativeTime(isoDate: string, locale: AppLocale) {
   const date = new Date(isoDate);
@@ -40,9 +51,41 @@ function notificationIcon(notification: AlphaExchangeNotification) {
   return BellDot;
 }
 
+function isActionRequiredNotification(notification: AlphaExchangeNotification) {
+  const text = `${notification.title} ${notification.message}`.toLowerCase();
+  return text.includes("action required") || text.includes("feedback required") || text.includes("confirm usdt receipt");
+}
+
+function extractTradeRoomHrefFromRelatedHref(relatedHref?: string) {
+  const href = relatedHref?.trim();
+  if (!href) return null;
+  const normalized = href.startsWith("/") ? href : `/${href}`;
+  const roomMatch = normalized.match(/\/trade-room\/([^/?#]+)/i);
+  if (roomMatch?.[1]) return `/trade-room/${decodeURIComponent(roomMatch[1])}`;
+  const requestMatch = normalized.match(/[?&]requestId=([^&]+)/i);
+  if (requestMatch?.[1]) return `/trade-room/${decodeURIComponent(requestMatch[1])}`;
+  return null;
+}
+
+function extractRequestIdFromTradeRoomHref(href: string | null) {
+  if (!href) return null;
+  const normalized = href.replace(/\/+$/, "");
+  const requestId = normalized.slice(normalized.lastIndexOf("/") + 1).trim();
+  return requestId || null;
+}
+
+function formatNotificationTitle(notification: AlphaExchangeNotification) {
+  return replaceExchangeEntityIdsWithHints(notification.title, notification);
+}
+
+function formatNotificationMessage(notification: AlphaExchangeNotification) {
+  return replaceExchangeEntityIdsWithHints(notification.message, notification);
+}
+
 export function NotificationBell({ locale }: { locale: AppLocale }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [notifications, setNotifications] = useState<AlphaExchangeNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -70,15 +113,18 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   }, [isOpen]);
 
   async function loadNotifications(limit: number) {
+    const startedAt = Date.now();
     setIsLoading(true);
     setError(null);
     try {
+      incrementLoginJourneyApiCall("/api/alpha-exchange/notifications");
       const response = await fetch(`/api/alpha-exchange/notifications?limit=${limit}&includeActivity=0`, { cache: "no-store" });
       if (!response.ok) throw new Error("Failed to load notifications.");
       const payload = (await response.json()) as NotificationsPayload;
       setNotifications(payload.notifications ?? []);
       setUnreadCount(payload.unreadCount ?? 0);
       setLastLoadedAt(Date.now());
+      appendLoginJourneyStep("Notifications loading (header bell)", startedAt, Date.now(), { limit, status: response.status });
     } catch {
       setError("Failed to load notifications.");
     } finally {
@@ -87,7 +133,35 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   }
 
   useEffect(() => {
-    void loadNotifications(1);
+    void loadNotifications(20);
+  }, []);
+
+  useEffect(() => {
+    const stream = new EventSource("/api/alpha-exchange/notifications/stream");
+    const onNotifications = (event: Event) => {
+      const messageEvent = event as MessageEvent<string>;
+      try {
+        const payload = JSON.parse(messageEvent.data) as NotificationsStreamPayload;
+        setNotifications(Array.isArray(payload.notifications) ? payload.notifications : []);
+        setUnreadCount(typeof payload.unreadCount === "number" ? payload.unreadCount : 0);
+      } catch {
+        // Ignore malformed stream payloads and keep current state.
+      }
+    };
+    const onError = () => {
+      // Keep the stream best-effort; periodic snapshots on reconnect will self-heal state.
+    };
+    stream.addEventListener("notifications", onNotifications);
+    stream.addEventListener("error", onError as EventListener);
+    // Close the stream explicitly before page unload (e.g. logout via window.location.replace).
+    // Without this, hard navigations terminate the connection abruptly and the browser logs
+    // "The connection has terminated unexpectedly" in the DevTools console.
+    const handleBeforeUnload = () => stream.close();
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      stream.close();
+    };
   }, []);
 
   async function handleToggleOpen() {
@@ -105,6 +179,11 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   async function handleMarkOneRead(notificationId: string) {
     const target = notifications.find((item) => item.id === notificationId);
     if (!target || target.isRead) return;
+    // Optimistic update — reflect the change immediately without waiting for the server.
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === notificationId ? { ...n, isRead: true, state: "read" as const } : n)),
+    );
+    setUnreadCount((prev) => Math.max(0, prev - 1));
     try {
       const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
         method: "PATCH",
@@ -112,17 +191,18 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
         body: JSON.stringify({ isRead: true }),
       });
       if (!response.ok) {
-        setError("Failed to update notification.");
-        return;
+        // Revert on failure with a fresh server fetch.
+        await loadNotifications(20);
       }
-      setNotifications((prev) => prev.map((item) => (item.id === notificationId ? { ...item, isRead: true } : item)));
-      setUnreadCount((prev) => Math.max(0, prev - 1));
     } catch {
-      setError("Failed to update notification.");
+      await loadNotifications(20);
     }
   }
 
   async function handleMarkAllRead() {
+    // Optimistic update — mark everything read locally before the server confirms.
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true, state: "read" as const })));
+    setUnreadCount(0);
     try {
       const response = await fetch("/api/alpha-exchange/notifications", {
         method: "PATCH",
@@ -130,27 +210,117 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
         body: JSON.stringify({ action: "mark_all_read" }),
       });
       if (!response.ok) {
-        setError("Failed to update notifications.");
-        return;
+        await loadNotifications(20);
       }
-      setNotifications((prev) => prev.map((item) => ({ ...item, isRead: true })));
-      setUnreadCount(0);
     } catch {
-      setError("Failed to update notifications.");
+      await loadNotifications(20);
     }
   }
 
   async function handleOpenNotification(notification: AlphaExchangeNotification) {
-    if (!notification.isRead) {
-      await handleMarkOneRead(notification.id);
+    const destination = await resolveNotificationDestination(notification);
+    if (TRADE_ROOM_DEBUG) {
+      console.log("[notification-open] notification click", {
+        notificationId: notification.id,
+        category: notification.category,
+        relatedRequestId: notification.relatedRequestId ?? null,
+        relatedListingId: notification.relatedListingId ?? null,
+        relatedTradeId: notification.relatedTradeId ?? null,
+        destination,
+      });
     }
-    if (notification.relatedHref) {
-      router.push(notification.relatedHref);
+    if (!notification.isRead) {
+      void handleMarkOneRead(notification.id);
+    }
+    if (destination) {
+      const requestId = extractRequestIdFromTradeRoomHref(destination);
+      if (requestId) prefetchTradeRoom(router, requestId);
+      router.push(destination);
       setIsOpen(false);
     }
   }
 
+  function isTradeNotification(notification: AlphaExchangeNotification) {
+    return notification.category === "trade";
+  }
+
+  async function resolveNotificationDestination(notification: AlphaExchangeNotification) {
+    if (isTradeNotification(notification)) {
+      return resolveTradeRoomHref(notification)
+        ?? await resolveActiveTradeHref({ notificationId: notification.id, includePending: true });
+    }
+    return notification.actionHref ?? notification.relatedHref ?? null;
+  }
+
+  function extractSellerApplicationId(notification: AlphaExchangeNotification) {
+    const href = (notification.actionHref ?? notification.relatedHref ?? "").trim();
+    if (!href) return null;
+    try {
+      const parsed = new URL(href, "https://www.alphatraders.co.il");
+      const byQuery = parsed.searchParams.get("sellerApplication");
+      if (byQuery?.trim()) return byQuery.trim();
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  async function handleSellerApplicationDecision(notification: AlphaExchangeNotification, decision: "approve" | "reject") {
+    const applicationId = extractSellerApplicationId(notification);
+    if (!applicationId) return;
+    const actionKey = `${notification.id}:${decision}`;
+    if (actionLoading[actionKey]) return;
+    setActionLoading((prev) => ({ ...prev, [actionKey]: true }));
+    try {
+      const reason = decision === "approve" ? "Approved from notification workflow" : "Rejected from notification workflow";
+      const response = await fetch(`/api/alpha-exchange/admin/seller-applications/${encodeURIComponent(applicationId)}/${decision}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      if (response.ok) {
+        if (!notification.isRead) {
+          await handleMarkOneRead(notification.id);
+        }
+        await loadNotifications(20);
+      }
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [actionKey]: false }));
+    }
+  }
+
+  function resolveNotificationActionLabel(notification: AlphaExchangeNotification) {
+    if (notification.actionLabel?.trim()) return notification.actionLabel.trim();
+    if (notification.category === "application") return "Review Application";
+    if (notification.category === "listing") return "Manage Listing";
+    if (isTradeNotification(notification)) return "Open Trade Room";
+    return "Open";
+  }
+
+  function resolveTradeRoomHref(notification: AlphaExchangeNotification) {
+    if (notification.relatedRequestId?.trim()) return `/trade-room/${notification.relatedRequestId.trim()}`;
+    return extractTradeRoomHrefFromRelatedHref(notification.relatedHref ?? notification.actionHref);
+  }
+
+  async function resolveActiveTradeHref(input?: { notificationId?: string; includePending?: boolean }) {
+    try {
+      const query = new URLSearchParams();
+      if (input?.notificationId) query.set("notificationId", input.notificationId);
+      if (input?.includePending) query.set("includePending", "1");
+      const suffix = query.size ? `?${query.toString()}` : "";
+      const response = await fetch(`/api/alpha-exchange/trade-room/active${suffix}`, { cache: "no-store" });
+      if (!response.ok) return null;
+      const payload = (await response.json()) as { activeRequestId?: string | null; destination?: string | null };
+      if (payload.destination?.trim()) return payload.destination.trim();
+      if (!payload.activeRequestId) return null;
+      return `/trade-room/${payload.activeRequestId}`;
+    } catch {
+      return null;
+    }
+  }
+
   const hasUnread = unreadCount > 0;
+  const hasActionRequired = notifications.some(isActionRequiredNotification);
   const wrapperDirection = useMemo(() => (locale === "ar" ? "rtl" : "ltr"), [locale]);
 
   return (
@@ -167,6 +337,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         ) : null}
+        {hasActionRequired ? <span className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-amber-400" /> : null}
       </button>
 
       <div
@@ -213,37 +384,100 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[#C9A227]" />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="truncate text-sm font-medium text-white">{notification.title}</p>
+                          <p className="truncate text-sm font-medium text-white">{formatNotificationTitle(notification)}</p>
                           <span className="shrink-0 text-[11px] text-[#9CA3AF]">{formatRelativeTime(notification.createdAt, locale)}</span>
                         </div>
-                        <p className="mt-1 line-clamp-2">{notification.message}</p>
+                        <p className="mt-1 line-clamp-2">{formatNotificationMessage(notification)}</p>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           {!notification.isRead ? <span className="inline-flex items-center rounded-full bg-[#C9A227]/20 px-2 py-0.5 text-[10px] text-[#C9A227]">Unread</span> : null}
-                          {notification.relatedTradeId ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Trade #{notification.relatedTradeId.slice(-6)}</span> : null}
-                          {notification.relatedListingId ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Listing #{notification.relatedListingId.slice(-6)}</span> : null}
+                          {isTradeNotification(notification) && (notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber)
+                            ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Trade {formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId)}</span>
+                            : null}
+                          {notification.relatedListingId || notification.relatedListingDisplayNumber
+                            ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Listing {formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}</span>
+                            : null}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
-                          <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleOpenNotification(notification)}>
-                            Open
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            className="h-7 px-2.5 text-[11px]"
+                            onMouseEnter={() => {
+                              if (!isTradeNotification(notification)) return;
+                              const href = resolveTradeRoomHref(notification);
+                              const requestId = extractRequestIdFromTradeRoomHref(href);
+                              if (requestId) prefetchTradeRoom(router, requestId);
+                            }}
+                            onFocus={() => {
+                              if (!isTradeNotification(notification)) return;
+                              const href = resolveTradeRoomHref(notification);
+                              const requestId = extractRequestIdFromTradeRoomHref(href);
+                              if (requestId) prefetchTradeRoom(router, requestId);
+                            }}
+                            onClick={() => void handleOpenNotification(notification)}
+                          >
+                            {resolveNotificationActionLabel(notification)}
                           </Button>
-                          {!notification.isRead ? (
-                            <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleMarkOneRead(notification.id)}>
-                              Mark read
-                            </Button>
-                          ) : null}
-                          {notification.relatedHref ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                router.push(notification.relatedHref!);
-                                setIsOpen(false);
-                              }}
-                              className={buttonVariants({ variant: "secondary", size: "sm" })}
-                            >
-                              <ExternalLink className="h-3 w-3" />
-                              Related
-                            </button>
-                          ) : null}
+                          {notification.category === "application" && extractSellerApplicationId(notification) ? (
+                            <>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-7 px-2.5 text-[11px]"
+                                disabled={Boolean(actionLoading[`${notification.id}:approve`])}
+                                onClick={() => void handleSellerApplicationDecision(notification, "approve")}
+                              >
+                                Approve
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-7 px-2.5 text-[11px]"
+                                disabled={Boolean(actionLoading[`${notification.id}:reject`])}
+                                onClick={() => void handleSellerApplicationDecision(notification, "reject")}
+                              >
+                                Reject
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-7 px-2.5 text-[11px]"
+                                onClick={() => {
+                                  if (!notification.isRead) {
+                                    void handleMarkOneRead(notification.id);
+                                  }
+                                  setIsOpen(false);
+                                }}
+                              >
+                                Later
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              {!notification.isRead ? (
+                                <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleMarkOneRead(notification.id)}>
+                                  Mark read
+                                </Button>
+                              ) : null}
+                              {notification.relatedHref ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    router.push(notification.relatedHref!);
+                                    setIsOpen(false);
+                                  }}
+                                  className={buttonVariants({ variant: "secondary", size: "sm" })}
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  Related
+                                </button>
+                              ) : null}
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>

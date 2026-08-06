@@ -11,6 +11,12 @@ export async function GET() {
       inApp: user.notificationPreferences?.inApp !== false,
       email: user.notificationPreferences?.email === true,
       sms: user.notificationPreferences?.sms === true,
+      browserPush: user.notificationPreferences?.browserPush === true,
+      browserPushTradeUpdates: user.notificationPreferences?.browserPushTradeUpdates !== false,
+      browserPushChatMessages: user.notificationPreferences?.browserPushChatMessages !== false,
+      browserPushListings: user.notificationPreferences?.browserPushListings !== false,
+      browserPushFeedback: user.notificationPreferences?.browserPushFeedback !== false,
+      browserPushAdminAlerts: user.notificationPreferences?.browserPushAdminAlerts === true,
     },
   });
 }
@@ -29,6 +35,12 @@ export async function PATCH(request: NextRequest) {
         inApp: typeof body.inApp === "boolean" ? body.inApp : undefined,
         email: typeof body.email === "boolean" ? body.email : undefined,
         sms: typeof body.sms === "boolean" ? body.sms : undefined,
+        browserPush: typeof body.browserPush === "boolean" ? body.browserPush : undefined,
+        browserPushTradeUpdates: typeof body.browserPushTradeUpdates === "boolean" ? body.browserPushTradeUpdates : undefined,
+        browserPushChatMessages: typeof body.browserPushChatMessages === "boolean" ? body.browserPushChatMessages : undefined,
+        browserPushListings: typeof body.browserPushListings === "boolean" ? body.browserPushListings : undefined,
+        browserPushFeedback: typeof body.browserPushFeedback === "boolean" ? body.browserPushFeedback : undefined,
+        browserPushAdminAlerts: typeof body.browserPushAdminAlerts === "boolean" ? body.browserPushAdminAlerts : undefined,
       },
     });
     return NextResponse.json({ preferences });

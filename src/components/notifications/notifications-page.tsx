@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { BellDot, Megaphone, Scale, Search, ShieldCheck, Star, Tags, UserRound } from "lucide-react";
 import type { AppLocale } from "@/i18n/routing";
 import { useRouter } from "@/i18n/navigation";
@@ -8,6 +8,9 @@ import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { prefetchTradeRoom } from "@/lib/trade-room-client";
+import { formatListingId, formatTradeId } from "@/lib/format-id";
+import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -15,13 +18,19 @@ type NotificationsPayload = {
   unreadCount: number;
 };
 
-type NotificationFilter = "all" | "unread" | "trades" | "listings" | "reviews" | "announcements";
+type NotificationsStreamPayload = {
+  notifications: AlphaExchangeNotification[];
+  unreadCount: number;
+};
+
+type NotificationFilter = "all" | "unread" | "trades" | "listings" | "reviews" | "announcements" | "history";
 
 const PAGE_SIZE = 20;
 const MOBILE_FETCH_LIMIT = 40;
 const DESKTOP_FETCH_LIMIT = 120;
 const NOTIFICATIONS_CACHE_KEY = "alpha.notifications.page.v1";
 const NOTIFICATIONS_CACHE_MAX_AGE_MS = 45_000;
+const TRADE_ROOM_DEBUG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
 
 type NotificationsCachePayload = {
   fetchedAt: number;
@@ -52,7 +61,13 @@ function isReview(notification: AlphaExchangeNotification) {
   return notification.category === "review" || `${notification.title} ${notification.message}`.toLowerCase().includes("review");
 }
 
+function isActionRequired(notification: AlphaExchangeNotification) {
+  const text = `${notification.title} ${notification.message}`.toLowerCase();
+  return text.includes("action required") || text.includes("feedback required") || text.includes("confirm usdt receipt");
+}
+
 function matchesFilter(notification: AlphaExchangeNotification, filter: NotificationFilter) {
+  if (filter === "history") return notification.state === "archived";
   if (filter === "all") return true;
   if (filter === "unread") return !notification.isRead;
   if (filter === "trades") return notification.category === "trade";
@@ -97,6 +112,32 @@ function notificationGroupLabel(notificationDate: Date, locale: AppLocale) {
   return locale === "ar" ? "أقدم" : "Earlier";
 }
 
+function extractTradeRoomHrefFromRelatedHref(relatedHref?: string) {
+  const href = relatedHref?.trim();
+  if (!href) return null;
+  const normalized = href.startsWith("/") ? href : `/${href}`;
+  const roomMatch = normalized.match(/\/trade-room\/([^/?#]+)/i);
+  if (roomMatch?.[1]) return `/trade-room/${decodeURIComponent(roomMatch[1])}`;
+  const requestMatch = normalized.match(/[?&]requestId=([^&]+)/i);
+  if (requestMatch?.[1]) return `/trade-room/${decodeURIComponent(requestMatch[1])}`;
+  return null;
+}
+
+function extractRequestIdFromTradeRoomHref(href: string | null) {
+  if (!href) return null;
+  const normalized = href.replace(/\/+$/, "");
+  const requestId = normalized.slice(normalized.lastIndexOf("/") + 1).trim();
+  return requestId || null;
+}
+
+function formatNotificationTitle(notification: AlphaExchangeNotification) {
+  return replaceExchangeEntityIdsWithHints(notification.title, notification);
+}
+
+function formatNotificationMessage(notification: AlphaExchangeNotification) {
+  return replaceExchangeEntityIdsWithHints(notification.message, notification);
+}
+
 export function NotificationsPage({ locale }: { locale: AppLocale }) {
   const [notifications, setNotifications] = useState<AlphaExchangeNotification[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -122,7 +163,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
 
   const fetchLimit = isMobileViewport ? MOBILE_FETCH_LIMIT : DESKTOP_FETCH_LIMIT;
 
-  async function loadNotifications({
+  const loadNotifications = useCallback(async ({
     offset = 0,
     append = false,
     force = false,
@@ -130,7 +171,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
     offset?: number;
     append?: boolean;
     force?: boolean;
-  } = {}) {
+  } = {}) => {
     if (append) {
       setIsLoadingMore(true);
     } else {
@@ -138,7 +179,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
     }
     setError(null);
     try {
-      if (!append && !force && offset === 0) {
+      if (filter === "all" && !append && !force && offset === 0) {
         const cached = readNotificationsCache();
         if (cached && Date.now() - cached.fetchedAt <= NOTIFICATIONS_CACHE_MAX_AGE_MS) {
           const incoming = cached.payload.notifications ?? [];
@@ -149,7 +190,13 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
         }
       }
 
-      const response = await fetch(`/api/alpha-exchange/notifications?limit=${fetchLimit}&offset=${offset}&includeActivity=0`, { cache: "no-store" });
+      const params = new URLSearchParams({
+        limit: String(fetchLimit),
+        offset: String(offset),
+        includeActivity: "0",
+      });
+      if (filter === "history") params.set("state", "archived");
+      const response = await fetch(`/api/alpha-exchange/notifications?${params.toString()}`, { cache: "no-store" });
       if (!response.ok) throw new Error("Failed to load notifications.");
       const payload = (await response.json()) as NotificationsPayload;
       const incoming = payload.notifications ?? [];
@@ -167,7 +214,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
       });
       setTotalCount(payload.total ?? incoming.length);
       setUnreadCount(payload.unreadCount ?? 0);
-      if (offset === 0) {
+      if (filter === "all" && offset === 0) {
         writeNotificationsCache(payload);
       }
     } catch {
@@ -179,12 +226,35 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
         setLoading(false);
       }
     }
-  }
+  }, [fetchLimit, filter]);
 
   useEffect(() => {
     if (isMobileViewport === null) return;
     void loadNotifications({ offset: 0, append: false });
-  }, [fetchLimit, isMobileViewport]);
+  }, [isMobileViewport, loadNotifications]);
+
+  useEffect(() => {
+    if (filter === "history") return;
+    const stream = new EventSource("/api/alpha-exchange/notifications/stream");
+    const onNotifications = (event: Event) => {
+      const messageEvent = event as MessageEvent<string>;
+      try {
+        const payload = JSON.parse(messageEvent.data) as NotificationsStreamPayload;
+        if (!Array.isArray(payload.notifications)) return;
+        setNotifications(payload.notifications);
+        setUnreadCount(typeof payload.unreadCount === "number" ? payload.unreadCount : 0);
+      } catch {
+        // Ignore malformed stream payloads.
+      }
+    };
+    stream.addEventListener("notifications", onNotifications);
+    const handleBeforeUnload = () => stream.close();
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      stream.close();
+    };
+  }, [filter]);
 
   useEffect(() => {
     setPage(1);
@@ -199,6 +269,11 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
       return haystack.includes(normalizedSearch);
     });
   }, [filter, notifications, search]);
+
+  const highlightedReminder = useMemo(
+    () => notifications.find((notification) => isActionRequired(notification) && !notification.isRead) ?? notifications.find(isActionRequired) ?? null,
+    [notifications],
+  );
 
   const totalPages = Math.max(1, Math.ceil(filteredNotifications.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -225,6 +300,116 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
       router.prefetch(href);
     }
   }, [pageItems, router]);
+
+  function isTradeNotification(notification: AlphaExchangeNotification) {
+    return notification.category === "trade";
+  }
+
+  function resolveNotificationActionLabel(notification: AlphaExchangeNotification) {
+    if (notification.actionLabel?.trim()) return notification.actionLabel.trim();
+    if (notification.category === "application") return "Review Application";
+    if (notification.category === "listing") return "Manage Listing";
+    if (isTradeNotification(notification)) return "Open Trade Room";
+    return "Open";
+  }
+
+  function resolveTradeRoomHref(notification: AlphaExchangeNotification) {
+    if (notification.relatedRequestId?.trim()) return `/trade-room/${notification.relatedRequestId.trim()}`;
+    const fromHref = extractTradeRoomHrefFromRelatedHref(notification.relatedHref ?? notification.actionHref);
+    if (fromHref) return fromHref;
+    return null;
+  }
+
+  function extractSellerApplicationId(notification: AlphaExchangeNotification) {
+    const href = (notification.actionHref ?? notification.relatedHref ?? "").trim();
+    if (!href) return null;
+    try {
+      const parsed = new URL(href, "https://www.alphatraders.co.il");
+      const byQuery = parsed.searchParams.get("sellerApplication");
+      if (byQuery?.trim()) return byQuery.trim();
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  async function resolveActiveTradeHref(input?: { notificationId?: string; includePending?: boolean }) {
+    try {
+      const query = new URLSearchParams();
+      if (input?.notificationId) query.set("notificationId", input.notificationId);
+      if (input?.includePending) query.set("includePending", "1");
+      const suffix = query.size ? `?${query.toString()}` : "";
+      const response = await fetch(`/api/alpha-exchange/trade-room/active${suffix}`, { cache: "no-store" });
+      if (!response.ok) return null;
+      const payload = (await response.json()) as { activeRequestId?: string | null; destination?: string | null };
+      if (payload.destination?.trim()) return payload.destination.trim();
+      if (!payload.activeRequestId) return null;
+      return `/trade-room/${payload.activeRequestId}`;
+    } catch {
+      return null;
+    }
+  }
+
+  async function resolveNotificationDestination(notification: AlphaExchangeNotification) {
+    if (isTradeNotification(notification)) {
+      return resolveTradeRoomHref(notification)
+        ?? await resolveActiveTradeHref({ notificationId: notification.id, includePending: true });
+    }
+    return notification.actionHref ?? notification.relatedHref ?? null;
+  }
+
+  async function openNotificationDestination(notification: AlphaExchangeNotification) {
+    const destination = await resolveNotificationDestination(notification);
+    if (TRADE_ROOM_DEBUG) {
+      console.log("[notification-open] notification click", {
+        notificationId: notification.id,
+        category: notification.category,
+        relatedRequestId: notification.relatedRequestId ?? null,
+        relatedListingId: notification.relatedListingId ?? null,
+        relatedTradeId: notification.relatedTradeId ?? null,
+        destination,
+      });
+    }
+    if (!destination) {
+      setError("Could not resolve this notification destination.");
+      return;
+    }
+    const requestId = extractRequestIdFromTradeRoomHref(destination);
+    if (requestId) {
+      prefetchTradeRoom(router, requestId);
+    }
+    if (!notification.isRead) {
+      void handleMarkOneRead(notification.id);
+    }
+    router.push(destination);
+  }
+
+  async function handleSellerApplicationDecision(notification: AlphaExchangeNotification, decision: "approve" | "reject") {
+    const applicationId = extractSellerApplicationId(notification);
+    if (!applicationId) return;
+    const actionKey = `${decision}:${notification.id}`;
+    if (itemLoading[actionKey]) return;
+    setItemLoading((prev) => ({ ...prev, [actionKey]: true }));
+    try {
+      const reason = decision === "approve" ? "Approved from notification workflow" : "Rejected from notification workflow";
+      const response = await fetch(`/api/alpha-exchange/admin/seller-applications/${encodeURIComponent(applicationId)}/${decision}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      if (!response.ok) {
+        setError("Failed to update seller application.");
+        return;
+      }
+      if (!notification.isRead) {
+        await handleMarkOneRead(notification.id);
+      } else {
+        await loadNotifications();
+      }
+    } finally {
+      setItemLoading((prev) => ({ ...prev, [actionKey]: false }));
+    }
+  }
 
   async function handleMarkOneRead(notificationId: string) {
     const key = `read:${notificationId}`;
@@ -303,6 +488,12 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
             ) : null}
           </CardTitle>
           <CardDescription>Complete notification history for your account.</CardDescription>
+          {highlightedReminder ? (
+            <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+              <p className="font-semibold">{highlightedReminder.title}</p>
+              <p className="mt-1">{highlightedReminder.message}</p>
+            </div>
+          ) : null}
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-2 md:grid-cols-[1fr_auto]">
@@ -316,7 +507,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {(["all", "unread", "trades", "listings", "reviews", "announcements"] as NotificationFilter[]).map((item) => (
+            {(["all", "unread", "trades", "listings", "reviews", "announcements", "history"] as NotificationFilter[]).map((item) => (
               <button
                 key={item}
                 type="button"
@@ -327,7 +518,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                     : "border-white/15 bg-black/20 text-[#D1D5DB] hover:border-white/25 hover:text-white"
                 }`}
               >
-                {item === "all" ? "All" : item === "unread" ? "Unread" : item === "trades" ? "Trades" : item === "listings" ? "Listings" : item === "reviews" ? "Reviews" : "Announcements"}
+                {item === "all" ? "All" : item === "unread" ? "Unread" : item === "trades" ? "Trades" : item === "listings" ? "Listings" : item === "reviews" ? "Reviews" : item === "announcements" ? "Announcements" : "History"}
               </button>
             ))}
           </div>
@@ -357,14 +548,16 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                         <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[#C9A227]" />
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-start justify-between gap-2">
-                            <p className="text-sm font-medium text-white">{notification.title}</p>
+                            <p className="text-sm font-medium text-white">{formatNotificationTitle(notification)}</p>
                             <span className="text-[11px] text-[#9CA3AF]">{formatTimestamp(notification.createdAt, locale)}</span>
                           </div>
-                          <p className="mt-1 text-sm text-[#D1D5DB]">{notification.message}</p>
+                          <p className="mt-1 text-sm text-[#D1D5DB]">{formatNotificationMessage(notification)}</p>
                           <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-[#C9A227]">
                             {!notification.isRead ? <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5">Unread</span> : <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#9CA3AF]">Read</span>}
-                            {notification.relatedTradeId ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">Trade #{notification.relatedTradeId.slice(-6)}</span> : null}
-                            {notification.relatedListingId ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">Listing #{notification.relatedListingId.slice(-6)}</span> : null}
+                            {isTradeNotification(notification) && (notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber) ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">Trade {formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId)}</span> : null}
+                            {notification.relatedListingId || notification.relatedListingDisplayNumber ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">Listing {formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}</span> : null}
+                            {notification.tradeSnapshot?.usdtAmount ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">{notification.tradeSnapshot.usdtAmount} USDT</span> : null}
+                            {notification.tradeSnapshot?.counterpartyName ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">{notification.tradeSnapshot.counterpartyName}</span> : null}
                           </div>
                           <div className="mt-3 flex flex-wrap gap-2">
                             <Button
@@ -372,17 +565,58 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                               size="sm"
                               variant="secondary"
                               className="h-10 px-3 text-xs md:h-8"
-                              onClick={() => {
-                                if (!notification.isRead) {
-                                  void handleMarkOneRead(notification.id);
-                                }
-                                if (notification.relatedHref) {
-                                  router.push(notification.relatedHref);
-                                }
+                              onMouseEnter={() => {
+                                if (!isTradeNotification(notification)) return;
+                                const href = resolveTradeRoomHref(notification);
+                                const requestId = extractRequestIdFromTradeRoomHref(href);
+                                if (requestId) prefetchTradeRoom(router, requestId);
                               }}
+                              onFocus={() => {
+                                if (!isTradeNotification(notification)) return;
+                                const href = resolveTradeRoomHref(notification);
+                                const requestId = extractRequestIdFromTradeRoomHref(href);
+                                if (requestId) prefetchTradeRoom(router, requestId);
+                              }}
+                              onClick={() => void openNotificationDestination(notification)}
                             >
-                              Open notification
+                              {resolveNotificationActionLabel(notification)}
                             </Button>
+                            {notification.category === "application" && extractSellerApplicationId(notification) ? (
+                              <>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              className="h-10 px-3 text-xs md:h-8"
+                              loading={Boolean(itemLoading[`approve:${notification.id}`])}
+                              loadingLabel="Approving..."
+                              onClick={() => void handleSellerApplicationDecision(notification, "approve")}
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              className="h-10 px-3 text-xs md:h-8"
+                              loading={Boolean(itemLoading[`reject:${notification.id}`])}
+                              loadingLabel="Rejecting..."
+                              onClick={() => void handleSellerApplicationDecision(notification, "reject")}
+                            >
+                              Reject
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              className="h-10 px-3 text-xs md:h-8"
+                              onClick={() => void handleMarkOneRead(notification.id)}
+                            >
+                              Later
+                            </Button>
+                          </>
+                        ) : (
+                          <>
                             {!notification.isRead ? (
                               <Button
                                 type="button"
@@ -396,15 +630,26 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                                 Mark as read
                               </Button>
                             ) : null}
-                            {notification.relatedHref ? (
-                              <Button type="button" size="sm" variant="secondary" className="h-10 px-3 text-xs md:h-8" onClick={() => router.push(notification.relatedHref!)}>
+                            {(notification.actionHref || notification.relatedHref) ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-10 px-3 text-xs md:h-8"
+                                onClick={() => {
+                                  const fallbackHref = notification.actionHref ?? notification.relatedHref;
+                                  if (fallbackHref) router.push(fallbackHref);
+                                }}
+                              >
                                 Open related page
                               </Button>
                             ) : null}
-                          </div>
-                        </div>
+                          </>
+                        )}
                       </div>
                     </div>
+                  </div>
+                </div>
                   );
                 })}
               </div>

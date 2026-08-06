@@ -1,13 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Search, Settings, ShieldCheck, Store, Users, WalletCards, X } from "lucide-react";
+import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Search, Settings, ShieldCheck, Star, Store, TrendingUp, Trophy, Users, Users2, WalletCards, X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { createExchangeDisplayLookup, replaceExchangeEntityIds } from "@/lib/alpha-exchange-display";
+import { formatCommissionId, formatListingId, formatRequestId, formatTradeId } from "@/lib/format-id";
 import { RoleBadge } from "@/components/ui/role-badge";
-import { normalizeSellerLevel, type AlphaExchangeActivityLogEntry, type AlphaExchangeNotification, type AuditLogEntry, type BetaAnnouncement, type BetaAnnouncementType, type BetaFeedbackCategory, type CommissionRecord, type MarketplaceListing, type OwnerBusinessDashboardMetrics, type OwnerPrivateBetaDashboardData, type PurchaseRequest, type SellerApplication, type SellerAvailabilityStatus, type SellerLevel, type SupportedNetwork } from "@/types/alpha-exchange";
+import { SELLER_LEVELS, normalizeSellerLevel, type AlphaExchangeActivityLogEntry, type AlphaExchangeNotification, type AuditLogEntry, type BetaAnnouncement, type BetaAnnouncementType, type BetaFeedbackCategory, type CommissionRecord, type MarketplaceListing, type OwnerBusinessDashboardMetrics, type OwnerPrivateBetaDashboardData, type PurchaseRequest, type SellerApplication, type SellerAvailabilityStatus, type SellerLevel, type SellerReviewRecord, type SupportedNetwork } from "@/types/alpha-exchange";
+
+const RANK_BADGE_COLOR: Record<SellerLevel, string> = {
+  bronze: "border-[#CD7F32]/30 bg-[#CD7F32]/10 text-[#E8A96A]",
+  silver: "border-[#C0C0C0]/30 bg-[#C0C0C0]/10 text-[#C9CED9]",
+  gold: "border-[#C9A227]/30 bg-[#C9A227]/10 text-[#FDE68A]",
+  diamond: "border-[#7CC9FF]/30 bg-[#7CC9FF]/10 text-[#7CC9FF]",
+  elite: "border-[#F8E7A0]/30 bg-[#F8E7A0]/10 text-[#F8E7A0]",
+};
 
 type AdminSummary = {
   usersCount: number;
@@ -64,18 +75,25 @@ type AdminPayload = {
     };
   };
   privateBeta: OwnerPrivateBetaDashboardData;
+  users: Array<{ id: string; fullName: string; email: string; role: string; roles?: string[]; disabled?: boolean; createdAt: string }>;
+  sellerReviews: SellerReviewRecord[];
 };
 
 type SectionKey =
   | "overview"
   | "seller-applications"
   | "approved-sellers"
+  | "seller-rank"
   | "marketplace-listings"
   | "purchase-requests"
   | "commissions"
   | "audit-logs"
   | "private-beta"
-  | "settings";
+  | "settings"
+  | "users"
+  | "reviews"
+  | "analytics"
+  | "emergency";
 
 const pageSize = 8;
 
@@ -83,11 +101,16 @@ const sectionItems: Array<{ key: SectionKey; label: string; icon: typeof BarChar
   { key: "overview", label: "Overview", icon: BarChart3 },
   { key: "seller-applications", label: "Seller Applications", icon: FileSearch },
   { key: "approved-sellers", label: "Approved Sellers", icon: Users },
+  { key: "seller-rank", label: "Seller Rank Management", icon: Trophy },
   { key: "marketplace-listings", label: "Marketplace Listings", icon: Store },
   { key: "purchase-requests", label: "Purchase Requests", icon: ListChecks },
   { key: "commissions", label: "Commissions", icon: Coins },
   { key: "audit-logs", label: "Audit Logs", icon: FileClock },
-  { key: "private-beta", label: "Private Beta", icon: ShieldCheck },
+  { key: "private-beta", label: "Access Control", icon: ShieldCheck },
+  { key: "analytics", label: "Analytics", icon: TrendingUp },
+  { key: "users", label: "User Management", icon: Users2 },
+  { key: "reviews", label: "Reviews", icon: Star },
+  { key: "emergency", label: "Emergency", icon: Zap },
   { key: "settings", label: "Settings", icon: Settings },
 ];
 
@@ -111,6 +134,22 @@ function formatUsdt(value: number) {
 
 function formatPercent(value: number) {
   return `${value.toLocaleString("en-IL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+}
+
+function displayTradeId(request: Pick<PurchaseRequest, "displayNumber" | "tradeId" | "id"> | null | undefined, fallbackId?: string | null) {
+  return formatTradeId(request?.displayNumber, request?.tradeId ?? request?.id ?? fallbackId);
+}
+
+function displayListingId(listing: Pick<MarketplaceListing, "displayNumber" | "id"> | null | undefined, fallbackId?: string | null) {
+  return formatListingId(listing?.displayNumber, listing?.id ?? fallbackId);
+}
+
+function displayRequestId(request: Pick<PurchaseRequest, "displayNumber" | "id"> | null | undefined, fallbackId?: string | null) {
+  return formatRequestId(request?.displayNumber, request?.id ?? fallbackId);
+}
+
+function displayCommissionId(record: Pick<CommissionRecord, "displayNumber" | "id"> | null | undefined, fallbackId?: string | null) {
+  return formatCommissionId(record?.displayNumber, record?.id ?? fallbackId);
 }
 
 function sellerLevelLabel(level?: SellerLevel) {
@@ -149,6 +188,7 @@ function paginate<T>(items: T[], page: number) {
 }
 
 export function AlphaExchangeAdminDashboard() {
+  const searchParams = useSearchParams();
   const [activeSection, setActiveSection] = useState<SectionKey>("overview");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -195,6 +235,24 @@ export function AlphaExchangeAdminDashboard() {
   const [announcementTitle, setAnnouncementTitle] = useState("");
   const [announcementMessage, setAnnouncementMessage] = useState("");
   const toastTimeoutRef = useRef<number | null>(null);
+  const deepLinkAppliedRef = useRef(false);
+
+  const [usersQuery, setUsersQuery] = useState("");
+  const [usersPage, setUsersPage] = useState(1);
+  const [usersRoleFilter, setUsersRoleFilter] = useState<"all" | string>("all");
+  const [reviewsQuery, setReviewsQuery] = useState("");
+  const [reviewsPage, setReviewsPage] = useState(1);
+  const [broadcastTitle, setBroadcastTitle] = useState("");
+  const [broadcastBody, setBroadcastBody] = useState("");
+  const [broadcastType, setBroadcastType] = useState<"info" | "warning" | "success">("info");
+
+  const [rankMgmtSearch, setRankMgmtSearch] = useState("");
+  const [rankMgmtFilter, setRankMgmtFilter] = useState<"all" | SellerLevel>("all");
+  const [rankMgmtSelected, setRankMgmtSelected] = useState<Set<string>>(new Set());
+  const [rankMgmtSaving, setRankMgmtSaving] = useState<Set<string>>(new Set());
+  const [rankMgmtBulkRank, setRankMgmtBulkRank] = useState<SellerLevel>("bronze");
+  const [rankConfirmPending, setRankConfirmPending] = useState<{ sellerId: string; sellerName: string; fromRank: SellerLevel; toRank: SellerLevel } | null>(null);
+  const [rankConfirmReason, setRankConfirmReason] = useState("");
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -215,6 +273,22 @@ export function AlphaExchangeAdminDashboard() {
     void fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    if (deepLinkAppliedRef.current) return;
+    const section = searchParams.get("section");
+    const sellerApplicationId = searchParams.get("sellerApplication");
+    if (section === "seller-applications") {
+      setActiveSection("seller-applications");
+    }
+    if (sellerApplicationId?.trim()) {
+      setApplicationsQuery(sellerApplicationId.trim());
+      setApplicationsStatus("all");
+    }
+    if (section || sellerApplicationId) {
+      deepLinkAppliedRef.current = true;
+    }
+  }, [searchParams]);
+
   function pushToast(message: string) {
     if (toastTimeoutRef.current !== null) {
       window.clearTimeout(toastTimeoutRef.current);
@@ -224,6 +298,11 @@ export function AlphaExchangeAdminDashboard() {
       setToast(null);
       toastTimeoutRef.current = null;
     }, 1800);
+  }
+
+  function requestReason(promptText: string, defaultValue = "") {
+    const reason = window.prompt(promptText, defaultValue);
+    return reason ? reason.trim() : "";
   }
 
   useEffect(() => {
@@ -256,6 +335,16 @@ export function AlphaExchangeAdminDashboard() {
     }
     return map;
   }, [data?.purchaseRequests]);
+  const displayLookup = useMemo(
+    () =>
+      createExchangeDisplayLookup({
+        listings: data?.listings,
+        requests: data?.purchaseRequests,
+        commissions: data?.commissionRecords,
+        applications: data?.applications,
+      }),
+    [data?.applications, data?.commissionRecords, data?.listings, data?.purchaseRequests],
+  );
 
   const applicationsRows = useMemo(() => {
     const items = (data?.applications ?? []).filter((application) => {
@@ -314,7 +403,7 @@ export function AlphaExchangeAdminDashboard() {
       if (!query) return true;
       const listing = listingById.get(request.listingId);
       const seller = sellersById.get(request.sellerId);
-      const haystack = `${request.tradeId ?? request.id} ${request.buyerName} ${request.buyerWhatsapp} ${seller?.fullName ?? request.sellerId} ${listing?.id ?? request.listingId}`.toLowerCase();
+      const haystack = `${request.tradeId ?? request.id} ${displayTradeId(request)} ${request.buyerName} ${request.buyerWhatsapp} ${seller?.fullName ?? request.sellerId} ${listing?.id ?? request.listingId} ${displayListingId(listing, request.listingId)}`.toLowerCase();
       return haystack.includes(query);
     });
     const sorted = [...items].sort((a, b) => {
@@ -330,7 +419,8 @@ export function AlphaExchangeAdminDashboard() {
       const seller = sellersById.get(record.sellerId);
       const query = commissionsQuery.trim().toLowerCase();
       if (!query) return true;
-      const haystack = `${record.id} ${request?.buyerName ?? record.buyerId} ${seller?.fullName ?? record.sellerId}`.toLowerCase();
+      const tradeId = request?.tradeId ?? record.tradeId ?? record.purchaseRequestId;
+      const haystack = `${record.id} ${displayCommissionId(record)} ${tradeId} ${request ? displayTradeId(request, record.purchaseRequestId) : displayTradeId(null, tradeId)} ${request?.buyerName ?? record.buyerId} ${seller?.fullName ?? record.sellerId}`.toLowerCase();
       return haystack.includes(query);
     });
     const sorted = [...items].sort((a, b) => {
@@ -347,7 +437,8 @@ export function AlphaExchangeAdminDashboard() {
       const query = auditQuery.trim().toLowerCase();
       if (!query) return true;
       const actor = sellersById.get(entry.actorUserId)?.fullName ?? entry.actorUserId;
-      const haystack = `${entry.action} ${entry.details ?? ""} ${actor} ${entry.listingId ?? ""} ${entry.purchaseRequestId ?? ""}`.toLowerCase();
+      const tradeId = entry.purchaseRequestId ? (requestsById.get(entry.purchaseRequestId)?.tradeId ?? entry.purchaseRequestId) : "";
+      const haystack = `${entry.action} ${entry.details ?? ""} ${replaceExchangeEntityIds(entry.details ?? "", displayLookup)} ${actor} ${entry.listingId ?? ""} ${entry.listingId ? displayListingId(listingById.get(entry.listingId), entry.listingId) : ""} ${tradeId}`.toLowerCase();
       return haystack.includes(query);
     });
     const sorted = [...items].sort((a, b) => {
@@ -355,18 +446,18 @@ export function AlphaExchangeAdminDashboard() {
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
     return paginate(sorted, auditPage);
-  }, [auditAction, auditPage, auditQuery, auditSort, data?.auditLogs, sellersById]);
+  }, [auditAction, auditPage, auditQuery, auditSort, data?.auditLogs, displayLookup, listingById, requestsById, sellersById]);
 
   const notificationRows = useMemo(() => {
     const items = (data?.notifications ?? []).filter((entry) => {
       const query = notificationQuery.trim().toLowerCase();
       if (!query) return true;
       const seller = sellersById.get(entry.userId);
-      const haystack = `${entry.title} ${entry.message} ${entry.category} ${seller?.fullName ?? entry.userId} ${entry.relatedTradeId ?? ""} ${entry.relatedListingId ?? ""}`.toLowerCase();
+      const haystack = `${entry.title} ${entry.message} ${replaceExchangeEntityIds(entry.title, displayLookup)} ${replaceExchangeEntityIds(entry.message, displayLookup)} ${entry.category} ${seller?.fullName ?? entry.userId} ${entry.relatedTradeId ?? ""} ${entry.relatedListingId ?? ""}`.toLowerCase();
       return haystack.includes(query);
     });
     return paginate(items, notificationPage);
-  }, [data?.notifications, notificationPage, notificationQuery, sellersById]);
+  }, [data?.notifications, displayLookup, notificationPage, notificationQuery, sellersById]);
 
   const expirationHistory = useMemo(
     () => (data?.auditLogs ?? []).filter((entry) => entry.action === "listing_expired" || entry.action === "listing_renewed" || entry.action === "listing_expiration_extended" || entry.action === "admin_override"),
@@ -382,6 +473,52 @@ export function AlphaExchangeAdminDashboard() {
     const items = (data?.privateBeta.feedback ?? []).filter((entry) => (betaFeedbackStatusFilter === "all" ? true : entry.status === betaFeedbackStatusFilter));
     return items.slice(0, 20);
   }, [betaFeedbackStatusFilter, data?.privateBeta.feedback]);
+
+  const usersRows = useMemo(() => {
+    const items = (data?.users ?? []).filter((user) => {
+      if (usersRoleFilter !== "all" && user.role !== usersRoleFilter) return false;
+      const query = usersQuery.trim().toLowerCase();
+      if (!query) return true;
+      return `${user.fullName} ${user.email} ${user.role}`.toLowerCase().includes(query);
+    });
+    return paginate(items, usersPage);
+  }, [data?.users, usersPage, usersQuery, usersRoleFilter]);
+
+  const reviewsRows = useMemo(() => {
+    const items = (data?.sellerReviews ?? []).filter((review) => {
+      const query = reviewsQuery.trim().toLowerCase();
+      if (!query) return true;
+      const seller = sellersById.get(review.sellerId);
+      return `${seller?.fullName ?? review.sellerId} ${review.buyerId} ${review.comment}`.toLowerCase().includes(query);
+    });
+    return paginate(items, reviewsPage);
+  }, [data?.sellerReviews, reviewsPage, reviewsQuery, sellersById]);
+
+  const trustScoreMap = useMemo(() => {
+    const map = new Map<string, number>();
+    const engine = data?.trustEngine;
+    if (!engine) return map;
+    for (const s of [...(engine.highestTrustSellers ?? []), ...(engine.lowestTrustSellers ?? []), ...(engine.flaggedSellers ?? [])]) {
+      if (!map.has(s.sellerId)) map.set(s.sellerId, s.trustScore);
+    }
+    return map;
+  }, [data?.trustEngine]);
+
+  const rankMgmtRows = useMemo(() => {
+    const query = rankMgmtSearch.trim().toLowerCase();
+    const items = (data?.approvedSellers ?? []).filter((seller) => {
+      if (rankMgmtFilter !== "all" && (seller.sellerPrestigeRank ?? "bronze") !== rankMgmtFilter) return false;
+      if (!query) return true;
+      return `${seller.fullName} ${seller.email}`.toLowerCase().includes(query);
+    });
+    return [...items].sort((a, b) => {
+      const rankWeight = (s: AdminSeller) => {
+        const r = s.sellerPrestigeRank ?? "bronze";
+        return SELLER_LEVELS.indexOf(r) + 1;
+      };
+      return rankWeight(b) - rankWeight(a);
+    });
+  }, [data?.approvedSellers, rankMgmtFilter, rankMgmtSearch]);
 
   async function runAction(request: Promise<Response>, successMessage: string) {
     try {
@@ -420,6 +557,75 @@ export function AlphaExchangeAdminDashboard() {
       }),
       clearOverride ? "Prestige override cleared." : `Seller prestige set to ${sellerLevelLabel(rank)}.`,
     );
+  }
+
+  function handleRankMgmtChange(sellerId: string, toRank: SellerLevel) {
+    const seller = rankMgmtRows.find((s) => s.id === sellerId);
+    if (!seller) return;
+    const fromRank = seller.sellerPrestigeRank ?? "bronze";
+    if (fromRank === toRank) return;
+    setRankConfirmReason("");
+    setRankConfirmPending({
+      sellerId,
+      sellerName: seller.fullName ?? seller.email,
+      fromRank,
+      toRank,
+    });
+  }
+
+  async function handleRankConfirm() {
+    if (!rankConfirmPending) return;
+    const { sellerId, toRank } = rankConfirmPending;
+    const reason = rankConfirmReason.trim() || "Admin rank management — manual override";
+    setRankConfirmPending(null);
+    setRankConfirmReason("");
+    setRankMgmtSaving((prev) => new Set(prev).add(sellerId));
+    try {
+      await handleSellerPrestigeOverride(sellerId, toRank, reason);
+    } finally {
+      setRankMgmtSaving((prev) => {
+        const next = new Set(prev);
+        next.delete(sellerId);
+        return next;
+      });
+    }
+  }
+
+  async function handleBulkRankAction(action: "promote" | "demote" | "set" | "reset", targetRank?: SellerLevel) {
+    const RANK_ORDER: readonly SellerLevel[] = SELLER_LEVELS;
+    const sellers = rankMgmtRows.filter((s) => rankMgmtSelected.has(s.id));
+    if (sellers.length === 0) { pushToast("No sellers selected."); return; }
+    const eligibleSellers = sellers.filter((s) => !(s.roles ?? []).includes("owner") && s.role !== "owner");
+    if (eligibleSellers.length === 0) { pushToast("Owner accounts cannot be modified."); return; }
+    const label = action === "promote" ? "promote to next rank" : action === "demote" ? "demote to previous rank" : action === "reset" ? "reset to Bronze" : `set rank to ${targetRank ?? "selected"}`;
+    if (!window.confirm(`Apply "${label}" to ${eligibleSellers.length} seller(s)?`)) return;
+    for (const seller of eligibleSellers) {
+      const current = seller.sellerPrestigeRank ?? "bronze";
+      const currentIdx = RANK_ORDER.indexOf(current);
+      let newRank: SellerLevel;
+      if (action === "promote") newRank = RANK_ORDER[Math.min(RANK_ORDER.length - 1, currentIdx + 1)];
+      else if (action === "demote") newRank = RANK_ORDER[Math.max(0, currentIdx - 1)];
+      else if (action === "reset") newRank = "bronze";
+      else newRank = targetRank ?? "bronze";
+      if (newRank === current && action !== "set" && action !== "reset") continue;
+      setRankMgmtSaving((prev) => new Set(prev).add(seller.id));
+      try {
+        const response = await fetch(`/api/alpha-exchange/admin/sellers/${seller.id}/prestige`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ rank: newRank, reason: `Bulk admin action — ${label}` }),
+        });
+        if (!response.ok) {
+          const payload = await response.json() as { error?: string };
+          pushToast(payload.error ?? "Failed for one seller.");
+        }
+      } finally {
+        setRankMgmtSaving((prev) => { const next = new Set(prev); next.delete(seller.id); return next; });
+      }
+    }
+    setRankMgmtSelected(new Set());
+    pushToast(`Bulk rank action applied to ${eligibleSellers.length} seller(s).`);
+    await fetchData();
   }
 
   async function handleAdminListingAction(listingId: string, action: "renew" | "extend" | "close" | "force_close", successMessage: string, expirationHours?: number, reason?: string) {
@@ -497,6 +703,89 @@ export function AlphaExchangeAdminDashboard() {
     );
   }
 
+  async function handleForceComplete(requestId: string) {
+    const reason = window.prompt("Reason for force-completing this trade:");
+    if (!reason) return;
+    const r = await fetch(`/api/alpha-exchange/admin/purchase-requests/${requestId}/force-complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
+    const p = await r.json() as { error?: string };
+    pushToast(r.ok ? "Trade force-completed." : (p.error ?? "Error"));
+    if (r.ok) { setSelectedRequest(null); await fetchData(); }
+  }
+
+  async function handleForceCancel(requestId: string) {
+    const reason = window.prompt("Reason for cancelling this trade:");
+    if (!reason) return;
+    const r = await fetch(`/api/alpha-exchange/admin/purchase-requests/${requestId}/force-cancel`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
+    const p = await r.json() as { error?: string };
+    pushToast(r.ok ? "Trade cancelled." : (p.error ?? "Error"));
+    if (r.ok) { setSelectedRequest(null); await fetchData(); }
+  }
+
+  async function handleUnlockReview(requestId: string) {
+    const reason = window.prompt("Reason for unlocking review:");
+    if (!reason) return;
+    const r = await fetch(`/api/alpha-exchange/admin/purchase-requests/${requestId}/unlock-review`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
+    const p = await r.json() as { error?: string };
+    pushToast(r.ok ? "Review window unlocked." : (p.error ?? "Error"));
+    if (r.ok) await fetchData();
+  }
+
+  async function handleReverifyCommission(commissionId: string) {
+    if (!window.confirm("Reverify this commission against the blockchain now?")) return;
+    const reason = requestReason("Reason for reverifying this commission:", "Manual admin reverification");
+    if (!reason) return;
+    const r = await fetch(`/api/alpha-exchange/admin/commissions/${commissionId}/reverify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
+    const p = await r.json() as { error?: string; notes?: string };
+    pushToast(r.ok ? `Reverification: ${p.notes ?? "complete"}` : (p.error ?? "Error"));
+    if (r.ok) await fetchData();
+  }
+
+  async function handleChangeUserRole(userId: string, currentRole: string) {
+    const newRole = window.prompt(`Change role for user (current: ${currentRole})\nOptions: buyer, approved_seller, admin, owner`);
+    if (!newRole) return;
+    if (!window.confirm(`Change this user's role from ${currentRole} to ${newRole.trim()}?`)) return;
+    const reason = window.prompt("Reason for role change:");
+    if (!reason) return;
+    const r = await fetch(`/api/alpha-exchange/admin/users/${userId}/role`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: newRole, reason }) });
+    const p = await r.json() as { error?: string };
+    pushToast(r.ok ? "Role updated." : (p.error ?? "Error"));
+    if (r.ok) await fetchData();
+  }
+
+  async function handleDisableUser(userId: string, disabled: boolean) {
+    if (!window.confirm(`${disabled ? "Disable" : "Enable"} this account?`)) return;
+    const reason = window.prompt(`Reason for ${disabled ? "disabling" : "enabling"} this account:`);
+    if (!reason) return;
+    const r = await fetch(`/api/alpha-exchange/admin/users/${userId}/disable`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ disabled, reason }) });
+    const p = await r.json() as { error?: string };
+    pushToast(r.ok ? `Account ${disabled ? "disabled" : "enabled"}.` : (p.error ?? "Error"));
+    if (r.ok) await fetchData();
+  }
+
+  async function handleModerateReview(reviewId: string, hide: boolean) {
+    const reason = window.prompt(`Reason for ${hide ? "hiding" : "restoring"} this review:`);
+    if (!reason) return;
+    const r = await fetch(`/api/alpha-exchange/admin/reviews/${reviewId}/moderate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hide, reason }) });
+    const p = await r.json() as { error?: string };
+    pushToast(r.ok ? `Review ${hide ? "hidden" : "restored"}.` : (p.error ?? "Error"));
+    if (r.ok) await fetchData();
+  }
+
+  async function handleBroadcast() {
+    if (!broadcastTitle.trim() || !broadcastBody.trim()) { pushToast("Title and body are required."); return; }
+    if (!window.confirm("Broadcast this notification to all users?")) return;
+    const reason = requestReason("Reason for this broadcast:", "Operational announcement");
+    if (!reason) return;
+    const r = await fetch("/api/alpha-exchange/admin/notifications/broadcast", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: broadcastTitle, body: broadcastBody, type: broadcastType, reason }) });
+    const p = await r.json() as { error?: string };
+    pushToast(r.ok ? "Broadcast sent." : (p.error ?? "Error"));
+    if (r.ok) { setBroadcastTitle(""); setBroadcastBody(""); }
+  }
+
   function exportCommissionsCsv() {
     const rows = commissionsRows.rows;
     const csvRows = [
@@ -506,7 +795,8 @@ export function AlphaExchangeAdminDashboard() {
         const seller = sellersById.get(record.sellerId);
         const buyerName = request?.buyerName ?? record.buyerId;
         const sellerName = seller?.fullName ?? record.sellerId;
-        return [record.purchaseRequestId, buyerName, sellerName, record.grossAmount.toFixed(2), record.commissionAmount.toFixed(2), record.paymentStatus, record.createdAt].join(",");
+        const tradeId = displayTradeId(request, record.tradeId ?? record.purchaseRequestId);
+        return [tradeId, buyerName, sellerName, record.grossAmount.toFixed(2), record.commissionAmount.toFixed(2), record.paymentStatus, record.createdAt].join(",");
       }),
     ];
     const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -525,8 +815,8 @@ export function AlphaExchangeAdminDashboard() {
       ...rows.map((request) => {
         const seller = sellersById.get(request.sellerId);
         return [
-          request.tradeId ?? "",
-          request.id,
+          displayTradeId(request),
+          displayRequestId(request),
           request.buyerName,
           seller?.fullName ?? request.sellerId,
           request.usdtAmount,
@@ -584,8 +874,8 @@ export function AlphaExchangeAdminDashboard() {
 
   return (
     <section className="section-container page-shell">
-      <div className="grid gap-6 xl:grid-cols-[280px_1fr]">
-        <aside className="h-fit rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-4 backdrop-blur-sm">
+      <div className="grid gap-5 xl:grid-cols-[260px_minmax(0,1fr)] xl:items-start">
+        <aside className="h-fit rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-4 backdrop-blur-sm xl:sticky xl:top-4">
           <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-[#C9A227]">
             <ShieldCheck className="h-3.5 w-3.5" />
             Alpha Exchange Admin
@@ -634,7 +924,7 @@ export function AlphaExchangeAdminDashboard() {
               {!loading && !error && data ? (
                 <>
                   {activeSection === "overview" ? (
-                    <div className="space-y-6">
+                    <div className="space-y-5 xl:space-y-6">
                       <Card className="border-white/10 bg-[#0B0B0B]/90">
                         <CardHeader>
                           <CardTitle>Owner Business Dashboard</CardTitle>
@@ -671,7 +961,7 @@ export function AlphaExchangeAdminDashboard() {
                             <CardTitle>Today</CardTitle>
                             <CardDescription>Operational metrics for the current day.</CardDescription>
                           </CardHeader>
-                          <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2">
+                          <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-3">
                             <p>Completed Trades: <span className="text-white">{data.ownerBusiness.today.completedTrades}</span></p>
                             <p>Trade Volume: <span className="text-white">{formatUsdt(data.ownerBusiness.today.tradeVolumeUsdt)}</span></p>
                             <p>Estimated Commission: <span className="text-white">{formatCurrency(data.ownerBusiness.today.estimatedCommission)}</span></p>
@@ -697,7 +987,7 @@ export function AlphaExchangeAdminDashboard() {
                             <CardTitle>This Week</CardTitle>
                             <CardDescription>Weekly business momentum and trust movement.</CardDescription>
                           </CardHeader>
-                          <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2">
+                          <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-3">
                             <p>Trade Volume: <span className="text-white">{formatUsdt(data.ownerBusiness.thisWeek.tradeVolumeUsdt)}</span></p>
                             <p>Revenue: <span className="text-white">{formatCurrency(data.ownerBusiness.thisWeek.revenue)}</span></p>
                             <p>Top Seller: <span className="text-white">{data.ownerBusiness.thisWeek.topSeller}</span></p>
@@ -740,7 +1030,7 @@ export function AlphaExchangeAdminDashboard() {
                             <CardTitle>Marketplace Health</CardTitle>
                             <CardDescription>Core performance, risk, and participation indicators.</CardDescription>
                           </CardHeader>
-                          <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2">
+                          <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-2">
                             <p>Completion Rate: <span className="text-white">{formatPercent(data.ownerBusiness.marketplaceHealth.completionRatePercent)}</span></p>
                             <p>Cancellation Rate: <span className="text-white">{formatPercent(data.ownerBusiness.marketplaceHealth.cancellationRatePercent)}</span></p>
                             <p>Dispute Rate: <span className="text-white">{formatPercent(data.ownerBusiness.marketplaceHealth.disputeRatePercent)}</span></p>
@@ -759,12 +1049,12 @@ export function AlphaExchangeAdminDashboard() {
                             <CardTitle>Financial Overview</CardTitle>
                             <CardDescription>Commission and trade-value performance snapshot.</CardDescription>
                           </CardHeader>
-                          <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2">
+                          <CardContent className="grid gap-3 text-sm text-[#D1D5DB] md:grid-cols-2 xl:grid-cols-2">
                             <p>Commission Today: <span className="text-white">{formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionToday)}</span></p>
                             <p>Commission This Week: <span className="text-white">{formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek)}</span></p>
                             <p>Commission This Month: <span className="text-white">{formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth)}</span></p>
                             <p>Largest Trade: <span className="text-white">{formatUsdt(data.ownerBusiness.financialOverview.largestTradeUsdt)}</span></p>
-                            <p>Largest Trade ID: <span className="text-white">{data.ownerBusiness.financialOverview.largestTradeId}</span></p>
+                            <p>Largest Trade ID: <span className="font-mono font-medium text-white">{replaceExchangeEntityIds(data.ownerBusiness.financialOverview.largestTradeId, displayLookup)}</span></p>
                             <p>Largest Seller: <span className="text-white">{data.ownerBusiness.financialOverview.largestSeller}</span></p>
                             <p>Average Trade Size: <span className="text-white">{formatUsdt(data.ownerBusiness.financialOverview.averageTradeSizeUsdt)}</span></p>
                           </CardContent>
@@ -775,10 +1065,10 @@ export function AlphaExchangeAdminDashboard() {
                             <CardTitle>Live Activity</CardTitle>
                             <CardDescription>Recent marketplace events for owner oversight.</CardDescription>
                           </CardHeader>
-                          <CardContent className="space-y-2 text-sm text-[#D1D5DB]">
+                          <CardContent className="max-h-[360px] space-y-2 overflow-y-auto text-sm text-[#D1D5DB]">
                             {data.ownerBusiness.liveActivity.slice(0, 10).map((entry) => (
                               <div key={entry.id} className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2">
-                                <p className="text-white">{entry.message}</p>
+                                <p className="text-white">{replaceExchangeEntityIds(entry.message, displayLookup)}</p>
                                 <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">
                                   {entry.type.replaceAll("_", " ")} • {formatDate(entry.createdAt)}
                                 </p>
@@ -796,7 +1086,7 @@ export function AlphaExchangeAdminDashboard() {
                             Marketplace trust average: {data.trustEngine.marketplaceHealth.averageTrustScore}/100 across {data.trustEngine.marketplaceHealth.sellerCount} sellers.
                           </CardDescription>
                         </CardHeader>
-                        <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                           <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
                             <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Highest Trust Sellers</p>
                             <div className="mt-3 space-y-2 text-sm text-[#D1D5DB]">
@@ -863,7 +1153,7 @@ export function AlphaExchangeAdminDashboard() {
                               <tr>
                                 <th className="px-4 py-3">Applicant</th>
                                 <th className="px-4 py-3">WhatsApp</th>
-                                <th className="px-4 py-3">Preferred Networks</th>
+                                <th className="px-4 py-3">Selling Methods</th>
                                 <th className="px-4 py-3">Submitted Date</th>
                                 <th className="px-4 py-3">Status</th>
                                 <th className="px-4 py-3">Actions</th>
@@ -890,7 +1180,12 @@ export function AlphaExchangeAdminDashboard() {
                                         type="button"
                                         size="sm"
                                         disabled={application.status !== "pending"}
-                                        onClick={() => runAction(fetch(`/api/alpha-exchange/admin/seller-applications/${application.id}/approve`, { method: "POST" }), "Application approved.")}
+                                        onClick={() => {
+                                          if (!window.confirm("Approve this seller application?")) return;
+                                          const reason = requestReason("Reason for approving this seller application:", "Seller approved for launch");
+                                          if (!reason) return;
+                                          void runAction(fetch(`/api/alpha-exchange/admin/seller-applications/${application.id}/approve`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), "Application approved.");
+                                        }}
                                       >
                                         Approve
                                       </Button>
@@ -899,7 +1194,12 @@ export function AlphaExchangeAdminDashboard() {
                                         size="sm"
                                         variant="secondary"
                                         disabled={application.status !== "pending"}
-                                        onClick={() => runAction(fetch(`/api/alpha-exchange/admin/seller-applications/${application.id}/reject`, { method: "POST" }), "Application rejected.")}
+                                        onClick={() => {
+                                          if (!window.confirm("Reject this seller application?")) return;
+                                          const reason = requestReason("Reason for rejecting this seller application:", "Application rejected");
+                                          if (!reason) return;
+                                          void runAction(fetch(`/api/alpha-exchange/admin/seller-applications/${application.id}/reject`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), "Application rejected.");
+                                        }}
                                       >
                                         Reject
                                       </Button>
@@ -1008,20 +1308,40 @@ export function AlphaExchangeAdminDashboard() {
                                     <td className="px-4 py-3">
                                       <div className="flex flex-wrap items-center gap-2">
                                         {!isSuspended ? (
-                                          <Button type="button" size="sm" variant="secondary" onClick={() => runAction(fetch(`/api/alpha-exchange/admin/sellers/${seller.id}/suspend`, { method: "POST" }), "Seller suspended.")}>
+                                          <Button type="button" size="sm" variant="secondary" onClick={() => {
+                                            if (!window.confirm("Suspend this seller?")) return;
+                                            const reason = requestReason("Reason for suspending this seller:", "Seller suspended");
+                                            if (!reason) return;
+                                            void runAction(fetch(`/api/alpha-exchange/admin/sellers/${seller.id}/suspend`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), "Seller suspended.");
+                                          }}>
                                             Suspend
                                           </Button>
                                         ) : (
-                                          <Button type="button" size="sm" onClick={() => runAction(fetch(`/api/alpha-exchange/admin/sellers/${seller.id}/reactivate`, { method: "POST" }), "Seller reactivated.")}>
+                                          <Button type="button" size="sm" onClick={() => {
+                                            if (!window.confirm("Reactivate this seller?")) return;
+                                            const reason = requestReason("Reason for reactivating this seller:", "Seller reactivated");
+                                            if (!reason) return;
+                                            void runAction(fetch(`/api/alpha-exchange/admin/sellers/${seller.id}/reactivate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), "Seller reactivated.");
+                                          }}>
                                             Reactivate
                                           </Button>
                                         )}
                                         {isOnVacation ? (
-                                          <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerAvailabilityStatus(seller.id, "available", "Vacation Mode ended.")}>
+                                          <Button type="button" size="sm" variant="secondary" onClick={() => {
+                                            if (!window.confirm("End vacation mode for this seller?")) return;
+                                            const reason = requestReason("Reason for ending vacation mode:", "Vacation Mode ended.");
+                                            if (!reason) return;
+                                            void handleSellerAvailabilityStatus(seller.id, "available", "Vacation Mode ended.", reason);
+                                          }}>
                                             End Vacation
                                           </Button>
                                         ) : (
-                                          <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerAvailabilityStatus(seller.id, "vacation", "Vacation Mode enabled.")}>
+                                          <Button type="button" size="sm" variant="secondary" onClick={() => {
+                                            if (!window.confirm("Enable vacation mode for this seller?")) return;
+                                            const reason = requestReason("Reason for enabling vacation mode:", "Vacation Mode enabled.");
+                                            if (!reason) return;
+                                            void handleSellerAvailabilityStatus(seller.id, "vacation", "Vacation Mode enabled.", reason);
+                                          }}>
                                             Enable Vacation
                                           </Button>
                                         )}
@@ -1073,6 +1393,267 @@ export function AlphaExchangeAdminDashboard() {
                         {renderPagination(sellersRows.safePage, sellersRows.totalPages, setSellersPage)}
                       </CardContent>
                     </Card>
+                  ) : null}
+
+                  {activeSection === "seller-rank" ? (
+                    <div className="space-y-4">
+                      {/* Rank Distribution Summary */}
+                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                        {SELLER_LEVELS.map((rank) => {
+                          const count = (data?.approvedSellers ?? []).filter((s) => (s.sellerPrestigeRank ?? "bronze") === rank).length;
+                          const rankColors: Record<SellerLevel, string> = {
+                            bronze: "border-[#CD7F32]/30 bg-[#CD7F32]/10 text-[#E8A96A]",
+                            silver: "border-[#C0C0C0]/30 bg-[#C0C0C0]/10 text-[#C9CED9]",
+                            gold: "border-[#C9A227]/30 bg-[#C9A227]/10 text-[#FDE68A]",
+                            diamond: "border-[#7CC9FF]/30 bg-[#7CC9FF]/10 text-[#7CC9FF]",
+                            elite: "border-[#F8E7A0]/30 bg-[#F8E7A0]/10 text-[#F8E7A0]",
+                          };
+                          return (
+                            <button
+                              key={rank}
+                              type="button"
+                              onClick={() => setRankMgmtFilter(rankMgmtFilter === rank ? "all" : rank)}
+                              className={`rounded-xl border p-3 text-center transition hover:opacity-80 ${rankColors[rank]} ${rankMgmtFilter === rank ? "ring-1 ring-white/30" : ""}`}
+                            >
+                              <p className="text-xl font-bold">{count}</p>
+                              <p className="mt-0.5 text-[11px] uppercase tracking-[0.12em] capitalize">{rank}</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <Card className="border-white/10 bg-[#0B0B0B]/90">
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <Trophy className="h-5 w-5 text-[#C9A227]" />
+                            Seller Rank Management
+                          </CardTitle>
+                          <CardDescription>
+                            Manage seller prestige ranks directly. Changes are saved immediately and written to the audit log.
+                            Owner accounts are protected and cannot be modified.
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          {/* Filters */}
+                          <div className="grid gap-3 md:grid-cols-3">
+                            <div className="relative md:col-span-2">
+                              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
+                              <input
+                                type="text"
+                                className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] pl-9 pr-3 text-sm text-white placeholder:text-[#9CA3AF] focus:outline-none focus:ring-1 focus:ring-[#C9A227]/50"
+                                placeholder="Search seller by name or email..."
+                                value={rankMgmtSearch}
+                                onChange={(e) => setRankMgmtSearch(e.target.value)}
+                              />
+                            </div>
+                            <select
+                              value={rankMgmtFilter}
+                              onChange={(e) => setRankMgmtFilter(e.target.value as typeof rankMgmtFilter)}
+                              className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white"
+                            >
+                              <option value="all">Filter: All Ranks</option>
+                              <option value="bronze">Bronze</option>
+                              <option value="silver">Silver</option>
+                              <option value="gold">Gold</option>
+                              <option value="diamond">Diamond</option>
+                              <option value="elite">Elite</option>
+                            </select>
+                          </div>
+
+                          {/* Bulk Actions */}
+                          {rankMgmtSelected.size > 0 ? (
+                            <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-[#C9A227]/25 bg-[#C9A227]/8 p-3">
+                              <span className="text-sm font-medium text-[#FDE68A]">{rankMgmtSelected.size} selected</span>
+                              <div className="ml-auto flex flex-wrap gap-2">
+                                <Button type="button" size="sm" variant="secondary" onClick={() => void handleBulkRankAction("promote")}>
+                                  Promote ↑
+                                </Button>
+                                <Button type="button" size="sm" variant="secondary" onClick={() => void handleBulkRankAction("demote")}>
+                                  Demote ↓
+                                </Button>
+                                <Button type="button" size="sm" variant="secondary" onClick={() => void handleBulkRankAction("reset")}>
+                                  Reset to Bronze
+                                </Button>
+                                <div className="flex items-center gap-1.5">
+                                  <select
+                                    value={rankMgmtBulkRank}
+                                    onChange={(e) => setRankMgmtBulkRank(e.target.value as SellerLevel)}
+                                    className="h-8 rounded-lg border border-white/15 bg-[#101010] px-2 text-xs text-white"
+                                  >
+                                    <option value="bronze">Bronze</option>
+                                    <option value="silver">Silver</option>
+                                    <option value="gold">Gold</option>
+                                    <option value="diamond">Diamond</option>
+                                    <option value="elite">Elite</option>
+                                  </select>
+                                  <Button type="button" size="sm" onClick={() => void handleBulkRankAction("set", rankMgmtBulkRank)}>
+                                    Set Rank
+                                  </Button>
+                                </div>
+                                <Button type="button" size="sm" variant="secondary" onClick={() => setRankMgmtSelected(new Set())}>
+                                  Clear
+                                </Button>
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {/* Table */}
+                          <div className="mt-4 overflow-x-auto rounded-xl border border-white/10">
+                            <table className="w-full min-w-[900px] text-sm">
+                              <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
+                                <tr>
+                                  <th className="w-10 px-4 py-3">
+                                    <input
+                                      type="checkbox"
+                                      className="h-4 w-4 rounded border-white/30 bg-transparent accent-[#C9A227]"
+                                      checked={rankMgmtSelected.size > 0 && rankMgmtRows.filter((s) => !(s.roles ?? []).includes("owner") && s.role !== "owner").every((s) => rankMgmtSelected.has(s.id))}
+                                      onChange={(e) => {
+                                        const eligibleIds = rankMgmtRows.filter((s) => !(s.roles ?? []).includes("owner") && s.role !== "owner").map((s) => s.id);
+                                        setRankMgmtSelected(e.target.checked ? new Set(eligibleIds) : new Set());
+                                      }}
+                                    />
+                                  </th>
+                                  <th className="px-4 py-3">Seller</th>
+                                  <th className="px-4 py-3">Current Rank</th>
+                                  <th className="px-4 py-3">Trust Score</th>
+                                  <th className="px-4 py-3">Volume (USDT)</th>
+                                  <th className="px-4 py-3">Status</th>
+                                  <th className="px-4 py-3">Set New Rank</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {rankMgmtRows.map((seller) => {
+                                  const isOwner = (seller.roles ?? []).includes("owner") || seller.role === "owner";
+                                  const currentRank: SellerLevel = seller.sellerPrestigeRank ?? "bronze";
+                                  const isSaving = rankMgmtSaving.has(seller.id);
+                                  const trustScore = trustScoreMap.get(seller.id);
+                                  return (
+                                    <tr key={seller.id} className={`border-t border-white/10 transition ${rankMgmtSelected.has(seller.id) ? "bg-white/[0.025]" : ""}`}>
+                                      <td className="px-4 py-3">
+                                        <input
+                                          type="checkbox"
+                                          disabled={isOwner}
+                                          className="h-4 w-4 rounded border-white/30 bg-transparent accent-[#C9A227] disabled:opacity-30"
+                                          checked={rankMgmtSelected.has(seller.id)}
+                                          onChange={(e) => {
+                                            setRankMgmtSelected((prev) => {
+                                              const next = new Set(prev);
+                                              if (e.target.checked) next.add(seller.id);
+                                              else next.delete(seller.id);
+                                              return next;
+                                            });
+                                          }}
+                                        />
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        <div className="flex items-center gap-2.5">
+                                          <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] text-sm font-semibold text-white">
+                                            {String(seller.fullName || seller.email || "?")
+                                              .trim()
+                                              .split(" ")
+                                              .map((p) => p[0])
+                                              .join("")
+                                              .slice(0, 2)
+                                              .toUpperCase()}
+                                          </div>
+                                          <div>
+                                            <p className="font-medium text-white">{seller.fullName || "—"}</p>
+                                            <p className="text-[11px] text-[#9CA3AF]">{seller.email}</p>
+                                            {isOwner ? <span className="mt-0.5 inline-block rounded-full border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-300">Owner — Protected</span> : null}
+                                          </div>
+                                        </div>
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        <div className="space-y-1">
+                                          <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] ${RANK_BADGE_COLOR[currentRank]}`}>
+                                            {sellerLevelLabel(currentRank)} Seller
+                                          </span>
+                                          {seller.sellerRankOverride ? (
+                                            <p className="text-[10px] text-[#FDE68A]">⚡ Override active</p>
+                                          ) : null}
+                                        </div>
+                                      </td>
+                                      <td className="px-4 py-3 text-[#D1D5DB]">
+                                        {trustScore !== undefined ? (
+                                          <span className={trustScore >= 70 ? "text-emerald-300" : trustScore >= 40 ? "text-amber-300" : "text-red-300"}>
+                                            {trustScore.toFixed(1)}/100
+                                          </span>
+                                        ) : <span className="text-[#9CA3AF]">—</span>}
+                                      </td>
+                                      <td className="px-4 py-3 text-[#D1D5DB]">
+                                        {Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? 0)).toLocaleString("en-IL")}
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        {seller.sellerStatus === "suspended" ? (
+                                          <span className="rounded-full border border-red-500/35 bg-red-500/10 px-2 py-0.5 text-[11px] text-red-300">Suspended</span>
+                                        ) : (
+                                          <span className="rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300">Active</span>
+                                        )}
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        {isOwner ? (
+                                          <span className="text-xs text-[#9CA3AF]">Protected</span>
+                                        ) : (
+                                          <div className="flex items-center gap-2">
+                                            <select
+                                              disabled={isSaving}
+                                              value={currentRank}
+                                              onChange={(e) => handleRankMgmtChange(seller.id, e.target.value as SellerLevel)}
+                                              className="h-9 rounded-lg border border-white/15 bg-[#101010] px-2 text-xs text-white disabled:opacity-50"
+                                            >
+                                              <option value="bronze">Bronze Seller</option>
+                                              <option value="silver">Silver Seller</option>
+                                              <option value="gold">Gold Seller</option>
+                                              <option value="diamond">Diamond Seller</option>
+                                              <option value="elite">Elite Seller</option>
+                                            </select>
+                                            {isSaving ? (
+                                              <span className="text-[11px] text-[#9CA3AF]">Saving…</span>
+                                            ) : null}
+                                          </div>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                                {rankMgmtRows.length === 0 ? (
+                                  <tr>
+                                    <td colSpan={7} className="px-4 py-8 text-center text-sm text-[#9CA3AF]">
+                                      No sellers match your filters.
+                                    </td>
+                                  </tr>
+                                ) : null}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Rank change legend */}
+                          <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+                            <p className="text-xs font-medium uppercase tracking-[0.12em] text-[#9CA3AF]">Rank hierarchy (lowest → highest)</p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {SELLER_LEVELS.map((rank, idx) => {
+                                const colors: Record<SellerLevel, string> = {
+                                  bronze: "border-[#CD7F32]/30 text-[#E8A96A]",
+                                  silver: "border-[#C0C0C0]/30 text-[#C9CED9]",
+                                  gold: "border-[#C9A227]/30 text-[#FDE68A]",
+                                  diamond: "border-[#7CC9FF]/30 text-[#7CC9FF]",
+                                  elite: "border-[#F8E7A0]/30 text-[#F8E7A0]",
+                                };
+                                const volumes: Record<SellerLevel, string> = { bronze: "0 USDT", silver: "15K+", gold: "50K+", diamond: "150K+", elite: "500K+" };
+                                return (
+                                  <span key={rank} className={`rounded-full border px-2.5 py-1 text-[11px] ${colors[rank]}`}>
+                                    {idx + 1}. {sellerLevelLabel(rank)} · {volumes[rank]}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                            <p className="mt-2 text-[11px] text-[#9CA3AF]">
+                              Every rank change shows a confirmation dialog before saving. You can optionally add a reason — it is written to the audit log alongside the admin, seller, previous rank, new rank, and timestamp.
+                            </p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
                   ) : null}
 
                   {activeSection === "marketplace-listings" ? (
@@ -1195,9 +1776,14 @@ export function AlphaExchangeAdminDashboard() {
                                           </Button>
                                         </>
                                       ) : null}
-                                      {(listing.status === "expired" || listing.status === "paused") ? (
-                                        <Button type="button" size="sm" variant="secondary" onClick={() => handleAdminListingAction(listing.id, "renew", "Listing renewed by admin.", 24)}>
-                                          Renew
+                                      {(listing.status === "expired" || listing.status === "paused" || listing.status === "closed") ? (
+                                        <Button type="button" size="sm" variant="secondary" onClick={() => {
+                                          if (!window.confirm(`${listing.status === "closed" ? "Reopen" : "Renew"} this listing?`)) return;
+                                          const reason = requestReason(`Reason for ${listing.status === "closed" ? "reopening" : "renewing"} this listing:`, listing.status === "closed" ? "Listing reopened by admin." : "Listing renewed by admin.");
+                                          if (!reason) return;
+                                          void handleAdminListingAction(listing.id, "renew", listing.status === "closed" ? "Listing reopened by admin." : "Listing renewed by admin.", 24, reason);
+                                        }}>
+                                          {listing.status === "closed" ? "Reopen" : "Renew"}
                                         </Button>
                                       ) : null}
                                       {listing.status !== "completed" && listing.status !== "cancelled" && listing.status !== "closed" ? (
@@ -1206,16 +1792,24 @@ export function AlphaExchangeAdminDashboard() {
                                           size="sm"
                                           variant="secondary"
                                           onClick={() => {
+                                            if (!window.confirm("Extend this listing expiration?")) return;
                                             const hours = window.prompt("Extend expiration by hours (1, 6, 12, 24)", "24");
                                             if (!hours) return;
-                                            void handleAdminListingAction(listing.id, "extend", "Listing expiration extended.", Number(hours));
+                                            const reason = requestReason("Reason for extending this listing:", "Listing expiration extended.");
+                                            if (!reason) return;
+                                            void handleAdminListingAction(listing.id, "extend", "Listing expiration extended.", Number(hours), reason);
                                           }}
                                         >
                                           Extend Expiration
                                         </Button>
                                       ) : null}
                                       {listing.status !== "closed" && listing.status !== "completed" && listing.status !== "cancelled" ? (
-                                        <Button type="button" size="sm" variant="secondary" onClick={() => handleAdminListingAction(listing.id, "close", "Listing closed by admin.")}>
+                                        <Button type="button" size="sm" variant="secondary" onClick={() => {
+                                          if (!window.confirm("Close this listing?")) return;
+                                          const reason = requestReason("Reason for closing this listing:", "Listing closed by admin.");
+                                          if (!reason) return;
+                                          void handleAdminListingAction(listing.id, "close", "Listing closed by admin.", undefined, reason);
+                                        }}>
                                           Close
                                         </Button>
                                       ) : null}
@@ -1306,7 +1900,7 @@ export function AlphaExchangeAdminDashboard() {
                           <table className="w-full min-w-[980px] text-sm">
                             <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
                               <tr>
-                                <th className="px-4 py-3">Trade ID</th>
+                                <th className="w-[11rem] px-4 py-3 text-center">Trade ID</th>
                                 <th className="px-4 py-3">Buyer</th>
                                 <th className="px-4 py-3">Seller</th>
                                 <th className="px-4 py-3">Amount</th>
@@ -1323,11 +1917,11 @@ export function AlphaExchangeAdminDashboard() {
                                 const seller = sellersById.get(request.sellerId);
                                 return (
                                   <tr key={request.id} className="border-t border-white/10">
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{request.tradeId ?? "Pending"}</td>
+                                    <td className="w-[11rem] px-4 py-3 text-center font-mono font-medium whitespace-nowrap text-[#D1D5DB]">{displayTradeId(request)}</td>
                                     <td className="px-4 py-3 text-white">{request.buyerName}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{seller?.fullName ?? request.sellerId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{request.usdtAmount ?? listing?.availableAmount ?? "—"}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{request.listingId}</td>
+                                    <td className="px-4 py-3 font-mono font-medium whitespace-nowrap text-[#D1D5DB]">{displayListingId(listing, request.listingId)}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{request.bankName ?? listing?.bankName ?? "—"}</td>
                                     <td className="px-4 py-3">
                                       <span className="rounded-full border border-white/20 bg-white/5 px-2.5 py-1 text-xs text-white/80">{request.status}</span>
@@ -1351,7 +1945,7 @@ export function AlphaExchangeAdminDashboard() {
                           <div className="mt-3 space-y-2 text-xs text-[#D1D5DB]">
                             {timeoutHistory.slice(0, 10).map((request) => (
                               <div key={request.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                                <p className="text-white">{request.tradeId ?? request.id}</p>
+                                <p className="font-mono font-medium text-white">{displayTradeId(request)}</p>
                                 <p>{request.timeoutReason ?? "Trade timed out."}</p>
                                 <p className="text-[#9CA3AF]">{request.timedOutAt ? formatDate(request.timedOutAt) : "—"}</p>
                               </div>
@@ -1393,7 +1987,7 @@ export function AlphaExchangeAdminDashboard() {
                           <table className="w-full min-w-[980px] text-sm">
                             <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
                               <tr>
-                                <th className="px-4 py-3">Trade ID</th>
+                                <th className="w-[11rem] px-4 py-3 text-center">Trade ID</th>
                                 <th className="px-4 py-3">Buyer</th>
                                 <th className="px-4 py-3">Seller</th>
                                 <th className="px-4 py-3">Trade Value</th>
@@ -1409,11 +2003,11 @@ export function AlphaExchangeAdminDashboard() {
                                 const seller = sellersById.get(record.sellerId);
                                 return (
                                   <tr key={record.id} className="border-t border-white/10">
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{record.purchaseRequestId}</td>
+                                    <td className="w-[11rem] px-4 py-3 text-center font-mono font-medium whitespace-nowrap text-[#D1D5DB]">{displayTradeId(request, record.tradeId ?? record.purchaseRequestId)}</td>
                                     <td className="px-4 py-3 text-white">{request?.buyerName ?? record.buyerId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{seller?.fullName ?? record.sellerId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{formatCurrency(record.grossAmount)}</td>
-                                    <td className="px-4 py-3 text-[#C9A227]">{formatCurrency(record.commissionAmount)}</td>
+                                    <td className="px-4 py-3 text-[#C9A227]">{formatUsdt(record.commissionAmount)}</td>
                                     <td className="px-4 py-3">
                                       <span className={`rounded-full px-2.5 py-1 text-xs ${record.paymentStatus === "paid" ? "border border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : record.paymentStatus === "overdue" ? "border border-red-500/35 bg-red-500/10 text-red-300" : "border border-amber-500/35 bg-amber-500/10 text-amber-300"}`}>
                                         {record.paymentStatus}
@@ -1421,18 +2015,58 @@ export function AlphaExchangeAdminDashboard() {
                                     </td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(record.createdAt)}</td>
                                     <td className="px-4 py-3">
-                                      {record.paymentStatus !== "paid" ? (
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          variant="secondary"
-                                          onClick={() => runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "paid" }) }), "Commission marked paid.")}
-                                        >
-                                          Mark Paid
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        {record.paymentStatus !== "paid" ? (
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="secondary"
+                                            onClick={() => {
+                                              if (!window.confirm("Mark this commission as paid?")) return;
+                                              const reason = requestReason("Reason for marking this commission paid:", "Commission manually marked paid.");
+                                              if (!reason) return;
+                                              void runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "paid", paymentVerificationStatus: "verified", reason }) }), "Commission marked paid.");
+                                            }}
+                                          >
+                                            Mark Paid
+                                          </Button>
+                                        ) : (
+                                          <span className="text-xs text-[#9CA3AF]">Settled</span>
+                                        )}
+                                        {record.paymentVerificationStatus !== "failed" ? (
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="secondary"
+                                            onClick={() => {
+                                              if (!window.confirm("Reject this commission payment verification?")) return;
+                                              const reason = requestReason("Reason for rejecting this commission:", "Commission verification rejected.");
+                                              if (!reason) return;
+                                              void runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "pending", paymentVerificationStatus: "failed", paymentVerificationNotes: reason, reason }) }), "Commission rejected.");
+                                            }}
+                                          >
+                                            Reject
+                                          </Button>
+                                        ) : null}
+                                        {record.paymentStatus !== "pending" || record.paymentVerificationStatus === "failed" ? (
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="secondary"
+                                            onClick={() => {
+                                              if (!window.confirm("Reset this commission to pending?")) return;
+                                              const reason = requestReason("Reason for resetting this commission to pending:", "Commission reset to pending.");
+                                              if (!reason) return;
+                                              void runAction(fetch(`/api/alpha-exchange/admin/commissions/${record.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentStatus: "pending", paymentVerificationStatus: "pending_verification", paymentVerificationNotes: reason, reason }) }), "Commission reset to pending.");
+                                            }}
+                                          >
+                                            Reset Pending
+                                          </Button>
+                                        ) : null}
+                                        <Button type="button" size="sm" variant="secondary" onClick={() => void handleReverifyCommission(record.id)}>
+                                          Reverify
                                         </Button>
-                                      ) : (
-                                        <span className="text-xs text-[#9CA3AF]">Settled</span>
-                                      )}
+                                      </div>
                                     </td>
                                   </tr>
                                 );
@@ -1511,9 +2145,15 @@ export function AlphaExchangeAdminDashboard() {
                                     <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(entry.createdAt)}</td>
                                     <td className="px-4 py-3 text-white">{actor?.fullName ?? entry.actorUserId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{entry.action}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{entry.listingId ?? entry.purchaseRequestId ?? entry.targetUserId ?? "system"}</td>
+                                    <td className="px-4 py-3 font-mono font-medium whitespace-nowrap text-[#D1D5DB]">
+                                      {entry.listingId
+                                        ? `Listing ${displayListingId(listingById.get(entry.listingId), entry.listingId)}`
+                                        : entry.purchaseRequestId
+                                          ? `Trade ${displayTradeId(requestsById.get(entry.purchaseRequestId), entry.purchaseRequestId)}`
+                                          : entry.targetUserId ?? "system"}
+                                    </td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{entry.reason ?? "—"}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{entry.details ?? "—"}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{replaceExchangeEntityIds(entry.details ?? "—", displayLookup)}</td>
                                   </tr>
                                 );
                               })}
@@ -1544,8 +2184,8 @@ export function AlphaExchangeAdminDashboard() {
                                     <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(entry.createdAt)}</td>
                                     <td className="px-4 py-3 text-white">{sellersById.get(entry.userId)?.fullName ?? entry.userId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{entry.category}</td>
-                                    <td className="px-4 py-3 text-white">{entry.title}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{entry.message}</td>
+                                    <td className="px-4 py-3 text-white">{replaceExchangeEntityIds(entry.title, displayLookup)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{replaceExchangeEntityIds(entry.message, displayLookup)}</td>
                                   </tr>
                                 ))}
                                 {notificationRows.rows.length === 0 ? renderEmptyTableRow("No notifications match your search.", 5) : null}
@@ -1562,7 +2202,7 @@ export function AlphaExchangeAdminDashboard() {
                     <div className="space-y-6">
                       <Card className="border-white/10 bg-[#0B0B0B]/90">
                         <CardHeader>
-                          <CardTitle>Private Beta Access</CardTitle>
+                          <CardTitle>Access Control</CardTitle>
                           <CardDescription>Onboarding controls and registration history.</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
@@ -1660,7 +2300,7 @@ export function AlphaExchangeAdminDashboard() {
                               {betaFeedbackRows.map((entry) => (
                                 <div key={entry.id} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs">
                                   <p className="text-white">{feedbackCategoryLabel(entry.category)} • {entry.status}</p>
-                                  <p className="mt-1 text-[#D1D5DB]">{entry.message}</p>
+                                  <p className="mt-1 text-[#D1D5DB]">{replaceExchangeEntityIds(entry.message, displayLookup)}</p>
                                   <p className="mt-1 text-[#9CA3AF]">{formatDate(entry.createdAt)}</p>
                                   <div className="mt-2 flex gap-2">
                                     <Button type="button" size="sm" variant="secondary" onClick={() => void handleFeedbackStatus(entry.id, "in_review")}>In Review</Button>
@@ -1707,6 +2347,236 @@ export function AlphaExchangeAdminDashboard() {
                     </div>
                   ) : null}
 
+                  {activeSection === "analytics" ? (
+                    <div className="space-y-5 xl:space-y-6">
+                      <Card className="border-white/10 bg-[#0B0B0B]/90">
+                        <CardHeader>
+                          <CardTitle>Analytics</CardTitle>
+                          <CardDescription>Key marketplace metrics at a glance.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                          {[
+                            { label: "Active Trades", value: (data.purchaseRequests ?? []).filter((r) => r.status !== "completed" && r.status !== "cancelled" && r.status !== "declined").length },
+                            { label: "Completed Trades", value: (data.purchaseRequests ?? []).filter((r) => r.status === "completed").length },
+                            { label: "Open Listings", value: (data.listings ?? []).filter((l) => l.status === "active").length },
+                            { label: "Revenue Today (est.)", value: formatCurrency(data.ownerBusiness.today.estimatedCommission) },
+                            { label: "Revenue This Week", value: formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisWeek) },
+                            { label: "Revenue This Month", value: formatCurrency(data.ownerBusiness.financialOverview.estimatedCommissionThisMonth) },
+                            { label: "Volume Today", value: formatUsdt(data.ownerBusiness.today.tradeVolumeUsdt) },
+                            { label: "Top Seller (Week)", value: data.ownerBusiness.thisWeek.topSeller || "—" },
+                          ].map((stat) => (
+                            <Card key={stat.label} className="border-white/10 bg-black/20">
+                              <CardHeader className="pb-2">
+                                <CardDescription className="text-xs uppercase tracking-[0.15em] text-[#9CA3AF]">{stat.label}</CardDescription>
+                                <CardTitle className="text-xl">{stat.value}</CardTitle>
+                              </CardHeader>
+                            </Card>
+                          ))}
+                        </CardContent>
+                      </Card>
+                    </div>
+                  ) : null}
+
+                  {activeSection === "users" ? (
+                    <Card className="border-white/10 bg-[#0B0B0B]/90">
+                      <CardHeader>
+                        <CardTitle>User Management</CardTitle>
+                        <CardDescription>Manage all platform users, roles, and account states.</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid gap-3 md:grid-cols-3">
+                          <div className="relative md:col-span-2">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
+                            <Input className="pl-9" placeholder="Search name, email, role..." value={usersQuery} onChange={(event) => { setUsersQuery(event.target.value); setUsersPage(1); }} />
+                          </div>
+                          <select value={usersRoleFilter} onChange={(event) => { setUsersRoleFilter(event.target.value); setUsersPage(1); }} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white">
+                            <option value="all">Role: All</option>
+                            <option value="buyer">Buyer</option>
+                            <option value="approved_seller">Approved Seller</option>
+                            <option value="pending_seller_approval">Pending Seller</option>
+                            <option value="admin">Admin</option>
+                            <option value="owner">Owner</option>
+                            <option value="guest">Guest</option>
+                            <option value="student">Student</option>
+                          </select>
+                        </div>
+                        <div className="mt-5 overflow-x-auto rounded-xl border border-white/10">
+                          <table className="w-full min-w-[860px] text-sm">
+                            <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
+                              <tr>
+                                <th className="px-4 py-3">Name</th>
+                                <th className="px-4 py-3">Email</th>
+                                <th className="px-4 py-3">Role</th>
+                                <th className="px-4 py-3">Status</th>
+                                <th className="px-4 py-3">Joined</th>
+                                <th className="px-4 py-3">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {usersRows.rows.map((user) => (
+                                <tr key={user.id} className="border-t border-white/10">
+                                  <td className="px-4 py-3 font-medium text-white">{user.fullName}</td>
+                                  <td className="px-4 py-3 text-[#D1D5DB]">{user.email}</td>
+                                  <td className="px-4 py-3 text-[#D1D5DB] capitalize">{user.role}</td>
+                                  <td className="px-4 py-3">
+                                    {user.disabled ? (
+                                      <span className="rounded-full border border-red-500/35 bg-red-500/10 px-2.5 py-1 text-xs text-red-300">Disabled</span>
+                                    ) : (
+                                      <span className="rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-300">Active</span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(user.createdAt)}</td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <Button type="button" size="sm" variant="secondary" onClick={() => void handleChangeUserRole(user.id, user.role)}>
+                                        Change Role
+                                      </Button>
+                                      <Button type="button" size="sm" variant="secondary" onClick={() => void handleDisableUser(user.id, !user.disabled)} className={user.disabled ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20" : "border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20"}>
+                                        {user.disabled ? "Enable" : "Disable"}
+                                      </Button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                              {usersRows.rows.length === 0 ? renderEmptyTableRow("No users match your filters.", 6) : null}
+                            </tbody>
+                          </table>
+                        </div>
+                        {renderPagination(usersRows.safePage, usersRows.totalPages, setUsersPage)}
+                      </CardContent>
+                    </Card>
+                  ) : null}
+
+                  {activeSection === "reviews" ? (
+                    <Card className="border-white/10 bg-[#0B0B0B]/90">
+                      <CardHeader>
+                        <CardTitle>Reviews</CardTitle>
+                        <CardDescription>Moderate buyer reviews submitted after completed trades.</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="relative">
+                          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
+                          <Input className="pl-9" placeholder="Search seller, buyer, comment..." value={reviewsQuery} onChange={(event) => { setReviewsQuery(event.target.value); setReviewsPage(1); }} />
+                        </div>
+                        <div className="mt-5 overflow-x-auto rounded-xl border border-white/10">
+                          <table className="w-full min-w-[860px] text-sm">
+                            <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
+                              <tr>
+                                <th className="px-4 py-3">Seller</th>
+                                <th className="px-4 py-3">Buyer</th>
+                                <th className="px-4 py-3">Rating</th>
+                                <th className="px-4 py-3">Comment</th>
+                                <th className="px-4 py-3">Status</th>
+                                <th className="px-4 py-3">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {reviewsRows.rows.map((review) => {
+                                const seller = sellersById.get(review.sellerId);
+                                return (
+                                  <tr key={review.id} className="border-t border-white/10">
+                                    <td className="px-4 py-3 text-white">{seller?.fullName ?? review.sellerId}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{review.buyerId}</td>
+                                    <td className="px-4 py-3 text-[#C9A227]">{"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}</td>
+                                    <td className="px-4 py-3 max-w-[260px] truncate text-[#D1D5DB]">{review.comment}</td>
+                                    <td className="px-4 py-3">
+                                      {review.hidden ? (
+                                        <span className="rounded-full border border-red-500/35 bg-red-500/10 px-2.5 py-1 text-xs text-red-300">Hidden</span>
+                                      ) : (
+                                        <span className="rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-300">Visible</span>
+                                      )}
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <Button type="button" size="sm" variant="secondary" onClick={() => void handleModerateReview(review.id, !review.hidden)}>
+                                        {review.hidden ? "Restore" : "Hide"}
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                              {reviewsRows.rows.length === 0 ? renderEmptyTableRow("No reviews found.", 6) : null}
+                            </tbody>
+                          </table>
+                        </div>
+                        {renderPagination(reviewsRows.safePage, reviewsRows.totalPages, setReviewsPage)}
+                      </CardContent>
+                    </Card>
+                  ) : null}
+
+                  {activeSection === "emergency" ? (
+                    <div className="space-y-5">
+                      <Card className="border-amber-500/30 bg-[#0B0B0B]/90">
+                        <CardHeader>
+                          <div className="flex items-center gap-2">
+                            <Zap className="h-5 w-5 text-amber-400" />
+                            <CardTitle className="text-amber-300">Emergency Controls</CardTitle>
+                          </div>
+                          <CardDescription>Owner-only controls. These actions affect all users and cannot be undone.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                            <p className="mb-3 text-sm font-medium text-amber-300">Broadcast Notification to All Users</p>
+                            <div className="space-y-3">
+                              <select value={broadcastType} onChange={(event) => setBroadcastType(event.target.value as typeof broadcastType)} className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white">
+                                <option value="info">Info</option>
+                                <option value="warning">Warning</option>
+                                <option value="success">Success</option>
+                              </select>
+                              <Input placeholder="Notification title" value={broadcastTitle} onChange={(event) => setBroadcastTitle(event.target.value)} />
+                              <textarea
+                                placeholder="Notification body"
+                                value={broadcastBody}
+                                onChange={(event) => setBroadcastBody(event.target.value)}
+                                rows={3}
+                                className="flex w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white placeholder:text-[#9CA3AF] focus:outline-none focus:ring-1 focus:ring-[#C9A227]/40"
+                              />
+                              <Button type="button" onClick={() => void handleBroadcast()} className="border-amber-500/40 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30">
+                                Broadcast to All Users
+                              </Button>
+                            </div>
+                          </div>
+
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+                              <p className="mb-2 text-sm font-medium text-red-300">Force Expire Listings</p>
+                              <p className="mb-3 text-xs text-[#9CA3AF]">Immediately expire all listings that are past their expiry date.</p>
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20"
+                                onClick={() => {
+                                  if (!window.confirm("Force-expire all overdue listings? This cannot be undone.")) return;
+                                  void runAction(fetch("/api/alpha-exchange/admin/listings/force-expire", { method: "POST" }), "Expired listings force-closed.");
+                                }}
+                              >
+                                Run Now
+                              </Button>
+                            </div>
+                            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                              <p className="mb-2 text-sm font-medium text-amber-300">Recalculate All Trust Scores</p>
+                              <p className="mb-3 text-xs text-[#9CA3AF]">Trigger a full trust engine recalculation for all sellers.</p>
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                className="border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
+                                onClick={() => {
+                                  if (!window.confirm("Recalculate trust scores now? This may take a moment.")) return;
+                                  const reason = requestReason("Reason for recalculating trust scores:", "Launch trust recalculation");
+                                  if (!reason) return;
+                                  void runAction(fetch("/api/alpha-exchange/admin/trust/recalculate-all", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason }) }), "Trust score recalculation triggered.");
+                                }}
+                              >
+                                Run Now
+                              </Button>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  ) : null}
+
                   {activeSection === "settings" ? (
                     <Card className="border-white/10 bg-[#0B0B0B]/90">
                       <CardHeader>
@@ -1729,7 +2599,7 @@ export function AlphaExchangeAdminDashboard() {
                             <CardDescription>Current fee logic is tracked at 1% per completed trade.</CardDescription>
                           </CardHeader>
                           <CardContent className="pt-0 text-sm text-[#D1D5DB]">
-                            Total earned: <span className="text-white">{formatCurrency(data.summary.totalCommissionAmount)}</span>
+                            Total earned: <span className="text-white">{formatUsdt(data.summary.totalCommissionAmount)}</span>
                           </CardContent>
                         </Card>
                       </CardContent>
@@ -1766,11 +2636,21 @@ export function AlphaExchangeAdminDashboard() {
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 {selectedSeller.availabilityStatus === "vacation" ? (
-                  <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerAvailabilityStatus(selectedSeller.id, "available", "Vacation Mode ended.")}>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => {
+                    if (!window.confirm("End vacation mode for this seller?")) return;
+                    const reason = requestReason("Reason for ending vacation mode:", "Vacation Mode ended.");
+                    if (!reason) return;
+                    void handleSellerAvailabilityStatus(selectedSeller.id, "available", "Vacation Mode ended.", reason);
+                  }}>
                     End Vacation
                   </Button>
                 ) : (
-                  <Button type="button" size="sm" variant="secondary" onClick={() => handleSellerAvailabilityStatus(selectedSeller.id, "vacation", "Vacation Mode enabled.")}>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => {
+                    if (!window.confirm("Enable vacation mode for this seller?")) return;
+                    const reason = requestReason("Reason for enabling vacation mode:", "Vacation Mode enabled.");
+                    if (!reason) return;
+                    void handleSellerAvailabilityStatus(selectedSeller.id, "vacation", "Vacation Mode enabled.", reason);
+                  }}>
                     Enable Vacation
                   </Button>
                 )}
@@ -1824,11 +2704,11 @@ export function AlphaExchangeAdminDashboard() {
                 </button>
               </div>
               <div className="mt-4 grid gap-2 text-sm text-[#D1D5DB]">
-                <p>Request ID: <span className="text-white">{selectedRequest.id}</span></p>
-                <p>Trade ID: <span className="text-white">{selectedRequest.tradeId ?? "Pending"}</span></p>
+                <p>Request ID: <span className="font-mono font-medium text-white">{displayRequestId(selectedRequest)}</span></p>
+                <p>Trade ID: <span className="font-mono font-medium text-white">{displayTradeId(selectedRequest)}</span></p>
                 <p>Buyer: <span className="text-white">{selectedRequest.buyerName}</span></p>
                 <p>WhatsApp: <span className="text-white">{selectedRequest.buyerWhatsapp}</span></p>
-                <p>Listing: <span className="text-white">{selectedRequest.listingId}</span></p>
+                <p>Listing: <span className="font-mono font-medium text-white">{displayListingId(listingById.get(selectedRequest.listingId), selectedRequest.listingId)}</span></p>
                 <p>Seller: <span className="text-white">{sellersById.get(selectedRequest.sellerId)?.fullName ?? selectedRequest.sellerId}</span></p>
                 <p>Status: <span className="text-white">{selectedRequest.status}</span></p>
                 <p>USDT Amount: <span className="text-white">{selectedRequest.usdtAmount}</span></p>
@@ -1896,6 +2776,104 @@ export function AlphaExchangeAdminDashboard() {
                   <p className="mt-2">{selectedRequest.sellerResponse.message}</p>
                 </div>
               ) : null}
+              {selectedRequest.status !== "completed" && selectedRequest.status !== "cancelled" && selectedRequest.status !== "declined" ? (
+                <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                  <p className="mb-3 text-sm font-medium text-amber-300">Admin Actions</p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" size="sm" onClick={() => void handleForceComplete(selectedRequest.id)} className="border-[#C9A227]/40 bg-[#C9A227]/20 text-[#C9A227] hover:bg-[#C9A227]/30">
+                      Force Complete
+                    </Button>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => void handleForceCancel(selectedRequest.id)} className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20">
+                      Force Cancel
+                    </Button>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => void handleUnlockReview(selectedRequest.id)}>
+                      Unlock Review
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {rankConfirmPending ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+            onClick={() => { setRankConfirmPending(null); setRankConfirmReason(""); }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 8 }}
+              transition={{ duration: 0.18 }}
+              className="w-full max-w-md rounded-2xl border border-white/15 bg-[#0D0D0D] p-6 shadow-[0_24px_60px_rgba(0,0,0,0.7)]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="mb-5">
+                <div className="flex items-center gap-3 mb-1">
+                  <Trophy className="h-5 w-5 text-[#C9A227]" />
+                  <h3 className="text-base font-semibold text-white">Change Seller Rank?</h3>
+                </div>
+                <p className="text-xs text-[#9CA3AF] pl-8">This will immediately update the seller&apos;s public marketplace appearance.</p>
+              </div>
+
+              {/* Seller info */}
+              <div className="mb-5 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
+                <p className="text-xs text-[#9CA3AF] mb-2">You&apos;re about to change:</p>
+                <p className="text-sm font-medium text-white mb-3">{rankConfirmPending.sellerName}</p>
+                <div className="flex items-center gap-3">
+                  <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] ${RANK_BADGE_COLOR[rankConfirmPending.fromRank]}`}>
+                    {sellerLevelLabel(rankConfirmPending.fromRank)} Seller
+                  </span>
+                  <span className="text-[#9CA3AF] text-xs">→</span>
+                  <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] ${RANK_BADGE_COLOR[rankConfirmPending.toRank]}`}>
+                    {sellerLevelLabel(rankConfirmPending.toRank)} Seller
+                  </span>
+                </div>
+              </div>
+
+              {/* Optional reason */}
+              <div className="mb-6">
+                <label className="block text-xs font-medium text-[#9CA3AF] mb-1.5">
+                  Reason <span className="text-[#6B7280]">(optional — saved in audit log)</span>
+                </label>
+                <textarea
+                  value={rankConfirmReason}
+                  onChange={(e) => setRankConfirmReason(e.target.value)}
+                  placeholder="e.g. Outstanding reputation and consistently high trade completion rate."
+                  rows={2}
+                  maxLength={300}
+                  className="w-full resize-none rounded-lg border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white placeholder:text-[#4B5563] focus:border-[#C9A227]/50 focus:outline-none"
+                />
+                {rankConfirmReason.length > 0 && (
+                  <p className="mt-1 text-right text-[10px] text-[#6B7280]">{rankConfirmReason.length}/300</p>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="flex-1 border-white/15 bg-white/[0.05] text-[#D1D5DB] hover:bg-white/10"
+                  onClick={() => { setRankConfirmPending(null); setRankConfirmReason(""); }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  className="flex-1 border-[#C9A227]/40 bg-[#C9A227]/15 text-[#C9A227] hover:bg-[#C9A227]/25"
+                  onClick={() => void handleRankConfirm()}
+                >
+                  Confirm
+                </Button>
+              </div>
             </motion.div>
           </motion.div>
         ) : null}

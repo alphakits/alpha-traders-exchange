@@ -2,19 +2,27 @@
 
 import { useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { GraduationCap, ShieldCheck, Store, UserCircle2, Sparkles, Clock3, CheckCircle2 } from "lucide-react";
+import { GraduationCap, ShieldCheck, Store, UserCircle2, Sparkles, Clock3, CheckCircle2, Send, Smartphone, KeyRound } from "lucide-react";
 import { useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 const POST_ONBOARDING_KEY = "post_onboarding_redirect";
-const SUPPORTED_NETWORKS = ["TRC20", "ERC20", "BEP20", "SOL"] as const;
-type Network = (typeof SUPPORTED_NETWORKS)[number];
+const SELLER_METHOD_OPTIONS = [
+  { id: "USDT (ERC20 / Ethereum)", group: "Crypto", recommended: true },
+  { id: "USDT (Polygon)", group: "Crypto", recommended: false },
+  { id: "USDT (Solana SPL / Phantom)", group: "Crypto", recommended: false },
+  { id: "Face-to-Face", group: "Fiat", recommended: false },
+  { id: "Cardless Withdrawal", group: "Fiat", recommended: false },
+  { id: "Bank Transfer", group: "Fiat", recommended: false },
+] as const;
+type SellerMethod = (typeof SELLER_METHOD_OPTIONS)[number]["id"];
 
 type Props = {
   locale: "ar" | "en";
   isBuyer?: boolean;
   sellerStatus?: string;
+  phoneVerificationEnabled: boolean;
 };
 
 type ApiErrorPayload = {
@@ -71,14 +79,19 @@ function PremiumCard({ title, subtitle, icon: Icon, accent, children }: PremiumC
   );
 }
 
-export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props) {
+export function GuestOnboarding({
+  locale,
+  isBuyer = false,
+  sellerStatus,
+  phoneVerificationEnabled,
+}: Props) {
   const router = useRouter();
   const isAr = locale === "ar";
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<null | "student" | "sendOtp" | "verifyOtp" | "skip" | "seller_sendOtp" | "seller_verify" | "seller_apply">(null);
   const [buyer, setBuyer] = useState({ firstName: "", lastName: "", displayName: "", phone: "", token: "" });
-  const [seller, setSeller] = useState({ firstName: "", lastName: "", displayName: "", phone: "", token: "", preferredNetworks: [] as Network[], expectedVolume: "", notes: "" });
+  const [seller, setSeller] = useState({ firstName: "", lastName: "", displayName: "", phone: "", token: "", preferredNetworks: [] as SellerMethod[], expectedVolume: "", notes: "" });
   const [sellerStep, setSellerStep] = useState<"idle" | "otp_sent" | "applied">("idle");
   const [sellerError, setSellerError] = useState<string | null>(null);
   const [sellerStatus2, setSellerStatus2] = useState<string | null>(null);
@@ -99,7 +112,7 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
     return `${message} (${suffix})`;
   }
 
-  function toggleNetwork(net: Network) {
+  function toggleNetwork(net: SellerMethod) {
     setSeller((prev) => ({
       ...prev,
       preferredNetworks: prev.preferredNetworks.includes(net)
@@ -159,6 +172,30 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
       router.replace((consumePostOnboardingRedirect() ?? "/usdt-exchange") as "/usdt-exchange");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Verification failed.");
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function activateBuyerWithoutPhone() {
+    setLoading("verifyOtp");
+    setError(null);
+    setStatus(null);
+    try {
+      const res = await fetch("/api/auth/onboarding/buyer/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          firstName: buyer.firstName,
+          lastName: buyer.lastName,
+          displayName: buyer.displayName,
+        }),
+      });
+      const payload = (await res.json()) as ApiErrorPayload;
+      if (!res.ok) throw new Error(withSupportDetails(payload, "Failed to continue as buyer."));
+      router.replace((consumePostOnboardingRedirect() ?? "/usdt-exchange") as "/usdt-exchange");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to continue as buyer.");
     } finally {
       setLoading(null);
     }
@@ -250,6 +287,31 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
     }
   }
 
+  async function activateBuyerAndApplySeller() {
+    setLoading("seller_verify");
+    setSellerError(null);
+    setSellerStatus2(null);
+    try {
+      if (!isBuyer) {
+        const buyerRes = await fetch("/api/auth/onboarding/buyer/activate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            firstName: seller.firstName,
+            lastName: seller.lastName,
+            displayName: seller.displayName,
+          }),
+        });
+        const buyerPayload = (await buyerRes.json()) as ApiErrorPayload;
+        if (!buyerRes.ok) throw new Error(withSupportDetails(buyerPayload, "Failed to activate buyer access."));
+      }
+      await submitSellerApplication();
+    } catch (err) {
+      setSellerError(err instanceof Error ? err.message : "Failed to submit seller application.");
+      setLoading(null);
+    }
+  }
+
   return (
     <section className="section-container page-shell">
       <motion.div
@@ -283,7 +345,13 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <PremiumCard
             title={isAr ? "Become a Buyer" : "Become a Buyer"}
-            subtitle={isAr ? "تحقق سريع عبر OTP ثم الوصول الكامل إلى السوق." : "Quick OTP verification to unlock marketplace access."}
+            subtitle={isAr
+              ? (phoneVerificationEnabled
+                ? "تحقق سريع عبر OTP ثم الوصول الكامل إلى السوق."
+                : "الوصول إلى السوق متاح الآن بدون تحقق هاتف مؤقتًا حتى يكتمل تفعيل الخدمة.")
+              : (phoneVerificationEnabled
+                ? "Quick OTP verification to unlock marketplace access."
+                : "Marketplace access is temporarily open without phone verification while service activation is completed.")}
             icon={ShieldCheck}
             accent="gold"
           >
@@ -306,40 +374,70 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
                 value={buyer.displayName}
                 onChange={(event) => setBuyer((prev) => ({ ...prev, displayName: event.target.value }))}
               />
-              <Input
-                aria-label={isAr ? "رقم الهاتف الإسرائيلي" : "Israeli mobile number"}
-                placeholder={isAr ? "رقم الهاتف الإسرائيلي (+972 / 05...)" : "Israeli mobile (+972 / 05...)"}
-                value={buyer.phone}
-                onChange={(event) => setBuyer((prev) => ({ ...prev, phone: event.target.value }))}
-              />
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Button
-                  type="button"
-                  className="flex-1"
-                  loading={loading === "sendOtp"}
-                  loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
-                  onClick={() => void sendOtp()}
-                  disabled={isLoading}
-                >
-                  {isAr ? "إرسال رمز التحقق" : "Send verification code"}
-                </Button>
-                <Input
-                  aria-label={isAr ? "رمز مكون من 6 أرقام" : "6-digit code"}
-                  placeholder={isAr ? "رمز مكون من 6 أرقام" : "6-digit code"}
-                  value={buyer.token}
-                  onChange={(event) => setBuyer((prev) => ({ ...prev, token: event.target.value }))}
-                />
-              </div>
-              <Button
-                type="button"
-                variant="secondary"
-                loading={loading === "verifyOtp"}
-                loadingLabel={isAr ? "جارٍ التحقق..." : "Verifying..."}
-                onClick={() => void verifyOtp()}
-                disabled={isLoading || buyer.token.length !== 6}
-              >
-                {isAr ? "تأكيد وتفعيل المشتري" : "Verify & activate Buyer"}
-              </Button>
+              {phoneVerificationEnabled ? (
+                <div className="grid gap-2 lg:grid-cols-[minmax(0,1.25fr)_auto_minmax(0,1fr)_auto] lg:items-center">
+                  <div className="relative">
+                    <Smartphone className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#C9A227]" />
+                    <Input
+                      aria-label={isAr ? "رقم الهاتف الإسرائيلي" : "Israeli mobile number"}
+                      placeholder={isAr ? "رقم الهاتف الإسرائيلي (+972 / 05...)" : "Israeli mobile (+972 / 05...)"}
+                      value={buyer.phone}
+                      onChange={(event) => setBuyer((prev) => ({ ...prev, phone: event.target.value }))}
+                      className="pl-10"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    className="h-11 w-full whitespace-nowrap px-5 sm:min-w-[230px] lg:w-auto"
+                    loading={loading === "sendOtp"}
+                    loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
+                    onClick={() => void sendOtp()}
+                    disabled={isLoading}
+                  >
+                    <Send className="h-4 w-4" />
+                    {isAr ? "إرسال رمز التحقق" : "Send verification code"}
+                  </Button>
+                  <div className="relative">
+                    <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#C9A227]" />
+                    <Input
+                      aria-label={isAr ? "رمز مكون من 6 أرقام" : "6-digit code"}
+                      placeholder={isAr ? "رمز مكون من 6 أرقام" : "6-digit code"}
+                      value={buyer.token}
+                      onChange={(event) => setBuyer((prev) => ({ ...prev, token: event.target.value }))}
+                      className="pl-10"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="h-11 w-full whitespace-nowrap px-5 sm:min-w-[180px] lg:w-auto"
+                    loading={loading === "verifyOtp"}
+                    loadingLabel={isAr ? "جارٍ التحقق..." : "Verifying..."}
+                    onClick={() => void verifyOtp()}
+                    disabled={isLoading || buyer.token.length !== 6}
+                  >
+                    {isAr ? "تأكيد التحقق" : "Verify"}
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-sky-400/25 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">
+                    {isAr
+                      ? "التحقق عبر الهاتف غير متاح مؤقتًا. يمكنك متابعة إعداد حساب المشتري الآن وسنفعّل التحقق لاحقًا."
+                      : "Phone verification is temporarily unavailable. You can continue setting up your buyer access now, and verify later once service activation is complete."}
+                  </div>
+                  <Button
+                    type="button"
+                    className="h-11 w-full"
+                    loading={loading === "verifyOtp"}
+                    loadingLabel={isAr ? "جارٍ المتابعة..." : "Continuing..."}
+                    onClick={() => void activateBuyerWithoutPhone()}
+                    disabled={isLoading || !buyer.firstName.trim() || !buyer.lastName.trim()}
+                  >
+                    {isAr ? "المتابعة كمشتري" : "Continue as Buyer"}
+                  </Button>
+                </div>
+              )}
             </div>
             {error ? <p className="mt-2 text-xs text-rose-300">{error}</p> : null}
             {status ? <p className="mt-2 text-xs text-emerald-300">{status}</p> : null}
@@ -383,22 +481,38 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
                 </motion.div>
               ) : isBuyer ? (
                 <motion.div key="seller-buyer" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="grid gap-2">
-                  <p className="text-xs text-[#AEB5C2]">{isAr ? "اختر الشبكات المفضلة للتداول:" : "Select preferred trading networks:"}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {SUPPORTED_NETWORKS.map((net) => (
-                      <button
-                        key={net}
-                        type="button"
-                        onClick={() => toggleNetwork(net)}
-                        className={`rounded-lg border px-3 py-1 text-xs font-medium transition-colors ${
-                          seller.preferredNetworks.includes(net)
-                            ? "border-[#C9A227] bg-[#C9A227]/20 text-[#F4D87A]"
-                            : "border-[#374151] bg-black/20 text-[#9CA3AF] hover:border-[#C9A227]/50"
-                        }`}
-                      >
-                        {net}
-                      </button>
-                    ))}
+                  <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+                    <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "طرق البيع المدعومة" : "Supported Selling Methods"}</p>
+                    <p className="mt-1 text-xs text-[#AEB5C2]">{isAr ? "اختر طريقة أو أكثر." : "Select one or more methods."}</p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      {(["Crypto", "Fiat"] as const).map((group) => (
+                        <div key={`buyer-${group}`} className="space-y-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9CA3AF]">{group}</p>
+                          <div className="grid gap-2">
+                            {SELLER_METHOD_OPTIONS.filter((option) => option.group === group).map((option) => {
+                              const selected = seller.preferredNetworks.includes(option.id);
+                              return (
+                                <button
+                                  key={`buyer-${option.id}`}
+                                  type="button"
+                                  onClick={() => toggleNetwork(option.id)}
+                                  className={`rounded-lg border px-3 py-2 text-left text-xs font-medium transition-colors ${
+                                    selected
+                                      ? "border-[#C9A227] bg-[#C9A227]/20 text-[#F4D87A]"
+                                      : "border-[#374151] bg-black/20 text-[#D1D5DB] hover:border-[#C9A227]/50"
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span>{option.id}</span>
+                                    {option.recommended ? <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#D4AF37]">⭐</span> : null}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   <Input
                     aria-label={isAr ? "حجم التداول الشهري المتوقع (اختياري)" : "Expected monthly volume (optional)"}
@@ -419,22 +533,34 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
               ) : sellerStep === "otp_sent" ? (
                 <motion.div key="seller-otp" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="grid gap-2">
                   {sellerStatus2 ? <p className="text-xs text-emerald-300">{sellerStatus2}</p> : null}
-                  <p className="text-xs text-[#AEB5C2]">{isAr ? "اختر الشبكات المفضلة للتداول:" : "Select preferred trading networks:"}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {SUPPORTED_NETWORKS.map((net) => (
-                      <button
-                        key={net}
-                        type="button"
-                        onClick={() => toggleNetwork(net)}
-                        className={`rounded-lg border px-3 py-1 text-xs font-medium transition-colors ${
-                          seller.preferredNetworks.includes(net)
-                            ? "border-[#C9A227] bg-[#C9A227]/20 text-[#F4D87A]"
-                            : "border-[#374151] bg-black/20 text-[#9CA3AF] hover:border-[#C9A227]/50"
-                        }`}
-                      >
-                        {net}
-                      </button>
-                    ))}
+                  <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+                    <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "طرق البيع المدعومة" : "Supported Selling Methods"}</p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      {(["Crypto", "Fiat"] as const).map((group) => (
+                        <div key={`otp-${group}`} className="space-y-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9CA3AF]">{group}</p>
+                          <div className="grid gap-2">
+                            {SELLER_METHOD_OPTIONS.filter((option) => option.group === group).map((option) => {
+                              const selected = seller.preferredNetworks.includes(option.id);
+                              return (
+                                <button
+                                  key={`otp-${option.id}`}
+                                  type="button"
+                                  onClick={() => toggleNetwork(option.id)}
+                                  className={`rounded-lg border px-3 py-2 text-left text-xs font-medium transition-colors ${
+                                    selected
+                                      ? "border-[#C9A227] bg-[#C9A227]/20 text-[#F4D87A]"
+                                      : "border-[#374151] bg-black/20 text-[#D1D5DB] hover:border-[#C9A227]/50"
+                                  }`}
+                                >
+                                  {option.id}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   <Input
                     aria-label={isAr ? "رمز التحقق المكون من 6 أرقام" : "6-digit verification code"}
@@ -475,38 +601,92 @@ export function GuestOnboarding({ locale, isBuyer = false, sellerStatus }: Props
                     value={seller.phone}
                     onChange={(e) => setSeller((p) => ({ ...p, phone: e.target.value }))}
                   />
-                  <p className="text-xs text-[#AEB5C2]">{isAr ? "الشبكات المفضلة للتداول:" : "Preferred trading networks:"}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {SUPPORTED_NETWORKS.map((net) => (
-                      <button
-                        key={net}
-                        type="button"
-                        onClick={() => toggleNetwork(net)}
-                        className={`rounded-lg border px-3 py-1 text-xs font-medium transition-colors ${
-                          seller.preferredNetworks.includes(net)
-                            ? "border-[#C9A227] bg-[#C9A227]/20 text-[#F4D87A]"
-                            : "border-[#374151] bg-black/20 text-[#9CA3AF] hover:border-[#C9A227]/50"
-                        }`}
-                      >
-                        {net}
-                      </button>
-                    ))}
+                  <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+                    <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "طرق البيع المدعومة" : "Supported Selling Methods"}</p>
+                    <p className="mt-1 text-xs text-[#AEB5C2]">{isAr ? "اختر طريقة أو أكثر." : "Select one or more methods."}</p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      {(["Crypto", "Fiat"] as const).map((group) => (
+                        <div key={`idle-${group}`} className="space-y-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9CA3AF]">{group}</p>
+                          <div className="grid gap-2">
+                            {SELLER_METHOD_OPTIONS.filter((option) => option.group === group).map((option) => {
+                              const selected = seller.preferredNetworks.includes(option.id);
+                              return (
+                                <button
+                                  key={`idle-${option.id}`}
+                                  type="button"
+                                  onClick={() => toggleNetwork(option.id)}
+                                  className={`rounded-lg border px-3 py-2 text-left text-xs font-medium transition-colors ${
+                                    selected
+                                      ? "border-[#C9A227] bg-[#C9A227]/20 text-[#F4D87A]"
+                                      : "border-[#374151] bg-black/20 text-[#D1D5DB] hover:border-[#C9A227]/50"
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span>{option.id}</span>
+                                    {option.recommended ? <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#D4AF37]">⭐ Recommended</span> : null}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
+                    <p className="font-semibold text-white">{isAr ? "ماذا يحدث بعد التقديم؟" : "What happens after you apply?"}</p>
+                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                      <li>{isAr ? "يدخل طلبك في مراجعة يدوية." : "Your application enters manual review."}</li>
+                      <li>{isAr
+                        ? (phoneVerificationEnabled
+                          ? "يتواصل فريق Alpha Traders عبر WhatsApp على رقمك المحقق."
+                          : "يتواصل فريق Alpha Traders عبر WhatsApp باستخدام الرقم الذي تقدمه في الطلب.")
+                        : (phoneVerificationEnabled
+                          ? "The Alpha Traders team contacts you via WhatsApp using your verified number."
+                          : "The Alpha Traders team contacts you via WhatsApp using the number you provide in your application.")}</li>
+                      <li>{isAr ? "قد نطلب معلومات إضافية قبل الموافقة." : "Additional verification may be requested before approval."}</li>
+                    </ul>
+                  </div>
+                  <p className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-[#9CA3AF]">
+                    {isAr
+                      ? "الموافقة على البائعين تتم يدويًا لحماية المشترين والحفاظ على سوق موثوق."
+                      : "Seller approval is performed manually to protect buyers and maintain a trusted marketplace."}
+                  </p>
                   <Input
                     aria-label={isAr ? "حجم التداول الشهري المتوقع (اختياري)" : "Expected monthly volume (optional)"}
                     placeholder={isAr ? "حجم التداول الشهري المتوقع (اختياري)" : "Expected monthly volume (optional)"}
                     value={seller.expectedVolume}
                     onChange={(e) => setSeller((p) => ({ ...p, expectedVolume: e.target.value }))}
                   />
-                  <Button
-                    type="button"
-                    loading={loading === "seller_sendOtp"}
-                    loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
-                    onClick={() => void sellerSendOtp()}
-                    disabled={isLoading || !seller.firstName || !seller.lastName || !seller.phone || seller.preferredNetworks.length === 0}
-                  >
-                    {isAr ? "إرسال رمز التحقق" : "Send verification code"}
-                  </Button>
+                  {phoneVerificationEnabled ? (
+                    <Button
+                      type="button"
+                      loading={loading === "seller_sendOtp"}
+                      loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
+                      onClick={() => void sellerSendOtp()}
+                      disabled={isLoading || !seller.firstName || !seller.lastName || !seller.phone || seller.preferredNetworks.length === 0}
+                    >
+                      {isAr ? "إرسال رمز التحقق" : "Send verification code"}
+                    </Button>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="rounded-xl border border-sky-400/25 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">
+                        {isAr
+                          ? "التحقق عبر الهاتف غير متاح مؤقتًا. سنستخدم رقم WhatsApp الذي تضيفه في الطلب إلى أن يكتمل تفعيل الخدمة."
+                          : "Phone verification is temporarily unavailable. We’ll use the WhatsApp number in your application until service activation is complete."}
+                      </div>
+                      <Button
+                        type="button"
+                        loading={loading === "seller_verify"}
+                        loadingLabel={isAr ? "جارٍ الإرسال..." : "Submitting..."}
+                        onClick={() => void activateBuyerAndApplySeller()}
+                        disabled={isLoading || !seller.firstName || !seller.lastName || !seller.phone || seller.preferredNetworks.length === 0}
+                      >
+                        {isAr ? "إرسال طلب البائع" : "Submit Seller Application"}
+                      </Button>
+                    </div>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>

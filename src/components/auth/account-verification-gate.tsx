@@ -10,6 +10,7 @@ type SessionUser = {
   email?: string;
   fullName?: string;
   emailVerified?: boolean;
+  isPhotoVerified?: boolean;
   verifiedPhone?: string;
   phoneVerifiedAt?: string;
 };
@@ -19,6 +20,7 @@ type Props = {
   redirectTo?: string;
   initialEmail: string;
   initialName: string;
+  phoneVerificationEnabled: boolean;
 };
 
 type ApiErrorPayload = {
@@ -36,7 +38,13 @@ function normalizeRedirectPath(rawRedirect: string | undefined, locale: "ar" | "
   return rawRedirect;
 }
 
-export function AccountVerificationGate({ locale, redirectTo, initialEmail, initialName }: Props) {
+export function AccountVerificationGate({
+  locale,
+  redirectTo,
+  initialEmail,
+  initialName,
+  phoneVerificationEnabled,
+}: Props) {
   const isAr = locale === "ar";
   const [user, setUser] = useState<SessionUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,7 +64,7 @@ export function AccountVerificationGate({ locale, redirectTo, initialEmail, init
 
   const target = useMemo(() => normalizeRedirectPath(redirectTo, locale), [redirectTo, locale]);
   const emailVerified = user?.emailVerified === true;
-  const phoneVerified = Boolean(user?.verifiedPhone && user?.phoneVerifiedAt);
+  const phoneVerified = user?.isPhotoVerified === true;
 
   useEffect(() => {
     let active = true;
@@ -86,10 +94,24 @@ export function AccountVerificationGate({ locale, redirectTo, initialEmail, init
   }, [locale]);
 
   useEffect(() => {
-    if (!loading && emailVerified && phoneVerified) {
+    if (!user?.fullName?.trim()) return;
+    const parts = user.fullName.trim().split(/\s+/);
+    const firstName = parts[0] ?? "";
+    const lastName = parts.slice(1).join(" ");
+    setPhoneForm((prev) => ({
+      ...prev,
+      firstName: prev.firstName || firstName,
+      lastName: prev.lastName || lastName,
+      displayName: prev.displayName || user.fullName || "",
+      phone: prev.phone || user.verifiedPhone || "",
+    }));
+  }, [user]);
+
+  useEffect(() => {
+    if (!loading && emailVerified && (!phoneVerificationEnabled || phoneVerified)) {
       window.location.replace(`/${locale}${target === "/" ? "" : target}`);
     }
-  }, [loading, emailVerified, phoneVerified, locale, target]);
+  }, [loading, emailVerified, phoneVerified, locale, phoneVerificationEnabled, target]);
 
   async function refreshUser() {
     const res = await fetch("/api/auth/me", { cache: "no-store", credentials: "include" });
@@ -102,10 +124,22 @@ export function AccountVerificationGate({ locale, redirectTo, initialEmail, init
     setError(null);
     setStatus(null);
     try {
+      const sourceName = [phoneForm.firstName, phoneForm.lastName].filter(Boolean).join(" ").trim() || user?.fullName?.trim() || initialName.trim();
+      const nameParts = sourceName.split(/\s+/).filter(Boolean);
+      const firstName = (phoneForm.firstName || nameParts[0] || "").trim();
+      const lastName = (phoneForm.lastName || nameParts.slice(1).join(" ") || "").trim();
+      if (!firstName || !lastName || !phoneForm.phone.trim()) {
+        throw new Error(isAr ? "يرجى إدخال رقم هاتف صالح قبل إرسال رمز التحقق." : "Please enter a valid phone number before sending a verification code.");
+      }
       const res = await fetch("/api/auth/onboarding/buyer/send-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(phoneForm),
+        body: JSON.stringify({
+          firstName,
+          lastName,
+          displayName: user?.fullName?.trim() || phoneForm.displayName || sourceName,
+          phone: phoneForm.phone.trim(),
+        }),
       });
       const payload = (await res.json()) as ApiErrorPayload;
       if (!res.ok) throw new Error(withSupportDetails(payload, "Failed to send verification code."));
@@ -168,12 +202,18 @@ export function AccountVerificationGate({ locale, redirectTo, initialEmail, init
             </div>
             <div>
               <h1 className="text-2xl font-semibold text-white md:text-3xl">
-                {isAr ? "أكمل التحقق للدخول إلى Alpha Exchange" : "Complete verification to access Alpha Exchange"}
+                {isAr
+                  ? "أكمل التحقق للدخول إلى Alpha Exchange"
+                  : "Complete verification to access Alpha Exchange"}
               </h1>
               <p className="mt-2 text-sm text-[#D1D5DB]">
                 {isAr
-                  ? "نطلب التحقق من البريد ورقم الهاتف لحماية التداولات، تقليل الاحتيال، وضمان تجربة آمنة للجميع."
-                  : "We require email and phone verification to protect trades, reduce fraud, and keep Alpha Exchange secure for all users."}
+                  ? (phoneVerificationEnabled
+                    ? "نطلب التحقق من البريد ورقم الهاتف لحماية التداولات، تقليل الاحتيال، وضمان تجربة آمنة للجميع."
+                    : "التحقق عبر الهاتف غير متاح مؤقتًا بينما نكمل تفعيل الخدمة. يمكنك المتابعة بعد تأكيد بريدك الإلكتروني.")
+                  : (phoneVerificationEnabled
+                    ? "We require email and phone verification to protect trades, reduce fraud, and keep Alpha Exchange secure for all users."
+                    : "Phone verification is temporarily unavailable while we complete service activation. You can continue after confirming your email.")}
               </p>
             </div>
           </div>
@@ -220,65 +260,79 @@ export function AccountVerificationGate({ locale, redirectTo, initialEmail, init
                 <Smartphone className="h-4 w-4 text-[#C9A227]" />
                 {isAr ? "تحقق رقم الهاتف" : "Phone verification"}
               </p>
-              {phoneVerified ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-300">
-                  <CheckCircle2 className="h-3 w-3" />
-                  {isAr ? "مؤكد" : "Verified"}
-                </span>
+              {phoneVerificationEnabled ? (
+                phoneVerified ? (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-300">
+                    <CheckCircle2 className="h-3 w-3" />
+                    {isAr ? "مؤكد" : "Verified"}
+                  </span>
+                ) : (
+                  <span className="rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-300">
+                    {isAr ? "مطلوب" : "Required"}
+                  </span>
+                )
               ) : (
-                <span className="rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-300">
-                  {isAr ? "مطلوب" : "Required"}
+                <span className="rounded-full border border-sky-400/35 bg-sky-500/10 px-2 py-1 text-xs text-sky-200">
+                  {isAr ? "سيتوفر قريبًا" : "Coming soon"}
                 </span>
               )}
             </div>
-            {phoneVerified ? (
-              <p className="mt-2 text-sm text-[#9CA3AF]">{user?.verifiedPhone}</p>
+            {phoneVerificationEnabled ? (
+              phoneVerified ? (
+                <p className="mt-2 text-sm text-[#9CA3AF]">{user?.verifiedPhone}</p>
+              ) : (
+                <div className="mt-3 grid gap-3">
+                  <p className="text-xs text-[#9CA3AF]">
+                    {isAr ? "أدخل رقم الهاتف ثم رمز OTP لإكمال التحقق." : "Enter your phone number and OTP code to complete verification."}
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                    <Input
+                      value={phoneForm.phone}
+                      onChange={(event) => setPhoneForm((prev) => ({ ...prev, phone: event.target.value }))}
+                      placeholder={isAr ? "رقم الهاتف (+972 / 05...)" : "Phone (+972 / 05...)"}
+                      aria-label={isAr ? "رقم الهاتف" : "Phone"}
+                    />
+                    <Button
+                      type="button"
+                      className="w-full sm:w-auto sm:min-w-[196px]"
+                      loading={sendingOtp}
+                      loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
+                      disabled={!phoneForm.phone.trim()}
+                      onClick={() => void sendOtp()}
+                    >
+                      {isAr ? "إرسال رمز التحقق" : "Send verification code"}
+                    </Button>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                    <Input
+                      value={phoneForm.token}
+                      onChange={(event) => setPhoneForm((prev) => ({ ...prev, token: event.target.value }))}
+                      placeholder={isAr ? "رمز مكون من 6 أرقام" : "6-digit code"}
+                      aria-label={isAr ? "رمز التحقق" : "Verification code"}
+                    />
+                    <Button
+                      type="button"
+                      className="w-full sm:w-auto sm:min-w-[196px]"
+                      variant="secondary"
+                      loading={verifyingOtp}
+                      loadingLabel={isAr ? "جارٍ التحقق..." : "Verifying..."}
+                      disabled={phoneForm.token.length !== 6 || !phoneForm.phone.trim()}
+                      onClick={() => void verifyOtp()}
+                    >
+                      {isAr ? "تأكيد رقم الهاتف" : "Verify phone"}
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-[#6CAEFF]">
+                    {isAr ? "يتم استخدام رقمك المحقق للتواصل عبر WhatsApp حول الطلبات." : "Your verified number is used for WhatsApp contact during application review."}
+                  </p>
+                </div>
+              )
             ) : (
-              <div className="mt-3 grid gap-2">
-                <Input
-                  value={phoneForm.firstName}
-                  onChange={(event) => setPhoneForm((prev) => ({ ...prev, firstName: event.target.value }))}
-                  placeholder={isAr ? "الاسم الأول" : "First name"}
-                  aria-label={isAr ? "الاسم الأول" : "First name"}
-                />
-                <Input
-                  value={phoneForm.lastName}
-                  onChange={(event) => setPhoneForm((prev) => ({ ...prev, lastName: event.target.value }))}
-                  placeholder={isAr ? "اسم العائلة" : "Last name"}
-                  aria-label={isAr ? "اسم العائلة" : "Last name"}
-                />
-                <Input
-                  value={phoneForm.phone}
-                  onChange={(event) => setPhoneForm((prev) => ({ ...prev, phone: event.target.value }))}
-                  placeholder={isAr ? "رقم الهاتف (+972 / 05...)" : "Phone (+972 / 05...)"}
-                  aria-label={isAr ? "رقم الهاتف" : "Phone"}
-                />
-                <Button
-                  type="button"
-                  loading={sendingOtp}
-                  loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
-                  disabled={!phoneForm.firstName || !phoneForm.lastName || !phoneForm.phone}
-                  onClick={() => void sendOtp()}
-                >
-                  {isAr ? "إرسال رمز التحقق" : "Send verification code"}
-                </Button>
-                <Input
-                  value={phoneForm.token}
-                  onChange={(event) => setPhoneForm((prev) => ({ ...prev, token: event.target.value }))}
-                  placeholder={isAr ? "رمز مكون من 6 أرقام" : "6-digit code"}
-                  aria-label={isAr ? "رمز التحقق" : "Verification code"}
-                />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  loading={verifyingOtp}
-                  loadingLabel={isAr ? "جارٍ التحقق..." : "Verifying..."}
-                  disabled={phoneForm.token.length !== 6 || !phoneForm.phone}
-                  onClick={() => void verifyOtp()}
-                >
-                  {isAr ? "تأكيد رقم الهاتف" : "Verify phone"}
-                </Button>
-              </div>
+              <p className="mt-3 text-sm text-[#9CA3AF]">
+                {isAr
+                  ? "التحقق عبر الهاتف غير متاح مؤقتًا بينما نكمل تفعيل الخدمة. سنعيد تفعيله بمجرد الموافقة."
+                  : "Phone verification is temporarily unavailable while we complete service activation. We’ll re-enable it as soon as service approval is complete."}
+              </p>
             )}
           </div>
         </div>
@@ -299,9 +353,10 @@ export function AccountVerificationGate({ locale, redirectTo, initialEmail, init
     </section>
   );
 }
-  function withSupportDetails(payload: ApiErrorPayload, fallback: string) {
-    const message = payload.error ?? fallback;
-    if (!payload.supportCode && !payload.requestId) return message;
-    const suffix = [payload.supportCode, payload.requestId].filter(Boolean).join(" • ");
-    return `${message} (${suffix})`;
-  }
+
+function withSupportDetails(payload: ApiErrorPayload, fallback: string) {
+  const message = payload.error ?? fallback;
+  if (!payload.supportCode && !payload.requestId) return message;
+  const suffix = [payload.supportCode, payload.requestId].filter(Boolean).join(" • ");
+  return `${message} (${suffix})`;
+}

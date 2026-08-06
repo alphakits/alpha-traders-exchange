@@ -46,7 +46,7 @@ export default async function CommunityPage() {
         ))}
       </div>
 
-      <div className="surface-panel mt-10 p-5 md:p-8">
+      <div id="market-news" className="surface-panel mt-10 scroll-mt-28 p-5 md:p-8">
         <div className="grid gap-8 lg:grid-cols-[1.05fr_1fr]">
           <div className={`${isAr ? "lg:text-right" : "lg:text-left"}`}>
             <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#25D366]/35 bg-[#25D366]/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-[#25D366]">

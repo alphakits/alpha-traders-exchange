@@ -1,5 +1,6 @@
 import { Pool, type PoolClient } from "pg";
-import { appendFileSync } from "fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import path from "path";
 import alphaExchangeSeed from "../../data/alpha-exchange-db.json";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import type {
@@ -28,6 +29,15 @@ import type {
 type Queryable = Pool | PoolClient;
 
 type EvidenceWriteMap = Map<string, Buffer>;
+
+const TEST_FALLBACK_DIR_SUFFIX = process.env.NODE_ENV === "test" && process.env.VITEST_WORKER_ID
+  ? `-${process.env.VITEST_WORKER_ID}`
+  : "";
+const FALLBACK_SNAPSHOT_DIR = path.join(
+  process.cwd(),
+  process.env.NODE_ENV === "test" ? `.next-runtime-test${TEST_FALLBACK_DIR_SUFFIX}` : ".next-runtime",
+);
+const FALLBACK_SNAPSHOT_PATH = path.join(FALLBACK_SNAPSHOT_DIR, "alpha-exchange-fallback.json");
 
 const SCHEMA_SQL = [
   "create schema if not exists alpha_exchange",
@@ -270,30 +280,6 @@ const SCHEMA_SQL = [
   "create index if not exists idx_alpha_exchange_trades_status on alpha_exchange.trades (status, created_at desc)",
 ];
 
-const TRUNCATE_SQL = `
-  delete from alpha_exchange.beta_announcements;
-  delete from alpha_exchange.beta_feedback;
-  delete from alpha_exchange.private_beta_invite_uses;
-  delete from alpha_exchange.private_beta_invites;
-  delete from alpha_exchange.trust_score_history;
-  delete from alpha_exchange.trust_snapshots;
-  delete from alpha_exchange.seller_reports;
-  delete from alpha_exchange.disputes;
-  delete from alpha_exchange.activity_logs;
-  delete from alpha_exchange.seller_applications;
-  delete from alpha_exchange.password_reset_tokens;
-  delete from alpha_exchange.evidence;
-  delete from alpha_exchange.audit_logs;
-  delete from alpha_exchange.commissions;
-  delete from alpha_exchange.notifications;
-  delete from alpha_exchange.trades;
-  delete from alpha_exchange.purchase_requests;
-  delete from alpha_exchange.listings;
-  delete from alpha_exchange.seller_settings;
-  delete from alpha_exchange.seller_profiles;
-  delete from alpha_exchange.users;
-`
-
 const DEFAULT_DB = alphaExchangeSeed as unknown as AlphaExchangeDb;
 
 type SnapshotWithVersion = AlphaExchangeDb & { __runtimeVersion?: number };
@@ -310,7 +296,7 @@ type SaveContext = {
   evidenceOverrides?: EvidenceWriteMap;
 };
 
-const SNAPSHOT_TABLE_NAMES = new Set([
+const SNAPSHOT_TABLE_NAMES = [
   "users",
   "seller_profiles",
   "seller_settings",
@@ -333,22 +319,58 @@ const SNAPSHOT_TABLE_NAMES = new Set([
   "private_beta_invite_uses",
   "beta_feedback",
   "beta_announcements",
-]);
+] as const;
+
+export type SnapshotTableName = (typeof SNAPSHOT_TABLE_NAMES)[number];
 
 function shouldLogRepoVersionFlow() {
-  if (process.env.ALPHA_EXCHANGE_REPO_TRACE === "1") return true;
-  return process.env.NODE_ENV !== "production";
+  return process.env.ALPHA_EXCHANGE_REPO_TRACE === "1";
+}
+
+function shouldPersistRepoVersionTrace() {
+  return process.env.ALPHA_EXCHANGE_REPO_TRACE === "1";
 }
 
 function logRepoVersionFlow(event: string, payload: Record<string, unknown>) {
   if (!shouldLogRepoVersionFlow()) return;
   const line = `[alpha-exchange-repo] ${new Date().toISOString()} ${event} ${JSON.stringify(payload)}`;
   console.log(line);
+  if (!shouldPersistRepoVersionTrace()) return;
   try {
     appendFileSync(`${process.cwd()}\\data\\alpha-exchange-repo-trace.log`, `${line}\n`);
   } catch {
     // Ignore log persistence failures; console output remains available.
   }
+}
+
+// ---------------------------------------------------------------------------
+// Per-operation performance profiler
+// Enable with: ALPHA_EXCHANGE_PERF=1
+// Logs to console as:  [REPO-PERF] <op> <step> +<total>ms (delta <step>ms)
+// ---------------------------------------------------------------------------
+function isRepoPerfEnabled() {
+  return process.env.ALPHA_EXCHANGE_PERF === "1";
+}
+
+function createRepoPerf(op: string) {
+  if (!isRepoPerfEnabled()) return null;
+  const start = Date.now();
+  let last = start;
+  const steps: Array<{ step: string; delta: number; total: number }> = [];
+  return {
+    step(name: string) {
+      const now = Date.now();
+      const delta = now - last;
+      const total = now - start;
+      steps.push({ step: name, delta, total });
+      console.log(`[REPO-PERF] ${op} ${name} +${total}ms (step ${delta}ms)`);
+      last = now;
+    },
+    done() {
+      const total = Date.now() - start;
+      console.log(`[REPO-PERF] ${op} TOTAL ${total}ms steps=${JSON.stringify(steps)}`);
+    },
+  };
 }
 
 declare global {
@@ -373,20 +395,32 @@ function cloneSnapshot<T>(value: T): T {
   return structuredClone(value);
 }
 
+async function bulkInsert(tx: PoolClient, sql: string, columnArrays: unknown[][]): Promise<void> {
+  if (!columnArrays[0]?.length) return;
+  await tx.query(sql, columnArrays);
+}
+
 const tables = [
   {
     name: "users",
     selectSql: "select payload from alpha_exchange.users order by sort_index asc",
     values: (db) => db.users,
     insert: async (tx, rows: AlphaExchangeUser[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.users
-            (id, email, role, seller_status, availability_status, online_status, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)`,
-          [row.id, row.email, row.role, row.sellerStatus, row.availabilityStatus, row.onlineStatus, row.createdAt, row.updatedAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.users (id, email, role, seller_status, availability_status, online_status, created_at, updated_at, sort_index, payload)
+SELECT id, email, role, seller_status, availability_status, online_status, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[])
+  AS t(id,email,role,seller_status,availability_status,online_status,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.email),
+        rows.map(r => r.role),
+        rows.map(r => r.sellerStatus),
+        rows.map(r => r.availabilityStatus),
+        rows.map(r => r.onlineStatus),
+        rows.map(r => r.createdAt),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -417,14 +451,17 @@ const tables = [
         updatedAt: user.updatedAt,
       })),
     insert: async (tx, rows: Array<Record<string, unknown>>) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.seller_profiles
-            (user_id, seller_status, availability_status, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6::jsonb)`,
-          [String(row.userId), String(row.sellerStatus), String(row.availabilityStatus), String(row.updatedAt), index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.seller_profiles (user_id, seller_status, availability_status, updated_at, sort_index, payload)
+SELECT user_id, seller_status, availability_status, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
+  AS t(user_id,seller_status,availability_status,updated_at,sort_index,payload)`, [
+        rows.map(r => String(r.userId)),
+        rows.map(r => String(r.sellerStatus)),
+        rows.map(r => String(r.availabilityStatus)),
+        rows.map(r => String(r.updatedAt)),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -440,14 +477,17 @@ const tables = [
         updatedAt: user.updatedAt,
       })),
     insert: async (tx, rows: Array<Record<string, unknown>>) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.seller_settings
-            (user_id, availability_status, notification_preferences, updated_at, sort_index, payload)
-           values ($1,$2,$3::jsonb,$4,$5,$6::jsonb)`,
-          [String(row.userId), String(row.availabilityStatus), json(row.notificationPreferences), String(row.updatedAt), index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.seller_settings (user_id, availability_status, notification_preferences, updated_at, sort_index, payload)
+SELECT user_id, availability_status, notification_preferences::jsonb, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
+  AS t(user_id,availability_status,notification_preferences,updated_at,sort_index,payload)`, [
+        rows.map(r => String(r.userId)),
+        rows.map(r => String(r.availabilityStatus)),
+        rows.map(r => json(r.notificationPreferences)),
+        rows.map(r => String(r.updatedAt)),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -455,14 +495,20 @@ const tables = [
     selectSql: "select payload from alpha_exchange.listings order by sort_index asc",
     values: (db) => db.marketplaceListings,
     insert: async (tx, rows: MarketplaceListing[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.listings
-            (id, seller_id, status, active_trade_request_id, expires_at, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
-          [row.id, row.sellerId, row.status, row.activeTradeRequestId ?? null, toTimestamp(row.expiresAt), row.createdAt, row.updatedAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.listings (id, seller_id, status, active_trade_request_id, expires_at, created_at, updated_at, sort_index, payload)
+SELECT id, seller_id, status, active_trade_request_id, expires_at::timestamptz, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[])
+  AS t(id,seller_id,status,active_trade_request_id,expires_at,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.sellerId),
+        rows.map(r => r.status),
+        rows.map(r => r.activeTradeRequestId ?? null),
+        rows.map(r => toTimestamp(r.expiresAt)?.toISOString() ?? null),
+        rows.map(r => r.createdAt),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -482,26 +528,22 @@ const tables = [
         timeline: request.timeline,
       })),
     insert: async (tx, rows: Array<Record<string, unknown>>) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.trades
-            (id, purchase_request_id, listing_id, seller_id, buyer_id, status, completed_at, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
-          [
-            String(row.id),
-            String(row.purchaseRequestId),
-            String(row.listingId),
-            String(row.sellerId),
-            String(row.buyerId),
-            String(row.status),
-            toTimestamp(typeof row.completedAt === "string" ? row.completedAt : undefined),
-            String(row.createdAt),
-            String(row.updatedAt),
-            index,
-            json(row),
-          ],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.trades (id, purchase_request_id, listing_id, seller_id, buyer_id, status, completed_at, created_at, updated_at, sort_index, payload)
+SELECT id, purchase_request_id, listing_id, seller_id, buyer_id, status, completed_at::timestamptz, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[],$11::text[])
+  AS t(id,purchase_request_id,listing_id,seller_id,buyer_id,status,completed_at,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => String(r.id)),
+        rows.map(r => String(r.purchaseRequestId)),
+        rows.map(r => String(r.listingId)),
+        rows.map(r => String(r.sellerId)),
+        rows.map(r => String(r.buyerId)),
+        rows.map(r => String(r.status)),
+        rows.map(r => toTimestamp(typeof r.completedAt === "string" ? r.completedAt : undefined)?.toISOString() ?? null),
+        rows.map(r => String(r.createdAt)),
+        rows.map(r => String(r.updatedAt)),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -509,27 +551,23 @@ const tables = [
     selectSql: "select payload from alpha_exchange.purchase_requests order by sort_index asc",
     values: (db) => db.purchaseRequests,
     insert: async (tx, rows: PurchaseRequest[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.purchase_requests
-            (id, trade_id, listing_id, seller_id, buyer_id, status, timed_out_at, completed_at, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)`,
-          [
-            row.id,
-            row.tradeId ?? null,
-            row.listingId,
-            row.sellerId,
-            row.buyerId,
-            row.status,
-            toTimestamp(row.timedOutAt),
-            toTimestamp(row.completedAt),
-            row.createdAt,
-            row.updatedAt,
-            index,
-            json(row),
-          ],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.purchase_requests (id, trade_id, listing_id, seller_id, buyer_id, status, timed_out_at, completed_at, created_at, updated_at, sort_index, payload)
+SELECT id, trade_id, listing_id, seller_id, buyer_id, status, timed_out_at::timestamptz, completed_at::timestamptz, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[],$11::text[],$12::text[])
+  AS t(id,trade_id,listing_id,seller_id,buyer_id,status,timed_out_at,completed_at,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.tradeId ?? null),
+        rows.map(r => r.listingId),
+        rows.map(r => r.sellerId),
+        rows.map(r => r.buyerId),
+        rows.map(r => r.status),
+        rows.map(r => toTimestamp(r.timedOutAt)?.toISOString() ?? null),
+        rows.map(r => toTimestamp(r.completedAt)?.toISOString() ?? null),
+        rows.map(r => r.createdAt),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -537,14 +575,18 @@ const tables = [
     selectSql: "select payload from alpha_exchange.notifications order by sort_index asc",
     values: (db) => db.notifications,
     insert: async (tx, rows: AlphaExchangeNotification[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.notifications
-            (id, user_id, category, is_read, created_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
-          [row.id, row.userId, row.category, row.isRead, row.createdAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.notifications (id, user_id, category, is_read, created_at, sort_index, payload)
+SELECT id, user_id, category, is_read::boolean, created_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[])
+  AS t(id,user_id,category,is_read,created_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.userId),
+        rows.map(r => r.category),
+        rows.map(r => String(r.isRead)),
+        rows.map(r => r.createdAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -552,14 +594,22 @@ const tables = [
     selectSql: "select payload from alpha_exchange.commissions order by sort_index asc",
     values: (db) => db.commissionRecords,
     insert: async (tx, rows: CommissionRecord[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.commissions
-            (id, purchase_request_id, listing_id, seller_id, buyer_id, payment_status, due_at, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
-          [row.id, row.purchaseRequestId, row.listingId, row.sellerId, row.buyerId, row.paymentStatus, toTimestamp(row.dueAt), row.createdAt, row.updatedAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.commissions (id, purchase_request_id, listing_id, seller_id, buyer_id, payment_status, due_at, created_at, updated_at, sort_index, payload)
+SELECT id, purchase_request_id, listing_id, seller_id, buyer_id, payment_status, due_at::timestamptz, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[],$11::text[])
+  AS t(id,purchase_request_id,listing_id,seller_id,buyer_id,payment_status,due_at,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.purchaseRequestId),
+        rows.map(r => r.listingId),
+        rows.map(r => r.sellerId),
+        rows.map(r => r.buyerId),
+        rows.map(r => r.paymentStatus),
+        rows.map(r => toTimestamp(r.dueAt)?.toISOString() ?? null),
+        rows.map(r => r.createdAt),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -567,14 +617,20 @@ const tables = [
     selectSql: "select payload from alpha_exchange.audit_logs order by sort_index asc",
     values: (db) => db.auditLogs,
     insert: async (tx, rows: AuditLogEntry[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.audit_logs
-            (id, action, actor_user_id, target_user_id, listing_id, purchase_request_id, created_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
-          [row.id, row.action, row.actorUserId, row.targetUserId ?? null, row.listingId ?? null, row.purchaseRequestId ?? null, row.createdAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.audit_logs (id, action, actor_user_id, target_user_id, listing_id, purchase_request_id, created_at, sort_index, payload)
+SELECT id, action, actor_user_id, target_user_id, listing_id, purchase_request_id, created_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[])
+  AS t(id,action,actor_user_id,target_user_id,listing_id,purchase_request_id,created_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.action),
+        rows.map(r => r.actorUserId),
+        rows.map(r => r.targetUserId ?? null),
+        rows.map(r => r.listingId ?? null),
+        rows.map(r => r.purchaseRequestId ?? null),
+        rows.map(r => r.createdAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -598,14 +654,17 @@ const tables = [
     selectSql: "select payload from alpha_exchange.sessions order by sort_index asc",
     values: (db) => db.authSessions,
     insert: async (tx, rows: AuthSession[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.sessions
-            (token_hash, user_id, expires_at, created_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6::jsonb)`,
-          [row.token, row.userId, row.expiresAt, row.createdAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.sessions (token_hash, user_id, expires_at, created_at, sort_index, payload)
+SELECT token_hash, user_id, expires_at::timestamptz, created_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
+  AS t(token_hash,user_id,expires_at,created_at,sort_index,payload)`, [
+        rows.map(r => r.token),
+        rows.map(r => r.userId),
+        rows.map(r => r.expiresAt),
+        rows.map(r => r.createdAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -613,14 +672,18 @@ const tables = [
     selectSql: "select payload from alpha_exchange.password_reset_tokens order by sort_index asc",
     values: (db) => db.passwordResetTokens,
     insert: async (tx, rows: PasswordResetToken[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.password_reset_tokens
-            (id, user_id, token_hash, expires_at, created_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
-          [row.id, row.userId, row.tokenHash, row.expiresAt, row.createdAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.password_reset_tokens (id, user_id, token_hash, expires_at, created_at, sort_index, payload)
+SELECT id, user_id, token_hash, expires_at::timestamptz, created_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[])
+  AS t(id,user_id,token_hash,expires_at,created_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.userId),
+        rows.map(r => r.tokenHash),
+        rows.map(r => r.expiresAt),
+        rows.map(r => r.createdAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -628,14 +691,18 @@ const tables = [
     selectSql: "select payload from alpha_exchange.seller_applications order by sort_index asc",
     values: (db) => db.sellerApplications,
     insert: async (tx, rows: SellerApplication[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.seller_applications
-            (id, user_id, status, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
-          [row.id, row.userId, row.status, row.createdAt, row.updatedAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.seller_applications (id, user_id, status, created_at, updated_at, sort_index, payload)
+SELECT id, user_id, status, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[])
+  AS t(id,user_id,status,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.userId),
+        rows.map(r => r.status),
+        rows.map(r => r.createdAt),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -643,14 +710,17 @@ const tables = [
     selectSql: "select payload from alpha_exchange.activity_logs order by sort_index asc",
     values: (db) => db.activityLog,
     insert: async (tx, rows: AlphaExchangeActivityLogEntry[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.activity_logs
-            (id, user_id, category, created_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6::jsonb)`,
-          [row.id, row.userId, row.category, row.createdAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.activity_logs (id, user_id, category, created_at, sort_index, payload)
+SELECT id, user_id, category, created_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
+  AS t(id,user_id,category,created_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.userId),
+        rows.map(r => r.category),
+        rows.map(r => r.createdAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -658,14 +728,21 @@ const tables = [
     selectSql: "select payload from alpha_exchange.disputes order by sort_index asc",
     values: (db) => db.disputes,
     insert: async (tx, rows: TradeDisputeCase[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.disputes
-            (id, trade_id, purchase_request_id, seller_id, buyer_id, status, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)`,
-          [row.id, row.tradeId, row.purchaseRequestId, row.sellerId, row.buyerId, row.status, row.createdAt, row.updatedAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.disputes (id, trade_id, purchase_request_id, seller_id, buyer_id, status, created_at, updated_at, sort_index, payload)
+SELECT id, trade_id, purchase_request_id, seller_id, buyer_id, status, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[])
+  AS t(id,trade_id,purchase_request_id,seller_id,buyer_id,status,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.tradeId),
+        rows.map(r => r.purchaseRequestId),
+        rows.map(r => r.sellerId),
+        rows.map(r => r.buyerId),
+        rows.map(r => r.status),
+        rows.map(r => r.createdAt),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -673,14 +750,18 @@ const tables = [
     selectSql: "select payload from alpha_exchange.seller_reports order by sort_index asc",
     values: (db) => db.sellerReports,
     insert: async (tx, rows: SellerReport[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.seller_reports
-            (id, reporter_user_id, seller_id, purchase_request_id, created_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
-          [row.id, row.reporterUserId, row.sellerId, row.purchaseRequestId ?? null, row.createdAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.seller_reports (id, reporter_user_id, seller_id, purchase_request_id, created_at, sort_index, payload)
+SELECT id, reporter_user_id, seller_id, purchase_request_id, created_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[])
+  AS t(id,reporter_user_id,seller_id,purchase_request_id,created_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.reporterUserId),
+        rows.map(r => r.sellerId),
+        rows.map(r => r.purchaseRequestId ?? null),
+        rows.map(r => r.createdAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -688,14 +769,15 @@ const tables = [
     selectSql: "select payload from alpha_exchange.trust_snapshots order by sort_index asc",
     values: (db) => db.trustSnapshots,
     insert: async (tx, rows: TrustSnapshotRecord[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.trust_snapshots
-            (seller_id, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4::jsonb)`,
-          [row.sellerId, row.updatedAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.trust_snapshots (seller_id, updated_at, sort_index, payload)
+SELECT seller_id, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[])
+  AS t(seller_id,updated_at,sort_index,payload)`, [
+        rows.map(r => r.sellerId),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -703,14 +785,16 @@ const tables = [
     selectSql: "select payload from alpha_exchange.trust_score_history order by sort_index asc",
     values: (db) => db.trustScoreHistory,
     insert: async (tx, rows: TrustScoreChangeLog[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.trust_score_history
-            (id, seller_id, created_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5::jsonb)`,
-          [row.id, row.sellerId, row.createdAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.trust_score_history (id, seller_id, created_at, sort_index, payload)
+SELECT id, seller_id, created_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[])
+  AS t(id,seller_id,created_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.sellerId),
+        rows.map(r => r.createdAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -718,14 +802,20 @@ const tables = [
     selectSql: "select payload from alpha_exchange.private_beta_invites order by sort_index asc",
     values: (db) => db.privateBetaInvites,
     insert: async (tx, rows: PrivateBetaInviteCode[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.private_beta_invites
-            (id, code, status, created_by_user_id, expires_at, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
-          [row.id, row.code, row.status, row.createdByUserId, toTimestamp(row.expiresAt), row.createdAt, row.updatedAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.private_beta_invites (id, code, status, created_by_user_id, expires_at, created_at, updated_at, sort_index, payload)
+SELECT id, code, status, created_by_user_id, expires_at::timestamptz, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[])
+  AS t(id,code,status,created_by_user_id,expires_at,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.code),
+        rows.map(r => r.status),
+        rows.map(r => r.createdByUserId),
+        rows.map(r => toTimestamp(r.expiresAt)?.toISOString() ?? null),
+        rows.map(r => r.createdAt),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -733,14 +823,17 @@ const tables = [
     selectSql: "select payload from alpha_exchange.private_beta_invite_uses order by sort_index asc",
     values: (db) => db.privateBetaInviteUses,
     insert: async (tx, rows: PrivateBetaInviteUse[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.private_beta_invite_uses
-            (id, invite_code_id, used_by_user_id, used_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6::jsonb)`,
-          [row.id, row.inviteCodeId, row.usedByUserId, row.usedAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.private_beta_invite_uses (id, invite_code_id, used_by_user_id, used_at, sort_index, payload)
+SELECT id, invite_code_id, used_by_user_id, used_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
+  AS t(id,invite_code_id,used_by_user_id,used_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.inviteCodeId),
+        rows.map(r => r.usedByUserId),
+        rows.map(r => r.usedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -748,14 +841,18 @@ const tables = [
     selectSql: "select payload from alpha_exchange.beta_feedback order by sort_index asc",
     values: (db) => db.betaFeedback,
     insert: async (tx, rows: BetaFeedbackEntry[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.beta_feedback
-            (id, user_id, status, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
-          [row.id, row.userId, row.status, row.createdAt, row.updatedAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.beta_feedback (id, user_id, status, created_at, updated_at, sort_index, payload)
+SELECT id, user_id, status, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[])
+  AS t(id,user_id,status,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.userId),
+        rows.map(r => r.status),
+        rows.map(r => r.createdAt),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
   {
@@ -763,14 +860,19 @@ const tables = [
     selectSql: "select payload from alpha_exchange.beta_announcements order by sort_index asc",
     values: (db) => db.betaAnnouncements,
     insert: async (tx, rows: BetaAnnouncement[]) => {
-      for (const [index, row] of rows.entries()) {
-        await tx.query(
-          `insert into alpha_exchange.beta_announcements
-            (id, type, is_active, created_by_user_id, created_at, updated_at, sort_index, payload)
-           values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`,
-          [row.id, row.type, row.isActive, row.createdByUserId, row.createdAt, row.updatedAt, index, json(row)],
-        );
-      }
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.beta_announcements (id, type, is_active, created_by_user_id, created_at, updated_at, sort_index, payload)
+SELECT id, type, is_active::boolean, created_by_user_id, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[])
+  AS t(id,type,is_active,created_by_user_id,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => r.id),
+        rows.map(r => r.type),
+        rows.map(r => String(r.isActive)),
+        rows.map(r => r.createdByUserId),
+        rows.map(r => r.createdAt),
+        rows.map(r => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map(r => json(r)),
+      ]);
     },
   },
 ] as Array<RepoTable<unknown>>;
@@ -784,32 +886,49 @@ function getTable(name: string) {
 }
 
 async function upsertUsersTable(tx: PoolClient, rows: AlphaExchangeUser[]) {
-  for (const [index, row] of rows.entries()) {
-    await tx.query(
-      `insert into alpha_exchange.users
-        (id, email, role, seller_status, availability_status, online_status, created_at, updated_at, sort_index, payload)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)
-       on conflict (id) do update set
-         email = excluded.email,
-         role = excluded.role,
-         seller_status = excluded.seller_status,
-         availability_status = excluded.availability_status,
-         online_status = excluded.online_status,
-         created_at = excluded.created_at,
-         updated_at = excluded.updated_at,
-         sort_index = excluded.sort_index,
-         payload = excluded.payload`,
-      [row.id, row.email, row.role, row.sellerStatus, row.availabilityStatus, row.onlineStatus, row.createdAt, row.updatedAt, index, json(row)],
-    );
-  }
+  await bulkInsert(tx, `INSERT INTO alpha_exchange.users (id, email, role, seller_status, availability_status, online_status, created_at, updated_at, sort_index, payload)
+SELECT id, email, role, seller_status, availability_status, online_status, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[])
+  AS t(id,email,role,seller_status,availability_status,online_status,created_at,updated_at,sort_index,payload)
+ON CONFLICT (id) DO UPDATE SET
+  email = excluded.email,
+  role = excluded.role,
+  seller_status = excluded.seller_status,
+  availability_status = excluded.availability_status,
+  online_status = excluded.online_status,
+  created_at = excluded.created_at,
+  updated_at = excluded.updated_at,
+  sort_index = excluded.sort_index,
+  payload = excluded.payload`, [
+    rows.map(r => r.id),
+    rows.map(r => r.email),
+    rows.map(r => r.role),
+    rows.map(r => r.sellerStatus),
+    rows.map(r => r.availabilityStatus),
+    rows.map(r => r.onlineStatus),
+    rows.map(r => r.createdAt),
+    rows.map(r => r.updatedAt),
+    rows.map((_, i) => String(i)),
+    rows.map(r => json(r)),
+  ]);
 }
 
-async function replaceTableContents(tx: PoolClient, tableName: string, db: AlphaExchangeDb) {
+async function replaceTableContents(tx: PoolClient, tableName: SnapshotTableName, db: AlphaExchangeDb, context?: SaveContext) {
+  if (tableName === "users") {
+    const userRows = db.users;
+    if (userRows.length === 0) {
+      await tx.query("delete from alpha_exchange.users");
+      return;
+    }
+    await tx.query("delete from alpha_exchange.users where not (id = any($1::text[]))", [userRows.map((row) => row.id)]);
+    await upsertUsersTable(tx, userRows);
+    return;
+  }
   await tx.query(`delete from alpha_exchange.${tableName}`);
   const table = getTable(tableName);
   await table.insert(tx, table.values(db), {
-    evidenceContentById: new Map(),
-    evidenceOverrides: undefined,
+    evidenceContentById: context?.evidenceContentById ?? new Map(),
+    evidenceOverrides: context?.evidenceOverrides,
   });
 }
 
@@ -843,31 +962,101 @@ function getVersion(db: AlphaExchangeDb) {
   return (db as SnapshotWithVersion).__runtimeVersion ?? 0;
 }
 
-function snapshotFromTableRows(results: Array<{ rows: Array<{ payload: unknown }> }>): AlphaExchangeDb {
-  const rowsAt = <T>(index: number) => results[index].rows as Array<{ payload: T }>;
-
+function emptySnapshotCollections(): AlphaExchangeDb {
   return {
-    users: fromPayloadRows(rowsAt<AlphaExchangeUser>(0)),
-    sellerApplications: fromPayloadRows(rowsAt<SellerApplication>(12)),
-    marketplaceListings: fromPayloadRows(rowsAt<MarketplaceListing>(3)),
-    purchaseRequests: fromPayloadRows(rowsAt<PurchaseRequest>(5)),
-    commissionRecords: fromPayloadRows(rowsAt<CommissionRecord>(7)),
-    auditLogs: fromPayloadRows(rowsAt<AuditLogEntry>(8)),
-    authSessions: fromPayloadRows(rowsAt<AuthSession>(10)),
-    passwordResetTokens: fromPayloadRows(rowsAt<PasswordResetToken>(11)),
-    notifications: fromPayloadRows(rowsAt<AlphaExchangeNotification>(6)),
-    activityLog: fromPayloadRows(rowsAt<AlphaExchangeActivityLogEntry>(13)),
-    disputes: fromPayloadRows(rowsAt<TradeDisputeCase>(14)),
-    sellerReports: fromPayloadRows(rowsAt<SellerReport>(15)),
-    trustSnapshots: fromPayloadRows(rowsAt<TrustSnapshotRecord>(16)),
-    trustScoreHistory: fromPayloadRows(rowsAt<TrustScoreChangeLog>(17)),
-    tradeEvidenceFiles: fromPayloadRows(rowsAt<TradeEvidenceFile>(9)),
-    privateBetaInvites: fromPayloadRows(rowsAt<PrivateBetaInviteCode>(18)),
-    privateBetaInviteUses: fromPayloadRows(rowsAt<PrivateBetaInviteUse>(19)),
-    betaFeedback: fromPayloadRows(rowsAt<BetaFeedbackEntry>(20)),
-    betaAnnouncements: fromPayloadRows(rowsAt<BetaAnnouncement>(21)),
+    users: [],
+    sellerApplications: [],
+    marketplaceListings: [],
+    purchaseRequests: [],
+    commissionRecords: [],
+    auditLogs: [],
+    authSessions: [],
+    passwordResetTokens: [],
+    notifications: [],
+    activityLog: [],
+    disputes: [],
+    sellerReports: [],
+    trustSnapshots: [],
+    trustScoreHistory: [],
+    tradeEvidenceFiles: [],
+    privateBetaInvites: [],
+    privateBetaInviteUses: [],
+    betaFeedback: [],
+    betaAnnouncements: [],
     sellerReviews: [],
   };
+}
+
+function snapshotFromTableRows(
+  results: Array<{ tableName: SnapshotTableName; rows: Array<{ payload: unknown }> }>,
+): AlphaExchangeDb {
+  const snapshot = emptySnapshotCollections();
+
+  for (const { tableName, rows } of results) {
+    switch (tableName) {
+      case "users":
+        snapshot.users = fromPayloadRows(rows as Array<{ payload: AlphaExchangeUser }>);
+        break;
+      case "seller_applications":
+        snapshot.sellerApplications = fromPayloadRows(rows as Array<{ payload: SellerApplication }>);
+        break;
+      case "listings":
+        snapshot.marketplaceListings = fromPayloadRows(rows as Array<{ payload: MarketplaceListing }>);
+        break;
+      case "purchase_requests":
+        snapshot.purchaseRequests = fromPayloadRows(rows as Array<{ payload: PurchaseRequest }>);
+        break;
+      case "commissions":
+        snapshot.commissionRecords = fromPayloadRows(rows as Array<{ payload: CommissionRecord }>);
+        break;
+      case "audit_logs":
+        snapshot.auditLogs = fromPayloadRows(rows as Array<{ payload: AuditLogEntry }>);
+        break;
+      case "sessions":
+        snapshot.authSessions = fromPayloadRows(rows as Array<{ payload: AuthSession }>);
+        break;
+      case "password_reset_tokens":
+        snapshot.passwordResetTokens = fromPayloadRows(rows as Array<{ payload: PasswordResetToken }>);
+        break;
+      case "notifications":
+        snapshot.notifications = fromPayloadRows(rows as Array<{ payload: AlphaExchangeNotification }>);
+        break;
+      case "activity_logs":
+        snapshot.activityLog = fromPayloadRows(rows as Array<{ payload: AlphaExchangeActivityLogEntry }>);
+        break;
+      case "disputes":
+        snapshot.disputes = fromPayloadRows(rows as Array<{ payload: TradeDisputeCase }>);
+        break;
+      case "seller_reports":
+        snapshot.sellerReports = fromPayloadRows(rows as Array<{ payload: SellerReport }>);
+        break;
+      case "trust_snapshots":
+        snapshot.trustSnapshots = fromPayloadRows(rows as Array<{ payload: TrustSnapshotRecord }>);
+        break;
+      case "trust_score_history":
+        snapshot.trustScoreHistory = fromPayloadRows(rows as Array<{ payload: TrustScoreChangeLog }>);
+        break;
+      case "evidence":
+        snapshot.tradeEvidenceFiles = fromPayloadRows(rows as Array<{ payload: TradeEvidenceFile }>);
+        break;
+      case "private_beta_invites":
+        snapshot.privateBetaInvites = fromPayloadRows(rows as Array<{ payload: PrivateBetaInviteCode }>);
+        break;
+      case "private_beta_invite_uses":
+        snapshot.privateBetaInviteUses = fromPayloadRows(rows as Array<{ payload: PrivateBetaInviteUse }>);
+        break;
+      case "beta_feedback":
+        snapshot.betaFeedback = fromPayloadRows(rows as Array<{ payload: BetaFeedbackEntry }>);
+        break;
+      case "beta_announcements":
+        snapshot.betaAnnouncements = fromPayloadRows(rows as Array<{ payload: BetaAnnouncement }>);
+        break;
+      default:
+        break;
+    }
+  }
+
+  return snapshot;
 }
 
 function isAbortedTransactionError(error: unknown) {
@@ -941,7 +1130,7 @@ function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchang
     purchaseRequests: mergedPurchaseRequests,
     commissionRecords: getCollection(incoming.commissionRecords, latest.commissionRecords),
     auditLogs: getCollection(incoming.auditLogs, latest.auditLogs),
-    authSessions: latest.authSessions,
+    authSessions: pruneOrphanAuthSessions(latest).authSessions,
     passwordResetTokens: getCollection(incoming.passwordResetTokens, latest.passwordResetTokens),
     notifications: getCollection(incoming.notifications, latest.notifications),
     activityLog: getCollection(incoming.activityLog, latest.activityLog),
@@ -969,10 +1158,91 @@ async function runSchema(target: Queryable) {
 
 function ensureMemorySeed() {
   if (!globalThis.__alphaExchangeMemorySnapshot) {
-    globalThis.__alphaExchangeMemorySnapshot = attachVersion(cloneSnapshot(DEFAULT_DB), 0);
+    const persistedFallback = loadPersistedFallbackSnapshot();
+    globalThis.__alphaExchangeMemorySnapshot = persistedFallback ?? attachVersion(cloneSnapshot(DEFAULT_DB), 0);
   }
   if (!globalThis.__alphaExchangeMemoryEvidenceContent) {
     globalThis.__alphaExchangeMemoryEvidenceContent = new Map();
+  }
+}
+
+function getLatestAvailableFallbackSnapshot(): SnapshotWithVersion {
+  const memorySnapshot = globalThis.__alphaExchangeMemorySnapshot
+    ? attachVersion(
+      cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
+      getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
+    )
+    : null;
+  const persistedFallback = loadPersistedFallbackSnapshot();
+  if (!memorySnapshot) {
+    if (persistedFallback) {
+      globalThis.__alphaExchangeMemorySnapshot = attachVersion(cloneSnapshot(persistedFallback), getVersion(persistedFallback));
+      return attachVersion(cloneSnapshot(persistedFallback), getVersion(persistedFallback));
+    }
+    ensureMemorySeed();
+    return attachVersion(
+      cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
+      getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
+    );
+  }
+  if (!persistedFallback) {
+    return memorySnapshot;
+  }
+
+  if (getVersion(persistedFallback) >= getVersion(memorySnapshot)) {
+    globalThis.__alphaExchangeMemorySnapshot = attachVersion(cloneSnapshot(persistedFallback), getVersion(persistedFallback));
+    return attachVersion(cloneSnapshot(persistedFallback), getVersion(persistedFallback));
+  }
+
+  return memorySnapshot;
+}
+
+function syncFallbackAuthSessions(update: (sessions: AuthSession[]) => AuthSession[]) {
+  const snapshot = getLatestAvailableFallbackSnapshot();
+  const next = attachVersion({
+    ...snapshot,
+    authSessions: update(snapshot.authSessions),
+  }, getVersion(snapshot));
+  syncMemoryFallbackSnapshot(next, getVersion(snapshot));
+}
+
+function loadPersistedFallbackSnapshot(): SnapshotWithVersion | null {
+  try {
+    if (!existsSync(FALLBACK_SNAPSHOT_PATH)) return null;
+    const raw = readFileSync(FALLBACK_SNAPSHOT_PATH, "utf8").trim();
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SnapshotWithVersion;
+    const version = getVersion(parsed);
+    return attachVersion(cloneSnapshot(parsed), version);
+  } catch (error) {
+    console.warn(
+      "[alpha-exchange-repository] failed to load persisted fallback snapshot:",
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  }
+}
+
+function pruneOrphanAuthSessions<T extends AlphaExchangeDb>(snapshot: T): T {
+  const userIds = new Set(snapshot.users.map((user) => user.id));
+  return {
+    ...snapshot,
+    authSessions: snapshot.authSessions.filter((session) => userIds.has(session.userId)),
+  };
+}
+
+function syncMemoryFallbackSnapshot(snapshot: AlphaExchangeDb, version = getVersion(snapshot)) {
+  ensureMemorySeed();
+  const next = attachVersion(pruneOrphanAuthSessions(cloneSnapshot(snapshot)), version);
+  globalThis.__alphaExchangeMemorySnapshot = next;
+  try {
+    mkdirSync(FALLBACK_SNAPSHOT_DIR, { recursive: true });
+    writeFileSync(FALLBACK_SNAPSHOT_PATH, JSON.stringify(next), "utf8");
+  } catch (error) {
+    console.warn(
+      "[alpha-exchange-repository] failed to persist fallback snapshot:",
+      error instanceof Error ? error.message : error,
+    );
   }
 }
 
@@ -1015,7 +1285,7 @@ export class AlphaExchangeRepository {
             await this.saveSnapshot(DEFAULT_DB, { skipReadyCheck: true });
           }
         } catch (error) {
-          console.warn("[alpha-exchange-repository] Falling back to the in-memory snapshot because the database is unavailable:", error instanceof Error ? error.message : error);
+          console.error("[alpha-exchange-repository] CRITICAL: Falling back to in-memory snapshot because the database is unavailable. All data created during this session will be lost on the next invocation. Ensure SUPABASE_DB_URL uses the Transaction Mode pooler URL (pooler.supabase.com:6543), NOT the direct host (db.<ref>.supabase.co). Error:", error instanceof Error ? error.message : error);
           ensureMemorySeed();
           this.usesMemoryFallback = true;
         }
@@ -1035,18 +1305,18 @@ export class AlphaExchangeRepository {
   }
 
   async loadSnapshot(): Promise<SnapshotWithVersion> {
+    const perf = createRepoPerf("loadSnapshot");
     await this.ensureReady();
+    perf?.step("ensureReady");
     const pool = this.pool;
     if (this.usesMemoryFallback || !pool) {
-      ensureMemorySeed();
-      const snapshot = attachVersion(
-        cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
-        getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
-      );
+      const snapshot = getLatestAvailableFallbackSnapshot();
       logRepoVersionFlow("load:memory", {
         version: getVersion(snapshot),
         purchaseRequests: snapshot.purchaseRequests.length,
       });
+      perf?.step("memory_fallback");
+      perf?.done();
       return snapshot;
     }
     try {
@@ -1054,26 +1324,34 @@ export class AlphaExchangeRepository {
         pool.query<{ version: string }>("select version::text as version from alpha_exchange.runtime_meta where singleton = true"),
         ...tables.map((table) => pool.query(table.selectSql)),
       ]);
-      const snapshot = snapshotFromTableRows(results as Array<{ rows: Array<{ payload: unknown }> }>);
+      perf?.step(`parallel_queries(${tables.length + 1})`);
+      const snapshot = snapshotFromTableRows(
+        results.map((result, index) => ({
+          tableName: tables[index]!.name as SnapshotTableName,
+          rows: result.rows as Array<{ payload: unknown }>,
+        })),
+      );
+      perf?.step("snapshotFromTableRows");
 
       const version = Number(meta.rows[0]?.version ?? "0");
-      const withVersion = attachVersion(snapshot, version);
+      const withVersion = attachVersion(pruneOrphanAuthSessions(snapshot), version);
+      syncMemoryFallbackSnapshot(withVersion, version);
       logRepoVersionFlow("load:db", {
         version,
         purchaseRequests: withVersion.purchaseRequests.length,
       });
+      perf?.step("syncMemoryFallback");
+      perf?.done();
       return withVersion;
     } catch (error) {
-      console.warn("[alpha-exchange-repository] Falling back to the in-memory snapshot because loading the database snapshot failed:", error instanceof Error ? error.message : error);
-      ensureMemorySeed();
-      const fallback = attachVersion(
-        cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
-        getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
-      );
+      console.error("[alpha-exchange-repository] CRITICAL: Falling back to in-memory snapshot because loading the database snapshot failed. All data created during this session will be lost on the next invocation. Error:", error instanceof Error ? error.message : error);
+      const fallback = getLatestAvailableFallbackSnapshot();
       logRepoVersionFlow("load:fallback-memory", {
         version: getVersion(fallback),
         purchaseRequests: fallback.purchaseRequests.length,
       });
+      perf?.step("error_fallback");
+      perf?.done();
       return fallback;
     }
 
@@ -1081,7 +1359,7 @@ export class AlphaExchangeRepository {
 
   async saveSnapshot(
     db: AlphaExchangeDb,
-    options?: { evidenceOverrides?: EvidenceWriteMap; skipReadyCheck?: boolean; traceTag?: string },
+    options?: { evidenceOverrides?: EvidenceWriteMap; skipReadyCheck?: boolean; traceTag?: string; selectedTables?: readonly SnapshotTableName[] },
   ) {
     if (options?.traceTag) {
       console.log("[usdt-sent-trace] repository entry", { traceId: options.traceTag });
@@ -1100,7 +1378,7 @@ export class AlphaExchangeRepository {
         });
         const latestSnapshot = cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion);
         latestSnapshot.authSessions = cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion).authSessions;
-        const nextSnapshot = cloneSnapshot(db);
+        const nextSnapshot = pruneOrphanAuthSessions(cloneSnapshot(db));
         const mergedSnapshot = mergeSnapshotWithLatest(latestSnapshot, nextSnapshot);
         const next = attachVersion(mergedSnapshot, previousVersion + 1);
         const previousEvidence = globalThis.__alphaExchangeMemoryEvidenceContent as Map<string, Buffer | null>;
@@ -1149,36 +1427,51 @@ export class AlphaExchangeRepository {
       await runSchema(pool);
     }
 
+    const selectedTables = options?.selectedTables?.length
+      ? Array.from(new Set(options.selectedTables))
+      : [...SNAPSHOT_TABLE_NAMES];
+    const selectedTableSet = new Set<SnapshotTableName>(selectedTables);
+    // When writing the 'users' table, also write 'sessions' to preserve active auth sessions.
+    // PostgreSQL's ON DELETE CASCADE on sessions.user_id can evict auth sessions if a user is deleted.
+    if (selectedTableSet.has("users") && !selectedTableSet.has("sessions")) {
+      selectedTables.push("sessions");
+      selectedTableSet.add("sessions");
+    }
+
     let client: PoolClient | null = null;
     try {
       for (let attempt = 0; attempt < 2; attempt += 1) {
         client = await pool.connect();
         try {
           const logProfile = createRepositoryProfileLogger("saveSnapshot");
-          console.log("[alpha-exchange-repository] saveSnapshot begin");
+          const perf = createRepoPerf(`saveSnapshot[${selectedTables.join(",")}]`);
+          perf?.step("connect");
           await queryWithLogging(client, "begin");
           logProfile("begin");
+          perf?.step("begin");
           try {
-            console.log("[alpha-exchange-repository] saveSnapshot advisory lock");
             await queryWithLogging(client, "select pg_advisory_xact_lock(61422917)");
             logProfile("advisory_lock");
+            perf?.step("advisory_lock");
           } catch {
             // pg-mem does not implement advisory locks; local tests stay single-process.
           }
 
           const loadedVersion = getVersion(db);
-          console.log("[alpha-exchange-repository] saveSnapshot reading runtime meta");
           const currentMeta = await queryWithLogging(client,
             "select version::text as version from alpha_exchange.runtime_meta where singleton = true",
           );
           logProfile("read_runtime_meta");
+          perf?.step("read_runtime_meta");
           const currentVersion = Number(currentMeta?.rows?.[0]?.version ?? "0");
-          console.log("[alpha-exchange-repository] saveSnapshot reading purchase request count");
-          const currentRequestCount = await queryWithLogging(client,
-            "select count(*)::text as count from alpha_exchange.purchase_requests",
-          );
-          logProfile("read_purchase_request_count");
-          const currentRequests = Number(currentRequestCount?.rows?.[0]?.count ?? "0");
+          let currentRequests: number | undefined;
+          if (shouldLogRepoVersionFlow()) {
+            const currentRequestCount = await queryWithLogging(client,
+              "select count(*)::text as count from alpha_exchange.purchase_requests",
+            );
+            logProfile("read_purchase_request_count");
+            currentRequests = Number(currentRequestCount?.rows?.[0]?.count ?? "0");
+          }
 
           logRepoVersionFlow("save:db:attempt", {
             loadedVersion,
@@ -1194,36 +1487,51 @@ export class AlphaExchangeRepository {
               incomingPurchaseRequests: db.purchaseRequests.length,
               currentPurchaseRequests: currentRequests,
             });
-            const currentResults: Array<{ rows: Array<{ payload: unknown }> }> = [];
-            for (const table of tables) {
-              currentResults.push(await queryWithLogging(client, table.selectSql) as { rows: Array<{ payload: unknown }> });
+            const currentResults: Array<{ tableName: SnapshotTableName; rows: Array<{ payload: unknown }> }> = [];
+            // Parallelize all 22 table reads instead of issuing them sequentially.
+            const connectedClient = client!;
+            const parallelResults = await Promise.all(
+              tables.map((table) => queryWithLogging(connectedClient, table.selectSql) as Promise<{ rows: Array<{ payload: unknown }> }>),
+            );
+            perf?.step("stale_parallel_read");
+            for (let i = 0; i < tables.length; i++) {
+              currentResults.push({ tableName: tables[i]!.name as SnapshotTableName, rows: parallelResults[i]!.rows });
             }
             const latestSnapshot = attachVersion(snapshotFromTableRows(currentResults), currentVersion);
-            const mergedSnapshot = mergeSnapshotWithLatest(latestSnapshot, db);
+            const mergedSnapshot = mergeSnapshotWithLatest(latestSnapshot, pruneOrphanAuthSessions(db));
             const mergedVersion = getVersion(mergedSnapshot);
             const nextVersion = currentVersion + 1;
-            console.log("[alpha-exchange-repository] saveSnapshot loading evidence rows for merge");
-            const evidenceRows = await queryWithLogging(client, "select id, content from alpha_exchange.evidence") as { rows?: Array<{ id: string; content: Buffer | null }> };
-            logProfile("load_evidence_rows_merge");
-            const evidenceContentById = new Map((evidenceRows.rows ?? []).map((row) => [row.id, row.content]));
-            const persistedSnapshot = attachVersion(mergedSnapshot, nextVersion);
-            console.log("[alpha-exchange-repository] saveSnapshot truncating tables for merge");
-            await queryWithLogging(client, TRUNCATE_SQL);
-            logProfile("truncate_tables_merge");
-            for (const table of tables.filter((entry) => SNAPSHOT_TABLE_NAMES.has(entry.name))) {
-              console.log("[alpha-exchange-repository] saveSnapshot inserting table", table.name);
-              await table.insert(client, table.values(persistedSnapshot), {
+            const evidenceContentById = new Map<string, Buffer | null>();
+            if (selectedTableSet.has("evidence")) {
+              const evidenceRows = await queryWithLogging(client, "select id, content from alpha_exchange.evidence") as { rows?: Array<{ id: string; content: Buffer | null }> };
+              logProfile("load_evidence_rows_merge");
+              perf?.step("load_evidence_merge");
+              for (const row of evidenceRows.rows ?? []) {
+                evidenceContentById.set(row.id, row.content);
+              }
+            }
+            // When sessions are being written, use the sessions from the current full DB read
+            // (latestSnapshot) rather than the potentially-stale sessions in the incoming db.
+            // This prevents the deferred trust write from overwriting sessions created after
+            // the initial db snapshot was loaded.
+            const snapshotForMergeWrite = selectedTableSet.has("sessions")
+              ? pruneOrphanAuthSessions({ ...mergedSnapshot, authSessions: latestSnapshot.authSessions })
+              : pruneOrphanAuthSessions(mergedSnapshot);
+            const persistedSnapshot = attachVersion(snapshotForMergeWrite, nextVersion);
+            for (const tableName of selectedTables) {
+              await replaceTableContents(client, tableName, persistedSnapshot, {
                 evidenceContentById,
                 evidenceOverrides: options?.evidenceOverrides,
               });
+              perf?.step(`replace_${tableName}`);
             }
-            logProfile("insert_tables_merge");
-            console.log("[alpha-exchange-repository] saveSnapshot updating runtime meta for merge");
+            logProfile("replace_tables_merge");
             await queryWithLogging(client,
               "update alpha_exchange.runtime_meta set version = $1, updated_at = now() where singleton = true",
               [nextVersion],
             );
             logProfile("update_runtime_meta_merge");
+            perf?.step("update_runtime_meta_merge");
             logRepoVersionFlow("save:db:merged", {
               loadedVersion,
               currentVersion,
@@ -1232,44 +1540,52 @@ export class AlphaExchangeRepository {
               purchaseRequests: persistedSnapshot.purchaseRequests.length,
             });
             attachVersion(db, nextVersion);
+            syncMemoryFallbackSnapshot(persistedSnapshot, nextVersion);
             await client.query("commit");
             logProfile("commit_merge");
+            perf?.step("commit_merge");
+            perf?.done();
             return;
           }
 
-          console.log("[alpha-exchange-repository] saveSnapshot loading evidence rows");
-          const evidenceRows = await client.query<{ id: string; content: Buffer | null }>("select id, content from alpha_exchange.evidence");
-          logProfile("load_evidence_rows");
-          const evidenceContentById = new Map((evidenceRows?.rows ?? []).map((row) => [row.id, row.content]));
+          const evidenceContentById = new Map<string, Buffer | null>();
+          if (selectedTableSet.has("evidence")) {
+            const evidenceRows = await client.query<{ id: string; content: Buffer | null }>("select id, content from alpha_exchange.evidence");
+            logProfile("load_evidence_rows");
+            perf?.step("load_evidence");
+            for (const row of evidenceRows?.rows ?? []) {
+              evidenceContentById.set(row.id, row.content);
+            }
+          }
 
           // Snapshot writes should not evict active auth sessions managed by dedicated session methods.
-          const currentSessions = await queryWithLogging(client, "select payload from alpha_exchange.sessions order by sort_index asc") as { rows?: Array<{ payload: unknown }> };
-          logProfile("load_sessions");
-          const currentSessionRows = (currentSessions.rows ?? []) as Array<{ payload: AuthSession }>;
-          const persistedSnapshot: AlphaExchangeDb = {
-            ...db,
-            authSessions: fromPayloadRows(currentSessionRows),
-          };
-
-          console.log("[alpha-exchange-repository] saveSnapshot truncating tables");
-          await client.query(TRUNCATE_SQL);
-          logProfile("truncate_tables");
-          for (const table of tables.filter((entry) => SNAPSHOT_TABLE_NAMES.has(entry.name))) {
-            console.log("[alpha-exchange-repository] saveSnapshot inserting table", table.name);
-            await table.insert(client, table.values(persistedSnapshot), {
+          let persistedSnapshot: AlphaExchangeDb = pruneOrphanAuthSessions(db);
+          if (selectedTableSet.has("sessions")) {
+            const currentSessions = await queryWithLogging(client, "select payload from alpha_exchange.sessions order by sort_index asc") as { rows?: Array<{ payload: unknown }> };
+            logProfile("load_sessions");
+            perf?.step("load_sessions");
+            const currentSessionRows = (currentSessions.rows ?? []) as Array<{ payload: AuthSession }>;
+            persistedSnapshot = pruneOrphanAuthSessions({
+              ...db,
+              authSessions: fromPayloadRows(currentSessionRows),
+            });
+          }
+          for (const tableName of selectedTables) {
+            await replaceTableContents(client, tableName, persistedSnapshot, {
               evidenceContentById,
               evidenceOverrides: options?.evidenceOverrides,
             });
+            perf?.step(`replace_${tableName}`);
           }
-          logProfile("insert_tables");
+          logProfile("replace_tables");
 
           const writtenVersion = currentVersion + 1;
-          console.log("[alpha-exchange-repository] saveSnapshot updating runtime meta");
           await queryWithLogging(client,
             "update alpha_exchange.runtime_meta set version = $1, updated_at = now() where singleton = true",
             [writtenVersion],
           );
           logProfile("update_runtime_meta");
+          perf?.step("update_runtime_meta");
 
           logRepoVersionFlow("save:db:commit", {
             loadedVersion,
@@ -1279,8 +1595,11 @@ export class AlphaExchangeRepository {
           });
 
           attachVersion(db, writtenVersion);
+          syncMemoryFallbackSnapshot(persistedSnapshot, writtenVersion);
           await client.query("commit");
           logProfile("commit");
+          perf?.step("commit");
+          perf?.done();
           return;
         } catch (error) {
           console.error("[alpha-exchange-repository] saveSnapshot transaction error", error);
@@ -1416,42 +1735,40 @@ export class AlphaExchangeRepository {
       return;
     }
 
-    let client: PoolClient | null = null;
     try {
-      client = await pool.connect();
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        try {
-          await client.query("begin");
-          await client.query("delete from alpha_exchange.sessions where user_id = $1", [session.userId]);
-          const nextSortIndex = await client.query<{ next_index: string }>("select coalesce(max(sort_index), -1) + 1 as next_index from alpha_exchange.sessions");
-          await client.query(
-            `insert into alpha_exchange.sessions
-              (token_hash, user_id, expires_at, created_at, sort_index, payload)
-             values ($1,$2,$3,$4,$5,$6::jsonb)`,
-            [session.token, session.userId, session.expiresAt, session.createdAt, Number(nextSortIndex.rows[0]?.next_index ?? "0"), json(session)],
-          );
-          await client.query("commit");
-          return;
-        } catch (error) {
-          console.error("[alpha-exchange-repository] upsertAuthSession transaction error", error);
-          try {
-            await client.query("rollback");
-          } catch (rollbackError) {
-            console.error("[alpha-exchange-repository] upsertAuthSession rollback error", rollbackError);
-            // The transaction may already be aborted; move on with a fresh client.
-          }
-          if (isAbortedTransactionError(error) && attempt === 0) {
-            client.release(true);
-            client = await pool.connect();
-            continue;
-          }
-          throw error;
-        }
-      }
-    } finally {
-      if (client) {
-        client.release();
-      }
+      // Single CTE replaces 5 sequential round trips (BEGIN/DELETE/SELECT MAX/INSERT/COMMIT).
+      // DELETE + INSERT run atomically in one statement without needing an explicit transaction.
+      // Measured savings: ~320ms per login (was 5 × 80ms RTTs, now 1 × 80ms RTT).
+      const perf = createRepoPerf("upsertAuthSession");
+      await pool.query(
+        `WITH del AS (
+           DELETE FROM alpha_exchange.sessions WHERE user_id = $1
+         )
+         INSERT INTO alpha_exchange.sessions
+           (token_hash, user_id, expires_at, created_at, sort_index, payload)
+         VALUES (
+           $2, $1, $3, $4,
+           (SELECT coalesce(max(sort_index), -1) + 1 FROM alpha_exchange.sessions),
+           $5::jsonb
+         )
+         ON CONFLICT (token_hash) DO UPDATE SET
+           user_id = excluded.user_id,
+           expires_at = excluded.expires_at,
+           created_at = excluded.created_at,
+           sort_index = excluded.sort_index,
+           payload = excluded.payload`,
+        [session.userId, session.token, session.expiresAt, session.createdAt, json(session)],
+      );
+      perf?.step("upsert_session_cte");
+      perf?.done();
+      syncFallbackAuthSessions((sessions) => [
+        ...sessions.filter((item) => item.userId !== session.userId && item.token !== session.token),
+        session,
+      ]);
+      return;
+    } catch (error) {
+      console.error("[alpha-exchange-repository] upsertAuthSession error", error);
+      throw error;
     }
   }
 
@@ -1463,11 +1780,16 @@ export class AlphaExchangeRepository {
       return (globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion).authSessions.find((item) => item.token === tokenHash) ?? null;
     }
 
-    const result = await pool.query<{ payload: AuthSession }>(
-      "select payload from alpha_exchange.sessions where token_hash = $1 limit 1",
-      [tokenHash],
-    );
-    return result.rows[0]?.payload ?? null;
+    try {
+      const result = await pool.query<{ payload: AuthSession }>(
+        "select payload from alpha_exchange.sessions where token_hash = $1 limit 1",
+        [tokenHash],
+      );
+      return result.rows[0]?.payload ?? null;
+    } catch (error) {
+      console.error("[alpha-exchange-repository] falling back to cached auth session after database read failure", error);
+      return getLatestAvailableFallbackSnapshot().authSessions.find((item) => item.token === tokenHash) ?? null;
+    }
   }
 
   async deleteAuthSession(tokenHash: string) {
@@ -1481,7 +1803,11 @@ export class AlphaExchangeRepository {
       return;
     }
 
-    await pool.query("delete from alpha_exchange.sessions where token_hash = $1", [tokenHash]);
+    try {
+      await pool.query("delete from alpha_exchange.sessions where token_hash = $1", [tokenHash]);
+    } finally {
+      syncFallbackAuthSessions((sessions) => sessions.filter((item) => item.token !== tokenHash));
+    }
   }
 
   async readEvidenceContent(evidenceId: string) {
@@ -1623,9 +1949,13 @@ export class AlphaExchangeRepository {
 
     // ── Step 1: transactional — INSERT listing + UPSERT trust_snapshots ──────
     let client: PoolClient | null = null;
+    let nextVersion = 0;
+    const perf = createRepoPerf(`saveListingCreationSnapshotTargeted[trustSnapshots=${delta.updatedTrustSnapshots.length}]`);
     try {
       client = await pool.connect();
+      perf?.step("connect");
       await client.query("begin");
+      perf?.step("begin");
 
       await client.query(
         `insert into alpha_exchange.listings
@@ -1644,6 +1974,7 @@ export class AlphaExchangeRepository {
           json(delta.newListing),
         ],
       );
+      perf?.step("insert_listing");
 
       for (const snap of delta.updatedTrustSnapshots) {
         await client.query(
@@ -1659,9 +1990,17 @@ export class AlphaExchangeRepository {
              payload = excluded.payload`,
           [snap.sellerId, snap.updatedAt, json(snap)],
         );
+        perf?.step(`trust_snapshot_upsert_${snap.sellerId.slice(-8)}`);
       }
 
+      const versionResult = await client.query<{ version: string }>(
+        "update alpha_exchange.runtime_meta set version = version + 1, updated_at = now() where singleton = true returning version::text as version",
+      );
+      nextVersion = Number(versionResult.rows[0]?.version ?? "0");
+      perf?.step("update_meta");
+
       await client.query("commit");
+      perf?.step("commit");
     } catch (error) {
       if (client) {
         try { await client.query("rollback"); } catch { /* ignore rollback failure */ }
@@ -1743,6 +2082,7 @@ export class AlphaExchangeRepository {
     // Failures are logged with enough context for manual retry or investigation.
     const appendLabels = ["audit_logs", "notifications", "activity_logs", "trust_score_history"];
     const results = await Promise.allSettled(appendTasks);
+    perf?.step("parallel_appends");
     results.forEach((result, i) => {
       if (result.status === "rejected") {
         console.error(
@@ -1753,6 +2093,24 @@ export class AlphaExchangeRepository {
         );
       }
     });
+
+    try {
+      // Fire-and-forget: the listing was already committed. Awaiting this full 23-table
+      // reload here cost ~1000ms for every listing creation (pool max:2 serializes the
+      // 23 parallel queries). The cache was already updated by writeDbForListingCreation;
+      // the fallback snapshot will catch up on the next natural loadSnapshot call.
+      this.loadSnapshot()
+        .then((snapshot) => {
+          syncMemoryFallbackSnapshot(snapshot, nextVersion || getVersion(snapshot));
+          perf?.step("sync_memory_fallback");
+        })
+        .catch(() => {
+          // Non-critical — ignore fallback mirror refresh failures.
+        });
+    } catch {
+      // Ignore synchronous errors from the fire-and-forget setup.
+    }
+    perf?.done();
   }
 
   async savePurchaseRequestCreationSnapshotTargeted(delta: {

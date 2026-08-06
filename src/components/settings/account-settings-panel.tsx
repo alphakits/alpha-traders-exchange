@@ -33,6 +33,14 @@ type PrivacyKey = (typeof PRIVACY_KEYS)[number];
 
 type NotificationPrefs = Record<NotificationKey, boolean>;
 type PrivacyPrefs = Record<PrivacyKey, boolean>;
+type BrowserPushPrefs = {
+  browserPush: boolean;
+  browserPushTradeUpdates: boolean;
+  browserPushChatMessages: boolean;
+  browserPushListings: boolean;
+  browserPushFeedback: boolean;
+  browserPushAdminAlerts: boolean;
+};
 
 function defaultNotifications(): NotificationPrefs {
   return {
@@ -73,13 +81,27 @@ function PillToggle({ checked, onChange }: { checked: boolean; onChange: (v: boo
   );
 }
 
-export function AccountSettingsPanel({ locale }: { locale: "ar" | "en" }) {
+export function AccountSettingsPanel({
+  locale,
+  phoneVerificationEnabled,
+}: {
+  locale: "ar" | "en";
+  phoneVerificationEnabled: boolean;
+}) {
   const isAr = locale === "ar";
   const [activeTab, setActiveTab] = useState<Tab>("security");
   const [userId, setUserId] = useState<string | null>(null);
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>(defaultNotifications());
   const [notifChannels, setNotifChannels] = useState({ inApp: true, email: false, sms: false });
   const [notifChannelsLoaded, setNotifChannelsLoaded] = useState(false);
+  const [browserPushPrefs, setBrowserPushPrefs] = useState<BrowserPushPrefs>({
+    browserPush: false,
+    browserPushTradeUpdates: true,
+    browserPushChatMessages: true,
+    browserPushListings: true,
+    browserPushFeedback: true,
+    browserPushAdminAlerts: false,
+  });
   const [privacyPrefs, setPrivacyPrefs] = useState<PrivacyPrefs>(defaultPrivacy());
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState("");
@@ -118,6 +140,24 @@ export function AccountSettingsPanel({ locale }: { locale: "ar" | "en" }) {
           show_phone: data.profile.showPhonePublic === true,
           show_email: data.profile.showEmailPublic === true,
         });
+      }
+      const channelRes = await fetch("/api/alpha-exchange/notification-preferences", { cache: "no-store" });
+      if (channelRes.ok) {
+        const channelData = (await channelRes.json()) as { preferences?: { inApp?: boolean; email?: boolean; sms?: boolean; browserPush?: boolean; browserPushTradeUpdates?: boolean; browserPushChatMessages?: boolean; browserPushListings?: boolean; browserPushFeedback?: boolean; browserPushAdminAlerts?: boolean } };
+        setNotifChannels({
+          inApp: channelData.preferences?.inApp !== false,
+          email: channelData.preferences?.email === true,
+          sms: channelData.preferences?.sms === true,
+        });
+        setBrowserPushPrefs({
+          browserPush: channelData.preferences?.browserPush === true,
+          browserPushTradeUpdates: channelData.preferences?.browserPushTradeUpdates !== false,
+          browserPushChatMessages: channelData.preferences?.browserPushChatMessages !== false,
+          browserPushListings: channelData.preferences?.browserPushListings !== false,
+          browserPushFeedback: channelData.preferences?.browserPushFeedback !== false,
+          browserPushAdminAlerts: channelData.preferences?.browserPushAdminAlerts === true,
+        });
+        setNotifChannelsLoaded(true);
       }
       try {
         const rawNotif = localStorage.getItem(`notification_prefs_${id}`);
@@ -213,6 +253,19 @@ export function AccountSettingsPanel({ locale }: { locale: "ar" | "en" }) {
         // keep optimistic state
       }
     }, 300);
+  }
+
+  async function saveBrowserPushPrefs(next: BrowserPushPrefs) {
+    setBrowserPushPrefs(next);
+    try {
+      await fetch("/api/alpha-exchange/notification-preferences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      });
+    } catch {
+      // keep optimistic state
+    }
   }
 
   const tabs: { key: Tab; labelEn: string; labelAr: string }[] = [
@@ -345,6 +398,13 @@ export function AccountSettingsPanel({ locale }: { locale: "ar" | "en" }) {
               <CardTitle>{isAr ? "الأمان" : "Security"}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {!phoneVerificationEnabled ? (
+                <div className="rounded-xl border border-sky-400/25 bg-sky-500/10 p-4 text-sm text-sky-100">
+                  {isAr
+                    ? "التحقق من رقم الهاتف غير متاح مؤقتًا بينما نكمل تفعيل الخدمة. سيتوفر قريبًا."
+                    : "Phone verification is temporarily unavailable while we complete service activation. It will be available soon."}
+                </div>
+              ) : null}
               <div className="rounded-xl border border-[#C9A227]/25 bg-[#C9A227]/5 p-4">
                 <p className="mb-3 text-sm font-medium text-[#C9A227]">
                   {isAr ? "كيفية تغيير كلمة المرور:" : "To change your password:"}
@@ -409,6 +469,33 @@ export function AccountSettingsPanel({ locale }: { locale: "ar" | "en" }) {
                     />
                   </div>
                 ))}
+              </div>
+              <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+                <p className="text-sm font-medium text-white">{isAr ? "إشعارات المتصفح" : "Browser push"}</p>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-[#D1D5DB]">{isAr ? "تفعيل إشعارات المتصفح" : "Enable browser push"}</span>
+                  <PillToggle checked={browserPushPrefs.browserPush} onChange={(v) => void saveBrowserPushPrefs({ ...browserPushPrefs, browserPush: v })} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-[#D1D5DB]">{isAr ? "تحديثات الصفقات" : "Trade updates"}</span>
+                  <PillToggle checked={browserPushPrefs.browserPushTradeUpdates} onChange={(v) => void saveBrowserPushPrefs({ ...browserPushPrefs, browserPushTradeUpdates: v })} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-[#D1D5DB]">{isAr ? "رسائل الدردشة" : "Chat messages"}</span>
+                  <PillToggle checked={browserPushPrefs.browserPushChatMessages} onChange={(v) => void saveBrowserPushPrefs({ ...browserPushPrefs, browserPushChatMessages: v })} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-[#D1D5DB]">{isAr ? "الإعلانات الجديدة" : "New listings"}</span>
+                  <PillToggle checked={browserPushPrefs.browserPushListings} onChange={(v) => void saveBrowserPushPrefs({ ...browserPushPrefs, browserPushListings: v })} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-[#D1D5DB]">{isAr ? "تذكيرات التقييم" : "Feedback reminders"}</span>
+                  <PillToggle checked={browserPushPrefs.browserPushFeedback} onChange={(v) => void saveBrowserPushPrefs({ ...browserPushPrefs, browserPushFeedback: v })} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-[#D1D5DB]">{isAr ? "تنبيهات الإدارة" : "Admin alerts"}</span>
+                  <PillToggle checked={browserPushPrefs.browserPushAdminAlerts} onChange={(v) => void saveBrowserPushPrefs({ ...browserPushPrefs, browserPushAdminAlerts: v })} />
+                </div>
               </div>
             </CardContent>
           </Card>

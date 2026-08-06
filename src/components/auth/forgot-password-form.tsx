@@ -7,6 +7,9 @@ import { Input } from "@/components/ui/input";
 
 export function ForgotPasswordForm({ locale }: { locale: "ar" | "en" }) {
   const isAr = locale === "ar";
+  const genericSuccessMessage = isAr
+    ? "إذا كان هناك حساب مرتبط بهذا البريد الإلكتروني، فقد أرسلنا تعليمات إعادة تعيين كلمة المرور."
+    : "If an account exists for this email, we've sent password reset instructions.";
   const [email, setEmail] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -29,12 +32,7 @@ export function ForgotPasswordForm({ locale }: { locale: "ar" | "en" }) {
         setErrorMessage(payload.error ?? (isAr ? "فشل إرسال رابط إعادة التعيين." : "Failed to send reset link."));
         return;
       }
-      setStatusMessage(
-        payload.message ??
-          (isAr
-            ? "إذا كان الحساب موجودًا، تم إرسال رابط إعادة تعيين كلمة المرور."
-            : "If the account exists, a password reset link has been sent."),
-      );
+      setStatusMessage(genericSuccessMessage);
       setEmail("");
     } catch {
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");

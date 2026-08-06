@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentSessionUser } from "@/lib/auth";
+import { isMarketplacePhoneVerificationEnabled } from "@/lib/phone-verification";
 import { buildPageMetadata } from "@/lib/seo";
 import { AccountSettingsPanel } from "@/components/settings/account-settings-panel";
 
@@ -22,5 +23,10 @@ export default async function SettingsPage({ params }: { params: Promise<{ local
   const { locale } = await params;
   const user = await getCurrentSessionUser();
   if (!user) redirect(`/${locale}/login?redirectTo=/${locale}/settings`);
-  return <AccountSettingsPanel locale={locale === "ar" ? "ar" : "en"} />;
+  return (
+    <AccountSettingsPanel
+      locale={locale === "ar" ? "ar" : "en"}
+      phoneVerificationEnabled={isMarketplacePhoneVerificationEnabled()}
+    />
+  );
 }

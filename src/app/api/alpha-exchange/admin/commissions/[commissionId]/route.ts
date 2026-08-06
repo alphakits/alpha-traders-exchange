@@ -16,16 +16,28 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
   try {
     const { commissionId } = await context.params;
-    const body = await request.json();
+    const body = await request.json() as {
+      paymentStatus?: string;
+      paymentVerificationStatus?: "pending_verification" | "verified" | "failed";
+      paymentVerificationNotes?: string;
+      reason?: string;
+    };
     const paymentStatus = String(body.paymentStatus ?? "").trim();
+    const reason = String(body.reason ?? "").trim();
     if (!isValidPaymentStatus(paymentStatus)) {
       return NextResponse.json({ error: "Invalid commission status." }, { status: 400 });
+    }
+    if (!reason) {
+      return NextResponse.json({ error: "Reason is required." }, { status: 400 });
     }
 
     const commission = await updateCommissionPaymentStatus({
       commissionId,
       actorUserId: user.id,
       paymentStatus,
+      paymentVerificationStatus: body.paymentVerificationStatus,
+      paymentVerificationNotes: typeof body.paymentVerificationNotes === "string" ? body.paymentVerificationNotes : undefined,
+      reason,
     });
     return NextResponse.json({ commission });
   } catch (error) {

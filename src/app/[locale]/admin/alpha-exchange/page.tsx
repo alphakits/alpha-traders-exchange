@@ -23,7 +23,7 @@ export default async function AlphaExchangeAdminPage({ params }: { params: Promi
   if (!user) {
     redirect(`/${locale}/login?redirectTo=/${locale}/admin/alpha-exchange`);
   }
-  if (!hasRole(user, "owner")) {
+  if (!hasRole(user, "admin")) {
     redirect(`/${locale}/usdt-exchange`);
   }
 

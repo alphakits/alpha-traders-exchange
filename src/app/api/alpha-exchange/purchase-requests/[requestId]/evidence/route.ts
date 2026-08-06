@@ -54,6 +54,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   if (!rate.allowed) {
     return NextResponse.json({ error: "Too many evidence uploads. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
   }
+  const routeStartedAt = Date.now();
   try {
     const { requestId } = await context.params;
     const body = await request.json();
@@ -78,7 +79,32 @@ export async function POST(request: NextRequest, context: RouteContext) {
       sizeBytes: Number.isFinite(suppliedSize) && suppliedSize > 0 ? suppliedSize : Math.ceil((payload.contentBase64.length * 3) / 4),
       contentBase64: payload.contentBase64,
     });
-    return NextResponse.json({ request: uploaded });
+    const routeMs = Date.now() - routeStartedAt;
+    console.log("[trade-room-perf] evidence timings", {
+      requestId,
+      actorUserId: user.id,
+      side,
+      validationMs: uploaded.metrics.validationMs,
+      storageMs: uploaded.metrics.storageMs,
+      dbWriteMs: uploaded.metrics.dbWriteMs,
+      dbReadMs: uploaded.metrics.dbReadMs,
+      routeMs,
+      autoAdvancedToPaymentSent: uploaded.metrics.autoAdvancedToPaymentSent,
+      statusAfter: uploaded.request.status,
+    });
+    return NextResponse.json(
+      { request: uploaded.request, metrics: uploaded.metrics },
+      {
+        headers: {
+          "X-Trade-Evidence-Read-Ms": String(uploaded.metrics.dbReadMs),
+          "X-Trade-Evidence-Validation-Ms": String(uploaded.metrics.validationMs),
+          "X-Trade-Evidence-Storage-Ms": String(uploaded.metrics.storageMs),
+          "X-Trade-Evidence-Write-Ms": String(uploaded.metrics.dbWriteMs),
+          "X-Trade-Evidence-Route-Ms": String(routeMs),
+          "Server-Timing": `route;dur=${routeMs}, read;dur=${uploaded.metrics.dbReadMs}, validate;dur=${uploaded.metrics.validationMs}, storage;dur=${uploaded.metrics.storageMs}, write;dur=${uploaded.metrics.dbWriteMs}`,
+        },
+      },
+    );
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to upload evidence." }, { status: 400 });
   }

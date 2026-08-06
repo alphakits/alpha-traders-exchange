@@ -8,6 +8,33 @@ export { AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE
 
 const scrypt = promisify(scryptCallback);
 
+type AuthCookieMutator = {
+  set: (
+    name: string,
+    value: string,
+    options: {
+      httpOnly: true;
+      secure: boolean;
+      sameSite: "lax";
+      path: "/";
+      expires: Date;
+    },
+  ) => unknown;
+};
+
+export function expireAuthCookies(cookieStore: AuthCookieMutator, secure: boolean) {
+  const expires = new Date(0);
+  for (const name of [AUTH_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME]) {
+    cookieStore.set(name, "", {
+      httpOnly: true,
+      secure,
+      sameSite: "lax",
+      path: "/",
+      expires,
+    });
+  }
+}
+
 export async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
   const derived = (await scrypt(password, salt, 64)) as Buffer;
@@ -59,7 +86,9 @@ export async function clearUserSession(token: string | null | undefined) {
 
 export async function getCurrentSessionUser() {
   const token = await getCurrentSessionToken();
-  if (!token) return null;
+  if (!token) {
+    return null;
+  }
   const session = await getSessionByToken(token);
   if (!session) {
     return null;
@@ -68,9 +97,9 @@ export async function getCurrentSessionUser() {
   if (!user) {
     return null;
   }
-  if (user.emailVerified !== true) {
-    await deleteSessionByToken(token);
-    return null;
-  }
+  // emailVerified is enforced at login time (Supabase requires email_confirmed_at;
+  // local auth sets emailVerified: true explicitly in upsertUserProfileForAuth).
+  // Silently deleting sessions here causes a race: if the DB write during upsert
+  // fails or the field is stale, the user is kicked out mid-session with no feedback.
   return user;
 }

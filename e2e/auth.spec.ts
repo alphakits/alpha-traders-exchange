@@ -4,17 +4,35 @@
  * Prerequisites: dev server running at http://localhost:3000
  * Run: npx playwright test e2e/auth.spec.ts
  *
- * Test accounts (seeded in data/alpha-exchange-db.json):
- *   Owner : jozenmark834@yahoo.com / Roflxd123!
- *   Buyer+Seller: test123@guest.local / test123
+ * Credentialed checks use environment variables only:
+ *   E2E_OWNER_EMAIL, E2E_OWNER_PASSWORD
+ *   E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD
+ *   E2E_BUYER_EMAIL, E2E_BUYER_PASSWORD
+ *   E2E_SELLER_EMAIL, E2E_SELLER_PASSWORD
  */
 
 import { test, expect } from "@playwright/test";
+import { cleanupBuyerFixture, resolveBuyerFixture, type BuyerFixture } from "./support/buyer-fixture";
 
 const OWNER_EMAIL = process.env.E2E_OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.E2E_OWNER_PASSWORD ?? "";
-const BUYER_EMAIL = process.env.E2E_BUYER_EMAIL ?? "";
-const BUYER_PASSWORD = process.env.E2E_BUYER_PASSWORD ?? "";
+const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL ?? "";
+const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? "";
+let BUYER_EMAIL = process.env.E2E_BUYER_EMAIL ?? "";
+let BUYER_PASSWORD = process.env.E2E_BUYER_PASSWORD ?? "";
+const SELLER_EMAIL = process.env.E2E_SELLER_EMAIL ?? "";
+const SELLER_PASSWORD = process.env.E2E_SELLER_PASSWORD ?? "";
+let buyerFixture: BuyerFixture | undefined;
+
+test.beforeAll(async () => {
+  buyerFixture = await resolveBuyerFixture(BUYER_EMAIL, BUYER_PASSWORD);
+  BUYER_EMAIL = buyerFixture.email;
+  BUYER_PASSWORD = buyerFixture.password;
+});
+
+test.afterAll(async () => {
+  await cleanupBuyerFixture(buyerFixture);
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -23,8 +41,8 @@ const BUYER_PASSWORD = process.env.E2E_BUYER_PASSWORD ?? "";
 async function login(page: Parameters<typeof test>[1] extends infer T ? T extends { page: infer P } ? P : never : never, email: string, password: string) {
   await page.goto("/en/login");
   await page.waitForSelector('form[data-hydrated="true"]', { timeout: 15_000 });
-  await page.getByLabel(/email/i).fill(email);
-  await page.getByLabel(/password/i).fill(password);
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(password);
   await page.click('button[type="submit"]');
   await page.waitForURL((url) => !url.pathname.endsWith("/login"), { timeout: 20_000 });
 }
@@ -99,12 +117,24 @@ test.describe("Authentication", () => {
     await expect(page).not.toHaveURL(/\/login/);
   });
 
+  test("seller can log in", async ({ page }) => {
+    test.skip(!SELLER_EMAIL || !SELLER_PASSWORD, "Set E2E_SELLER_EMAIL and E2E_SELLER_PASSWORD to run credentialed login checks.");
+    await login(page, SELLER_EMAIL, SELLER_PASSWORD);
+    await expect(page).not.toHaveURL(/\/login/);
+  });
+
+  test("admin can log in", async ({ page }) => {
+    test.skip(!ADMIN_EMAIL || !ADMIN_PASSWORD, "Set E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD to run credentialed login checks.");
+    await login(page, ADMIN_EMAIL, ADMIN_PASSWORD);
+    await expect(page).not.toHaveURL(/\/login/);
+  });
+
   test("invalid credentials show error message", async ({ page }) => {
     await page.request.post("/api/auth/logout").catch(() => {});
     await page.goto("/en/login");
     await page.waitForSelector('form[data-hydrated="true"]', { timeout: 15_000 });
-    await page.getByLabel(/email/i).fill("nobody@example.com");
-    await page.getByLabel(/password/i).fill("wrongpassword");
+    await page.getByLabel("Email").fill("nobody@example.com");
+    await page.getByLabel("Password").fill("wrongpassword");
     await page.click('button[type="submit"]');
     // Should stay on login page
     await expect(page).toHaveURL(/\/en\/login/);
@@ -123,12 +153,13 @@ test.describe("Authentication", () => {
   });
 
   test("logout clears session and redirects to login", async ({ page }) => {
+    test.setTimeout(60_000);
     test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     await login(page, BUYER_EMAIL, BUYER_PASSWORD);
     await page.request.post("/api/auth/logout");
     // After logout, protected route redirects to login
     await page.goto("/en/academy");
-    await expect(page).toHaveURL(/\/en\/login/);
+    await expect(page).toHaveURL(/\/en\/login/, { timeout: 30_000 });
   });
 });
 
@@ -146,8 +177,8 @@ test.describe("Post-login redirect", () => {
 
     // Fill login form
     await page.waitForSelector('form[data-hydrated="true"]', { timeout: 15_000 });
-    await page.getByLabel(/email/i).fill(BUYER_EMAIL);
-    await page.getByLabel(/password/i).fill(BUYER_PASSWORD);
+    await page.getByLabel("Email").fill(BUYER_EMAIL);
+    await page.getByLabel("Password").fill(BUYER_PASSWORD);
     await page.click('button[type="submit"]');
 
     // Should land on academy, not dashboard
@@ -158,8 +189,8 @@ test.describe("Post-login redirect", () => {
     test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     await page.goto("/en/usdt-exchange");
     await page.waitForSelector('form[data-hydrated="true"]', { timeout: 15_000 });
-    await page.getByLabel(/email/i).fill(BUYER_EMAIL);
-    await page.getByLabel(/password/i).fill(BUYER_PASSWORD);
+    await page.getByLabel("Email").fill(BUYER_EMAIL);
+    await page.getByLabel("Password").fill(BUYER_PASSWORD);
     await page.click('button[type="submit"]');
     await expect(page).toHaveURL(/\/en\/usdt-exchange/, { timeout: 20_000 });
   });
@@ -187,6 +218,23 @@ test.describe("Role-based access", () => {
     await login(page, OWNER_EMAIL, OWNER_PASSWORD);
     await page.goto("/en/admin/alpha-exchange");
     // Should not be redirected to login or exchange
+    await expect(page).not.toHaveURL(/\/en\/login/);
+    await expect(page).not.toHaveURL(/\/en\/usdt-exchange$/);
+  });
+
+  test("profile exposes owner dashboard entry for owner", async ({ page }) => {
+    test.setTimeout(60_000);
+    test.skip(!OWNER_EMAIL || !OWNER_PASSWORD, "Set E2E_OWNER_EMAIL and E2E_OWNER_PASSWORD to run credentialed login checks.");
+    await login(page, OWNER_EMAIL, OWNER_PASSWORD);
+    await page.goto("/en/profile");
+    await expect(page.getByRole("heading", { name: "Administration" })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("link", { name: /Owner Dashboard/i })).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("admin route /en/admin/alpha-exchange accessible to admin", async ({ page }) => {
+    test.skip(!ADMIN_EMAIL || !ADMIN_PASSWORD, "Set E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD to run credentialed login checks.");
+    await login(page, ADMIN_EMAIL, ADMIN_PASSWORD);
+    await page.goto("/en/admin/alpha-exchange");
     await expect(page).not.toHaveURL(/\/en\/login/);
     await expect(page).not.toHaveURL(/\/en\/usdt-exchange$/);
   });

@@ -19,8 +19,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       body.availabilityStatus === "available" || body.availabilityStatus === "away" || body.availabilityStatus === "vacation"
         ? body.availabilityStatus
         : undefined;
+    const reason = typeof body.reason === "string" ? body.reason.trim() : "";
     if (feature === undefined && hidden === undefined && availabilityStatus === undefined) {
       return NextResponse.json({ error: "At least one profile state flag is required." }, { status: 400 });
+    }
+    if (availabilityStatus !== undefined && !reason) {
+      return NextResponse.json({ error: "Reason is required." }, { status: 400 });
     }
     const seller = (feature !== undefined || hidden !== undefined)
       ? await updateSellerProfileStateByAdmin({
@@ -35,7 +39,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
           sellerId: userId,
           actorUserId: user.id,
           availabilityStatus,
-          reason: typeof body.reason === "string" ? body.reason : undefined,
+          reason,
         })
       : null;
     logEvent("info", {

@@ -5,12 +5,6 @@ import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { hasRole } from "@/lib/roles";
 import { logEvent } from "@/lib/structured-logging";
 import { checkRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
-import type { SupportedNetwork } from "@/types/alpha-exchange";
-
-function isValidNetwork(value: string): value is SupportedNetwork {
-  return value === "TRC20" || value === "ERC20" || value === "BEP20" || value === "SOL";
-}
-
 const SELLER_APPLICATION_ERROR_STATUS: Record<string, number> = {
   "Account not found.": 404,
   "Owner accounts cannot submit seller applications.": 403,
@@ -21,7 +15,7 @@ const SELLER_APPLICATION_ERROR_STATUS: Record<string, number> = {
   "Buyer verification required before seller application.": 403,
   "Full name is required.": 400,
   "WhatsApp number is required.": 400,
-  "At least one preferred network is required.": 400,
+  "At least one selling method is required.": 400,
 };
 
 export async function GET() {
@@ -32,6 +26,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const routeStartedAt = Date.now();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
   const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
@@ -61,6 +56,7 @@ export async function POST(request: NextRequest) {
   }
 
   let payload: Record<string, unknown> = {};
+  const validationStartedAt = Date.now();
   try {
     const body = await request.json();
     if (body && typeof body === "object" && !Array.isArray(body)) {
@@ -79,7 +75,7 @@ export async function POST(request: NextRequest) {
   const preferredNetworksRaw = Array.isArray(preferredNetworksInput)
     ? preferredNetworksInput.map((value) => String(value))
     : [String(preferredNetworksInput ?? "")].filter(Boolean);
-  const preferredNetworks = preferredNetworksRaw.filter(isValidNetwork);
+  const preferredNetworks = preferredNetworksRaw.map((value) => value.trim()).filter(Boolean);
 
   const fullName = String(payload.fullName ?? user.fullName).trim();
   const whatsappNumber = String(payload.whatsappNumber ?? user.whatsappNumber).trim();
@@ -91,10 +87,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "WhatsApp number is required." }, { status: 400 });
   }
   if (preferredNetworks.length === 0) {
-    return NextResponse.json({ error: "At least one preferred network is required." }, { status: 400 });
+    return NextResponse.json({ error: "At least one selling method is required." }, { status: 400 });
   }
+  const validationMs = Date.now() - validationStartedAt;
 
   try {
+    const logicStartedAt = Date.now();
     const application = await createSellerApplication({
       userId: user.id,
       fullName,
@@ -111,7 +109,17 @@ export async function POST(request: NextRequest) {
       resourceId: application.id,
       outcome: "success",
     });
-    return NextResponse.json({ application }, { status: 201 });
+    const logicMs = Date.now() - logicStartedAt;
+    const routeMs = Date.now() - routeStartedAt;
+    return NextResponse.json({ application }, {
+      status: 201,
+      headers: {
+        "X-Trade-Route-Ms": String(routeMs),
+        "X-Trade-Validation-Ms": String(validationMs),
+        "X-Trade-Logic-Ms": String(logicMs),
+        "Server-Timing": `route;dur=${routeMs}, validate;dur=${validationMs}, logic;dur=${logicMs}`,
+      },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown seller-application failure";
     console.error("[alpha-exchange][seller-application][POST]", {

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canPublishListings, createMarketplaceListing, getMarketplaceListings } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
+import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
+import { MAX_LISTING_PAYMENT_METHODS, requiresIsraeliBankSelection, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
 
 function toNumber(value: unknown) {
@@ -29,6 +31,7 @@ function createProfileLogger() {
   };
 }
 export async function POST(request: NextRequest) {
+  const routeStartedAt = Date.now();
   const logProfile = createProfileLogger();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
@@ -44,20 +47,16 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const validationStartedAt = Date.now();
     const body = await request.json();
     logProfile("request.json");
     const availableAmount = String(body.availableAmount ?? "").trim();
     const price = String(body.price ?? "").trim();
     const responseTime = String(body.responseTime ?? "").trim().slice(0, 100) || "5 min";
     const currency = String(body.currency ?? "ILS").trim().slice(0, 10) || "ILS";
-    const paymentMethods = Array.isArray(body.paymentMethods)
-      ? body.paymentMethods.map((method: unknown) => String(method).trim()).filter(Boolean).slice(0, 8)
-      : String(body.paymentMethod ?? "")
-          .split(",")
-          .map((method) => method.trim())
-          .filter(Boolean)
-          .slice(0, 8);
-    const bankName = String(body.bankName ?? "").trim();
+    const resolvedPaymentMethods = resolveListingPaymentMethods(body.paymentMethods, body.paymentMethod);
+    const paymentMethods = resolvedPaymentMethods.slice(0, MAX_LISTING_PAYMENT_METHODS);
+    const bankSelection = parseIsraeliBankSelection(String(body.bankName ?? ""));
     const minimumTrade = String(body.minimumTrade ?? "0").trim();
     const maximumTrade = String(body.maximumTrade ?? availableAmount).trim();
     const expiresAt = String(body.expiresAt ?? "").trim();
@@ -65,6 +64,7 @@ export async function POST(request: NextRequest) {
     const notes = String(body.notes ?? "").trim().slice(0, 2000);
     const sellerDescription = String(body.sellerDescription ?? "").trim().slice(0, 2000);
     const photos = Array.isArray(body.photos) ? body.photos.map((photo: unknown) => String(photo).trim()).filter(Boolean).slice(0, 6) : [];
+    const acceptedCommissionPolicy = body.acceptedCommissionPolicy === true;
     const network = body.network;
 
     if (!availableAmount || toNumber(availableAmount) <= 0) {
@@ -83,10 +83,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid network." }, { status: 400 });
     }
     if (!paymentMethods.length) {
-      return NextResponse.json({ error: "At least one payment method is required." }, { status: 400 });
+      return NextResponse.json({ error: "A valid payment method is required (Bank Transfer, Face-to-Face, or Cardless ATM Withdrawal)." }, { status: 400 });
     }
-    if (!bankName) {
-      return NextResponse.json({ error: "Please choose a receiving bank before publishing the listing." }, { status: 400 });
+    if (resolvedPaymentMethods.length > MAX_LISTING_PAYMENT_METHODS) {
+      return NextResponse.json({ error: `Select no more than ${MAX_LISTING_PAYMENT_METHODS} payment methods per listing.` }, { status: 400 });
+    }
+    if (requiresIsraeliBankSelection(paymentMethods)) {
+      if (!bankSelection.length) {
+        return NextResponse.json({ error: "Please choose one or two supported banks before publishing the listing." }, { status: 400 });
+      }
+      if (bankSelection.length > MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS) {
+        return NextResponse.json({ error: `Select no more than ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} supported banks per listing.` }, { status: 400 });
+      }
+    }
+    if (!acceptedCommissionPolicy) {
+      return NextResponse.json({ error: "You must confirm Alpha Traders 1% commission policy before publishing this listing." }, { status: 400 });
     }
     if (toNumber(minimumTrade) < 0) {
       return NextResponse.json({ error: "Minimum trade cannot be negative." }, { status: 400 });
@@ -103,7 +114,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Invalid expiry date." }, { status: 400 });
       }
     }
+    const validationMs = Date.now() - validationStartedAt;
 
+    const businessStartedAt = Date.now();
     const listing = await createMarketplaceListing({
       sellerId: user.id,
       sellerDisplayName: user.fullName,
@@ -113,7 +126,7 @@ export async function POST(request: NextRequest) {
       currency,
       network,
       paymentMethods,
-      bankName: bankName || undefined,
+      bankName: requiresIsraeliBankSelection(paymentMethods) ? (serializeIsraeliBankSelection(bankSelection) || undefined) : undefined,
       minimumTrade,
       maximumTrade,
       expiresAt: expiresAt || undefined,
@@ -121,10 +134,24 @@ export async function POST(request: NextRequest) {
       notes,
       sellerDescription,
       responseTime,
+      acceptedCommissionPolicy,
       actorUserId: user.id,
     });
+    const businessMs = Date.now() - businessStartedAt;
     logProfile("createMarketplaceListing");
-    return NextResponse.json({ listing }, { status: 201 });
+    const routeMs = Date.now() - routeStartedAt;
+    return NextResponse.json(
+      { listing },
+      {
+        status: 201,
+        headers: {
+          "X-Trade-Route-Ms": String(routeMs),
+          "X-Trade-Validation-Ms": String(validationMs),
+          "X-Trade-Logic-Ms": String(businessMs),
+          "Server-Timing": `route;dur=${routeMs}, validate;dur=${validationMs}, logic;dur=${businessMs}`,
+        },
+      },
+    );
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to create listing." }, { status: 400 });
   }

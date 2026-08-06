@@ -18,6 +18,10 @@ const plexArabic = IBM_Plex_Sans_Arabic({
   weight: ["400", "600", "700"],
   variable: "--font-plex-arabic",
   display: "swap",
+  // Suppress "preloaded but not used" DevTools warning on non-Arabic pages.
+  // The font still loads via CSS font-face on Arabic pages; only the <link rel="preload">
+  // is omitted to avoid unnecessary browser warnings.
+  preload: false,
 });
 
 export function generateStaticParams() {

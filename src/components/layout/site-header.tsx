@@ -1,14 +1,17 @@
 import { Menu } from "lucide-react";
 import Image from "next/image";
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
-import { AUTH_COOKIE_NAME, clearUserSession, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
+import { AUTH_COOKIE_NAME, getCurrentSessionUser } from "@/lib/auth";
+import { getFirstActiveTradeForUser, getTradeReminderForUser } from "@/lib/alpha-exchange-store";
+import { hasRole } from "@/lib/roles";
 import { cn } from "@/lib/utils";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { NotificationBell } from "@/components/notifications/notification-bell";
+import { LogoutButton } from "@/components/auth/logout-button";
+import { CreateListingQuickLink } from "@/components/layout/create-listing-quick-link";
 import { LocaleSwitcher } from "./locale-switcher";
 
 export async function SiteHeader({ locale }: { locale: AppLocale }) {
@@ -17,17 +20,17 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
   const cookieStore = await cookies();
   const sessionToken = cookieStore.get(AUTH_COOKIE_NAME)?.value ?? null;
   const sessionUser = sessionToken ? await getCurrentSessionUser() : null;
+  const activeTrade = sessionUser ? await getFirstActiveTradeForUser(sessionUser.id, sessionUser.role) : null;
+  const tradeReminder = sessionUser ? await getTradeReminderForUser(sessionUser.id, sessionUser.role) : null;
+  const activeTradeCounterparty = activeTrade
+    ? (activeTrade.sellerId === sessionUser?.id ? activeTrade.buyerName : (locale === "ar" ? "البائع" : "seller"))
+    : null;
   const dashboardHref = sessionUser ? "/profile" : "/login";
   const dashboardLabel = sessionUser ? t("profile") : t("signIn");
-
-  async function logoutAction() {
-    "use server";
-    const token = await getCurrentSessionToken();
-    await clearUserSession(token);
-    const cookieStore = await cookies();
-    cookieStore.delete(AUTH_COOKIE_NAME);
-    redirect(`/${locale}/login`);
-  }
+  const canAccessSellerWorkspace = Boolean(
+    sessionUser && (hasRole(sessionUser, "approved_seller") || hasRole(sessionUser, "admin") || hasRole(sessionUser, "owner")),
+  );
+  const canAccessAdminDashboard = Boolean(sessionUser && hasRole(sessionUser, "admin"));
 
   const nav = [
     { href: "/", label: t("home") },
@@ -83,13 +86,24 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
               <span className="max-w-[140px] truncate">{sessionUser.fullName}</span>
             </div>
           ) : null}
+          <Link href={dashboardHref} locale={locale} className={cn(buttonVariants({ size: "sm" }), "inline-flex")}>
+            {dashboardLabel}
+          </Link>
+          {canAccessSellerWorkspace ? (
+            <CreateListingQuickLink
+              className="hidden items-center gap-1.5 rounded-full border border-[#C9A227]/50 bg-gradient-to-r from-[#C9A227]/20 to-[#D4AF37]/10 px-3 py-1.5 text-xs font-semibold text-[#F4D87A] shadow-[0_4px_16px_rgba(201,162,39,0.25)] transition hover:border-[#C9A227]/70 hover:shadow-[0_6px_20px_rgba(201,162,39,0.35)] md:inline-flex"
+              label={locale === "ar" ? "إنشاء عرض" : "Create Listing"}
+            />
+          ) : null}
           {sessionUser ? <NotificationBell locale={locale} /> : null}
           {sessionUser ? (
-            <form action={logoutAction} className="hidden sm:inline-flex">
-              <Button size="sm" variant="secondary" className="text-[#D1D5DB] hover:bg-white/10 hover:text-white">
-                {t("signOut")}
-              </Button>
-            </form>
+            <LogoutButton
+              locale={locale}
+              size="sm"
+              variant="secondary"
+              className="hidden text-[#D1D5DB] hover:bg-white/10 hover:text-white sm:inline-flex"
+              idleLabel={t("signOut")}
+            />
           ) : null}
           <details className="group relative lg:hidden">
             <summary className="inline-flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-full border border-white/20 text-[#9CA3AF] hover:border-[#C9A227] hover:text-[#C9A227]">
@@ -124,20 +138,33 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
                   <Link href={dashboardHref} locale={locale} className="flex min-h-11 items-center rounded-xl px-3 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white">
                     {dashboardLabel}
                   </Link>
+                  {canAccessSellerWorkspace ? (
+                    <CreateListingQuickLink
+                      className="block rounded-xl px-3 py-2 text-sm font-medium text-[#F4D87A] transition hover:bg-[#C9A227]/10"
+                      label={locale === "ar" ? "إنشاء عرض" : "Create Listing"}
+                    />
+                  ) : null}
                   {sessionUser ? (
                     <Link href="/notifications" locale={locale} className="flex min-h-11 items-center rounded-xl px-3 text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white">
                       {t("notifications")}
                     </Link>
                   ) : null}
+                  {canAccessAdminDashboard ? (
+                    <Link
+                      href="/admin/alpha-exchange"
+                      locale={locale}
+                      className="block rounded-xl border border-[#C9A227]/40 bg-[#C9A227]/10 px-3 py-2 text-sm font-medium text-[#F4D87A] transition hover:border-[#C9A227]/60 hover:bg-[#C9A227]/15"
+                    >
+                      🛠 {locale === "ar" ? "لوحة الإدارة" : "Admin Dashboard"}
+                    </Link>
+                  ) : null}
                   {sessionUser ? (
-                    <form action={logoutAction}>
-                      <button
-                        type="submit"
-                        className="mt-1 block min-h-11 w-full rounded-xl px-3 text-start text-sm text-[#D1D5DB] transition hover:bg-white/5 hover:text-white"
-                      >
-                        {t("signOut")}
-                      </button>
-                    </form>
+                    <LogoutButton
+                      locale={locale}
+                      variant="ghost"
+                      className="mt-1 w-full justify-start rounded-xl px-3 text-start text-sm text-[#D1D5DB] hover:bg-white/5 hover:text-white"
+                      idleLabel={t("signOut")}
+                    />
                   ) : null}
                 </div>
               </nav>
@@ -148,6 +175,27 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
           </Link>
         </div>
       </div>
+      {sessionUser && (tradeReminder || activeTrade) ? (
+      <div className="section-container pb-2">
+        <div className={`flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs ${tradeReminder ? "border border-amber-400/35 bg-amber-500/10 text-amber-100" : "border border-emerald-400/35 bg-emerald-500/10 text-emerald-100"}`}>
+          <p className="truncate">
+            {tradeReminder ? (
+              <>
+                🔔 {tradeReminder.title} — {tradeReminder.message}
+              </>
+            ) : (
+              <>
+                🟢 {locale === "ar" ? "صفقة نشطة" : "Active Trade"} — {locale === "ar" ? "تابع الصفقة مع" : "Continue trade with"}{" "}
+                <span className="font-semibold text-white">{activeTradeCounterparty}</span>
+              </>
+            )}
+          </p>
+          <Link href={tradeReminder?.actionHref ?? `/trade-room/${activeTrade!.id}`} locale={locale} className="shrink-0 rounded-full border border-current/40 bg-white/10 px-3 py-1 text-[11px] font-semibold transition hover:bg-white/15">
+            {tradeReminder?.actionLabel ?? (locale === "ar" ? "استئناف الصفقة" : "Resume Trade")}
+          </Link>
+        </div>
+      </div>
+      ) : null}
     </header>
   );
 }
