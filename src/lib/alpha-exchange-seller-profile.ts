@@ -1,19 +1,12 @@
-import { getSellerProfileRouteData } from "@/lib/alpha-exchange-store";
+import {
+  derivePublicProfileUsername,
+  getSellerProfileRouteData,
+  matchesPublicProfileUsername,
+} from "@/lib/alpha-exchange-store";
 import type { AlphaExchangeUser, PremiumSellerProfileData, SellerLevel } from "@/types/alpha-exchange";
 
 export function deriveSellerRouteUsername(input: { fullName?: string; email?: string; id?: string }) {
-  const base = (input.fullName || input.email || input.id || "seller")
-    .toString()
-    .trim()
-    .toLowerCase();
-
-  const normalized = base
-    .normalize("NFKD")
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-
-  return normalized || "seller";
+  return derivePublicProfileUsername(input);
 }
 
 export function resolveSellerByUsername<T extends Pick<AlphaExchangeUser, "id" | "fullName" | "email" | "sellerStatus">>(
@@ -22,8 +15,10 @@ export function resolveSellerByUsername<T extends Pick<AlphaExchangeUser, "id" |
 ) {
   const normalizedUsername = username.toLowerCase().trim();
   return sellers.find((seller) => {
-    const derived = deriveSellerRouteUsername({ fullName: seller.fullName, email: seller.email, id: seller.id });
-    return derived === normalizedUsername;
+    return matchesPublicProfileUsername(
+      { fullName: seller.fullName, email: seller.email, id: seller.id },
+      normalizedUsername,
+    );
   });
 }
 

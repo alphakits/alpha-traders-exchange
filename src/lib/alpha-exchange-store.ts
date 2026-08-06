@@ -795,7 +795,7 @@ function buildPublicUserProfileDataForUser(input: {
   if (user.isProfileHidden === true && !canBypassVisibility) return null;
   if (enforceSearchVisibility && user.allowProfileSearch === false && !canBypassVisibility) return null;
 
-  const username = deriveSellerRouteUsername({ fullName: user.fullName, email: user.email, id: user.id });
+  const username = derivePublicProfileUsername({ fullName: user.fullName, email: user.email, id: user.id });
   const trustSnapshot = isTrustEligibleSeller(user) ? computeSellerReputationSnapshot(db, user.id) : null;
   const buyerRequests = db.purchaseRequests.filter((request) => request.buyerId === user.id);
   const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === user.id);
@@ -873,11 +873,12 @@ export async function getPublicUserProfileById(input: {
   });
 }
 
-function deriveSellerRouteUsername(input: { fullName?: string; email?: string; id?: string }) {
-  const base = (input.fullName || input.email || input.id || "seller")
+function normalizeSellerRouteUsername(value: string | undefined) {
+  const base = (value || "seller")
     .toString()
     .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .split("@")[0];
 
   const normalized = base
     .normalize("NFKD")
@@ -889,7 +890,19 @@ function deriveSellerRouteUsername(input: { fullName?: string; email?: string; i
 }
 
 export function derivePublicProfileUsername(input: { fullName?: string; email?: string; id?: string }) {
-  return deriveSellerRouteUsername(input);
+  return normalizeSellerRouteUsername(input.email || input.fullName || input.id);
+}
+
+export function matchesPublicProfileUsername(
+  input: { fullName?: string; email?: string; id?: string },
+  username: string,
+) {
+  const normalizedUsername = normalizeSellerRouteUsername(username);
+  const aliases = new Set([
+    derivePublicProfileUsername(input),
+    normalizeSellerRouteUsername(input.fullName || input.email || input.id),
+  ]);
+  return aliases.has(normalizedUsername);
 }
 
 function isTrustEligibleSeller(user: AlphaExchangeUser) {
@@ -1073,7 +1086,7 @@ export async function getSellerProfileRouteData(input: {
   const normalizedSellerId = String(input.sellerId ?? "").trim();
   const seller = normalizedSellerId
     ? db.users.find((user) => user.id === normalizedSellerId)
-    : db.users.find((user) => deriveSellerRouteUsername({ fullName: user.fullName, email: user.email, id: user.id }) === normalizedUsername);
+    : db.users.find((user) => matchesPublicProfileUsername({ fullName: user.fullName, email: user.email, id: user.id }, normalizedUsername));
   if (!seller || (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended")) {
     return null;
   }
@@ -1113,7 +1126,7 @@ export async function getPublicUserProfileRouteData(input: {
 }) {
   const db = await readDb();
   const normalizedUsername = input.username.trim().toLowerCase();
-  const user = db.users.find((row) => deriveSellerRouteUsername({ fullName: row.fullName, email: row.email, id: row.id }) === normalizedUsername);
+  const user = db.users.find((row) => matchesPublicProfileUsername({ fullName: row.fullName, email: row.email, id: row.id }, normalizedUsername));
   if (!user) return null;
   return buildPublicUserProfileDataForUser({
     db,
@@ -4031,15 +4044,19 @@ function isListingCreateProfilingEnabled() {
 }
 
 function isDevelopmentTesterSeedEnabled() {
-  return process.env.NODE_ENV !== "production";
+  return process.env.NODE_ENV !== "production"
+    && process.env.ALPHA_EXCHANGE_SEED_DEVELOPMENT_TESTER_LISTING === "1";
 }
 
 function isTesterSellerAccount(user: AlphaExchangeUser) {
   return user.email.trim().toLowerCase() === "marksally11@yahoo.com";
 }
 
-function hasTesterMarketplaceListing(db: AlphaExchangeDb, sellerId: string) {
-  return db.marketplaceListings.some((listing) => listing.sellerId === sellerId && listing.status === "active");
+function findTesterMarketplaceListing(db: AlphaExchangeDb, sellerId: string) {
+  return db.marketplaceListings.find(
+    (listing) => listing.sellerId === sellerId
+      && (listing.status === "active" || isListingPendingApproval(listing)),
+  );
 }
 
 function refreshTesterMarketplaceListingSellerDisplayName(db: AlphaExchangeDb, testerSeller: AlphaExchangeUser) {
@@ -4058,12 +4075,23 @@ async function ensureDevelopmentTesterMarketplaceListing(db: AlphaExchangeDb) {
   const testerSeller = db.users.find((user) => isTesterSellerAccount(user) && user.sellerStatus === "approved_seller");
   if (!testerSeller) return;
   const refreshed = refreshTesterMarketplaceListingSellerDisplayName(db, testerSeller);
-  if (hasTesterMarketplaceListing(db, testerSeller.id)) {
-    if (refreshed) await writeDb(db);
+  const owner = db.users.find((user) => hasRole(user, "owner"));
+  const existingListing = findTesterMarketplaceListing(db, testerSeller.id);
+  if (existingListing) {
+    if (isListingPendingApproval(existingListing) && owner) {
+      await reviewMarketplaceListingByOwner({
+        listingId: existingListing.id,
+        ownerUserId: owner.id,
+        decision: "approve",
+        reason: "Development tester listing.",
+      });
+    } else if (refreshed) {
+      await writeDb(db);
+    }
     return;
   }
 
-  await createMarketplaceListing({
+  const listing = await createMarketplaceListing({
     sellerId: testerSeller.id,
     sellerDisplayName: testerSeller.fullName,
     availableAmount: "250",
@@ -4078,8 +4106,17 @@ async function ensureDevelopmentTesterMarketplaceListing(db: AlphaExchangeDb) {
     notes: "Development tester listing. Do not buy.",
     sellerDescription: "Development tester listing. Do not buy.",
     responseTime: "5 min",
+    acceptedCommissionPolicy: true,
     actorUserId: testerSeller.id,
   });
+  if (owner) {
+    await reviewMarketplaceListingByOwner({
+      listingId: listing.id,
+      ownerUserId: owner.id,
+      decision: "approve",
+      reason: "Development tester listing.",
+    });
+  }
 }
 function createStoreProfileLogger(scope: string) {
   const startedAt = Date.now();
@@ -5514,9 +5551,7 @@ export async function getAccountProfileData(userId: string): Promise<{
   const user = db.users.find((row) => row.id === userId);
   if (!user) throw new Error("User not found.");
 
-  const username = user.email.includes("@")
-    ? user.email.split("@")[0].trim().toLowerCase()
-    : user.fullName.trim().toLowerCase().replace(/\s+/g, "");
+  const username = derivePublicProfileUsername({ fullName: user.fullName, email: user.email, id: user.id });
   const lastLogin = db.authSessions
     .filter((session) => session.userId === user.id)
     .map((session) => new Date(session.createdAt).getTime())

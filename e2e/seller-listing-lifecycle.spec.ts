@@ -519,6 +519,15 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   expect(buyerNotificationsAfterFirstTrade.some((item) => item.title === "Trade completed")).toBeTruthy();
   expect(buyerNotificationsAfterFirstTrade.some((item) => item.title === "Review available")).toBeTruthy();
 
+  response = await buyer.page.request.post(`/api/alpha-exchange/purchase-requests/${firstRequest.purchase.id}/review`, {
+    data: {
+      mode: "buyer_review",
+      rating: 5,
+      comment: "Lifecycle verification completed successfully.",
+    },
+  });
+  expect(response.ok()).toBeTruthy();
+
   response = await seller.page.request.get("/api/alpha-exchange/my-listings");
   const payload = (await response.json()) as { listings: Array<{ id: string; status: string; availableAmount: string }> };
   const reopenedListing = payload.listings.find((listing) => listing.id === primaryListing.id);
@@ -696,8 +705,12 @@ test("admin dashboard listing overrides update state, notifications, and audit h
   ]);
   await expect(page.getByText("Listing expiration extended.")).toBeVisible({ timeout: 10_000 });
 
+  await page.reload();
+  await page.getByText("Marketplace Listings", { exact: true }).click();
   const closeRow = page.locator("tr").filter({ hasText: "111" }).first();
-  await runWithDialogs(page, () => closeRow.getByRole("button", { name: "Close" }).click(), [
+  const closeButton = closeRow.getByRole("button", { name: "Close" });
+  await expect(closeButton).toBeVisible({ timeout: 30_000 });
+  await runWithDialogs(page, () => closeButton.click(), [
     { type: "confirm" },
     { type: "prompt", value: "Closing listing for launch QA" },
   ]);

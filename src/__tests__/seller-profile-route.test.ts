@@ -21,4 +21,17 @@ describe("seller profile route helpers", () => {
 
     expect(seller?.id).toBe("seller-1");
   });
+
+  it("preserves the email-derived canonical username while resolving legacy full-name routes", () => {
+    const identity = {
+      id: "seller-2",
+      fullName: "Mark",
+      email: "marksally11@yahoo.com",
+      sellerStatus: "approved_seller",
+    };
+
+    expect(deriveSellerRouteUsername(identity)).toBe("marksally11");
+    expect(resolveSellerByUsername([identity], "marksally11")?.id).toBe(identity.id);
+    expect(resolveSellerByUsername([identity], "mark")?.id).toBe(identity.id);
+  });
 });
