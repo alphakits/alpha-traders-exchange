@@ -107,10 +107,27 @@ export async function sendMarketplaceEmail(input: MarketplaceEmailPayload & { to
     });
 
     if (!response.ok) {
-      return { ok: false as const, reason: "resend_request_failed" as const };
+      const responseBody = await response.text();
+      let providerMessage = responseBody;
+      try {
+        const parsed = JSON.parse(responseBody) as { message?: unknown };
+        providerMessage = typeof parsed.message === "string" ? parsed.message : responseBody;
+      } catch {
+        // Keep the raw response when Resend does not return JSON.
+      }
+      return {
+        ok: false as const,
+        reason: "resend_request_failed" as const,
+        providerStatus: response.status,
+        providerMessage: providerMessage.slice(0, 500),
+      };
     }
     return { ok: true as const };
-  } catch {
-    return { ok: false as const, reason: "resend_network_failed" as const };
+  } catch (error) {
+    return {
+      ok: false as const,
+      reason: "resend_network_failed" as const,
+      providerMessage: error instanceof Error ? error.message.slice(0, 500) : "Unknown network error",
+    };
   }
 }

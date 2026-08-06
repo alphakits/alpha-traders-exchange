@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { AlphaExchangeNotification, MarketplaceListing, PurchaseRequest, TradeChatMessage, TradeEvidenceFile, TradeTimelineEntry, UserRole } from "@/types/alpha-exchange";
 import { formatTradeId } from "@/lib/format-id";
+import { canBuyerCancelTrade, canSellerDeclineTrade } from "@/lib/trade-room-actions";
 import { readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
 import { isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 
@@ -47,7 +48,7 @@ type ActorSession = {
 
 type StepId = "request" | "accepted" | "payment" | "released" | "completed";
 
-type PrimaryStatus = "accepted" | "payment_sent" | "funds_received" | "usdt_release_pending" | "usdt_sent" | "completed";
+type PrimaryStatus = "accepted" | "declined" | "payment_sent" | "funds_received" | "usdt_release_pending" | "usdt_sent" | "completed";
 
 type StatusPrimaryAction = {
   label: string;
@@ -567,6 +568,7 @@ function buildOptimisticRoom(room: TradeRoomData, nextStatus: PrimaryStatus, act
   applyOptimisticStatusFields(nextRequest, nextStatus, now);
   const timelineByStatus: Record<PrimaryStatus, Pick<TradeTimelineEntry, "type" | "message">> = {
     accepted: { type: "request_accepted", message: "Seller accepted request" },
+    declined: { type: "request_declined", message: "Seller declined request" },
     payment_sent: { type: "payment_sent", message: "Buyer marked payment sent" },
     funds_received: { type: "seller_confirmed_funds", message: "Seller confirmed funds received" },
     usdt_release_pending: { type: "usdt_release_started", message: "Seller started USDT release" },
@@ -1401,7 +1403,7 @@ export function TradeRoomPage({
   }, [disputeReason, fetchRoom, isAr, request]);
 
   const handleCancelTrade = useCallback(async () => {
-    if (!request || request.status !== "pending" || cancelBusy) return;
+    if (!request || !canBuyerCancelTrade(request, actor.id) || cancelBusy) return;
     setCancelBusy(true);
     setStatusMessage(null);
     try {
@@ -1421,7 +1423,17 @@ export function TradeRoomPage({
     } finally {
       setCancelBusy(false);
     }
-  }, [cancelBusy, isAr, request, router]);
+  }, [actor.id, cancelBusy, isAr, request, router]);
+
+  const handleDeclineTrade = useCallback(async () => {
+    if (!request || !canSellerDeclineTrade(request, actor.id) || actionBusy) return;
+    await handleStatusUpdate({
+      label: isAr ? "رفض الطلب" : "Decline Request",
+      successLabel: isAr ? "تم رفض الطلب" : "Request Declined",
+      mode: "status",
+      nextStatus: "declined",
+    });
+  }, [actionBusy, actor.id, handleStatusUpdate, isAr, request]);
 
   const handleSubmitBuyerReview = useCallback(async () => {
     if (actionBusy || Boolean(actionInFlightRef.current)) {
@@ -1944,12 +1956,29 @@ export function TradeRoomPage({
                   </div>
                 ) : null}
 
-                {isActorBuyer && request.status === "pending" ? (
+                {canSellerDeclineTrade(request, actor.id) ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="w-full"
+                    disabled={actionBusy}
+                    onClick={() => void handleDeclineTrade()}
+                  >
+                    {isAr ? "رفض الطلب" : "Decline Request"}
+                  </Button>
+                ) : null}
+
+                {canBuyerCancelTrade(request, actor.id) ? (
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                     <p className="text-sm text-[#9CA3AF]">
-                      {isAr
-                        ? "لم يقبل البائع الطلب بعد. يمكنك إلغاء الطلب إذا كنت لا تريد الانتظار."
-                        : "The seller has not accepted yet. You can cancel if you no longer wish to wait."}
+                      {request.status === "pending"
+                        ? (isAr
+                            ? "لم يقبل البائع الطلب بعد. يمكنك إلغاء الطلب إذا كنت لا تريد الانتظار."
+                            : "The seller has not accepted yet. You can cancel if you no longer wish to wait.")
+                        : (isAr
+                            ? "يمكنك إلغاء الصفقة قبل إرسال إثبات الدفع."
+                            : "You can cancel this trade before submitting payment evidence.")}
                     </p>
                     <Button
                       type="button"
@@ -1959,7 +1988,11 @@ export function TradeRoomPage({
                       disabled={cancelBusy}
                       onClick={() => void handleCancelTrade()}
                     >
-                      {cancelBusy ? (isAr ? "جاري الإلغاء..." : "Cancelling...") : (isAr ? "إلغاء الطلب" : "Cancel Request")}
+                      {cancelBusy
+                        ? (isAr ? "جاري الإلغاء..." : "Cancelling...")
+                        : request.status === "pending"
+                          ? (isAr ? "إلغاء الطلب" : "Cancel Request")
+                          : (isAr ? "إلغاء الصفقة" : "Cancel Trade")}
                     </Button>
                   </div>
                 ) : null}

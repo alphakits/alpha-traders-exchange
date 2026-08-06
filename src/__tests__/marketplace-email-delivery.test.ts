@@ -75,6 +75,24 @@ describe("marketplace email delivery", () => {
     await expect(sendMarketplaceEmail({ ...payload, to: "mark@example.com" })).resolves.toEqual({
       ok: false,
       reason: "resend_network_failed",
+      providerMessage: "network unavailable",
+    });
+  });
+
+  it("surfaces Resend rejection details for production diagnostics", async () => {
+    vi.stubEnv("RESEND_API_KEY", "invalid-api-key");
+    vi.stubEnv("EMAIL_FROM", "Alpha Exchange <notifications@example.com>");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: vi.fn().mockResolvedValue(JSON.stringify({ message: "API key is invalid" })),
+    }));
+
+    await expect(sendMarketplaceEmail({ ...payload, to: "mark@example.com" })).resolves.toEqual({
+      ok: false,
+      reason: "resend_request_failed",
+      providerStatus: 400,
+      providerMessage: "API key is invalid",
     });
   });
 });
