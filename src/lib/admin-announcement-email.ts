@@ -57,9 +57,27 @@ export function isRetryableAnnouncementDeliveryFailure(input: {
 }) {
   return input.reason === "resend_not_configured"
     || input.reason === "resend_network_failed"
+    || input.reason === "resend_timeout"
     || input.providerStatus === 429
     || (typeof input.providerStatus === "number" && input.providerStatus >= 500);
 }
+
+export function parseRetryAfterMs(value: string | null, now = Date.now()) {
+  if (!value?.trim()) return 0;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1_000);
+  const retryAt = Date.parse(value);
+  return Number.isFinite(retryAt) ? Math.max(0, retryAt - now) : 0;
+}
+
+function delay(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+const RESEND_MAX_ATTEMPTS = 2;
+const RESEND_RETRY_BASE_MS = 750;
+const RESEND_REQUEST_TIMEOUT_MS = 5_000;
+const RESEND_MAX_INLINE_RETRY_DELAY_MS = 2_000;
 
 function renderInlineFormatting(value: string) {
   const links: string[] = [];
@@ -182,8 +200,8 @@ export function buildAdminAnnouncementEmail(input: AdminAnnouncementEmailContent
   };
 }
 
-export async function sendAdminAnnouncementEmail(input: AdminAnnouncementEmailContent & {
-  to: string;
+export async function sendAdminAnnouncementBatch(input: AdminAnnouncementEmailContent & {
+  recipients: Array<{ userId: string; email: string }>;
   idempotencyKey: string;
 }) {
   const apiKey = process.env.RESEND_API_KEY?.trim() ?? "";
@@ -191,34 +209,152 @@ export async function sendAdminAnnouncementEmail(input: AdminAnnouncementEmailCo
   if (!apiKey || !from) {
     return { ok: false as const, reason: "resend_not_configured" as const };
   }
+  if (input.recipients.length === 0 || input.recipients.length > 100) {
+    throw new Error("Announcement batches must contain between 1 and 100 recipients.");
+  }
 
   const email = buildAdminAnnouncementEmail(input);
-  try {
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "Idempotency-Key": input.idempotencyKey,
-      },
-      body: JSON.stringify({
-        from,
-        to: [input.to],
-        subject: email.subject,
-        html: email.html,
-        text: email.text,
-      }),
-    });
+  let lastRetryAfterMs = 0;
+  for (let attempt = 1; attempt <= RESEND_MAX_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), RESEND_REQUEST_TIMEOUT_MS);
+    try {
+      const response = await fetch("https://api.resend.com/emails/batch", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "Idempotency-Key": input.idempotencyKey,
+        },
+        body: JSON.stringify(input.recipients.map((recipient) => ({
+          from,
+          to: [recipient.email],
+          subject: email.subject,
+          html: email.html,
+          text: email.text,
+          tags: [
+            { name: "campaign", value: input.idempotencyKey.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 256) },
+          ],
+        }))),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
 
-    if (!response.ok) {
-      return {
-        ok: false as const,
-        reason: "resend_request_failed" as const,
-        providerStatus: response.status,
-      };
+      if (response.ok) {
+        let responseBody: { data?: Array<{ id?: unknown }> };
+        try {
+          responseBody = await response.json() as { data?: Array<{ id?: unknown }> };
+        } catch {
+          return {
+            ok: false as const,
+            reason: "resend_invalid_batch_response" as const,
+            attempts: attempt,
+            retryCount: attempt - 1,
+            retryAfterMs: lastRetryAfterMs,
+            lastAttemptAt: new Date().toISOString(),
+          };
+        }
+        if (
+          !Array.isArray(responseBody.data)
+          || responseBody.data.length !== input.recipients.length
+          || responseBody.data.some((delivery) => typeof delivery.id !== "string" || !delivery.id)
+        ) {
+          return {
+            ok: false as const,
+            reason: "resend_invalid_batch_response" as const,
+            attempts: attempt,
+            retryCount: attempt - 1,
+            retryAfterMs: lastRetryAfterMs,
+            lastAttemptAt: new Date().toISOString(),
+          };
+        }
+        return {
+          ok: true as const,
+          deliveries: input.recipients.map((recipient, index) => ({
+            userId: recipient.userId,
+            providerEmailId: typeof responseBody.data?.[index]?.id === "string"
+              ? responseBody.data[index].id
+              : undefined,
+          })),
+          attempts: attempt,
+          retryCount: attempt - 1,
+          ...(lastRetryAfterMs > 0 ? { retryAfterMs: lastRetryAfterMs } : {}),
+          lastAttemptAt: new Date().toISOString(),
+        };
+      }
+
+      const retryAfterMs = parseRetryAfterMs(response.headers.get("Retry-After"));
+      const retryable = response.status === 429 || response.status >= 500;
+      if (!retryable || attempt === RESEND_MAX_ATTEMPTS) {
+        return {
+          ok: false as const,
+          reason: "resend_request_failed" as const,
+          providerStatus: response.status,
+          attempts: attempt,
+          retryCount: attempt - 1,
+          retryAfterMs,
+          lastAttemptAt: new Date().toISOString(),
+        };
+      }
+
+      lastRetryAfterMs = retryAfterMs;
+      const exponentialBackoffMs = RESEND_RETRY_BASE_MS * (2 ** (attempt - 1));
+      if (Math.max(exponentialBackoffMs, lastRetryAfterMs) > RESEND_MAX_INLINE_RETRY_DELAY_MS) {
+        return {
+          ok: false as const,
+          reason: "resend_request_failed" as const,
+          providerStatus: response.status,
+          attempts: attempt,
+          retryCount: attempt - 1,
+          retryAfterMs,
+          lastAttemptAt: new Date().toISOString(),
+        };
+      }
+
+    } catch (error) {
+      clearTimeout(timeout);
+      const timedOut = error instanceof Error && error.name === "AbortError";
+      if (attempt === RESEND_MAX_ATTEMPTS) {
+        return {
+          ok: false as const,
+          reason: timedOut ? "resend_timeout" as const : "resend_network_failed" as const,
+          attempts: attempt,
+          retryCount: attempt - 1,
+          retryAfterMs: lastRetryAfterMs,
+          lastAttemptAt: new Date().toISOString(),
+        };
+      }
     }
-    return { ok: true as const };
-  } catch {
-    return { ok: false as const, reason: "resend_network_failed" as const };
+
+    const exponentialBackoffMs = RESEND_RETRY_BASE_MS * (2 ** (attempt - 1));
+    await delay(Math.max(exponentialBackoffMs, lastRetryAfterMs));
   }
+
+  return {
+    ok: false as const,
+    reason: "resend_network_failed" as const,
+    attempts: RESEND_MAX_ATTEMPTS,
+    retryCount: RESEND_MAX_ATTEMPTS - 1,
+    retryAfterMs: lastRetryAfterMs,
+    lastAttemptAt: new Date().toISOString(),
+  };
+}
+
+export async function sendAdminAnnouncementEmail(input: AdminAnnouncementEmailContent & {
+  to: string;
+  idempotencyKey: string;
+}) {
+  const result = await sendAdminAnnouncementBatch({
+    ...input,
+    recipients: [{ userId: "test-recipient", email: input.to }],
+  });
+  if (!result.ok) return result;
+  return {
+    ok: true as const,
+    attempts: result.attempts,
+    retryCount: result.retryCount,
+    retryAfterMs: result.retryAfterMs,
+    lastAttemptAt: result.lastAttemptAt,
+    providerEmailId: result.deliveries[0]?.providerEmailId,
+  };
 }

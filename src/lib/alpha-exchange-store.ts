@@ -14,6 +14,7 @@ import { publishRealtimeEvent } from "@/lib/realtime";
 import { sendMarketplaceEmail, type MarketplaceEmailEvent } from "@/lib/marketplace-email-delivery";
 import {
   isRetryableAnnouncementDeliveryFailure,
+  sendAdminAnnouncementBatch,
   sendAdminAnnouncementEmail,
   validateAdminAnnouncementContent,
   type AdminAnnouncementEmailContent,
@@ -38,6 +39,7 @@ import {
 import type {
   AlphaExchangeActivityLogEntry,
   AdminAnnouncementAudience,
+  AdminAnnouncementRecipient,
   AdminAnnouncementRun,
   AdminAnnouncementStatus,
   BetaAnnouncement,
@@ -1772,10 +1774,18 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
     adminAnnouncementRuns: (db.adminAnnouncementRuns ?? []).map((run) => ({
       ...run,
       requestKey: String(run.requestKey ?? run.id),
-      recipients: Array.isArray(run.recipients) ? run.recipients : [],
+      recipients: Array.isArray(run.recipients)
+        ? run.recipients.map((recipient, index) => ({
+          ...recipient,
+          batchIndex: Number.isInteger(recipient.batchIndex)
+            ? recipient.batchIndex
+            : Math.floor(index / ANNOUNCEMENT_BATCH_SIZE),
+        }))
+        : [],
       recipientCount: Math.max(0, Number(run.recipientCount ?? 0)),
       successCount: Math.max(0, Number(run.successCount ?? 0)),
       failureCount: Math.max(0, Number(run.failureCount ?? 0)),
+      retryCount: Math.max(0, Number(run.retryCount ?? 0)),
     })),
     sellerReviews: (db.sellerReviews ?? []).map((review) => ({
       ...review,
@@ -8256,7 +8266,12 @@ export async function createAdminAnnouncementRun(input: {
     recipientCount: recipients.length,
     successCount: 0,
     failureCount: 0,
-    recipients: recipients.map((recipient) => ({ ...recipient, status: "pending" })),
+    retryCount: 0,
+    recipients: recipients.map((recipient, index) => ({
+      ...recipient,
+      status: "pending",
+      batchIndex: Math.floor(index / ANNOUNCEMENT_BATCH_SIZE),
+    })),
     createdByUserId: input.adminUserId,
     startedAt: timestamp,
     createdAt: timestamp,
@@ -8278,9 +8293,22 @@ export async function createAdminAnnouncementRun(input: {
   return run;
 }
 
-const ANNOUNCEMENT_BATCH_SIZE = 20;
-const ANNOUNCEMENT_CONCURRENCY = 5;
+const ANNOUNCEMENT_BATCH_SIZE = 50;
 const ANNOUNCEMENT_LOCK_TIMEOUT_MS = 5 * 60_000;
+const ANNOUNCEMENT_AUTO_RESUME_DELAY_MS = 5_000;
+const ANNOUNCEMENT_MAX_RECIPIENT_ATTEMPTS = 15;
+
+export function selectPendingAdminAnnouncementBatch(recipients: AdminAnnouncementRecipient[]) {
+  const firstPendingRecipient = recipients.find((recipient) => recipient.status === "pending");
+  if (!firstPendingRecipient) return [];
+  return recipients.filter((recipient) => (
+    recipient.status === "pending" && recipient.batchIndex === firstPendingRecipient.batchIndex
+  )).slice(0, ANNOUNCEMENT_BATCH_SIZE);
+}
+
+export function getAdminAnnouncementProviderBatchKey(runId: string, batchIndex: number) {
+  return `${runId}-batch-${batchIndex}`.slice(0, 256);
+}
 
 export async function deliverAdminAnnouncementBatch(input: {
   adminUserId: string;
@@ -8292,18 +8320,24 @@ export async function deliverAdminAnnouncementBatch(input: {
   if (runIndex === -1) throw new Error("Announcement delivery run not found.");
   const current = db.adminAnnouncementRuns[runIndex];
   if (current.finishedAt) return current;
+  if (current.nextRetryAt) {
+    const retryDelayMs = new Date(current.nextRetryAt).getTime() - Date.now();
+    if (retryDelayMs > 0) return current;
+  }
 
   const lockedAt = current.batchLockedAt ? new Date(current.batchLockedAt).getTime() : 0;
   if (lockedAt && Number.isFinite(lockedAt) && Date.now() - lockedAt < ANNOUNCEMENT_LOCK_TIMEOUT_MS) {
     throw new Error("An announcement batch is already being delivered.");
   }
 
-  const batch = current.recipients.filter((recipient) => recipient.status === "pending").slice(0, ANNOUNCEMENT_BATCH_SIZE);
+  const batch = selectPendingAdminAnnouncementBatch(current.recipients);
+  const firstPendingRecipient = batch[0];
   if (batch.length === 0) throw new Error("Announcement has no pending recipients.");
   const batchLockId = randomUUID();
   current.status = "sending";
   current.batchLockedAt = nowIso();
   current.batchLockId = batchLockId;
+  current.nextRetryAt = undefined;
   current.updatedAt = current.batchLockedAt;
   const repository = await getAlphaExchangeRepository();
   const lockAcquired = await repository.acquireAdminAnnouncementBatchLock({
@@ -8313,25 +8347,16 @@ export async function deliverAdminAnnouncementBatch(input: {
   if (!lockAcquired) throw new Error("An announcement batch is already being delivered.");
   dbCache = null;
 
-  const results: Array<{
-    userId: string;
-    result: Awaited<ReturnType<typeof sendAdminAnnouncementEmail>>;
-  }> = [];
-  for (let index = 0; index < batch.length; index += ANNOUNCEMENT_CONCURRENCY) {
-    const group = batch.slice(index, index + ANNOUNCEMENT_CONCURRENCY);
-    results.push(...await Promise.all(group.map(async (recipient) => ({
-      userId: recipient.userId,
-      result: await sendAdminAnnouncementEmail({
-        to: recipient.email,
-        subject: current.subject,
-        title: current.title,
-        content: current.content,
-        ctaText: current.ctaText,
-        ctaUrl: current.ctaUrl,
-        idempotencyKey: `${current.id}-${recipient.userId}`,
-      }),
-    }))));
-  }
+  const providerBatchKey = getAdminAnnouncementProviderBatchKey(current.id, firstPendingRecipient?.batchIndex ?? 0);
+  const batchResult = await sendAdminAnnouncementBatch({
+    recipients: batch.map((recipient) => ({ userId: recipient.userId, email: recipient.email })),
+    subject: current.subject,
+    title: current.title,
+    content: current.content,
+    ctaText: current.ctaText,
+    ctaUrl: current.ctaUrl,
+    idempotencyKey: providerBatchKey,
+  });
 
   db = await readDb({ bypassCache: true });
   requireAnnouncementAdmin(db, input.adminUserId);
@@ -8343,32 +8368,75 @@ export async function deliverAdminAnnouncementBatch(input: {
   }
   const attemptedAt = nowIso();
   let hasRetryableFailure = false;
-  for (const { userId, result } of results) {
-    const recipient = run.recipients.find((candidate) => candidate.userId === userId);
+  let requiresManualConfiguration = false;
+  let automaticRetryDelayMs = 0;
+  const providerStatus = "providerStatus" in batchResult ? batchResult.providerStatus : undefined;
+  const retryable = !batchResult.ok && isRetryableAnnouncementDeliveryFailure({
+    reason: batchResult.reason,
+    providerStatus,
+  });
+  const providerAttempts = "attempts" in batchResult && typeof batchResult.attempts === "number"
+    ? batchResult.attempts
+    : 1;
+  const providerRetryCount = "retryCount" in batchResult && typeof batchResult.retryCount === "number"
+    ? batchResult.retryCount
+    : 0;
+  const providerRetryAfterMs = "retryAfterMs" in batchResult && typeof batchResult.retryAfterMs === "number"
+    ? batchResult.retryAfterMs
+    : 0;
+  for (const attemptedRecipient of batch) {
+    const recipient = run.recipients.find((candidate) => candidate.userId === attemptedRecipient.userId);
     if (!recipient) continue;
     recipient.attemptedAt = attemptedAt;
-    if (result.ok) {
+    const legacyFailedAttemptCount = recipient.attemptCount === undefined && recipient.failureReason ? 1 : 0;
+    const legacyRetryCount = recipient.retryCount === undefined && recipient.failureReason ? 1 : 0;
+    recipient.attemptCount = (recipient.attemptCount ?? legacyFailedAttemptCount) + providerAttempts;
+    recipient.retryCount = Math.max(
+      (recipient.retryCount ?? legacyRetryCount) + providerRetryCount,
+      recipient.attemptCount - 1,
+    );
+    recipient.lastRetryAfterMs = providerRetryAfterMs > 0
+      ? providerRetryAfterMs
+      : recipient.lastRetryAfterMs;
+    recipient.lastBatchKey = providerBatchKey;
+    if (batchResult.ok) {
       recipient.status = "sent";
       recipient.failureReason = undefined;
       recipient.providerStatus = undefined;
+      recipient.providerEmailId = batchResult.deliveries.find((delivery) => delivery.userId === recipient.userId)?.providerEmailId;
       continue;
     }
-    const providerStatus = "providerStatus" in result ? result.providerStatus : undefined;
-    const retryable = isRetryableAnnouncementDeliveryFailure({
-      reason: result.reason,
-      providerStatus,
-    });
-    recipient.status = retryable ? "pending" : "failed";
-    recipient.failureReason = result.reason;
+    const retryBudgetRemaining = batchResult.reason === "resend_not_configured"
+      || (recipient.attemptCount ?? 0) < ANNOUNCEMENT_MAX_RECIPIENT_ATTEMPTS;
+    const willRetry = retryable && retryBudgetRemaining;
+    recipient.status = willRetry ? "pending" : "failed";
+    recipient.failureReason = retryable && !retryBudgetRemaining
+      ? `${batchResult.reason}_retry_exhausted`
+      : batchResult.reason;
     recipient.providerStatus = providerStatus;
-    hasRetryableFailure ||= retryable;
+    hasRetryableFailure ||= willRetry;
+    requiresManualConfiguration ||= batchResult.reason === "resend_not_configured";
+    if (willRetry && batchResult.reason !== "resend_not_configured") {
+      automaticRetryDelayMs = Math.max(
+        automaticRetryDelayMs,
+        providerRetryAfterMs,
+        ANNOUNCEMENT_AUTO_RESUME_DELAY_MS,
+      );
+    }
   }
   run.successCount = run.recipients.filter((recipient) => recipient.status === "sent").length;
   run.failureCount = run.recipients.filter((recipient) => recipient.status === "failed").length;
+  run.retryCount = run.recipients.reduce((total, recipient) => total + (recipient.retryCount ?? 0), 0);
+  run.lastProviderRequestAt = "lastAttemptAt" in batchResult
+    ? batchResult.lastAttemptAt
+    : attemptedAt;
   run.batchLockedAt = undefined;
   run.batchLockId = undefined;
   run.updatedAt = attemptedAt;
   const hasPending = run.recipients.some((recipient) => recipient.status === "pending");
+  run.nextRetryAt = hasRetryableFailure && !requiresManualConfiguration
+    ? new Date(Date.now() + automaticRetryDelayMs).toISOString()
+    : undefined;
   if (!hasPending) {
     const status: AdminAnnouncementStatus = run.failureCount === 0
       ? "completed"
@@ -8395,12 +8463,13 @@ export async function deliverAdminAnnouncementBatch(input: {
         finishedAt: run.finishedAt,
         successCount: run.successCount,
         failureCount: run.failureCount,
+        retryCount: run.retryCount,
       },
     });
     await writeDb(auditDb, { selectedTables: AUDIT_LOG_ONLY_TABLES });
   }
-  if (hasRetryableFailure) {
-    throw new Error("Announcement delivery paused after a temporary email provider failure. Resume it after the provider is available.");
+  if (requiresManualConfiguration) {
+    throw new Error("Announcement delivery paused because Resend email configuration is unavailable.");
   }
   return run;
 }

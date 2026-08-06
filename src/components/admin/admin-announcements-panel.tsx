@@ -41,6 +41,8 @@ type RunSummary = {
   recipientCount: number;
   successCount: number;
   failureCount: number;
+  retryCount: number;
+  nextRetryAt?: string;
   startedAt: string;
   finishedAt?: string;
   createdAt: string;
@@ -62,6 +64,10 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return payload;
 }
 
+function wait(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
 export function AdminAnnouncementsPanel() {
   const [audience, setAudience] = useState<AdminAnnouncementAudience>("all_verified_users");
   const [subject, setSubject] = useState(DEFAULT_SUBJECT);
@@ -77,7 +83,7 @@ export function AdminAnnouncementsPanel() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [testEmail, setTestEmail] = useState("");
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [progress, setProgress] = useState<{ sent: number; failed: number; total: number } | null>(null);
+  const [progress, setProgress] = useState<{ sent: number; failed: number; retries: number; total: number } | null>(null);
   const contentRef = useRef<HTMLTextAreaElement>(null);
   const requestKeyRef = useRef<string | null>(null);
 
@@ -136,15 +142,21 @@ export function AdminAnnouncementsPanel() {
           recipientCount: number;
           successCount: number;
           failureCount: number;
+          retryCount: number;
+          nextRetryAt?: string;
           finishedAt?: string;
         };
       }>(response);
       setProgress({
         sent: payload.run.successCount,
         failed: payload.run.failureCount,
+        retries: payload.run.retryCount,
         total: payload.run.recipientCount,
       });
       finished = Boolean(payload.run.finishedAt);
+      if (!finished && payload.run.nextRetryAt) {
+        await wait(Math.max(0, new Date(payload.run.nextRetryAt).getTime() - Date.now()));
+      }
       if (finished) {
         const failures = payload.run.failureCount;
         setMessage({
@@ -162,7 +174,7 @@ export function AdminAnnouncementsPanel() {
     setConfirmOpen(false);
     setSending(true);
     setMessage(null);
-    setProgress({ sent: 0, failed: 0, total: recipientCount });
+    setProgress({ sent: 0, failed: 0, retries: 0, total: recipientCount });
     try {
       const requestKey = requestKeyRef.current ?? crypto.randomUUID();
       requestKeyRef.current = requestKey;
@@ -328,7 +340,7 @@ export function AdminAnnouncementsPanel() {
             {progress ? (
               <div className="space-y-2" aria-live="polite">
                 <div className="flex justify-between text-xs text-[#9CA3AF]">
-                  <span>{progress.sent} sent · {progress.failed} failed</span>
+                  <span>{progress.sent} sent · {progress.failed} failed · {progress.retries} retries</span>
                   <span>{Math.min(progress.total, progress.sent + progress.failed)} / {progress.total}</span>
                 </div>
                 <div className="h-2 overflow-hidden rounded-full bg-white/10">
@@ -395,6 +407,7 @@ export function AdminAnnouncementsPanel() {
                     <span className="rounded-full border border-white/10 px-2.5 py-1 text-[#D1D5DB]">{run.status.replaceAll("_", " ")}</span>
                     <span className="text-emerald-300">{run.successCount} sent</span>
                     <span className={run.failureCount ? "text-red-300" : "text-[#6B7280]"}>{run.failureCount} failed</span>
+                    <span className="text-[#D6B84C]">{run.retryCount ?? 0} retries</span>
                     {(run.status === "queued" || run.status === "sending") ? (
                       <Button type="button" size="sm" variant="secondary" disabled={sending} onClick={() => void resumeRun(run.id)}>
                         <Play className="h-3.5 w-3.5" />

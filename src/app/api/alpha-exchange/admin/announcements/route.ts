@@ -18,6 +18,8 @@ function toPublicRun(run: AdminAnnouncementRun) {
     recipientCount: run.recipientCount,
     successCount: run.successCount,
     failureCount: run.failureCount,
+    retryCount: run.retryCount,
+    nextRetryAt: run.nextRetryAt,
     startedAt: run.startedAt,
     finishedAt: run.finishedAt,
     createdAt: run.createdAt,

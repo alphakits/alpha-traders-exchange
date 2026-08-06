@@ -632,7 +632,13 @@ export interface AdminAnnouncementRecipient {
   email: string;
   name: string;
   status: AdminAnnouncementRecipientStatus;
+  batchIndex: number;
   attemptedAt?: string;
+  attemptCount?: number;
+  retryCount?: number;
+  lastRetryAfterMs?: number;
+  lastBatchKey?: string;
+  providerEmailId?: string;
   providerStatus?: number;
   failureReason?: string;
 }
@@ -650,12 +656,15 @@ export interface AdminAnnouncementRun {
   recipientCount: number;
   successCount: number;
   failureCount: number;
+  retryCount: number;
   recipients: AdminAnnouncementRecipient[];
   createdByUserId: string;
   startedAt: string;
   finishedAt?: string;
   batchLockedAt?: string;
   batchLockId?: string;
+  lastProviderRequestAt?: string;
+  nextRetryAt?: string;
   createdAt: string;
   updatedAt: string;
 }

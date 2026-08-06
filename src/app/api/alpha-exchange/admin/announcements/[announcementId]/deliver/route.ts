@@ -32,6 +32,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
         recipientCount: run.recipientCount,
         successCount: run.successCount,
         failureCount: run.failureCount,
+        retryCount: run.retryCount,
+        nextRetryAt: run.nextRetryAt,
         finishedAt: run.finishedAt,
       },
     });
@@ -39,7 +41,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const message = error instanceof Error ? error.message : "Failed to deliver announcement batch.";
     const status = message.includes("already being delivered")
       ? 409
-      : message.includes("temporary email provider failure") || message.includes("database is offline")
+      : message.includes("configuration is unavailable") || message.includes("database is offline")
         ? 503
         : 400;
     return NextResponse.json({ error: message }, { status });

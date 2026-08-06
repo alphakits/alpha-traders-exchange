@@ -1371,7 +1371,13 @@ export class AlphaExchangeRepository {
       if (index === -1) return false;
       const existing = snapshot.adminAnnouncementRuns[index];
       const lockedAt = existing.batchLockedAt ? new Date(existing.batchLockedAt).getTime() : 0;
-      if (existing.finishedAt || (lockedAt && lockedAt >= new Date(input.staleBefore).getTime())) return false;
+      const staleBefore = new Date(input.staleBefore).getTime();
+      const anotherCampaignIsSending = snapshot.adminAnnouncementRuns.some((run) => {
+        if (run.id === input.run.id || !run.batchLockedAt) return false;
+        const otherLockedAt = new Date(run.batchLockedAt).getTime();
+        return Number.isFinite(otherLockedAt) && otherLockedAt >= staleBefore;
+      });
+      if (existing.finishedAt || anotherCampaignIsSending || (lockedAt && lockedAt >= staleBefore)) return false;
       snapshot.adminAnnouncementRuns[index] = cloneSnapshot(input.run);
       syncMemoryFallbackSnapshot(snapshot, getVersion(snapshot) + 1);
       return true;
@@ -1389,6 +1395,13 @@ export class AlphaExchangeRepository {
            and (
              payload->>'batchLockedAt' is null
              or (payload->>'batchLockedAt')::timestamptz < $2::timestamptz
+           )
+           and not exists (
+             select 1
+             from alpha_exchange.admin_announcement_runs other
+             where other.id <> $1
+               and other.payload->>'batchLockedAt' is not null
+               and (other.payload->>'batchLockedAt')::timestamptz >= $2::timestamptz
            )
          returning id`,
         [input.run.id, input.staleBefore, input.run.status, input.run.updatedAt, json(input.run)],
