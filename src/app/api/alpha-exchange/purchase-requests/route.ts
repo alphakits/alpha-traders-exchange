@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { createPurchaseRequest, getMyPurchaseRequests } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { hasRole } from "@/lib/roles";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
 import { isVerified } from "@/lib/verification-bypass";
+import { prepareTradeEventEmails } from "@/lib/marketplace-email-events";
 
 export async function GET() {
   const { user, unauthorized } = await requireApiUser();
@@ -150,6 +151,8 @@ export async function POST(request: NextRequest) {
       actorUserId: user.id,
     });
     const { request: purchase, metrics } = created;
+    const deliverTradeEmails = await prepareTradeEventEmails({ event: "new_buy_request", request: purchase });
+    after(deliverTradeEmails);
     const routeMs = Date.now() - routeStartedAt;
     const queueMs = Math.max(0, routeMs - metrics.totalMs);
     logEvent("info", {

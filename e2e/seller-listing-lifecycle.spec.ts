@@ -84,7 +84,9 @@ async function login(page: Page, email: string, password: string) {
   const loginResponse = await page.request.post("/api/auth/login", {
     data: { email, password, rememberMe: true },
   });
-  expect(loginResponse.ok()).toBeTruthy();
+  if (!loginResponse.ok()) {
+    throw new Error(`Login failed for ${email} (${loginResponse.status()}): ${await loginResponse.text()}`);
+  }
 
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
@@ -339,7 +341,9 @@ async function waitForNotificationTitles(email: string, titles: string[], timeou
 
 async function getAdminPrep(request: APIRequestContext) {
   const response = await request.get("/api/alpha-exchange/admin-prep");
-  expect(response.ok()).toBeTruthy();
+  if (!response.ok()) {
+    throw new Error(`Admin prep failed (${response.status()}): ${await response.text()}`);
+  }
   return (await response.json()) as {
     listings: Array<{ id: string; status: string; expiresAt?: string; expiredAt?: string; lastRenewedAt?: string }>;
     purchaseRequests: Array<{

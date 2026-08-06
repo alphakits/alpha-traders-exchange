@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { TradeBlockedError, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { prepareTradeEventEmails, tradeEmailEventForStatus } from "@/lib/marketplace-email-events";
 
 type RouteContext = {
   params: Promise<{ requestId: string }>;
@@ -80,7 +81,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       });
     }
 
-    const { request: updated, metrics, deferredTrustWrite } = await updatePurchaseRequestStatus({
+    const { request: updated, metrics, deferredTrustWrite, additionallyDeclinedRequests = [], statusChanged = false } = await updatePurchaseRequestStatus({
       requestId,
       actorUserId: user.id,
       actorRole: user.role,
@@ -101,6 +102,19 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
           });
         }
       });
+    }
+    // Only fire lifecycle emails when an actual state transition occurred. Idempotent
+    // no-op updates (e.g. a retried/duplicated "completed" PATCH when the trade is already
+    // review_open/completed/locked) return statusChanged=false and must NOT re-send emails.
+    const emailEvent = statusChanged ? tradeEmailEventForStatus(status) : null;
+    if (emailEvent || additionallyDeclinedRequests.length > 0) {
+      const deliveries = await Promise.all([
+        ...additionallyDeclinedRequests.map((declinedRequest) =>
+          prepareTradeEventEmails({ event: "trade_rejected", request: declinedRequest }),
+        ),
+        ...(emailEvent ? [prepareTradeEventEmails({ event: emailEvent, request: updated })] : []),
+      ]);
+      after(() => Promise.all(deliveries.map((deliverEmails) => deliverEmails())));
     }
     console.log("[patch-diag] stage=store-returned", { diagId, requestId, resultStatus: updated.status });
     if (debug && isUsdtSent) {

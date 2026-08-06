@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import {
   adminOverrideMarketplaceListing,
   deleteMarketplaceListingForSeller,
@@ -6,6 +6,7 @@ import {
   reviewMarketplaceListingByOwner,
 } from "@/lib/alpha-exchange-store";
 import { requireApiAdmin } from "@/lib/api-auth";
+import { prepareListingReviewEmails } from "@/lib/marketplace-email-events";
 
 type RouteContext = {
   params: Promise<{ listingId: string }>;
@@ -31,6 +32,14 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         decision: action,
         reason: body.reason ? String(body.reason) : undefined,
       });
+      if (action === "approve" || action === "reject") {
+        const deliverListingEmails = await prepareListingReviewEmails({
+          decision: action,
+          listing,
+          reason: body.reason ? String(body.reason) : undefined,
+        });
+        after(deliverListingEmails);
+      }
       return NextResponse.json({ listing });
     }
     if (action === "renew" || action === "extend" || action === "close" || action === "force_close") {
