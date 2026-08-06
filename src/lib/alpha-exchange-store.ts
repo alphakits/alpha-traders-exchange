@@ -1774,6 +1774,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
     adminAnnouncementRuns: (db.adminAnnouncementRuns ?? []).map((run) => ({
       ...run,
       requestKey: String(run.requestKey ?? run.id),
+      deliveryKey: String(run.deliveryKey ?? getAdminAnnouncementDeliveryKey(run)),
       recipients: Array.isArray(run.recipients)
         ? run.recipients.map((recipient, index) => ({
           ...recipient,
@@ -8257,23 +8258,29 @@ export async function createAdminAnnouncementRun(input: {
   }
 
   const timestamp = nowIso();
+  const deliveryKey = getAdminAnnouncementDeliveryKey(content);
+  const recipientLedger = createAdminAnnouncementRecipientLedger(
+    recipients,
+    db.adminAnnouncementRuns,
+    deliveryKey,
+  );
+  const priorSuccessCount = recipientLedger.filter((recipient) => recipient.status === "sent").length;
+  const alreadyComplete = priorSuccessCount === recipientLedger.length;
   const run: AdminAnnouncementRun = {
     id: `admin-announcement-${requestKey}`,
     requestKey,
+    deliveryKey,
     audience: input.audience,
     ...content,
-    status: "queued",
+    status: alreadyComplete ? "completed" : "queued",
     recipientCount: recipients.length,
-    successCount: 0,
+    successCount: priorSuccessCount,
     failureCount: 0,
     retryCount: 0,
-    recipients: recipients.map((recipient, index) => ({
-      ...recipient,
-      status: "pending",
-      batchIndex: Math.floor(index / ANNOUNCEMENT_BATCH_SIZE),
-    })),
+    recipients: recipientLedger,
     createdByUserId: input.adminUserId,
     startedAt: timestamp,
+    finishedAt: alreadyComplete ? timestamp : undefined,
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -8308,6 +8315,51 @@ export function selectPendingAdminAnnouncementBatch(recipients: AdminAnnouncemen
 
 export function getAdminAnnouncementProviderBatchKey(runId: string, batchIndex: number) {
   return `${runId}-batch-${batchIndex}`.slice(0, 256);
+}
+
+export function getAdminAnnouncementDeliveryKey(content: AdminAnnouncementEmailContent) {
+  return createHash("sha256")
+    .update(JSON.stringify({
+      subject: content.subject.trim(),
+      title: content.title.trim(),
+      content: content.content.replace(/\r\n?/g, "\n").trim(),
+      ctaText: content.ctaText.trim(),
+      ctaUrl: content.ctaUrl.trim(),
+    }))
+    .digest("hex");
+}
+
+export function createAdminAnnouncementRecipientLedger(
+  recipients: Array<{ userId: string; email: string; name: string }>,
+  previousRuns: AdminAnnouncementRun[],
+  deliveryKey: string,
+) {
+  const priorDeliveries = new Map<string, AdminAnnouncementRecipient>();
+  for (const run of previousRuns) {
+    const runDeliveryKey = run.deliveryKey || getAdminAnnouncementDeliveryKey(run);
+    if (runDeliveryKey !== deliveryKey) continue;
+    for (const recipient of run.recipients) {
+      if (recipient.status === "sent" && !priorDeliveries.has(recipient.userId)) {
+        priorDeliveries.set(recipient.userId, recipient);
+      }
+    }
+  }
+
+  return recipients.map((recipient, index): AdminAnnouncementRecipient => {
+    const priorDelivery = priorDeliveries.get(recipient.userId);
+    return {
+      ...recipient,
+      status: priorDelivery ? "sent" : "pending",
+      batchIndex: Math.floor(index / ANNOUNCEMENT_BATCH_SIZE),
+      attemptedAt: priorDelivery?.attemptedAt,
+      attemptCount: priorDelivery?.attemptCount,
+      retryCount: priorDelivery?.retryCount,
+      lastRetryAfterMs: priorDelivery?.lastRetryAfterMs,
+      lastBatchKey: priorDelivery?.lastBatchKey,
+      providerStatus: priorDelivery?.providerStatus,
+      providerEmailId: priorDelivery?.providerEmailId,
+    };
+  });
 }
 
 export async function deliverAdminAnnouncementBatch(input: {

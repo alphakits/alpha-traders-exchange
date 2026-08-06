@@ -646,6 +646,7 @@ export interface AdminAnnouncementRecipient {
 export interface AdminAnnouncementRun {
   id: string;
   requestKey: string;
+  deliveryKey: string;
   audience: AdminAnnouncementAudience;
   subject: string;
   title: string;

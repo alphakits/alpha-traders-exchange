@@ -9,11 +9,13 @@ import {
   type AdminAnnouncementEmailContent,
 } from "@/lib/admin-announcement-email";
 import {
+  createAdminAnnouncementRecipientLedger,
+  getAdminAnnouncementDeliveryKey,
   getAdminAnnouncementProviderBatchKey,
   selectAdminAnnouncementRecipients,
   selectPendingAdminAnnouncementBatch,
 } from "@/lib/alpha-exchange-store";
-import type { AdminAnnouncementRecipient, AlphaExchangeUser, UserRole } from "@/types/alpha-exchange";
+import type { AdminAnnouncementRecipient, AdminAnnouncementRun, AlphaExchangeUser, UserRole } from "@/types/alpha-exchange";
 
 const content: AdminAnnouncementEmailContent = {
   subject: "Alpha Exchange is live",
@@ -297,6 +299,33 @@ describe("admin announcement audiences", () => {
       expect(getAdminAnnouncementProviderBatchKey("campaign-1", 0)).toBe("campaign-1-batch-0");
       expect(getAdminAnnouncementProviderBatchKey("campaign-1", 0)).toBe("campaign-1-batch-0");
       expect(getAdminAnnouncementProviderBatchKey("campaign-1", 1)).toBe("campaign-1-batch-1");
+    });
+
+    it("carries delivered users into a restarted campaign and leaves only undelivered users pending", () => {
+      const deliveryKey = getAdminAnnouncementDeliveryKey(content);
+      const previousRun = {
+        id: "previous-run",
+        deliveryKey,
+        recipients: [
+          recipient("already-sent", "sent", 0),
+          recipient("not-sent", "pending", 0),
+        ],
+      } as unknown as AdminAnnouncementRun;
+
+      const ledger = createAdminAnnouncementRecipientLedger(
+        [
+          { userId: "already-sent", email: "already-sent@example.com", name: "Already Sent" },
+          { userId: "not-sent", email: "not-sent@example.com", name: "Not Sent" },
+        ],
+        [previousRun],
+        deliveryKey,
+      );
+
+      expect(ledger.map((item) => [item.userId, item.status])).toEqual([
+        ["already-sent", "sent"],
+        ["not-sent", "pending"],
+      ]);
+      expect(selectPendingAdminAnnouncementBatch(ledger).map((item) => item.userId)).toEqual(["not-sent"]);
     });
   });
 
