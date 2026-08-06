@@ -1,4 +1,3 @@
-import { Menu } from "lucide-react";
 import Image from "next/image";
 import { cookies } from "next/headers";
 import { getTranslations } from "next-intl/server";
@@ -12,6 +11,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { LogoutButton } from "@/components/auth/logout-button";
 import { CreateListingQuickLink } from "@/components/layout/create-listing-quick-link";
+import { MobileNavigationMenu } from "@/components/layout/mobile-navigation-menu";
 import { LocaleSwitcher } from "./locale-switcher";
 
 export async function SiteHeader({ locale }: { locale: AppLocale }) {
@@ -67,7 +67,7 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
               className={
                 item.cta
                   ? "group relative overflow-hidden rounded-full border border-[#6CAEFF]/45 bg-gradient-to-r from-[#1B60ED]/85 via-[#2A7BFF]/80 to-[#3A9DFF]/75 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_26px_rgba(36,121,255,0.34)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(36,121,255,0.5)]"
-                  : "group relative rounded-full px-4 py-2 text-sm text-[#AEB4C0] transition hover:bg-white/[0.04] hover:text-white"
+                  : "group relative rounded-full px-4 py-2 text-sm text-[#AEB4C0] transition-colors duration-200 hover:bg-white/[0.04] hover:text-white"
               }
             >
               {item.label}
@@ -86,7 +86,7 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
               <span className="max-w-[140px] truncate">{sessionUser.fullName}</span>
             </div>
           ) : null}
-          <Link href={dashboardHref} locale={locale} className={cn(buttonVariants({ size: "sm" }), "inline-flex")}>
+          <Link href={dashboardHref} locale={locale} className={cn(buttonVariants({ size: "sm" }), "inline-flex sm:hidden")}>
             {dashboardLabel}
           </Link>
           {canAccessSellerWorkspace ? (
@@ -105,13 +105,8 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
               idleLabel={t("signOut")}
             />
           ) : null}
-          <details className="group relative lg:hidden">
-            <summary className="inline-flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-full border border-white/20 text-[#9CA3AF] hover:border-[#C9A227] hover:text-[#C9A227]">
-              <Menu className="h-4 w-4" />
-              <span className="sr-only">Open menu</span>
-            </summary>
-            <div className="absolute end-0 top-12 z-50 w-[min(18rem,calc(100vw-2rem))] max-h-[calc(100vh-5rem)] overflow-y-auto rounded-2xl border border-white/15 bg-[#0b0b0b]/95 p-3 shadow-2xl backdrop-blur-xl">
-              <nav className="space-y-1">
+          <MobileNavigationMenu label={locale === "ar" ? "فتح القائمة" : "Open menu"}>
+            <nav className="space-y-1">
                 {nav.map((item) => (
                   <Link
                     key={item.href}
@@ -167,9 +162,8 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
                     />
                   ) : null}
                 </div>
-              </nav>
-            </div>
-          </details>
+            </nav>
+          </MobileNavigationMenu>
           <Link href={dashboardHref} locale={locale} className={cn(buttonVariants({ size: "sm" }), "hidden sm:inline-flex")}>
             {dashboardLabel}
           </Link>
