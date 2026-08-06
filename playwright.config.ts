@@ -12,11 +12,16 @@ export default defineConfig({
     trace: "on-first-retry",
     headless: true,
   },
+  webServer: {
+    command: "npm run dev",
+    url: "http://localhost:3000",
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+  },
   projects: [
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
     },
   ],
-  // Do not auto-start the dev server — run `npm run dev` separately before tests
 });
