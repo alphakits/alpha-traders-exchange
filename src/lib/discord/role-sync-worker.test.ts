@@ -23,6 +23,7 @@ const roleIds: DiscordManagedRoleIds = {
 };
 
 function workerFixture(input: {
+  provisionError?: Error;
   syncError?: Error;
   currentDesiredStatus?: "approved" | "pending" | "suspended" | "none";
   linkedDiscordUserId?: string | null;
@@ -72,7 +73,10 @@ function workerFixture(input: {
     }),
   } as unknown as Pool;
   const manager: DiscordRoleManager = {
-    discoverOrCreateManagedRoles: vi.fn(async () => roleIds),
+    discoverOrCreateManagedRoles: vi.fn(async () => {
+      if (input.provisionError) throw input.provisionError;
+      return roleIds;
+    }),
     synchronizeMemberRoles: vi.fn(async () => {
       if (input.syncError) throw input.syncError;
     }),
@@ -135,6 +139,18 @@ describe("Discord role sync worker", () => {
     expect(fixture.manager.synchronizeMemberRoles).not.toHaveBeenCalled();
     expect(fixture.clientQueries.some(({ sql }) =>
       sql.includes("status = 'completed'"))).toBe(false);
+  });
+
+  it("keeps Phase 1 online and retries when Discord role permissions are degraded", async () => {
+    const fixture = workerFixture({
+      provisionError: new DiscordRoleOperationError("missing_manage_roles"),
+    });
+
+    await expect(fixture.worker.start()).resolves.toBeUndefined();
+    await fixture.worker.shutdown();
+
+    expect(fixture.manager.discoverOrCreateManagedRoles).toHaveBeenCalledOnce();
+    expect(fixture.manager.synchronizeMemberRoles).not.toHaveBeenCalled();
   });
 
   it("revalidates seller status and identity mapping instead of applying stale jobs", async () => {
