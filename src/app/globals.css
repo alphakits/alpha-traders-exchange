@@ -783,7 +783,7 @@ textarea {
   box-shadow: none;
 }
 
-/* Eligibility countdown badge (neutral 12h–4h, premium red <4h). No animation. */
+/* Eligibility countdown badge (neutral 12h–4h, premium red <4h). No looping animation. */
 .seller-listing-countdown {
   display: inline-flex;
   align-items: center;
@@ -794,16 +794,23 @@ textarea {
   font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
+  transition: transform 180ms ease, box-shadow 180ms ease;
 }
 .seller-listing-countdown--neutral {
-  color: #d1d5db;
-  background: rgba(255, 255, 255, 0.04);
+  color: #fcd34d;
+  background: rgba(234, 179, 8, 0.12);
+  border-color: rgba(234, 179, 8, 0.4);
 }
 .seller-listing-countdown--urgent {
-  color: #fca5a5;
-  background: rgba(220, 38, 38, 0.12);
-  border-color: rgba(248, 113, 113, 0.5);
-  box-shadow: 0 0 14px rgba(220, 38, 38, 0.2);
+  color: #fff;
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.9), rgba(190, 18, 60, 0.85));
+  border-color: rgba(248, 113, 113, 0.75);
+  padding: 4px 11px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.35), 0 0 20px rgba(220, 38, 38, 0.55);
 }
 
 .seller-asset-usdt-card {

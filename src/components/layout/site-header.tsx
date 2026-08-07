@@ -12,6 +12,7 @@ import { NotificationBell } from "@/components/notifications/notification-bell";
 import { LogoutButton } from "@/components/auth/logout-button";
 import { CreateListingQuickLink } from "@/components/layout/create-listing-quick-link";
 import { MobileNavigationMenu } from "@/components/layout/mobile-navigation-menu";
+import { HeaderNav } from "@/components/layout/header-nav";
 import { LocaleSwitcher } from "./locale-switcher";
 
 export async function SiteHeader({ locale }: { locale: AppLocale }) {
@@ -41,8 +42,8 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
   ];
 
   return (
-    <header className="sticky top-0 z-40 border-b border-white/10 bg-[#050505]/90 shadow-[0_14px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-      <div className="section-container relative flex h-14 items-center justify-between">
+    <header className="sticky top-0 z-40 border-b border-white/10 bg-gradient-to-b from-[#070707]/95 to-[#050505]/85 shadow-[0_14px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+      <div className="section-container relative flex h-14 items-center justify-between gap-3">
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-[#C9A227]/45 to-transparent" />
         <Link href="/" locale={locale} className="inline-flex min-w-0 items-center gap-2 text-lg font-semibold tracking-wide text-white sm:gap-3">
           <Image
@@ -58,31 +59,12 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
             {brand}
           </span>
         </Link>
-        <nav className="hidden items-center gap-2 lg:flex">
-          {nav.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              locale={locale}
-              className={
-                item.cta
-                  ? "group relative overflow-hidden rounded-full border border-[#6CAEFF]/45 bg-gradient-to-r from-[#1B60ED]/85 via-[#2A7BFF]/80 to-[#3A9DFF]/75 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_26px_rgba(36,121,255,0.34)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(36,121,255,0.5)]"
-                  : "group relative rounded-full px-4 py-2 text-sm text-[#AEB4C0] transition-colors duration-200 hover:bg-white/[0.04] hover:text-white"
-              }
-            >
-              {item.label}
-              {item.cta ? (
-                <span className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 transition duration-700 group-hover:left-[120%] group-hover:opacity-100" />
-              ) : (
-                <span className="pointer-events-none absolute inset-x-4 -bottom-[1px] h-px origin-center scale-x-0 bg-[#C9A227]/80 transition duration-300 group-hover:scale-x-100" />
-              )}
-            </Link>
-          ))}
-        </nav>
+        <HeaderNav items={nav} locale={locale} />
         <div className="flex items-center gap-2">
           <LocaleSwitcher />
           {sessionUser ? (
-            <div className="hidden items-center rounded-full border border-white/15 bg-white/[0.03] px-3 py-1 text-xs text-[#D1D5DB] sm:inline-flex">
+            <div className="hidden items-center gap-2 rounded-full border border-white/15 bg-white/[0.03] px-3 py-1 text-xs text-[#D1D5DB] sm:inline-flex">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
               <span className="max-w-[140px] truncate">{sessionUser.fullName}</span>
             </div>
           ) : null}
