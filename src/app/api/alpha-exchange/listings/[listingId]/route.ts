@@ -5,6 +5,7 @@ import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, seria
 import { checkRateLimit } from "@/lib/rate-limit";
 import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
 import { MAX_LISTING_PAYMENT_METHODS, requiresIsraeliBankSelection, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
+import { listingEditRequiresReason, validateListingChangeReason } from "@/lib/listing-change-reasons";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
 
 function toNumber(value: unknown) {
@@ -159,6 +160,25 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         return NextResponse.json({ error: "Invalid expiry date." }, { status: 400 });
       }
     }
+
+    // Accountable listing changes: any post-creation edit to amount / price /
+    // availability requires a structured reason + explanation for the audit log.
+    const isStatusOnlyChange = status !== undefined
+      && availableAmount === undefined && price === undefined
+      && minimumTrade === undefined && maximumTrade === undefined;
+    const reasonRequired = !isStatusOnlyChange && existingListing
+      ? listingEditRequiresReason(existingListing, { availableAmount, price, minimumTrade, maximumTrade })
+      : false;
+    let changeReason: string | undefined;
+    let changeExplanation: string | undefined;
+    if (reasonRequired) {
+      const reasonResult = validateListingChangeReason({ reason: body.changeReason, explanation: body.changeExplanation });
+      if (!reasonResult.ok) {
+        return NextResponse.json({ error: reasonResult.error }, { status: 400 });
+      }
+      changeReason = reasonResult.reason;
+      changeExplanation = reasonResult.explanation;
+    }
     const validationMs = Date.now() - validationStartedAt;
 
     const logicStartedAt = Date.now();
@@ -184,6 +204,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       sellerDescription,
       responseTime,
       status,
+      changeReason,
+      changeExplanation,
     });
     const logicMs = Date.now() - logicStartedAt;
     const routeMs = Date.now() - routeStartedAt;
@@ -200,7 +222,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   }
 }
 
-export async function DELETE(_: NextRequest, context: RouteContext) {
+export async function DELETE(request: NextRequest, context: RouteContext) {
   const routeStartedAt = Date.now();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
@@ -212,11 +234,26 @@ export async function DELETE(_: NextRequest, context: RouteContext) {
 
   try {
     const { listingId } = await context.params;
+    let changeReason: string | undefined;
+    let changeExplanation: string | undefined;
+    try {
+      const body = await request.json();
+      const reasonResult = validateListingChangeReason({ reason: body?.changeReason, explanation: body?.changeExplanation });
+      if (!reasonResult.ok) {
+        return NextResponse.json({ error: reasonResult.error }, { status: 400 });
+      }
+      changeReason = reasonResult.reason;
+      changeExplanation = reasonResult.explanation;
+    } catch {
+      return NextResponse.json({ error: "Please choose a reason for removing this listing." }, { status: 400 });
+    }
     const logicStartedAt = Date.now();
     await deleteMarketplaceListingForSeller({
       listingId,
       sellerId: user.id,
       actorUserId: user.id,
+      changeReason,
+      changeExplanation,
     });
     const logicMs = Date.now() - logicStartedAt;
     const routeMs = Date.now() - routeStartedAt;

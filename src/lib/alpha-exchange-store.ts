@@ -5,6 +5,7 @@ import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { createExchangeDisplayLookup, normalizeDisplayNumber, replaceExchangeEntityIds } from "./alpha-exchange-display";
 import { calculateSellerTrustSnapshot, rankTrustSnapshots } from "@/lib/trust-engine";
+import { computeListingReliability, RELIABILITY_NEUTRAL_BASELINE, type ListingReliability } from "@/lib/listing-reliability";
 import { getSellerPrestigeProgress, getSellerPublicVolumeLabel, resolveSellerPrestigeRank, sellerPrestigeRankWeight } from "@/lib/seller-prestige";
 import { evaluateSellerAchievements } from "@/lib/seller-achievements";
 import { runEnvValidation } from "@/lib/env-validation";
@@ -792,6 +793,7 @@ function buildSellerPublicProfile(user: AlphaExchangeUser): SellerPublicProfile 
     onlineStatus: user.onlineStatus,
     availabilityStatus: user.availabilityStatus,
     lastActiveAt: user.lastActiveAt,
+    emailVerified: user.emailVerified === true,
   };
 }
 
@@ -1044,26 +1046,178 @@ function computeSellerReputationSnapshot(db: AlphaExchangeDb, sellerId: string):
   return snapshot;
 }
 
+const LISTING_END_STATUSES = new Set<ListingStatus>(["completed", "cancelled", "closed", "expired"]);
+const LISTING_REMOVAL_AUDIT_ACTIONS = new Set<AuditAction>(["listing_closed", "listing_cancelled", "listing_removed"]);
+const LISTING_HISTORY_AUDIT_ACTIONS = new Set<AuditAction>([
+  "listing_edited",
+  "listing_closed",
+  "listing_cancelled",
+  "listing_removed",
+  "listing_paused",
+  "listing_resumed",
+  "listing_renewed",
+]);
+
+function listingEndTimestamp(listing: MarketplaceListing): number | null {
+  const end = listing.closedAt ?? listing.cancelledAt ?? listing.completedAt ?? listing.expiredAt;
+  if (!end) return null;
+  const ms = new Date(end).getTime();
+  return Number.isFinite(ms) && ms > 0 ? ms : null;
+}
+
+interface SellerReliabilityAggregate {
+  reliability: ListingReliability;
+  completedTrades: number;
+  cancelledTrades: number;
+  totalListings: number;
+  editCount: number;
+  removalCount: number;
+  recentHistory: AuditLogEntry[];
+}
+
+/**
+ * Build deterministic listing-reliability aggregates for every seller in a
+ * single linear pass over requests, listings and the audit trail — no
+ * per-seller rescans — so it stays cheap at 500–1,000+ active users.
+ */
+function buildSellerReliabilityMap(db: AlphaExchangeDb): Map<string, SellerReliabilityAggregate> {
+  const completed = new Map<string, number>();
+  const cancelled = new Map<string, number>();
+  for (const request of db.purchaseRequests) {
+    if (request.status === "review_open" || Boolean(request.completedAt)) {
+      completed.set(request.sellerId, (completed.get(request.sellerId) ?? 0) + 1);
+    } else if (request.status === "cancelled") {
+      cancelled.set(request.sellerId, (cancelled.get(request.sellerId) ?? 0) + 1);
+    }
+  }
+
+  const totalListings = new Map<string, number>();
+  const lifetimes = new Map<string, number[]>();
+  for (const listing of db.marketplaceListings) {
+    totalListings.set(listing.sellerId, (totalListings.get(listing.sellerId) ?? 0) + 1);
+    if (!LISTING_END_STATUSES.has(listing.status)) continue;
+    const end = listingEndTimestamp(listing);
+    const start = new Date(listing.createdAt).getTime();
+    if (end !== null && Number.isFinite(start) && end > start) {
+      const rows = lifetimes.get(listing.sellerId) ?? [];
+      rows.push(end - start);
+      lifetimes.set(listing.sellerId, rows);
+    }
+  }
+
+  const editCounts = new Map<string, number>();
+  const removalCounts = new Map<string, number>();
+  const history = new Map<string, AuditLogEntry[]>();
+  for (const entry of db.auditLogs) {
+    const sellerId = entry.targetUserId;
+    if (!sellerId || !LISTING_HISTORY_AUDIT_ACTIONS.has(entry.action)) continue;
+    if (entry.action === "listing_edited") editCounts.set(sellerId, (editCounts.get(sellerId) ?? 0) + 1);
+    else if (LISTING_REMOVAL_AUDIT_ACTIONS.has(entry.action)) removalCounts.set(sellerId, (removalCounts.get(sellerId) ?? 0) + 1);
+    const rows = history.get(sellerId);
+    if (rows) {
+      if (rows.length < 20) rows.push(entry);
+    } else {
+      history.set(sellerId, [entry]);
+    }
+  }
+
+  const sellerIds = new Set<string>();
+  db.users.forEach((user) => { if (isTrustEligibleSeller(user)) sellerIds.add(user.id); });
+  totalListings.forEach((_, id) => sellerIds.add(id));
+
+  const result = new Map<string, SellerReliabilityAggregate>();
+  for (const sellerId of sellerIds) {
+    const completedTrades = completed.get(sellerId) ?? 0;
+    const cancelledTrades = cancelled.get(sellerId) ?? 0;
+    const listingsCount = totalListings.get(sellerId) ?? 0;
+    const editCount = editCounts.get(sellerId) ?? 0;
+    const removalCount = removalCounts.get(sellerId) ?? 0;
+    result.set(sellerId, {
+      reliability: computeListingReliability({
+        completedTrades,
+        cancelledTrades,
+        totalListings: listingsCount,
+        editCount,
+        removalCount,
+        listingLifetimesMs: lifetimes.get(sellerId) ?? [],
+      }),
+      completedTrades,
+      cancelledTrades,
+      totalListings: listingsCount,
+      editCount,
+      removalCount,
+      recentHistory: history.get(sellerId) ?? [],
+    });
+  }
+  return result;
+}
+
+export interface SellerListingReliabilityReport {
+  sellerId: string;
+  sellerName: string;
+  reliability: ListingReliability;
+  completedTrades: number;
+  cancelledTrades: number;
+  totalListings: number;
+  editCount: number;
+  removalCount: number;
+  recentHistory: AuditLogEntry[];
+}
+
+/**
+ * Admin view: deterministic listing-reliability metrics + recent listing
+ * change/removal history for every seller, ordered by reliability score.
+ */
+export async function getListingReliabilityForAdmin(dbInput?: AlphaExchangeDb): Promise<SellerListingReliabilityReport[]> {
+  const db = dbInput ?? await readDb();
+  const reliabilityMap = buildSellerReliabilityMap(db);
+  const namesById = new Map(db.users.map((user) => [user.id, user.fullName]));
+  const reports = db.users
+    .filter((user) => isTrustEligibleSeller(user))
+    .map((seller) => {
+      const aggregate = reliabilityMap.get(seller.id);
+      return {
+        sellerId: seller.id,
+        sellerName: namesById.get(seller.id) ?? seller.fullName,
+        reliability: aggregate?.reliability ?? computeListingReliability({ completedTrades: 0, cancelledTrades: 0, totalListings: 0, editCount: 0, removalCount: 0, listingLifetimesMs: [] }),
+        completedTrades: aggregate?.completedTrades ?? 0,
+        cancelledTrades: aggregate?.cancelledTrades ?? 0,
+        totalListings: aggregate?.totalListings ?? 0,
+        editCount: aggregate?.editCount ?? 0,
+        removalCount: aggregate?.removalCount ?? 0,
+        recentHistory: aggregate?.recentHistory ?? [],
+      };
+    });
+  return reports.sort((a, b) => a.reliability.reliabilityScore - b.reliability.reliabilityScore);
+}
+
 function qualitySortListings(db: AlphaExchangeDb, listings: MarketplaceListing[]) {
   const snapshots = computeTrustSnapshotMap(db);
-  const score = (reputation: SellerReputationSnapshot) => {
+  const reliabilityMap = buildSellerReliabilityMap(db);
+  const reliabilityScoreFor = (sellerId: string) =>
+    reliabilityMap.get(sellerId)?.reliability.reliabilityScore ?? RELIABILITY_NEUTRAL_BASELINE;
+  const score = (reputation: SellerReputationSnapshot, listingReliabilityScore: number) => {
     const responseSpeedScore = Math.max(0, 100 - Math.min(60, reputation.responseTimeMinutes) * 1.5);
     const normalizedTrades = Math.min(100, reputation.completedTrades / 8);
     return (
-      reputation.completionRate * 0.3
-      + reputation.rating * 20 * 0.2
-      + responseSpeedScore * 0.15
-      + reputation.recentActivityScore * 0.15
+      reputation.completionRate * 0.25
+      + reputation.rating * 20 * 0.18
+      + responseSpeedScore * 0.13
+      + reputation.recentActivityScore * 0.12
       + normalizedTrades * 0.1
       + levelRank(reputation.level) * (100 / 6) * 0.1
+      + listingReliabilityScore * 0.12
     );
   };
   return [...listings].sort((left, right) => {
     const leftRep = snapshots.get(left.sellerId) ?? computeSellerReputationSnapshot(db, left.sellerId);
     const rightRep = snapshots.get(right.sellerId) ?? computeSellerReputationSnapshot(db, right.sellerId);
+    const leftReliability = reliabilityScoreFor(left.sellerId);
+    const rightReliability = reliabilityScoreFor(right.sellerId);
 
-    const scoreDiff = score(rightRep) - score(leftRep);
+    const scoreDiff = score(rightRep, rightReliability) - score(leftRep, leftReliability);
     if (Math.abs(scoreDiff) > 0.01) return scoreDiff;
+    if (rightReliability !== leftReliability) return rightReliability - leftReliability;
     if (rightRep.trustScore !== leftRep.trustScore) return rightRep.trustScore - leftRep.trustScore;
     if (levelRank(rightRep.level) !== levelRank(leftRep.level)) return levelRank(rightRep.level) - levelRank(leftRep.level);
     if (rightRep.rating !== leftRep.rating) return rightRep.rating - leftRep.rating;
@@ -4397,6 +4551,8 @@ export async function updateMarketplaceListingForSeller(input: {
   sellerDescription?: string;
   responseTime?: string;
   status?: ListingStatus;
+  changeReason?: string;
+  changeExplanation?: string;
 }) {
   const db = await readDb();
   const index = db.marketplaceListings.findIndex((listing) => listing.id === input.listingId);
@@ -4484,11 +4640,30 @@ export async function updateMarketplaceListingForSeller(input: {
     next.maximumTrade = next.availableAmount;
   }
   db.marketplaceListings[index] = next;
+  const isPlainEdit = !(input.status === "paused") && !(input.status === "active" && current.status === "paused");
+  const editedFieldChanges = isPlainEdit
+    ? (["availableAmount", "price", "minimumTrade", "maximumTrade", "currency", "network"] as const).reduce<{
+        before: Record<string, string>;
+        after: Record<string, string>;
+      }>((acc, field) => {
+        const before = String(current[field] ?? "");
+        const after = String(next[field] ?? "");
+        if (before !== after) {
+          acc.before[field] = before;
+          acc.after[field] = after;
+        }
+        return acc;
+      }, { before: {}, after: {} })
+    : { before: {}, after: {} };
+  const hasSensitiveChange = Object.keys(editedFieldChanges.after).length > 0;
   await appendAuditLog(db, {
     action: input.status === "paused" ? "listing_paused" : input.status === "active" && current.status === "paused" ? "listing_resumed" : "listing_edited",
     actorUserId: input.actorUserId,
     targetUserId: input.sellerId,
     listingId: next.id,
+    reason: isPlainEdit ? input.changeReason : undefined,
+    oldValue: isPlainEdit && hasSensitiveChange ? editedFieldChanges.before : undefined,
+    newValue: isPlainEdit && hasSensitiveChange ? editedFieldChanges.after : undefined,
     details:
       shouldResubmitForApproval
         ? `Resubmitted listing ${next.id} for admin approval`
@@ -4496,7 +4671,9 @@ export async function updateMarketplaceListingForSeller(input: {
         ? `Paused listing ${next.id}`
         : input.status === "active" && current.status === "paused"
           ? `Resumed listing ${next.id}`
-          : `Edited listing ${next.id}`,
+          : input.changeExplanation
+            ? `Edited listing ${next.id}: ${input.changeExplanation}`
+            : `Edited listing ${next.id}`,
   });
   if (shouldResubmitForApproval) {
     const owner = getOwnerUser(db);
@@ -4872,6 +5049,8 @@ export async function deleteMarketplaceListingForSeller(input: {
   listingId: string;
   sellerId: string;
   actorUserId: string;
+  changeReason?: string;
+  changeExplanation?: string;
 }) {
   const db = await readDb();
   const listing = db.marketplaceListings.find((item) => item.id === input.listingId);
@@ -4883,6 +5062,7 @@ export async function deleteMarketplaceListingForSeller(input: {
   if (listing.status === "completed" || listing.status === "cancelled" || listing.status === "closed") {
     throw new Error("This listing is already closed.");
   }
+  const previousStatus = listing.status;
   listing.status = "closed";
   listing.closedAt = nowIso();
   listing.updatedAt = listing.closedAt;
@@ -4893,7 +5073,12 @@ export async function deleteMarketplaceListingForSeller(input: {
     actorUserId: input.actorUserId,
     targetUserId: input.sellerId,
     listingId: input.listingId,
-    details: `Closed listing ${input.listingId}`,
+    reason: input.changeReason,
+    oldValue: { status: previousStatus },
+    newValue: { status: "closed" },
+    details: input.changeExplanation
+      ? `Closed listing ${input.listingId}: ${input.changeExplanation}`
+      : `Closed listing ${input.listingId}`,
   });
   await recalculateTrustEngine(db, { reason: "Listing removed", triggeredBy: input.actorUserId });
   await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
@@ -9433,7 +9618,7 @@ export async function getAdminPrepDashboardData() {
     await writeDb(db, { selectedTables: TRUST_INIT_TABLES });
   }
 
-  const [summary, applications, approvedSellers, listings, purchaseRequests, commissionRecords, auditLogs, trustEngine, ownerBusiness, privateBeta] = await Promise.all([
+  const [summary, applications, approvedSellers, listings, purchaseRequests, commissionRecords, auditLogs, trustEngine, ownerBusiness, privateBeta, listingReliability] = await Promise.all([
     getAlphaExchangeSummaryForAdmin(db),
     getAllSellerApplicationsForAdmin(db),
     getApprovedSellersForAdmin(db),
@@ -9444,6 +9629,7 @@ export async function getAdminPrepDashboardData() {
     getTrustEngineOverviewForAdmin(db),
     getOwnerBusinessDashboardForAdmin(db),
     getOwnerPrivateBetaDashboardData(db),
+    getListingReliabilityForAdmin(db),
   ]);
   const notifications = [...db.notifications].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250);
   const activityLog = [...db.activityLog].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250);
@@ -9466,6 +9652,7 @@ export async function getAdminPrepDashboardData() {
     privateBeta,
     users,
     sellerReviews,
+    listingReliability,
   };
 }
 

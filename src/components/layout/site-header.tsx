@@ -42,16 +42,16 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
 
   return (
     <header className="sticky top-0 z-40 border-b border-white/10 bg-[#050505]/90 shadow-[0_14px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-      <div className="section-container relative flex h-16 items-center justify-between">
+      <div className="section-container relative flex h-14 items-center justify-between">
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-[#C9A227]/45 to-transparent" />
         <Link href="/" locale={locale} className="inline-flex min-w-0 items-center gap-2 text-lg font-semibold tracking-wide text-white sm:gap-3">
           <Image
             src="/images/brand/alpha-traders-logo.webp"
             alt="Alpha Traders logo"
-            width={42}
-            height={42}
+            width={38}
+            height={38}
             priority
-            style={{ width: 42, height: 42 }}
+            style={{ width: 38, height: 38 }}
             className="rounded-full border border-[#C9A227]/45 bg-black/35 p-0.5 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)]"
           />
           <span className="gold-gradient hidden bg-clip-text pb-px text-[1.02rem] leading-[1.15] text-transparent min-[360px]:inline-block">

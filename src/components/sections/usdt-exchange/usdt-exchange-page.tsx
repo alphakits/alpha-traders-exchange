@@ -23,6 +23,8 @@ import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display"
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 import { getWalletAddressValidationError, normalizeWalletAddress } from "@/lib/wallet-address";
+import { deriveListingCountdown, deriveSellerPresence } from "@/lib/seller-presence";
+import { LISTING_CHANGE_REASONS, listingEditRequiresReason, validateListingChangeReason } from "@/lib/listing-change-reasons";
 import { cn } from "@/lib/utils";
 import { SELLER_PRESTIGE_TIERS } from "@/lib/seller-prestige";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
@@ -481,6 +483,11 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
   const sellerRankKey = sellerLevelToneKey(sellerLevel);
   const formattedAvailableAmount = toNumber(listing.availableAmount).toLocaleString("en-IL");
   const availableAmountClassName = availableAmountScaleClass(listing.availableAmount);
+  const presence = deriveSellerPresence({
+    onlineStatus: listing.sellerProfile?.onlineStatus,
+    lastActiveAt: listing.sellerProfile?.lastActiveAt,
+  });
+  const sellerEmailVerified = listing.sellerProfile?.emailVerified === true;
   const sellerRankBorderColor: Record<string, string> = {
     bronze: "rgba(201,122,69,0.62)",
     silver: "rgba(194,205,220,0.68)",
@@ -547,10 +554,13 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
                   {isOwnerListing ? "Owner" : `${sellerLevelLabel(listing.sellerReputation?.level)} Seller`}
                 </span>
                 <span className="seller-listing-status-separator"> • </span>
-                <span className="seller-listing-presence">{listing.sellerProfile?.onlineStatus === "online" ? "Online" : "Offline"}</span>
+                <span className={cn("seller-listing-presence inline-flex items-center gap-1.5", `seller-presence--${presence.tone}`)}>
+                  <span className={cn("seller-presence-dot", `seller-presence-dot--${presence.tone}`)} aria-hidden="true" />
+                  {presence.label}
+                </span>
               </p>
               <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#93C5FD]">Listing {shortListingRef(listing)}</p>
-              <div className="mt-1 flex flex-wrap gap-1.5">
+              <div className="mt-1 flex flex-wrap items-center gap-1.5">
                 <RoleBadge variant="approved_seller" className={cn("seller-rank-badge", `seller-rank-badge--${sellerRankKey}`)} />
                 <span className={cn("seller-rank-pill", `seller-rank-pill--${isOwnerListing ? "legendary" : sellerRankKey}`)}>
                   {isOwnerListing ? "Legendary Seller" : `${sellerLevelLabel(sellerLevel)} Seller`}
@@ -561,11 +571,18 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
                     <span className="rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300">✓ Phone Verified</span>
                     <span className="rounded-full border border-amber-500/35 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300">✓ Official Platform Account</span>
                   </>
+                ) : sellerEmailVerified ? (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300">
+                    <CheckCircle2 className="h-3 w-3" aria-hidden="true" /> {isAr ? "بريد موثّق" : "Verified Email"}
+                  </span>
                 ) : null}
               </div>
             </div>
           </div>
-          <span className={cn("seller-listing-availability", `seller-listing-availability--${isOwnerListing ? "legendary" : sellerRankKey}`)}>{isAr ? "متاح" : "Available"}</span>
+          <span className="flex flex-col items-end gap-1.5">
+            <span className={cn("seller-listing-availability", `seller-listing-availability--${isOwnerListing ? "legendary" : sellerRankKey}`)}>{isAr ? "متاح" : "Available"}</span>
+            <ListingCountdownBadge expiresAt={listing.expiresAt} isAr={isAr} />
+          </span>
         </div>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -645,7 +662,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
         </div>
         <div className="grid gap-3 text-xs text-[#9CA3AF] md:grid-cols-2">
           <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
-            <p>{isAr ? "آخر نشاط" : "Last active"}: <span className="text-white">{formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt)}</span></p>
+            <p>{isAr ? "آخر نشاط" : "Last active"}: <span className={cn("text-white", presence.tone === "online" && "text-emerald-300")}>{presence.online ? (isAr ? presence.labelAr : presence.label) : formatRelativeMinutesLabel(listing.sellerProfile?.lastActiveAt)}</span></p>
             <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{safeText(listing.network)}</span></p>
             <div>
               <p>{isAr ? "الدفع" : "Payment"}:</p>
@@ -713,7 +730,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
               )}
               disabled={isBuying}
               onClick={() => onOpen(listing)}
-              aria-label={`Open listing from ${safeText(listing.sellerDisplayName, "seller")}`}
+              aria-label={`Buy USDT from ${safeText(listing.sellerDisplayName, "seller")}`}
             >
               <span className="inline-flex items-center gap-2">
                 {isBuying ? <Loader2 className="h-4 w-4 animate-spin" /> : <LockKeyhole className="h-4 w-4" />}
@@ -737,6 +754,31 @@ function SecAgoCounter({ startTimeRef }: { startTimeRef: { current: number } }) 
   }, []);
   return <>{Math.max(0, Math.round((now - startTimeRef.current) / 1000))}</>;
 }
+
+// Isolated eligibility countdown. Only mounts a timer while the countdown is
+// actually visible (<=12h remaining), so hidden listings never tick and a
+// single listing's countdown never re-renders the whole marketplace.
+const ListingCountdownBadge = memo(function ListingCountdownBadge({ expiresAt, isAr }: { expiresAt?: string; isAr: boolean }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const current = deriveListingCountdown(expiresAt, Date.now());
+    if (!current.visible) return;
+    const id = window.setInterval(() => setNow(Date.now()), 30000);
+    return () => window.clearInterval(id);
+  }, [expiresAt]);
+  const countdown = deriveListingCountdown(expiresAt, now);
+  if (!countdown.visible) return null;
+  return (
+    <span
+      className={cn("seller-listing-countdown", `seller-listing-countdown--${countdown.tier}`)}
+      role="timer"
+      aria-label={`Listing eligibility: ${isAr ? countdown.labelAr : countdown.label}`}
+    >
+      <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
+      {isAr ? countdown.labelAr : countdown.label}
+    </span>
+  );
+});
 
 export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const isAr = locale === "ar";
@@ -783,7 +825,18 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     minimumTrade: "0",
     maximumTrade: "",
     sellerDescription: "",
+    changeReason: "",
+    changeExplanation: "",
   });
+  const [listingEditOriginal, setListingEditOriginal] = useState<{
+    availableAmount: string;
+    price: string;
+    minimumTrade: string;
+    maximumTrade: string;
+  } | null>(null);
+  const [removalListing, setRemovalListing] = useState<MarketplaceListing | null>(null);
+  const [removalReason, setRemovalReason] = useState("");
+  const [removalExplanation, setRemovalExplanation] = useState("");
   const [listingCommissionAgreement, setListingCommissionAgreement] = useState(false);
   const [faceToFaceSafetyAcknowledged, setFaceToFaceSafetyAcknowledged] = useState(false);
   const [sellerWorkspaceSummary, setSellerWorkspaceSummary] = useState<{
@@ -855,6 +908,18 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     setFaceToFaceSafetyAcknowledged(false);
     updateListingSelectionQuery(null);
   }, [updateListingSelectionQuery]);
+
+  // Escape closes the open Buy or removal dialog (keyboard accessibility).
+  useEffect(() => {
+    if (!selectedListing && !removalListing) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (removalListing) setRemovalListing(null);
+      else if (selectedListing) closeListingModal();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedListing, removalListing, closeListingModal]);
 
   const goToVerificationGate = useCallback(() => {
     setIsRedirectingToVerification(true);
@@ -1882,6 +1947,16 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     || !listingEditSelectedMethods.length
     || (listingEditRequiresBank && !listingEditSelectedBanks.length);
   const isListingEditSubmitDisabled = listingEditMissingRequired || listingEditPriceInvalid || listingEditTradeRangeInvalid;
+  const listingEditNeedsReason = listingEditOriginal
+    ? listingEditRequiresReason(listingEditOriginal, {
+        availableAmount: listingEditForm.availableAmount,
+        price: listingEditForm.price,
+        minimumTrade: listingEditForm.minimumTrade,
+        maximumTrade: listingEditForm.maximumTrade || listingEditForm.availableAmount,
+      })
+    : false;
+  const listingEditReasonValid = !listingEditNeedsReason
+    || validateListingChangeReason({ reason: listingEditForm.changeReason, explanation: listingEditForm.changeExplanation }).ok;
   const listingEditGuardTone = listingEditPriceInvalid
     ? "border-red-500/60 bg-red-500/10 text-red-200"
     : listingEditPriceValid
@@ -2168,17 +2243,33 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   }
 
   async function handleSellerListingDelete(listing: MarketplaceListing) {
-    const confirmed = window.confirm(`Delete listing ${shortListingRef(listing)}? This action cannot be undone.`);
-    if (!confirmed) return;
+    setRemovalListing(listing);
+    setRemovalReason("");
+    setRemovalExplanation("");
+  }
+
+  async function confirmSellerListingRemoval() {
+    if (!removalListing) return;
+    const reasonResult = validateListingChangeReason({ reason: removalReason, explanation: removalExplanation });
+    if (!reasonResult.ok) {
+      setSellerWorkspaceMessage(reasonResult.error);
+      return;
+    }
+    const listing = removalListing;
     setListingActionKey(`${listing.id}:delete`);
     try {
-      const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, { method: "DELETE" });
+      const response = await fetch(`/api/alpha-exchange/listings/${listing.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ changeReason: reasonResult.reason, changeExplanation: reasonResult.explanation }),
+      });
       if (!response.ok) {
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
       syncListingState(listing, { remove: true });
       setSellerWorkspaceMessage("🗑 Listing removed successfully.");
+      setRemovalListing(null);
       backgroundRefreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing"));
@@ -2302,6 +2393,21 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   async function handleSellerListingEditSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editingListingId) return;
+    const requiresReason = listingEditOriginal
+      ? listingEditRequiresReason(listingEditOriginal, {
+          availableAmount: listingEditForm.availableAmount,
+          price: listingEditForm.price,
+          minimumTrade: listingEditForm.minimumTrade,
+          maximumTrade: listingEditForm.maximumTrade || listingEditForm.availableAmount,
+        })
+      : false;
+    if (requiresReason) {
+      const reasonResult = validateListingChangeReason({ reason: listingEditForm.changeReason, explanation: listingEditForm.changeExplanation });
+      if (!reasonResult.ok) {
+        setSellerWorkspaceMessage(reasonResult.error);
+        return;
+      }
+    }
     setListingActionKey(`${editingListingId}:save`);
     try {
       const response = await fetch(`/api/alpha-exchange/listings/${editingListingId}`, {
@@ -2317,6 +2423,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           minimumTrade: listingEditForm.minimumTrade,
           maximumTrade: listingEditForm.maximumTrade || listingEditForm.availableAmount,
           sellerDescription: listingEditForm.sellerDescription,
+          changeReason: requiresReason ? listingEditForm.changeReason : undefined,
+          changeExplanation: requiresReason ? listingEditForm.changeExplanation : undefined,
         }),
       });
       if (!response.ok) {
@@ -2326,6 +2434,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       const payload = await response.json() as { listing?: MarketplaceListing };
       syncListingState(payload.listing ?? null);
       setEditingListingId(null);
+      setListingEditOriginal(null);
       setSellerWorkspaceMessage("✅ Listing updated successfully. Changes are now visible to buyers.");
       backgroundRefreshSellerWorkspace();
     } catch {
@@ -4216,6 +4325,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                             minimumTrade: listing.minimumTrade ?? "0",
                             maximumTrade: listing.maximumTrade ?? listing.availableAmount,
                             sellerDescription: listing.sellerDescription ?? "",
+                            changeReason: "",
+                            changeExplanation: "",
+                          });
+                          setListingEditOriginal({
+                            availableAmount: listing.availableAmount,
+                            price: listing.price,
+                            minimumTrade: listing.minimumTrade ?? "0",
+                            maximumTrade: listing.maximumTrade ?? listing.availableAmount,
                           });
                         }}
                       >
@@ -4350,6 +4467,38 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           {listingEditSelectedBanks.length ? <p className="mt-2 text-xs text-[#93C5FD]">Selected: {listingEditSelectedBanks.join(", ")}</p> : null}
                         </div>
                         ) : null}
+                        {listingEditNeedsReason ? (
+                          <div className="md:col-span-4 rounded-2xl border border-amber-500/35 bg-amber-500/[0.06] p-3">
+                            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#FDE68A]">Reason for change <span className="text-red-300">*</span></p>
+                            <p className="mt-1 text-xs text-[#D1D5DB]">Editing amount, price, or availability is recorded for marketplace accountability.</p>
+                            <div className="mt-2 grid gap-2 md:grid-cols-2">
+                              <select
+                                aria-label="Reason for listing change"
+                                className={cn(
+                                  "flex h-11 w-full rounded-xl border bg-[#101010] px-3 py-2 text-sm text-white",
+                                  listingEditForm.changeReason ? "border-emerald-500/60" : "border-red-500/70",
+                                )}
+                                value={listingEditForm.changeReason}
+                                onChange={(event) => setListingEditForm((prev) => ({ ...prev, changeReason: event.target.value }))}
+                              >
+                                <option value="">Select a reason…</option>
+                                {LISTING_CHANGE_REASONS.map((reason) => (
+                                  <option key={reason} value={reason}>{reason}</option>
+                                ))}
+                              </select>
+                              <Input
+                                aria-label="Change explanation"
+                                placeholder="Briefly explain this change"
+                                value={listingEditForm.changeExplanation}
+                                onChange={(event) => setListingEditForm((prev) => ({ ...prev, changeExplanation: event.target.value }))}
+                                className={listingEditForm.changeExplanation.trim().length >= 5 ? "border-emerald-500/60" : "border-red-500/70"}
+                              />
+                            </div>
+                            {!listingEditReasonValid ? (
+                              <p className="mt-2 text-xs text-red-300">Choose a reason and add a short explanation (at least 5 characters).</p>
+                            ) : null}
+                          </div>
+                        ) : null}
                         <div className={`md:col-span-4 rounded-2xl border p-3 text-xs transition-all duration-200 ${listingEditGuardTone}`}>
                           <div className="flex items-start gap-2">
                             {listingEditPriceInvalid ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
@@ -4366,10 +4515,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           </div>
                         </div>
                         <div className="md:col-span-4 flex gap-2">
-                          <Button type="submit" size="sm" disabled={isListingEditSubmitDisabled || listingActionKey === `${listing.id}:save`}>
+                          <Button type="submit" size="sm" disabled={isListingEditSubmitDisabled || !listingEditReasonValid || listingActionKey === `${listing.id}:save`}>
                             {listingActionKey === `${listing.id}:save` ? "Saving..." : "Save"}
                           </Button>
-                          <Button type="button" size="sm" variant="secondary" onClick={() => setEditingListingId(null)}>Cancel</Button>
+                          <Button type="button" size="sm" variant="secondary" onClick={() => { setEditingListingId(null); setListingEditOriginal(null); }}>Cancel</Button>
                         </div>
                       </form>
                     ) : null}
@@ -5269,18 +5418,83 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       ) : null}
 
       <AnimatePresence>
+        {removalListing ? (
+          <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-label={isAr ? "إزالة العرض" : "Remove listing"}
+              className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0B0B0B]/95 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.5)]"
+              initial={{ opacity: 0, y: 24, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.97 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-white">{isAr ? "إزالة العرض" : "Remove listing"}</h3>
+                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "يتم تسجيل سبب الإزالة للشفافية." : `Removing ${shortListingRef(removalListing)} is recorded for marketplace accountability.`}</p>
+                </div>
+                <button type="button" aria-label="Close removal dialog" onClick={() => setRemovalListing(null)} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227]">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="mt-4 space-y-3">
+                <div>
+                  <label htmlFor="removal-reason" className="text-xs font-semibold uppercase tracking-[0.12em] text-[#FDE68A]">Reason <span className="text-red-300">*</span></label>
+                  <select
+                    id="removal-reason"
+                    className={cn(
+                      "mt-1 flex h-11 w-full rounded-xl border bg-[#101010] px-3 py-2 text-sm text-white",
+                      removalReason ? "border-emerald-500/60" : "border-red-500/70",
+                    )}
+                    value={removalReason}
+                    onChange={(event) => setRemovalReason(event.target.value)}
+                  >
+                    <option value="">Select a reason…</option>
+                    {LISTING_CHANGE_REASONS.map((reason) => (
+                      <option key={reason} value={reason}>{reason}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="removal-explanation" className="text-xs font-semibold uppercase tracking-[0.12em] text-[#9CA3AF]">Explanation <span className="text-red-300">*</span></label>
+                  <Textarea
+                    id="removal-explanation"
+                    aria-label="Removal explanation"
+                    placeholder="Briefly explain why you're removing this listing"
+                    value={removalExplanation}
+                    onChange={(event) => setRemovalExplanation(event.target.value)}
+                    className={cn("mt-1", removalExplanation.trim().length >= 5 ? "border-emerald-500/60" : "border-red-500/70")}
+                  />
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <Button
+                    type="button"
+                    className="w-full"
+                    disabled={!validateListingChangeReason({ reason: removalReason, explanation: removalExplanation }).ok || listingActionKey === `${removalListing.id}:delete`}
+                    onClick={() => void confirmSellerListingRemoval()}
+                  >
+                    {listingActionKey === `${removalListing.id}:delete` ? "Removing..." : "Remove Listing"}
+                  </Button>
+                  <Button type="button" variant="secondary" className="w-full" onClick={() => setRemovalListing(null)}>Cancel</Button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {selectedListing ? (
           <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-white/10 bg-[#0B0B0B]/95 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.5)]" initial={{ opacity: 0, y: 24, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.97 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+            <motion.div role="dialog" aria-modal="true" aria-label={isAr ? "شراء USDT" : "Buy USDT"} className="max-h-[92vh] w-full max-w-[700px] overflow-y-auto rounded-3xl border border-white/10 bg-[#0B0B0B]/95 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.5)] [padding-bottom:max(1.25rem,env(safe-area-inset-bottom))] sm:p-6" initial={{ opacity: 0, y: 24, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.97 }} transition={{ duration: 0.2, ease: "easeOut" }}>
               <div className={`mb-4 flex items-start justify-between gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                 <div>
-                  <h3 className="text-2xl font-semibold">{isAr ? "ملف البائع" : "Seller Business Profile"}</h3>
+                  <h3 className="text-2xl font-semibold">{isAr ? "شراء USDT" : "Buy USDT"}</h3>
                   <p className={`mt-1 inline-flex items-center gap-1.5 text-xs text-[#C9A227] ${isAr ? "flex-row-reverse" : ""}`}>
-                    <Star className="h-3.5 w-3.5 fill-[#C9A227] text-[#C9A227]" />
-                    <span className="inline-flex flex-col leading-tight">
-                      <span>{isAr ? "بائع معتمد" : "Approved Seller"}</span>
-                      <span className="opacity-90">{isAr ? "موثق من Alpha Traders" : "Verified by Alpha Traders"}</span>
-                    </span>
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    <span>{isAr ? "صفقة مؤمّنة عبر Alpha Traders" : "Secured trade · escrow by Alpha Traders"}</span>
                   </p>
                 </div>
                 <button type="button" aria-label="Close Buy USDT sheet" onClick={closeListingModal} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227]">
@@ -5290,139 +5504,69 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
               {!purchaseSubmitted ? (
                 <div className="space-y-4">
-                  {isSellerProfileLoading ? (
-                    <div className="space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
-                      <div className="h-32 animate-pulse rounded-xl bg-white/10" />
-                      <div className="h-6 w-2/5 animate-pulse rounded bg-white/10" />
-                      <div className="h-20 animate-pulse rounded-xl bg-white/10" />
-                    </div>
-                  ) : null}
-                  {!isSellerProfileLoading ? (
-                    <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/20">
-                      <div
-                        className="relative h-30 w-full border-b border-white/10 bg-cover bg-center"
-                        style={{
-                          backgroundImage: sellerProfileData?.profile.coverBannerUrl
-                            ? `linear-gradient(to bottom, rgba(5,5,5,0.28), rgba(5,5,5,0.7)), url(${sellerProfileData.profile.coverBannerUrl})`
-                            : "linear-gradient(120deg, rgba(201,162,39,0.2), rgba(16,16,16,0.9))",
-                        }}
-                      />
-                      <div className="grid gap-4 p-4 md:grid-cols-[auto_1fr]">
-                        <div className="-mt-12">
-                          {sellerProfileData?.profile.profilePhotoUrl ? (
+                  {(() => {
+                    const modalPresence = deriveSellerPresence({
+                      onlineStatus: (sellerProfileData?.profile ?? selectedListing.sellerProfile)?.onlineStatus,
+                      lastActiveAt: (sellerProfileData?.profile ?? selectedListing.sellerProfile)?.lastActiveAt,
+                    });
+                    const modalName = sellerProfileData?.profile.sellerName ?? selectedListing.sellerDisplayName;
+                    const modalLevel = sellerProfileData?.sellerLevel ?? selectedListing.sellerReputation?.level;
+                    const modalToneKey = selectedListing.sellerProfile?.isOwner ? "legendary" : sellerLevelToneKey(modalLevel);
+                    const modalTrust = sellerProfileData?.trustScore ?? selectedListing.sellerReputation?.trustScore ?? 0;
+                    const modalResponse = sellerProfileData?.responseTimeMinutes ?? selectedListing.sellerReputation?.responseTimeMinutes ?? 0;
+                    const modalCompleted = sellerProfileData?.completedTrades ?? selectedListing.sellerReputation?.completedTrades ?? 0;
+                    const modalRating = sellerProfileData?.averageRating ?? selectedListing.sellerReputation?.rating ?? 0;
+                    const modalPhoto = sellerProfileData?.profile.profilePhotoUrl ?? selectedListing.sellerProfile?.profilePhotoUrl;
+                    return (
+                      <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
+                        <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
+                          {modalPhoto ? (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={sellerProfileData.profile.profilePhotoUrl} alt={`${sellerProfileData.profile.sellerName} profile`} className="h-20 w-20 rounded-full border-2 border-[#0B0B0B] object-cover" />
+                            <img src={modalPhoto} alt={`${safeText(modalName, "Seller")} profile`} className="h-12 w-12 shrink-0 rounded-full border border-white/15 object-cover" />
                           ) : (
-                            <div className="inline-flex h-20 w-20 items-center justify-center rounded-full border-2 border-[#0B0B0B] bg-white/[0.06] text-xl font-semibold text-white">
-                              {safeText(sellerProfileData?.profile.sellerName ?? selectedListing.sellerDisplayName, "Seller")
-                                .split(" ")
-                                .map((part) => part[0])
-                                .join("")
-                                .slice(0, 2)}
+                            <div className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] text-sm font-semibold text-white">
+                              {safeText(modalName, "Seller").split(" ").map((part) => part[0]).join("").slice(0, 2)}
                             </div>
                           )}
-                        </div>
-                        <div className="space-y-2 text-sm text-[#D1D5DB]">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className={cn("text-lg font-semibold", selectedListing.sellerProfile?.isOwner ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerLevelToneKey(sellerProfileData?.sellerLevel ?? selectedListing.sellerReputation?.level)}`)}>{sellerProfileData?.profile.sellerName ?? selectedListing.sellerDisplayName}</p>
-                            <RoleBadge variant="approved_seller" className={cn("seller-rank-badge", `seller-rank-badge--${sellerLevelToneKey(sellerProfileData?.sellerLevel ?? selectedListing.sellerReputation?.level)}`)} />
-                            <span className={cn("seller-rank-pill", `seller-rank-pill--${selectedListing.sellerProfile?.isOwner ? "legendary" : sellerLevelToneKey(sellerProfileData?.sellerLevel ?? selectedListing.sellerReputation?.level)}`)}>
-                              {selectedListing.sellerProfile?.isOwner ? "Legendary Seller" : `${sellerLevelLabel(sellerProfileData?.sellerLevel ?? selectedListing.sellerReputation?.level)} Seller`}
-                            </span>
-                          </div>
-                          <div className="grid gap-1 md:grid-cols-2">
-                            <p>Seller Level: <span className="text-white">{sellerLevelLabel(sellerProfileData?.sellerLevel)}</span></p>
-                            <p>Trust Score: <span className="text-white">{sellerProfileData?.trustScore.toFixed(1) ?? (selectedListing.sellerReputation?.trustScore ?? 0).toFixed(1)}</span></p>
-                            <p>Status: <span className="text-white">{sellerProfileData?.profile.onlineStatus === "online" ? "Online" : "Offline"}</span></p>
-                            <p>Last Active: <span className="text-white">{formatRelativeMinutesLabel(sellerProfileData?.profile.lastActiveAt)}</span></p>
-                            <p>Member Since: <span className="text-white">{new Date(sellerProfileData?.profile.memberSince ?? selectedListing.createdAt).toLocaleDateString("en-IL")}</span></p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    {[
-                      { label: "Completed Trades", value: sellerProfileData?.completedTrades ?? selectedListing.sellerReputation?.completedTrades ?? 0 },
-                      { label: "Trade Volume", value: `${(sellerProfileData?.tradeVolume ?? selectedListing.sellerReputation?.totalUsdtVolume ?? 0).toLocaleString("en-IL")} USDT` },
-                      { label: "Average Rating", value: (sellerProfileData?.averageRating ?? selectedListing.sellerReputation?.rating ?? 0).toFixed(2) },
-                      { label: "Response Time", value: `${(sellerProfileData?.responseTimeMinutes ?? selectedListing.sellerReputation?.responseTimeMinutes ?? 0).toFixed(1)} min` },
-                      { label: "Completion Rate", value: `${(sellerProfileData?.completionRate ?? selectedListing.sellerReputation?.completionRate ?? 0).toFixed(1)}%` },
-                      { label: "Repeat Buyers", value: `${(sellerProfileData?.repeatBuyersPercent ?? selectedListing.sellerReputation?.repeatBuyers ?? 0).toFixed(1)}%` },
-                      { label: "Total Reviews", value: sellerProfileData?.totalReviews ?? 0 },
-                      { label: "Years on Platform", value: (sellerProfileData?.yearsOnPlatform ?? 0).toFixed(1) },
-                    ].map((item) => (
-                      <div key={item.label} className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                        <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">{item.label}</p>
-                        <p className="mt-1 text-sm font-medium text-white">{item.value}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                      <div className="space-y-3">
-                        <div>
-                          <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Buy USDT</p>
-                          <p className="mt-1 text-lg font-semibold text-white">Start your trade with {sellerProfileData?.profile.sellerName ?? selectedListing.sellerDisplayName}</p>
-                          <p className="mt-1 text-xs text-[#9CA3AF]">{safeText(sellerProfileData?.profile.bio || selectedListing.sellerDescription, "Approved seller on Alpha Exchange.")}</p>
-                        </div>
-                        <div className="flex flex-wrap gap-2 text-xs">
-                          <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1">Trust Score: <span className="text-white">{sellerProfileData?.trustScore.toFixed(1) ?? (selectedListing.sellerReputation?.trustScore ?? 0).toFixed(1)}</span></span>
-                          <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1">Response: <span className="text-white">{(sellerProfileData?.responseTimeMinutes ?? selectedListing.sellerReputation?.responseTimeMinutes ?? 0).toFixed(1)} min</span></span>
-                          <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1">Completed: <span className="text-white">{sellerProfileData?.completedTrades ?? selectedListing.sellerReputation?.completedTrades ?? 0}</span></span>
-                          <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1">Rating: <span className="text-white">{(sellerProfileData?.averageRating ?? selectedListing.sellerReputation?.rating ?? 0).toFixed(2)}★</span></span>
-                        </div>
-                        <div className="grid gap-2 text-xs sm:grid-cols-2">
-                          <p>Payment Methods: <span className="text-white">{normalizePaymentMethodList(sellerProfileData?.profile.preferredPaymentMethods, selectedListing.paymentMethod).map((method) => `${paymentMethodEmoji(method)} ${paymentMethodLabel(method)}`).join(", ")}</span></p>
-                          <p>Supported Networks: <span className="text-white">{(sellerProfileData?.profile.preferredNetworks ?? [selectedListing.network]).join(", ")}</span></p>
-                          <p>Status: <span className="text-white">{sellerProfileData?.profile.onlineStatus === "online" ? "Online" : "Offline"}</span></p>
-                          <p>Last Active: <span className="text-white">{formatRelativeMinutesLabel(sellerProfileData?.profile.lastActiveAt)}</span></p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {(sellerProfileData?.badges ?? selectedListing.sellerReputation?.badges ?? []).map((badge) => (
-                            <span key={`seller-profile-badge-${badge}`} className="rounded-full border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-2 py-1 text-[11px] text-[#93C5FD]">
-                              {sellerBadgeLabel(badge)}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                      <motion.div
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.22, ease: "easeOut" }}
-                        className="w-full max-w-xl rounded-2xl border border-[#C9A227]/30 bg-gradient-to-r from-emerald-500/10 via-black/60 to-[#C9A227]/12 p-4 shadow-[0_0_24px_rgba(16,185,129,0.12)]"
-                      >
-                        <div className="grid gap-4 md:grid-cols-[1fr_auto_1fr] md:items-center">
-                          <div className="text-center md:text-left">
-                            <div className="mb-2 inline-flex h-10 w-10 items-center justify-center rounded-full border border-emerald-400/45 bg-emerald-500/20 text-emerald-200 shadow-[0_0_18px_rgba(16,185,129,0.35)]">
-                              ₮
+                          <div className={`min-w-0 flex-1 ${isAr ? "text-right" : ""}`}>
+                            <div className={`flex flex-wrap items-center gap-2 ${isAr ? "flex-row-reverse" : ""}`}>
+                              <p className={cn("truncate text-base font-semibold", selectedListing.sellerProfile?.isOwner ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${modalToneKey}`)}>{safeText(modalName, "Seller")}</p>
+                              <RoleBadge variant="approved_seller" className={cn("seller-rank-badge", `seller-rank-badge--${modalToneKey}`)} />
+                              <span className={cn("seller-rank-pill", `seller-rank-pill--${modalToneKey}`)}>
+                                {selectedListing.sellerProfile?.isOwner ? "Legendary Seller" : `${sellerLevelLabel(modalLevel)} Seller`}
+                              </span>
                             </div>
-                            <p className="text-5xl font-bold leading-none text-white md:text-6xl">{selectedAmount.toLocaleString("en-IL")}</p>
-                            <p className="mt-2 text-sm uppercase tracking-[0.14em] text-emerald-200/90">USDT Available</p>
-                            <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-400/45 bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-200">
-                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
-                              Available Now
-                            </span>
-                          </div>
-                          <div className="mx-auto hidden h-24 w-px bg-white/15 md:block" />
-                          <div className="mx-auto h-px w-full bg-white/15 md:hidden" />
-                          <div className="text-center md:text-right">
-                            <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">Listing Price</p>
-                            <p className="mt-2 text-4xl font-bold text-[#C9A227] md:text-5xl">{formatIls(selectedPrice)}</p>
-                            <p className="mt-2 text-xs uppercase tracking-[0.12em] text-[#D1D5DB]">ILS per USDT</p>
+                            <div className={`mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#9CA3AF] ${isAr ? "flex-row-reverse" : ""}`}>
+                              <span className={cn("inline-flex items-center gap-1", `seller-presence--${modalPresence.tone}`)}>
+                                <span className={cn("seller-presence-dot", `seller-presence-dot--${modalPresence.tone}`)} aria-hidden="true" />
+                                {isAr ? modalPresence.labelAr : modalPresence.label}
+                              </span>
+                              <span><ShieldCheck className="mr-0.5 inline h-3 w-3 text-[#93C5FD]" />{modalTrust.toFixed(1)}</span>
+                              <span><Zap className="mr-0.5 inline h-3 w-3 text-[#F4D87A]" />{modalResponse.toFixed(0)} min</span>
+                              <span><HandCoins className="mr-0.5 inline h-3 w-3" />{modalCompleted.toLocaleString("en-IL")} trades</span>
+                              <span><Star className="mr-0.5 inline h-3 w-3 text-[#F4D87A]" />{modalRating.toFixed(2)}</span>
+                              {isSellerProfileLoading && !sellerProfileData ? <span className="text-[10px] italic text-[#9CA3AF]">refreshing…</span> : null}
+                            </div>
                           </div>
                         </div>
-                        <div className="mt-3 space-y-1 text-xs">
-                          <p>Network: <span className="text-white">{selectedListing.network}</span></p>
-                          <p>Commission (1%): <span className="text-white">₪{commission.toFixed(2)}</span></p>
-                          <p className="font-medium">Estimated Total: <span className="text-[#C9A227]">₪{estimatedTotal.toFixed(2)}</span></p>
-                          <p>Trade Instructions: <span className="text-white">{paymentMethodTradeInstruction(selectedListingPaymentMethod ?? selectedListing.paymentMethod, "buyer")}</span></p>
-                          <p>Safety Guidance: <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link></p>
-                        </div>
-                      </motion.div>
+                      </div>
+                    );
+                  })()}
+
+                  <div className="rounded-2xl border border-[#C9A227]/25 bg-gradient-to-r from-emerald-500/10 via-black/50 to-[#C9A227]/12 p-3">
+                    <div className={`flex items-end justify-between gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
+                      <div className={isAr ? "text-right" : ""}>
+                        <p className="text-2xl font-bold leading-none text-white">{selectedAmount.toLocaleString("en-IL")}</p>
+                        <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-emerald-200/90">USDT Available</p>
+                      </div>
+                      <div className={isAr ? "text-left" : "text-right"}>
+                        <p className="text-2xl font-bold leading-none text-[#C9A227]">{formatIls(selectedPrice)}</p>
+                        <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#D1D5DB]">ILS / USDT · {selectedListing.network}</p>
+                      </div>
                     </div>
+                    <p className={`mt-2 text-[11px] text-[#9CA3AF] ${isAr ? "text-right" : ""}`}>
+                      Commission (1%): <span className="text-white">₪{commission.toFixed(2)}</span> · Estimated total: <span className="text-[#C9A227]">₪{estimatedTotal.toFixed(2)}</span>
+                    </p>
                   </div>
 
                   {isOwnerViewer && sellerProfileData ? (
@@ -5508,19 +5652,26 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     </div>
                     <div className="grid gap-3 md:grid-cols-3">
                       <div className="space-y-2 md:col-span-3">
+                        <label htmlFor="buyer-usdt-amount" className="text-sm font-medium text-white">
+                          {isAr ? "كمية USDT" : "USDT Amount"} <span className="text-red-300">*</span>
+                        </label>
                         <Input
-                          placeholder="USDT Amount"
+                          id="buyer-usdt-amount"
+                          inputMode="numeric"
+                          placeholder={isAr ? "أدخل الكمية" : "Enter amount"}
                           value={buyerInfo.usdtAmount}
                           onChange={(event) => setBuyerInfo((prev) => ({ ...prev, usdtAmount: formatIntegerForInput(event.target.value) }))}
-                          className={buyerTradeAmountInvalid ? "border-red-500/80" : ""}
+                          className={buyerTradeAmountInvalid ? "border-red-500/80" : buyerTradeAmount > 0 ? "border-emerald-500/70" : ""}
+                          aria-invalid={buyerTradeAmountInvalid || undefined}
+                          aria-describedby="buyer-amount-help"
                         />
-                        <p className={`text-xs ${buyerTradeAmountInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>
-                          Trade limits: {selectedMinTrade.toLocaleString("en-IL")} - {selectedMaxTrade.toLocaleString("en-IL")} USDT
+                        <p id="buyer-amount-help" className={`text-xs ${buyerTradeAmountInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>
+                          {buyerTradeAmountInvalid ? "⚠ " : ""}Trade limits: {selectedMinTrade.toLocaleString("en-IL")} - {selectedMaxTrade.toLocaleString("en-IL")} USDT
                         </p>
                       </div>
-                      <Input placeholder="Name" value={buyerInfo.name} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, name: event.target.value }))} />
-                      <Input placeholder="WhatsApp" value={buyerInfo.whatsapp} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, whatsapp: event.target.value }))} />
-                      <Textarea aria-label="Buyer notes" placeholder="Notes" value={buyerInfo.notes} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, notes: event.target.value }))} />
+                      <Input aria-label={isAr ? "الاسم" : "Name"} placeholder={isAr ? "الاسم" : "Name"} value={buyerInfo.name} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, name: event.target.value }))} />
+                      <Input aria-label={isAr ? "واتساب" : "WhatsApp"} placeholder={isAr ? "واتساب" : "WhatsApp"} value={buyerInfo.whatsapp} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, whatsapp: event.target.value }))} />
+                      <Textarea aria-label={isAr ? "ملاحظات" : "Buyer notes"} placeholder={isAr ? "ملاحظات (اختياري)" : "Notes (optional)"} value={buyerInfo.notes} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, notes: event.target.value }))} />
                       <div className="space-y-2 md:col-span-3">
                         <label htmlFor="buyer-receiving-wallet" className="text-sm font-medium text-white">
                           Receiving Wallet Address <span className="text-red-300">*</span>
