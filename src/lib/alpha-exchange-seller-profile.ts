@@ -5,18 +5,18 @@ import {
 } from "@/lib/alpha-exchange-store";
 import type { AlphaExchangeUser, PremiumSellerProfileData, SellerLevel } from "@/types/alpha-exchange";
 
-export function deriveSellerRouteUsername(input: { fullName?: string; email?: string; id?: string }) {
+export function deriveSellerRouteUsername(input: { fullName?: string; email?: string; id?: string; publicTradingName?: string }) {
   return derivePublicProfileUsername(input);
 }
 
-export function resolveSellerByUsername<T extends Pick<AlphaExchangeUser, "id" | "fullName" | "email" | "sellerStatus">>(
+export function resolveSellerByUsername<T extends Pick<AlphaExchangeUser, "id" | "fullName" | "email" | "sellerStatus" | "buyerDisplayName">>(
   sellers: T[],
   username: string,
 ) {
   const normalizedUsername = username.toLowerCase().trim();
   return sellers.find((seller) => {
     return matchesPublicProfileUsername(
-      { fullName: seller.fullName, email: seller.email, id: seller.id },
+      { fullName: seller.fullName, email: seller.email, id: seller.id, publicTradingName: seller.buyerDisplayName },
       normalizedUsername,
     );
   });

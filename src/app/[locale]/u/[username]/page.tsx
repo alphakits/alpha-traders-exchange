@@ -57,7 +57,8 @@ export default async function PublicUserProfilePage({
   });
   if (!data) notFound();
 
-  const initials = data.profile.fullName?.trim()?.charAt(0)?.toUpperCase() || "?";
+  const publicTradingName = data.profile.publicTradingName || (isAr ? "بائع موثق" : "Verified Seller");
+  const initials = publicTradingName.trim().charAt(0).toUpperCase() || "?";
   const sellerIdentity = isSellerRole(data.profile.role, data.profile.sellerStatus)
     ? await getPremiumSellerProfile({
         sellerId: data.profile.id,
@@ -77,7 +78,7 @@ export default async function PublicUserProfilePage({
         <div className="surface-panel overflow-hidden p-0">
           <div className="relative h-44 border-b border-white/10 bg-gradient-to-r from-[#161005] via-[#221803] to-[#090909] md:h-56">
             {data.profile.coverBannerUrl ? (
-              <Image src={data.profile.coverBannerUrl} alt={data.profile.fullName} fill unoptimized className="object-cover opacity-90" />
+              <Image src={data.profile.coverBannerUrl} alt={publicTradingName} fill unoptimized className="object-cover opacity-90" />
             ) : null}
             <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/70" />
             <div className="absolute end-4 top-4 flex items-center gap-2 rounded-full border border-white/15 bg-black/40 px-3 py-1 text-xs text-[#D1D5DB] backdrop-blur-sm">
@@ -91,16 +92,15 @@ export default async function PublicUserProfilePage({
               <div className="flex items-end gap-4">
                 <div className={isSellerRole(data.profile.role, data.profile.sellerStatus) ? "profile-seller-frame" : "profile-member-frame"}>
                   {data.profile.profilePhotoUrl ? (
-                    <Image src={data.profile.profilePhotoUrl} alt={data.profile.fullName} width={112} height={112} unoptimized className="h-full w-full rounded-2xl object-cover" />
+                    <Image src={data.profile.profilePhotoUrl} alt={publicTradingName} width={112} height={112} unoptimized className="h-full w-full rounded-2xl object-cover" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center rounded-2xl bg-black/70 text-2xl font-semibold text-[#F4D87A]">{initials}</div>
                   )}
                 </div>
                 <div className="pb-1">
                   <h1 className={isSellerRole(data.profile.role, data.profile.sellerStatus) ? "profile-identity-name profile-identity-name--seller" : "profile-identity-name"}>
-                    {data.profile.fullName}
+                    {publicTradingName}
                   </h1>
-                  <p className="mt-1 text-sm text-[#A6AFBE]">@{data.profile.username}</p>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                     {isSellerRole(data.profile.role, data.profile.sellerStatus) ? (
                       <span className="inline-flex items-center gap-1 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2.5 py-1 font-semibold text-[#F4D87A]">
@@ -123,6 +123,12 @@ export default async function PublicUserProfilePage({
                       <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-emerald-300">
                         <Award className="h-3.5 w-3.5" />
                         {isAr ? "بائع مميز" : "Featured Seller"}
+                      </span>
+                    ) : null}
+                    {data.profile.isEmailVerified ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-sky-400/30 bg-sky-500/10 px-2.5 py-1 text-sky-200">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        {isAr ? "بريد إلكتروني موثّق" : "Verified Email"}
                       </span>
                     ) : null}
                   </div>
@@ -150,8 +156,8 @@ export default async function PublicUserProfilePage({
                 <p className="mt-2 text-sm font-semibold text-white">{data.profile.languages.length ? data.profile.languages.join(", ") : "—"}</p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "الاتصال المباشر" : "Direct messages"}</p>
-                <p className="mt-2 text-sm font-semibold text-white">{data.profile.allowDirectMessages ? (isAr ? "مسموح" : "Enabled") : (isAr ? "غير متاح" : "Disabled")}</p>
+                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "الحالة" : "Status"}</p>
+                <p className="mt-2 text-sm font-semibold text-white">{sellerIdentity?.profile.onlineStatus === "online" ? (isAr ? "متصل" : "Online") : (isAr ? "غير متصل" : "Offline")}</p>
               </div>
             </div>
           </div>
@@ -168,13 +174,11 @@ export default async function PublicUserProfilePage({
           </Card>
           <Card className="border-white/10 bg-[#0B0B0B]/92">
             <CardHeader>
-              <CardTitle>{isAr ? "معلومات الاتصال" : "Contact visibility"}</CardTitle>
+              <CardTitle>{isAr ? "خصوصية التواصل" : "Contact privacy"}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <p className="text-[#9CA3AF]">{isAr ? "البريد الإلكتروني" : "Email"}</p>
-              <p className="text-white">{data.profile.contact.email || "—"}</p>
-              <p className="pt-2 text-[#9CA3AF]">{isAr ? "رقم التواصل" : "Phone"}</p>
-              <p className="text-white">{data.profile.contact.phone || "—"}</p>
+              <p className="text-[#9CA3AF]">{isAr ? "لا يتم عرض البريد الإلكتروني أو رقم الهاتف في الملف العام." : "Phone number and email are never shown on public profiles."}</p>
+              <p className="pt-2 text-white">{isAr ? "ابدأ صفقة للتواصل الآمن داخل Alpha Traders." : "Start a trade for secure in-platform communication."}</p>
             </CardContent>
           </Card>
         </div>
