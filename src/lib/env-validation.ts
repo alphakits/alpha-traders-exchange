@@ -13,6 +13,7 @@ const ENV_VARS: EnvVar[] = [
   { key: "NEXT_PUBLIC_SUPABASE_URL", required: true, description: "Supabase project URL used by the browser and server clients" },
   { key: "NEXT_PUBLIC_SUPABASE_ANON_KEY", required: true, description: "Supabase anon key used by the browser and server clients" },
   { key: "SUPABASE_DB_URL", required: false, description: "PostgreSQL connection string used for Alpha Exchange runtime persistence" },
+  { key: "SUPABASE_DB_CA", required: false, description: "Optional PEM certificate authority for verified PostgreSQL TLS" },
   { key: "SUPABASE_SERVICE_ROLE_KEY", required: false, description: "Supabase service role key used for admin media uploads to object storage" },
   { key: "SUPABASE_ADMIN_MEDIA_BUCKET", required: false, description: "Supabase Storage bucket for admin lesson/media uploads" },
   { key: "NEXT_PUBLIC_SITE_URL", required: false, description: "Canonical production site URL, e.g. https://www.alphatraders.co.il" },
@@ -20,6 +21,9 @@ const ENV_VARS: EnvVar[] = [
   { key: "ADMIN_ACCESS_KEY", required: false, description: "Extra key required for admin API endpoints" },
   { key: "DISCORD_BOT_TOKEN", required: false, description: "Discord bot credential used by the server-only gateway client" },
   { key: "DISCORD_APPLICATION_ID", required: false, description: "Discord application identifier used to verify the connected bot" },
+  { key: "DISCORD_CLIENT_ID", required: false, description: "Website Discord OAuth client identifier" },
+  { key: "DISCORD_CLIENT_SECRET", required: false, description: "Website-only Discord OAuth client secret used for account linking" },
+  { key: "DISCORD_REDIRECT_URI", required: false, description: "Exact website Discord OAuth callback URI" },
   { key: "DISCORD_GUILD_ID", required: false, description: "Discord guild identifier verified during gateway startup" },
   { key: "DISCORD_WORKER_BASE_URL", required: false, description: "Fixed HTTPS Railway worker origin used by server-side admin diagnostics" },
   { key: "DISCORD_WORKER_HEALTH_SECRET", required: false, description: "Dedicated secret used to authenticate worker readiness probes" },
@@ -92,6 +96,11 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
   }
 
   if (isProduction) {
+    if (process.env.SUPABASE_DB_SSL === "false") {
+      errors.push(
+        "SECURITY: SUPABASE_DB_SSL=false is forbidden in production because PostgreSQL TLS identity verification is required.",
+      );
+    }
     if (!process.env.SUPABASE_DB_URL && !process.env.DATABASE_URL) {
       errors.push(
         "Missing required environment variable: SUPABASE_DB_URL (or DATABASE_URL) — PostgreSQL persistence is required in production.",

@@ -4,8 +4,33 @@ declare global {
   var __alphaTradersRuntimeDbPool: Pool | undefined;
 }
 
+const POSTGRES_SSL_QUERY_PARAMETERS = [
+  "ssl",
+  "sslmode",
+  "sslcert",
+  "sslkey",
+  "sslrootcert",
+  "sslpassword",
+  "uselibpqcompat",
+] as const;
+
 export function getRuntimePostgresConnectionString() {
   return process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? "";
+}
+
+function withVerifiedTlsConfiguration(connectionString: string): string {
+  try {
+    const parsed = new URL(connectionString);
+    for (const parameter of POSTGRES_SSL_QUERY_PARAMETERS) {
+      parsed.searchParams.delete(parameter);
+    }
+    return parsed.toString();
+  } catch {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("PostgreSQL connection string must be a valid URL in production.");
+    }
+    return connectionString;
+  }
 }
 
 /**
@@ -30,17 +55,30 @@ function warnIfDirectSupabaseUrl(connectionString: string) {
 }
 
 export function getRuntimePostgresPool() {
-  const connectionString = getRuntimePostgresConnectionString();
-  if (!connectionString) {
+  const configuredConnectionString = getRuntimePostgresConnectionString();
+  if (!configuredConnectionString) {
     return null;
   }
 
-  warnIfDirectSupabaseUrl(connectionString);
+  warnIfDirectSupabaseUrl(configuredConnectionString);
+  if (
+    process.env.NODE_ENV === "production"
+    && process.env.SUPABASE_DB_SSL === "false"
+  ) {
+    throw new Error("PostgreSQL TLS verification cannot be disabled in production.");
+  }
+  const connectionString = withVerifiedTlsConfiguration(configuredConnectionString);
 
   if (!globalThis.__alphaTradersRuntimeDbPool) {
+    const ca = process.env.SUPABASE_DB_CA?.trim();
     const pool = new Pool({
       connectionString,
-      ssl: process.env.SUPABASE_DB_SSL === "false" ? undefined : { rejectUnauthorized: false },
+      ssl: process.env.SUPABASE_DB_SSL === "false"
+        ? undefined
+        : {
+            rejectUnauthorized: true,
+            ...(ca ? { ca } : {}),
+          },
       // Tuned from measured production-like load, not an arbitrary default:
       // - Workload: auth/login + listing/trade flows repeatedly trigger cold snapshot reads.
       // - Pattern: loadSnapshot performs 23 independent SELECTs.

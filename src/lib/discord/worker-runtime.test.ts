@@ -43,7 +43,13 @@ class FakeSignalProcess extends EventEmitter {
   exitCode?: number;
 }
 
-function runtimeFixture(start = vi.fn(async () => diagnostics)) {
+function runtimeFixture(
+  start = vi.fn(async () => diagnostics),
+  roleSync = {
+    start: vi.fn(async () => undefined),
+    shutdown: vi.fn(async () => undefined),
+  },
+) {
   const server = new FakeServer();
   const service = {
     start,
@@ -53,21 +59,40 @@ function runtimeFixture(start = vi.fn(async () => diagnostics)) {
   const runtime = new DiscordWorkerRuntime({
     config: { healthSecret: "x".repeat(32), port: 3000 },
     service,
+    roleSync,
     createHealthServer: vi.fn(() => server as unknown as Server),
   });
-  return { runtime, server, service };
+  return { runtime, server, service, roleSync };
 }
 
 describe("Discord worker runtime", () => {
   it("starts health serving and the singleton service, then shuts both down once", async () => {
-    const { runtime, server, service } = runtimeFixture();
+    const { runtime, server, service, roleSync } = runtimeFixture();
 
     await expect(runtime.start()).resolves.toEqual(diagnostics);
     await Promise.all([runtime.shutdown(), runtime.shutdown()]);
 
     expect(server.listen).toHaveBeenCalledOnce();
     expect(service.start).toHaveBeenCalledOnce();
+    expect(roleSync.start).toHaveBeenCalledOnce();
     expect(server.close).toHaveBeenCalledOnce();
+    expect(service.shutdown).toHaveBeenCalledOnce();
+    expect(roleSync.shutdown).toHaveBeenCalledOnce();
+  });
+
+  it("fails startup and cleans up when durable role synchronization cannot start", async () => {
+    const roleSync = {
+      start: vi.fn().mockRejectedValue(new Error("database unavailable")),
+      shutdown: vi.fn(async () => undefined),
+    };
+    const { runtime, server, service } = runtimeFixture(
+      vi.fn(async () => diagnostics),
+      roleSync,
+    );
+
+    await expect(runtime.start()).rejects.toThrow("database unavailable");
+    expect(server.close).toHaveBeenCalledOnce();
+    expect(roleSync.shutdown).toHaveBeenCalledOnce();
     expect(service.shutdown).toHaveBeenCalledOnce();
   });
 

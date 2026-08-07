@@ -1,0 +1,17 @@
+{
+  "name": "@alpha-traders/discord-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild ../src/workers/discord-worker.ts --bundle --platform=node --format=esm --packages=external --conditions=react-server --alias:@=../src --outfile=dist/discord-worker.js"
+  },
+  "dependencies": {
+    "discord.js": "14.27.0",
+    "pg": "8.22.0",
+    "server-only": "0.0.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1"
+  }
+}

@@ -1,0 +1,24 @@
+FROM node:22.18.0-alpine AS build
+
+WORKDIR /app/discord-worker
+COPY discord-worker/package.json discord-worker/package-lock.json ./
+RUN npm ci
+
+COPY src/workers/discord-worker.ts /app/src/workers/discord-worker.ts
+COPY src/lib/discord /app/src/lib/discord
+COPY src/lib/env-validation.ts /app/src/lib/env-validation.ts
+COPY src/lib/postgres-runtime.ts /app/src/lib/postgres-runtime.ts
+COPY src/lib/site-url.ts /app/src/lib/site-url.ts
+COPY src/lib/structured-logging.ts /app/src/lib/structured-logging.ts
+RUN npm run build && npm prune --omit=dev
+
+FROM node:22.18.0-alpine AS runtime
+
+ENV NODE_ENV=production
+WORKDIR /app/discord-worker
+COPY --from=build /app/discord-worker/dist ./dist
+COPY --from=build /app/discord-worker/node_modules ./node_modules
+COPY --from=build /app/discord-worker/package.json ./package.json
+
+USER node
+CMD ["node", "--conditions=react-server", "dist/discord-worker.js"]

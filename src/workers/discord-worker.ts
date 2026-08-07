@@ -7,6 +7,7 @@ import {
   DiscordWorkerRuntime,
   installDiscordWorkerSignalHandlers,
 } from "@/lib/discord/worker-runtime";
+import { createDiscordRoleSyncWorker } from "@/lib/discord/role-sync-worker";
 
 async function main(): Promise<void> {
   let runtime: DiscordWorkerRuntime | null = null;
@@ -18,6 +19,7 @@ async function main(): Promise<void> {
     runtime = new DiscordWorkerRuntime({
       config,
       service: getDiscordService(),
+      roleSync: createDiscordRoleSyncWorker(),
     });
     removeSignalHandlers = installDiscordWorkerSignalHandlers(
       runtime,

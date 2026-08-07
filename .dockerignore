@@ -1,0 +1,16 @@
+**
+!Dockerfile.discord-worker
+!discord-worker/
+!discord-worker/package.json
+!discord-worker/package-lock.json
+!src/
+!src/workers/
+!src/workers/discord-worker.ts
+!src/lib/
+!src/lib/discord/
+!src/lib/discord/**
+!src/lib/env-validation.ts
+!src/lib/postgres-runtime.ts
+!src/lib/site-url.ts
+!src/lib/structured-logging.ts
+**/*.test.ts
