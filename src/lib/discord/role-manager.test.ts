@@ -99,7 +99,7 @@ describe("Discord managed seller roles", () => {
   });
 
   it("rejects managed roles above the bot hierarchy without escalating permissions", async () => {
-    const rest = fakeRest({ roleRows: roles({ approved_seller: 10 }) });
+    const rest = fakeRest({ roleRows: roles({ approved_seller: 11 }) });
     const manager = new DiscordRestRoleManager({
       token: "bot-token",
       guildId,
@@ -110,6 +110,23 @@ describe("Discord managed seller roles", () => {
       .rejects.toEqual(expect.objectContaining<Partial<DiscordRoleOperationError>>({
         code: "role_hierarchy",
       }));
+  });
+
+  it("uses Discord snowflake ordering when role positions are tied", async () => {
+    const rest = fakeRest({
+      roleRows: roles({
+        approved_seller: 10,
+        pending_seller: 10,
+        suspended_seller: 10,
+      }),
+    });
+    const manager = new DiscordRestRoleManager({
+      token: "bot-token",
+      guildId,
+      rest: rest as unknown as REST,
+    });
+
+    await expect(manager.discoverOrCreateManagedRoles(roleIds)).resolves.toEqual(roleIds);
   });
 
   it("requires Manage Roles rather than silently requesting Administrator", async () => {
