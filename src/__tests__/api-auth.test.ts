@@ -76,6 +76,17 @@ describe("requireApiAdmin", () => {
     expect(user).toEqual(u);
     expect(unauthorized).toBeNull();
   });
+
+  it("returns an owner carrying the additive admin role", async () => {
+    const u = {
+      ...makeUser({ role: "owner", email: ALPHA_EXCHANGE_OWNER_EMAIL }),
+      roles: ["owner", "admin"],
+    };
+    mockGetCurrentSessionUser.mockResolvedValue(u as never);
+    const { user, unauthorized } = await requireApiAdmin();
+    expect(user).toEqual(u);
+    expect(unauthorized).toBeNull();
+  });
 });
 
 describe("requirePhoneVerificationForTrading", () => {
