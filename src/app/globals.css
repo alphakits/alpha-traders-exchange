@@ -1447,69 +1447,69 @@ textarea {
     opacity: 0;
     transform: translateY(8px);
   }
-
-  @keyframes seller-name-shimmer {
-    0% {
-      background-position: 0% 50%;
-    }
-    100% {
-      background-position: 200% 50%;
-    }
-  }
-
-  @keyframes owner-name-shimmer {
-    0%,
-    78% {
-      background-position: 0% 50%;
-    }
-    88% {
-      background-position: 70% 50%;
-    }
-    100% {
-      background-position: 100% 50%;
-    }
-  }
-
-  @keyframes role-badge-shimmer {
-    0%,
-    85% {
-      opacity: 0;
-      transform: translate3d(-120%, 0, 0);
-    }
-    92% {
-      opacity: 0.32;
-    }
-    100% {
-      opacity: 0;
-      transform: translate3d(120%, 0, 0);
-    }
-  }
-
-  @keyframes role-badge-owner-energy {
-    0%, 100% {
-      filter: drop-shadow(0 0 2px rgba(220, 50, 50, 0.20));
-    }
-    50% {
-      filter: drop-shadow(0 0 7px rgba(220, 60, 60, 0.42)) drop-shadow(0 0 16px rgba(200, 40, 40, 0.20));
-    }
-  }
-
-  @keyframes role-badge-owner-shine {
-    0%, 65% {
-      opacity: 0;
-      transform: translate3d(-140%, 0, 0);
-    }
-    80% {
-      opacity: 0.60;
-    }
-    100% {
-      opacity: 0;
-      transform: translate3d(140%, 0, 0);
-    }
-  }
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes seller-name-shimmer {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+@keyframes owner-name-shimmer {
+  0%,
+  78% {
+    background-position: 0% 50%;
+  }
+  88% {
+    background-position: 70% 50%;
+  }
+  100% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes role-badge-shimmer {
+  0%,
+  85% {
+    opacity: 0;
+    transform: translate3d(-120%, 0, 0);
+  }
+  92% {
+    opacity: 0.32;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(120%, 0, 0);
+  }
+}
+
+@keyframes role-badge-owner-energy {
+  0%, 100% {
+    filter: drop-shadow(0 0 2px rgba(220, 50, 50, 0.20));
+  }
+  50% {
+    filter: drop-shadow(0 0 7px rgba(220, 60, 60, 0.42)) drop-shadow(0 0 16px rgba(200, 40, 40, 0.20));
+  }
+}
+
+@keyframes role-badge-owner-shine {
+  0%, 65% {
+    opacity: 0;
+    transform: translate3d(-140%, 0, 0);
+  }
+  80% {
+    opacity: 0.60;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(140%, 0, 0);
   }
 }
 
