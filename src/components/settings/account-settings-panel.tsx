@@ -429,10 +429,22 @@ export function AccountSettingsPanel({
     setDiscordMessage(null);
     try {
       const response = await fetch("/api/discord/identity", { method: "DELETE" });
-      const data = await response.json() as { error?: string };
-      if (!response.ok) {
+      const data: unknown = await response.json();
+      if (
+        !response.ok
+        || typeof data !== "object"
+        || data === null
+        || !("unlinked" in data)
+        || data.unlinked !== true
+      ) {
+        const error = typeof data === "object"
+          && data !== null
+          && "error" in data
+          && typeof data.error === "string"
+          ? data.error
+          : null;
         setDiscordMessage(
-          data.error
+          error
           ?? (isAr ? "تعذر فصل Discord." : "Could not disconnect Discord."),
         );
         return;

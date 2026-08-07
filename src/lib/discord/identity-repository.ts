@@ -235,20 +235,15 @@ export async function unlinkDiscordIdentity(input: {
   pool?: Pool | null;
 }): Promise<boolean> {
   return transaction(requirePool(input.pool), async (client) => {
-    const existing = await client.query<{ discord_user_id: string }>(
-      `select discord_user_id
-         from alpha_exchange.discord_identities
+    const deleted = await client.query<{ discord_user_id: string }>(
+      `delete from alpha_exchange.discord_identities
         where platform_user_id = $1
-        for update`,
+        returning discord_user_id`,
       [input.platformUserId],
     );
-    const discordUserId = existing.rows[0]?.discord_user_id;
+    const discordUserId = deleted.rows[0]?.discord_user_id;
     if (!discordUserId) return false;
 
-    await client.query(
-      `delete from alpha_exchange.discord_identities where platform_user_id = $1`,
-      [input.platformUserId],
-    );
     await client.query(
       `insert into alpha_exchange.discord_sync_audit
         (platform_user_id, discord_user_id, event_type, outcome)
