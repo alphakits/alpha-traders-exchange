@@ -31,6 +31,24 @@ async function login(page: Page) {
 }
 
 for (const width of [320, 390, 1280]) {
+  test(`Disconnected Discord account connection is visible by default at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await login(page);
+    await page.route("**/api/discord/identity", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ connection: null }),
+      });
+    });
+
+    await page.goto("/en/settings");
+    await expect(page.getByRole("heading", { name: "Connected Accounts" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Connect Discord" })).toBeVisible();
+    expect(await page.evaluate(() =>
+      document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+
   test(`Discord account connection remains accessible at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await login(page);
@@ -51,7 +69,7 @@ for (const width of [320, 390, 1280]) {
     });
 
     await page.goto("/en/settings?discord=linked");
-    await expect(page.getByRole("heading", { name: "Discord Connection" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Connected Accounts" })).toBeVisible();
     await expect(page.getByText("@alpha_user")).toBeVisible();
     await page.getByRole("button", { name: "Disconnect" }).click();
     await expect(page.getByText(/removes managed seller roles/i)).toBeVisible();
