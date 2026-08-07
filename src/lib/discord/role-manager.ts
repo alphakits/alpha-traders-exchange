@@ -62,6 +62,12 @@ function apiErrorCode(error: unknown): number | null {
   return typeof code === "number" ? code : null;
 }
 
+function compareRolePositions(left: ApiRole, right: ApiRole): number {
+  if (left.position !== right.position) return left.position - right.position;
+  if (left.id === right.id) return 0;
+  return BigInt(right.id) > BigInt(left.id) ? 1 : -1;
+}
+
 export interface DiscordRoleManager {
   discoverOrCreateManagedRoles(
     persisted: Partial<DiscordManagedRoleIds>,
@@ -194,11 +200,16 @@ export class DiscordRestRoleManager implements DiscordRoleManager {
     }
 
     if (!managedRoleIds) return;
-    const highestBotPosition = Math.max(0, ...botRoles.map((role) => role.position));
+    const highestBotRole = botRoles.reduce((highest, role) =>
+      compareRolePositions(role, highest) > 0 ? role : highest);
     for (const roleId of Object.values(managedRoleIds)) {
       if (!roleId) continue;
       const role = roles.find((candidate) => candidate.id === roleId);
-      if (!role || role.managed || role.position >= highestBotPosition) {
+      if (
+        !role
+        || role.managed
+        || compareRolePositions(highestBotRole, role) <= 0
+      ) {
         throw new DiscordRoleOperationError("role_hierarchy");
       }
       if (BigInt(role.permissions) !== BigInt(0)) {
