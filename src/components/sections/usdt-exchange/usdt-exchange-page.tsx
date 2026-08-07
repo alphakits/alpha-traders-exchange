@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { Activity, AlertTriangle, ArrowRight, BadgePercent, BellRing, Building2, CheckCircle2, Check, ChevronDown, ChevronRight, Clock3, Copy, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Users, Wallet, WalletCards, X, Zap } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
@@ -794,6 +795,18 @@ const ListingCountdownBadge = memo(function ListingCountdownBadge({ expiresAt, i
     </span>
   );
 });
+
+// Renders children into document.body so fixed-position overlays escape any
+// transformed ancestor (framer-motion) and center against the real viewport.
+function Portal({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
+  if (!mounted || typeof document === "undefined") return null;
+  return createPortal(children, document.body);
+}
 
 export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const isAr = locale === "ar";
@@ -5534,6 +5547,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       </Card>
       ) : null}
 
+      <Portal>
       <AnimatePresence>
         {removalListing ? (
           <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -5601,12 +5615,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           </motion.div>
         ) : null}
       </AnimatePresence>
+      </Portal>
 
+      <Portal>
       <AnimatePresence>
         {selectedListing ? (
-          <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div role="dialog" aria-modal="true" aria-label={isAr ? "شراء USDT" : "Buy USDT"} className="max-h-[92vh] w-full max-w-[700px] overflow-y-auto rounded-3xl border border-white/10 bg-[#0B0B0B]/95 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.5)] [padding-bottom:max(1.25rem,env(safe-area-inset-bottom))] sm:p-6" initial={{ opacity: 0, y: 24, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.97 }} transition={{ duration: 0.2, ease: "easeOut" }}>
-              <div className={`mb-4 flex items-start justify-between gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
+         <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <motion.div role="dialog" aria-modal="true" aria-label={isAr ? "شراء USDT" : "Buy USDT"} className="flex max-h-[92vh] w-full max-w-[700px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0B]/95 shadow-[0_24px_80px_rgba(0,0,0,0.5)]" initial={{ opacity: 0, y: 24, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.97 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+              <div className={`flex shrink-0 items-start justify-between gap-3 px-5 pt-5 sm:px-6 ${isAr ? "flex-row-reverse" : ""}`}>
                 <div>
                   <h3 className="text-2xl font-semibold">{isAr ? "شراء USDT" : "Buy USDT"}</h3>
                   <p className={`mt-1 inline-flex items-center gap-1.5 text-xs text-[#C9A227] ${isAr ? "flex-row-reverse" : ""}`}>
@@ -5620,7 +5636,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               </div>
 
               {!purchaseSubmitted ? (
-                <div className="space-y-4">
+                <>
+                <div className="flex-1 min-h-0 space-y-4 overflow-y-auto px-5 pb-4 pt-4 sm:px-6">
                   {(() => {
                     const modalPresence = deriveSellerPresence({
                       onlineStatus: (sellerProfileData?.profile ?? selectedListing.sellerProfile)?.onlineStatus,
@@ -5737,7 +5754,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     </div>
                   ) : null}
 
-                  <form className="grid gap-3" onSubmit={handlePurchaseSubmit}>
+                  <form id="buy-usdt-form" className="grid gap-3" onSubmit={handlePurchaseSubmit}>
                     <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
                       <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">Choose payment method</p>
                       <div className="mt-3 grid gap-2 md:grid-cols-3">
@@ -5839,24 +5856,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         <p className="mt-1 text-[#D1D5DB]">Read full guidance in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</p>
                       </div>
                     ) : null}
-                    <div className="sticky bottom-0 z-10 rounded-xl border border-[#C9A227]/30 bg-[#0B0B0B]/95 p-3">
-                      <div className="grid gap-2 md:grid-cols-2">
-                        <Button type="submit" className="w-full" disabled={isSubmittingPurchase || buyerTradeAmountInvalid || buyerWalletInvalid || (selectedListingRequiresSafetyNotice && !faceToFaceSafetyAcknowledged)}>
-                          {isSubmittingPurchase ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                          {isSubmittingPurchase ? "Starting trade..." : "Start Trade"}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          className="w-full"
-                          disabled={isSubmittingPurchase || buyerTradeAmountInvalid || buyerWalletInvalid || (selectedListingRequiresSafetyNotice && !faceToFaceSafetyAcknowledged)}
-                          onClick={() => void submitPurchaseRequest("Please proceed with this trade.")}
-                        >
-                          {isSubmittingPurchase ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                          {isSubmittingPurchase ? "Submitting..." : "Quick Buy"}
-                        </Button>
-                      </div>
-                    </div>
                     {showVerificationCta ? (
                       <Card className="border-[#C9A227]/50 bg-gradient-to-br from-amber-500/15 via-black/60 to-[#C9A227]/10 shadow-[0_0_26px_rgba(201,162,39,0.22)]">
                         <CardContent className="space-y-3 p-4">
@@ -5901,7 +5900,27 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     ) : null}
                   </form>
                 </div>
+                <div className="shrink-0 border-t border-white/10 bg-[#0B0B0B]/95 px-5 py-3 sm:px-6 [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))]">
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <Button type="submit" form="buy-usdt-form" className="w-full" disabled={isSubmittingPurchase || buyerTradeAmountInvalid || buyerWalletInvalid || (selectedListingRequiresSafetyNotice && !faceToFaceSafetyAcknowledged)}>
+                      {isSubmittingPurchase ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      {isSubmittingPurchase ? "Starting trade..." : "Start Trade"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="w-full"
+                      disabled={isSubmittingPurchase || buyerTradeAmountInvalid || buyerWalletInvalid || (selectedListingRequiresSafetyNotice && !faceToFaceSafetyAcknowledged)}
+                      onClick={() => void submitPurchaseRequest("Please proceed with this trade.")}
+                    >
+                      {isSubmittingPurchase ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      {isSubmittingPurchase ? "Submitting..." : "Quick Buy"}
+                    </Button>
+                  </div>
+                </div>
+                </>
               ) : (
+                <div className="px-5 pb-5 pt-4 sm:px-6">
                 <div className="rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-4 text-sm">
                   <p className="text-base font-semibold text-white">Request Submitted</p>
                   <p className="mt-2 text-[#D1D5DB]">Alpha Traders has received your request. We will connect you with the Approved Seller shortly.</p>
@@ -5911,11 +5930,13 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     }}>Close</Button>
                   </div>
                 </div>
+                </div>
               )}
             </motion.div>
           </motion.div>
         ) : null}
       </AnimatePresence>
+      </Portal>
     </section>
   );
 }
