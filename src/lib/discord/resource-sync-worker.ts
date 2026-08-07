@@ -1,6 +1,8 @@
 import "server-only";
 
-import type { Pool, PoolClient } from "pg";
+import { randomUUID } from "node:crypto";
+
+import type { Pool } from "pg";
 
 import { readDiscordConfig } from "@/lib/discord/config";
 import type { DiscordResourceDiagnostics } from "@/lib/discord/diagnostics";
@@ -20,7 +22,8 @@ import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { logEvent } from "@/lib/structured-logging";
 
 const RECONCILIATION_INTERVAL_MS = 15 * 60 * 1000;
-const RESOURCE_ADVISORY_LOCK_ID = 61422919;
+const LEASE_CONTENTION_RETRY_MS = 10_000;
+const RECONCILIATION_LEASE_SECONDS = 5 * 60;
 
 type ResourceSyncWorkerDependencies = {
   pool: Pool;
@@ -35,9 +38,11 @@ type PersistedResourceRow = {
   discord_resource_id: string | null;
   resource_type: DiscordPersistedResource["resourceType"];
   display_name: string;
+  provisioning_token: string;
   reconciliation_state: "pending" | "ready" | "degraded";
   last_audit_fingerprint: string | null;
 };
+type Queryable = Pick<Pool, "query">;
 
 function safeFailureCode(error: unknown): DiscordResourceOperationErrorCode | "database_operation_failed" {
   return error instanceof DiscordResourceOperationError
@@ -45,16 +50,83 @@ function safeFailureCode(error: unknown): DiscordResourceOperationErrorCode | "d
     : "database_operation_failed";
 }
 
+async function acquireReconciliationLease(
+  pool: Pool,
+  guildId: string,
+): Promise<string | null> {
+  const leaseToken = randomUUID();
+  const result = await pool.query<{ lease_token: string }>(
+    `insert into alpha_exchange.discord_resource_reconciliation_leases
+      (lease_key, guild_id, lease_token, lease_until)
+     values ('seller_resources', $1, $2::uuid, now() + ($3 * interval '1 second'))
+     on conflict (lease_key) do update set
+       guild_id = excluded.guild_id,
+       lease_token = excluded.lease_token,
+       lease_until = excluded.lease_until,
+       updated_at = now()
+     where alpha_exchange.discord_resource_reconciliation_leases.lease_until <= now()
+     returning lease_token::text`,
+    [guildId, leaseToken, RECONCILIATION_LEASE_SECONDS],
+  );
+  return result.rows[0]?.lease_token ?? null;
+}
+
+async function renewReconciliationLease(
+  pool: Pool,
+  guildId: string,
+  leaseToken: string,
+): Promise<void> {
+  const result = await pool.query(
+    `update alpha_exchange.discord_resource_reconciliation_leases
+        set lease_until = now() + ($3 * interval '1 second'),
+            updated_at = now()
+      where guild_id = $1
+        and lease_key = 'seller_resources'
+        and lease_token = $2::uuid
+        and lease_until > now()`,
+    [guildId, leaseToken, RECONCILIATION_LEASE_SECONDS],
+  );
+  if (result.rowCount !== 1) {
+    throw new DiscordResourceOperationError("reconciliation_lease_lost");
+  }
+}
+
+async function releaseReconciliationLease(
+  pool: Pool,
+  guildId: string,
+  leaseToken: string,
+): Promise<boolean> {
+  const result = await pool.query(
+    `delete from alpha_exchange.discord_resource_reconciliation_leases
+      where guild_id = $1
+        and lease_key = 'seller_resources'
+        and lease_token = $2::uuid`,
+    [guildId, leaseToken],
+  );
+  return result.rowCount === 1;
+}
+
 async function ensureResourceRows(
   pool: Pool,
   guildId: string,
   displayNames: DiscordResourceDisplayNames,
+  leaseToken: string,
 ): Promise<void> {
   for (const definition of DISCORD_MANAGED_RESOURCE_DEFINITIONS) {
-    await pool.query(
-      `insert into alpha_exchange.discord_managed_resources
+    const result = await pool.query(
+      `with ownership as (
+         select 1
+           from alpha_exchange.discord_resource_reconciliation_leases
+          where lease_key = 'seller_resources'
+            and guild_id = $3
+            and lease_token = $5::uuid
+            and lease_until > now()
+          for update
+       )
+       insert into alpha_exchange.discord_managed_resources
         (resource_key, resource_type, guild_id, display_name)
-       values ($1, $2, $3, $4)
+       select $1, $2, $3, $4
+        where exists (select 1 from ownership)
        on conflict (resource_key) do update set
          discord_resource_id = case
            when alpha_exchange.discord_managed_resources.guild_id = excluded.guild_id
@@ -86,22 +158,33 @@ async function ensureResourceRows(
              then alpha_exchange.discord_managed_resources.last_audit_fingerprint
            else null
          end,
+         provisioning_token = case
+           when alpha_exchange.discord_managed_resources.guild_id = excluded.guild_id
+             then alpha_exchange.discord_managed_resources.provisioning_token
+           else gen_random_uuid()
+         end,
          resource_type = excluded.resource_type,
          guild_id = excluded.guild_id,
          display_name = excluded.display_name,
-         updated_at = now()`,
+         updated_at = now()
+       where exists (select 1 from ownership)
+       returning resource_key`,
       [
         definition.key,
         definition.resourceType,
         guildId,
         displayNames[definition.key],
+        leaseToken,
       ],
     );
+    if (result.rowCount !== 1) {
+      throw new DiscordResourceOperationError("reconciliation_lease_lost");
+    }
   }
 }
 
 async function readPersistedResources(
-  client: PoolClient,
+  client: Queryable,
   guildId: string,
 ): Promise<{
   persisted: Partial<Record<DiscordManagedResourceKey, DiscordPersistedResource>>;
@@ -109,7 +192,7 @@ async function readPersistedResources(
 }> {
   const result = await client.query<PersistedResourceRow>(
     `select resource_key, discord_resource_id, resource_type, display_name,
-            reconciliation_state, last_audit_fingerprint
+            provisioning_token, reconciliation_state, last_audit_fingerprint
        from alpha_exchange.discord_managed_resources
       where guild_id = $1`,
     [guildId],
@@ -123,12 +206,13 @@ async function readPersistedResources(
         discordId: row.discord_resource_id,
         resourceType: row.resource_type,
         displayName: row.display_name,
+        provisioningToken: row.provisioning_token,
       },
     ])),
   };
 }
 
-async function readApprovedSellerRoleId(client: PoolClient): Promise<string> {
+async function readApprovedSellerRoleId(client: Queryable): Promise<string> {
   const result = await client.query<{ discord_role_id: string }>(
     `select discord_role_id
        from alpha_exchange.discord_managed_roles
@@ -142,10 +226,11 @@ async function readApprovedSellerRoleId(client: PoolClient): Promise<string> {
 }
 
 async function persistReadyResource(
-  client: PoolClient,
+  client: Queryable,
   input: {
     resource: Awaited<ReturnType<DiscordResourceManager["reconcileResources"]>>[number];
     guildId: string;
+    leaseToken: string;
     previous: PersistedResourceRow | undefined;
   },
 ): Promise<void> {
@@ -157,8 +242,9 @@ async function persistReadyResource(
     || recovered
     || previous?.last_audit_fingerprint !== fingerprint;
 
-  await client.query(
-    `update alpha_exchange.discord_managed_resources
+  const result = await client.query(
+    `with updated as (
+       update alpha_exchange.discord_managed_resources
         set discord_resource_id = $2,
             resource_type = $3,
             guild_id = $4,
@@ -172,7 +258,26 @@ async function persistReadyResource(
             verified_at = now(),
             last_audit_fingerprint = $6,
             updated_at = now()
-      where resource_key = $1`,
+      where resource_key = $1
+        and guild_id = $9
+        and exists (
+          select 1
+            from alpha_exchange.discord_resource_reconciliation_leases lease
+           where lease.guild_id = $9
+             and lease.lease_key = 'seller_resources'
+             and lease.lease_token = $10::uuid
+             and lease.lease_until > now()
+           for update
+        )
+      returning resource_key
+     ), audited as (
+     insert into alpha_exchange.discord_sync_audit
+       (event_type, outcome, detail_code)
+     select 'resource_reconciliation', 'success', $7
+       from updated
+      where $8::boolean
+     )
+     select resource_key from updated`,
     [
       resource.key,
       resource.discordId,
@@ -180,16 +285,51 @@ async function persistReadyResource(
       guildId,
       resource.displayName,
       fingerprint,
+      `${resource.key}:${recovered && resource.action === "verified" ? "recovered" : resource.action}`,
+      shouldAudit,
+      guildId,
+      input.leaseToken,
     ],
   );
+  if (result.rowCount !== 1) {
+    throw new DiscordResourceOperationError("reconciliation_lease_lost");
+  }
+}
 
-  if (shouldAudit) {
-    await client.query(
-      `insert into alpha_exchange.discord_sync_audit
-        (event_type, outcome, detail_code)
-       values ('resource_reconciliation', 'success', $1)`,
-      [`${resource.key}:${recovered && resource.action === "verified" ? "recovered" : resource.action}`],
-    );
+async function persistResolvedResource(
+  client: Queryable,
+  resource: Awaited<
+    ReturnType<DiscordResourceManager["reconcileResources"]>
+  >[number],
+  guildId: string,
+  leaseToken: string,
+): Promise<void> {
+  const result = await client.query(
+    `update alpha_exchange.discord_managed_resources
+        set discord_resource_id = $2,
+            provisioned_at = case
+              when discord_resource_id is distinct from $2 then now()
+              else coalesce(provisioned_at, now())
+            end,
+            reconciliation_state = 'pending',
+            last_error_code = null,
+            updated_at = now()
+      where resource_key = $1
+        and guild_id = $3
+        and exists (
+          select 1
+            from alpha_exchange.discord_resource_reconciliation_leases lease
+           where lease.guild_id = $3
+             and lease.lease_key = 'seller_resources'
+             and lease.lease_token = $4::uuid
+             and lease.lease_until > now()
+           for update
+        )
+      returning resource_key`,
+    [resource.key, resource.discordId, guildId, leaseToken],
+  );
+  if (result.rowCount !== 1) {
+    throw new DiscordResourceOperationError("reconciliation_lease_lost");
   }
 }
 
@@ -197,25 +337,76 @@ async function persistDegradedResources(
   pool: Pool,
   guildId: string,
   failureCode: string,
-): Promise<void> {
+  leaseToken: string,
+): Promise<boolean> {
   const fingerprint = `degraded:${failureCode}`;
-  await pool.query(
-    `with changed as (
+  const result = await pool.query<{ owns_lease: boolean }>(
+    `with ownership as (
+       select 1
+         from alpha_exchange.discord_resource_reconciliation_leases
+        where guild_id = $1
+          and lease_key = 'seller_resources'
+          and lease_token = $4::uuid
+          and lease_until > now()
+        for update
+     ), candidates as (
+       select resource_key,
+              last_audit_fingerprint is distinct from $3 as should_audit
+         from alpha_exchange.discord_managed_resources
+        where guild_id = $1
+          and exists (select 1 from ownership)
+        for update
+     ), changed as (
        update alpha_exchange.discord_managed_resources
           set reconciliation_state = 'degraded',
               last_error_code = $2,
               last_audit_fingerprint = $3,
               updated_at = now()
-        where guild_id = $1
-          and last_audit_fingerprint is distinct from $3
-        returning resource_key
-     )
+         from candidates
+        where alpha_exchange.discord_managed_resources.resource_key =
+              candidates.resource_key
+        returning candidates.should_audit
+     ), audited as (
      insert into alpha_exchange.discord_sync_audit
        (event_type, outcome, detail_code)
      select 'resource_reconciliation', 'degraded', $2
-      where exists (select 1 from changed)`,
-    [guildId, failureCode, fingerprint],
+      where exists (select 1 from changed where should_audit)
+      returning id
+     )
+     select exists (select 1 from ownership) as owns_lease`,
+    [guildId, failureCode, fingerprint, leaseToken],
   );
+  return result.rows[0]?.owns_lease === true;
+}
+
+async function readDurableResourceDiagnostics(
+  pool: Pool,
+  guildId: string,
+): Promise<DiscordResourceDiagnostics> {
+  const result = await pool.query<{
+    total_count: number;
+    ready_count: number;
+  }>(
+    `select count(*)::int as total_count,
+            count(*) filter (
+              where reconciliation_state = 'ready'
+                and discord_resource_id is not null
+            )::int as ready_count
+       from alpha_exchange.discord_managed_resources
+      where guild_id = $1`,
+    [guildId],
+  );
+  const totalCount = DISCORD_MANAGED_RESOURCE_KEYS.length;
+  const persistedTotal = result.rows[0]?.total_count ?? 0;
+  const readyCount = result.rows[0]?.ready_count ?? 0;
+  const ready = persistedTotal === totalCount && readyCount === totalCount;
+  return {
+    status: ready ? "ready" : "degraded",
+    totalCount,
+    readyCount,
+    missingCount: totalCount - readyCount,
+    errorCode: ready ? null : "reconciliation_lease_held",
+  };
 }
 
 export class DiscordResourceSyncWorker {
@@ -225,7 +416,9 @@ export class DiscordResourceSyncWorker {
   private readonly displayNames: DiscordResourceDisplayNames;
   private readonly reconciliationIntervalMs: number;
   private reconciliationTimer: ReturnType<typeof setInterval> | null = null;
-  private reconciling = false;
+  private leaseRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private activeReconciliation: Promise<boolean> | null = null;
+  private stopped = false;
   private diagnostics: DiscordResourceDiagnostics = {
     status: "degraded",
     totalCount: DISCORD_MANAGED_RESOURCE_KEYS.length,
@@ -253,9 +446,9 @@ export class DiscordResourceSyncWorker {
   }
 
   async start(): Promise<void> {
-    if (this.reconciliationTimer) return;
+    if (this.reconciliationTimer || this.stopped) return;
     try {
-      await this.reconcile();
+      if (!await this.reconcile()) this.scheduleLeaseRetry();
     } catch (error) {
       if (!(error instanceof DiscordResourceOperationError)) throw error;
       logEvent("warn", {
@@ -264,52 +457,101 @@ export class DiscordResourceSyncWorker {
         reason: error.code,
       });
     }
+    if (this.stopped) return;
     this.reconciliationTimer = setInterval(() => {
-      void this.reconcile().catch((error: unknown) => {
-        logEvent("error", {
-          event: "discord_resource_reconciliation",
-          outcome: "failed",
-          reason: safeFailureCode(error),
+      void this.reconcile()
+        .then((completed) => {
+          if (!completed) this.scheduleLeaseRetry();
+        })
+        .catch((error: unknown) => {
+          logEvent("error", {
+            event: "discord_resource_reconciliation",
+            outcome: "failed",
+            reason: safeFailureCode(error),
+          });
         });
-      });
     }, this.reconciliationIntervalMs);
   }
 
   async shutdown(): Promise<void> {
+    this.stopped = true;
     if (this.reconciliationTimer) clearInterval(this.reconciliationTimer);
+    if (this.leaseRetryTimer) clearTimeout(this.leaseRetryTimer);
     this.reconciliationTimer = null;
+    this.leaseRetryTimer = null;
+    await this.activeReconciliation?.catch(() => undefined);
   }
 
-  async reconcile(): Promise<void> {
-    if (this.reconciling) return;
-    this.reconciling = true;
-    let client: PoolClient | null = null;
-    let transactionOpen = false;
+  async reconcile(): Promise<boolean> {
+    if (this.stopped) return false;
+    if (this.activeReconciliation) return this.activeReconciliation;
+    this.activeReconciliation = this.performReconcile().finally(() => {
+      this.activeReconciliation = null;
+    });
+    return this.activeReconciliation;
+  }
+
+  private async performReconcile(): Promise<boolean> {
+    let leaseToken: string | null = null;
     try {
-      await ensureResourceRows(this.pool, this.guildId, this.displayNames);
-      client = await this.pool.connect();
-      await client.query("begin");
-      transactionOpen = true;
-      await client.query(`select pg_advisory_xact_lock(${RESOURCE_ADVISORY_LOCK_ID})`);
+      leaseToken = await acquireReconciliationLease(this.pool, this.guildId);
+      if (!leaseToken) {
+        this.diagnostics = await readDurableResourceDiagnostics(
+          this.pool,
+          this.guildId,
+        );
+        logEvent("info", {
+          event: "discord_resource_reconciliation_skipped",
+          outcome: "success",
+          reason: "lease_held",
+        });
+        return false;
+      }
+      const activeLeaseToken = leaseToken;
+      await ensureResourceRows(
+        this.pool,
+        this.guildId,
+        this.displayNames,
+        activeLeaseToken,
+      );
       const { persisted, rows } = await readPersistedResources(
-        client,
+        this.pool,
         this.guildId,
       );
-      const approvedSellerRoleId = await readApprovedSellerRoleId(client);
+      const approvedSellerRoleId = await readApprovedSellerRoleId(this.pool);
       const resources = await this.manager.reconcileResources({
         persisted,
         approvedSellerRoleId,
         displayNames: this.displayNames,
+        beforeResourceReconcile: () =>
+          renewReconciliationLease(this.pool, this.guildId, activeLeaseToken),
+        persistResolvedResource: async (resource) => {
+          await renewReconciliationLease(
+            this.pool,
+            this.guildId,
+            activeLeaseToken,
+          );
+          await persistResolvedResource(
+            this.pool,
+            resource,
+            this.guildId,
+            activeLeaseToken,
+          );
+        },
+        persistReconciledResource: async (resource) => {
+          await renewReconciliationLease(
+            this.pool,
+            this.guildId,
+            activeLeaseToken,
+          );
+          await persistReadyResource(this.pool, {
+            resource,
+            guildId: this.guildId,
+            leaseToken: activeLeaseToken,
+            previous: rows.get(resource.key),
+          });
+        },
       });
-      for (const resource of resources) {
-        await persistReadyResource(client, {
-          resource,
-          guildId: this.guildId,
-          previous: rows.get(resource.key),
-        });
-      }
-      await client.query("commit");
-      transactionOpen = false;
       this.diagnostics = {
         status: "ready",
         totalCount: resources.length,
@@ -317,6 +559,7 @@ export class DiscordResourceSyncWorker {
         missingCount: 0,
         errorCode: null,
       };
+      return true;
     } catch (error) {
       const failureCode = safeFailureCode(error);
       this.diagnostics = {
@@ -326,32 +569,80 @@ export class DiscordResourceSyncWorker {
         missingCount: DISCORD_MANAGED_RESOURCE_KEYS.length,
         errorCode: failureCode,
       };
-      if (transactionOpen && client) {
+      if (failureCode !== "reconciliation_lease_lost" && leaseToken) {
+        let persistedWhileOwned: boolean;
         try {
-          await client.query("rollback");
-          transactionOpen = false;
-        } catch (rollbackError) {
-          client.release(true);
-          client = null;
+          persistedWhileOwned = await persistDegradedResources(
+            this.pool,
+            this.guildId,
+            failureCode,
+            leaseToken,
+          );
+        } catch (persistenceError) {
           throw new AggregateError(
-            [error, rollbackError],
-            "Discord resource reconciliation rollback failed.",
+            [error, persistenceError],
+            "Discord resource reconciliation and degradation persistence failed.",
           );
         }
-      }
-      try {
-        await persistDegradedResources(this.pool, this.guildId, failureCode);
-      } catch (persistenceError) {
-        throw new AggregateError(
-          [error, persistenceError],
-          "Discord resource reconciliation and degradation persistence failed.",
-        );
+        if (!persistedWhileOwned) {
+          const leaseError = new DiscordResourceOperationError(
+            "reconciliation_lease_lost",
+            { cause: error },
+          );
+          this.diagnostics = {
+            ...this.diagnostics,
+            errorCode: leaseError.code,
+          };
+          throw leaseError;
+        }
       }
       throw error;
     } finally {
-      client?.release();
-      this.reconciling = false;
+      if (leaseToken) {
+        try {
+          const released = await releaseReconciliationLease(
+            this.pool,
+            this.guildId,
+            leaseToken,
+          );
+          if (!released) {
+            logEvent("warn", {
+              event: "discord_resource_lock_release",
+              outcome: "failed",
+              reason: "reconciliation_lease_lost",
+            });
+          }
+        } catch (error) {
+          logEvent("warn", {
+            event: "discord_resource_lock_release",
+            outcome: "failed",
+            reason: "database_operation_failed",
+            metadata: {
+              errorType: error instanceof Error ? error.name : typeof error,
+            },
+          });
+        }
+      }
     }
+  }
+
+  private scheduleLeaseRetry(): void {
+    if (this.stopped || this.leaseRetryTimer) return;
+    this.leaseRetryTimer = setTimeout(() => {
+      this.leaseRetryTimer = null;
+      if (this.stopped) return;
+      void this.reconcile()
+        .then((completed) => {
+          if (!completed) this.scheduleLeaseRetry();
+        })
+        .catch((error: unknown) => {
+          logEvent("error", {
+            event: "discord_resource_lease_retry",
+            outcome: "failed",
+            reason: safeFailureCode(error),
+          });
+        });
+    }, LEASE_CONTENTION_RETRY_MS);
   }
 }
 

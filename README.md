@@ -131,10 +131,14 @@ client, durable gateway ownership, reconnect continuity, or graceful shutdown.
 The gateway therefore runs as one dedicated long-lived Railway worker from this
 same repository.
 
-Apply `supabase/migrations/20260807190000_discord_seller_resources.sql` before
-deploying this worker version. The required Layer A channel permission bitset is
-`93200`; combined with the existing Manage Roles permission, authorize the bot
-with exact bitset `268528656` and do not grant Administrator.
+Apply `supabase/migrations/20260807190000_discord_seller_resources.sql`, then
+`supabase/migrations/20260807210000_discord_resource_reconciliation_lease.sql`,
+before deploying this worker version. This lease upgrade is not rolling-safe
+with the first Layer A worker: scale the Railway worker to zero, apply the lease
+migration, deploy the new image, then start exactly one replica. The required
+Layer A channel permission bitset is `93200`; combined with the existing Manage
+Roles permission, authorize the bot with exact bitset `268528656` and do not
+grant Administrator.
 
 The Railway worker owns the process-global `discord.js` singleton, login,
 Discord-managed reconnect/resume, application-ID verification, forced guild API
