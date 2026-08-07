@@ -125,24 +125,61 @@ Without these variables, credential-dependent E2E cases are skipped and public/a
 
 ### Discord gateway infrastructure
 
-The server-only Discord foundation requires `DISCORD_BOT_TOKEN`,
-`DISCORD_APPLICATION_ID`, and `DISCORD_GUILD_ID`. A single process-global
-`discord.js` client owns gateway login, Discord-managed reconnect/resume, guild
-verification through a forced API fetch, and graceful shutdown.
+Vercel remains the Next.js web/API host and never starts a Discord gateway
+client. Vercel serverless instances cannot guarantee eager startup, one global
+client, durable gateway ownership, reconnect continuity, or graceful shutdown.
+The gateway therefore runs as one dedicated long-lived Railway worker from this
+same repository.
 
-On a traditional Node deployment, Next.js instrumentation starts the client
-after the server runtime begins. It never connects during `next build` or in an
-Edge runtime. Vercel cannot guarantee an eager, durable process for a gateway
-connection, so Vercel initialization is intentionally deferred until the first
-authorized request to `GET /api/admin/discord/diagnostics`. Each warm server
-process retains its singleton, but deployments that require a continuously
-online bot should run the gateway in a dedicated long-lived Node service.
+The Railway worker owns the process-global `discord.js` singleton, login,
+Discord-managed reconnect/resume, application-ID verification, forced guild API
+fetch, and graceful `SIGINT`/`SIGTERM` shutdown. Its startup log contains only
+the bot username, guild name/ID, connection status, and gateway latency.
 
-The diagnostics endpoint uses the existing admin/owner session guard and
-returns only connection state, bot username, configured guild identity,
-websocket heartbeat latency, ready-session uptime, and safe degraded errors.
+Railway probes `GET /health/live`, which returns only generic process liveness.
+Detailed `GET /health/ready` diagnostics require a short-lived HMAC signature
+from the Vercel server, including a timestamp and one-use nonce. The signing
+secret is never transmitted and must not reuse the Discord bot token. The
+website's existing owner/admin-only
+`GET /api/admin/discord/diagnostics` endpoint proxies to that fixed HTTPS worker
+origin with a three-second timeout. It cannot accept a request-controlled URL
+or initialize a local client, and reports explicit degraded state for missing
+configuration, timeout, unavailable worker, failed authentication, or invalid
+responses.
+
 Ready-session uptime resets whenever the gateway disconnects or starts
-reconnecting.
+reconnecting. A healthy ready/resume event clears a prior transient gateway
+error so diagnostics recover without restarting the worker.
+
+### Railway Discord worker deployment
+
+Create one Railway service from this repository; do not create a second
+application or copy Discord logic. The root `railway.json` selects Nixpacks,
+runs `npm run discord:worker`, uses `/health/live` for deployment health, and
+restarts the worker on failure.
+
+Set these Railway service variables:
+
+- `DISCORD_BOT_TOKEN`
+- `DISCORD_APPLICATION_ID`
+- `DISCORD_GUILD_ID`
+- `DISCORD_WORKER_HEALTH_SECRET` (a dedicated random value of at least 32 characters)
+
+Railway provides `PORT`; do not hardcode it. Generate a public Railway HTTPS
+domain after the first deployment. Startup is successful only after the bot
+login, configured application ID, and configured guild are verified. A failed
+configuration, login, identity check, or guild fetch exits non-zero so Railway
+can restart according to policy.
+
+Set these Vercel server-only variables, then redeploy the web app:
+
+- `DISCORD_WORKER_BASE_URL` (the Railway HTTPS origin only, with no path)
+- `DISCORD_WORKER_HEALTH_SECRET` (the same dedicated value configured on Railway)
+
+Do not configure `DISCORD_BOT_TOKEN`, `DISCORD_APPLICATION_ID`, or
+`DISCORD_GUILD_ID` on Vercel. Rotate `DISCORD_WORKER_HEALTH_SECRET` on both
+services if it is exposed; readiness signatures expire after 30 seconds and
+cannot be replayed within a worker process.
 
 ### Required environment variables
 

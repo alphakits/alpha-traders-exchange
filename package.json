@@ -17,7 +17,8 @@
     "discord:verify": "node scripts/discord/verify-alpha-discord-auth.mjs",
     "discord:post-setup": "npm run discord:verify && npm run discord:inspect",
     "discord:provision": "node scripts/discord/provision-alpha-discord.mjs",
-    "discord:commands": "node scripts/discord/register-alpha-slash-commands.mjs"
+    "discord:commands": "node scripts/discord/register-alpha-slash-commands.mjs",
+    "discord:worker": "node --conditions=react-server --import tsx src/workers/discord-worker.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
@@ -38,6 +39,7 @@
     "react-hook-form": "^7.81.0",
     "server-only": "^0.0.1",
     "tailwind-merge": "^3.6.0",
+    "tsx": "^4.23.10",
     "zod": "^4.4.3"
   },
   "devDependencies": {

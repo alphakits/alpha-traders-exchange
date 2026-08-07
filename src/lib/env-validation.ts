@@ -21,6 +21,8 @@ const ENV_VARS: EnvVar[] = [
   { key: "DISCORD_BOT_TOKEN", required: false, description: "Discord bot credential used by the server-only gateway client" },
   { key: "DISCORD_APPLICATION_ID", required: false, description: "Discord application identifier used to verify the connected bot" },
   { key: "DISCORD_GUILD_ID", required: false, description: "Discord guild identifier verified during gateway startup" },
+  { key: "DISCORD_WORKER_BASE_URL", required: false, description: "Fixed HTTPS Railway worker origin used by server-side admin diagnostics" },
+  { key: "DISCORD_WORKER_HEALTH_SECRET", required: false, description: "Dedicated secret used to authenticate worker readiness probes" },
   { key: "ALPHA_EXCHANGE_LARGE_TRADE_THRESHOLD", required: false, description: "Min USDT amount considered a large trade" },
   { key: "ALPHA_EXCHANGE_EVIDENCE_MAX_SIZE_MB", required: false, description: "Max evidence upload size in MB" },
   { key: "ALPHA_EXCHANGE_STALE_TRADE_TIMEOUT_MINUTES", required: false, description: "Auto-cancel threshold for stale trades in minutes" },

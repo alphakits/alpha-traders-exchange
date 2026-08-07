@@ -1,0 +1,181 @@
+import "server-only";
+
+import type { Server } from "node:http";
+
+import type { DiscordDiagnostics } from "@/lib/discord/diagnostics";
+import type { DiscordService } from "@/lib/discord/service";
+import { logEvent } from "@/lib/structured-logging";
+import { createDiscordWorkerHealthServer } from "@/lib/discord/worker-health-server";
+import type { DiscordWorkerRuntimeConfig } from "@/lib/discord/worker-config";
+
+type WorkerService = Pick<
+  DiscordService,
+  "getDiagnostics" | "shutdown" | "start"
+>;
+
+type WorkerRuntimeDependencies = {
+  config: DiscordWorkerRuntimeConfig;
+  service: WorkerService;
+  createHealthServer?: typeof createDiscordWorkerHealthServer;
+};
+
+type SignalName = "SIGINT" | "SIGTERM";
+
+type SignalProcess = {
+  exitCode?: string | number;
+  on(signal: SignalName, listener: () => void): unknown;
+  removeListener(signal: SignalName, listener: () => void): unknown;
+};
+
+function listen(server: Server, port: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onError = (error: Error) => {
+      server.removeListener("listening", onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      server.removeListener("error", onError);
+      resolve();
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(port, "0.0.0.0");
+  });
+}
+
+function close(server: Server | null): Promise<void> {
+  if (!server?.listening) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+export class DiscordWorkerRuntime {
+  private readonly config: DiscordWorkerRuntimeConfig;
+  private readonly service: WorkerService;
+  private readonly createHealthServer: typeof createDiscordWorkerHealthServer;
+  private healthServer: Server | null = null;
+  private startPromise: Promise<DiscordDiagnostics> | null = null;
+  private shutdownPromise: Promise<void> | null = null;
+
+  constructor({
+    config,
+    service,
+    createHealthServer = createDiscordWorkerHealthServer,
+  }: WorkerRuntimeDependencies) {
+    this.config = config;
+    this.service = service;
+    this.createHealthServer = createHealthServer;
+  }
+
+  start(): Promise<DiscordDiagnostics> {
+    if (this.startPromise) return this.startPromise;
+    this.startPromise = this.performStart();
+    return this.startPromise;
+  }
+
+  shutdown(): Promise<void> {
+    if (this.shutdownPromise) return this.shutdownPromise;
+    this.shutdownPromise = this.performShutdown();
+    return this.shutdownPromise;
+  }
+
+  private async performStart(): Promise<DiscordDiagnostics> {
+    this.healthServer = this.createHealthServer({
+      service: this.service,
+      healthSecret: this.config.healthSecret,
+    });
+
+    try {
+      await listen(this.healthServer, this.config.port);
+      const diagnostics = await this.service.start();
+      if (diagnostics.status !== "healthy") {
+        throw new Error("Discord worker startup completed without healthy diagnostics.");
+      }
+      logEvent("info", {
+        event: "discord_worker_started",
+        outcome: "success",
+        metadata: {
+          botUsername: diagnostics.botUsername,
+          guildName: diagnostics.guildName,
+          guildId: diagnostics.guildId,
+          connectionStatus: diagnostics.readyState,
+          apiLatencyMs: diagnostics.apiLatencyMs,
+        },
+      });
+      return diagnostics;
+    } catch (startupError) {
+      try {
+        await this.shutdown();
+      } catch (shutdownError) {
+        throw new AggregateError(
+          [startupError, shutdownError],
+          "Discord worker startup and cleanup failed.",
+        );
+      }
+      throw startupError;
+    }
+  }
+
+  private async performShutdown(): Promise<void> {
+    const failures: unknown[] = [];
+    try {
+      await close(this.healthServer);
+    } catch (error) {
+      failures.push(error);
+    }
+    try {
+      await this.service.shutdown();
+    } catch (error) {
+      failures.push(error);
+    }
+
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "Discord worker shutdown failed.");
+    }
+
+    logEvent("info", {
+      event: "discord_worker_stopped",
+      outcome: "success",
+    });
+  }
+}
+
+export function installDiscordWorkerSignalHandlers(
+  runtime: Pick<DiscordWorkerRuntime, "shutdown">,
+  processLike: SignalProcess = process,
+  onSignal: () => void = () => undefined,
+): () => void {
+  let signalHandled = false;
+  const cleanup = () => {
+    processLike.removeListener("SIGINT", handleSignal);
+    processLike.removeListener("SIGTERM", handleSignal);
+  };
+  const handleSignal = () => {
+    if (signalHandled) return;
+    signalHandled = true;
+    onSignal();
+    void runtime.shutdown()
+      .catch((error: unknown) => {
+        processLike.exitCode = 1;
+        logEvent("error", {
+          event: "discord_worker_shutdown_failed",
+          outcome: "failed",
+          metadata: {
+            errorType: error instanceof Error ? error.name : typeof error,
+          },
+        });
+      })
+      .finally(cleanup);
+  };
+
+  processLike.on("SIGINT", handleSignal);
+  processLike.on("SIGTERM", handleSignal);
+  return cleanup;
+}
