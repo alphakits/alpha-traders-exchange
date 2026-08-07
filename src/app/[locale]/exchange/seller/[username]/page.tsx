@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { getSellerProfilePageData } from "@/lib/alpha-exchange-seller-profile";
@@ -24,22 +24,35 @@ export default async function SellerProfileRoute({
   searchParams,
 }: {
   params: Promise<{ locale: string; username: string }>;
-  searchParams: Promise<{ sellerId?: string | string[] }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  return SellerProfileRouteContent(params, searchParams);
+  const [{ locale, username }, query] = await Promise.all([params, searchParams]);
+  const legacySellerId = query.sellerId;
+  const hasLegacySellerId = Array.isArray(legacySellerId) ? legacySellerId.some(Boolean) : Boolean(legacySellerId);
+  if (hasLegacySellerId) {
+    const preservedParams = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (key === "sellerId" || value === undefined) continue;
+      if (Array.isArray(value)) {
+        for (const item of value) preservedParams.append(key, item);
+      } else {
+        preservedParams.set(key, value);
+      }
+    }
+    const search = preservedParams.toString();
+    redirect(`/${locale}/exchange/seller/${encodeURIComponent(username)}${search ? `?${search}` : ""}`);
+  }
+
+  return SellerProfileRouteContent({ locale, username });
 }
 
 async function SellerProfileRouteContent(
-  params: Promise<{ locale: string; username: string }>,
-  searchParams: Promise<{ sellerId?: string | string[] }>,
+  input: { locale: string; username: string },
 ) {
-  const { locale, username } = await params;
-  const query = await searchParams;
-  const sellerId = Array.isArray(query.sellerId) ? query.sellerId[0] : query.sellerId;
+  const { locale, username } = input;
   const viewer = await getCurrentSessionUser();
   const data = await getSellerProfilePageData({
     username,
-    sellerId,
     viewerUserId: viewer?.id,
     viewerRole: viewer?.role,
     viewerEmail: viewer?.email,

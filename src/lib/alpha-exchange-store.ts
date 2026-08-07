@@ -813,7 +813,7 @@ function buildPublicUserProfileDataForUser(input: {
   if (user.isProfileHidden === true && !canBypassVisibility) return null;
   if (enforceSearchVisibility && user.allowProfileSearch === false && !canBypassVisibility) return null;
 
-  const username = derivePublicProfileUsername({ fullName: user.fullName, email: user.email, id: user.id });
+  const username = derivePublicProfileUsername({ fullName: user.fullName, email: user.email, id: user.id, publicTradingName: user.buyerDisplayName });
   const trustSnapshot = input.trustSnapshot ?? (isTrustEligibleSeller(user) ? computeSellerReputationSnapshot(db, user.id) : null);
   const buyerRequests = db.purchaseRequests.filter((request) => request.buyerId === user.id);
   const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === user.id);
@@ -824,21 +824,23 @@ function buildPublicUserProfileDataForUser(input: {
 
   const showStats = user.showTradeStats !== false || canBypassVisibility;
   const showLastActive = user.showLastActive !== false || canBypassVisibility;
-  const showPhone = user.showPhonePublic === true || canBypassVisibility;
-  const showEmail = user.showEmailPublic === true || canBypassVisibility;
+  const canViewSensitiveProfileDetails = canBypassVisibility;
+  const explicitPublicTradingName = user.buyerDisplayName?.trim() || "";
+  const publicTradingName = explicitPublicTradingName || (isTrustEligibleSeller(user) ? "Verified Seller" : "Verified Member");
 
   return {
     profile: {
       id: user.id,
-      username,
-      fullName: user.fullName,
+      username: canViewSensitiveProfileDetails ? username : "",
+      fullName: canViewSensitiveProfileDetails ? user.fullName : "",
+      publicTradingName,
       role: user.role,
       roles: user.roles ?? [user.role],
       sellerStatus: user.sellerStatus,
       memberSince: user.createdAt,
       lastActiveAt: showLastActive ? user.lastActiveAt ?? user.updatedAt : null,
       country: user.country ?? "",
-      city: user.city ?? "",
+      city: canViewSensitiveProfileDetails ? user.city ?? "" : "",
       languages: user.languages ?? [],
       bio: user.bio ?? "",
       profilePhotoUrl: user.profilePhotoUrl ?? "",
@@ -847,9 +849,10 @@ function buildPublicUserProfileDataForUser(input: {
       isFoundingMember: user.isFoundingMember === true,
       isFoundingSeller: user.isFoundingSeller === true,
       allowDirectMessages: user.allowDirectMessages !== false || canBypassVisibility,
+      isEmailVerified: user.emailVerified === true,
       contact: {
-        email: showEmail ? user.email : "",
-        phone: showPhone ? user.whatsappNumber : "",
+        email: canViewSensitiveProfileDetails ? user.email : "",
+        phone: canViewSensitiveProfileDetails ? user.whatsappNumber : "",
       },
     },
     reputation: trustSnapshot
@@ -907,17 +910,29 @@ function normalizeSellerRouteUsername(value: string | undefined) {
   return normalized || "seller";
 }
 
-export function derivePublicProfileUsername(input: { fullName?: string; email?: string; id?: string }) {
+function deriveStablePublicAliasFromId(id: string | undefined) {
+  const normalized = String(id ?? "").trim();
+  if (!normalized) return "seller";
+  return `seller-${createHash("sha256").update(normalized).digest("hex").slice(0, 8)}`;
+}
+
+function deriveLegacyPublicProfileUsername(input: { fullName?: string; email?: string; id?: string }) {
   return normalizeSellerRouteUsername(input.email || input.fullName || input.id);
 }
 
+export function derivePublicProfileUsername(input: { fullName?: string; email?: string; id?: string; publicTradingName?: string }) {
+  const safeSource = input.publicTradingName || deriveStablePublicAliasFromId(input.id);
+  return normalizeSellerRouteUsername(safeSource);
+}
+
 export function matchesPublicProfileUsername(
-  input: { fullName?: string; email?: string; id?: string },
+  input: { fullName?: string; email?: string; id?: string; publicTradingName?: string },
   username: string,
 ) {
   const normalizedUsername = normalizeSellerRouteUsername(username);
   const aliases = new Set([
     derivePublicProfileUsername(input),
+    deriveLegacyPublicProfileUsername(input),
     normalizeSellerRouteUsername(input.fullName || input.email || input.id),
   ]);
   return aliases.has(normalizedUsername);
@@ -1252,17 +1267,13 @@ function enrichListingsWithSellerData(
 
 export async function getSellerProfileRouteData(input: {
   username: string;
-  sellerId?: string;
   viewerUserId?: string;
   viewerRole?: UserRole;
   viewerEmail?: string;
 }) {
   const db = await readDb();
   const normalizedUsername = input.username.trim().toLowerCase();
-  const normalizedSellerId = String(input.sellerId ?? "").trim();
-  const seller = normalizedSellerId
-    ? db.users.find((user) => user.id === normalizedSellerId)
-    : db.users.find((user) => matchesPublicProfileUsername({ fullName: user.fullName, email: user.email, id: user.id }, normalizedUsername));
+  const seller = db.users.find((user) => matchesPublicProfileUsername({ fullName: user.fullName, email: user.email, id: user.id, publicTradingName: user.buyerDisplayName }, normalizedUsername));
   if (!seller || (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended")) {
     return null;
   }
@@ -1277,17 +1288,27 @@ export async function getSellerProfileRouteData(input: {
 
   const listings = await getMarketplaceListings("active", db);
   const sellerListings = listings.filter((listing) => listing.sellerId === seller.id).slice(0, 6);
+  const usersById = new Map(db.users.map((user) => [user.id, user]));
   const similarSellers = listings
     .filter((listing) => listing.sellerId !== seller.id)
     .slice(0, 4)
-    .map((listing) => ({
-      sellerId: listing.sellerId,
-      sellerName: listing.sellerDisplayName,
-      sellerLevel: listing.sellerReputation?.level ?? "bronze",
-      trustScore: listing.sellerReputation?.trustScore ?? 0,
-      profilePhotoUrl: listing.sellerProfile?.profilePhotoUrl ?? "",
-      publicVolumeRange: listing.sellerReputation?.publicVolumeRange ?? "0+",
-    }));
+    .map((listing) => {
+      const similarSeller = usersById.get(listing.sellerId);
+      const sellerUsername = derivePublicProfileUsername({
+        id: similarSeller?.id,
+        fullName: similarSeller?.fullName,
+        email: similarSeller?.email,
+        publicTradingName: similarSeller?.buyerDisplayName,
+      });
+      return {
+        sellerUsername,
+        sellerName: listing.sellerDisplayName,
+        sellerLevel: listing.sellerReputation?.level ?? "bronze",
+        trustScore: listing.sellerReputation?.trustScore ?? 0,
+        profilePhotoUrl: listing.sellerProfile?.profilePhotoUrl ?? "",
+        publicVolumeRange: listing.sellerReputation?.publicVolumeRange ?? "0+",
+      };
+    });
 
   return {
     profile,
@@ -1303,7 +1324,7 @@ export async function getPublicUserProfileRouteData(input: {
 }) {
   const db = await readDb();
   const normalizedUsername = input.username.trim().toLowerCase();
-  const user = db.users.find((row) => matchesPublicProfileUsername({ fullName: row.fullName, email: row.email, id: row.id }, normalizedUsername));
+  const user = db.users.find((row) => matchesPublicProfileUsername({ fullName: row.fullName, email: row.email, id: row.id, publicTradingName: row.buyerDisplayName }, normalizedUsername));
   if (!user) return null;
   return buildPublicUserProfileDataForUser({
     db,
@@ -1414,9 +1435,10 @@ export async function getPremiumSellerProfile(input: {
 
   const profile: SellerPublicProfile = {
     ...buildSellerPublicProfile(seller),
-    sellerName: publicAccount.profile.fullName,
+    sellerName: publicAccount.profile.publicTradingName,
+    publicTradingName: publicAccount.profile.publicTradingName,
     fullName: publicAccount.profile.fullName,
-    username: publicAccount.profile.username,
+    username: publicAccount.profile.fullName ? publicAccount.profile.username : "",
     profilePhotoUrl: publicAccount.profile.profilePhotoUrl,
     memberSince: publicAccount.profile.memberSince,
     languages: publicAccount.profile.languages,
@@ -1431,6 +1453,7 @@ export async function getPremiumSellerProfile(input: {
     roles: publicAccount.profile.roles,
     sellerStatus: publicAccount.profile.sellerStatus,
     allowDirectMessages: publicAccount.profile.allowDirectMessages,
+    isEmailVerified: publicAccount.profile.isEmailVerified,
     contact: publicAccount.profile.contact,
     lastActiveAt: publicAccount.profile.lastActiveAt ?? undefined,
   };
