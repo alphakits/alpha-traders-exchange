@@ -28,7 +28,8 @@ describe("Discord identity migration", () => {
 
   it("queues revocation before explicit unlink or cascading account deletion", () => {
     expect(sql).toContain("before delete on alpha_exchange.discord_identities");
-    expect(sql).toContain("'identity_deleted'");
-    expect(sql).toContain("'none'");
+    expect(sql).toMatch(
+      /insert into alpha_exchange\.discord_role_sync_outbox[\s\S]*old\.platform_user_id,[\s\S]*old\.discord_user_id,[\s\S]*'none',[\s\S]*'identity_deleted'/,
+    );
   });
 });

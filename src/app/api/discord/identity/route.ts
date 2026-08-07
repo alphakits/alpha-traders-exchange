@@ -50,14 +50,30 @@ export async function DELETE(request: NextRequest) {
 
   try {
     const unlinked = await unlinkDiscordIdentity({ platformUserId: user.id });
+    if (!unlinked) {
+      logEvent("warn", {
+        event: "discord_identity_unlink",
+        actorUserId: user.id,
+        targetUserId: user.id,
+        outcome: "denied",
+        reason: "No Discord identity was linked to the authenticated account",
+      });
+      return NextResponse.json(
+        {
+          error: "Discord is not connected to this account. Refresh and try again.",
+          code: "DISCORD_IDENTITY_NOT_LINKED",
+          unlinked: false,
+        },
+        { status: 409, headers: RESPONSE_HEADERS },
+      );
+    }
     logEvent("info", {
       event: "discord_identity_unlink",
       actorUserId: user.id,
       targetUserId: user.id,
       outcome: "success",
-      metadata: { previouslyLinked: unlinked },
     });
-    return NextResponse.json({ unlinked }, { headers: RESPONSE_HEADERS });
+    return NextResponse.json({ unlinked: true }, { headers: RESPONSE_HEADERS });
   } catch {
     logEvent("error", {
       event: "discord_identity_unlink",

@@ -110,7 +110,7 @@ describe("Discord identity repository", () => {
     const statements: string[] = [];
     const query = vi.fn(async (sql: string) => {
       statements.push(sql);
-      if (sql.includes("select discord_user_id")) {
+      if (sql.includes("returning discord_user_id")) {
         return result([{ discord_user_id: "987654321098765432" }]);
       }
       return result([]);
@@ -126,7 +126,25 @@ describe("Discord identity repository", () => {
     const deleteIndex = statements.findIndex((sql) =>
       sql.includes("delete from alpha_exchange.discord_identities"));
     expect(deleteIndex).toBeGreaterThan(-1);
-    expect(statements.some((sql) =>
-      sql.includes("insert into alpha_exchange.discord_sync_audit"))).toBe(true);
+    expect(statements[deleteIndex]).toContain("returning discord_user_id");
+    const auditCall = query.mock.calls.find(([sql]) =>
+      String(sql).includes("insert into alpha_exchange.discord_sync_audit"));
+    expect(auditCall?.[1]).toEqual(["alpha-user", "987654321098765432"]);
+    expect(statements.indexOf("commit")).toBeGreaterThan(deleteIndex);
+  });
+
+  it("treats repeated unlink as an idempotent no-op without another audit", async () => {
+    const query = vi.fn(async () => result([]));
+    const client = { query, release: vi.fn() } as unknown as PoolClient;
+    const pool = { connect: vi.fn(async () => client) } as unknown as Pool;
+
+    await expect(unlinkDiscordIdentity({
+      platformUserId: "alpha-user",
+      pool,
+    })).resolves.toBe(false);
+
+    expect(query).toHaveBeenCalledWith("commit");
+    expect(query.mock.calls.some(([sql]) =>
+      String(sql).includes("discord_sync_audit"))).toBe(false);
   });
 });

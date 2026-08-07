@@ -70,6 +70,27 @@ describe("Discord identity route", () => {
       },
     ));
     expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ unlinked: true });
     expect(mocks.unlink).toHaveBeenCalledWith({ platformUserId: "alpha-user" });
+  });
+
+  it("does not report success when the authenticated account has no mapping", async () => {
+    mocks.unlink.mockResolvedValue(false);
+    const response = await DELETE(new NextRequest(
+      "http://localhost/api/discord/identity",
+      {
+        method: "DELETE",
+        headers: {
+          origin: "http://localhost",
+          "sec-fetch-site": "same-origin",
+        },
+      },
+    ));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "DISCORD_IDENTITY_NOT_LINKED",
+      unlinked: false,
+    });
   });
 });

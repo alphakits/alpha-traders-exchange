@@ -49,10 +49,21 @@ for (const width of [320, 390, 1280]) {
       document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 
-  test(`Discord account connection remains accessible at ${width}px`, async ({ page }) => {
+  test(`Failed Discord unlink preserves connected state at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await login(page);
     await page.route("**/api/discord/identity", async (route) => {
+      if (route.request().method() === "DELETE") {
+        await route.fulfill({
+          status: 409,
+          contentType: "application/json",
+          body: JSON.stringify({
+            unlinked: false,
+            error: "Discord is not connected to this account. Refresh and try again.",
+          }),
+        });
+        return;
+      }
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -73,7 +84,12 @@ for (const width of [320, 390, 1280]) {
     await expect(page.getByText("@alpha_user")).toBeVisible();
     await page.getByRole("button", { name: "Disconnect" }).click();
     await expect(page.getByText(/removes managed seller roles/i)).toBeVisible();
-    await expect(page.getByRole("button", { name: "Confirm disconnect" })).toBeVisible();
+    await page.getByRole("button", { name: "Confirm disconnect" }).click();
+    await expect(page.getByText(
+      "Discord is not connected to this account. Refresh and try again.",
+    )).toBeVisible();
+    await expect(page.getByText("@alpha_user")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Connect Discord" })).toHaveCount(0);
     expect(await page.evaluate(() =>
       document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
