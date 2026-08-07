@@ -37,29 +37,37 @@ Select scopes:
 - bot
 - applications.commands
 
-Select bot permissions (recommended for Alpha setup automation):
+Select only these bot permissions for the production role-sync and seller-resource
+worker:
+- Manage Roles
 - View Channels
 - Manage Channels
-- Manage Roles
-- Manage Server
-- View Audit Log
 - Send Messages
 - Embed Links
-- Attach Files
 - Read Message History
 - Manage Messages
-- Manage Threads
-- Moderate Members
-- Kick Members
-- Ban Members
-- Mention @everyone, @here, and All Roles
 
-Layer 1 role synchronization itself requires only:
-- View Server
-- Manage Roles
+The Layer A channel permission bitset is `93200`. Combined with the existing
+Manage Roles foundation, the exact production bot permission bitset is
+`268528656`. Do not grant Administrator, Manage Server, moderation, member-ban,
+or mention-everyone permissions.
 
-Do not grant Administrator for Layer 1. Keep the Alpha Traders bot role above the
-three managed seller roles so Discord permits assignment and removal.
+Before deploying Layer A, remove legacy Administrator, Manage Server, Manage
+Threads, Manage Webhooks, View Audit Log, moderation, ban/kick, and
+mention-everyone grants from the bot role. The worker reports
+`excessive_bot_permissions` and leaves Discord resources untouched while any
+high-impact excess permission remains.
+
+If the existing production bot lacks a Layer A permission, regenerate and open
+this authorization URL with the real application ID, select the configured
+guild, and re-authorize the existing bot:
+
+```text
+https://discord.com/oauth2/authorize?client_id=<DISCORD_APPLICATION_ID>&scope=bot&permissions=268528656
+```
+
+Keep the Alpha Traders bot role above the three managed seller roles so Discord
+permits role assignment and seller-channel overwrite management.
 
 For website account linking, add this exact redirect URI under OAuth2:
 
@@ -131,8 +139,22 @@ DISCORD_WORKER_HEALTH_SECRET
 DATABASE_URL (or SUPABASE_DB_URL)
 ```
 
-Apply `supabase/migrations/20260807000000_discord_identity_sync.sql` before
-starting the new worker image. Do not activate website linking until
+Optional Railway display-name overrides:
+
+```text
+DISCORD_SELLER_CATEGORY_NAME=ALPHA SELLER SUITE
+DISCORD_SELLER_LOUNGE_CHANNEL_NAME=seller-lounge
+DISCORD_SELLER_ANNOUNCEMENTS_CHANNEL_NAME=seller-announcements
+DISCORD_SELLER_UPDATES_CHANNEL_NAME=seller-updates
+DISCORD_SELLER_GUIDES_CHANNEL_NAME=seller-guides
+DISCORD_SELLER_SUPPORT_CHANNEL_NAME=seller-support
+DISCORD_MARKETPLACE_LISTINGS_CHANNEL_NAME=marketplace-listings
+```
+
+Apply both `supabase/migrations/20260807000000_discord_identity_sync.sql` and
+`supabase/migrations/20260807190000_discord_seller_resources.sql` before starting
+the new worker image. The Railway worker provisions and reconciles the category
+and channels; do not run it from Vercel. Do not activate website linking until
 the three website OAuth variables are configured on Vercel.
 
 ## 7) Verify Bot Can Connect

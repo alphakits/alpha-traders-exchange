@@ -131,10 +131,19 @@ client, durable gateway ownership, reconnect continuity, or graceful shutdown.
 The gateway therefore runs as one dedicated long-lived Railway worker from this
 same repository.
 
+Apply `supabase/migrations/20260807190000_discord_seller_resources.sql` before
+deploying this worker version. The required Layer A channel permission bitset is
+`93200`; combined with the existing Manage Roles permission, authorize the bot
+with exact bitset `268528656` and do not grant Administrator.
+
 The Railway worker owns the process-global `discord.js` singleton, login,
 Discord-managed reconnect/resume, application-ID verification, forced guild API
-fetch, and graceful `SIGINT`/`SIGTERM` shutdown. Its startup log contains only
-the bot username, guild name/ID, connection status, and gateway latency.
+fetch, managed seller resource reconciliation, and graceful `SIGINT`/`SIGTERM`
+shutdown. Seller resources use stable database keys and persisted Discord IDs;
+the worker repairs owned names, parents, and permission bits without deleting,
+reordering, or replacing unrelated guild resources and overwrites. It preserves
+non-conflicting overwrite bits while removing legacy untrusted visibility or
+posting allows that would bypass the Approved Seller and bot-only boundaries.
 
 Railway probes `GET /health/live`, which returns only generic process liveness.
 Detailed `GET /health/ready` diagnostics require a short-lived HMAC signature

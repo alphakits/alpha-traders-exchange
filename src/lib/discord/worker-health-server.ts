@@ -8,15 +8,20 @@ import {
 } from "node:http";
 
 import type { DiscordService } from "@/lib/discord/service";
+import type { DiscordResourceDiagnostics } from "@/lib/discord/diagnostics";
 import {
   DISCORD_WORKER_AUTH_HEADERS,
   DiscordWorkerAuthVerifier,
 } from "@/lib/discord/worker-health-auth";
 
 type HealthService = Pick<DiscordService, "getDiagnostics">;
+type ResourceHealth = {
+  getDiagnostics(): DiscordResourceDiagnostics;
+};
 
 export type DiscordWorkerHealthServerDependencies = {
   service: HealthService;
+  resources?: ResourceHealth;
   healthSecret: string;
   now?: () => number;
 };
@@ -43,6 +48,7 @@ function sendJson(
 
 export function createDiscordWorkerHealthServer({
   service,
+  resources,
   healthSecret,
   now,
 }: DiscordWorkerHealthServerDependencies): Server {
@@ -77,7 +83,17 @@ export function createDiscordWorkerHealthServer({
         return;
       }
 
-      const diagnostics = service.getDiagnostics();
+      const serviceDiagnostics = service.getDiagnostics();
+      const resourceDiagnostics = resources?.getDiagnostics();
+      const diagnostics = {
+        ...serviceDiagnostics,
+        status:
+          serviceDiagnostics.status === "healthy"
+          && (!resourceDiagnostics || resourceDiagnostics.status === "ready")
+            ? "healthy" as const
+            : "degraded" as const,
+        ...(resourceDiagnostics ? { resources: resourceDiagnostics } : {}),
+      };
       sendJson(response, diagnostics.status === "healthy" ? 200 : 503, diagnostics);
       return;
     }

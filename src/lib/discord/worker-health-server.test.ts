@@ -38,6 +38,14 @@ async function startServer() {
   return `http://127.0.0.1:${port}`;
 }
 
+const resourceDiagnostics = {
+  status: "ready" as const,
+  totalCount: 7,
+  readyCount: 7,
+  missingCount: 0,
+  errorCode: null,
+};
+
 afterEach(async () => {
   await Promise.all(servers.splice(0).map(
     (server) => new Promise<void>((resolve, reject) => {
@@ -97,5 +105,44 @@ describe("Discord worker health server", () => {
     expect(
       (await fetch(`http://127.0.0.1:${port}/health/ready`, { headers })).status,
     ).toBe(503);
+  });
+
+  it("exposes aggregate resource readiness and degrades without leaking IDs", async () => {
+    const server = createDiscordWorkerHealthServer({
+      service: { getDiagnostics: () => diagnostics },
+      resources: {
+        getDiagnostics: () => ({
+          ...resourceDiagnostics,
+          status: "degraded",
+          readyCount: 5,
+          missingCount: 2,
+          errorCode: "missing_channel_permissions",
+        }),
+      },
+      healthSecret,
+      now: () => now,
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    const headers = createDiscordWorkerAuthHeaders(
+      healthSecret,
+      () => now,
+      () => nonce,
+    );
+
+    const response = await fetch(`http://127.0.0.1:${port}/health/ready`, {
+      headers,
+    });
+    const payload = await response.json();
+    expect(response.status).toBe(503);
+    expect(payload.resources).toEqual({
+      status: "degraded",
+      totalCount: 7,
+      readyCount: 5,
+      missingCount: 2,
+      errorCode: "missing_channel_permissions",
+    });
+    expect(JSON.stringify(payload.resources)).not.toMatch(/\d{17,20}/);
   });
 });

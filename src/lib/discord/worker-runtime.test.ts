@@ -7,7 +7,10 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import type { DiscordDiagnostics } from "@/lib/discord/diagnostics";
+import type {
+  DiscordDiagnostics,
+  DiscordResourceDiagnostics,
+} from "@/lib/discord/diagnostics";
 import {
   DiscordWorkerRuntime,
   installDiscordWorkerSignalHandlers,
@@ -49,6 +52,21 @@ function runtimeFixture(
     start: vi.fn(async () => undefined),
     shutdown: vi.fn(async () => undefined),
   },
+  resourceSync: {
+    start: () => Promise<void>;
+    shutdown: () => Promise<void>;
+    getDiagnostics: () => DiscordResourceDiagnostics;
+  } = {
+    start: vi.fn(async () => undefined),
+    shutdown: vi.fn(async () => undefined),
+    getDiagnostics: vi.fn(() => ({
+      status: "ready" as const,
+      totalCount: 7,
+      readyCount: 7,
+      missingCount: 0,
+      errorCode: null,
+    })),
+  },
 ) {
   const server = new FakeServer();
   const service = {
@@ -60,14 +78,15 @@ function runtimeFixture(
     config: { healthSecret: "x".repeat(32), port: 3000 },
     service,
     roleSync,
+    resourceSync,
     createHealthServer: vi.fn(() => server as unknown as Server),
   });
-  return { runtime, server, service, roleSync };
+  return { runtime, server, service, roleSync, resourceSync };
 }
 
 describe("Discord worker runtime", () => {
   it("starts health serving and the singleton service, then shuts both down once", async () => {
-    const { runtime, server, service, roleSync } = runtimeFixture();
+    const { runtime, server, service, roleSync, resourceSync } = runtimeFixture();
 
     await expect(runtime.start()).resolves.toEqual(diagnostics);
     await Promise.all([runtime.shutdown(), runtime.shutdown()]);
@@ -75,9 +94,11 @@ describe("Discord worker runtime", () => {
     expect(server.listen).toHaveBeenCalledOnce();
     expect(service.start).toHaveBeenCalledOnce();
     expect(roleSync.start).toHaveBeenCalledOnce();
+    expect(resourceSync.start).toHaveBeenCalledOnce();
     expect(server.close).toHaveBeenCalledOnce();
     expect(service.shutdown).toHaveBeenCalledOnce();
     expect(roleSync.shutdown).toHaveBeenCalledOnce();
+    expect(resourceSync.shutdown).toHaveBeenCalledOnce();
   });
 
   it("fails startup and cleans up when durable role synchronization cannot start", async () => {
@@ -94,6 +115,30 @@ describe("Discord worker runtime", () => {
     expect(server.close).toHaveBeenCalledOnce();
     expect(roleSync.shutdown).toHaveBeenCalledOnce();
     expect(service.shutdown).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the gateway running when channel permissions are degraded", async () => {
+    const resourceSync = {
+      start: vi.fn(async () => undefined),
+      shutdown: vi.fn(async () => undefined),
+      getDiagnostics: vi.fn(() => ({
+        status: "degraded" as const,
+        totalCount: 7,
+        readyCount: 0,
+        missingCount: 7,
+        errorCode: "missing_manage_channels",
+      })),
+    };
+    const { runtime, server, service } = runtimeFixture(
+      vi.fn(async () => diagnostics),
+      undefined,
+      resourceSync,
+    );
+
+    await expect(runtime.start()).resolves.toEqual(diagnostics);
+    expect(server.listening).toBe(true);
+    expect(service.shutdown).not.toHaveBeenCalled();
+    await runtime.shutdown();
   });
 
   it("cleans up and rejects startup failures for a non-zero entrypoint exit", async () => {

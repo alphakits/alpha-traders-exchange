@@ -5,6 +5,7 @@ import {
   degradedDiscordDiagnostics,
   type DiscordDiagnosticErrorCode,
   type DiscordDiagnostics,
+  type DiscordResourceDiagnostics,
   type DiscordReadyState,
 } from "@/lib/discord/diagnostics";
 import { logEvent } from "@/lib/structured-logging";
@@ -61,6 +62,50 @@ function nullableNonNegativeNumber(value: unknown): number | null | undefined {
   return value;
 }
 
+function parseResourceDiagnostics(
+  value: unknown,
+): DiscordResourceDiagnostics | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.status !== "ready" && candidate.status !== "degraded") {
+    return null;
+  }
+  const totalCount = nullableNonNegativeNumber(candidate.totalCount);
+  const readyCount = nullableNonNegativeNumber(candidate.readyCount);
+  const missingCount = nullableNonNegativeNumber(candidate.missingCount);
+  const errorCode = nullableString(candidate.errorCode, 64);
+  if (
+    totalCount === undefined
+    || readyCount === undefined
+    || missingCount === undefined
+    || errorCode === undefined
+    || (totalCount !== null && !Number.isInteger(totalCount))
+    || (readyCount !== null && !Number.isInteger(readyCount))
+    || (missingCount !== null && !Number.isInteger(missingCount))
+    || (errorCode !== null && !/^[a-z0-9_]+$/.test(errorCode))
+  ) {
+    return null;
+  }
+  if (
+    candidate.status === "ready"
+    && (
+      totalCount === null
+      || readyCount !== totalCount
+      || missingCount !== 0
+      || errorCode !== null
+    )
+  ) {
+    return null;
+  }
+  return {
+    status: candidate.status,
+    totalCount,
+    readyCount,
+    missingCount,
+    errorCode,
+  };
+}
+
 function parseWorkerDiagnostics(value: unknown): DiscordDiagnostics | null {
   if (!value || typeof value !== "object") return null;
   const candidate = value as Record<string, unknown>;
@@ -105,6 +150,12 @@ function parseWorkerDiagnostics(value: unknown): DiscordDiagnostics | null {
         DISCORD_SAFE_ERROR_MESSAGES[errorCode as DiscordDiagnosticErrorCode],
     };
   }
+  let resources: DiscordResourceDiagnostics | undefined;
+  if (candidate.resources !== undefined) {
+    const parsed = parseResourceDiagnostics(candidate.resources);
+    if (!parsed) return null;
+    resources = parsed;
+  }
 
   return {
     status: candidate.status,
@@ -116,6 +167,7 @@ function parseWorkerDiagnostics(value: unknown): DiscordDiagnostics | null {
     apiLatencyMs,
     connectionUptimeMs,
     error,
+    ...(resources ? { resources } : {}),
   };
 }
 

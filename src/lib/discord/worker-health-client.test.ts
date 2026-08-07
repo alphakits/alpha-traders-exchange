@@ -21,6 +21,13 @@ const healthyDiagnostics = {
   apiLatencyMs: 38,
   connectionUptimeMs: 900,
   error: null,
+  resources: {
+    status: "ready",
+    totalCount: 7,
+    readyCount: 7,
+    missingCount: 0,
+    errorCode: null,
+  },
 };
 
 describe("Discord worker health client", () => {
@@ -108,5 +115,24 @@ describe("Discord worker health client", () => {
 
     expect(diagnostics.error?.code).toBe("worker_configuration_invalid");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed or secret-shaped resource diagnostics", async () => {
+    const malformed = await fetchDiscordWorkerDiagnostics({
+      env: proxyEnv,
+      fetch: vi.fn(async () => Response.json({
+        ...healthyDiagnostics,
+        resources: {
+          status: "degraded",
+          totalCount: 7,
+          readyCount: 0,
+          missingCount: 7,
+          errorCode: "token=raw-secret",
+          channelId: "9".repeat(18),
+        },
+      })),
+    });
+    expect(malformed.error?.code).toBe("worker_response_invalid");
+    expect(JSON.stringify(malformed)).not.toContain("raw-secret");
   });
 });
