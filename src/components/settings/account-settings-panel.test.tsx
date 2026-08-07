@@ -71,6 +71,36 @@ describe("Account settings Discord connection", () => {
   );
 
   it("only clears a connected identity after explicit unlink confirmation", async () => {
+    let deleted = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes("/api/auth/profile")) {
+        return new Response(JSON.stringify({ profile: { id: "alpha-user" } }), { status: 200 });
+      }
+      if (url.includes("/api/discord/identity")) {
+        if (init?.method === "DELETE") {
+          deleted = true;
+          return new Response(JSON.stringify({ unlinked: true }), { status: 200 });
+        }
+        return new Response(JSON.stringify({
+          connection: deleted ? null : connection,
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ preferences: {} }), { status: 200 });
+    });
+
+    render(<AccountSettingsPanel locale="en" phoneVerificationEnabled={false} />);
+    await screen.findByText("Alpha User");
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm disconnect" }));
+
+    expect(await screen.findByRole("button", { name: "Connect Discord" })).toBeTruthy();
+    expect(screen.getByText(/Discord disconnected/i)).toBeTruthy();
+    expect(vi.mocked(globalThis.fetch).mock.calls.filter(([, init]) =>
+      init?.method === "DELETE")).toHaveLength(1);
+  });
+
+  it("preserves connected state until the server confirms the mapping is absent", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.includes("/api/auth/profile")) {
@@ -90,8 +120,11 @@ describe("Account settings Discord connection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm disconnect" }));
 
-    expect(await screen.findByRole("button", { name: "Connect Discord" })).toBeTruthy();
-    expect(screen.getByText(/Discord disconnected/i)).toBeTruthy();
+    expect(await screen.findByText(
+      "Disconnect was requested but could not be confirmed. Refresh to verify.",
+    )).toBeTruthy();
+    expect(screen.getByText("Alpha User")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Connect Discord" })).toBeNull();
   });
 
   it.each([

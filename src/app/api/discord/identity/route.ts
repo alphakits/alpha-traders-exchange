@@ -48,6 +48,14 @@ export async function DELETE(request: NextRequest) {
     );
   }
 
+  logEvent("info", {
+    event: "discord_identity_unlink_request",
+    actorUserId: user.id,
+    targetUserId: user.id,
+    outcome: "success",
+    metadata: { stage: "accepted" },
+  });
+
   try {
     const unlinked = await unlinkDiscordIdentity({ platformUserId: user.id });
     if (!unlinked) {

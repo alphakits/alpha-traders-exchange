@@ -449,6 +449,24 @@ export function AccountSettingsPanel({
         );
         return;
       }
+      const confirmationResponse = await fetch("/api/discord/identity", {
+        cache: "no-store",
+      });
+      const confirmation: unknown = await confirmationResponse.json();
+      if (
+        !confirmationResponse.ok
+        || typeof confirmation !== "object"
+        || confirmation === null
+        || !("connection" in confirmation)
+        || confirmation.connection !== null
+      ) {
+        setDiscordMessage(
+          isAr
+            ? "تم إرسال طلب الفصل، لكن تعذر تأكيده. حدّث الصفحة للتحقق."
+            : "Disconnect was requested but could not be confirmed. Refresh to verify.",
+        );
+        return;
+      }
       setDiscordConnection(null);
       setShowDiscordUnlink(false);
       setDiscordMessage(
