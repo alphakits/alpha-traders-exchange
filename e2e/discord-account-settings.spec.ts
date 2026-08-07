@@ -94,3 +94,51 @@ for (const width of [320, 390, 1280]) {
       document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 }
+
+test("Confirm disconnect sends exactly one DELETE to the application route", async ({ page }) => {
+  await login(page);
+  await page.route("**/api/discord/identity", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          connection: {
+            discordUserId: "987654321098765432",
+            username: "alpha_user",
+            globalName: "Alpha User",
+            linkedAt: "2026-08-07T12:00:00.000Z",
+            lastSyncedAt: null,
+          },
+        }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  let deleteRequests = 0;
+  page.on("request", (request) => {
+    if (
+      request.method() === "DELETE"
+      && new URL(request.url()).pathname === "/api/discord/identity"
+    ) {
+      deleteRequests += 1;
+    }
+  });
+
+  await page.goto("/en/settings");
+  await expect(page.getByText("@alpha_user")).toBeVisible();
+  await page.getByRole("button", { name: "Disconnect" }).click();
+  const responsePromise = page.waitForResponse((response) =>
+    response.request().method() === "DELETE"
+    && new URL(response.url()).pathname === "/api/discord/identity");
+  await page.getByRole("button", { name: "Confirm disconnect" }).click();
+  const response = await responsePromise;
+  const body = await response.json() as { unlinked?: unknown };
+
+  expect(body.unlinked).not.toBe(true);
+  await expect(page.getByText("@alpha_user")).toBeVisible();
+  await page.waitForTimeout(100);
+  expect(deleteRequests).toBe(1);
+});
