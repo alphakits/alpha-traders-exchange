@@ -1,0 +1,87 @@
+import "server-only";
+
+import {
+  createServer,
+  type IncomingHttpHeaders,
+  type Server,
+  type ServerResponse,
+} from "node:http";
+
+import type { DiscordService } from "@/lib/discord/service";
+import {
+  DISCORD_WORKER_AUTH_HEADERS,
+  DiscordWorkerAuthVerifier,
+} from "@/lib/discord/worker-health-auth";
+
+type HealthService = Pick<DiscordService, "getDiagnostics">;
+
+export type DiscordWorkerHealthServerDependencies = {
+  service: HealthService;
+  healthSecret: string;
+  now?: () => number;
+};
+
+function headerValue(
+  headers: IncomingHttpHeaders,
+  key: string,
+): string | undefined {
+  const value = headers[key];
+  return Array.isArray(value) ? undefined : value;
+}
+
+function sendJson(
+  response: ServerResponse,
+  statusCode: number,
+  body: unknown,
+): void {
+  response.writeHead(statusCode, {
+    "cache-control": "no-store",
+    "content-type": "application/json; charset=utf-8",
+  });
+  response.end(JSON.stringify(body));
+}
+
+export function createDiscordWorkerHealthServer({
+  service,
+  healthSecret,
+  now,
+}: DiscordWorkerHealthServerDependencies): Server {
+  const authVerifier = new DiscordWorkerAuthVerifier(now);
+
+  return createServer((request, response) => {
+    const url = new URL(request.url ?? "/", "http://worker.local");
+
+    if (request.method === "GET" && url.pathname === "/health/live") {
+      sendJson(response, 200, { status: "alive" });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/health/ready") {
+      const authorized = authVerifier.verify({
+        [DISCORD_WORKER_AUTH_HEADERS.timestamp]: headerValue(
+          request.headers,
+          DISCORD_WORKER_AUTH_HEADERS.timestamp,
+        ),
+        [DISCORD_WORKER_AUTH_HEADERS.nonce]: headerValue(
+          request.headers,
+          DISCORD_WORKER_AUTH_HEADERS.nonce,
+        ),
+        [DISCORD_WORKER_AUTH_HEADERS.signature]: headerValue(
+          request.headers,
+          DISCORD_WORKER_AUTH_HEADERS.signature,
+        ),
+      }, healthSecret);
+
+      if (!authorized) {
+        sendJson(response, 401, { error: "Unauthorized" });
+        return;
+      }
+
+      const diagnostics = service.getDiagnostics();
+      sendJson(response, diagnostics.status === "healthy" ? 200 : 503, diagnostics);
+      return;
+    }
+
+    sendJson(response, 404, { error: "Not found" });
+  });
+}

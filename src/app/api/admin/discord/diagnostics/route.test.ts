@@ -1,23 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextResponse } from "next/server";
 
-import { DiscordServiceError } from "@/lib/discord/service";
-
 const mocks = vi.hoisted(() => ({
   requireApiAdmin: vi.fn(),
-  start: vi.fn(),
-  getDiagnostics: vi.fn(),
+  fetchDiscordWorkerDiagnostics: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/api-auth", () => ({
   requireApiAdmin: mocks.requireApiAdmin,
 }));
-vi.mock("@/lib/discord", () => ({
-  getDiscordService: () => ({
-    start: mocks.start,
-    getDiagnostics: mocks.getDiagnostics,
-  }),
+vi.mock("@/lib/discord/worker-health-client", () => ({
+  fetchDiscordWorkerDiagnostics: mocks.fetchDiscordWorkerDiagnostics,
 }));
 
 import { GET } from "@/app/api/admin/discord/diagnostics/route";
@@ -37,8 +31,7 @@ const healthyDiagnostics = {
 describe("Discord diagnostics route", () => {
   beforeEach(() => {
     mocks.requireApiAdmin.mockReset();
-    mocks.start.mockReset();
-    mocks.getDiagnostics.mockReset();
+    mocks.fetchDiscordWorkerDiagnostics.mockReset();
   });
 
   it("returns the existing auth response without initializing Discord", async () => {
@@ -51,7 +44,7 @@ describe("Discord diagnostics route", () => {
 
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "Unauthorized" });
-    expect(mocks.start).not.toHaveBeenCalled();
+    expect(mocks.fetchDiscordWorkerDiagnostics).not.toHaveBeenCalled();
   });
 
   it("returns safe diagnostics to an authorized admin or owner", async () => {
@@ -59,7 +52,7 @@ describe("Discord diagnostics route", () => {
       user: { id: "authorized-user", role: "admin" },
       unauthorized: null,
     });
-    mocks.start.mockResolvedValue(healthyDiagnostics);
+    mocks.fetchDiscordWorkerDiagnostics.mockResolvedValue(healthyDiagnostics);
 
     const response = await GET();
 
@@ -67,7 +60,7 @@ describe("Discord diagnostics route", () => {
     expect(await response.json()).toEqual(healthyDiagnostics);
   });
 
-  it("returns 503 with safe degraded diagnostics after startup failure", async () => {
+  it("returns 503 with safe degraded diagnostics when the worker is unavailable", async () => {
     const degraded = {
       ...healthyDiagnostics,
       status: "degraded",
@@ -79,18 +72,15 @@ describe("Discord diagnostics route", () => {
       apiLatencyMs: null,
       connectionUptimeMs: null,
       error: {
-        code: "login_failed",
-        message: "Discord gateway login failed.",
+        code: "worker_unavailable",
+        message: "Discord worker diagnostics are unavailable.",
       },
     };
     mocks.requireApiAdmin.mockResolvedValue({
       user: { id: "authorized-owner", role: "owner", roles: ["owner", "admin"] },
       unauthorized: null,
     });
-    mocks.start.mockRejectedValue(
-      new DiscordServiceError("login_failed", "Discord gateway login failed."),
-    );
-    mocks.getDiagnostics.mockReturnValue(degraded);
+    mocks.fetchDiscordWorkerDiagnostics.mockResolvedValue(degraded);
 
     const response = await GET();
 
@@ -98,7 +88,7 @@ describe("Discord diagnostics route", () => {
     expect(await response.json()).toEqual(degraded);
   });
 
-  it("returns 503 without retrying login while Discord is reconnecting", async () => {
+  it("returns proxied reconnecting state without initializing a local gateway", async () => {
     const reconnecting = {
       ...healthyDiagnostics,
       status: "degraded",
@@ -111,11 +101,12 @@ describe("Discord diagnostics route", () => {
       user: { id: "authorized-user", role: "admin" },
       unauthorized: null,
     });
-    mocks.start.mockResolvedValue(reconnecting);
+    mocks.fetchDiscordWorkerDiagnostics.mockResolvedValue(reconnecting);
 
     const response = await GET();
 
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual(reconnecting);
+    expect(mocks.fetchDiscordWorkerDiagnostics).toHaveBeenCalledOnce();
   });
 });

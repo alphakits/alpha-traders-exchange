@@ -133,6 +133,35 @@ describe("DiscordService", () => {
     });
   });
 
+  it("recovers from gateway errors when the gateway is ready again", async () => {
+    const gateway = new MockGateway();
+    const service = new DiscordService({ gateway, env: validEnv() });
+    await service.start();
+
+    gateway.ready = false;
+    gateway.emit({ type: "error", error: new Error("transient shard failure") });
+    expect(service.getDiagnostics()).toMatchObject({
+      status: "degraded",
+      readyState: "error",
+      error: { code: "gateway_error" },
+    });
+
+    gateway.emit({ type: "ready" });
+    expect(service.getDiagnostics()).toMatchObject({
+      status: "healthy",
+      connected: true,
+      readyState: "ready",
+      error: null,
+    });
+
+    gateway.emit({ type: "error", error: new Error("non-fatal client event") });
+    expect(service.getDiagnostics()).toMatchObject({
+      status: "healthy",
+      readyState: "ready",
+      error: null,
+    });
+  });
+
   it("returns only a fixed safe diagnostic when login fails", async () => {
     const gateway = new MockGateway();
     gateway.login.mockRejectedValueOnce(

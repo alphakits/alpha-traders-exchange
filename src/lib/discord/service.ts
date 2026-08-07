@@ -8,43 +8,15 @@ import {
   readDiscordConfig,
   type DiscordConfig,
 } from "@/lib/discord/config";
+import {
+  DISCORD_SAFE_ERROR_MESSAGES,
+  type DiscordDiagnosticErrorCode,
+  type DiscordDiagnostics,
+  type DiscordReadyState,
+  type DiscordSafeError,
+} from "@/lib/discord/diagnostics";
 import { logEvent } from "@/lib/structured-logging";
 import type { EnvironmentValues } from "@/lib/env-validation";
-
-export type DiscordReadyState =
-  | "idle"
-  | "starting"
-  | "ready"
-  | "reconnecting"
-  | "disconnected"
-  | "error"
-  | "stopping"
-  | "stopped";
-
-export type DiscordDiagnosticErrorCode =
-  | "configuration_invalid"
-  | "login_failed"
-  | "application_mismatch"
-  | "guild_verification_failed"
-  | "gateway_error"
-  | "service_stopped";
-
-export type DiscordSafeError = {
-  code: DiscordDiagnosticErrorCode;
-  message: string;
-};
-
-export type DiscordDiagnostics = {
-  status: "healthy" | "degraded";
-  connected: boolean;
-  readyState: DiscordReadyState;
-  botUsername: string | null;
-  guildName: string | null;
-  guildId: string | null;
-  apiLatencyMs: number | null;
-  connectionUptimeMs: number | null;
-  error: DiscordSafeError | null;
-};
 
 export class DiscordServiceError extends Error {
   readonly code: DiscordDiagnosticErrorCode;
@@ -62,21 +34,11 @@ type DiscordServiceDependencies = {
   now?: () => number;
 };
 
-const SAFE_ERROR_MESSAGES: Record<DiscordDiagnosticErrorCode, string> = {
-  configuration_invalid:
-    "Discord service configuration is invalid. Check DISCORD_BOT_TOKEN, DISCORD_APPLICATION_ID, and DISCORD_GUILD_ID.",
-  login_failed: "Discord gateway login failed.",
-  application_mismatch: "The connected Discord bot does not match the configured application.",
-  guild_verification_failed: "The configured Discord guild could not be verified.",
-  gateway_error: "The Discord gateway reported a connection error.",
-  service_stopped: "The Discord service has been stopped.",
-};
-
 function serviceError(
   code: DiscordDiagnosticErrorCode,
   cause?: unknown,
 ): DiscordServiceError {
-  return new DiscordServiceError(code, SAFE_ERROR_MESSAGES[code], { cause });
+  return new DiscordServiceError(code, DISCORD_SAFE_ERROR_MESSAGES[code], { cause });
 }
 
 function errorMetadata(error: unknown): Record<string, unknown> {
@@ -243,6 +205,10 @@ export class DiscordService {
       case "ready":
         this.readySince = this.now();
         this.gatewaySessionStarted = true;
+        if (this.guild) {
+          this.readyState = "ready";
+          this.lastError = null;
+        }
         logEvent("info", {
           event: "discord_gateway_connected",
           outcome: "success",
@@ -277,8 +243,8 @@ export class DiscordService {
         return;
       case "error": {
         const mapped = serviceError("gateway_error", event.error);
-        this.lastError = { code: mapped.code, message: mapped.message };
         if (!this.gateway.isReady()) {
+          this.lastError = { code: mapped.code, message: mapped.message };
           this.readyState = "error";
           this.readySince = null;
         }
@@ -312,3 +278,10 @@ export class DiscordService {
     }
   }
 }
+
+export type {
+  DiscordDiagnosticErrorCode,
+  DiscordDiagnostics,
+  DiscordReadyState,
+  DiscordSafeError,
+} from "@/lib/discord/diagnostics";
