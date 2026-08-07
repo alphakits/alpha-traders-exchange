@@ -301,9 +301,16 @@ export class DiscordRoleSyncWorker {
 
   async start(): Promise<void> {
     if (this.pollTimer) return;
-    this.roleIds = await provisionManagedRoles(this.pool, this.manager);
-    await enqueueReconciliation(this.pool);
-    await this.processAvailableJobs();
+    try {
+      await this.reconcile();
+    } catch (error) {
+      if (!(error instanceof DiscordRoleOperationError)) throw error;
+      logEvent("warn", {
+        event: "discord_role_sync_start",
+        outcome: "failed",
+        reason: error.code,
+      });
+    }
     this.pollTimer = setInterval(
       () => {
         void this.processAvailableJobs().catch((error: unknown) => {
