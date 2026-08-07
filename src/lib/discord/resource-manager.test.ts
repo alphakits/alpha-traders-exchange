@@ -15,7 +15,9 @@ vi.mock("server-only", () => ({}));
 import {
   DISCORD_LAYER_A_PERMISSION_BITSET,
   DISCORD_LAYER_A_WITH_MANAGE_ROLES_BITSET,
+  DISCORD_MANAGED_RESOURCE_DEFINITIONS,
   DiscordRestResourceManager,
+  discordResourceProvisioningName,
   readDiscordResourceDisplayNames,
   type DiscordManagedResourceKey,
   type DiscordPersistedResource,
@@ -38,6 +40,23 @@ const displayNames: DiscordResourceDisplayNames = {
   seller_support: "seller-support",
   marketplace_listings: "marketplace-listings",
 };
+const provisioningToken = "123e4567-e89b-42d3-a456-426614174000";
+
+function seededPersisted(): Partial<
+  Record<DiscordManagedResourceKey, DiscordPersistedResource>
+> {
+  return Object.fromEntries(DISCORD_MANAGED_RESOURCE_DEFINITIONS.map(
+    (definition) => [
+      definition.key,
+      {
+        discordId: null,
+        resourceType: definition.resourceType,
+        displayName: displayNames[definition.key],
+        provisioningToken,
+      },
+    ],
+  ));
+}
 
 type FakeChannel = {
   id: string;
@@ -129,6 +148,7 @@ function persistedFrom(
       discordId: resource.discordId,
       resourceType: resource.resourceType,
       displayName: resource.displayName,
+      provisioningToken,
     },
   ]));
 }
@@ -149,10 +169,11 @@ describe("Discord seller resource manager", () => {
     });
 
     const first = await manager.reconcileResources({
-      persisted: {},
+      persisted: seededPersisted(),
       approvedSellerRoleId: approvedRoleId,
       displayNames,
     });
+    const patchCallsAfterFirst = discord.rest.patch.mock.calls.length;
     const second = await manager.reconcileResources({
       persisted: persistedFrom(first),
       approvedSellerRoleId: approvedRoleId,
@@ -163,8 +184,45 @@ describe("Discord seller resource manager", () => {
     expect(first.every((resource) => resource.action === "created")).toBe(true);
     expect(second.every((resource) => resource.action === "verified")).toBe(true);
     expect(discord.rest.post).toHaveBeenCalledTimes(7);
-    expect(discord.rest.patch).not.toHaveBeenCalled();
+    expect(patchCallsAfterFirst).toBe(7);
+    expect(discord.rest.patch).toHaveBeenCalledTimes(patchCallsAfterFirst);
     expect(discord.rest.put).not.toHaveBeenCalled();
+  });
+
+  it("recovers an orphaned create by its durable provisioning token", async () => {
+    const discord = fakeDiscord();
+    const manager = new DiscordRestResourceManager({
+      token: "bot-token",
+      guildId,
+      rest: discord.rest as unknown as REST,
+    });
+    await expect(manager.reconcileResources({
+      persisted: seededPersisted(),
+      approvedSellerRoleId: approvedRoleId,
+      displayNames,
+      persistResolvedResource: vi.fn().mockRejectedValueOnce(
+        new Error("database unavailable"),
+      ),
+    })).rejects.toThrow("database unavailable");
+
+    expect(discord.channels).toHaveLength(1);
+    expect(discord.channels[0]?.name).toBe(discordResourceProvisioningName(
+      "seller_category",
+      provisioningToken,
+    ));
+
+    const recovered = await manager.reconcileResources({
+      persisted: seededPersisted(),
+      approvedSellerRoleId: approvedRoleId,
+      displayNames,
+      persistResolvedResource: vi.fn(async () => undefined),
+    });
+
+    expect(recovered.find((resource) => resource.key === "seller_category"))
+      .toMatchObject({ action: "recovered" });
+    expect(discord.rest.post).toHaveBeenCalledTimes(7);
+    expect(discord.channels.filter((channel) =>
+      channel.type === ChannelType.GuildCategory)).toHaveLength(1);
   });
 
   it("applies exact private, read-only, writable, and bot-only public permissions", async () => {
@@ -175,7 +233,7 @@ describe("Discord seller resource manager", () => {
       rest: discord.rest as unknown as REST,
     });
     await manager.reconcileResources({
-      persisted: {},
+      persisted: seededPersisted(),
       approvedSellerRoleId: approvedRoleId,
       displayNames,
     });
@@ -237,7 +295,7 @@ describe("Discord seller resource manager", () => {
     });
 
     const first = await manager.reconcileResources({
-      persisted: {},
+      persisted: seededPersisted(),
       approvedSellerRoleId: approvedRoleId,
       displayNames,
     });
@@ -283,7 +341,7 @@ describe("Discord seller resource manager", () => {
     });
 
     const resources = await manager.reconcileResources({
-      persisted: {},
+      persisted: seededPersisted(),
       approvedSellerRoleId: approvedRoleId,
       displayNames,
     });
@@ -316,7 +374,7 @@ describe("Discord seller resource manager", () => {
       rest: discord.rest as unknown as REST,
     });
     const first = await manager.reconcileResources({
-      persisted: {},
+      persisted: seededPersisted(),
       approvedSellerRoleId: approvedRoleId,
       displayNames,
     });
@@ -364,7 +422,7 @@ describe("Discord seller resource manager", () => {
       rest: discord.rest as unknown as REST,
     });
     const first = await manager.reconcileResources({
-      persisted: {},
+      persisted: seededPersisted(),
       approvedSellerRoleId: approvedRoleId,
       displayNames,
     });
@@ -429,7 +487,7 @@ describe("Discord seller resource manager", () => {
       rest: missingManageChannels.rest as unknown as REST,
     });
     await expect(manager.reconcileResources({
-      persisted: {},
+      persisted: seededPersisted(),
       approvedSellerRoleId: approvedRoleId,
       displayNames,
     })).rejects.toMatchObject({ code: "missing_manage_channels" });
@@ -445,7 +503,7 @@ describe("Discord seller resource manager", () => {
       guildId,
       rest: missingEmbedLinks.rest as unknown as REST,
     }).reconcileResources({
-      persisted: {},
+      persisted: seededPersisted(),
       approvedSellerRoleId: approvedRoleId,
       displayNames,
     })).rejects.toMatchObject({ code: "missing_channel_permissions" });
@@ -460,7 +518,7 @@ describe("Discord seller resource manager", () => {
       guildId,
       rest: missingManageRoles.rest as unknown as REST,
     }).reconcileResources({
-      persisted: {},
+      persisted: seededPersisted(),
       approvedSellerRoleId: approvedRoleId,
       displayNames,
     })).rejects.toMatchObject({ code: "missing_manage_roles" });
@@ -483,7 +541,7 @@ describe("Discord seller resource manager", () => {
         rest: discord.rest as unknown as REST,
       });
       await expect(manager.reconcileResources({
-        persisted: {},
+        persisted: seededPersisted(),
         approvedSellerRoleId: approvedRoleId,
         displayNames,
       })).rejects.toMatchObject({ code: "excessive_bot_permissions" });

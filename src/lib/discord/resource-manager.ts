@@ -26,7 +26,11 @@ export const DISCORD_MANAGED_RESOURCE_KEYS = [
 export type DiscordManagedResourceKey =
   (typeof DISCORD_MANAGED_RESOURCE_KEYS)[number];
 export type DiscordManagedResourceType = "category" | "text_channel";
-export type DiscordResourceAction = "created" | "repaired" | "verified";
+export type DiscordResourceAction =
+  | "created"
+  | "recovered"
+  | "repaired"
+  | "verified";
 export type DiscordResourceDisplayNames = Record<
   DiscordManagedResourceKey,
   string
@@ -36,6 +40,7 @@ export type DiscordPersistedResource = {
   discordId: string | null;
   resourceType: DiscordManagedResourceType;
   displayName: string;
+  provisioningToken: string;
 };
 
 export type DiscordReconciledResource = {
@@ -53,6 +58,7 @@ export type DiscordResourceOperationErrorCode =
   | "missing_channel_permissions"
   | "missing_manage_channels"
   | "missing_manage_roles"
+  | "reconciliation_lease_lost"
   | "role_hierarchy"
   | "api_failure";
 
@@ -251,11 +257,40 @@ export class DiscordResourceOperationError extends Error {
   }
 }
 
+class DiscordResourcePersistenceError extends Error {
+  readonly original: unknown;
+
+  constructor(original: unknown) {
+    super("Discord resource persistence callback failed.", { cause: original });
+    this.name = "DiscordResourcePersistenceError";
+    this.original = original;
+  }
+}
+
+async function runPersistenceCallback(
+  callback: ((resource: DiscordReconciledResource) => Promise<void>) | undefined,
+  resource: DiscordReconciledResource,
+): Promise<void> {
+  if (!callback) return;
+  try {
+    await callback(resource);
+  } catch (error) {
+    throw new DiscordResourcePersistenceError(error);
+  }
+}
+
 export interface DiscordResourceManager {
   reconcileResources(input: {
     persisted: Partial<Record<DiscordManagedResourceKey, DiscordPersistedResource>>;
     approvedSellerRoleId: string;
     displayNames: DiscordResourceDisplayNames;
+    persistResolvedResource?: (
+      resource: DiscordReconciledResource,
+    ) => Promise<void>;
+    persistReconciledResource?: (
+      resource: DiscordReconciledResource,
+    ) => Promise<void>;
+    beforeResourceReconcile?: () => Promise<void>;
   }): Promise<DiscordReconciledResource[]>;
 }
 
@@ -281,6 +316,13 @@ export function readDiscordResourceDisplayNames(
 
 function isSnowflake(value: unknown): value is string {
   return typeof value === "string" && /^\d{17,20}$/.test(value);
+}
+
+function provisioningName(
+  key: DiscordManagedResourceKey,
+  token: string,
+): string {
+  return `alpha-provision-${key.replaceAll("_", "-")}-${token.slice(0, 12)}`;
 }
 
 function apiErrorCode(error: unknown): number | null {
@@ -432,6 +474,13 @@ export class DiscordRestResourceManager implements DiscordResourceManager {
     persisted: Partial<Record<DiscordManagedResourceKey, DiscordPersistedResource>>;
     approvedSellerRoleId: string;
     displayNames: DiscordResourceDisplayNames;
+    persistResolvedResource?: (
+      resource: DiscordReconciledResource,
+    ) => Promise<void>;
+    persistReconciledResource?: (
+      resource: DiscordReconciledResource,
+    ) => Promise<void>;
+    beforeResourceReconcile?: () => Promise<void>;
   }): Promise<DiscordReconciledResource[]> {
     try {
       const [channels, roles, bot] = await Promise.all([
@@ -447,6 +496,7 @@ export class DiscordRestResourceManager implements DiscordResourceManager {
       const resolved = new Map<DiscordManagedResourceKey, ApiChannel>();
       const reconciled: DiscordReconciledResource[] = [];
       for (const definition of RESOURCE_DEFINITIONS) {
+        await input.beforeResourceReconcile?.();
         const displayName = input.displayNames[definition.key];
         const expectedParent = definition.parentKey
           ? resolved.get(definition.parentKey)?.id ?? null
@@ -458,39 +508,70 @@ export class DiscordRestResourceManager implements DiscordResourceManager {
 
         let action: DiscordResourceAction = "verified";
         if (!channel) {
-          channel = await this.createResource({
-            definition,
+          const recoveryName = persisted
+            ? provisioningName(definition.key, persisted.provisioningToken)
+            : null;
+          channel = recoveryName
+            ? channels.find((candidate) =>
+                candidate.type === channelType(definition.resourceType)
+                && candidate.name === recoveryName
+                && (
+                  definition.resourceType === "category"
+                  || candidate.parent_id === expectedParent
+                ))
+            : undefined;
+          if (channel) {
+            action = "recovered";
+          } else {
+            if (!persisted) {
+              throw new DiscordResourceOperationError("api_failure");
+            }
+            channel = await this.createResource({
+              definition,
+              provisioningToken: persisted.provisioningToken,
+              parentId: expectedParent,
+              approvedSellerRoleId: input.approvedSellerRoleId,
+              botId: bot.id,
+            });
+            channels.push(channel);
+            action = "created";
+          }
+          await runPersistenceCallback(input.persistResolvedResource, {
+            key: definition.key,
+            discordId: channel.id,
+            resourceType: definition.resourceType,
             displayName,
-            parentId: expectedParent,
-            approvedSellerRoleId: input.approvedSellerRoleId,
-            botId: bot.id,
+            action,
           });
-          channels.push(channel);
-          action = "created";
-        } else {
-          const repaired = await this.repairResource({
-            channel,
-            roles,
-            definition,
-            displayName,
-            parentId: expectedParent,
-            approvedSellerRoleId: input.approvedSellerRoleId,
-            botId: bot.id,
-          });
-          if (repaired) action = "repaired";
         }
 
-        resolved.set(definition.key, channel);
-        reconciled.push({
+        const repaired = await this.repairResource({
+          channel,
+          roles,
+          definition,
+          displayName,
+          parentId: expectedParent,
+          approvedSellerRoleId: input.approvedSellerRoleId,
+          botId: bot.id,
+        });
+        if (action === "verified" && repaired) action = "repaired";
+
+        const resource = {
           key: definition.key,
           discordId: channel.id,
           resourceType: definition.resourceType,
           displayName,
           action,
-        });
+        };
+        await runPersistenceCallback(input.persistReconciledResource, resource);
+        resolved.set(definition.key, channel);
+        reconciled.push(resource);
       }
       return reconciled;
     } catch (error) {
+      if (error instanceof DiscordResourcePersistenceError) {
+        throw error.original;
+      }
       if (error instanceof DiscordResourceOperationError) throw error;
       const code = apiErrorCode(error);
       if (code === 30013) {
@@ -563,7 +644,7 @@ export class DiscordRestResourceManager implements DiscordResourceManager {
 
   private async createResource(input: {
     definition: ResourceDefinition;
-    displayName: string;
+    provisioningToken: string;
     parentId: string | null;
     approvedSellerRoleId: string;
     botId: string;
@@ -576,7 +657,10 @@ export class DiscordRestResourceManager implements DiscordResourceManager {
     });
     const created = await this.rest.post(Routes.guildChannels(this.guildId), {
       body: {
-        name: input.displayName,
+        name: provisioningName(
+          input.definition.key,
+          input.provisioningToken,
+        ),
         type: channelType(input.definition.resourceType),
         ...(input.definition.resourceType === "text_channel"
           ? {
@@ -705,3 +789,4 @@ export class DiscordRestResourceManager implements DiscordResourceManager {
 }
 
 export { RESOURCE_DEFINITIONS as DISCORD_MANAGED_RESOURCE_DEFINITIONS };
+export { provisioningName as discordResourceProvisioningName };

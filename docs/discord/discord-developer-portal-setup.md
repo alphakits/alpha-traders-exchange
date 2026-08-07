@@ -152,10 +152,21 @@ DISCORD_MARKETPLACE_LISTINGS_CHANNEL_NAME=marketplace-listings
 ```
 
 Apply both `supabase/migrations/20260807000000_discord_identity_sync.sql` and
-`supabase/migrations/20260807190000_discord_seller_resources.sql` before starting
-the new worker image. The Railway worker provisions and reconciles the category
-and channels; do not run it from Vercel. Do not activate website linking until
-the three website OAuth variables are configured on Vercel.
+`supabase/migrations/20260807190000_discord_seller_resources.sql`, followed by
+`supabase/migrations/20260807210000_discord_resource_reconciliation_lease.sql`,
+before starting the new worker image.
+
+The lease migration is a stop-the-worker upgrade because the first Layer A
+image used a different lock. Do not use a rolling deployment:
+
+1. Scale the Railway Discord worker to zero replicas.
+2. Apply `20260807210000_discord_resource_reconciliation_lease.sql`.
+3. Deploy the new worker image.
+4. Start exactly one Railway replica and wait for resource readiness `7/7`.
+
+The Railway worker provisions and reconciles the category and channels; do not
+run it from Vercel. Do not activate website linking until the three website
+OAuth variables are configured on Vercel.
 
 ## 7) Verify Bot Can Connect
 
