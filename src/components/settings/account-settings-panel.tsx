@@ -479,6 +479,104 @@ export function AccountSettingsPanel({
           ))}
         </div>
 
+        <Card id="discord-connection" className="mb-6 border-[#5865F2]/30 bg-[#0B0B0B]/95">
+          <CardHeader>
+            <CardTitle>{isAr ? "الحسابات المرتبطة" : "Connected Accounts"}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <p className="font-medium text-white">Discord</p>
+              <p className="mt-1 text-sm text-[#9CA3AF]">
+                {isAr
+                  ? "اربط هويتك على Discord لمزامنة دور البائع الخاص بك."
+                  : "Link your Discord identity to synchronize your seller role."}
+              </p>
+            </div>
+            {!discordLoaded ? (
+              <p className="text-sm text-[#9CA3AF]" role="status">
+                {isAr ? "جارٍ تحميل حالة الاتصال..." : "Loading connection status..."}
+              </p>
+            ) : discordConnection ? (
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#5865F2] text-lg font-semibold text-white" aria-hidden="true">
+                    {discordConnection.username.slice(0, 1).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-white">
+                      {discordConnection.globalName || discordConnection.username}
+                    </p>
+                    <p className="truncate text-sm text-[#9CA3AF]">
+                      @{discordConnection.username}
+                    </p>
+                    <p className="mt-1 text-xs text-emerald-300">
+                      {isAr ? "متصل" : "Connected"}
+                    </p>
+                  </div>
+                </div>
+                {!showDiscordUnlink ? (
+                  <Button
+                    variant="secondary"
+                    disabled={discordBusy}
+                    onClick={() => setShowDiscordUnlink(true)}
+                  >
+                    {isAr ? "فصل Discord" : "Disconnect"}
+                  </Button>
+                ) : (
+                  <div className="space-y-2 rounded-xl border border-amber-400/25 bg-amber-500/10 p-3">
+                    <p className="max-w-sm text-xs text-amber-100">
+                      {isAr
+                        ? "سيؤدي الفصل إلى إزالة أدوار البائع المُدارة. يمكنك إعادة الربط لاحقًا."
+                        : "Disconnecting removes managed seller roles. You can reconnect later."}
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="destructive"
+                        disabled={discordBusy}
+                        onClick={() => void handleDiscordUnlink()}
+                      >
+                        {isAr ? "تأكيد الفصل" : "Confirm disconnect"}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        disabled={discordBusy}
+                        onClick={() => setShowDiscordUnlink(false)}
+                      >
+                        {isAr ? "إلغاء" : "Cancel"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm text-[#D1D5DB]">
+                  {isAr
+                    ? "اربط حساب Discord لتلقي دور البائع المطابق لحالة حسابك. نطلب إذن التعريف فقط."
+                    : "Connect Discord to receive the seller role matching your account status. We request identity access only."}
+                </p>
+                <Button
+                  disabled={discordBusy}
+                  onClick={() => void handleDiscordConnect()}
+                  className="bg-[#5865F2] text-white hover:bg-[#4752C4]"
+                >
+                  {discordBusy
+                    ? (isAr ? "جارٍ الاتصال..." : "Connecting...")
+                    : (isAr ? "ربط Discord" : "Connect Discord")}
+                </Button>
+              </div>
+            )}
+            {discordMessage ? (
+              <p
+                className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm text-[#D1D5DB]"
+                role="status"
+              >
+                {discordMessage}
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+
         {/* Profile Tab */}
         {activeTab === "profile" && (
           <Card className="border-white/10 bg-[#0B0B0B]/95">
@@ -645,96 +743,6 @@ export function AccountSettingsPanel({
         {/* Account Tab */}
         {activeTab === "account" && (
           <div className="space-y-4">
-            <Card id="discord-connection" className="border-[#5865F2]/30 bg-[#0B0B0B]/95">
-              <CardHeader>
-                <CardTitle>{isAr ? "اتصال Discord" : "Discord Connection"}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {!discordLoaded ? (
-                  <p className="text-sm text-[#9CA3AF]" role="status">
-                    {isAr ? "جارٍ تحميل حالة الاتصال..." : "Loading connection status..."}
-                  </p>
-                ) : discordConnection ? (
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#5865F2] text-lg font-semibold text-white" aria-hidden="true">
-                        {discordConnection.username.slice(0, 1).toUpperCase()}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="truncate font-medium text-white">
-                          {discordConnection.globalName || discordConnection.username}
-                        </p>
-                        <p className="truncate text-sm text-[#9CA3AF]">
-                          @{discordConnection.username}
-                        </p>
-                        <p className="mt-1 text-xs text-emerald-300">
-                          {isAr ? "متصل" : "Connected"}
-                        </p>
-                      </div>
-                    </div>
-                    {!showDiscordUnlink ? (
-                      <Button
-                        variant="secondary"
-                        disabled={discordBusy}
-                        onClick={() => setShowDiscordUnlink(true)}
-                      >
-                        {isAr ? "فصل Discord" : "Disconnect"}
-                      </Button>
-                    ) : (
-                      <div className="space-y-2 rounded-xl border border-amber-400/25 bg-amber-500/10 p-3">
-                        <p className="max-w-sm text-xs text-amber-100">
-                          {isAr
-                            ? "سيؤدي الفصل إلى إزالة أدوار البائع المُدارة. يمكنك إعادة الربط لاحقًا."
-                            : "Disconnecting removes managed seller roles. You can reconnect later."}
-                        </p>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="destructive"
-                            disabled={discordBusy}
-                            onClick={() => void handleDiscordUnlink()}
-                          >
-                            {isAr ? "تأكيد الفصل" : "Confirm disconnect"}
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            disabled={discordBusy}
-                            onClick={() => setShowDiscordUnlink(false)}
-                          >
-                            {isAr ? "إلغاء" : "Cancel"}
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <p className="text-sm text-[#D1D5DB]">
-                      {isAr
-                        ? "اربط حساب Discord لتلقي دور البائع المطابق لحالة حسابك. نطلب إذن التعريف فقط."
-                        : "Connect Discord to receive the seller role matching your account status. We request identity access only."}
-                    </p>
-                    <Button
-                      disabled={discordBusy}
-                      onClick={() => void handleDiscordConnect()}
-                      className="bg-[#5865F2] text-white hover:bg-[#4752C4]"
-                    >
-                      {discordBusy
-                        ? (isAr ? "جارٍ الاتصال..." : "Connecting...")
-                        : (isAr ? "ربط Discord" : "Connect Discord")}
-                    </Button>
-                  </div>
-                )}
-                {discordMessage ? (
-                  <p
-                    className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm text-[#D1D5DB]"
-                    role="status"
-                  >
-                    {discordMessage}
-                  </p>
-                ) : null}
-              </CardContent>
-            </Card>
-
             <Card className="border-white/10 bg-[#0B0B0B]/95">
               <CardHeader>
                 <CardTitle>{isAr ? "تصدير البيانات" : "Export Account Data"}</CardTitle>

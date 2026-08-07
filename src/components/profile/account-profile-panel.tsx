@@ -770,6 +770,9 @@ export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
                   <Link href="/settings" className={buttonVariants({ variant: "secondary", size: "sm" })}>
                     {isAr ? "إعدادات الحساب" : "Account settings"}
                   </Link>
+                  <Link href="/settings#discord-connection" className={buttonVariants({ variant: "secondary", size: "sm" })}>
+                    {isAr ? "الحسابات المرتبطة" : "Connected accounts"}
+                  </Link>
                 </div>
                 {message ? <p className="text-xs text-[#D1D5DB] md:col-span-2">{message}</p> : null}
               </form>
