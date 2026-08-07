@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { RoleBadge } from "@/components/ui/role-badge";
 import { UsdtIcon } from "@/components/ui/usdt-icon";
 import { buildSellerReviewStats, getVisibleSellerReviews } from "@/lib/reviews";
+import { deriveSellerPresence } from "@/lib/seller-presence";
 import { cn } from "@/lib/utils";
 import type { PremiumSellerProfileData, SellerBadge, SellerLevel } from "@/types/alpha-exchange";
 
@@ -112,6 +113,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
   const publicContact = [seller.contact?.email, seller.contact?.phone].filter(Boolean).join(" • ");
   const isOwnerSeller = seller.isOwner === true;
   const sellerRankKey = isOwnerSeller ? "legendary" : sellerLevelToneKey(profile.sellerLevel);
+  const presence = deriveSellerPresence({ onlineStatus: seller.onlineStatus, lastActiveAt: seller.lastActiveAt });
   const heroBadgeItems = [
     seller.isFeaturedSeller ? "Featured Seller" : null,
     seller.isFoundingSeller ? "Founding Seller" : null,
@@ -202,9 +204,9 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                           {seller.sellerName.slice(0, 2).toUpperCase()}
                         </div>
                       )}
-                      <span className={cn("absolute bottom-1 flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold shadow-[0_10px_20px_rgba(0,0,0,0.25)]", isAr ? "left-1" : "right-1", seller.onlineStatus === "online" ? "bg-emerald-500/90 text-white" : "bg-white/20 text-white")}>
-                        <span className={cn("h-1.5 w-1.5 rounded-full", seller.onlineStatus === "online" ? "bg-white" : "bg-[#D1D5DB]")} />
-                        {seller.onlineStatus === "online" ? "Online" : "Offline"}
+                      <span className={cn("absolute bottom-1 flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold shadow-[0_10px_20px_rgba(0,0,0,0.25)]", isAr ? "left-1" : "right-1", presence.tone === "online" ? "bg-emerald-500/90 text-white" : presence.tone === "recent" ? "bg-amber-500/90 text-black" : "bg-white/20 text-white")}>
+                        <span className={cn("h-1.5 w-1.5 rounded-full", presence.tone === "online" ? "bg-white" : presence.tone === "recent" ? "bg-black/70" : "bg-[#D1D5DB]")} />
+                        {isAr ? presence.labelAr : presence.label}
                       </span>
                     </div>
                     <div className={isAr ? "text-right" : ""}>

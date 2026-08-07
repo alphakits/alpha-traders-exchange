@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { FieldLabel, requiredFieldClasses } from "@/components/ui/field";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { LogoutButton } from "@/components/auth/logout-button";
 import { AlphaMarketCenter } from "@/components/market/alpha-market-center";
@@ -103,6 +104,29 @@ type FeatureCard = {
   icon: typeof ShieldCheck;
   title: string;
   body: string;
+};
+
+type LivePulseActivity = {
+  id: string;
+  type: "new_listing" | "listing_renewed" | "trade_completed" | "seller_online";
+  network?: SupportedNetwork;
+  createdAt: string;
+};
+
+type LivePulse = {
+  sellersOnline: number;
+  buyersOnline: number;
+  activeTrades: number;
+  activeListings: number;
+  totalUsdtAvailable: number;
+  completedTrades: number;
+  totalVolumeUsdt: number;
+  averageResponseMinutes: number;
+  trendingNetwork: SupportedNetwork | null;
+  popularPaymentMethod: string | null;
+  lastCompletedTrade: { network: SupportedNetwork; completedAt: string } | null;
+  recentActivity: LivePulseActivity[];
+  generatedAt: string;
 };
 
 type TimelineStep = {
@@ -745,16 +769,6 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
   );
 });
 
-// Isolated counter so the 1-second tick never re-renders the parent page.
-function SecAgoCounter({ startTimeRef }: { startTimeRef: { current: number } }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, []);
-  return <>{Math.max(0, Math.round((now - startTimeRef.current) / 1000))}</>;
-}
-
 // Isolated eligibility countdown. Only mounts a timer while the countdown is
 // actually visible (<=12h remaining), so hidden listings never tick and a
 // single listing's countdown never re-renders the whole marketplace.
@@ -768,13 +782,14 @@ const ListingCountdownBadge = memo(function ListingCountdownBadge({ expiresAt, i
   }, [expiresAt]);
   const countdown = deriveListingCountdown(expiresAt, now);
   if (!countdown.visible) return null;
+  const urgent = countdown.tier === "urgent";
   return (
     <span
       className={cn("seller-listing-countdown", `seller-listing-countdown--${countdown.tier}`)}
       role="timer"
       aria-label={`Listing eligibility: ${isAr ? countdown.labelAr : countdown.label}`}
     >
-      <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
+      {urgent ? <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" /> : <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />}
       {isAr ? countdown.labelAr : countdown.label}
     </span>
   );
@@ -791,6 +806,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
+  const [livePulse, setLivePulse] = useState<LivePulse | null>(null);
   const [isSessionResolving, setIsSessionResolving] = useState(true);
   const [isLoadingListings, setIsLoadingListings] = useState(true);
   const [isWorkspaceWidgetsLoading, setIsWorkspaceWidgetsLoading] = useState(true);
@@ -1250,6 +1266,30 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       controller.abort();
     };
   }, [tracedFetch]);
+
+  // Live marketplace pulse: real backend stats + presence heartbeat, polled.
+  useEffect(() => {
+    if (!sessionUser) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    const loadPulse = async () => {
+      try {
+        const response = await fetch("/api/alpha-exchange/marketplace-pulse", { cache: "no-store", signal: controller.signal });
+        if (!response.ok || cancelled) return;
+        const data = (await response.json()) as LivePulse;
+        if (!cancelled) setLivePulse(data);
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") return;
+      }
+    };
+    void loadPulse();
+    const interval = window.setInterval(() => { void loadPulse(); }, 45000);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearInterval(interval);
+    };
+  }, [sessionUser]);
 
   useEffect(() => {
     if (!sessionUser) return;
@@ -2657,7 +2697,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const unreadNotificationsCount = notifications.filter((item) => !item.isRead).length;
 
   const notificationCenterCard = sessionUser ? (
-    <Card id="my-listings-section" className="border-white/10 bg-[#0B0B0B]/90">
+    <Card id="notification-center-section" className="border-white/10 bg-[#0B0B0B]/90">
       <CardHeader>
         <CardTitle className="inline-flex items-center gap-2">
           <BellRing className="h-4 w-4 text-[#C9A227]" />
@@ -2701,7 +2741,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           {notificationsInitialized && !notificationsLoading && notifications.length === 0 ? (
             <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-center text-xs text-[#9CA3AF]">
               <BellRing className="mx-auto mb-2 h-4 w-4 text-[#9CA3AF]" />
-              No notifications yet. You&apos;ll be notified here about trades, listings, reviews, and account activity.
+              No notifications yet. You’ll be notified here about trades, listings, reviews, and account activity.
             </div>
           ) : null}
           {notifications.slice(0, 10).map((notification) => (
@@ -2752,7 +2792,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         <div className="space-y-3">
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-              <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Today&apos;s Completed Trades</p>
+              <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">Today’s Completed Trades</p>
               <p className="mt-1 text-lg font-semibold text-white">{todaysCompletedTrades.toLocaleString("en-IL")}</p>
             </div>
             <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
@@ -3034,86 +3074,127 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           </div>
         </div>
 
-        {/* Marketplace Heartbeat */}
+        {/* Live activity dashboard — real backend data, mobile-first compact grid */}
         <div id="market-overview" className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#0A0A0A]/90 shadow-[0_16px_48px_rgba(0,0,0,0.35)]">
-          <div className="border-b border-white/[0.07] px-5 py-3 flex items-center justify-between">
+          <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-3 sm:px-5">
             <div className="flex items-center gap-2 text-xs text-[#9CA3AF]">
               <Activity className="h-3.5 w-3.5 text-emerald-400" />
-              {isAr ? "نبض السوق" : "Marketplace Pulse"}
+              {isAr ? "نبض السوق المباشر" : "Live Marketplace Pulse"}
             </div>
-            <span className="text-[11px] text-[#9CA3AF]">
-              {isAr ? "محدّث" : "Updated"}{" "}
-              <SecAgoCounter startTimeRef={listingsLoadedAtRef} />{" "}
-              {isAr ? "ثانية" : "sec ago"}
+            <span className="inline-flex items-center gap-1.5 text-[11px] text-emerald-300">
+              <span className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+              {livePulse ? (isAr ? "مباشر" : "Live") : (isAr ? "جارٍ التحميل" : "Loading")}
             </span>
           </div>
-          <div className="grid divide-x divide-white/[0.06] md:grid-cols-3 xl:grid-cols-6">
-            {[
+          {(() => {
+            const tiles: Array<{ icon: typeof ShieldCheck; label: string; value: string; accent: string }> = [
               {
                 icon: ShieldCheck,
-                label: isAr ? "بائعون موثقون" : "Verified Sellers",
-                value: marketplacePulse.onlineVerifiedSellers > 0
-                  ? `${marketplacePulse.onlineVerifiedSellers} online`
-                  : marketplacePulse.verifiedSellers > 0 ? `${marketplacePulse.verifiedSellers}` : "—",
+                label: isAr ? "بائعون متصلون" : "Sellers Online",
+                value: livePulse ? livePulse.sellersOnline.toLocaleString("en-IL") : (marketplacePulse.onlineVerifiedSellers > 0 ? `${marketplacePulse.onlineVerifiedSellers}` : "—"),
                 accent: "text-emerald-300",
-                show: true,
+              },
+              {
+                icon: Users,
+                label: isAr ? "مشترون متصلون" : "Buyers Online",
+                value: livePulse ? livePulse.buyersOnline.toLocaleString("en-IL") : "—",
+                accent: "text-[#93C5FD]",
+              },
+              {
+                icon: HandCoins,
+                label: isAr ? "صفقات نشطة" : "Active Trades",
+                value: livePulse ? livePulse.activeTrades.toLocaleString("en-IL") : "—",
+                accent: "text-amber-300",
               },
               {
                 icon: Store,
                 label: isAr ? "العروض النشطة" : "Live Listings",
-                value: marketplacePulse.liveListings > 0 ? marketplacePulse.liveListings.toLocaleString("en-IL") : "—",
+                value: (livePulse ? livePulse.activeListings : marketplacePulse.liveListings) > 0
+                  ? (livePulse ? livePulse.activeListings : marketplacePulse.liveListings).toLocaleString("en-IL")
+                  : "—",
                 accent: "text-[#C9A227]",
-                show: true,
               },
               {
                 icon: WalletCards,
                 label: isAr ? "USDT متاح" : "USDT Available",
-                value: marketplacePulse.totalUsdtAvailable > 0
-                  ? `${marketplacePulse.totalUsdtAvailable.toLocaleString("en-IL")} USDT`
+                value: (livePulse ? livePulse.totalUsdtAvailable : marketplacePulse.totalUsdtAvailable) > 0
+                  ? `${(livePulse ? livePulse.totalUsdtAvailable : marketplacePulse.totalUsdtAvailable).toLocaleString("en-IL")}`
                   : "—",
-                accent: "text-[#93C5FD]",
-                show: true,
+                accent: "text-[#6EE7B7]",
               },
               {
                 icon: Zap,
                 label: isAr ? "متوسط الاستجابة" : "Avg Response",
-                value: marketplacePulse.averageResponseMinutes > 0 ? `${marketplacePulse.averageResponseMinutes} min` : "—",
-                accent: "text-amber-300",
-                show: true,
-              },
-              {
-                icon: Network,
-                label: isAr ? "الشبكة الرائجة" : "Trending Network",
-                value: marketplacePulse.topNetwork || "—",
+                value: (livePulse ? livePulse.averageResponseMinutes : marketplacePulse.averageResponseMinutes) > 0
+                  ? `${livePulse ? livePulse.averageResponseMinutes : marketplacePulse.averageResponseMinutes} min`
+                  : "—",
                 accent: "text-violet-300",
-                show: Boolean(marketplacePulse.topNetwork),
               },
-              {
-                icon: TrendingUp,
-                label: isAr ? "طريقة الدفع الشائعة" : "Popular Payment",
-                value: marketplacePulse.topPaymentMethod || "—",
-                accent: "text-rose-300",
-                show: Boolean(marketplacePulse.topPaymentMethod),
-              },
-            ]
-              .filter((item) => item.show)
-              .map((item) => {
-                const Icon = item.icon;
-                return (
-                  <div key={item.label} className="flex flex-col gap-1 px-5 py-4">
-                    <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">
-                      <Icon className={`h-3 w-3 ${item.accent}`} />
-                      {item.label}
+            ];
+            return (
+              <div className="grid grid-cols-2 gap-px bg-white/[0.06] sm:grid-cols-3 xl:grid-cols-6">
+                {tiles.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <div key={item.label} className="flex flex-col gap-1 bg-[#0A0A0A] px-3 py-3 sm:px-4">
+                      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-[#9CA3AF]">
+                        <Icon className={`h-3 w-3 ${item.accent}`} />
+                        <span className="truncate">{item.label}</span>
+                      </div>
+                      <p className={`text-lg font-bold tabular-nums ${item.accent}`}>{item.value}</p>
                     </div>
-                    <p className={`mt-0.5 text-base font-semibold ${item.accent}`}>{item.value}</p>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
+            );
+          })()}
+          {/* Secondary stats + trending chips */}
+          <div className="flex flex-wrap items-center gap-2 border-t border-white/[0.07] px-4 py-3 text-[11px] sm:px-5">
+            {(livePulse?.trendingNetwork) ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-violet-400/30 bg-violet-500/10 px-2.5 py-1 text-violet-200">
+                <Network className="h-3 w-3" /> {isAr ? "الأكثر رواجًا" : "Trending"}: {livePulse.trendingNetwork}
+              </span>
+            ) : null}
+            {(livePulse?.popularPaymentMethod) ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-rose-400/30 bg-rose-500/10 px-2.5 py-1 text-rose-200">
+                <TrendingUp className="h-3 w-3" /> {isAr ? "الأكثر استخدامًا" : "Popular"}: {paymentMethodLabel(livePulse.popularPaymentMethod)}
+              </span>
+            ) : null}
+            {livePulse && livePulse.completedTrades > 0 ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2.5 py-1 text-emerald-200">
+                <CheckCircle2 className="h-3 w-3" /> {livePulse.completedTrades.toLocaleString("en-IL")} {isAr ? "صفقة مكتملة" : "completed"}
+              </span>
+            ) : null}
+            {livePulse?.lastCompletedTrade ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[#9CA3AF]">
+                {isAr ? "آخر صفقة" : "Last trade"}: {livePulse.lastCompletedTrade.network} · {formatRelativeMinutesLabel(livePulse.lastCompletedTrade.completedAt)}
+              </span>
+            ) : null}
           </div>
-          {marketplacePulse.newestSellers.length ? (
-            <div className="border-t border-white/[0.07] px-5 py-3 text-xs text-[#9CA3AF]">
-              <span className="text-emerald-400">↑ {isAr ? "أحدث البائعين النشطين" : "Recently active"}: </span>
-              <span className="text-white">{marketplacePulse.newestSellers.join(" • ")}</span>
+          {/* Live activity feed — public, anonymized events only */}
+          {livePulse && livePulse.recentActivity.length ? (
+            <div className="border-t border-white/[0.07] px-4 py-3 sm:px-5">
+              <p className="mb-2 text-[10px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "النشاط المباشر" : "Live Activity"}</p>
+              <ul className="grid gap-1.5 sm:grid-cols-2">
+                {livePulse.recentActivity.slice(0, 6).map((entry) => {
+                  const label = entry.type === "new_listing"
+                    ? (isAr ? "عرض جديد" : "New listing")
+                    : entry.type === "listing_renewed"
+                      ? (isAr ? "تجديد عرض" : "Listing renewed")
+                      : entry.type === "trade_completed"
+                        ? (isAr ? "اكتملت صفقة" : "Trade completed")
+                        : (isAr ? "بائع متصل" : "Seller online");
+                  const tone = entry.type === "trade_completed" ? "text-emerald-300" : entry.type === "seller_online" ? "text-[#93C5FD]" : "text-[#C9A227]";
+                  return (
+                    <li key={entry.id} className="flex items-center gap-2 text-[11px] text-[#D1D5DB]">
+                      <span className={`inline-flex h-1.5 w-1.5 shrink-0 rounded-full ${entry.type === "trade_completed" ? "bg-emerald-400" : entry.type === "seller_online" ? "bg-[#93C5FD]" : "bg-[#C9A227]"}`} />
+                      <span className={`font-medium ${tone}`}>{label}</span>
+                      {entry.network ? <span className="text-[#9CA3AF]">· {entry.network}</span> : null}
+                      <span className="ml-auto text-[#6B7280]">{formatRelativeMinutesLabel(entry.createdAt)}</span>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
           ) : null}
         </div>
@@ -3395,37 +3476,57 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   {/* Personal Information */}
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "المعلومات الشخصية" : "Personal Information"}</p>
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <Input
-                      placeholder={isAr ? "الاسم الأول (مطلوب)" : "First Name (required)"}
-                      value={sellerForm.firstName}
-                      required
-                      onChange={(event) => setSellerForm((prev) => ({ ...prev, firstName: event.target.value }))}
-                    />
-                    <Input
-                      placeholder={isAr ? "اسم العائلة (مطلوب)" : "Last Name (required)"}
-                      value={sellerForm.lastName}
-                      required
-                      onChange={(event) => setSellerForm((prev) => ({ ...prev, lastName: event.target.value }))}
-                    />
+                    <div className="space-y-1.5">
+                      <FieldLabel htmlFor="seller-first-name" required>{isAr ? "الاسم الأول" : "First Name"}</FieldLabel>
+                      <Input
+                        id="seller-first-name"
+                        placeholder={isAr ? "الاسم الأول" : "First name"}
+                        value={sellerForm.firstName}
+                        required
+                        aria-required
+                        onChange={(event) => setSellerForm((prev) => ({ ...prev, firstName: event.target.value }))}
+                        className={requiredFieldClasses({ value: sellerForm.firstName, required: true })}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <FieldLabel htmlFor="seller-last-name" required>{isAr ? "اسم العائلة" : "Last Name"}</FieldLabel>
+                      <Input
+                        id="seller-last-name"
+                        placeholder={isAr ? "اسم العائلة" : "Last name"}
+                        value={sellerForm.lastName}
+                        required
+                        aria-required
+                        onChange={(event) => setSellerForm((prev) => ({ ...prev, lastName: event.target.value }))}
+                        className={requiredFieldClasses({ value: sellerForm.lastName, required: true })}
+                      />
+                    </div>
                   </div>
                   <div className="relative">
+                    <FieldLabel htmlFor="seller-email" className="mb-1.5">{isAr ? "البريد الإلكتروني" : "Email"}</FieldLabel>
                     <Input
+                      id="seller-email"
                       type="email"
                       value={sellerForm.email || (sessionUser?.email ?? "")}
                       readOnly
                       aria-label={isAr ? "البريد الإلكتروني" : "Email"}
                       className="cursor-default opacity-75"
                     />
-                    <span className="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-2 py-0.5 text-[10px] font-medium text-[#D4AF37]">
+                    <span className="pointer-events-none absolute end-3 top-[2.35rem] rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-2 py-0.5 text-[10px] font-medium text-[#D4AF37]">
                       {isAr ? "من الحساب" : "From account"}
                     </span>
                   </div>
-                  <Input
-                    placeholder={isAr ? "رقم الهاتف / WhatsApp (مطلوب)" : "WhatsApp / Phone Number (required)"}
-                    value={sellerForm.whatsappNumber}
-                    required
-                    onChange={(event) => setSellerForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))}
-                  />
+                  <div className="space-y-1.5">
+                    <FieldLabel htmlFor="seller-whatsapp" required>{isAr ? "رقم الهاتف / WhatsApp" : "WhatsApp / Phone Number"}</FieldLabel>
+                    <Input
+                      id="seller-whatsapp"
+                      placeholder={isAr ? "رقم الهاتف / WhatsApp" : "WhatsApp / phone number"}
+                      value={sellerForm.whatsappNumber}
+                      required
+                      aria-required
+                      onChange={(event) => setSellerForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))}
+                      className={requiredFieldClasses({ value: sellerForm.whatsappNumber, required: true })}
+                    />
+                  </div>
 
                   {/* Selling methods */}
                   <p className="pt-1 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "طرق البيع المدعومة" : "Supported Selling Methods"}</p>
@@ -3583,7 +3684,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 </div>
               </div>
               <div className="rounded-xl border border-white/10 bg-black/25 p-4 text-xs text-[#D1D5DB] sm:min-w-[180px]">
-                <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">Today&apos;s Market</p>
+                <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">Today’s Market</p>
                 <p className="mt-1 text-base font-semibold text-white">USDT/ILS {formatIls(marketPricePerUsdt)}</p>
                 <div className="mt-2 space-y-0.5">
                   {sellerOverviewStats.activeListings > 0 && <p>• {sellerOverviewStats.activeListings} Active Listing{sellerOverviewStats.activeListings !== 1 ? "s" : ""}</p>}
@@ -3670,7 +3771,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 <div className="rounded-2xl border border-emerald-500/40 bg-emerald-950/30 p-4 text-sm text-emerald-100">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                    <span className="font-medium">No commission due — you&apos;re all clear.</span>
+                    <span className="font-medium">No commission due — you’re all clear.</span>
                   </div>
                 </div>
               )}
@@ -3915,7 +4016,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                              className="font-mono text-xs"
                            />
                            <p className="text-xs text-[#6B7280]">
-                             Find this in your wallet&apos;s Activity or Transaction History. It must be the USDT send transaction — not a swap, trade, or other interaction.
+                             Find this in your wallet’s Activity or Transaction History. It must be the USDT send transaction — not a swap, trade, or other interaction.
                            </p>
                          </div>
                         ) : null}
@@ -4057,29 +4158,30 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               </div>
               <form className="grid gap-4 md:grid-cols-2" onSubmit={handleSellerListingCreateSubmit}>
                 <div className="space-y-2">
+                  <FieldLabel htmlFor="create-available" required>{isAr ? "USDT المتاح" : "Available USDT"}</FieldLabel>
                   <Input
-                    placeholder="Available USDT *"
+                    id="create-available"
+                    placeholder={isAr ? "مثال: 25,000" : "e.g. 25,000"}
                     value={listingCreateForm.availableAmount}
                     onChange={(event) => {
                       const nextAmount = formatIntegerForInput(event.target.value);
                       setListingCreateForm((prev) => ({ ...prev, availableAmount: nextAmount, maximumTrade: nextAmount }));
                     }}
-                    className={`h-11 ${!listingCreateAmount ? "border-amber-400/70" : ""}`}
+                    aria-required
+                    className={cn("h-11", requiredFieldClasses({ value: listingCreateForm.availableAmount, required: true }))}
                   />
-                  <p className="text-xs text-[#9CA3AF]">Amount is auto-formatted while typing (e.g. 25,000).</p>
+                  <p className="text-xs text-[#9CA3AF]">{isAr ? "يتم التنسيق تلقائيًا أثناء الكتابة." : "Amount is auto-formatted while typing (e.g. 25,000)."}</p>
                 </div>
                 <div className="space-y-2">
+                  <FieldLabel htmlFor="create-price" required>{isAr ? "السعر" : "Price"}</FieldLabel>
                   <Input
-                    placeholder="Price"
+                    id="create-price"
+                    placeholder={isAr ? "السعر لكل USDT" : "Price per USDT"}
                     value={listingCreateForm.price}
                     onChange={(event) => setListingCreateForm((prev) => ({ ...prev, price: normalizeDecimalInput(event.target.value) }))}
-                    className={`h-11 transition-all duration-200 ${
-                      listingCreatePriceInvalid
-                        ? "border-red-500/85 shadow-[0_0_0_3px_rgba(239,68,68,0.2)]"
-                        : listingCreatePriceValid
-                          ? "border-emerald-500/80 shadow-[0_0_0_3px_rgba(16,185,129,0.16)]"
-                          : ""
-                    }`}
+                    aria-required
+                    aria-invalid={listingCreatePriceInvalid || undefined}
+                    className={cn("h-11 transition-all duration-200", requiredFieldClasses({ value: listingCreateForm.price, required: true, invalid: listingCreatePriceInvalid }))}
                   />
                   <p className={`text-xs transition-colors duration-200 ${
                     listingCreatePriceInvalid ? "text-red-300" : listingCreatePriceValid ? "text-emerald-300" : "text-[#9CA3AF]"
@@ -4092,8 +4194,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                   </p>
                 </div>
                 <div className="space-y-2">
+                  <FieldLabel htmlFor="create-currency" required>{isAr ? "العملة" : "Currency"}</FieldLabel>
                   <Input
-                    placeholder="Currency (ILS)"
+                    id="create-currency"
+                    placeholder="ILS"
                     value={listingCreateForm.currency}
                     onChange={(event) => {
                       setListingCreateCurrencyManualOverride(true);
@@ -4105,14 +4209,17 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     {listingCreateCurrencyManualOverride ? "Manual Override" : "Auto Calculated"}
                   </p>
                 </div>
-                <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white transition focus:border-[#C9A227]/60 focus:outline-none focus:ring-2 focus:ring-[#C9A227]/30" value={listingCreateForm.network} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
-                  <option value="TRC20">TRC20</option>
-                  <option value="ERC20">ERC20</option>
-                  <option value="BEP20">BEP20</option>
-                  <option value="SOL">SOL</option>
-                </select>
+                <div className="space-y-2">
+                  <FieldLabel htmlFor="create-network" required>{isAr ? "الشبكة" : "Network"}</FieldLabel>
+                  <select id="create-network" className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white transition focus:border-[#C9A227]/60 focus:outline-none focus:ring-2 focus:ring-[#C9A227]/30" value={listingCreateForm.network} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
+                    <option value="TRC20">TRC20</option>
+                    <option value="ERC20">ERC20</option>
+                    <option value="BEP20">BEP20</option>
+                    <option value="SOL">SOL</option>
+                  </select>
+                </div>
                 <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
-                  <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Payment Method *</p>
+                  <FieldLabel required>{isAr ? "طريقة الدفع" : "Payment Method"}</FieldLabel>
                   <div className="mt-3 grid gap-2 md:grid-cols-3">
                     {MARKETPLACE_PAYMENT_METHODS.map((method) => {
                       const selected = listingCreateSelectedMethods.includes(method);
@@ -4140,20 +4247,25 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                     })}
                   </div>
                   <p className="mt-2 text-xs text-[#9CA3AF]">Select up to {MAX_LISTING_PAYMENT_METHODS} methods. Buyers choose one method when they open the trade.</p>
-                  <p className="mt-2 text-xs text-[#D1D5DB]">Review payment safety guidance in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link>.</p>
+                  <p className="mt-2 text-xs text-[#D1D5DB]">Review payment safety guidance in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</p>
                 </div>
                 <div className="space-y-2">
+                  <FieldLabel htmlFor="create-min-trade" required>{isAr ? "أدنى صفقة" : "Minimum Trade"}</FieldLabel>
                   <Input
-                    placeholder="Minimum Trade (Required)"
+                    id="create-min-trade"
+                    placeholder={isAr ? "أدنى مبلغ" : "Smallest amount"}
                     value={listingCreateForm.minimumTrade}
                     onChange={(event) => setListingCreateForm((prev) => ({ ...prev, minimumTrade: formatIntegerForInput(event.target.value) }))}
-                    className={`h-11 ${!listingCreateMinTrade && listingCreateAmount > 0 ? "border-amber-400/70" : ""}`}
+                    aria-required
+                    className={cn("h-11", requiredFieldClasses({ value: listingCreateForm.minimumTrade, required: true }))}
                   />
-                  <p className="text-xs text-[#9CA3AF]">The smallest trade amount you are willing to accept.</p>
+                  <p className="text-xs text-[#9CA3AF]">{isAr ? "أصغر مبلغ صفقة تقبله." : "The smallest trade amount you are willing to accept."}</p>
                 </div>
                 <div className="space-y-2">
+                  <FieldLabel htmlFor="create-max-trade" required>{isAr ? "أقصى صفقة" : "Maximum Trade"}</FieldLabel>
                   <Input
-                    placeholder="Maximum Trade (Required)"
+                    id="create-max-trade"
+                    placeholder={isAr ? "أكبر مبلغ" : "Largest amount"}
                     value={listingCreateForm.maximumTrade}
                     onChange={(event) => setListingCreateForm((prev) => {
                       const listedAmount = toNumber(prev.availableAmount);
@@ -4164,14 +4276,19 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       const clampedMax = Math.min(requestedMax || 0, listedAmount);
                       return { ...prev, maximumTrade: clampedMax > 0 ? formatIntegerForInput(clampedMax) : "" };
                     })}
-                    className={`h-11 ${listingCreateTradeRangeInvalid ? "border-amber-400/70" : ""}`}
+                    aria-required
+                    aria-invalid={listingCreateTradeRangeInvalid || undefined}
+                    className={cn("h-11", requiredFieldClasses({ value: listingCreateForm.maximumTrade, required: true, invalid: listingCreateTradeRangeInvalid }))}
                   />
-                  <p className="text-xs text-[#9CA3AF]">Maximum trade cannot exceed your listed USDT amount.</p>
+                  <p className="text-xs text-[#9CA3AF]">{isAr ? "لا يمكن أن يتجاوز مبلغ USDT المعروض." : "Maximum trade cannot exceed your listed USDT amount."}</p>
                 </div>
-                <Textarea className="md:col-span-2 min-h-[96px]" aria-label="Seller description" placeholder="Seller Description" value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
+                <div className="space-y-2 md:col-span-2">
+                  <FieldLabel htmlFor="create-description" optional>{isAr ? "وصف البائع" : "Seller Description"}</FieldLabel>
+                  <Textarea id="create-description" className="min-h-[96px]" placeholder={isAr ? "أخبر المشترين عن شروطك" : "Tell buyers about your terms"} value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
+                </div>
                 {listingCreateRequiresBank ? (
                 <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
-                  <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Supported banks *</p>
+                  <FieldLabel required>{isAr ? "البنوك المدعومة" : "Supported banks"}</FieldLabel>
                   <p className="mt-1 text-xs text-[#D1D5DB]">Select up to {MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks for bank transfer or cardless ATM listings.</p>
                   <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
                     {ISRAELI_BANKS.map((bank) => {
@@ -4222,9 +4339,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       onChange={(event) => setListingCommissionAgreement(event.target.checked)}
                       className="mt-0.5 h-4 w-4 rounded border-white/25 bg-black/40 text-[#C9A227] focus:ring-[#C9A227]"
                     />
-                    <span>I understand and agree to Alpha Traders&apos; 1% commission policy.</span>
+                    <span>I understand and agree to Alpha Traders’ 1% commission policy.</span>
                   </label>
-                  <p className="mt-2 text-xs text-[#D1D5DB]">Read full policy in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link>.</p>
+                  <p className="mt-2 text-xs text-[#D1D5DB]">Read full policy in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</p>
                 </div>
                 <div className={`md:col-span-2 rounded-2xl border p-4 transition-all duration-200 ${listingCreateGuardTone}`}>
                   <div className="flex items-start gap-2">
@@ -4283,7 +4400,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               {!isWorkspaceWidgetsLoading && myListings.length === 0 ? (
                 <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center shadow-[0_8px_24px_rgba(2,6,23,0.35)]">
                   <Store className="mx-auto h-5 w-5 text-[#C9A227]" />
-                  <p className="mt-2 text-sm font-medium text-white">{isAr ? "ليس لديك عروض نشطة حتى الآن" : "You don&apos;t have any active listings yet."}</p>
+                  <p className="mt-2 text-sm font-medium text-white">{isAr ? "ليس لديك عروض نشطة حتى الآن" : "You don’t have any active listings yet."}</p>
                   <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "أنشئ أول عرضك الآن ليبدأ المشترون بطلب الشراء." : "Create your first listing now and start receiving buyer requests."}</p>
                   <Button type="button" size="sm" className="mt-3 h-9" onClick={() => { void scrollToCreateListingSection(); }}>
                     {isAr ? "إنشاء عرض" : "Create Listing"}
@@ -4586,7 +4703,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               ) : null}
               {sellerRequestSections.action.length === 0 ? (
                 <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-[#9CA3AF]">
-                  No trades require your action. You&apos;re all caught up.
+                  No trades require your action. You’re all caught up.
                 </div>
               ) : null}
               {sellerRequestSections.active.length === 0 ? (
@@ -4638,7 +4755,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           />
                           <span>I have read and agree to these safety guidelines.</span>
                         </label>
-                        <p className="mt-1 text-[#D1D5DB]">Read full guidance in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link>.</p>
+                        <p className="mt-1 text-[#D1D5DB]">Read full guidance in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</p>
                       </div>
                     ) : null}
                     <div className="mt-3 flex flex-wrap gap-2">
@@ -5197,7 +5314,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                               <div className="rounded-xl border border-[#6CAEFF]/25 bg-[#6CAEFF]/10 p-3 text-xs text-[#D1D5DB]">
                                 <p className="font-medium text-white">{paymentMethodEmoji(request.paymentMethod)} Trade Instructions</p>
                                 <p className="mt-1">{paymentMethodTradeInstruction(request.paymentMethod, "buyer")}</p>
-                                <p className="mt-1">Review details in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link>.</p>
+                                <p className="mt-1">Review details in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</p>
                               </div>
                               <div className="flex flex-wrap gap-2">
                                 <Button type="button" size="sm" variant="secondary" onMouseEnter={() => handlePrefetchTradeRoom(request.id)} onFocus={() => handlePrefetchTradeRoom(request.id)} onClick={() => handleOpenTradeRoom(request.id)}>
@@ -5719,7 +5836,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                           <span>I have read and understand the privacy and safety guidelines.</span>
                         </label>
                         <p className="mt-1 text-[#D1D5DB]">Both buyer and seller must acknowledge these guidelines before the trade can begin.</p>
-                        <p className="mt-1 text-[#D1D5DB]">Read full guidance in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety &amp; Trust Center</Link>.</p>
+                        <p className="mt-1 text-[#D1D5DB]">Read full guidance in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</p>
                       </div>
                     ) : null}
                     <div className="sticky bottom-0 z-10 rounded-xl border border-[#C9A227]/30 bg-[#0B0B0B]/95 p-3">

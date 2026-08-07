@@ -2958,12 +2958,12 @@ export function AlphaExchangeAdminDashboard() {
                   <Trophy className="h-5 w-5 text-[#C9A227]" />
                   <h3 className="text-base font-semibold text-white">Change Seller Rank?</h3>
                 </div>
-                <p className="text-xs text-[#9CA3AF] pl-8">This will immediately update the seller&apos;s public marketplace appearance.</p>
+                <p className="text-xs text-[#9CA3AF] pl-8">This will immediately update the seller’s public marketplace appearance.</p>
               </div>
 
               {/* Seller info */}
               <div className="mb-5 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                <p className="text-xs text-[#9CA3AF] mb-2">You&apos;re about to change:</p>
+                <p className="text-xs text-[#9CA3AF] mb-2">You’re about to change:</p>
                 <p className="text-sm font-medium text-white mb-3">{rankConfirmPending.sellerName}</p>
                 <div className="flex items-center gap-3">
                   <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] ${RANK_BADGE_COLOR[rankConfirmPending.fromRank]}`}>

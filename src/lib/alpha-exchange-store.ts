@@ -4232,6 +4232,220 @@ export async function getMarketplaceListings(status?: string) {
   return enrichListingsWithSellerData(db, sortedListings);
 }
 
+// ── Live marketplace pulse (real, privacy-safe public dashboard) ────────────
+const PULSE_ONLINE_WINDOW_MS = 5 * 60 * 1000;
+const PULSE_PRESENCE_TOUCH_THROTTLE_MS = 60 * 1000;
+
+export type MarketplacePulseActivityType =
+  | "new_listing"
+  | "listing_renewed"
+  | "trade_completed"
+  | "seller_online";
+
+export interface MarketplacePulseActivityEntry {
+  id: string;
+  type: MarketplacePulseActivityType;
+  network?: SupportedNetwork;
+  createdAt: string;
+}
+
+export interface MarketplacePulseData {
+  sellersOnline: number;
+  buyersOnline: number;
+  activeTrades: number;
+  activeListings: number;
+  totalUsdtAvailable: number;
+  completedTrades: number;
+  totalVolumeUsdt: number;
+  averageResponseMinutes: number;
+  trendingNetwork: SupportedNetwork | null;
+  popularPaymentMethod: string | null;
+  lastCompletedTrade: { network: SupportedNetwork; completedAt: string } | null;
+  recentActivity: MarketplacePulseActivityEntry[];
+  generatedAt: string;
+}
+
+const PULSE_ACTIVE_TRADE_STATUSES = new Set<PurchaseRequestStatus>([
+  "pending",
+  "accepted",
+  "payment_sent",
+  "funds_received",
+  "usdt_release_pending",
+  "usdt_sent",
+]);
+
+function pulseParseMinutes(value: string | number | null | undefined) {
+  const parsed = Number(String(value ?? "").replace(/[^\d.]/g, ""));
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return parsed;
+}
+
+function isFreshTimestamp(value: string | null | undefined, windowMs: number, nowMs: number) {
+  if (!value) return false;
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) && ms > 0 && nowMs - ms <= windowMs;
+}
+
+/**
+ * Lightweight presence heartbeat for the current authenticated user. Updates
+ * lastActiveAt (and onlineStatus) only when it is stale, so counting "online"
+ * users reflects real active sessions without a write on every poll.
+ */
+export async function touchUserPresence(userId: string): Promise<void> {
+  if (!userId) return;
+  const db = await readDb();
+  const index = db.users.findIndex((user) => user.id === userId);
+  if (index === -1) return;
+  const user = db.users[index];
+  const nowMs = Date.now();
+  const lastMs = user.lastActiveAt ? new Date(user.lastActiveAt).getTime() : 0;
+  if (Number.isFinite(lastMs) && lastMs > 0 && nowMs - lastMs < PULSE_PRESENCE_TOUCH_THROTTLE_MS && user.onlineStatus === "online") {
+    return;
+  }
+  const timestamp = nowIso();
+  db.users[index] = { ...user, onlineStatus: "online", lastActiveAt: timestamp, updatedAt: timestamp };
+  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
+}
+
+/**
+ * Compute the real, privacy-safe marketplace pulse. Every value is derived from
+ * actual backend state; no buyer names, amounts, wallets, emails or private
+ * trade details are exposed.
+ */
+export async function getMarketplacePulse(dbInput?: AlphaExchangeDb): Promise<MarketplacePulseData> {
+  const db = dbInput ?? await readDb();
+  const nowMs = Date.now();
+  const nowIsoValue = nowIso();
+
+  const hiddenOrSuspended = new Set(
+    db.users.filter((user) => user.isProfileHidden === true || user.sellerStatus === "suspended").map((user) => user.id),
+  );
+
+  let sellersOnline = 0;
+  let buyersOnline = 0;
+  for (const user of db.users) {
+    if (!isFreshTimestamp(user.lastActiveAt, PULSE_ONLINE_WINDOW_MS, nowMs)) continue;
+    const isApprovedSeller = user.sellerStatus === "approved_seller";
+    if (isApprovedSeller) {
+      if (!hiddenOrSuspended.has(user.id)) sellersOnline += 1;
+    } else if (!hasRole(user, "admin") && !hasRole(user, "owner")) {
+      buyersOnline += 1;
+    }
+  }
+
+  let activeTrades = 0;
+  let completedTrades = 0;
+  let totalVolumeUsdt = 0;
+  let lastCompleted: PurchaseRequest | null = null;
+  for (const request of db.purchaseRequests) {
+    if (PULSE_ACTIVE_TRADE_STATUSES.has(request.status)) activeTrades += 1;
+    const isCompleted = request.status === "completed" || request.status === "review_open" || Boolean(request.completedAt);
+    if (isCompleted) {
+      completedTrades += 1;
+      totalVolumeUsdt += toNumber(request.usdtAmount);
+      const completedAt = request.completedAt ?? request.updatedAt;
+      if (!lastCompleted || new Date(completedAt).getTime() > new Date(lastCompleted.completedAt ?? lastCompleted.updatedAt).getTime()) {
+        lastCompleted = request;
+      }
+    }
+  }
+
+  const sellerById = new Map(db.users.map((user) => [user.id, user]));
+  const blockedByCommission = new Set(
+    db.commissionRecords
+      .filter((record) => normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid")
+      .map((record) => record.sellerId),
+  );
+  const activeListings: MarketplaceListing[] = db.marketplaceListings.filter((listing) => {
+    if (!canListingReceiveRequests(listing)) return false;
+    if (hiddenOrSuspended.has(listing.sellerId)) return false;
+    if (blockedByCommission.has(listing.sellerId)) return false;
+    const seller = sellerById.get(listing.sellerId);
+    if (!seller || seller.sellerStatus !== "approved_seller") return false;
+    if (isSellerUnavailableForNewBuyers(seller.availabilityStatus)) return false;
+    if (toNumber(listing.availableAmount) <= 0) return false;
+    if (listing.expiresAt) {
+      const expiresMs = new Date(listing.expiresAt).getTime();
+      if (expiresMs && !Number.isNaN(expiresMs) && expiresMs <= nowMs) return false;
+    }
+    return true;
+  });
+
+  let totalUsdtAvailable = 0;
+  const responseSamples: number[] = [];
+  const networkCounts = new Map<string, number>();
+  const paymentCounts = new Map<string, number>();
+  for (const listing of activeListings) {
+    totalUsdtAvailable += toNumber(listing.availableAmount);
+    const minutes = pulseParseMinutes(listing.responseTime);
+    if (minutes > 0) responseSamples.push(minutes);
+    const network = String(listing.network ?? "");
+    if (network) networkCounts.set(network, (networkCounts.get(network) ?? 0) + 1);
+    const methods = resolveListingPaymentMethods(listing.paymentMethods, listing.paymentMethod);
+    for (const method of methods) {
+      const normalized = normalizeMarketplacePaymentMethod(method) ?? method;
+      if (normalized) paymentCounts.set(normalized, (paymentCounts.get(normalized) ?? 0) + 1);
+    }
+  }
+  const averageResponseMinutes = responseSamples.length
+    ? Math.max(1, Math.round(responseSamples.reduce((sum, value) => sum + value, 0) / responseSamples.length))
+    : 0;
+  const topEntry = (counts: Map<string, number>) => {
+    let best: string | null = null;
+    let bestCount = 0;
+    for (const [key, count] of counts) {
+      if (count > bestCount) { best = key; bestCount = count; }
+    }
+    return best;
+  };
+  const trendingNetwork = topEntry(networkCounts) as SupportedNetwork | null;
+  const popularPaymentMethod = topEntry(paymentCounts);
+
+  // Anonymized public activity feed: only public, non-sensitive events.
+  const activity: MarketplacePulseActivityEntry[] = [];
+  for (const listing of db.marketplaceListings) {
+    if (hiddenOrSuspended.has(listing.sellerId)) continue;
+    if (isFreshTimestamp(listing.createdAt, 24 * 60 * 60 * 1000, nowMs)) {
+      activity.push({ id: `newlisting-${listing.id}`, type: "new_listing", network: listing.network, createdAt: listing.createdAt });
+    }
+    if (listing.lastRenewedAt && isFreshTimestamp(listing.lastRenewedAt, 24 * 60 * 60 * 1000, nowMs)) {
+      activity.push({ id: `renew-${listing.id}-${listing.lastRenewedAt}`, type: "listing_renewed", network: listing.network, createdAt: listing.lastRenewedAt });
+    }
+  }
+  for (const request of db.purchaseRequests) {
+    const isCompleted = request.status === "completed" || request.status === "review_open" || Boolean(request.completedAt);
+    const completedAt = request.completedAt ?? (isCompleted ? request.updatedAt : null);
+    if (isCompleted && completedAt && isFreshTimestamp(completedAt, 24 * 60 * 60 * 1000, nowMs)) {
+      activity.push({ id: `trade-${request.id}`, type: "trade_completed", network: request.network, createdAt: completedAt });
+    }
+  }
+  for (const user of db.users) {
+    if (user.sellerStatus !== "approved_seller" || hiddenOrSuspended.has(user.id)) continue;
+    if (user.onlineStatus === "online" && isFreshTimestamp(user.lastActiveAt, PULSE_ONLINE_WINDOW_MS, nowMs)) {
+      activity.push({ id: `online-${user.id}`, type: "seller_online", createdAt: user.lastActiveAt ?? nowIsoValue });
+    }
+  }
+  activity.sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+
+  return {
+    sellersOnline,
+    buyersOnline,
+    activeTrades,
+    activeListings: activeListings.length,
+    totalUsdtAvailable,
+    completedTrades,
+    totalVolumeUsdt,
+    averageResponseMinutes,
+    trendingNetwork: networkCounts.size ? trendingNetwork : null,
+    popularPaymentMethod,
+    lastCompletedTrade: lastCompleted
+      ? { network: lastCompleted.network, completedAt: lastCompleted.completedAt ?? lastCompleted.updatedAt }
+      : null,
+    recentActivity: activity.slice(0, 12),
+    generatedAt: nowIsoValue,
+  };
+}
+
 export async function updateSellerProfileStateByAdmin(input: {
   sellerId: string;
   adminUserId: string;
