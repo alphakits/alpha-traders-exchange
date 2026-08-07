@@ -392,8 +392,8 @@ function sellerMarketplaceRankPriority(listing: MarketplaceListing) {
   return 6;
 }
 
-function deriveSellerProfileSlug(input: { fullName?: string; id?: string }) {
-  const base = (input.fullName || input.id || "seller").toString().trim().toLowerCase();
+function deriveSellerProfileSlug(input: { publicName?: string }) {
+  const base = (input.publicName || "seller").toString().trim().toLowerCase();
   const normalized = base
     .normalize("NFKD")
     .replace(/\p{Diacritic}/gu, "")
@@ -714,7 +714,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <Link
-            href={`/exchange/seller/${deriveSellerProfileSlug({ fullName: listing.sellerDisplayName, id: listing.sellerId })}?sellerId=${encodeURIComponent(listing.sellerId)}`}
+            href={`/exchange/seller/${deriveSellerProfileSlug({ publicName: listing.sellerProfile?.publicTradingName || listing.sellerDisplayName })}`}
             className={cn(
               "seller-marketplace-action seller-marketplace-action--profile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-2 focus-visible:ring-offset-[#050505]",
               isOwnerListing

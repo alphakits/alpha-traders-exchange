@@ -86,7 +86,7 @@ type PremiumSellerProfilePageProps = {
       sellerReputation?: { level?: SellerLevel; trustScore?: number; publicVolumeRange?: string };
     }>;
     similarSellers: Array<{
-      sellerId: string;
+      sellerUsername: string;
       sellerName: string;
       sellerLevel: SellerLevel;
       trustScore: number;
@@ -500,7 +500,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {data.similarSellers.length ? data.similarSellers.map((sellerItem) => (
-              <div key={sellerItem.sellerId} className="surface-panel-subtle p-4 transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/25">
+              <div key={`${sellerItem.sellerUsername}-${sellerItem.sellerName}`} className="surface-panel-subtle p-4 transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/25">
                 <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#C9A227]/20 text-sm font-semibold text-[#FDE68A]">{sellerItem.sellerName.slice(0, 2).toUpperCase()}</div>
                   <div>
@@ -512,7 +512,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                   <span className="text-[#9CA3AF]">{sellerItem.trustScore.toFixed(1)}/100</span>
                   <span className="text-[#C9A227] capitalize">{sellerItem.sellerLevel}</span>
                 </div>
-                <Link href={`/exchange/seller/${slugify(sellerItem.sellerName)}?sellerId=${encodeURIComponent(sellerItem.sellerId)}`} className="mt-4 inline-flex text-sm text-[#C9A227] hover:underline">{isAr ? "عرض الملف" : "View profile"}</Link>
+                <Link href={`/exchange/seller/${sellerItem.sellerUsername || slugify(sellerItem.sellerName)}`} className="mt-4 inline-flex text-sm text-[#C9A227] hover:underline">{isAr ? "عرض الملف" : "View profile"}</Link>
               </div>
             )) : <p className="empty-state-panel">{isAr ? "لا توجد توصيات متاحة." : "No similar sellers available."}</p>}
           </CardContent>

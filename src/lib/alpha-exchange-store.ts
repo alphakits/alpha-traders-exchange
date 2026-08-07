@@ -1267,17 +1267,13 @@ function enrichListingsWithSellerData(
 
 export async function getSellerProfileRouteData(input: {
   username: string;
-  sellerId?: string;
   viewerUserId?: string;
   viewerRole?: UserRole;
   viewerEmail?: string;
 }) {
   const db = await readDb();
   const normalizedUsername = input.username.trim().toLowerCase();
-  const normalizedSellerId = String(input.sellerId ?? "").trim();
-  const seller = normalizedSellerId
-    ? db.users.find((user) => user.id === normalizedSellerId)
-    : db.users.find((user) => matchesPublicProfileUsername({ fullName: user.fullName, email: user.email, id: user.id, publicTradingName: user.buyerDisplayName }, normalizedUsername));
+  const seller = db.users.find((user) => matchesPublicProfileUsername({ fullName: user.fullName, email: user.email, id: user.id, publicTradingName: user.buyerDisplayName }, normalizedUsername));
   if (!seller || (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended")) {
     return null;
   }
@@ -1292,17 +1288,27 @@ export async function getSellerProfileRouteData(input: {
 
   const listings = await getMarketplaceListings("active", db);
   const sellerListings = listings.filter((listing) => listing.sellerId === seller.id).slice(0, 6);
+  const usersById = new Map(db.users.map((user) => [user.id, user]));
   const similarSellers = listings
     .filter((listing) => listing.sellerId !== seller.id)
     .slice(0, 4)
-    .map((listing) => ({
-      sellerId: listing.sellerId,
-      sellerName: listing.sellerDisplayName,
-      sellerLevel: listing.sellerReputation?.level ?? "bronze",
-      trustScore: listing.sellerReputation?.trustScore ?? 0,
-      profilePhotoUrl: listing.sellerProfile?.profilePhotoUrl ?? "",
-      publicVolumeRange: listing.sellerReputation?.publicVolumeRange ?? "0+",
-    }));
+    .map((listing) => {
+      const similarSeller = usersById.get(listing.sellerId);
+      const sellerUsername = derivePublicProfileUsername({
+        id: similarSeller?.id,
+        fullName: similarSeller?.fullName,
+        email: similarSeller?.email,
+        publicTradingName: similarSeller?.buyerDisplayName,
+      });
+      return {
+        sellerUsername,
+        sellerName: listing.sellerDisplayName,
+        sellerLevel: listing.sellerReputation?.level ?? "bronze",
+        trustScore: listing.sellerReputation?.trustScore ?? 0,
+        profilePhotoUrl: listing.sellerProfile?.profilePhotoUrl ?? "",
+        publicVolumeRange: listing.sellerReputation?.publicVolumeRange ?? "0+",
+      };
+    });
 
   return {
     profile,
