@@ -392,8 +392,8 @@ function sellerMarketplaceRankPriority(listing: MarketplaceListing) {
   return 6;
 }
 
-function deriveSellerProfileSlug(input: { fullName?: string; id?: string }) {
-  const base = (input.fullName || input.id || "seller").toString().trim().toLowerCase();
+function deriveSellerProfileSlug(input: { publicName?: string }) {
+  const base = (input.publicName || "seller").toString().trim().toLowerCase();
   const normalized = base
     .normalize("NFKD")
     .replace(/\p{Diacritic}/gu, "")
@@ -714,7 +714,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <Link
-            href={`/exchange/seller/${deriveSellerProfileSlug({ fullName: listing.sellerDisplayName, id: listing.sellerId })}?sellerId=${encodeURIComponent(listing.sellerId)}`}
+            href={`/exchange/seller/${deriveSellerProfileSlug({ publicName: listing.sellerProfile?.publicTradingName || listing.sellerDisplayName })}`}
             className={cn(
               "seller-marketplace-action seller-marketplace-action--profile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] focus-visible:ring-offset-2 focus-visible:ring-offset-[#050505]",
               isOwnerListing
@@ -1408,6 +1408,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     return true;
   }, []);
 
+  const scrollToMyListingsSection = useCallback(() => {
+    if (typeof document === "undefined") return false;
+    const target = document.getElementById("my-listings-section");
+    if (!target) return false;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    return true;
+  }, []);
+
   const fetchSellerProfileData = useCallback(async (sellerId: string) => {
     const requestId = sellerProfileRequestIdRef.current + 1;
     sellerProfileRequestIdRef.current = requestId;
@@ -1790,14 +1798,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
 
   const handleManageOwnedListing = useCallback((listing: MarketplaceListing) => {
     if (!requireAuth()) return;
-    const target = document.getElementById("my-listings-section");
-    if (target) {
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (scrollToMyListingsSection()) {
       return;
     }
     router.push("/dashboard/seller");
     setStatusMessage(`Manage your listing in Seller Dashboard (${shortListingRef(listing)}).`);
-  }, [requireAuth, router]);
+  }, [requireAuth, router, scrollToMyListingsSection]);
 
   async function handleSellerApplicationSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2902,7 +2908,11 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                 type="button"
                 size="sm"
                 variant="secondary"
-                onClick={() => { void scrollToCreateListingSection(); }}
+                onClick={() => {
+                  if (!scrollToMyListingsSection()) {
+                    void scrollToCreateListingSection();
+                  }
+                }}
               >
                 Create Listing
               </Button>
@@ -3243,6 +3253,271 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
             </div>
           ) : null}
         </div>
+
+        {isApprovedSeller && showSellerWorkspace ? (
+          <Card id="my-listings-section" className="mt-4 border-white/10 bg-[#0B0B0B]/90">
+            <CardHeader>
+              <CardTitle>{isAr ? "قائمتي" : "My Listings"}</CardTitle>
+              <CardDescription>{isAr ? "إدارة جميع عروضك كبائع معتمد." : "Manage all of your approved seller listings."}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {isWorkspaceWidgetsLoading ? (
+                Array.from({ length: 2 }).map((_, index) => (
+                  <div key={`my-listings-skeleton-${index}`} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="h-3 w-32 animate-pulse rounded bg-white/10" />
+                    <div className="mt-3 h-4 w-full animate-pulse rounded bg-white/10" />
+                    <div className="mt-2 h-4 w-4/5 animate-pulse rounded bg-white/10" />
+                  </div>
+                ))
+              ) : null}
+              {!isWorkspaceWidgetsLoading && myListings.length === 0 ? (
+                <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center shadow-[0_8px_24px_rgba(2,6,23,0.35)]">
+                  <Store className="mx-auto h-5 w-5 text-[#C9A227]" />
+                  <p className="mt-2 text-sm font-medium text-white">{isAr ? "ليس لديك عروض نشطة حتى الآن" : "You don’t have any active listings yet."}</p>
+                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "أنشئ أول عرضك الآن ليبدأ المشترون بطلب الشراء." : "Create your first listing now and start receiving buyer requests."}</p>
+                  <Button type="button" size="sm" className="mt-3 h-9" onClick={() => { void scrollToCreateListingSection(); }}>
+                    {isAr ? "إنشاء عرض" : "Create Listing"}
+                  </Button>
+                </div>
+              ) : null}
+              {myListings.map((listing) => {
+                const requestsCount = sellerRequests.filter((request) => request.listingId === listing.id).length;
+                const listingBusy = isListingActionBusy(listing.id);
+                return (
+                  <div key={listing.id} className="rounded-2xl border border-white/10 bg-black/20 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#C9A227]/35 hover:shadow-[0_14px_30px_rgba(2,6,23,0.45)]">
+                    <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-[#93C5FD]">Listing {shortListingRef(listing)}</p>
+                    <div className="grid gap-2 text-sm md:grid-cols-4">
+                      <p>Status: <span className="text-white">{safeText(listing.status)}</span></p>
+                      <p>Available Amount: <span className="text-white">{toNumber(listing.availableAmount).toLocaleString("en-IL")} USDT</span></p>
+                      <p>Price: <span className="text-white">{formatIls(toNumber(listing.price))}</span></p>
+                      <p>Network: <span className="text-white">{safeText(listing.network)}</span></p>
+                      <p>Payment Methods: <span className="text-white">{normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).map(paymentMethodLabel).join(", ") || "Not set"}</span></p>
+                      <p>Banks: <span className="text-white">{parseIsraeliBankSelection(listing.bankName).join(", ") || "Not set"}</span></p>
+                      <p>Purchase Requests: <span className="text-white">{requestsCount}</span></p>
+                      <p>Created Date: <span className="text-white">{new Date(listing.createdAt).toLocaleDateString("en-IL")}</span></p>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="h-9"
+                        disabled={listingBusy}
+                        onClick={() => {
+                          setEditingListingId(listing.id);
+                          setListingEditForm({
+                            availableAmount: listing.availableAmount,
+                            price: listing.price,
+                            currency: listing.currency,
+                            network: listing.network,
+                            paymentMethods: normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod),
+                            bankName: listing.bankName ?? "",
+                            minimumTrade: listing.minimumTrade ?? "0",
+                            maximumTrade: listing.maximumTrade ?? listing.availableAmount,
+                            sellerDescription: listing.sellerDescription ?? "",
+                            changeReason: "",
+                            changeExplanation: "",
+                          });
+                          setListingEditOriginal({
+                            availableAmount: listing.availableAmount,
+                            price: listing.price,
+                            minimumTrade: listing.minimumTrade ?? "0",
+                            maximumTrade: listing.maximumTrade ?? listing.availableAmount,
+                          });
+                        }}
+                      >
+                        <Edit3 className="h-4 w-4" />
+                        Edit
+                      </Button>
+                      {listing.status === "paused" ? (
+                        <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingStatus(listing, "active")}>
+                          <PlayCircle className="h-4 w-4" />
+                          {listingActionKey === `${listing.id}:resume` ? "Resuming..." : "Resume"}
+                        </Button>
+                      ) : listing.status === "active" ? (
+                        <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingStatus(listing, "paused")}>
+                          <PauseCircle className="h-4 w-4" />
+                          {listingActionKey === `${listing.id}:pause` ? "Pausing..." : "Pause"}
+                        </Button>
+                      ) : null}
+                      <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingRenew(listing)}>
+                        <Clock3 className="h-4 w-4" />
+                        {listingActionKey === `${listing.id}:renew` ? "Renewing..." : "Renew"}
+                      </Button>
+                      <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingDelete(listing)}>
+                        <Trash2 className="h-4 w-4" />
+                        {listingActionKey === `${listing.id}:delete` ? "Deleting..." : "Delete"}
+                      </Button>
+                      <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingDuplicate(listing)}>
+                        <Copy className="h-4 w-4" />
+                        {listingActionKey === `${listing.id}:duplicate` ? "Duplicating..." : "Duplicate Listing"}
+                      </Button>
+                    </div>
+                    {editingListingId === listing.id ? (
+                      <form className="mt-3 grid gap-2 md:grid-cols-4" onSubmit={handleSellerListingEditSubmit}>
+                        <Input value={listingEditForm.availableAmount} onChange={(event) => setListingEditForm((prev) => ({ ...prev, availableAmount: formatIntegerForInput(event.target.value) }))} placeholder="Available Amount" />
+                        <div className="space-y-2">
+                          <Input
+                            value={listingEditForm.price}
+                            onChange={(event) => setListingEditForm((prev) => ({ ...prev, price: normalizeDecimalInput(event.target.value) }))}
+                            placeholder="Price"
+                            className={`transition-all duration-200 ${
+                              listingEditPriceInvalid
+                                ? "border-red-500/85 shadow-[0_0_0_3px_rgba(239,68,68,0.2)]"
+                                : listingEditPriceValid
+                                  ? "border-emerald-500/80 shadow-[0_0_0_3px_rgba(16,185,129,0.16)]"
+                                  : ""
+                            }`}
+                          />
+                          <p className={`text-xs transition-colors duration-200 ${
+                            listingEditPriceInvalid ? "text-red-300" : listingEditPriceValid ? "text-emerald-300" : "text-[#9CA3AF]"
+                          }`}>
+                            {listingEditPriceInvalid
+                              ? `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)}).`
+                              : listingEditPriceValid
+                                ? `Valid price. Maximum allowed is ${formatIls(maxAllowedListingPrice)}.`
+                                : `Enter a price up to ${formatIls(maxAllowedListingPrice)}.`}
+                          </p>
+                        </div>
+                        <Input value={listingEditForm.currency} onChange={(event) => setListingEditForm((prev) => ({ ...prev, currency: event.target.value }))} placeholder="Currency" />
+                        <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={listingEditForm.network} onChange={(event) => setListingEditForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
+                          <option value="TRC20">TRC20</option>
+                          <option value="ERC20">ERC20</option>
+                          <option value="BEP20">BEP20</option>
+                          <option value="SOL">SOL</option>
+                        </select>
+                        <Input value={listingEditForm.minimumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, minimumTrade: formatIntegerForInput(event.target.value) }))} placeholder="Minimum Trade" />
+                        <Input value={listingEditForm.maximumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, maximumTrade: formatIntegerForInput(event.target.value) }))} placeholder="Maximum Trade" />
+                        <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
+                          <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Payment Method *</p>
+                          <div className="mt-2 grid gap-2 md:grid-cols-3">
+                            {MARKETPLACE_PAYMENT_METHODS.map((method) => {
+                              const selected = listingEditSelectedMethods.includes(method);
+                              return (
+                                <button
+                                  key={`${listing.id}-method-${method}`}
+                                  type="button"
+                                  onClick={() => setListingEditForm((prev) => {
+                                    const nextMethods = toggleSelection(prev.paymentMethods, method, MAX_LISTING_PAYMENT_METHODS);
+                                    return {
+                                      ...prev,
+                                      paymentMethods: nextMethods,
+                                      bankName: requiresBankSelection(nextMethods) ? prev.bankName : "",
+                                    };
+                                  })}
+                                  className={`rounded-xl border p-2.5 text-left transition-all duration-200 ${
+                                    selected
+                                      ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]"
+                                      : "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]"
+                                  }`}
+                                >
+                                  <p className="text-xs font-medium text-white">{paymentMethodEmoji(method)} {paymentMethodLabel(method)}</p>
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <p className="mt-2 text-xs text-[#9CA3AF]">Select up to {MAX_LISTING_PAYMENT_METHODS} methods.</p>
+                        </div>
+                        <Textarea className="md:col-span-2" value={listingEditForm.sellerDescription} onChange={(event) => setListingEditForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} aria-label="Seller description" placeholder="Seller Description" />
+                        {listingEditRequiresBank ? (
+                        <div className="md:col-span-4 rounded-2xl border border-white/10 bg-black/20 p-3">
+                          <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Supported banks *</p>
+                          <p className="mt-1 text-xs text-[#D1D5DB]">Select up to {MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks for bank transfer or cardless ATM listings.</p>
+                          <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                            {ISRAELI_BANKS.map((bank) => {
+                              const selected = listingEditSelectedBanks.includes(bank.name);
+                              return (
+                                <button
+                                  key={`${listing.id}-${bank.id}`}
+                                  type="button"
+                                  onClick={() => setListingEditForm((prev) => {
+                                    const nextBanks = toggleSelection(parseIsraeliBankSelection(prev.bankName), bank.name, MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS);
+                                    return { ...prev, bankName: serializeIsraeliBankSelection(nextBanks) };
+                                  })}
+                                  className={`rounded-xl border p-2 text-left transition-all duration-200 ${
+                                    selected
+                                      ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]"
+                                      : "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]"
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/15 bg-black/35">
+                                      {renderBankLogo(bank)}
+                                    </span>
+                                    <div>
+                                      <p className="text-xs font-medium text-white">{bank.name}</p>
+                                      <p className="text-[10px] text-[#9CA3AF]">{bank.code}</p>
+                                    </div>
+                                  </div>
+                                  {selected ? <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#93C5FD]">Selected</p> : null}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {listingEditSelectedBanks.length ? <p className="mt-2 text-xs text-[#93C5FD]">Selected: {listingEditSelectedBanks.join(", ")}</p> : null}
+                        </div>
+                        ) : null}
+                        {listingEditNeedsReason ? (
+                          <div className="md:col-span-4 rounded-2xl border border-amber-500/35 bg-amber-500/[0.06] p-3">
+                            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#FDE68A]">Reason for change <span className="text-red-300">*</span></p>
+                            <p className="mt-1 text-xs text-[#D1D5DB]">Editing amount, price, or availability is recorded for marketplace accountability.</p>
+                            <div className="mt-2 grid gap-2 md:grid-cols-2">
+                              <select
+                                aria-label="Reason for listing change"
+                                className={cn(
+                                  "flex h-11 w-full rounded-xl border bg-[#101010] px-3 py-2 text-sm text-white",
+                                  listingEditForm.changeReason ? "border-emerald-500/60" : "border-red-500/70",
+                                )}
+                                value={listingEditForm.changeReason}
+                                onChange={(event) => setListingEditForm((prev) => ({ ...prev, changeReason: event.target.value }))}
+                              >
+                                <option value="">Select a reason…</option>
+                                {LISTING_CHANGE_REASONS.map((reason) => (
+                                  <option key={reason} value={reason}>{reason}</option>
+                                ))}
+                              </select>
+                              <Input
+                                aria-label="Change explanation"
+                                placeholder="Briefly explain this change"
+                                value={listingEditForm.changeExplanation}
+                                onChange={(event) => setListingEditForm((prev) => ({ ...prev, changeExplanation: event.target.value }))}
+                                className={listingEditForm.changeExplanation.trim().length >= 5 ? "border-emerald-500/60" : "border-red-500/70"}
+                              />
+                            </div>
+                            {!listingEditReasonValid ? (
+                              <p className="mt-2 text-xs text-red-300">Choose a reason and add a short explanation (at least 5 characters).</p>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        <div className={`md:col-span-4 rounded-2xl border p-3 text-xs transition-all duration-200 ${listingEditGuardTone}`}>
+                          <div className="flex items-start gap-2">
+                            {listingEditPriceInvalid ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
+                            <div className="space-y-1">
+                              <p className="font-medium">
+                                {listingEditPriceInvalid ? `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)})` : "Market guard active"}
+                              </p>
+                              <p>Current market: {formatIls(marketPricePerUsdt)} per 1 USDT</p>
+                              <p>Maximum allowed: {formatIls(maxAllowedListingPrice)}</p>
+                              {listingEditTradeRangeInvalid ? <p className="text-amber-200">Maximum trade must be greater than minimum trade and less than or equal to available USDT.</p> : null}
+                              {listingEditRequiresBank && !listingEditSelectedBanks.length ? <p className="text-amber-200">Select one or two supported banks before saving.</p> : null}
+                              {listingEditAmount > 0 ? <p>{listingEditAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingEditAmount * marketPricePerUsdt)}</p> : null}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="md:col-span-4 flex gap-2">
+                          <Button type="submit" size="sm" disabled={isListingEditSubmitDisabled || !listingEditReasonValid || listingActionKey === `${listing.id}:save`}>
+                            {listingActionKey === `${listing.id}:save` ? "Saving..." : "Save"}
+                          </Button>
+                          <Button type="button" size="sm" variant="secondary" onClick={() => { setEditingListingId(null); setListingEditOriginal(null); }}>Cancel</Button>
+                        </div>
+                      </form>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        ) : null}
 
         {/* Recent completed trades — visible to all to signal activity */}
         {recentCompletedTrades.length ? (
@@ -4177,7 +4452,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                         type="button"
                         size="sm"
                         variant="secondary"
-                        onClick={() => document.getElementById("my-listings-section")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                        onClick={() => {
+                          void scrollToMyListingsSection();
+                        }}
                       >
                         Manage Listings
                       </Button>
@@ -4426,269 +4703,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
               </button>
             </div>
           ) : null}
-
-          <Card id="my-listings-section" className="order-20 border-white/10 bg-[#0B0B0B]/90">
-            <CardHeader>
-              <CardTitle>{isAr ? "قائمتي" : "My Listings"}</CardTitle>
-              <CardDescription>{isAr ? "إدارة جميع عروضك كبائع معتمد." : "Manage all of your approved seller listings."}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {isWorkspaceWidgetsLoading ? (
-                Array.from({ length: 2 }).map((_, index) => (
-                  <div key={`my-listings-skeleton-${index}`} className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <div className="h-3 w-32 animate-pulse rounded bg-white/10" />
-                    <div className="mt-3 h-4 w-full animate-pulse rounded bg-white/10" />
-                    <div className="mt-2 h-4 w-4/5 animate-pulse rounded bg-white/10" />
-                  </div>
-                ))
-              ) : null}
-              {!isWorkspaceWidgetsLoading && myListings.length === 0 ? (
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center shadow-[0_8px_24px_rgba(2,6,23,0.35)]">
-                  <Store className="mx-auto h-5 w-5 text-[#C9A227]" />
-                  <p className="mt-2 text-sm font-medium text-white">{isAr ? "ليس لديك عروض نشطة حتى الآن" : "You don’t have any active listings yet."}</p>
-                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "أنشئ أول عرضك الآن ليبدأ المشترون بطلب الشراء." : "Create your first listing now and start receiving buyer requests."}</p>
-                  <Button type="button" size="sm" className="mt-3 h-9" onClick={() => { void scrollToCreateListingSection(); }}>
-                    {isAr ? "إنشاء عرض" : "Create Listing"}
-                  </Button>
-                </div>
-              ) : null}
-              {myListings.map((listing) => {
-                const requestsCount = sellerRequests.filter((request) => request.listingId === listing.id).length;
-                const listingBusy = isListingActionBusy(listing.id);
-                return (
-                  <div key={listing.id} className="rounded-2xl border border-white/10 bg-black/20 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#C9A227]/35 hover:shadow-[0_14px_30px_rgba(2,6,23,0.45)]">
-                    <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-[#93C5FD]">Listing {shortListingRef(listing)}</p>
-                    <div className="grid gap-2 text-sm md:grid-cols-4">
-                      <p>Status: <span className="text-white">{safeText(listing.status)}</span></p>
-                      <p>Available Amount: <span className="text-white">{toNumber(listing.availableAmount).toLocaleString("en-IL")} USDT</span></p>
-                      <p>Price: <span className="text-white">{formatIls(toNumber(listing.price))}</span></p>
-                      <p>Network: <span className="text-white">{safeText(listing.network)}</span></p>
-                      <p>Payment Methods: <span className="text-white">{normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).map(paymentMethodLabel).join(", ") || "Not set"}</span></p>
-                      <p>Banks: <span className="text-white">{parseIsraeliBankSelection(listing.bankName).join(", ") || "Not set"}</span></p>
-                      <p>Purchase Requests: <span className="text-white">{requestsCount}</span></p>
-                      <p>Created Date: <span className="text-white">{new Date(listing.createdAt).toLocaleDateString("en-IL")}</span></p>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        className="h-9"
-                        disabled={listingBusy}
-                        onClick={() => {
-                          setEditingListingId(listing.id);
-                          setListingEditForm({
-                            availableAmount: listing.availableAmount,
-                            price: listing.price,
-                            currency: listing.currency,
-                            network: listing.network,
-                            paymentMethods: normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod),
-                            bankName: listing.bankName ?? "",
-                            minimumTrade: listing.minimumTrade ?? "0",
-                            maximumTrade: listing.maximumTrade ?? listing.availableAmount,
-                            sellerDescription: listing.sellerDescription ?? "",
-                            changeReason: "",
-                            changeExplanation: "",
-                          });
-                          setListingEditOriginal({
-                            availableAmount: listing.availableAmount,
-                            price: listing.price,
-                            minimumTrade: listing.minimumTrade ?? "0",
-                            maximumTrade: listing.maximumTrade ?? listing.availableAmount,
-                          });
-                        }}
-                      >
-                        <Edit3 className="h-4 w-4" />
-                        Edit
-                      </Button>
-                      {listing.status === "paused" ? (
-                        <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingStatus(listing, "active")}>
-                          <PlayCircle className="h-4 w-4" />
-                          {listingActionKey === `${listing.id}:resume` ? "Resuming..." : "Resume"}
-                        </Button>
-                      ) : listing.status === "active" ? (
-                        <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingStatus(listing, "paused")}>
-                          <PauseCircle className="h-4 w-4" />
-                          {listingActionKey === `${listing.id}:pause` ? "Pausing..." : "Pause"}
-                        </Button>
-                      ) : null}
-                      <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingRenew(listing)}>
-                        <Clock3 className="h-4 w-4" />
-                        {listingActionKey === `${listing.id}:renew` ? "Renewing..." : "Renew"}
-                      </Button>
-                      <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingDelete(listing)}>
-                        <Trash2 className="h-4 w-4" />
-                        {listingActionKey === `${listing.id}:delete` ? "Deleting..." : "Delete"}
-                      </Button>
-                      <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingDuplicate(listing)}>
-                        <Copy className="h-4 w-4" />
-                        {listingActionKey === `${listing.id}:duplicate` ? "Duplicating..." : "Duplicate Listing"}
-                      </Button>
-                    </div>
-                    {editingListingId === listing.id ? (
-                      <form className="mt-3 grid gap-2 md:grid-cols-4" onSubmit={handleSellerListingEditSubmit}>
-                        <Input value={listingEditForm.availableAmount} onChange={(event) => setListingEditForm((prev) => ({ ...prev, availableAmount: formatIntegerForInput(event.target.value) }))} placeholder="Available Amount" />
-                        <div className="space-y-2">
-                          <Input
-                            value={listingEditForm.price}
-                            onChange={(event) => setListingEditForm((prev) => ({ ...prev, price: normalizeDecimalInput(event.target.value) }))}
-                            placeholder="Price"
-                            className={`transition-all duration-200 ${
-                              listingEditPriceInvalid
-                                ? "border-red-500/85 shadow-[0_0_0_3px_rgba(239,68,68,0.2)]"
-                                : listingEditPriceValid
-                                  ? "border-emerald-500/80 shadow-[0_0_0_3px_rgba(16,185,129,0.16)]"
-                                  : ""
-                            }`}
-                          />
-                          <p className={`text-xs transition-colors duration-200 ${
-                            listingEditPriceInvalid ? "text-red-300" : listingEditPriceValid ? "text-emerald-300" : "text-[#9CA3AF]"
-                          }`}>
-                            {listingEditPriceInvalid
-                              ? `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)}).`
-                              : listingEditPriceValid
-                                ? `Valid price. Maximum allowed is ${formatIls(maxAllowedListingPrice)}.`
-                                : `Enter a price up to ${formatIls(maxAllowedListingPrice)}.`}
-                          </p>
-                        </div>
-                        <Input value={listingEditForm.currency} onChange={(event) => setListingEditForm((prev) => ({ ...prev, currency: event.target.value }))} placeholder="Currency" />
-                        <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={listingEditForm.network} onChange={(event) => setListingEditForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
-                          <option value="TRC20">TRC20</option>
-                          <option value="ERC20">ERC20</option>
-                          <option value="BEP20">BEP20</option>
-                          <option value="SOL">SOL</option>
-                        </select>
-                        <Input value={listingEditForm.minimumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, minimumTrade: formatIntegerForInput(event.target.value) }))} placeholder="Minimum Trade" />
-                        <Input value={listingEditForm.maximumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, maximumTrade: formatIntegerForInput(event.target.value) }))} placeholder="Maximum Trade" />
-                        <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
-                          <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Payment Method *</p>
-                          <div className="mt-2 grid gap-2 md:grid-cols-3">
-                            {MARKETPLACE_PAYMENT_METHODS.map((method) => {
-                              const selected = listingEditSelectedMethods.includes(method);
-                              return (
-                                <button
-                                  key={`${listing.id}-method-${method}`}
-                                  type="button"
-                                  onClick={() => setListingEditForm((prev) => {
-                                    const nextMethods = toggleSelection(prev.paymentMethods, method, MAX_LISTING_PAYMENT_METHODS);
-                                    return {
-                                      ...prev,
-                                      paymentMethods: nextMethods,
-                                      bankName: requiresBankSelection(nextMethods) ? prev.bankName : "",
-                                    };
-                                  })}
-                                  className={`rounded-xl border p-2.5 text-left transition-all duration-200 ${
-                                    selected
-                                      ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]"
-                                      : "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]"
-                                  }`}
-                                >
-                                  <p className="text-xs font-medium text-white">{paymentMethodEmoji(method)} {paymentMethodLabel(method)}</p>
-                                </button>
-                              );
-                            })}
-                          </div>
-                          <p className="mt-2 text-xs text-[#9CA3AF]">Select up to {MAX_LISTING_PAYMENT_METHODS} methods.</p>
-                        </div>
-                        <Textarea className="md:col-span-2" value={listingEditForm.sellerDescription} onChange={(event) => setListingEditForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} aria-label="Seller description" placeholder="Seller Description" />
-                        {listingEditRequiresBank ? (
-                        <div className="md:col-span-4 rounded-2xl border border-white/10 bg-black/20 p-3">
-                          <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Supported banks *</p>
-                          <p className="mt-1 text-xs text-[#D1D5DB]">Select up to {MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks for bank transfer or cardless ATM listings.</p>
-                          <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-                            {ISRAELI_BANKS.map((bank) => {
-                              const selected = listingEditSelectedBanks.includes(bank.name);
-                              return (
-                                <button
-                                  key={`${listing.id}-${bank.id}`}
-                                  type="button"
-                                  onClick={() => setListingEditForm((prev) => {
-                                    const nextBanks = toggleSelection(parseIsraeliBankSelection(prev.bankName), bank.name, MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS);
-                                    return { ...prev, bankName: serializeIsraeliBankSelection(nextBanks) };
-                                  })}
-                                  className={`rounded-xl border p-2 text-left transition-all duration-200 ${
-                                    selected
-                                      ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]"
-                                      : "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]"
-                                  }`}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/15 bg-black/35">
-                                      {renderBankLogo(bank)}
-                                    </span>
-                                    <div>
-                                      <p className="text-xs font-medium text-white">{bank.name}</p>
-                                      <p className="text-[10px] text-[#9CA3AF]">{bank.code}</p>
-                                    </div>
-                                  </div>
-                                  {selected ? <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#93C5FD]">Selected</p> : null}
-                                </button>
-                              );
-                            })}
-                          </div>
-                          {listingEditSelectedBanks.length ? <p className="mt-2 text-xs text-[#93C5FD]">Selected: {listingEditSelectedBanks.join(", ")}</p> : null}
-                        </div>
-                        ) : null}
-                        {listingEditNeedsReason ? (
-                          <div className="md:col-span-4 rounded-2xl border border-amber-500/35 bg-amber-500/[0.06] p-3">
-                            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#FDE68A]">Reason for change <span className="text-red-300">*</span></p>
-                            <p className="mt-1 text-xs text-[#D1D5DB]">Editing amount, price, or availability is recorded for marketplace accountability.</p>
-                            <div className="mt-2 grid gap-2 md:grid-cols-2">
-                              <select
-                                aria-label="Reason for listing change"
-                                className={cn(
-                                  "flex h-11 w-full rounded-xl border bg-[#101010] px-3 py-2 text-sm text-white",
-                                  listingEditForm.changeReason ? "border-emerald-500/60" : "border-red-500/70",
-                                )}
-                                value={listingEditForm.changeReason}
-                                onChange={(event) => setListingEditForm((prev) => ({ ...prev, changeReason: event.target.value }))}
-                              >
-                                <option value="">Select a reason…</option>
-                                {LISTING_CHANGE_REASONS.map((reason) => (
-                                  <option key={reason} value={reason}>{reason}</option>
-                                ))}
-                              </select>
-                              <Input
-                                aria-label="Change explanation"
-                                placeholder="Briefly explain this change"
-                                value={listingEditForm.changeExplanation}
-                                onChange={(event) => setListingEditForm((prev) => ({ ...prev, changeExplanation: event.target.value }))}
-                                className={listingEditForm.changeExplanation.trim().length >= 5 ? "border-emerald-500/60" : "border-red-500/70"}
-                              />
-                            </div>
-                            {!listingEditReasonValid ? (
-                              <p className="mt-2 text-xs text-red-300">Choose a reason and add a short explanation (at least 5 characters).</p>
-                            ) : null}
-                          </div>
-                        ) : null}
-                        <div className={`md:col-span-4 rounded-2xl border p-3 text-xs transition-all duration-200 ${listingEditGuardTone}`}>
-                          <div className="flex items-start gap-2">
-                            {listingEditPriceInvalid ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
-                            <div className="space-y-1">
-                              <p className="font-medium">
-                                {listingEditPriceInvalid ? `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)})` : "Market guard active"}
-                              </p>
-                              <p>Current market: {formatIls(marketPricePerUsdt)} per 1 USDT</p>
-                              <p>Maximum allowed: {formatIls(maxAllowedListingPrice)}</p>
-                              {listingEditTradeRangeInvalid ? <p className="text-amber-200">Maximum trade must be greater than minimum trade and less than or equal to available USDT.</p> : null}
-                              {listingEditRequiresBank && !listingEditSelectedBanks.length ? <p className="text-amber-200">Select one or two supported banks before saving.</p> : null}
-                              {listingEditAmount > 0 ? <p>{listingEditAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingEditAmount * marketPricePerUsdt)}</p> : null}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="md:col-span-4 flex gap-2">
-                          <Button type="submit" size="sm" disabled={isListingEditSubmitDisabled || !listingEditReasonValid || listingActionKey === `${listing.id}:save`}>
-                            {listingActionKey === `${listing.id}:save` ? "Saving..." : "Save"}
-                          </Button>
-                          <Button type="button" size="sm" variant="secondary" onClick={() => { setEditingListingId(null); setListingEditOriginal(null); }}>Cancel</Button>
-                        </div>
-                      </form>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </CardContent>
-          </Card>
 
           <Card className="order-5 border-white/10 bg-[#0B0B0B]/90">
             <CardHeader>

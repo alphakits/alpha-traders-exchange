@@ -202,6 +202,7 @@ export type ListingApprovalStatus = "pending" | "approved" | "rejected" | "chang
 export interface SellerPublicProfile {
   sellerId: string;
   sellerName: string;
+  publicTradingName?: string;
   fullName?: string;
   username?: string;
   profilePhotoUrl: string;
@@ -224,6 +225,7 @@ export interface SellerPublicProfile {
   roles?: UserRole[];
   sellerStatus?: SellerStatus;
   allowDirectMessages?: boolean;
+  isEmailVerified?: boolean;
   contact?: {
     email: string;
     phone: string;
