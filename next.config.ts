@@ -34,6 +34,7 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["discord.js"],
   // Keep development artifacts separate from production build artifacts.
   // This prevents dev-server module resolution failures when `.next` is cleaned or reused by other workflows.
   distDir: isDev ? ".next-dev" : ".next",

@@ -18,11 +18,56 @@ const ENV_VARS: EnvVar[] = [
   { key: "NEXT_PUBLIC_SITE_URL", required: false, description: "Canonical production site URL, e.g. https://www.alphatraders.co.il" },
   { key: "AUTH_COOKIE_SECURE", required: false, description: "Force cookie secure flag on/off" },
   { key: "ADMIN_ACCESS_KEY", required: false, description: "Extra key required for admin API endpoints" },
+  { key: "DISCORD_BOT_TOKEN", required: false, description: "Discord bot credential used by the server-only gateway client" },
+  { key: "DISCORD_APPLICATION_ID", required: false, description: "Discord application identifier used to verify the connected bot" },
+  { key: "DISCORD_GUILD_ID", required: false, description: "Discord guild identifier verified during gateway startup" },
   { key: "ALPHA_EXCHANGE_LARGE_TRADE_THRESHOLD", required: false, description: "Min USDT amount considered a large trade" },
   { key: "ALPHA_EXCHANGE_EVIDENCE_MAX_SIZE_MB", required: false, description: "Max evidence upload size in MB" },
   { key: "ALPHA_EXCHANGE_STALE_TRADE_TIMEOUT_MINUTES", required: false, description: "Auto-cancel threshold for stale trades in minutes" },
   { key: "ALPHA_EXCHANGE_EXPOSE_RESET_TOKEN", required: false, description: "Dev-only: expose reset token in API response (never set in production)" },
 ];
+
+const DISCORD_REQUIRED_ENV_VARS = [
+  "DISCORD_BOT_TOKEN",
+  "DISCORD_APPLICATION_ID",
+  "DISCORD_GUILD_ID",
+] as const;
+
+const DISCORD_SNOWFLAKE_ENV_VARS = [
+  "DISCORD_APPLICATION_ID",
+  "DISCORD_GUILD_ID",
+] as const;
+
+export type DiscordEnvironmentValidation = {
+  errors: string[];
+};
+
+export type EnvironmentValues = Readonly<Record<string, string | undefined>>;
+
+/**
+ * Discord is an optional subsystem for the web app, but all three values are
+ * required whenever the gateway service is explicitly started.
+ */
+export function validateDiscordEnv(
+  env: EnvironmentValues = process.env,
+): DiscordEnvironmentValidation {
+  const errors: string[] = [];
+
+  for (const key of DISCORD_REQUIRED_ENV_VARS) {
+    if (!env[key]?.trim()) {
+      errors.push(`Missing required Discord environment variable: ${key}.`);
+    }
+  }
+
+  for (const key of DISCORD_SNOWFLAKE_ENV_VARS) {
+    const value = env[key]?.trim();
+    if (value && !/^\d{17,20}$/.test(value)) {
+      errors.push(`Invalid Discord environment variable: ${key} must be a Discord snowflake.`);
+    }
+  }
+
+  return { errors };
+}
 
 const PRODUCTION_FORBIDDEN: string[] = [
   "ALPHA_EXCHANGE_EXPOSE_RESET_TOKEN",

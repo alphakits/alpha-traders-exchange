@@ -123,6 +123,27 @@ Without these variables, credential-dependent E2E cases are skipped and public/a
 - `next.config.ts` is production-safe for Vercel: default `.next` output, app-wide security headers, local image optimization, and no custom `distDir`.
 - Static images under `public/` and the founder MP4 under `public/files/founder/` are Vercel-compatible and will be served over HTTPS through Vercel's CDN.
 
+### Discord gateway infrastructure
+
+The server-only Discord foundation requires `DISCORD_BOT_TOKEN`,
+`DISCORD_APPLICATION_ID`, and `DISCORD_GUILD_ID`. A single process-global
+`discord.js` client owns gateway login, Discord-managed reconnect/resume, guild
+verification through a forced API fetch, and graceful shutdown.
+
+On a traditional Node deployment, Next.js instrumentation starts the client
+after the server runtime begins. It never connects during `next build` or in an
+Edge runtime. Vercel cannot guarantee an eager, durable process for a gateway
+connection, so Vercel initialization is intentionally deferred until the first
+authorized request to `GET /api/admin/discord/diagnostics`. Each warm server
+process retains its singleton, but deployments that require a continuously
+online bot should run the gateway in a dedicated long-lived Node service.
+
+The diagnostics endpoint uses the existing admin/owner session guard and
+returns only connection state, bot username, configured guild identity,
+websocket heartbeat latency, ready-session uptime, and safe degraded errors.
+Ready-session uptime resets whenever the gateway disconnects or starts
+reconnecting.
+
 ### Required environment variables
 
 Set these in Vercel for every environment that should build successfully:
