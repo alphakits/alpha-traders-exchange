@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { FieldLabel, requiredFieldClasses } from "@/components/ui/field";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { LogoutButton } from "@/components/auth/logout-button";
-import { AlphaMarketCenter } from "@/components/market/alpha-market-center";
+import { AlphaMarketCenterView } from "@/components/market/alpha-market-center";
 import { useMarketFeed } from "@/components/market/use-market-feed";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { hasRole } from "@/lib/roles";
@@ -815,7 +815,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     if (typeof window === "undefined") return false;
     return window.matchMedia(MOBILE_VIEWPORT_QUERY).matches;
   });
-  const { snapshot: marketSnapshot } = useMarketFeed({ refreshMs: 45_000 });
+  const marketFeed = useMarketFeed({ refreshMs: 45_000 });
+  const marketSnapshot = marketFeed.snapshot;
 
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
@@ -833,6 +834,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [selectedListing, setSelectedListing] = useState<MarketplaceListing | null>(null);
   const [sellerProfileData, setSellerProfileData] = useState<PremiumSellerProfileData | null>(null);
   const [isSellerProfileLoading, setIsSellerProfileLoading] = useState(false);
+  const sellerProfileRequestIdRef = useRef(0);
+  const sellerProfileAbortControllerRef = useRef<AbortController | null>(null);
   const [isOwnerProfileActionLoading, setIsOwnerProfileActionLoading] = useState(false);
   const [sellerApplication, setSellerApplication] = useState<SellerApplication | null>(null);
   const [myRequests, setMyRequests] = useState<PurchaseRequest[]>([]);
@@ -929,6 +932,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   }, []);
 
   const closeListingModal = useCallback(() => {
+    sellerProfileAbortControllerRef.current?.abort();
     setSelectedListing(null);
     setSellerProfileData(null);
     setStatusMessage(null);
@@ -1405,23 +1409,48 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   }, []);
 
   const fetchSellerProfileData = useCallback(async (sellerId: string) => {
+    const requestId = sellerProfileRequestIdRef.current + 1;
+    sellerProfileRequestIdRef.current = requestId;
+    sellerProfileAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    sellerProfileAbortControllerRef.current = controller;
     setIsSellerProfileLoading(true);
     try {
-      const response = await fetch(`/api/alpha-exchange/sellers/${sellerId}/profile`, { cache: "no-store" });
+      const response = await fetch(`/api/alpha-exchange/sellers/${sellerId}/profile`, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
       const payload = (await response.json()) as { profile?: PremiumSellerProfileData; error?: string };
+      if (requestId !== sellerProfileRequestIdRef.current || controller.signal.aborted) return;
       if (!response.ok || !payload.profile) {
         setSellerProfileData(null);
         setStatusMessage(payload.error ?? safeErrorMessage("workspace"));
         return;
       }
       setSellerProfileData(payload.profile);
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return;
+      if (requestId !== sellerProfileRequestIdRef.current) return;
       setSellerProfileData(null);
       setStatusMessage(safeErrorMessage("workspace"));
     } finally {
-      setIsSellerProfileLoading(false);
+      if (requestId === sellerProfileRequestIdRef.current) {
+        sellerProfileAbortControllerRef.current = null;
+        setIsSellerProfileLoading(false);
+      }
     }
   }, []);
+
+  useEffect(() => {
+    if (!selectedListing) return;
+    const timerId = window.setTimeout(() => {
+      void fetchSellerProfileData(selectedListing.sellerId);
+    }, 250);
+    return () => {
+      window.clearTimeout(timerId);
+      sellerProfileAbortControllerRef.current?.abort();
+    };
+  }, [fetchSellerProfileData, selectedListing]);
 
   // Scroll to create-listing when navigated with hash, retrying briefly while deferred UI mounts.
   useEffect(() => {
@@ -1463,8 +1492,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       usdtAmount: formatIntegerForInput(listing.minimumTrade || listing.availableAmount),
       receivingWalletAddress: "",
     }));
-    void fetchSellerProfileData(listing.sellerId);
-  }, [isLoadingListings, listings, selectedListing, sessionUser, updateListingSelectionQuery, fetchSellerProfileData]);
+  }, [isLoadingListings, listings, selectedListing, sessionUser, updateListingSelectionQuery]);
 
   useEffect(() => {
     if (deepLinkAppliedRef.current) return;
@@ -1747,7 +1775,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     setSelectedListing(listing);
     setSelectedPurchasePaymentMethod(supportedMethods[0] ?? "Bank Transfer");
     setSellerProfileData(null);
-    void fetchSellerProfileData(listing.sellerId);
     setPurchaseSubmitted(false);
     setStatusMessage(null);
     setShowVerificationCta(false);
@@ -1759,7 +1786,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       usdtAmount: formatIntegerForInput(listing.minimumTrade || listing.availableAmount),
       receivingWalletAddress: "",
     }));
-  }, [requireAuth, fetchSellerProfileData, updateListingSelectionQuery]);
+  }, [requireAuth, updateListingSelectionQuery]);
 
   const handleManageOwnedListing = useCallback((listing: MarketplaceListing) => {
     if (!requireAuth()) return;
@@ -2995,7 +3022,12 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       </Card>
 
       <div className="mt-6">
-        <AlphaMarketCenter locale={locale} />
+        <AlphaMarketCenterView
+          locale={locale}
+          snapshot={marketSnapshot}
+          isLoading={marketFeed.isLoading}
+          error={marketFeed.error}
+        />
       </div>
 
       <div className="mt-6">

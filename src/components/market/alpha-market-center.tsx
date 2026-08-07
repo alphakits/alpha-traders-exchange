@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { AlertTriangle, ArrowUpRight, CheckCircle2 } from "lucide-react";
+import type { MarketSnapshot } from "@/types/market";
 import { Link } from "@/i18n/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
@@ -39,6 +40,31 @@ function ageLabel(updatedAt: string, now: number) {
 
 export function AlphaMarketCenter({ locale, showCta = false }: { locale: Locale; showCta?: boolean }) {
   const { snapshot, isLoading, error } = useMarketFeed({ refreshMs: 45_000 });
+
+  return (
+    <AlphaMarketCenterView
+      locale={locale}
+      showCta={showCta}
+      snapshot={snapshot}
+      isLoading={isLoading}
+      error={error}
+    />
+  );
+}
+
+export function AlphaMarketCenterView({
+  locale,
+  showCta = false,
+  snapshot,
+  isLoading,
+  error,
+}: {
+  locale: Locale;
+  showCta?: boolean;
+  snapshot: MarketSnapshot | null;
+  isLoading: boolean;
+  error: string | null;
+}) {
   const [now, setNow] = useState(() => Date.now());
   const isAr = locale === "ar";
 

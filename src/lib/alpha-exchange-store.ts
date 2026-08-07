@@ -803,6 +803,7 @@ function buildPublicUserProfileDataForUser(input: {
   viewerUserId?: string;
   viewerRole?: UserRole;
   enforceSearchVisibility?: boolean;
+  trustSnapshot?: SellerReputationSnapshot;
 }) {
   const { db, enforceSearchVisibility = true, user, viewerRole, viewerUserId } = input;
   const viewerIsPrivileged = viewerRole === "admin" || viewerRole === "owner";
@@ -813,7 +814,7 @@ function buildPublicUserProfileDataForUser(input: {
   if (enforceSearchVisibility && user.allowProfileSearch === false && !canBypassVisibility) return null;
 
   const username = derivePublicProfileUsername({ fullName: user.fullName, email: user.email, id: user.id });
-  const trustSnapshot = isTrustEligibleSeller(user) ? computeSellerReputationSnapshot(db, user.id) : null;
+  const trustSnapshot = input.trustSnapshot ?? (isTrustEligibleSeller(user) ? computeSellerReputationSnapshot(db, user.id) : null);
   const buyerRequests = db.purchaseRequests.filter((request) => request.buyerId === user.id);
   const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === user.id);
   const completedAsBuyer = buyerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length;
@@ -1191,8 +1192,11 @@ export async function getListingReliabilityForAdmin(dbInput?: AlphaExchangeDb): 
   return reports.sort((a, b) => a.reliability.reliabilityScore - b.reliability.reliabilityScore);
 }
 
-function qualitySortListings(db: AlphaExchangeDb, listings: MarketplaceListing[]) {
-  const snapshots = computeTrustSnapshotMap(db);
+function qualitySortListings(
+  db: AlphaExchangeDb,
+  listings: MarketplaceListing[],
+  snapshots = computeTrustSnapshotMap(db),
+) {
   const reliabilityMap = buildSellerReliabilityMap(db);
   const reliabilityScoreFor = (sellerId: string) =>
     reliabilityMap.get(sellerId)?.reliability.reliabilityScore ?? RELIABILITY_NEUTRAL_BASELINE;
@@ -1228,8 +1232,11 @@ function qualitySortListings(db: AlphaExchangeDb, listings: MarketplaceListing[]
   });
 }
 
-function enrichListingsWithSellerData(db: AlphaExchangeDb, listings: MarketplaceListing[]) {
-  const snapshots = computeTrustSnapshotMap(db);
+function enrichListingsWithSellerData(
+  db: AlphaExchangeDb,
+  listings: MarketplaceListing[],
+  snapshots = computeTrustSnapshotMap(db),
+) {
   const usersById = new Map(db.users.map((user) => [user.id, user]));
   return listings.map((listing) => {
     const seller = usersById.get(listing.sellerId);
@@ -1265,9 +1272,10 @@ export async function getSellerProfileRouteData(input: {
     viewerUserId: input.viewerUserId,
     viewerRole: input.viewerRole,
     viewerEmail: input.viewerEmail,
+    dbInput: db,
   });
 
-  const listings = await getMarketplaceListings("active");
+  const listings = await getMarketplaceListings("active", db);
   const sellerListings = listings.filter((listing) => listing.sellerId === seller.id).slice(0, 6);
   const similarSellers = listings
     .filter((listing) => listing.sellerId !== seller.id)
@@ -1310,18 +1318,21 @@ export async function getPremiumSellerProfile(input: {
   viewerUserId?: string;
   viewerRole?: UserRole;
   viewerEmail?: string;
+  dbInput?: AlphaExchangeDb;
 }): Promise<PremiumSellerProfileData | null> {
-  const db = await readDb();
+  const db = input.dbInput ?? await readDb();
   const usersById = new Map(db.users.map((user) => [user.id, user]));
   const seller = db.users.find((user) => user.id === input.sellerId);
   if (!seller) return null;
   if (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended") return null;
+  const trustSnapshot = computeSellerReputationSnapshot(db, seller.id);
   const publicAccount = buildPublicUserProfileDataForUser({
     db,
     user: seller,
     viewerUserId: input.viewerUserId,
     viewerRole: input.viewerRole,
     enforceSearchVisibility: false,
+    trustSnapshot,
   });
   if (!publicAccount) return null;
   const viewerIsOwner = input.viewerRole === "owner" || (input.viewerRole === "admin" && isAlphaExchangeOwnerEmail(input.viewerEmail ?? ""));
@@ -1364,7 +1375,6 @@ export async function getPremiumSellerProfile(input: {
   const repeatBuyerCount = Object.values(completedBuyerCounts).filter((count) => count > 1).length;
   const repeatBuyersPercent = completedBuyerCount ? (repeatBuyerCount / completedBuyerCount) * 100 : 0;
 
-  const trustSnapshot = computeSellerReputationSnapshot(db, seller.id);
   const nowMs = Date.now();
   const yearsOnPlatform = Math.max(0, (nowMs - new Date(seller.createdAt).getTime()) / (365 * 24 * 60 * 60 * 1000));
 
@@ -4196,8 +4206,8 @@ export async function overrideSellerPrestigeByAdmin(input: {
   return db.users[sellerIndex];
 }
 
-export async function getMarketplaceListings(status?: string) {
-  const db = await readDb();
+export async function getMarketplaceListings(status?: string, dbInput?: AlphaExchangeDb) {
+  const db = dbInput ?? await readDb();
   await ensureDevelopmentTesterMarketplaceListing(db);
   const nowMs = Date.now();
   const sellerById = new Map(db.users.map((user) => [user.id, user]));
@@ -4228,8 +4238,9 @@ export async function getMarketplaceListings(status?: string) {
           return true;
         })
       : db.marketplaceListings.filter((listing) => listing.status === status && !hiddenSellerIds.has(listing.sellerId));
-  const sortedListings = qualitySortListings(db, rawListings);
-  return enrichListingsWithSellerData(db, sortedListings);
+  const snapshots = computeTrustSnapshotMap(db);
+  const sortedListings = qualitySortListings(db, rawListings, snapshots);
+  return enrichListingsWithSellerData(db, sortedListings, snapshots);
 }
 
 // ── Live marketplace pulse (real, privacy-safe public dashboard) ────────────
