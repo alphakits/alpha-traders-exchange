@@ -109,7 +109,13 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
   const paymentMethods = seller.preferredPaymentMethods?.length
     ? seller.preferredPaymentMethods
     : Array.from(new Set(data.sellerListings.map((listing) => listing.paymentMethod).filter(Boolean)));
-  const publicContact = [seller.contact?.email, seller.contact?.phone].filter(Boolean).join(" • ");
+  const supportedNetworks = seller.preferredNetworks?.length
+    ? seller.preferredNetworks
+    : Array.from(new Set(data.sellerListings.map((listing) => listing.network).filter(Boolean)));
+  const availableUsdt = data.sellerListings.reduce((sum, listing) => {
+    const value = Number.parseFloat(String(listing.availableAmount).replace(/,/g, ""));
+    return Number.isFinite(value) ? sum + value : sum;
+  }, 0);
   const isOwnerSeller = seller.isOwner === true;
   const sellerRankKey = isOwnerSeller ? "legendary" : sellerLevelToneKey(profile.sellerLevel);
   const heroBadgeItems = [
@@ -212,9 +218,6 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                         <h1 className={cn("seller-listing-seller-name text-3xl font-extrabold md:text-[2.35rem]", isOwnerSeller ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerRankKey}`)}>{seller.sellerName}</h1>
                         <BadgeCheck className={cn("h-5 w-5", isOwnerSeller ? "text-red-300" : "text-[#C9A227]")} />
                       </div>
-                      {seller.username ? (
-                        <p className="mt-1 text-sm text-[#B7BDC8]">@{seller.username}</p>
-                      ) : null}
                       <p className="seller-listing-seller-subtitle mt-2 text-[12px] uppercase tracking-[0.16em] text-[#9CA3AF]">
                         <span className={cn("seller-listing-rank-label", `seller-listing-rank-label--${sellerRankKey}`)}>
                           {heroRankLabel(profile.sellerLevel, isOwnerSeller)}
@@ -227,6 +230,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                         <RoleBadge variant="approved_seller" className={cn("seller-rank-badge", `seller-rank-badge--${sellerRankKey}`)} />
                         <span className={cn("seller-rank-pill", `seller-rank-pill--${sellerRankKey}`)}>{formatSellerLevelLabel(profile.sellerLevel)}</span>
                         <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 text-xs text-[#E5E7EB]">{isAr ? "بائع موثّق" : "Verified Seller"}</span>
+                        {seller.isEmailVerified ? <span className="rounded-full border border-sky-400/30 bg-sky-500/10 px-3 py-1 text-xs text-sky-200">{isAr ? "بريد إلكتروني موثّق" : "Verified Email"}</span> : null}
                         {heroBadgeItems.map((badge) => (
                           <span key={badge} className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs text-[#D1D5DB]">{badge}</span>
                         ))}
@@ -318,10 +322,6 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                   <p className="mt-2 font-medium text-white">{profile.responseTimeMinutes.toFixed(0)} min</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "المدينة" : "City"}</p>
-                  <p className="mt-2 font-medium text-white">{seller.city || "—"}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "التوفر" : "Availability"}</p>
                   <p className="mt-2 font-medium text-white">{availabilityLabel}</p>
                 </div>
@@ -383,14 +383,15 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                     <p className="mt-1 font-medium text-white">{paymentMethods.length ? paymentMethods.join(", ") : "—"}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                    <p className="text-[#9CA3AF]">{isAr ? "الرسائل المباشرة" : "Direct messages"}</p>
-                    <p className="mt-1 font-medium text-white">{seller.allowDirectMessages ? (isAr ? "مفعلة" : "Enabled") : (isAr ? "معطلة" : "Disabled")}</p>
+                    <p className="text-[#9CA3AF]">{isAr ? "الشبكات المدعومة" : "Supported networks"}</p>
+                    <p className="mt-1 font-medium text-white">{supportedNetworks.length ? supportedNetworks.join(", ") : "—"}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                    <p className="text-[#9CA3AF]">{isAr ? "الاتصال العام" : "Public contact"}</p>
-                    <p className="mt-1 font-medium text-white">{publicContact || "—"}</p>
+                    <p className="text-[#9CA3AF]">{isAr ? "USDT المتاح" : "Available USDT"}</p>
+                    <p className="mt-1 font-medium text-white">{availableUsdt > 0 ? `${availableUsdt.toLocaleString("en-IL", { maximumFractionDigits: 2 })} USDT` : "—"}</p>
                   </div>
                 </div>
+                <p className="mt-3 text-xs leading-6 text-[#9CA3AF]">{isAr ? "يتم التواصل مع البائع بشكل آمن داخل Alpha Traders أثناء الصفقة فقط." : "Seller contact stays private and is handled securely inside Alpha Traders trade flow only."}</p>
               </div>
             </div>
           </CardContent>
