@@ -909,6 +909,18 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     updateListingSelectionQuery(null);
   }, [updateListingSelectionQuery]);
 
+  // Escape closes the open Buy or removal dialog (keyboard accessibility).
+  useEffect(() => {
+    if (!selectedListing && !removalListing) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (removalListing) setRemovalListing(null);
+      else if (selectedListing) closeListingModal();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedListing, removalListing, closeListingModal]);
+
   const goToVerificationGate = useCallback(() => {
     setIsRedirectingToVerification(true);
     setStatusMessage("Redirecting to verification...");
@@ -5409,6 +5421,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         {removalListing ? (
           <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-label={isAr ? "إزالة العرض" : "Remove listing"}
               className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0B0B0B]/95 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.5)]"
               initial={{ opacity: 0, y: 24, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -5473,7 +5488,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       <AnimatePresence>
         {selectedListing ? (
           <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div className="max-h-[92vh] w-full max-w-[700px] overflow-y-auto rounded-3xl border border-white/10 bg-[#0B0B0B]/95 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.5)] [padding-bottom:max(1.25rem,env(safe-area-inset-bottom))] sm:p-6" initial={{ opacity: 0, y: 24, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.97 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+            <motion.div role="dialog" aria-modal="true" aria-label={isAr ? "شراء USDT" : "Buy USDT"} className="max-h-[92vh] w-full max-w-[700px] overflow-y-auto rounded-3xl border border-white/10 bg-[#0B0B0B]/95 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.5)] [padding-bottom:max(1.25rem,env(safe-area-inset-bottom))] sm:p-6" initial={{ opacity: 0, y: 24, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.97 }} transition={{ duration: 0.2, ease: "easeOut" }}>
               <div className={`mb-4 flex items-start justify-between gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                 <div>
                   <h3 className="text-2xl font-semibold">{isAr ? "شراء USDT" : "Buy USDT"}</h3>

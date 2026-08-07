@@ -5,7 +5,7 @@ import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { createExchangeDisplayLookup, normalizeDisplayNumber, replaceExchangeEntityIds } from "./alpha-exchange-display";
 import { calculateSellerTrustSnapshot, rankTrustSnapshots } from "@/lib/trust-engine";
-import { computeListingReliability, type ListingReliability } from "@/lib/listing-reliability";
+import { computeListingReliability, RELIABILITY_NEUTRAL_BASELINE, type ListingReliability } from "@/lib/listing-reliability";
 import { getSellerPrestigeProgress, getSellerPublicVolumeLabel, resolveSellerPrestigeRank, sellerPrestigeRankWeight } from "@/lib/seller-prestige";
 import { evaluateSellerAchievements } from "@/lib/seller-achievements";
 import { runEnvValidation } from "@/lib/env-validation";
@@ -1047,6 +1047,16 @@ function computeSellerReputationSnapshot(db: AlphaExchangeDb, sellerId: string):
 }
 
 const LISTING_END_STATUSES = new Set<ListingStatus>(["completed", "cancelled", "closed", "expired"]);
+const LISTING_REMOVAL_AUDIT_ACTIONS = new Set<AuditAction>(["listing_closed", "listing_cancelled", "listing_removed"]);
+const LISTING_HISTORY_AUDIT_ACTIONS = new Set<AuditAction>([
+  "listing_edited",
+  "listing_closed",
+  "listing_cancelled",
+  "listing_removed",
+  "listing_paused",
+  "listing_resumed",
+  "listing_renewed",
+]);
 
 function listingEndTimestamp(listing: MarketplaceListing): number | null {
   const end = listing.closedAt ?? listing.cancelledAt ?? listing.completedAt ?? listing.expiredAt;
@@ -1055,48 +1065,91 @@ function listingEndTimestamp(listing: MarketplaceListing): number | null {
   return Number.isFinite(ms) && ms > 0 ? ms : null;
 }
 
+interface SellerReliabilityAggregate {
+  reliability: ListingReliability;
+  completedTrades: number;
+  cancelledTrades: number;
+  totalListings: number;
+  editCount: number;
+  removalCount: number;
+  recentHistory: AuditLogEntry[];
+}
+
 /**
- * Gather the real inputs for a seller's deterministic listing reliability from
- * trades, listings and the audit trail — no fabricated signals.
+ * Build deterministic listing-reliability aggregates for every seller in a
+ * single linear pass over requests, listings and the audit trail — no
+ * per-seller rescans — so it stays cheap at 500–1,000+ active users.
  */
-function computeSellerListingReliability(db: AlphaExchangeDb, sellerId: string): ListingReliability {
-  const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === sellerId);
-  const completedTrades = sellerRequests.filter(
-    (request) => request.status === "review_open" || Boolean(request.completedAt),
-  ).length;
-  const cancelledTrades = sellerRequests.filter((request) => request.status === "cancelled").length;
-
-  const sellerListings = db.marketplaceListings.filter((listing) => listing.sellerId === sellerId);
-  const totalListings = sellerListings.length;
-
-  const listingLifetimesMs = sellerListings.reduce<number[]>((acc, listing) => {
-    if (!LISTING_END_STATUSES.has(listing.status)) return acc;
-    const end = listingEndTimestamp(listing);
-    const start = new Date(listing.createdAt).getTime();
-    if (end !== null && Number.isFinite(start) && end > start) {
-      acc.push(end - start);
-    }
-    return acc;
-  }, []);
-
-  let editCount = 0;
-  let removalCount = 0;
-  for (const entry of db.auditLogs) {
-    if (entry.targetUserId !== sellerId) continue;
-    if (entry.action === "listing_edited") editCount += 1;
-    else if (entry.action === "listing_closed" || entry.action === "listing_cancelled" || entry.action === "listing_removed") {
-      removalCount += 1;
+function buildSellerReliabilityMap(db: AlphaExchangeDb): Map<string, SellerReliabilityAggregate> {
+  const completed = new Map<string, number>();
+  const cancelled = new Map<string, number>();
+  for (const request of db.purchaseRequests) {
+    if (request.status === "review_open" || Boolean(request.completedAt)) {
+      completed.set(request.sellerId, (completed.get(request.sellerId) ?? 0) + 1);
+    } else if (request.status === "cancelled") {
+      cancelled.set(request.sellerId, (cancelled.get(request.sellerId) ?? 0) + 1);
     }
   }
 
-  return computeListingReliability({
-    completedTrades,
-    cancelledTrades,
-    totalListings,
-    editCount,
-    removalCount,
-    listingLifetimesMs,
-  });
+  const totalListings = new Map<string, number>();
+  const lifetimes = new Map<string, number[]>();
+  for (const listing of db.marketplaceListings) {
+    totalListings.set(listing.sellerId, (totalListings.get(listing.sellerId) ?? 0) + 1);
+    if (!LISTING_END_STATUSES.has(listing.status)) continue;
+    const end = listingEndTimestamp(listing);
+    const start = new Date(listing.createdAt).getTime();
+    if (end !== null && Number.isFinite(start) && end > start) {
+      const rows = lifetimes.get(listing.sellerId) ?? [];
+      rows.push(end - start);
+      lifetimes.set(listing.sellerId, rows);
+    }
+  }
+
+  const editCounts = new Map<string, number>();
+  const removalCounts = new Map<string, number>();
+  const history = new Map<string, AuditLogEntry[]>();
+  for (const entry of db.auditLogs) {
+    const sellerId = entry.targetUserId;
+    if (!sellerId || !LISTING_HISTORY_AUDIT_ACTIONS.has(entry.action)) continue;
+    if (entry.action === "listing_edited") editCounts.set(sellerId, (editCounts.get(sellerId) ?? 0) + 1);
+    else if (LISTING_REMOVAL_AUDIT_ACTIONS.has(entry.action)) removalCounts.set(sellerId, (removalCounts.get(sellerId) ?? 0) + 1);
+    const rows = history.get(sellerId);
+    if (rows) {
+      if (rows.length < 20) rows.push(entry);
+    } else {
+      history.set(sellerId, [entry]);
+    }
+  }
+
+  const sellerIds = new Set<string>();
+  db.users.forEach((user) => { if (isTrustEligibleSeller(user)) sellerIds.add(user.id); });
+  totalListings.forEach((_, id) => sellerIds.add(id));
+
+  const result = new Map<string, SellerReliabilityAggregate>();
+  for (const sellerId of sellerIds) {
+    const completedTrades = completed.get(sellerId) ?? 0;
+    const cancelledTrades = cancelled.get(sellerId) ?? 0;
+    const listingsCount = totalListings.get(sellerId) ?? 0;
+    const editCount = editCounts.get(sellerId) ?? 0;
+    const removalCount = removalCounts.get(sellerId) ?? 0;
+    result.set(sellerId, {
+      reliability: computeListingReliability({
+        completedTrades,
+        cancelledTrades,
+        totalListings: listingsCount,
+        editCount,
+        removalCount,
+        listingLifetimesMs: lifetimes.get(sellerId) ?? [],
+      }),
+      completedTrades,
+      cancelledTrades,
+      totalListings: listingsCount,
+      editCount,
+      removalCount,
+      recentHistory: history.get(sellerId) ?? [],
+    });
+  }
+  return result;
 }
 
 export interface SellerListingReliabilityReport {
@@ -1117,41 +1170,22 @@ export interface SellerListingReliabilityReport {
  */
 export async function getListingReliabilityForAdmin(dbInput?: AlphaExchangeDb): Promise<SellerListingReliabilityReport[]> {
   const db = dbInput ?? await readDb();
-  const listingAuditActions = new Set<AuditAction>([
-    "listing_edited",
-    "listing_closed",
-    "listing_cancelled",
-    "listing_removed",
-    "listing_paused",
-    "listing_resumed",
-    "listing_renewed",
-  ]);
+  const reliabilityMap = buildSellerReliabilityMap(db);
+  const namesById = new Map(db.users.map((user) => [user.id, user.fullName]));
   const reports = db.users
     .filter((user) => isTrustEligibleSeller(user))
     .map((seller) => {
-      const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === seller.id);
-      const completedTrades = sellerRequests.filter(
-        (request) => request.status === "review_open" || Boolean(request.completedAt),
-      ).length;
-      const cancelledTrades = sellerRequests.filter((request) => request.status === "cancelled").length;
-      const sellerListings = db.marketplaceListings.filter((listing) => listing.sellerId === seller.id);
-      const sellerAudit = db.auditLogs.filter(
-        (entry) => entry.targetUserId === seller.id && listingAuditActions.has(entry.action),
-      );
-      const editCount = sellerAudit.filter((entry) => entry.action === "listing_edited").length;
-      const removalCount = sellerAudit.filter(
-        (entry) => entry.action === "listing_closed" || entry.action === "listing_cancelled" || entry.action === "listing_removed",
-      ).length;
+      const aggregate = reliabilityMap.get(seller.id);
       return {
         sellerId: seller.id,
-        sellerName: seller.fullName,
-        reliability: computeSellerListingReliability(db, seller.id),
-        completedTrades,
-        cancelledTrades,
-        totalListings: sellerListings.length,
-        editCount,
-        removalCount,
-        recentHistory: sellerAudit.slice(0, 20),
+        sellerName: namesById.get(seller.id) ?? seller.fullName,
+        reliability: aggregate?.reliability ?? computeListingReliability({ completedTrades: 0, cancelledTrades: 0, totalListings: 0, editCount: 0, removalCount: 0, listingLifetimesMs: [] }),
+        completedTrades: aggregate?.completedTrades ?? 0,
+        cancelledTrades: aggregate?.cancelledTrades ?? 0,
+        totalListings: aggregate?.totalListings ?? 0,
+        editCount: aggregate?.editCount ?? 0,
+        removalCount: aggregate?.removalCount ?? 0,
+        recentHistory: aggregate?.recentHistory ?? [],
       };
     });
   return reports.sort((a, b) => a.reliability.reliabilityScore - b.reliability.reliabilityScore);
@@ -1159,14 +1193,9 @@ export async function getListingReliabilityForAdmin(dbInput?: AlphaExchangeDb): 
 
 function qualitySortListings(db: AlphaExchangeDb, listings: MarketplaceListing[]) {
   const snapshots = computeTrustSnapshotMap(db);
-  const reliabilityBySeller = new Map<string, number>();
-  const reliabilityScoreFor = (sellerId: string) => {
-    const cached = reliabilityBySeller.get(sellerId);
-    if (cached !== undefined) return cached;
-    const value = computeSellerListingReliability(db, sellerId).reliabilityScore;
-    reliabilityBySeller.set(sellerId, value);
-    return value;
-  };
+  const reliabilityMap = buildSellerReliabilityMap(db);
+  const reliabilityScoreFor = (sellerId: string) =>
+    reliabilityMap.get(sellerId)?.reliability.reliabilityScore ?? RELIABILITY_NEUTRAL_BASELINE;
   const score = (reputation: SellerReputationSnapshot, listingReliabilityScore: number) => {
     const responseSpeedScore = Math.max(0, 100 - Math.min(60, reputation.responseTimeMinutes) * 1.5);
     const normalizedTrades = Math.min(100, reputation.completedTrades / 8);
