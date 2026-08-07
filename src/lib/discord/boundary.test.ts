@@ -37,4 +37,13 @@ describe("Discord worker trust boundary", () => {
     expect(dockerfile).not.toMatch(/COPY\s+src\/components/i);
     expect(railway).toContain('"dockerfilePath": "Dockerfile.discord-worker"');
   });
+
+  it("keeps managed Discord resource IDs runtime-provisioned", () => {
+    const source = [
+      readFileSync(resolve("src/lib/discord/resource-manager.ts"), "utf8"),
+      readFileSync(resolve("src/lib/discord/resource-sync-worker.ts"), "utf8"),
+    ].join("\n");
+    expect(source).not.toMatch(/["']\d{17,20}["']/);
+    expect(source.match(/PermissionFlagsBits\.Administrator/g)).toHaveLength(1);
+  });
 });

@@ -2,7 +2,10 @@ import "server-only";
 
 import type { Server } from "node:http";
 
-import type { DiscordDiagnostics } from "@/lib/discord/diagnostics";
+import type {
+  DiscordDiagnostics,
+  DiscordResourceDiagnostics,
+} from "@/lib/discord/diagnostics";
 import type { DiscordService } from "@/lib/discord/service";
 import { logEvent } from "@/lib/structured-logging";
 import { createDiscordWorkerHealthServer } from "@/lib/discord/worker-health-server";
@@ -19,6 +22,11 @@ type WorkerRuntimeDependencies = {
   roleSync?: {
     start(): Promise<void>;
     shutdown(): Promise<void>;
+  };
+  resourceSync?: {
+    start(): Promise<void>;
+    shutdown(): Promise<void>;
+    getDiagnostics(): DiscordResourceDiagnostics;
   };
   createHealthServer?: typeof createDiscordWorkerHealthServer;
 };
@@ -65,6 +73,7 @@ export class DiscordWorkerRuntime {
   private readonly service: WorkerService;
   private readonly createHealthServer: typeof createDiscordWorkerHealthServer;
   private readonly roleSync: WorkerRuntimeDependencies["roleSync"];
+  private readonly resourceSync: WorkerRuntimeDependencies["resourceSync"];
   private healthServer: Server | null = null;
   private startPromise: Promise<DiscordDiagnostics> | null = null;
   private shutdownPromise: Promise<void> | null = null;
@@ -73,12 +82,14 @@ export class DiscordWorkerRuntime {
     config,
     service,
     roleSync,
+    resourceSync,
     createHealthServer = createDiscordWorkerHealthServer,
   }: WorkerRuntimeDependencies) {
     this.config = config;
     this.service = service;
     this.createHealthServer = createHealthServer;
     this.roleSync = roleSync;
+    this.resourceSync = resourceSync;
   }
 
   start(): Promise<DiscordDiagnostics> {
@@ -96,6 +107,7 @@ export class DiscordWorkerRuntime {
   private async performStart(): Promise<DiscordDiagnostics> {
     this.healthServer = this.createHealthServer({
       service: this.service,
+      resources: this.resourceSync,
       healthSecret: this.config.healthSecret,
     });
 
@@ -106,6 +118,7 @@ export class DiscordWorkerRuntime {
         throw new Error("Discord worker startup completed without healthy diagnostics.");
       }
       await this.roleSync?.start();
+      await this.resourceSync?.start();
       logEvent("info", {
         event: "discord_worker_started",
         outcome: "success",
@@ -133,6 +146,11 @@ export class DiscordWorkerRuntime {
 
   private async performShutdown(): Promise<void> {
     const failures: unknown[] = [];
+    try {
+      await this.resourceSync?.shutdown();
+    } catch (error) {
+      failures.push(error);
+    }
     try {
       await this.roleSync?.shutdown();
     } catch (error) {

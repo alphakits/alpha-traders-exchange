@@ -26,6 +26,14 @@ export type DiscordSafeError = {
   message: string;
 };
 
+export type DiscordResourceDiagnostics = {
+  status: "ready" | "degraded";
+  totalCount: number | null;
+  readyCount: number | null;
+  missingCount: number | null;
+  errorCode: string | null;
+};
+
 export type DiscordDiagnostics = {
   status: "healthy" | "degraded";
   connected: boolean;
@@ -36,6 +44,7 @@ export type DiscordDiagnostics = {
   apiLatencyMs: number | null;
   connectionUptimeMs: number | null;
   error: DiscordSafeError | null;
+  resources?: DiscordResourceDiagnostics;
 };
 
 export const DISCORD_SAFE_ERROR_MESSAGES: Record<
@@ -71,6 +80,13 @@ export function degradedDiscordDiagnostics(
     error: {
       code,
       message: DISCORD_SAFE_ERROR_MESSAGES[code],
+    },
+    resources: {
+      status: "degraded",
+      totalCount: null,
+      readyCount: null,
+      missingCount: null,
+      errorCode: code,
     },
   };
 }
