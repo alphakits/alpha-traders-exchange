@@ -154,9 +154,10 @@ error so diagnostics recover without restarting the worker.
 ### Railway Discord worker deployment
 
 Create one Railway service from this repository; do not create a second
-application or copy Discord logic. The root `railway.json` selects Nixpacks,
-runs `npm run discord:worker`, uses `/health/live` for deployment health, and
-restarts the worker on failure.
+application or copy Discord logic. The root `railway.json` builds
+`Dockerfile.discord-worker`, which installs the dedicated lockfile-pinned worker
+package without public media or website client code. Railway uses `/health/live`
+for deployment health and restarts the worker on failure.
 
 Set these Railway service variables:
 
@@ -164,6 +165,7 @@ Set these Railway service variables:
 - `DISCORD_APPLICATION_ID`
 - `DISCORD_GUILD_ID`
 - `DISCORD_WORKER_HEALTH_SECRET` (a dedicated random value of at least 32 characters)
+- `DATABASE_URL` or `SUPABASE_DB_URL`
 
 Railway provides `PORT`; do not hardcode it. Generate a public Railway HTTPS
 domain after the first deployment. Startup is successful only after the bot
@@ -175,11 +177,15 @@ Set these Vercel server-only variables, then redeploy the web app:
 
 - `DISCORD_WORKER_BASE_URL` (the Railway HTTPS origin only, with no path)
 - `DISCORD_WORKER_HEALTH_SECRET` (the same dedicated value configured on Railway)
+- `DISCORD_CLIENT_ID` (the website OAuth application ID)
+- `DISCORD_CLIENT_SECRET` (website server only; never expose it to the browser)
+- `DISCORD_REDIRECT_URI` (the exact registered HTTPS callback)
 
-Do not configure `DISCORD_BOT_TOKEN`, `DISCORD_APPLICATION_ID`, or
-`DISCORD_GUILD_ID` on Vercel. Rotate `DISCORD_WORKER_HEALTH_SECRET` on both
-services if it is exposed; readiness signatures expire after 30 seconds and
-cannot be replayed within a worker process.
+Do not configure `DISCORD_BOT_TOKEN` or `DISCORD_GUILD_ID` on Vercel.
+`DISCORD_APPLICATION_ID` remains the worker's bot-identity setting and is not a
+substitute for `DISCORD_CLIENT_ID`. Rotate `DISCORD_WORKER_HEALTH_SECRET` on
+both services if it is exposed; readiness signatures expire after 30 seconds
+and cannot be replayed within a worker process.
 
 ### Required environment variables
 

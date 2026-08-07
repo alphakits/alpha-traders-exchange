@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+/discord-worker/node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -23,6 +24,7 @@
 
 # production
 /build
+/discord-worker/dist/
 
 # misc
 .DS_Store

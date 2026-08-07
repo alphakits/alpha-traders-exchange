@@ -54,6 +54,24 @@ Select bot permissions (recommended for Alpha setup automation):
 - Ban Members
 - Mention @everyone, @here, and All Roles
 
+Layer 1 role synchronization itself requires only:
+- View Server
+- Manage Roles
+
+Do not grant Administrator for Layer 1. Keep the Alpha Traders bot role above the
+three managed seller roles so Discord permits assignment and removal.
+
+For website account linking, add this exact redirect URI under OAuth2:
+
+```text
+https://www.alphatraders.co.il/api/discord/oauth/callback
+```
+
+The website requests only the `identify` user scope. Store the OAuth application
+ID as `DISCORD_CLIENT_ID`, the client secret as `DISCORD_CLIENT_SECRET`, and the
+exact callback as `DISCORD_REDIRECT_URI` on Vercel only. The bot token is not an
+OAuth client secret and must never be configured as one.
+
 Notes:
 - These permissions match the provisioning, moderation baseline, logging, and slash command setup.
 - If you prefer least-privilege hardening later, you can reduce permissions after initial deployment.
@@ -81,6 +99,9 @@ Create or update .env.local in the repo root with:
 DISCORD_BOT_TOKEN=YOUR_BOT_TOKEN
 DISCORD_GUILD_ID=YOUR_EXISTING_SERVER_ID
 DISCORD_APPLICATION_ID=YOUR_APPLICATION_ID
+DISCORD_CLIENT_ID=YOUR_OAUTH_CLIENT_ID
+DISCORD_CLIENT_SECRET=YOUR_OAUTH_CLIENT_SECRET
+DISCORD_REDIRECT_URI=https://www.alphatraders.co.il/api/discord/oauth/callback
 DISCORD_BLUEPRINT_PATH=scripts/discord/alpha-discord-blueprint.json
 DISCORD_DRY_RUN=0
 
@@ -90,6 +111,29 @@ DISCORD_REPORT_DIR=docs/discord/reports
 Important:
 - Keep .env.local private.
 - Never commit bot tokens.
+- `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, and `DISCORD_REDIRECT_URI` are
+  required only by the website OAuth routes.
+
+## Railway worker deployment
+
+Railway builds `Dockerfile.discord-worker` from the repository root. The
+multi-stage image installs the lockfile-pinned package in `discord-worker/` and
+copies only the Discord worker and its server-side dependencies. Public media,
+Next.js client code, and the root dependency graph are not included.
+
+Required Railway variables:
+
+```text
+DISCORD_BOT_TOKEN
+DISCORD_APPLICATION_ID
+DISCORD_GUILD_ID
+DISCORD_WORKER_HEALTH_SECRET
+DATABASE_URL (or SUPABASE_DB_URL)
+```
+
+Apply `supabase/migrations/20260807000000_discord_identity_sync.sql` before
+starting the new worker image. Do not activate website linking until
+the three website OAuth variables are configured on Vercel.
 
 ## 7) Verify Bot Can Connect
 

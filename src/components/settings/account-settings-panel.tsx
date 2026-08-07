@@ -42,6 +42,14 @@ type BrowserPushPrefs = {
   browserPushAdminAlerts: boolean;
 };
 
+type DiscordConnection = {
+  discordUserId: string;
+  username: string;
+  globalName: string | null;
+  linkedAt: string;
+  lastSyncedAt: string | null;
+};
+
 function defaultNotifications(): NotificationPrefs {
   return {
     trade_updates: true,
@@ -107,6 +115,11 @@ export function AccountSettingsPanel({
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
   const [showDeleteCard, setShowDeleteCard] = useState(false);
+  const [discordConnection, setDiscordConnection] = useState<DiscordConnection | null>(null);
+  const [discordLoaded, setDiscordLoaded] = useState(false);
+  const [discordBusy, setDiscordBusy] = useState(false);
+  const [discordMessage, setDiscordMessage] = useState<string | null>(null);
+  const [showDiscordUnlink, setShowDiscordUnlink] = useState(false);
   const privacySaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const privacySaveAbortRef = useRef<AbortController | null>(null);
   const channelSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -166,7 +179,49 @@ export function AccountSettingsPanel({
         // ignore storage errors
       }
     })();
-  }, []);
+
+    void (async () => {
+      const response = await fetch("/api/discord/identity", { cache: "no-store" });
+      if (response.ok) {
+        const data = await response.json() as { connection?: DiscordConnection | null };
+        setDiscordConnection(data.connection ?? null);
+      }
+      setDiscordLoaded(true);
+    })();
+
+    const result = new URLSearchParams(window.location.search).get("discord");
+    if (result) {
+      setActiveTab("account");
+      const messages: Record<string, { en: string; ar: string }> = {
+        linked: {
+          en: "Discord connected. Seller roles will synchronize in the background.",
+          ar: "تم ربط Discord. ستتم مزامنة أدوار البائع في الخلفية.",
+        },
+        already_linked: {
+          en: "That Discord account is already connected to another Alpha Traders account.",
+          ar: "حساب Discord هذا مرتبط بالفعل بحساب Alpha Traders آخر.",
+        },
+        auth_required: {
+          en: "Sign in again before connecting Discord.",
+          ar: "سجّل الدخول مرة أخرى قبل ربط Discord.",
+        },
+        denied: {
+          en: "Discord connection was cancelled.",
+          ar: "تم إلغاء ربط Discord.",
+        },
+        expired: {
+          en: "The secure Discord connection request expired. Please try again.",
+          ar: "انتهت صلاحية طلب ربط Discord الآمن. حاول مرة أخرى.",
+        },
+        failed: {
+          en: "Discord could not be connected. Please try again.",
+          ar: "تعذر ربط Discord. حاول مرة أخرى.",
+        },
+      };
+      const message = messages[result];
+      if (message) setDiscordMessage(isAr ? message.ar : message.en);
+    }
+  }, [isAr]);
 
   useEffect(() => {
     if (activeTab !== "notifications" || notifChannelsLoaded) return;
@@ -341,6 +396,58 @@ export function AccountSettingsPanel({
           ? "للحذف، تواصل مع الدعم: support@alphatraders.co.il"
           : "Contact support to delete your account: support@alphatraders.co.il",
       );
+    }
+  }
+
+  async function handleDiscordConnect() {
+    setDiscordBusy(true);
+    setDiscordMessage(null);
+    try {
+      const response = await fetch("/api/discord/oauth/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locale }),
+      });
+      const data = await response.json() as { authorizationUrl?: string; error?: string };
+      if (!response.ok || !data.authorizationUrl) {
+        setDiscordMessage(
+          data.error
+          ?? (isAr ? "تعذر بدء ربط Discord." : "Could not start Discord connection."),
+        );
+        return;
+      }
+      window.location.assign(data.authorizationUrl);
+    } catch {
+      setDiscordMessage(isAr ? "تعذر بدء ربط Discord." : "Could not start Discord connection.");
+    } finally {
+      setDiscordBusy(false);
+    }
+  }
+
+  async function handleDiscordUnlink() {
+    setDiscordBusy(true);
+    setDiscordMessage(null);
+    try {
+      const response = await fetch("/api/discord/identity", { method: "DELETE" });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) {
+        setDiscordMessage(
+          data.error
+          ?? (isAr ? "تعذر فصل Discord." : "Could not disconnect Discord."),
+        );
+        return;
+      }
+      setDiscordConnection(null);
+      setShowDiscordUnlink(false);
+      setDiscordMessage(
+        isAr
+          ? "تم فصل Discord. ستتم إزالة أدوار البائع المُدارة في الخلفية."
+          : "Discord disconnected. Managed seller roles will be removed in the background.",
+      );
+    } catch {
+      setDiscordMessage(isAr ? "تعذر فصل Discord." : "Could not disconnect Discord.");
+    } finally {
+      setDiscordBusy(false);
     }
   }
 
@@ -538,6 +645,96 @@ export function AccountSettingsPanel({
         {/* Account Tab */}
         {activeTab === "account" && (
           <div className="space-y-4">
+            <Card id="discord-connection" className="border-[#5865F2]/30 bg-[#0B0B0B]/95">
+              <CardHeader>
+                <CardTitle>{isAr ? "اتصال Discord" : "Discord Connection"}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {!discordLoaded ? (
+                  <p className="text-sm text-[#9CA3AF]" role="status">
+                    {isAr ? "جارٍ تحميل حالة الاتصال..." : "Loading connection status..."}
+                  </p>
+                ) : discordConnection ? (
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#5865F2] text-lg font-semibold text-white" aria-hidden="true">
+                        {discordConnection.username.slice(0, 1).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-white">
+                          {discordConnection.globalName || discordConnection.username}
+                        </p>
+                        <p className="truncate text-sm text-[#9CA3AF]">
+                          @{discordConnection.username}
+                        </p>
+                        <p className="mt-1 text-xs text-emerald-300">
+                          {isAr ? "متصل" : "Connected"}
+                        </p>
+                      </div>
+                    </div>
+                    {!showDiscordUnlink ? (
+                      <Button
+                        variant="secondary"
+                        disabled={discordBusy}
+                        onClick={() => setShowDiscordUnlink(true)}
+                      >
+                        {isAr ? "فصل Discord" : "Disconnect"}
+                      </Button>
+                    ) : (
+                      <div className="space-y-2 rounded-xl border border-amber-400/25 bg-amber-500/10 p-3">
+                        <p className="max-w-sm text-xs text-amber-100">
+                          {isAr
+                            ? "سيؤدي الفصل إلى إزالة أدوار البائع المُدارة. يمكنك إعادة الربط لاحقًا."
+                            : "Disconnecting removes managed seller roles. You can reconnect later."}
+                        </p>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="destructive"
+                            disabled={discordBusy}
+                            onClick={() => void handleDiscordUnlink()}
+                          >
+                            {isAr ? "تأكيد الفصل" : "Confirm disconnect"}
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            disabled={discordBusy}
+                            onClick={() => setShowDiscordUnlink(false)}
+                          >
+                            {isAr ? "إلغاء" : "Cancel"}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-sm text-[#D1D5DB]">
+                      {isAr
+                        ? "اربط حساب Discord لتلقي دور البائع المطابق لحالة حسابك. نطلب إذن التعريف فقط."
+                        : "Connect Discord to receive the seller role matching your account status. We request identity access only."}
+                    </p>
+                    <Button
+                      disabled={discordBusy}
+                      onClick={() => void handleDiscordConnect()}
+                      className="bg-[#5865F2] text-white hover:bg-[#4752C4]"
+                    >
+                      {discordBusy
+                        ? (isAr ? "جارٍ الاتصال..." : "Connecting...")
+                        : (isAr ? "ربط Discord" : "Connect Discord")}
+                    </Button>
+                  </div>
+                )}
+                {discordMessage ? (
+                  <p
+                    className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm text-[#D1D5DB]"
+                    role="status"
+                  >
+                    {discordMessage}
+                  </p>
+                ) : null}
+              </CardContent>
+            </Card>
+
             <Card className="border-white/10 bg-[#0B0B0B]/95">
               <CardHeader>
                 <CardTitle>{isAr ? "تصدير البيانات" : "Export Account Data"}</CardTitle>
