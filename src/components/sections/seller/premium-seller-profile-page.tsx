@@ -303,7 +303,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
               <div className={`grid gap-3 sm:grid-cols-2 ${isAr ? "text-right" : ""}`}>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "عضو منذ" : "Member since"}</p>
-                  <p className="mt-2 font-medium text-white">{new Date(seller.memberSince).toLocaleDateString(locale === "ar" ? "ar-EG" : "en-IL")}</p>
+                  <p className="mt-2 font-medium text-white">{new Date(seller.memberSince).toLocaleDateString(locale === "ar" ? "ar-EG" : "en-IL", { year: "numeric", month: "long" })}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "البلد" : "Country"}</p>

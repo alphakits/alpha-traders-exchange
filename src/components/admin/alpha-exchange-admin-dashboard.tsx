@@ -78,6 +78,28 @@ type AdminPayload = {
   privateBeta: OwnerPrivateBetaDashboardData;
   users: Array<{ id: string; fullName: string; email: string; role: string; roles?: string[]; disabled?: boolean; createdAt: string }>;
   sellerReviews: SellerReviewRecord[];
+  listingReliability: ListingReliabilityReport[];
+};
+
+type ListingReliabilityReport = {
+  sellerId: string;
+  sellerName: string;
+  reliability: {
+    cancellationRate: number;
+    editRate: number;
+    removalRate: number;
+    averageListingLifetimeHours: number;
+    reliabilityScore: number;
+    warningTier: "none" | "notice" | "warning" | "critical";
+    warningLabel: string;
+    confidence: number;
+  };
+  completedTrades: number;
+  cancelledTrades: number;
+  totalListings: number;
+  editCount: number;
+  removalCount: number;
+  recentHistory: AuditLogEntry[];
 };
 
 type SectionKey =
@@ -86,6 +108,7 @@ type SectionKey =
   | "approved-sellers"
   | "seller-rank"
   | "marketplace-listings"
+  | "listing-reliability"
   | "purchase-requests"
   | "commissions"
   | "audit-logs"
@@ -105,6 +128,7 @@ const sectionItems: Array<{ key: SectionKey; label: string; icon: typeof BarChar
   { key: "approved-sellers", label: "Approved Sellers", icon: Users },
   { key: "seller-rank", label: "Seller Rank Management", icon: Trophy },
   { key: "marketplace-listings", label: "Marketplace Listings", icon: Store },
+  { key: "listing-reliability", label: "Listing Reliability", icon: ShieldCheck },
   { key: "purchase-requests", label: "Purchase Requests", icon: ListChecks },
   { key: "commissions", label: "Commissions", icon: Coins },
   { key: "audit-logs", label: "Audit Logs", icon: FileClock },
@@ -1858,6 +1882,115 @@ export function AlphaExchangeAdminDashboard() {
                         </div>
 
                         {renderPagination(listingsRows.safePage, listingsRows.totalPages, setListingsPage)}
+                      </CardContent>
+                    </Card>
+                  ) : null}
+
+                  {activeSection === "listing-reliability" ? (
+                    <Card className="border-white/10 bg-[#0B0B0B]/90">
+                      <CardHeader>
+                        <CardTitle>Listing Reliability</CardTitle>
+                        <CardDescription>
+                          Deterministic reliability from real completed trades, cancellations, removals, and edit history. Lower scores rank lower in the marketplace.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {(() => {
+                          const reports = data?.listingReliability ?? [];
+                          if (!reports.length) {
+                            return <p className="text-sm text-[#9CA3AF]">No seller reliability data available yet.</p>;
+                          }
+                          const flagged = reports.filter((report) => report.reliability.warningTier !== "none");
+                          const tierTone: Record<ListingReliabilityReport["reliability"]["warningTier"], string> = {
+                            none: "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
+                            notice: "border-amber-400/30 bg-amber-400/10 text-amber-200",
+                            warning: "border-orange-500/30 bg-orange-500/10 text-orange-200",
+                            critical: "border-red-500/40 bg-red-500/10 text-red-200",
+                          };
+                          return (
+                            <>
+                              <div className="grid gap-3 sm:grid-cols-3">
+                                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                                  <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Sellers tracked</p>
+                                  <p className="mt-1 text-2xl font-bold text-white">{reports.length}</p>
+                                </div>
+                                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                                  <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Needing attention</p>
+                                  <p className="mt-1 text-2xl font-bold text-amber-200">{flagged.length}</p>
+                                </div>
+                                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                                  <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Avg. reliability</p>
+                                  <p className="mt-1 text-2xl font-bold text-white">
+                                    {Math.round(reports.reduce((sum, report) => sum + report.reliability.reliabilityScore, 0) / reports.length)}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="overflow-x-auto rounded-xl border border-white/10">
+                                <table className="w-full min-w-[820px] text-sm">
+                                  <thead>
+                                    <tr className="border-b border-white/10 bg-white/[0.02] text-left text-xs uppercase tracking-[0.1em] text-[#9CA3AF]">
+                                      <th className="px-3 py-2">Seller</th>
+                                      <th className="px-3 py-2">Reliability</th>
+                                      <th className="px-3 py-2">Cancellation %</th>
+                                      <th className="px-3 py-2">Edit %</th>
+                                      <th className="px-3 py-2">Removal %</th>
+                                      <th className="px-3 py-2">Avg. lifetime (h)</th>
+                                      <th className="px-3 py-2">Trades</th>
+                                      <th className="px-3 py-2">Status</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {reports.map((report) => (
+                                      <tr key={report.sellerId} className="border-b border-white/5 align-top">
+                                        <td className="px-3 py-2">
+                                          <p className="font-medium text-white">{report.sellerName}</p>
+                                          <p className="text-[11px] text-[#9CA3AF]">{report.totalListings} listings</p>
+                                        </td>
+                                        <td className="px-3 py-2 font-semibold text-white">{report.reliability.reliabilityScore}</td>
+                                        <td className="px-3 py-2 text-[#D1D5DB]">{report.reliability.cancellationRate}%</td>
+                                        <td className="px-3 py-2 text-[#D1D5DB]">{report.reliability.editRate}%</td>
+                                        <td className="px-3 py-2 text-[#D1D5DB]">{report.reliability.removalRate}%</td>
+                                        <td className="px-3 py-2 text-[#D1D5DB]">{report.reliability.averageListingLifetimeHours || "—"}</td>
+                                        <td className="px-3 py-2 text-[#D1D5DB]">{report.completedTrades}✓ / {report.cancelledTrades}✗</td>
+                                        <td className="px-3 py-2">
+                                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold capitalize ${tierTone[report.reliability.warningTier]}`}>
+                                            {report.reliability.warningTier}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                              {flagged.length ? (
+                                <div className="space-y-3">
+                                  <p className="text-sm font-semibold text-white">Sellers needing attention</p>
+                                  {flagged.map((report) => (
+                                    <div key={`flagged-${report.sellerId}`} className={`rounded-xl border p-3 text-xs ${tierTone[report.reliability.warningTier]}`}>
+                                      <div className="flex items-center justify-between gap-2">
+                                        <p className="font-semibold text-white">{report.sellerName}</p>
+                                        <span className="capitalize">{report.reliability.warningTier} · score {report.reliability.reliabilityScore}</span>
+                                      </div>
+                                      <p className="mt-1">{report.reliability.warningLabel}</p>
+                                      {report.recentHistory.length ? (
+                                        <div className="mt-2 space-y-1 border-t border-white/10 pt-2 text-[#D1D5DB]">
+                                          {report.recentHistory.slice(0, 5).map((entry) => (
+                                            <div key={entry.id} className="flex flex-wrap items-center gap-2">
+                                              <span className="text-white">{entry.action}</span>
+                                              {entry.reason ? <span>· {entry.reason}</span> : null}
+                                              {entry.details ? <span className="text-[#9CA3AF]">· {entry.details}</span> : null}
+                                              <span className="text-[#9CA3AF]">· {formatDate(entry.createdAt)}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </>
+                          );
+                        })()}
                       </CardContent>
                     </Card>
                   ) : null}

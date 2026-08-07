@@ -231,6 +231,7 @@ export interface SellerPublicProfile {
   onlineStatus: SellerOnlineStatus;
   availabilityStatus: SellerAvailabilityStatus;
   lastActiveAt?: string;
+  emailVerified?: boolean;
 }
 
 export interface SellerReviewRecord {

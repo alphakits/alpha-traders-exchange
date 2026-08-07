@@ -758,6 +758,54 @@ textarea {
   color: #8d97a4;
 }
 
+/* Timestamp-driven presence tiers (green online, amber recent, gray idle). */
+.seller-presence--online { color: #34d399; font-weight: 700; }
+.seller-presence--recent { color: #fbbf24; }
+.seller-presence--idle { color: #8d97a4; }
+
+.seller-presence-dot {
+  display: inline-block;
+  height: 8px;
+  width: 8px;
+  border-radius: 9999px;
+  background: #8d97a4;
+}
+.seller-presence-dot--online {
+  background: #34d399;
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18), 0 0 10px rgba(52, 211, 153, 0.6);
+}
+.seller-presence-dot--recent {
+  background: #fbbf24;
+  box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.16);
+}
+.seller-presence-dot--idle {
+  background: #8d97a4;
+  box-shadow: none;
+}
+
+/* Eligibility countdown badge (neutral 12h–4h, premium red <4h). No animation. */
+.seller-listing-countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.seller-listing-countdown--neutral {
+  color: #d1d5db;
+  background: rgba(255, 255, 255, 0.04);
+}
+.seller-listing-countdown--urgent {
+  color: #fca5a5;
+  background: rgba(220, 38, 38, 0.12);
+  border-color: rgba(248, 113, 113, 0.5);
+  box-shadow: 0 0 14px rgba(220, 38, 38, 0.2);
+}
+
 .seller-asset-usdt-card {
   border-color: rgba(52, 211, 153, 0.34);
   background:
