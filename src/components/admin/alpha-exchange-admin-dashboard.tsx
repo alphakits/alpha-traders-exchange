@@ -63,7 +63,6 @@ type AdminEnforcementAuditEntry = {
   reason?: string;
   notes?: string;
 };
-
 type AdminPayload = {
   summary: AdminSummary;
   applications: SellerApplication[];
