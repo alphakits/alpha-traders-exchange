@@ -514,7 +514,24 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[])
       await bulkInsert(tx, `INSERT INTO alpha_exchange.listings (id, seller_id, status, active_trade_request_id, expires_at, created_at, updated_at, sort_index, payload)
 SELECT id, seller_id, status, active_trade_request_id, expires_at::timestamptz, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
 FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[])
-  AS t(id,seller_id,status,active_trade_request_id,expires_at,created_at,updated_at,sort_index,payload)`, [
+  AS t(id,seller_id,status,active_trade_request_id,expires_at,created_at,updated_at,sort_index,payload)
+ON CONFLICT (id) DO UPDATE SET
+  seller_id = excluded.seller_id,
+  status = excluded.status,
+  active_trade_request_id = excluded.active_trade_request_id,
+  expires_at = excluded.expires_at,
+  created_at = excluded.created_at,
+  updated_at = excluded.updated_at,
+  sort_index = excluded.sort_index,
+  payload = excluded.payload
+WHERE alpha_exchange.listings.seller_id IS DISTINCT FROM excluded.seller_id
+   OR alpha_exchange.listings.status IS DISTINCT FROM excluded.status
+   OR alpha_exchange.listings.active_trade_request_id IS DISTINCT FROM excluded.active_trade_request_id
+   OR alpha_exchange.listings.expires_at IS DISTINCT FROM excluded.expires_at
+   OR alpha_exchange.listings.created_at IS DISTINCT FROM excluded.created_at
+   OR alpha_exchange.listings.updated_at IS DISTINCT FROM excluded.updated_at
+   OR alpha_exchange.listings.sort_index IS DISTINCT FROM excluded.sort_index
+   OR alpha_exchange.listings.payload IS DISTINCT FROM excluded.payload`, [
         rows.map(r => r.id),
         rows.map(r => r.sellerId),
         rows.map(r => r.status),
@@ -959,6 +976,22 @@ async function replaceTableContents(tx: PoolClient, tableName: SnapshotTableName
     }
     await tx.query("delete from alpha_exchange.users where not (id = any($1::text[]))", [userRows.map((row) => row.id)]);
     await upsertUsersTable(tx, userRows);
+    return;
+  }
+  if (tableName === "listings") {
+    const listingRows = db.marketplaceListings;
+    if (listingRows.length === 0) {
+      await tx.query("delete from alpha_exchange.listings");
+      return;
+    }
+    await tx.query(
+      "delete from alpha_exchange.listings where not (id = any($1::text[]))",
+      [listingRows.map((row) => row.id)],
+    );
+    await getTable(tableName).insert(tx, listingRows, {
+      evidenceContentById: context?.evidenceContentById ?? new Map(),
+      evidenceOverrides: context?.evidenceOverrides,
+    });
     return;
   }
   await tx.query(`delete from alpha_exchange.${tableName}`);

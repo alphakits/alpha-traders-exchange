@@ -11,6 +11,7 @@
 !src/lib/discord/**
 !src/lib/env-validation.ts
 !src/lib/postgres-runtime.ts
+!src/lib/seller-presence.ts
 !src/lib/site-url.ts
 !src/lib/structured-logging.ts
 **/*.test.ts

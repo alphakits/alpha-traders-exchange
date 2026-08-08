@@ -5,6 +5,7 @@ import {
   degradedDiscordDiagnostics,
   type DiscordDiagnosticErrorCode,
   type DiscordDiagnostics,
+  type DiscordListingDiagnostics,
   type DiscordResourceDiagnostics,
   type DiscordReadyState,
 } from "@/lib/discord/diagnostics";
@@ -106,6 +107,40 @@ function parseResourceDiagnostics(
   };
 }
 
+function parseListingDiagnostics(value: unknown): DiscordListingDiagnostics | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.status !== "ready" && candidate.status !== "degraded") return null;
+  const pendingJobs = nullableNonNegativeNumber(candidate.pendingJobs);
+  const deadJobs = nullableNonNegativeNumber(candidate.deadJobs);
+  const activeMappings = nullableNonNegativeNumber(candidate.activeMappings);
+  const failedMappings = nullableNonNegativeNumber(candidate.failedMappings);
+  const cooldownClaims = nullableNonNegativeNumber(candidate.cooldownClaims);
+  const errorCode = nullableString(candidate.errorCode, 64);
+  if (
+    pendingJobs === undefined
+    || deadJobs === undefined
+    || activeMappings === undefined
+    || failedMappings === undefined
+    || cooldownClaims === undefined
+    || errorCode === undefined
+    || [pendingJobs, deadJobs, activeMappings, failedMappings, cooldownClaims]
+      .some((count) => count !== null && !Number.isInteger(count))
+    || (errorCode !== null && !/^[a-z0-9_]+$/.test(errorCode))
+  ) {
+    return null;
+  }
+  return {
+    status: candidate.status,
+    pendingJobs,
+    deadJobs,
+    activeMappings,
+    failedMappings,
+    cooldownClaims,
+    errorCode,
+  };
+}
+
 function parseWorkerDiagnostics(value: unknown): DiscordDiagnostics | null {
   if (!value || typeof value !== "object") return null;
   const candidate = value as Record<string, unknown>;
@@ -156,6 +191,12 @@ function parseWorkerDiagnostics(value: unknown): DiscordDiagnostics | null {
     if (!parsed) return null;
     resources = parsed;
   }
+  let listings: DiscordListingDiagnostics | undefined;
+  if (candidate.listings !== undefined) {
+    const parsed = parseListingDiagnostics(candidate.listings);
+    if (!parsed) return null;
+    listings = parsed;
+  }
 
   return {
     status: candidate.status,
@@ -168,6 +209,7 @@ function parseWorkerDiagnostics(value: unknown): DiscordDiagnostics | null {
     connectionUptimeMs,
     error,
     ...(resources ? { resources } : {}),
+    ...(listings ? { listings } : {}),
   };
 }
 

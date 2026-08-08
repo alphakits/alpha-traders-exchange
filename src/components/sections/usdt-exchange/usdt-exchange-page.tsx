@@ -14,6 +14,10 @@ import { RoleBadge } from "@/components/ui/role-badge";
 import { LogoutButton } from "@/components/auth/logout-button";
 import { AlphaMarketCenterView } from "@/components/market/alpha-market-center";
 import { useMarketFeed } from "@/components/market/use-market-feed";
+import {
+  DiscordShareAction,
+  type DiscordListingSharingStatus,
+} from "@/components/sections/usdt-exchange/discord-share-action";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { hasRole } from "@/lib/roles";
 import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
@@ -840,6 +844,9 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const [sellerApplication, setSellerApplication] = useState<SellerApplication | null>(null);
   const [myRequests, setMyRequests] = useState<PurchaseRequest[]>([]);
   const [myListings, setMyListings] = useState<MarketplaceListing[]>([]);
+  const [discordSharing, setDiscordSharing] = useState<DiscordListingSharingStatus | null>(null);
+  const [discordShareActionKey, setDiscordShareActionKey] = useState<string | null>(null);
+  const discordSharePollTimersRef = useRef<number[]>([]);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [showVerificationCta, setShowVerificationCta] = useState(false);
   const [isRedirectingToVerification, setIsRedirectingToVerification] = useState(false);
@@ -1047,11 +1054,17 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     return response;
   }, []);
 
+  useEffect(() => () => {
+    for (const timer of discordSharePollTimersRef.current) window.clearTimeout(timer);
+    discordSharePollTimersRef.current = [];
+  }, []);
+
   const refreshSellerWorkspace = useCallback(async () => {
     try {
-      const [requestsRes, myListingsRes] = await Promise.all([
+      const [requestsRes, myListingsRes, discordSharingRes] = await Promise.all([
         tracedFetch("Workspace data loading: purchase requests", "/api/alpha-exchange/purchase-requests", { cache: "no-store" }),
         tracedFetch("Workspace data loading: my listings", "/api/alpha-exchange/my-listings", { cache: "no-store" }),
+        tracedFetch("Workspace data loading: Discord sharing", "/api/alpha-exchange/discord-sharing", { cache: "no-store" }),
       ]);
       if (requestsRes.ok) {
         const requestsJson = (await requestsRes.json()) as { requests: PurchaseRequest[] };
@@ -1087,6 +1100,18 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         setQaCommissionModeEnabled(Boolean(myListingsJson.qaCommissionModeEnabled));
         setQaCommissionResetEnabled(Boolean(myListingsJson.qaCommissionResetEnabled));
       }
+      if (discordSharingRes.ok) {
+        setDiscordSharing(await discordSharingRes.json() as DiscordListingSharingStatus);
+      } else {
+        setDiscordSharing({
+          serverTime: new Date().toISOString(),
+          nextEligibleAt: null,
+          cooldownSecondsRemaining: 0,
+          linked: false,
+          available: false,
+          listings: [],
+        });
+      }
       setWorkspaceError(null);
     } catch {
       setWorkspaceError(safeErrorMessage("workspace"));
@@ -1109,6 +1134,24 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const backgroundRefreshSellerWorkspace = useCallback(() => {
     void refreshSellerWorkspace();
   }, [refreshSellerWorkspace]);
+
+  const refreshDiscordSharingStatus = useCallback(async () => {
+    const response = await tracedFetch(
+      "Discord sharing status refresh",
+      "/api/alpha-exchange/discord-sharing",
+      { cache: "no-store" },
+    );
+    if (!response.ok) return;
+    setDiscordSharing(await response.json() as DiscordListingSharingStatus);
+  }, [tracedFetch]);
+
+  const scheduleDiscordSharingRefreshes = useCallback(() => {
+    for (const timer of discordSharePollTimersRef.current) window.clearTimeout(timer);
+    discordSharePollTimersRef.current = [2_000, 5_000, 10_000].map((delay) =>
+      window.setTimeout(() => {
+        void refreshDiscordSharingStatus();
+      }, delay));
+  }, [refreshDiscordSharingStatus]);
 
   const openCommissionPayment = useCallback(() => {
     setCommissionPayOpen(true);
@@ -2319,12 +2362,48 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
+
       setSellerWorkspaceMessage(nextStatus === "paused" ? "⏸ Listing paused. It is no longer visible to buyers until you resume it." : "▶ Listing resumed. Your listing is now live in the marketplace.");
       await refreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing"));
     } finally {
       setListingActionKey(null);
+    }
+  }
+
+  async function handleDiscordListingShare(listing: MarketplaceListing) {
+    if (discordShareActionKey) return;
+    setDiscordShareActionKey(listing.id);
+    try {
+      const response = await fetch(
+        `/api/alpha-exchange/listings/${encodeURIComponent(listing.id)}/discord-share`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requestKey: crypto.randomUUID() }),
+        },
+      );
+      const payload = await response.json() as {
+        accepted?: boolean;
+        sharing?: DiscordListingSharingStatus;
+        error?: string;
+      };
+      if (payload.sharing) setDiscordSharing(payload.sharing);
+      if (!response.ok) {
+        setSellerWorkspaceMessage(payload.error || "Discord listing sharing is temporarily unavailable.");
+        return;
+      }
+      setSellerWorkspaceMessage(
+        payload.accepted
+          ? "Discord share accepted. Publishing is processing in the background."
+          : "This listing already has a current Discord share state.",
+      );
+      scheduleDiscordSharingRefreshes();
+    } catch {
+      setSellerWorkspaceMessage("Discord listing sharing is temporarily unavailable.");
+    } finally {
+      setDiscordShareActionKey(null);
     }
   }
 
@@ -3295,6 +3374,16 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
                       <p>Banks: <span className="text-white">{parseIsraeliBankSelection(listing.bankName).join(", ") || "Not set"}</span></p>
                       <p>Purchase Requests: <span className="text-white">{requestsCount}</span></p>
                       <p>Created Date: <span className="text-white">{new Date(listing.createdAt).toLocaleDateString("en-IL")}</span></p>
+                    </div>
+                    <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-start">
+                      <DiscordShareAction
+                        listing={listing}
+                        sharing={discordSharing}
+                        busy={discordShareActionKey === listing.id}
+                        onShare={(selected) => {
+                          void handleDiscordListingShare(selected);
+                        }}
+                      />
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Button
