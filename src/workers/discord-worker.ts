@@ -22,6 +22,7 @@ import { DiscordCommunityCommandService } from "@/lib/discord/community-commands
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { readDiscordConfig } from "@/lib/discord/config";
 import { getSiteUrl } from "@/lib/site-url";
+import { DiscordOperatorReconciliationWorker } from "@/lib/discord/operator-reconciliation";
 
 async function main(): Promise<void> {
   let runtime: DiscordWorkerRuntime | null = null;
@@ -39,27 +40,38 @@ async function main(): Promise<void> {
     }
     const gateway = getDiscordGatewayClient();
     const siteUrl = getSiteUrl();
+    const resourceSync = createDiscordResourceSyncWorker();
+    const listingSync = createDiscordListingSyncWorker();
+    const marketIntelligence = createDiscordMarketIntelligenceWorker();
+    const commands = new DiscordCommunityCommandService({
+      pool,
+      gateway,
+      token: discordConfig.token,
+      applicationId: discordConfig.applicationId,
+      guildId: discordConfig.guildId,
+      siteUrl,
+    });
     runtime = new DiscordWorkerRuntime({
       config,
       service: getDiscordService(),
       roleSync: createDiscordRoleSyncWorker(),
-      resourceSync: createDiscordResourceSyncWorker(),
-      listingSync: createDiscordListingSyncWorker(),
-      marketIntelligence: createDiscordMarketIntelligenceWorker(),
-      commands: new DiscordCommunityCommandService({
-        pool,
-        gateway,
-        token: discordConfig.token,
-        applicationId: discordConfig.applicationId,
-        guildId: discordConfig.guildId,
-        siteUrl,
-      }),
+      resourceSync,
+      listingSync,
+      marketIntelligence,
+      commands,
       notifications: new DiscordCommunityNotificationWorker({
         pool,
         gateway,
         publisher: new DiscordRestDirectMessagePublisher(discordConfig.token),
         siteUrl,
         guildId: discordConfig.guildId,
+      }),
+      operatorReconciliation: new DiscordOperatorReconciliationWorker({
+        pool,
+        resources: resourceSync,
+        listings: listingSync,
+        marketIntelligence,
+        commands,
       }),
     });
     removeSignalHandlers = installDiscordWorkerSignalHandlers(

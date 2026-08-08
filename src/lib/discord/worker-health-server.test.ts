@@ -74,7 +74,13 @@ describe("Discord worker health server", () => {
     );
     const authorized = await fetch(`${baseUrl}/health/ready`, { headers });
     expect(authorized.status).toBe(200);
-    expect(await authorized.json()).toEqual(diagnostics);
+    expect(await authorized.json()).toMatchObject({
+      ...diagnostics,
+      requiredPrivilegedIntents: ["GuildMembers"],
+      deployment: {
+        source: "local",
+      },
+    });
 
     const replayed = await fetch(`${baseUrl}/health/ready`, { headers });
     expect(replayed.status).toBe(401);

@@ -20,7 +20,8 @@ export type DiscordDiagnosticErrorCode =
   | "worker_unavailable"
   | "worker_timeout"
   | "worker_response_invalid"
-  | "worker_authentication_failed";
+  | "worker_authentication_failed"
+  | "worker_response_authentication_failed";
 
 export type DiscordSafeError = {
   code: DiscordDiagnosticErrorCode;
@@ -71,6 +72,12 @@ export type DiscordCommunityCommandDiagnostics = {
   errorCode: string | null;
 };
 
+export type DiscordDeploymentDiagnostics = {
+  source: "railway" | "local";
+  revision: string | null;
+  environment: string | null;
+};
+
 export type DiscordDiagnostics = {
   status: "healthy" | "degraded";
   connected: boolean;
@@ -87,6 +94,7 @@ export type DiscordDiagnostics = {
   notifications?: DiscordCommunityNotificationDiagnostics;
   commands?: DiscordCommunityCommandDiagnostics;
   requiredPrivilegedIntents?: readonly ["GuildMembers"];
+  deployment?: DiscordDeploymentDiagnostics;
 };
 
 export const DISCORD_SAFE_ERROR_MESSAGES: Record<
@@ -107,6 +115,8 @@ export const DISCORD_SAFE_ERROR_MESSAGES: Record<
   worker_timeout: "Discord worker diagnostics timed out.",
   worker_response_invalid: "Discord worker returned an invalid diagnostics response.",
   worker_authentication_failed: "Discord worker diagnostics authentication failed.",
+  worker_response_authentication_failed:
+    "Discord worker diagnostics response authentication failed.",
 };
 
 export function degradedDiscordDiagnostics(
@@ -165,5 +175,23 @@ export function degradedDiscordDiagnostics(
       errorCode: code,
     },
     requiredPrivilegedIntents: ["GuildMembers"],
+  };
+}
+
+export function readDiscordDeploymentDiagnostics(
+  env: NodeJS.ProcessEnv = process.env,
+): DiscordDeploymentDiagnostics {
+  const revisionCandidate =
+    env.RAILWAY_GIT_COMMIT_SHA ?? env.VERCEL_GIT_COMMIT_SHA ?? "";
+  const environmentCandidate =
+    env.RAILWAY_ENVIRONMENT_NAME ?? env.NODE_ENV ?? "";
+  return {
+    source: env.RAILWAY_PROJECT_ID ? "railway" : "local",
+    revision: /^[0-9a-f]{7,64}$/i.test(revisionCandidate)
+      ? revisionCandidate.toLowerCase()
+      : null,
+    environment: /^[a-z0-9][a-z0-9_-]{0,31}$/i.test(environmentCandidate)
+      ? environmentCandidate
+      : null,
   };
 }

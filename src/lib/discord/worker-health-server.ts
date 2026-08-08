@@ -14,10 +14,13 @@ import type {
   DiscordResourceDiagnostics,
   DiscordCommunityCommandDiagnostics,
   DiscordCommunityNotificationDiagnostics,
+  DiscordDeploymentDiagnostics,
 } from "@/lib/discord/diagnostics";
+import { readDiscordDeploymentDiagnostics } from "@/lib/discord/diagnostics";
 import {
   DISCORD_WORKER_AUTH_HEADERS,
   DiscordWorkerAuthVerifier,
+  createDiscordWorkerResponseAuthHeaders,
 } from "@/lib/discord/worker-health-auth";
 
 type HealthService = Pick<DiscordService, "getDiagnostics">;
@@ -46,6 +49,7 @@ export type DiscordWorkerHealthServerDependencies = {
   commands?: CommandHealth;
   healthSecret: string;
   now?: () => number;
+  deployment?: DiscordDeploymentDiagnostics;
 };
 
 function headerValue(
@@ -60,12 +64,15 @@ function sendJson(
   response: ServerResponse,
   statusCode: number,
   body: unknown,
+  headers: Record<string, string> = {},
 ): void {
+  const serialized = JSON.stringify(body);
   response.writeHead(statusCode, {
     "cache-control": "no-store",
     "content-type": "application/json; charset=utf-8",
+    ...headers,
   });
-  response.end(JSON.stringify(body));
+  response.end(serialized);
 }
 
 export function createDiscordWorkerHealthServer({
@@ -77,6 +84,7 @@ export function createDiscordWorkerHealthServer({
   commands,
   healthSecret,
   now,
+  deployment = readDiscordDeploymentDiagnostics(),
 }: DiscordWorkerHealthServerDependencies): Server {
   const authVerifier = new DiscordWorkerAuthVerifier(now);
 
@@ -137,8 +145,31 @@ export function createDiscordWorkerHealthServer({
            ? { notifications: notificationDiagnostics }
            : {}),
         ...(commandDiagnostics ? { commands: commandDiagnostics } : {}),
+        requiredPrivilegedIntents: ["GuildMembers"] as const,
+        deployment,
       };
-      sendJson(response, diagnostics.status === "healthy" ? 200 : 503, diagnostics);
+      const statusCode = diagnostics.status === "healthy" ? 200 : 503;
+      const serialized = JSON.stringify(diagnostics);
+      const requestNonce = headerValue(
+        request.headers,
+        DISCORD_WORKER_AUTH_HEADERS.nonce,
+      );
+      if (!requestNonce) {
+        sendJson(response, 401, { error: "Unauthorized" });
+        return;
+      }
+      response.writeHead(statusCode, {
+        "cache-control": "no-store",
+        "content-type": "application/json; charset=utf-8",
+        ...createDiscordWorkerResponseAuthHeaders({
+          secret: healthSecret,
+          requestNonce,
+          statusCode,
+          body: serialized,
+          now,
+        }),
+      });
+      response.end(serialized);
       return;
     }
 

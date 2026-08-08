@@ -127,13 +127,22 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
                     </Link>
                   ) : null}
                   {canAccessAdminDashboard ? (
-                    <Link
-                      href="/admin/alpha-exchange"
-                      locale={locale}
-                      className="block rounded-xl border border-[#C9A227]/40 bg-[#C9A227]/10 px-3 py-2 text-sm font-medium text-[#F4D87A] transition hover:border-[#C9A227]/60 hover:bg-[#C9A227]/15"
-                    >
-                      🛠 {locale === "ar" ? "لوحة الإدارة" : "Admin Dashboard"}
-                    </Link>
+                    <div className="space-y-1">
+                      <Link
+                        href="/admin/alpha-exchange"
+                        locale={locale}
+                        className="flex min-h-11 items-center rounded-xl border border-[#C9A227]/40 bg-[#C9A227]/10 px-3 py-2 text-sm font-medium text-[#F4D87A] transition hover:border-[#C9A227]/60 hover:bg-[#C9A227]/15"
+                      >
+                        🛠 {locale === "ar" ? "لوحة الإدارة" : "Admin Dashboard"}
+                      </Link>
+                      <Link
+                        href="/admin/discord"
+                        locale={locale}
+                        className="flex min-h-11 items-center rounded-xl border border-[#C9A227]/25 bg-black/25 px-3 py-2 text-sm font-medium text-[#E5D49A] transition hover:border-[#C9A227]/50 hover:bg-[#C9A227]/10"
+                      >
+                        ◉ {locale === "ar" ? "إدارة ديسكورد" : "Discord Management"}
+                      </Link>
+                    </div>
                   ) : null}
                   {sessionUser ? (
                     <LogoutButton

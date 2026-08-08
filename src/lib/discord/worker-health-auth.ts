@@ -17,6 +17,12 @@ export const DISCORD_WORKER_AUTH_HEADERS = {
   timestamp: "x-discord-worker-timestamp",
 } as const;
 
+export const DISCORD_WORKER_RESPONSE_AUTH_HEADERS = {
+  nonce: "x-discord-worker-response-nonce",
+  signature: "x-discord-worker-response-signature",
+  timestamp: "x-discord-worker-response-timestamp",
+} as const;
+
 export type DiscordWorkerAuthHeaders = {
   [DISCORD_WORKER_AUTH_HEADERS.nonce]: string;
   [DISCORD_WORKER_AUTH_HEADERS.signature]: string;
@@ -33,6 +39,29 @@ function signature(secret: string, timestamp: string, nonce: string): string {
     .digest("hex");
 }
 
+function responseSignature(input: {
+  secret: string;
+  timestamp: string;
+  nonce: string;
+  statusCode: number;
+  body: string;
+}): string {
+  const bodyHash = createHmac("sha256", input.secret)
+    .update(input.body)
+    .digest("hex");
+  return createHmac("sha256", input.secret)
+    .update([
+      AUTH_VERSION,
+      input.timestamp,
+      input.nonce,
+      String(input.statusCode),
+      bodyHash,
+      READY_METHOD,
+      READY_PATH,
+    ].join("\n"))
+    .digest("hex");
+}
+
 export function createDiscordWorkerAuthHeaders(
   secret: string,
   now: () => number = Date.now,
@@ -45,6 +74,64 @@ export function createDiscordWorkerAuthHeaders(
     [DISCORD_WORKER_AUTH_HEADERS.nonce]: nonce,
     [DISCORD_WORKER_AUTH_HEADERS.signature]: signature(secret, timestamp, nonce),
   };
+}
+
+export function createDiscordWorkerResponseAuthHeaders(input: {
+  secret: string;
+  requestNonce: string;
+  statusCode: number;
+  body: string;
+  now?: () => number;
+}): Record<string, string> {
+  const timestamp = String((input.now ?? Date.now)());
+  return {
+    [DISCORD_WORKER_RESPONSE_AUTH_HEADERS.timestamp]: timestamp,
+    [DISCORD_WORKER_RESPONSE_AUTH_HEADERS.nonce]: input.requestNonce,
+    [DISCORD_WORKER_RESPONSE_AUTH_HEADERS.signature]: responseSignature({
+      secret: input.secret,
+      timestamp,
+      nonce: input.requestNonce,
+      statusCode: input.statusCode,
+      body: input.body,
+    }),
+  };
+}
+
+export function verifyDiscordWorkerResponse(input: {
+  headers: Headers;
+  secret: string;
+  requestNonce: string;
+  statusCode: number;
+  body: string;
+  now?: () => number;
+}): boolean {
+  const timestamp = input.headers.get(
+    DISCORD_WORKER_RESPONSE_AUTH_HEADERS.timestamp,
+  );
+  const nonce = input.headers.get(DISCORD_WORKER_RESPONSE_AUTH_HEADERS.nonce);
+  const providedSignature = input.headers.get(
+    DISCORD_WORKER_RESPONSE_AUTH_HEADERS.signature,
+  );
+  const currentTime = (input.now ?? Date.now)();
+  if (
+    !timestamp
+    || !/^\d{13}$/.test(timestamp)
+    || nonce !== input.requestNonce
+    || !providedSignature
+    || !/^[0-9a-f]{64}$/i.test(providedSignature)
+    || Math.abs(currentTime - Number(timestamp)) > AUTH_WINDOW_MS
+  ) {
+    return false;
+  }
+  const expected = Buffer.from(responseSignature({
+    secret: input.secret,
+    timestamp,
+    nonce,
+    statusCode: input.statusCode,
+    body: input.body,
+  }), "hex");
+  const provided = Buffer.from(providedSignature, "hex");
+  return expected.length === provided.length && timingSafeEqual(expected, provided);
 }
 
 export class DiscordWorkerAuthVerifier {

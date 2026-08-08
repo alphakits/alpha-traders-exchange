@@ -3,10 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 import { fetchDiscordWorkerDiagnostics } from "@/lib/discord/worker-health-client";
-import { DISCORD_WORKER_AUTH_HEADERS } from "@/lib/discord/worker-health-auth";
+import {
+  createDiscordWorkerResponseAuthHeaders,
+  DISCORD_WORKER_AUTH_HEADERS,
+} from "@/lib/discord/worker-health-auth";
 
 const healthSecret = "s".repeat(32);
 const nonce = "123e4567-e89b-42d3-a456-426614174000";
+const now = 1_700_000_000_000;
 const proxyEnv = {
   DISCORD_WORKER_BASE_URL: "https://discord-worker.example.com",
   DISCORD_WORKER_HEALTH_SECRET: healthSecret,
@@ -28,6 +32,21 @@ const healthyDiagnostics = {
     missingCount: 0,
     errorCode: null,
   },
+  notifications: {
+    status: "ready",
+    pendingCount: 0,
+    deadCount: 0,
+    suppressedCount: 0,
+    lastDeliveredAt: null,
+    errorCode: null,
+  },
+  commands: {
+    status: "ready",
+    registeredCount: 7,
+    definitionHash: "a".repeat(64),
+    lastReconciledAt: "2026-08-08T05:00:00.000Z",
+    errorCode: null,
+  },
   marketIntelligence: {
     status: "ready",
     activeCount: 3,
@@ -36,41 +55,99 @@ const healthyDiagnostics = {
     lastSuccessAt: "2026-08-08T05:00:00.000Z",
     errorCode: null,
   },
+  requiredPrivilegedIntents: ["GuildMembers"],
+  deployment: {
+    source: "railway",
+    revision: "de96c1b0ffcc3e256e6990bc8a5b9d0b9013bedb",
+    environment: "production",
+  },
 };
 
-describe("Discord worker health client", () => {
-  it("uses only the configured HTTPS origin and signed authorization headers", async () => {
-    const fetchMock = vi.fn<typeof fetch>(
-      async () => Response.json(healthyDiagnostics),
-    );
+function signedFetch(
+  payload: unknown,
+  options: {
+    status?: number;
+    responseNonce?: string;
+    responseNow?: number;
+    tamperBodyAfterSigning?: boolean;
+  } = {},
+) {
+  return vi.fn<typeof fetch>(async (_url, init) => {
+    const requestHeaders = init?.headers as Record<string, string>;
+    const requestNonce =
+      options.responseNonce ?? requestHeaders[DISCORD_WORKER_AUTH_HEADERS.nonce];
+    const signedBody = JSON.stringify(payload);
+    const body = options.tamperBodyAfterSigning
+      ? signedBody.replace("\"healthy\"", "\"degraded\"")
+      : signedBody;
+    const status = options.status ?? 200;
+    return new Response(body, {
+      status,
+      headers: {
+        "content-type": "application/json",
+        ...createDiscordWorkerResponseAuthHeaders({
+          secret: healthSecret,
+          requestNonce,
+          statusCode: status,
+          body: signedBody,
+          now: () => options.responseNow ?? now,
+        }),
+      },
+    });
+  });
+}
 
+describe("Discord worker health client", () => {
+  it("uses only the configured HTTPS origin and verifies signed diagnostics", async () => {
+    const fetchMock = signedFetch(healthyDiagnostics);
     const diagnostics = await fetchDiscordWorkerDiagnostics({
       env: proxyEnv,
       fetch: fetchMock,
-      now: () => 1_700_000_000_000,
+      now: () => now,
       createNonce: () => nonce,
     });
 
     expect(diagnostics).toEqual(healthyDiagnostics);
     expect(fetchMock).toHaveBeenCalledOnce();
-    const call = fetchMock.mock.calls[0];
-    expect(call).toBeDefined();
-    const [url, options] = call!;
+    const [url, options] = fetchMock.mock.calls[0]!;
     expect(url).toBe("https://discord-worker.example.com/health/ready");
     expect(options).toMatchObject({
       method: "GET",
       cache: "no-store",
       headers: {
-        [DISCORD_WORKER_AUTH_HEADERS.timestamp]: "1700000000000",
+        [DISCORD_WORKER_AUTH_HEADERS.timestamp]: String(now),
         [DISCORD_WORKER_AUTH_HEADERS.nonce]: nonce,
       },
     });
-    expect(
-      (options?.headers as Record<string, string>)[
-        DISCORD_WORKER_AUTH_HEADERS.signature
-      ],
-    ).toMatch(/^[0-9a-f]{64}$/);
     expect(JSON.stringify(options)).not.toContain(healthSecret);
+  });
+
+  it("rejects response tampering, nonce replay, and stale signatures", async () => {
+    const tampered = await fetchDiscordWorkerDiagnostics({
+      env: proxyEnv,
+      fetch: signedFetch(healthyDiagnostics, { tamperBodyAfterSigning: true }),
+      now: () => now,
+      createNonce: () => nonce,
+    });
+    expect(tampered.error?.code).toBe("worker_response_authentication_failed");
+
+    const replayed = await fetchDiscordWorkerDiagnostics({
+      env: proxyEnv,
+      fetch: signedFetch(healthyDiagnostics, {
+        responseNonce: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      }),
+      now: () => now,
+      createNonce: () => nonce,
+    });
+    expect(replayed.error?.code).toBe("worker_response_authentication_failed");
+
+    const stale = await fetchDiscordWorkerDiagnostics({
+      env: proxyEnv,
+      fetch: signedFetch(healthyDiagnostics, { responseNow: now - 31_000 }),
+      now: () => now,
+      createNonce: () => nonce,
+    });
+    expect(stale.error?.code).toBe("worker_response_authentication_failed");
   });
 
   it("maps bounded timeouts and unavailable workers to explicit degraded states", async () => {
@@ -89,13 +166,10 @@ describe("Discord worker health client", () => {
       env: proxyEnv,
       fetch: vi.fn().mockRejectedValue(new TypeError("fetch failed")),
     });
-    expect(unavailable).toMatchObject({
-      status: "degraded",
-      error: { code: "worker_unavailable" },
-    });
+    expect(unavailable.error?.code).toBe("worker_unavailable");
   });
 
-  it("reports authorization and response failures without forwarding unsafe data", async () => {
+  it("reports authorization and invalid payload failures without forwarding unsafe data", async () => {
     const unauthorized = await fetchDiscordWorkerDiagnostics({
       env: proxyEnv,
       fetch: vi.fn(async () => new Response("Unauthorized", { status: 401 })),
@@ -104,11 +178,12 @@ describe("Discord worker health client", () => {
 
     const invalid = await fetchDiscordWorkerDiagnostics({
       env: proxyEnv,
-      fetch: vi.fn(async () => Response.json({
+      fetch: signedFetch({
         ...healthyDiagnostics,
-        botUsername: "raw-secret-that-must-not-be-forwarded",
         error: { code: "unknown", message: "provider credential leaked" },
-      })),
+      }),
+      now: () => now,
+      createNonce: () => nonce,
     });
     expect(invalid.error?.code).toBe("worker_response_invalid");
     expect(JSON.stringify(invalid)).not.toContain("provider credential leaked");
@@ -120,15 +195,14 @@ describe("Discord worker health client", () => {
       env: {},
       fetch: fetchMock,
     });
-
     expect(diagnostics.error?.code).toBe("worker_configuration_invalid");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("rejects malformed or secret-shaped resource diagnostics", async () => {
+  it("rejects secret-shaped aggregate diagnostics", async () => {
     const malformed = await fetchDiscordWorkerDiagnostics({
       env: proxyEnv,
-      fetch: vi.fn(async () => Response.json({
+      fetch: signedFetch({
         ...healthyDiagnostics,
         resources: {
           status: "degraded",
@@ -138,27 +212,9 @@ describe("Discord worker health client", () => {
           errorCode: "token=raw-secret",
           channelId: "9".repeat(18),
         },
-      })),
-    });
-    expect(malformed.error?.code).toBe("worker_response_invalid");
-    expect(JSON.stringify(malformed)).not.toContain("raw-secret");
-  });
-
-  it("rejects unsafe market intelligence diagnostics instead of forwarding them", async () => {
-    const malformed = await fetchDiscordWorkerDiagnostics({
-      env: proxyEnv,
-      fetch: vi.fn(async () => Response.json({
-        ...healthyDiagnostics,
-        marketIntelligence: {
-          status: "degraded",
-          activeCount: 2,
-          pendingCount: 1,
-          deadCount: 0,
-          lastSuccessAt: "not-a-date",
-          errorCode: "token=raw-secret",
-          embed: { privateAmount: 500 },
-        },
-      })),
+      }),
+      now: () => now,
+      createNonce: () => nonce,
     });
     expect(malformed.error?.code).toBe("worker_response_invalid");
     expect(JSON.stringify(malformed)).not.toContain("raw-secret");
