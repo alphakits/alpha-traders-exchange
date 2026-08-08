@@ -212,6 +212,7 @@ export class DiscordService {
         logEvent("info", {
           event: "discord_gateway_connected",
           outcome: "success",
+          metadata: { sinceLoginMs: event.sinceLoginMs },
         });
         return;
       case "disconnect":
@@ -220,7 +221,10 @@ export class DiscordService {
         logEvent("warn", {
           event: "discord_gateway_disconnected",
           outcome: "failed",
-          metadata: { closeCode: event.code },
+          metadata: {
+            closeCode: event.code,
+            sinceLoginMs: event.sinceLoginMs,
+          },
         });
         return;
       case "reconnecting":
@@ -229,6 +233,7 @@ export class DiscordService {
         logEvent("info", {
           event: "discord_gateway_reconnecting",
           outcome: "success",
+          metadata: { sinceLoginMs: event.sinceLoginMs },
         });
         return;
       case "resume":
@@ -238,7 +243,10 @@ export class DiscordService {
         logEvent("info", {
           event: "discord_gateway_resumed",
           outcome: "success",
-          metadata: { connectionStatus: this.readyState },
+          metadata: {
+            connectionStatus: this.readyState,
+            sinceLoginMs: event.sinceLoginMs,
+          },
         });
         return;
       case "error": {
@@ -251,7 +259,10 @@ export class DiscordService {
         logEvent("error", {
           event: "discord_gateway_error",
           outcome: "failed",
-          metadata: errorMetadata(event.error),
+          metadata: {
+            ...errorMetadata(event.error),
+            sinceLoginMs: event.sinceLoginMs,
+          },
         });
       }
     }
