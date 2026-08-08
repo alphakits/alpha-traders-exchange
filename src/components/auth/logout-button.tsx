@@ -53,12 +53,16 @@ export function LogoutButton({
         throw new Error(payload?.error || (locale === "ar" ? "تعذر تسجيل الخروج. حاول مرة أخرى." : "Failed to sign out. Please try again."));
       }
       onSignedOut?.();
+      window.dispatchEvent(new Event("alpha-auth-changed"));
+      await new Promise((resolve) => window.setTimeout(resolve, 50));
       window.location.replace(`/${locale}/login`);
     } catch (error) {
       window.clearTimeout(safetyTimeout);
       if (error instanceof Error && error.name === "AbortError") {
         // Safety timeout fired — navigate anyway; server may have cleared cookies.
         onSignedOut?.();
+        window.dispatchEvent(new Event("alpha-auth-changed"));
+        await new Promise((resolve) => window.setTimeout(resolve, 50));
         window.location.replace(`/${locale}/login`);
         return;
       }

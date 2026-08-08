@@ -89,7 +89,8 @@ export function AlphaMarketCenterView({
   }
 
   if (!snapshot) return null;
-  const cards = [snapshot.pairs.ethUsdt, snapshot.pairs.btcUsdt, snapshot.pairs.usdtIls];
+  const heroPair = snapshot.pairs.usdtIls;
+  const supportingPairs = [snapshot.pairs.btcUsdt, snapshot.pairs.ethUsdt];
 
   return (
     <Card className="border-white/10 bg-[#0B0B0B]/90">
@@ -109,21 +110,52 @@ export function AlphaMarketCenterView({
         <p className="text-xs text-[#9CA3AF]">{ageLabel(snapshot.updatedAt, now)}</p>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="grid gap-3 md:grid-cols-3">
-          {cards.map((pair) => {
-            const positive = pair.changePercent !== null && pair.changePercent >= 0;
-            return (
-              <div key={pair.key} className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{pair.label}</p>
-                <p className="mt-2 text-2xl font-semibold text-white">{formatPrice(pair.price, pair.key)}</p>
-                <div className={`mt-2 inline-flex items-center gap-1 text-xs ${positive ? "text-emerald-300" : "text-rose-300"}`}>
-                  <ArrowUpRight className={`h-3.5 w-3.5 ${positive ? "" : "rotate-90"}`} />
-                  {formatChange(pair.changePercent)}
-                </div>
-                <p className="mt-2 text-xs text-[#9CA3AF]">{pair.reference ?? pair.source}</p>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)]">
+          <div className="overflow-hidden rounded-[1.75rem] border border-[#C9A227]/20 bg-[radial-gradient(circle_at_top_right,rgba(201,162,39,0.16),transparent_34%),linear-gradient(145deg,rgba(201,162,39,0.12),rgba(0,0,0,0.32)_45%,rgba(0,0,0,0.55))] p-5 md:p-6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-[#D4AF37]">{isAr ? "مرساة التسعير" : "Pricing Anchor"}</p>
+                <p className="mt-2 text-sm text-[#CFCFCF]">{heroPair.label}</p>
               </div>
-            );
-          })}
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-300">
+                <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                LIVE
+              </span>
+            </div>
+            <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">USDT / ILS</p>
+                <p className="mt-2 text-4xl font-semibold tracking-tight text-white md:text-5xl">{formatPrice(heroPair.price, heroPair.key)}</p>
+                <div className={`mt-3 inline-flex items-center gap-1.5 text-sm ${heroPair.changePercent !== null && heroPair.changePercent >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+                  <ArrowUpRight className={`h-4 w-4 ${heroPair.changePercent !== null && heroPair.changePercent >= 0 ? "" : "rotate-90"}`} />
+                  {formatChange(heroPair.changePercent)}
+                </div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-right text-xs text-[#9CA3AF]">
+                <p className="uppercase tracking-[0.14em]">{isAr ? "مصدر حي" : "Live Reference"}</p>
+                <p className="mt-1 text-sm text-white">{heroPair.reference ?? heroPair.source}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-3">
+            {supportingPairs.map((pair) => {
+              const positive = pair.changePercent !== null && pair.changePercent >= 0;
+              return (
+                <div key={pair.key} className="rounded-[1.5rem] border border-white/10 bg-black/25 p-4 md:p-5">
+                  <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{pair.label}</p>
+                  <div className="mt-3 flex items-end justify-between gap-3">
+                    <p className="text-2xl font-semibold text-white">{formatPrice(pair.price, pair.key)}</p>
+                    <div className={`inline-flex items-center gap-1 text-xs ${positive ? "text-emerald-300" : "text-rose-300"}`}>
+                      <ArrowUpRight className={`h-3.5 w-3.5 ${positive ? "" : "rotate-90"}`} />
+                      {formatChange(pair.changePercent)}
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-[#9CA3AF]">{pair.reference ?? pair.source}</p>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         <TradingViewMarketCharts locale={locale} />

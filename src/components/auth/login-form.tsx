@@ -137,6 +137,7 @@ export function LoginForm({
 
       const target = resolveLoginRedirectTarget(redirectTo, userForRedirect);
       noteLoginJourneyRedirectStart(Date.now());
+      window.dispatchEvent(new Event("alpha-auth-changed"));
       window.location.replace(toLocaleHref(target));
     } catch {
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireApiSellerWorkspaceActor } from "@/lib/api-auth";
+import { getSellerMarketplaceEnforcementStatus } from "@/lib/alpha-exchange-store";
 import {
   claimDiscordListingShare,
   DiscordListingShareError,
@@ -18,6 +19,17 @@ export const runtime = "nodejs";
 export async function POST(request: NextRequest, context: RouteContext) {
   const { user, unauthorized } = await requireApiSellerWorkspaceActor();
   if (!user) return unauthorized;
+  const enforcement = await getSellerMarketplaceEnforcementStatus(user.id);
+  if (enforcement.restricted) {
+    return NextResponse.json(
+      {
+        error: enforcement.blockReason ?? "Marketplace restriction active.",
+        code: "MARKETPLACE_RESTRICTION_ACTIVE",
+        enforcement,
+      },
+      { status: 403 },
+    );
+  }
   if (!hasTrustedSameOrigin(request)) {
     return NextResponse.json(
       { error: "Invalid request origin.", code: "INVALID_ORIGIN" },

@@ -1,4 +1,4 @@
-type DisplayEntityType = "trade" | "listing" | "request" | "commission" | "dispute" | "application" | "order" | "transaction";
+type DisplayEntityType = "trade" | "listing" | "request" | "commission" | "dispute" | "application" | "order" | "transaction" | "seller" | "buyer" | "compliance";
 
 const DISPLAY_PREFIX: Record<DisplayEntityType, string> = {
   trade: "TR",
@@ -9,6 +9,9 @@ const DISPLAY_PREFIX: Record<DisplayEntityType, string> = {
   application: "AP",
   order: "OR",
   transaction: "TX",
+  seller: "S",
+  buyer: "B",
+  compliance: "MC",
 };
 
 function normalizePositiveInteger(value: unknown) {
@@ -53,4 +56,16 @@ export function formatRequestId(displayNumber?: unknown, fallbackId?: string | n
 
 export function formatCommissionId(displayNumber?: unknown, fallbackId?: string | null) {
   return formatDisplayId("commission", displayNumber, fallbackId);
+}
+
+export function formatSellerId(displayNumber?: unknown, fallbackId?: string | null) {
+  return formatDisplayId("seller", displayNumber, fallbackId);
+}
+
+export function formatBuyerId(displayNumber?: unknown, fallbackId?: string | null) {
+  return formatDisplayId("buyer", displayNumber, fallbackId);
+}
+
+export function formatComplianceId(displayNumber?: unknown, fallbackId?: string | null) {
+  return formatDisplayId("compliance", displayNumber, fallbackId);
 }

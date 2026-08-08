@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Megaphone, MessageSquareText, Search, Settings, ShieldCheck, Star, Store, TrendingUp, Trophy, Users, Users2, WalletCards, X, Zap } from "lucide-react";
 import { AdminAnnouncementsPanel } from "@/components/admin/admin-announcements-panel";
+import { MarketplaceEnforcementOwnerPanel } from "@/components/sections/seller/marketplace-enforcement-owner-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,6 +13,7 @@ import { createExchangeDisplayLookup, replaceExchangeEntityIds } from "@/lib/alp
 import { formatCommissionId, formatListingId, formatRequestId, formatTradeId } from "@/lib/format-id";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { SELLER_LEVELS, normalizeSellerLevel, type AlphaExchangeActivityLogEntry, type AlphaExchangeNotification, type AuditLogEntry, type BetaAnnouncement, type BetaAnnouncementType, type BetaFeedbackCategory, type CommissionRecord, type MarketplaceEnforcementRecord, type MarketplaceListing, type OwnerBusinessDashboardMetrics, type OwnerPrivateBetaDashboardData, type PurchaseRequest, type SellerApplication, type SellerAvailabilityStatus, type SellerLevel, type SellerReviewRecord, type SmsDeliveryRecord, type SupportedNetwork } from "@/types/alpha-exchange";
+import type { PremiumSellerProfileData } from "@/types/alpha-exchange";
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 
@@ -284,6 +286,8 @@ export function AlphaExchangeAdminDashboard() {
   const [sellersSort, setSellersSort] = useState<"newest" | "oldest" | "name">("newest");
   const [sellersPage, setSellersPage] = useState(1);
   const [selectedSeller, setSelectedSeller] = useState<AdminSeller | null>(null);
+  const [selectedSellerProfile, setSelectedSellerProfile] = useState<PremiumSellerProfileData | null>(null);
+  const [selectedSellerProfileLoading, setSelectedSellerProfileLoading] = useState(false);
 
   const [listingsQuery, setListingsQuery] = useState("");
   const [listingsStatus, setListingsStatus] = useState<"all" | MarketplaceListing["status"]>("all");
@@ -317,6 +321,40 @@ export function AlphaExchangeAdminDashboard() {
   const [announcementMessage, setAnnouncementMessage] = useState("");
   const toastTimeoutRef = useRef<number | null>(null);
   const deepLinkAppliedRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedSeller) {
+      setSelectedSellerProfile(null);
+      setSelectedSellerProfileLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setSelectedSellerProfile(null);
+    setSelectedSellerProfileLoading(true);
+
+    void (async () => {
+      try {
+        const response = await fetch(`/api/alpha-exchange/sellers/${selectedSeller.id}/profile`, { cache: "no-store" });
+        const payload = await response.json() as { profile?: PremiumSellerProfileData; error?: string };
+        if (!response.ok || !payload.profile) {
+          if (!cancelled) setSelectedSellerProfile(null);
+          return;
+        }
+        if (!cancelled) setSelectedSellerProfile(payload.profile);
+      } catch {
+        if (!cancelled) setSelectedSellerProfile(null);
+      } finally {
+        if (!cancelled) setSelectedSellerProfileLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSeller]);
 
   const [usersQuery, setUsersQuery] = useState("");
   const [usersPage, setUsersPage] = useState(1);
@@ -560,8 +598,8 @@ export function AlphaExchangeAdminDashboard() {
   );
 
   const enforcementRows = useMemo(
-    () => paginate(data?.enforcement.recentActivity ?? [], enforcementPage),
-    [data?.enforcement.recentActivity, enforcementPage],
+    () => paginate(data?.enforcement?.recentActivity ?? [], enforcementPage),
+    [data?.enforcement?.recentActivity, enforcementPage],
   );
 
   const expirationHistory = useMemo(
@@ -3076,7 +3114,7 @@ export function AlphaExchangeAdminDashboard() {
       <AnimatePresence>
         {selectedSeller ? (
           <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 10, opacity: 0 }} className="modal-panel max-h-[90vh] w-full max-w-xl overflow-y-auto">
+            <motion.div initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 10, opacity: 0 }} className="modal-panel max-h-[90vh] w-full max-w-5xl overflow-y-auto">
               <div className="flex items-center justify-between">
                 <h3 className="text-xl font-semibold">{selectedSeller.fullName}</h3>
                 <button type="button" aria-label="Close seller profile" onClick={() => setSelectedSeller(null)} className="rounded-full border border-white/15 p-2 text-[#9CA3AF] transition hover:text-white">
@@ -3148,6 +3186,34 @@ export function AlphaExchangeAdminDashboard() {
                     Clear Override
                   </Button>
                 ) : null}
+              </div>
+
+              <div className="mt-6 space-y-4">
+                <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.14em] text-red-200">Marketplace Compliance</p>
+                      <p className="mt-1 text-sm text-red-100/90">Issue a manual recovery fee, restrict the seller immediately, restore permissions after verification, or permanently revoke privileges on a second confirmed violation.</p>
+                    </div>
+                    <Button type="button" variant="secondary" onClick={() => setActiveSection("marketplace-enforcement")}>Open Full Compliance Section</Button>
+                  </div>
+                </div>
+
+                {selectedSellerProfileLoading ? (
+                  <Card className="border-white/10 bg-[#0B0B0B]/95">
+                    <CardContent className="p-4 text-sm text-[#9CA3AF]">Loading marketplace compliance history…</CardContent>
+                  </Card>
+                ) : selectedSellerProfile?.ownerTools?.marketplaceEnforcement ? (
+                  <MarketplaceEnforcementOwnerPanel
+                    locale="en"
+                    sellerId={selectedSeller.id}
+                    initialStatus={selectedSellerProfile.ownerTools.marketplaceEnforcement}
+                  />
+                ) : (
+                  <Card className="border-white/10 bg-[#0B0B0B]/95">
+                    <CardContent className="p-4 text-sm text-[#9CA3AF]">No marketplace compliance history is available for this seller yet.</CardContent>
+                  </Card>
+                )}
               </div>
             </motion.div>
           </motion.div>

@@ -174,6 +174,11 @@ export function MarketplaceCompliancePaymentPage({ locale }: { locale: "ar" | "e
                 {isAr ? "لقد أرسلت الدفع" : "I've Sent Payment"}
               </Button>
             </div>
+            <p className="mt-3 text-xs leading-6 text-[#D1D5DB]">
+              {isAr
+                ? "بعد التحقق من الدفع، ستتم استعادة صلاحيات البيع تلقائيًا. إذا تكررت مخالفة موثقة ثانية، فقد تُسحب منك صفة البائع المعتمد بشكل دائم."
+                : "After payment is verified, selling permissions will be restored automatically. If a second confirmed violation occurs, Approved Seller privileges may be permanently revoked."}
+            </p>
           </div>
 
           {qrDataUrl ? (

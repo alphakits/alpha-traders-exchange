@@ -33,6 +33,11 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
   const [status, setStatus] = useState<EnforcementStatus>(initialStatus);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [issueFeeOpen, setIssueFeeOpen] = useState(false);
+  const [issueFeeAmount, setIssueFeeAmount] = useState("150");
+  const [issueFeeReason, setIssueFeeReason] = useState("Marketplace compliance violation");
+  const [issueFeeNotes, setIssueFeeNotes] = useState("");
+  const [issueFeeEvidenceFiles, setIssueFeeEvidenceFiles] = useState<File[]>([]);
 
   async function fileToDataUrl(file: File) {
     return new Promise<string>((resolve, reject) => {
@@ -49,16 +54,12 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
     });
   }
 
-  async function collectEvidenceFiles() {
-    const picker = document.createElement("input");
-    picker.type = "file";
-    picker.multiple = true;
-    picker.accept = "image/png,image/jpeg,image/webp,application/pdf";
-    const files = await new Promise<File[]>((resolve) => {
-      picker.onchange = () => resolve(Array.from(picker.files ?? []));
-      picker.click();
-    });
-    return files;
+  function resetIssueFeeForm() {
+    setIssueFeeOpen(false);
+    setIssueFeeAmount("150");
+    setIssueFeeReason("Marketplace compliance violation");
+    setIssueFeeNotes("");
+    setIssueFeeEvidenceFiles([]);
   }
 
   async function runAction(action: "issue_fee" | "mark_paid" | "confirm_payment" | "remove_restriction" | "revoke_seller" | "appeal_accept" | "appeal_reject") {
@@ -67,27 +68,25 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
 
     let payload: Record<string, unknown> = { action };
     if (action === "issue_fee") {
-      if (!window.confirm("Issue Marketplace Compliance Recovery Fee and restrict seller actions?")) return;
-      const feeRaw = window.prompt("Fee amount in USDT", "150");
-      if (!feeRaw) return;
-      const feeAmount = Number(feeRaw);
+      const feeAmount = Number(issueFeeAmount);
       if (!Number.isFinite(feeAmount) || feeAmount <= 0) {
         setError("Fee amount must be a valid number greater than zero.");
         return;
       }
-      const reason = window.prompt("Violation reason", "Marketplace compliance violation");
-      if (!reason?.trim()) return;
-      const notes = window.prompt("Internal admin notes (required)", "");
-      if (!notes?.trim()) {
+      if (!issueFeeReason.trim()) {
+        setError("Violation reason is required.");
+        return;
+      }
+      if (!issueFeeNotes.trim()) {
         setError("Internal admin notes are required.");
         return;
       }
-      const evidenceFiles = await collectEvidenceFiles();
-      if (evidenceFiles.length === 0) {
+      if (issueFeeEvidenceFiles.length === 0) {
         setError("At least one screenshot/image/PDF evidence file is required.");
         return;
       }
-      const encodedEvidence = await Promise.all(evidenceFiles.map(async (file) => ({
+      if (!window.confirm(`Issue Marketplace Compliance Recovery Fee for ${feeAmount.toFixed(2)} USDT and restrict seller actions?`)) return;
+      const encodedEvidence = await Promise.all(issueFeeEvidenceFiles.map(async (file) => ({
         fileName: file.name,
         mimeType: file.type,
         sizeBytes: file.size,
@@ -96,8 +95,8 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
       payload = {
         action,
         feeAmount,
-        reason: reason.trim(),
-        notes: notes.trim(),
+        reason: issueFeeReason.trim(),
+        notes: issueFeeNotes.trim(),
         evidenceFiles: encodedEvidence,
       };
     }
@@ -110,8 +109,7 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
 
     if (action === "confirm_payment") {
       if (!window.confirm("Confirm seller payment, remove restriction, and restore seller privileges?")) return;
-      const reason = window.prompt("Verification note", "Recovery fee payment verified by owner");
-      payload = { action, reason: reason?.trim() || undefined };
+      payload = { action, reason: "Recovery fee payment verified by owner" };
     }
 
     if (action === "remove_restriction") {
@@ -152,6 +150,9 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
         return;
       }
       setStatus(data.enforcement);
+      if (action === "issue_fee") {
+        resetIssueFeeForm();
+      }
     } catch {
       setError("Failed to apply compliance action.");
     } finally {
@@ -208,7 +209,7 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
         )}
 
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" disabled={busy || status.restricted} onClick={() => void runAction("issue_fee")}>Issue Recovery Fee</Button>
+          <Button type="button" variant="secondary" disabled={busy || status.restricted} onClick={() => setIssueFeeOpen((current) => !current)}>Issue Recovery Fee</Button>
           <Button type="button" variant="secondary" disabled={busy || status.activeRecord?.recoveryPaymentStatus !== "awaiting_verification"} onClick={() => void runAction("confirm_payment")}>Confirm Payment</Button>
           <Button type="button" variant="secondary" disabled={busy || !status.restricted} onClick={() => void runAction("mark_paid")}>Mark Paid (Manual)</Button>
           <Button type="button" variant="secondary" disabled={busy || !status.restricted} onClick={() => void runAction("remove_restriction")}>Remove Restriction</Button>
@@ -221,6 +222,62 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
         </div>
 
         {error ? <p className="text-sm text-red-300">{error}</p> : null}
+
+        {issueFeeOpen ? (
+          <div className="space-y-3 rounded-2xl border border-white/10 bg-black/30 p-4">
+            <div>
+              <p className="text-sm font-semibold text-white">Issue Marketplace Recovery Fee</p>
+              <p className="mt-1 text-xs text-[#9CA3AF]">Choose the fee amount before issuing the restriction so the seller can see the exact recovery charge.</p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="space-y-1.5 text-sm text-[#D1D5DB]">
+                <span className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Fee amount in USDT</span>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={issueFeeAmount}
+                  onChange={(event) => setIssueFeeAmount(event.target.value)}
+                  className="h-11 w-full rounded-xl border border-white/10 bg-[#080808] px-3 text-white outline-none transition focus:border-[#C9A227]"
+                />
+              </label>
+              <label className="space-y-1.5 text-sm text-[#D1D5DB]">
+                <span className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Violation reason</span>
+                <input
+                  type="text"
+                  value={issueFeeReason}
+                  onChange={(event) => setIssueFeeReason(event.target.value)}
+                  className="h-11 w-full rounded-xl border border-white/10 bg-[#080808] px-3 text-white outline-none transition focus:border-[#C9A227]"
+                />
+              </label>
+            </div>
+            <label className="space-y-1.5 text-sm text-[#D1D5DB]">
+              <span className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Internal admin notes</span>
+              <textarea
+                value={issueFeeNotes}
+                onChange={(event) => setIssueFeeNotes(event.target.value)}
+                rows={3}
+                className="w-full rounded-xl border border-white/10 bg-[#080808] px-3 py-2 text-white outline-none transition focus:border-[#C9A227]"
+                placeholder="Document the reason for the compliance action"
+              />
+            </label>
+            <label className="space-y-1.5 text-sm text-[#D1D5DB]">
+              <span className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Evidence files</span>
+              <input
+                type="file"
+                multiple
+                accept="image/png,image/jpeg,image/webp,application/pdf"
+                onChange={(event) => setIssueFeeEvidenceFiles(Array.from(event.target.files ?? []))}
+                className="block w-full rounded-xl border border-white/10 bg-[#080808] px-3 py-2 text-sm text-[#D1D5DB] file:mr-3 file:rounded-lg file:border-0 file:bg-[#C9A227] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-black"
+              />
+              <p className="text-xs text-[#9CA3AF]">{issueFeeEvidenceFiles.length ? `${issueFeeEvidenceFiles.length} file(s) selected` : "Upload at least one screenshot, image, or PDF."}</p>
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="secondary" onClick={resetIssueFeeForm}>Cancel</Button>
+              <Button type="button" disabled={busy} onClick={() => void runAction("issue_fee")}>Issue Recovery Fee</Button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="rounded-xl border border-white/10 bg-black/25 p-3">
           <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Recent Compliance Activity</p>

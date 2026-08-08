@@ -61,7 +61,7 @@ export function SellerEnforcementRestrictionScreen({
           ) : null}
 
           <div className="mt-6 flex flex-wrap items-center gap-3">
-            <Link className={buttonVariants()} href={`/${locale}/dashboard/seller/compliance-payment`}>
+            <Link className={buttonVariants()} href="/dashboard/seller/compliance-payment" locale={locale}>
               {isAr ? "فتح صفحة الدفع" : "Open Payment Page"}
             </Link>
             <Link className={buttonVariants({ variant: "secondary" })} href={`/${locale}/support`}>
@@ -76,8 +76,8 @@ export function SellerEnforcementRestrictionScreen({
             </p>
             <p className="mt-1 leading-relaxed text-amber-50/90">
               {isAr
-                ? "الصفقات النشطة حاليًا تبقى قابلة للإكمال. هذا التقييد يمنع إنشاء أو تعديل أو تجديد العروض فقط حتى التسوية."
-                : "Existing active trades remain available for completion. This restriction blocks creating, editing, renewing, and publishing listings until resolved."}
+                ? "الصفقات النشطة حاليًا تبقى قابلة للإكمال. هذا التقييد يمنع إنشاء أو تعديل أو تجديد العروض فقط حتى التسوية، وسيتم استعادة صلاحيات البيع تلقائيًا بعد تأكيد الدفع. مخالفة مؤكدة ثانية قد تؤدي إلى سحب صفة البائع المعتمد بشكل دائم."
+                : "Existing active trades remain available for completion. This restriction blocks creating, editing, renewing, and publishing listings until resolved, and seller permissions will be restored automatically after payment is confirmed. A second confirmed violation may permanently revoke Approved Seller privileges."}
             </p>
           </div>
         </section>
