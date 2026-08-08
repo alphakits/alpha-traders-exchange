@@ -28,6 +28,14 @@ const healthyDiagnostics = {
     missingCount: 0,
     errorCode: null,
   },
+  marketIntelligence: {
+    status: "ready",
+    activeCount: 3,
+    pendingCount: 0,
+    deadCount: 0,
+    lastSuccessAt: "2026-08-08T05:00:00.000Z",
+    errorCode: null,
+  },
 };
 
 describe("Discord worker health client", () => {
@@ -129,6 +137,26 @@ describe("Discord worker health client", () => {
           missingCount: 13,
           errorCode: "token=raw-secret",
           channelId: "9".repeat(18),
+        },
+      })),
+    });
+    expect(malformed.error?.code).toBe("worker_response_invalid");
+    expect(JSON.stringify(malformed)).not.toContain("raw-secret");
+  });
+
+  it("rejects unsafe market intelligence diagnostics instead of forwarding them", async () => {
+    const malformed = await fetchDiscordWorkerDiagnostics({
+      env: proxyEnv,
+      fetch: vi.fn(async () => Response.json({
+        ...healthyDiagnostics,
+        marketIntelligence: {
+          status: "degraded",
+          activeCount: 2,
+          pendingCount: 1,
+          deadCount: 0,
+          lastSuccessAt: "not-a-date",
+          errorCode: "token=raw-secret",
+          embed: { privateAmount: 500 },
         },
       })),
     });

@@ -10,6 +10,7 @@ import {
 import type { DiscordService } from "@/lib/discord/service";
 import type {
   DiscordListingDiagnostics,
+  DiscordMarketIntelligenceDiagnostics,
   DiscordResourceDiagnostics,
 } from "@/lib/discord/diagnostics";
 import {
@@ -24,11 +25,15 @@ type ResourceHealth = {
 type ListingHealth = {
   getDiagnostics(): DiscordListingDiagnostics;
 };
+type MarketIntelligenceHealth = {
+  getDiagnostics(): DiscordMarketIntelligenceDiagnostics;
+};
 
 export type DiscordWorkerHealthServerDependencies = {
   service: HealthService;
   resources?: ResourceHealth;
   listings?: ListingHealth;
+  marketIntelligence?: MarketIntelligenceHealth;
   healthSecret: string;
   now?: () => number;
 };
@@ -57,6 +62,7 @@ export function createDiscordWorkerHealthServer({
   service,
   resources,
   listings,
+  marketIntelligence,
   healthSecret,
   now,
 }: DiscordWorkerHealthServerDependencies): Server {
@@ -94,16 +100,22 @@ export function createDiscordWorkerHealthServer({
       const serviceDiagnostics = service.getDiagnostics();
       const resourceDiagnostics = resources?.getDiagnostics();
       const listingDiagnostics = listings?.getDiagnostics();
+      const marketIntelligenceDiagnostics = marketIntelligence?.getDiagnostics();
       const diagnostics = {
         ...serviceDiagnostics,
         status:
           serviceDiagnostics.status === "healthy"
           && (!resourceDiagnostics || resourceDiagnostics.status === "ready")
           && (!listingDiagnostics || listingDiagnostics.status === "ready")
+          && (!marketIntelligenceDiagnostics
+            || marketIntelligenceDiagnostics.status === "ready")
             ? "healthy" as const
             : "degraded" as const,
         ...(resourceDiagnostics ? { resources: resourceDiagnostics } : {}),
         ...(listingDiagnostics ? { listings: listingDiagnostics } : {}),
+        ...(marketIntelligenceDiagnostics
+          ? { marketIntelligence: marketIntelligenceDiagnostics }
+          : {}),
       };
       sendJson(response, diagnostics.status === "healthy" ? 200 : 503, diagnostics);
       return;
