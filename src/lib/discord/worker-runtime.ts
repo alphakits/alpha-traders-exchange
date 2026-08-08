@@ -53,6 +53,10 @@ type WorkerRuntimeDependencies = {
     shutdown(): Promise<void>;
     getDiagnostics(): DiscordCommunityCommandDiagnostics;
   };
+  operatorReconciliation?: {
+    start(): Promise<void>;
+    shutdown(): Promise<void>;
+  };
   createHealthServer?: typeof createDiscordWorkerHealthServer;
 };
 
@@ -103,6 +107,8 @@ export class DiscordWorkerRuntime {
   private readonly marketIntelligence: WorkerRuntimeDependencies["marketIntelligence"];
   private readonly notifications: WorkerRuntimeDependencies["notifications"];
   private readonly commands: WorkerRuntimeDependencies["commands"];
+  private readonly operatorReconciliation:
+    WorkerRuntimeDependencies["operatorReconciliation"];
   private healthServer: Server | null = null;
   private startPromise: Promise<DiscordDiagnostics> | null = null;
   private shutdownPromise: Promise<void> | null = null;
@@ -116,6 +122,7 @@ export class DiscordWorkerRuntime {
     marketIntelligence,
     notifications,
     commands,
+    operatorReconciliation,
     createHealthServer = createDiscordWorkerHealthServer,
   }: WorkerRuntimeDependencies) {
     this.config = config;
@@ -127,6 +134,7 @@ export class DiscordWorkerRuntime {
     this.marketIntelligence = marketIntelligence;
     this.notifications = notifications;
     this.commands = commands;
+    this.operatorReconciliation = operatorReconciliation;
   }
 
   start(): Promise<DiscordDiagnostics> {
@@ -195,6 +203,10 @@ export class DiscordWorkerRuntime {
         await this.marketIntelligence.start();
         recordPhase("market_intelligence_scheduled");
       }
+      if (this.operatorReconciliation) {
+        await this.operatorReconciliation.start();
+        recordPhase("operator_reconciliation_ready");
+      }
       logEvent("info", {
         event: "discord_worker_started",
         outcome: "success",
@@ -222,6 +234,11 @@ export class DiscordWorkerRuntime {
 
   private async performShutdown(): Promise<void> {
     const failures: unknown[] = [];
+    try {
+      await this.operatorReconciliation?.shutdown();
+    } catch (error) {
+      failures.push(error);
+    }
     try {
       await this.notifications?.shutdown();
     } catch (error) {

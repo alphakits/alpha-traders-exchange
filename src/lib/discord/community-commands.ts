@@ -176,6 +176,12 @@ async function claimInteraction(input: {
       [input.interactionId],
     );
     if (replay.rowCount === 1) {
+      await client.query(
+        `insert into alpha_exchange.discord_interaction_audit
+           (command_name, outcome)
+         values ($1, 'replayed')`,
+        [input.commandName],
+      );
       await client.query("commit");
       return "replayed";
     }
@@ -223,6 +229,12 @@ async function claimInteraction(input: {
         input.commandName,
         outcome,
       ],
+    );
+    await client.query(
+      `insert into alpha_exchange.discord_interaction_audit
+         (command_name, outcome)
+       values ($1, $2)`,
+      [input.commandName, outcome],
     );
     await client.query("commit");
     return outcome;
