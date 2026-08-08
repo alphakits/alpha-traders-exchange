@@ -976,7 +976,7 @@ export class DiscordRestResourceManager implements DiscordResourceManager {
     resolved: ReadonlyMap<DiscordManagedResourceKey, ApiChannel>,
   ): Promise<Set<DiscordManagedResourceKey>> {
     const changed = new Set<DiscordManagedResourceKey>();
-    const updates: Array<{ id: string; position: number; parent_id: string }> = [];
+    const updates: Array<{ id: string; position: number }> = [];
     for (const parentKey of [
       "seller_category",
       "marketplace_category",
@@ -1011,7 +1011,6 @@ export class DiscordRestResourceManager implements DiscordResourceManager {
         updates.push({
           id: channel.id,
           position: definition.sortOrder,
-          parent_id: parent.id,
         });
         changed.add(definition.key);
       }
@@ -1028,7 +1027,6 @@ export class DiscordRestResourceManager implements DiscordResourceManager {
       const channel = resolved.get(definition.key);
       if (!channel) continue;
       channel.position = update.position;
-      channel.parent_id = update.parent_id;
     }
     return changed;
   }

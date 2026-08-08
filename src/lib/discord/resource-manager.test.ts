@@ -751,8 +751,13 @@ describe("Discord managed resource manager", () => {
       .slice(patchCallsBeforeRepair)
       .filter(([, options]) => Array.isArray(options.body));
     expect(orderingCalls).toHaveLength(1);
-    const orderedIds = orderingCalls[0]![1].body as Array<{ id: string }>;
+    const orderedIds = orderingCalls[0]![1].body as Array<{
+      id: string;
+      position: number;
+      parent_id?: string;
+    }>;
     expect(orderedIds.map((entry) => entry.id)).not.toContain(unrelatedId);
+    expect(orderedIds.every((entry) => entry.parent_id === undefined)).toBe(true);
     expect(orderedIds.map((entry) => entry.id)).toEqual([
       ...sellerChildren.map((key) => acceptedIds.get(key)!),
       ...marketplaceChildren.map((key) => acceptedIds.get(key)!),
