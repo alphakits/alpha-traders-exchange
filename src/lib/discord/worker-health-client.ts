@@ -6,6 +6,7 @@ import {
   type DiscordDiagnosticErrorCode,
   type DiscordDiagnostics,
   type DiscordListingDiagnostics,
+  type DiscordMarketIntelligenceDiagnostics,
   type DiscordResourceDiagnostics,
   type DiscordReadyState,
 } from "@/lib/discord/diagnostics";
@@ -141,6 +142,46 @@ function parseListingDiagnostics(value: unknown): DiscordListingDiagnostics | nu
   };
 }
 
+function parseMarketIntelligenceDiagnostics(
+  value: unknown,
+): DiscordMarketIntelligenceDiagnostics | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.status !== "ready" && candidate.status !== "degraded") return null;
+  const activeCount = nullableNonNegativeNumber(candidate.activeCount);
+  const pendingCount = nullableNonNegativeNumber(candidate.pendingCount);
+  const deadCount = nullableNonNegativeNumber(candidate.deadCount);
+  const lastSuccessAt = nullableString(candidate.lastSuccessAt, 40);
+  const errorCode = nullableString(candidate.errorCode, 64);
+  if (
+    activeCount === undefined
+    || pendingCount === undefined
+    || deadCount === undefined
+    || lastSuccessAt === undefined
+    || errorCode === undefined
+    || [activeCount, pendingCount, deadCount]
+      .some((count) => count !== null && !Number.isInteger(count))
+    || (
+      lastSuccessAt !== null
+      && (
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(lastSuccessAt)
+        || !Number.isFinite(Date.parse(lastSuccessAt))
+      )
+    )
+    || (errorCode !== null && !/^[a-z0-9_]+$/.test(errorCode))
+  ) {
+    return null;
+  }
+  return {
+    status: candidate.status,
+    activeCount,
+    pendingCount,
+    deadCount,
+    lastSuccessAt,
+    errorCode,
+  };
+}
+
 function parseWorkerDiagnostics(value: unknown): DiscordDiagnostics | null {
   if (!value || typeof value !== "object") return null;
   const candidate = value as Record<string, unknown>;
@@ -197,6 +238,14 @@ function parseWorkerDiagnostics(value: unknown): DiscordDiagnostics | null {
     if (!parsed) return null;
     listings = parsed;
   }
+  let marketIntelligence: DiscordMarketIntelligenceDiagnostics | undefined;
+  if (candidate.marketIntelligence !== undefined) {
+    const parsed = parseMarketIntelligenceDiagnostics(
+      candidate.marketIntelligence,
+    );
+    if (!parsed) return null;
+    marketIntelligence = parsed;
+  }
 
   return {
     status: candidate.status,
@@ -210,6 +259,7 @@ function parseWorkerDiagnostics(value: unknown): DiscordDiagnostics | null {
     error,
     ...(resources ? { resources } : {}),
     ...(listings ? { listings } : {}),
+    ...(marketIntelligence ? { marketIntelligence } : {}),
   };
 }
 

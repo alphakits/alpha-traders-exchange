@@ -147,4 +147,47 @@ describe("Discord worker health server", () => {
       .toBe(payload.resources.totalCount);
     expect(JSON.stringify(payload.resources)).not.toMatch(/\d{17,20}/);
   });
+
+  it("exposes only safe aggregate market intelligence diagnostics", async () => {
+    const server = createDiscordWorkerHealthServer({
+      service: { getDiagnostics: () => diagnostics },
+      marketIntelligence: {
+        getDiagnostics: () => ({
+          status: "ready",
+          activeCount: 3,
+          pendingCount: 0,
+          deadCount: 0,
+          lastSuccessAt: "2026-08-08T05:00:00.000Z",
+          errorCode: null,
+        }),
+      },
+      healthSecret,
+      now: () => now,
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    const headers = createDiscordWorkerAuthHeaders(
+      healthSecret,
+      () => now,
+      () => nonce,
+    );
+
+    const response = await fetch(`http://127.0.0.1:${port}/health/ready`, {
+      headers,
+    });
+    const payload = await response.json();
+    expect(response.status).toBe(200);
+    expect(payload.marketIntelligence).toEqual({
+      status: "ready",
+      activeCount: 3,
+      pendingCount: 0,
+      deadCount: 0,
+      lastSuccessAt: "2026-08-08T05:00:00.000Z",
+      errorCode: null,
+    });
+    expect(JSON.stringify(payload.marketIntelligence)).not.toMatch(
+      /embed|displayName|messageId|channelId|seller/i,
+    );
+  });
 });

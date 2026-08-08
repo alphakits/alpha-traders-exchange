@@ -44,6 +44,15 @@ export type DiscordListingDiagnostics = {
   errorCode: string | null;
 };
 
+export type DiscordMarketIntelligenceDiagnostics = {
+  status: "ready" | "degraded";
+  activeCount: number | null;
+  pendingCount: number | null;
+  deadCount: number | null;
+  lastSuccessAt: string | null;
+  errorCode: string | null;
+};
+
 export type DiscordDiagnostics = {
   status: "healthy" | "degraded";
   connected: boolean;
@@ -56,6 +65,7 @@ export type DiscordDiagnostics = {
   error: DiscordSafeError | null;
   resources?: DiscordResourceDiagnostics;
   listings?: DiscordListingDiagnostics;
+  marketIntelligence?: DiscordMarketIntelligenceDiagnostics;
 };
 
 export const DISCORD_SAFE_ERROR_MESSAGES: Record<
@@ -106,6 +116,14 @@ export function degradedDiscordDiagnostics(
       activeMappings: null,
       failedMappings: null,
       cooldownClaims: null,
+      errorCode: code,
+    },
+    marketIntelligence: {
+      status: "degraded",
+      activeCount: null,
+      pendingCount: null,
+      deadCount: null,
+      lastSuccessAt: null,
       errorCode: code,
     },
   };

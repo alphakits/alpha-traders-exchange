@@ -6,6 +6,7 @@ import { performance } from "node:perf_hooks";
 import type {
   DiscordDiagnostics,
   DiscordListingDiagnostics,
+  DiscordMarketIntelligenceDiagnostics,
   DiscordResourceDiagnostics,
 } from "@/lib/discord/diagnostics";
 import type { DiscordService } from "@/lib/discord/service";
@@ -34,6 +35,11 @@ type WorkerRuntimeDependencies = {
     start(): Promise<void>;
     shutdown(): Promise<void>;
     getDiagnostics(): DiscordListingDiagnostics;
+  };
+  marketIntelligence?: {
+    start(): Promise<void>;
+    shutdown(): Promise<void>;
+    getDiagnostics(): DiscordMarketIntelligenceDiagnostics;
   };
   createHealthServer?: typeof createDiscordWorkerHealthServer;
 };
@@ -82,6 +88,7 @@ export class DiscordWorkerRuntime {
   private readonly roleSync: WorkerRuntimeDependencies["roleSync"];
   private readonly resourceSync: WorkerRuntimeDependencies["resourceSync"];
   private readonly listingSync: WorkerRuntimeDependencies["listingSync"];
+  private readonly marketIntelligence: WorkerRuntimeDependencies["marketIntelligence"];
   private healthServer: Server | null = null;
   private startPromise: Promise<DiscordDiagnostics> | null = null;
   private shutdownPromise: Promise<void> | null = null;
@@ -92,6 +99,7 @@ export class DiscordWorkerRuntime {
     roleSync,
     resourceSync,
     listingSync,
+    marketIntelligence,
     createHealthServer = createDiscordWorkerHealthServer,
   }: WorkerRuntimeDependencies) {
     this.config = config;
@@ -100,6 +108,7 @@ export class DiscordWorkerRuntime {
     this.roleSync = roleSync;
     this.resourceSync = resourceSync;
     this.listingSync = listingSync;
+    this.marketIntelligence = marketIntelligence;
   }
 
   start(): Promise<DiscordDiagnostics> {
@@ -130,6 +139,7 @@ export class DiscordWorkerRuntime {
       service: this.service,
       resources: this.resourceSync,
       listings: this.listingSync,
+      marketIntelligence: this.marketIntelligence,
       healthSecret: this.config.healthSecret,
     });
 
@@ -152,6 +162,10 @@ export class DiscordWorkerRuntime {
       if (this.listingSync) {
         await this.listingSync.start();
         recordPhase("listing_sync_ready");
+      }
+      if (this.marketIntelligence) {
+        await this.marketIntelligence.start();
+        recordPhase("market_intelligence_scheduled");
       }
       logEvent("info", {
         event: "discord_worker_started",
@@ -180,6 +194,11 @@ export class DiscordWorkerRuntime {
 
   private async performShutdown(): Promise<void> {
     const failures: unknown[] = [];
+    try {
+      await this.marketIntelligence?.shutdown();
+    } catch (error) {
+      failures.push(error);
+    }
     try {
       await this.listingSync?.shutdown();
     } catch (error) {
