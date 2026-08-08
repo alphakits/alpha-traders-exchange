@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
 import { formatListingId, formatTradeId } from "@/lib/format-id";
 import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
+import { formatNotificationRelativeTime } from "@/lib/notification-time";
+import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -46,10 +48,6 @@ function notificationIcon(notification: AlphaExchangeNotification) {
   if (notification.category === "review") return Star;
   if (notification.title.toLowerCase().includes("announcement")) return Megaphone;
   return BellDot;
-}
-
-function formatTimestamp(isoDate: string, locale: AppLocale) {
-  return new Date(isoDate).toLocaleString(locale === "ar" ? "ar-EG" : "en-IL");
 }
 
 function isAnnouncement(notification: AlphaExchangeNotification) {
@@ -182,7 +180,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
       if (filter === "all" && !append && !force && offset === 0) {
         const cached = readNotificationsCache();
         if (cached && Date.now() - cached.fetchedAt <= NOTIFICATIONS_CACHE_MAX_AGE_MS) {
-          const incoming = cached.payload.notifications ?? [];
+          const incoming = sortNotificationsNewestFirst(cached.payload.notifications ?? []);
           setNotifications(incoming);
           setTotalCount(cached.payload.total ?? incoming.length);
           setUnreadCount(cached.payload.unreadCount ?? 0);
@@ -199,7 +197,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
       const response = await fetch(`/api/alpha-exchange/notifications?${params.toString()}`, { cache: "no-store" });
       if (!response.ok) throw new Error("Failed to load notifications.");
       const payload = (await response.json()) as NotificationsPayload;
-      const incoming = payload.notifications ?? [];
+      const incoming = sortNotificationsNewestFirst(payload.notifications ?? []);
       setNotifications((prev) => {
         if (!append) return incoming;
         const merged = [...prev];
@@ -210,12 +208,15 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
             seen.add(item.id);
           }
         }
-        return merged;
+        return sortNotificationsNewestFirst(merged);
       });
       setTotalCount(payload.total ?? incoming.length);
       setUnreadCount(payload.unreadCount ?? 0);
       if (filter === "all" && offset === 0) {
-        writeNotificationsCache(payload);
+        writeNotificationsCache({
+          ...payload,
+          notifications: incoming,
+        });
       }
     } catch {
       setError("Failed to load notifications.");
@@ -241,7 +242,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
       try {
         const payload = JSON.parse(messageEvent.data) as NotificationsStreamPayload;
         if (!Array.isArray(payload.notifications)) return;
-        setNotifications(payload.notifications);
+        setNotifications(sortNotificationsNewestFirst(payload.notifications));
         setUnreadCount(typeof payload.unreadCount === "number" ? payload.unreadCount : 0);
       } catch {
         // Ignore malformed stream payloads.
@@ -428,11 +429,12 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
         return;
       }
       const nextNotifications = notifications.map((item) => (item.id === notificationId ? { ...item, isRead: true } : item));
+      const sortedNextNotifications = sortNotificationsNewestFirst(nextNotifications);
       const nextUnreadCount = Math.max(0, unreadCount - 1);
-      setNotifications(nextNotifications);
+      setNotifications(sortedNextNotifications);
       setUnreadCount(nextUnreadCount);
       writeNotificationsCache({
-        notifications: nextNotifications,
+        notifications: sortedNextNotifications,
         total: totalCount,
         unreadCount: nextUnreadCount,
       });
@@ -454,7 +456,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
         setError("Failed to update notifications.");
         return;
       }
-      const nextNotifications = notifications.map((item) => ({ ...item, isRead: true }));
+      const nextNotifications = sortNotificationsNewestFirst(notifications.map((item) => ({ ...item, isRead: true })));
       setNotifications(nextNotifications);
       setUnreadCount(0);
       writeNotificationsCache({
@@ -549,7 +551,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <p className="text-sm font-medium text-white">{formatNotificationTitle(notification)}</p>
-                            <span className="text-[11px] text-[#9CA3AF]">{formatTimestamp(notification.createdAt, locale)}</span>
+                            <span className="text-[11px] text-[#9CA3AF]">{formatNotificationRelativeTime(notification.createdAt, locale)}</span>
                           </div>
                           <p className="mt-1 text-sm text-[#D1D5DB]">{formatNotificationMessage(notification)}</p>
                           <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-[#C9A227]">

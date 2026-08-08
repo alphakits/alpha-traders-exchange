@@ -1352,6 +1352,61 @@ textarea {
   animation: page-fade-up 320ms ease-out both;
 }
 
+.admin-dashboard-shell {
+  max-width: min(128rem, calc(100vw - 1.5rem));
+}
+
+.admin-dashboard-shell .admin-main-panel {
+  gap: 1.25rem;
+}
+
+.admin-dashboard-shell .admin-kpi-card {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 18px 34px rgba(0, 0, 0, 0.32);
+}
+
+.admin-dashboard-shell .premium-card {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025), 0 14px 30px rgba(0, 0, 0, 0.24);
+}
+
+.admin-dashboard-shell .premium-card h3 {
+  letter-spacing: -0.012em;
+}
+
+.admin-dashboard-shell .overflow-x-auto {
+  scrollbar-width: thin;
+}
+
+.admin-dashboard-shell .overflow-x-auto table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.admin-dashboard-shell .overflow-x-auto table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: rgba(12, 12, 12, 0.96);
+  backdrop-filter: blur(3px);
+}
+
+.admin-dashboard-shell .overflow-x-auto table tbody td {
+  padding-top: 0.92rem;
+  padding-bottom: 0.92rem;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.admin-dashboard-shell .overflow-x-auto table tbody tr:hover td {
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.admin-dashboard-shell .overflow-x-auto table button,
+.admin-dashboard-shell .overflow-x-auto table a[role="button"],
+.admin-dashboard-shell .overflow-x-auto table .button-like {
+  min-height: 2.5rem;
+}
+
 .page-title {
   @apply text-3xl font-semibold leading-tight tracking-tight md:text-4xl;
 }
