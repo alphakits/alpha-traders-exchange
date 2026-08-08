@@ -65,5 +65,10 @@ describe("Discord listing message", () => {
     expect(isSafeDiscordImageUrl("http://example.com/photo.png")).toBe(false);
     expect(isSafeDiscordImageUrl("https://user:secret@example.com/photo.png")).toBe(false);
     expect(isSafeDiscordImageUrl("https://localhost/photo.png")).toBe(false);
+    expect(isSafeDiscordImageUrl("https://10.0.0.8/photo.png")).toBe(false);
+    expect(isSafeDiscordImageUrl("https://169.254.169.254/latest/meta-data")).toBe(false);
+    expect(isSafeDiscordImageUrl("https://seller.internal/photo.png")).toBe(false);
+    expect(isSafeDiscordImageUrl("https://[fd00::1]/photo.png")).toBe(false);
+    expect(isSafeDiscordImageUrl("https://[::ffff:127.0.0.1]/photo.png")).toBe(false);
   });
 });

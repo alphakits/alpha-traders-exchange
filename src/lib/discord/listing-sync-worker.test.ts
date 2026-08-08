@@ -4,7 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { buildAuthoritativeDiscordListingSnapshot } from "@/lib/discord/listing-sync-worker";
+import {
+  buildAuthoritativeDiscordListingSnapshot,
+  determineDiscordListingLifecycle,
+} from "@/lib/discord/listing-sync-worker";
 
 describe("Discord listing authoritative snapshot", () => {
   it("uses measured trust data, real presence, and a safe seller image", () => {
@@ -93,5 +96,60 @@ describe("Discord listing authoritative snapshot", () => {
 
     expect(snapshot.sellerDisplayName).toBe("Alpha Traders Seller");
     expect(JSON.stringify(snapshot)).not.toContain("Private Legal Name");
+  });
+});
+
+describe("Discord listing lifecycle decisions", () => {
+  const active = {
+    mappingState: "active",
+    listingStatus: "active",
+    expiresAt: new Date("2026-08-09T00:00:00.000Z"),
+    listingPayload: {
+      approvalStatus: "approved",
+      availableAmount: "100",
+    },
+    sellerStatus: "approved_seller",
+    userPayload: {},
+    identityLinked: true,
+  };
+  const now = new Date("2026-08-08T00:00:00.000Z").getTime();
+
+  it("never resurrects terminal mappings when reordered jobs arrive", () => {
+    for (const mappingState of ["sold", "deleted", "failed"]) {
+      expect(determineDiscordListingLifecycle(
+        { ...active, mappingState },
+        now,
+      )).toBe("terminal");
+    }
+  });
+
+  it("deletes closed, expired, and unapproved listings even when their amount is zero", () => {
+    expect(determineDiscordListingLifecycle({
+      ...active,
+      listingStatus: "closed",
+      listingPayload: { ...active.listingPayload, availableAmount: "0" },
+    }, now)).toBe("delete");
+    expect(determineDiscordListingLifecycle({
+      ...active,
+      expiresAt: new Date(now),
+      listingPayload: { ...active.listingPayload, availableAmount: "0" },
+    }, now)).toBe("delete");
+    expect(determineDiscordListingLifecycle({
+      ...active,
+      listingStatus: "completed",
+      listingPayload: { approvalStatus: "pending", availableAmount: "0" },
+    }, now)).toBe("delete");
+  });
+
+  it("retains completed and zero-availability active listings as SOLD history", () => {
+    expect(determineDiscordListingLifecycle({
+      ...active,
+      listingStatus: "completed",
+      listingPayload: { ...active.listingPayload, availableAmount: "0" },
+    }, now)).toBe("sold");
+    expect(determineDiscordListingLifecycle({
+      ...active,
+      listingPayload: { ...active.listingPayload, availableAmount: "0" },
+    }, now)).toBe("sold");
   });
 });

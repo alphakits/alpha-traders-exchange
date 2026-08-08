@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
+import { isIP } from "node:net";
 
 import {
   DiscordAPIError,
@@ -56,6 +57,41 @@ function levelLabel(level: string | null): string | null {
   return `${level[0]?.toUpperCase()}${level.slice(1).toLowerCase()} Seller`;
 }
 
+function isPrivateOrReservedHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (
+    normalized === "localhost"
+    || normalized.endsWith(".localhost")
+    || normalized.endsWith(".local")
+    || normalized.endsWith(".internal")
+  ) {
+    return true;
+  }
+  const ipVersion = isIP(normalized);
+  if (ipVersion === 4) {
+    const [first, second] = normalized.split(".").map(Number);
+    return first === 0
+      || first === 10
+      || first === 127
+      || (first === 100 && second >= 64 && second <= 127)
+      || (first === 169 && second === 254)
+      || (first === 172 && second >= 16 && second <= 31)
+      || (first === 192 && second === 168)
+      || (first === 198 && (second === 18 || second === 19))
+      || first >= 224;
+  }
+  if (ipVersion === 6) {
+    return normalized === "::"
+      || normalized === "::1"
+      || normalized.startsWith("::ffff:")
+      || normalized.startsWith("fc")
+      || normalized.startsWith("fd")
+      || /^fe[89ab]/.test(normalized)
+      || normalized.startsWith("ff");
+  }
+  return false;
+}
+
 export function isSafeDiscordImageUrl(value: unknown): value is string {
   if (typeof value !== "string" || value.length > 2048) return false;
   try {
@@ -63,7 +99,7 @@ export function isSafeDiscordImageUrl(value: unknown): value is string {
     return parsed.protocol === "https:"
       && parsed.username === ""
       && parsed.password === ""
-      && !["localhost", "127.0.0.1", "::1"].includes(parsed.hostname.toLowerCase());
+      && !isPrivateOrReservedHostname(parsed.hostname);
   } catch {
     return false;
   }

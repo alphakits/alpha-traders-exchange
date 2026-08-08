@@ -62,6 +62,18 @@ type ListingSyncWorkerDependencies = {
   siteUrl?: string;
 };
 
+type DiscordListingLifecycleInput = {
+  mappingState: string;
+  listingStatus: string | null;
+  expiresAt: Date | null;
+  listingPayload: Record<string, unknown> | null;
+  sellerStatus: string | null;
+  userPayload: Record<string, unknown> | null;
+  identityLinked: boolean;
+};
+
+export type DiscordListingLifecycleAction = "terminal" | "delete" | "sold" | "active";
+
 class DiscordListingWorkerError extends Error {
   readonly code: string;
 
@@ -245,22 +257,34 @@ async function readAuthoritativeState(
   return result.rows[0] ?? null;
 }
 
-function isSellerEligible(row: AuthoritativeRow): boolean {
-  return row.seller_status === "approved_seller"
-    && row.identity_linked
-    && row.user_payload?.disabled !== true;
-}
-
-function isSold(row: AuthoritativeRow): boolean {
-  return row.listing_status === "completed"
-    || amountValue(row.listing_payload?.availableAmount) <= 0;
-}
-
-function isListingActive(row: AuthoritativeRow, now: number): boolean {
-  return row.listing_status === "active"
-    && row.listing_payload?.approvalStatus === "approved"
-    && amountValue(row.listing_payload.availableAmount) > 0
-    && (!row.expires_at || row.expires_at.getTime() > now);
+export function determineDiscordListingLifecycle(
+  input: DiscordListingLifecycleInput,
+  now: number,
+): DiscordListingLifecycleAction {
+  if (["sold", "deleted", "failed"].includes(input.mappingState)) {
+    return "terminal";
+  }
+  if (
+    input.mappingState === "delete_pending"
+    || !input.listingPayload
+    || !input.userPayload
+    || input.sellerStatus !== "approved_seller"
+    || !input.identityLinked
+    || input.userPayload.disabled === true
+    || input.listingPayload.approvalStatus !== "approved"
+  ) {
+    return "delete";
+  }
+  if (input.listingStatus === "completed") {
+    return "sold";
+  }
+  if (
+    input.listingStatus !== "active"
+    || (input.expiresAt !== null && input.expiresAt.getTime() <= now)
+  ) {
+    return "delete";
+  }
+  return amountValue(input.listingPayload.availableAmount) <= 0 ? "sold" : "active";
 }
 
 function assertManagedChannel(row: AuthoritativeRow): void {
@@ -425,15 +449,22 @@ async function reconcileJob(
     await completeJob(client, job, "stale_event");
     return;
   }
+  const lifecycle = determineDiscordListingLifecycle({
+    mappingState: row.mapping_state,
+    listingStatus: row.listing_status,
+    expiresAt: row.expires_at,
+    listingPayload: row.listing_payload,
+    sellerStatus: row.seller_status,
+    userPayload: row.user_payload,
+    identityLinked: row.identity_linked,
+  }, Date.now());
+  if (lifecycle === "terminal") {
+    await completeJob(client, job, "terminal_mapping");
+    return;
+  }
   assertManagedChannel(row);
 
-  if (
-    row.mapping_state === "delete_pending"
-    || !row.listing_payload
-    || !row.user_payload
-    || !isSellerEligible(row)
-    || (!isSold(row) && !isListingActive(row, Date.now()))
-  ) {
+  if (lifecycle === "delete") {
     if (row.message_id) {
       await publisher.deleteMessage({
         channelId: row.channel_id,
@@ -444,9 +475,16 @@ async function reconcileJob(
     return;
   }
 
-  if (isSold(row)) {
+  if (lifecycle === "sold") {
     if (!row.message_id || !row.snapshot) {
       await markDeleted(client, job, "sold_before_publish");
+      return;
+    }
+    if (!await publisher.messageExists({
+      channelId: row.channel_id,
+      messageId: row.message_id,
+    })) {
+      await markDeleted(client, job, "sold_message_missing");
       return;
     }
     await publisher.updateMessage({
@@ -470,6 +508,10 @@ async function reconcileJob(
     return;
   }
 
+  if (!row.listing_payload || !row.user_payload) {
+    await markDeleted(client, job, "authoritative_state_missing");
+    return;
+  }
   const snapshot = buildAuthoritativeDiscordListingSnapshot({
     listing: row.listing_payload,
     seller: row.user_payload,

@@ -31,5 +31,7 @@ describe("Discord listing sharing migration", () => {
     expect(source).toContain("enqueue_discord_listing_seller_change");
     expect(source).toContain("enqueue_discord_listing_trust_change");
     expect(source).toContain("enqueue_discord_listing_identity_revocation");
+    expect(source).toContain("after insert or delete or update of status, expires_at, payload");
+    expect(source).toContain("after insert or delete or update of payload");
   });
 });

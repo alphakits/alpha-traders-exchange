@@ -143,6 +143,7 @@ language plpgsql
 as $$
 declare
   mapping_id uuid;
+  target_listing_id text;
 begin
   if tg_op = 'UPDATE'
      and old.status is not distinct from new.status
@@ -151,21 +152,25 @@ begin
     return new;
   end if;
 
+  target_listing_id := case when tg_op = 'DELETE' then old.id else new.id end;
   for mapping_id in
     select id
       from alpha_exchange.discord_listing_messages
-     where listing_id = new.id
+     where listing_id = target_listing_id
        and state in ('queued', 'publishing', 'active', 'update_pending', 'delete_pending')
   loop
     perform alpha_exchange.enqueue_discord_listing_mapping(mapping_id, 'reconcile');
   end loop;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
   return new;
 end
 $$;
 
 drop trigger if exists enqueue_discord_listing_row_change on alpha_exchange.listings;
 create trigger enqueue_discord_listing_row_change
-after insert or update of status, expires_at, payload on alpha_exchange.listings
+after insert or delete or update of status, expires_at, payload on alpha_exchange.listings
 for each row
 execute function alpha_exchange.enqueue_discord_listing_row_change();
 
@@ -205,26 +210,31 @@ language plpgsql
 as $$
 declare
   mapping_id uuid;
+  target_seller_id text;
 begin
   if tg_op = 'UPDATE' and old.payload is not distinct from new.payload then
     return new;
   end if;
 
+  target_seller_id := case when tg_op = 'DELETE' then old.seller_id else new.seller_id end;
   for mapping_id in
     select id
       from alpha_exchange.discord_listing_messages
-     where seller_id = new.seller_id
+     where seller_id = target_seller_id
        and state in ('queued', 'publishing', 'active', 'update_pending', 'delete_pending')
   loop
     perform alpha_exchange.enqueue_discord_listing_mapping(mapping_id, 'reconcile');
   end loop;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
   return new;
 end
 $$;
 
 drop trigger if exists enqueue_discord_listing_trust_change on alpha_exchange.trust_snapshots;
 create trigger enqueue_discord_listing_trust_change
-after insert or update of payload on alpha_exchange.trust_snapshots
+after insert or delete or update of payload on alpha_exchange.trust_snapshots
 for each row
 execute function alpha_exchange.enqueue_discord_listing_trust_change();
 
