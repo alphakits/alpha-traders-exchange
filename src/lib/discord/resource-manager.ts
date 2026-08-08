@@ -53,6 +53,7 @@ export type DiscordReconciledResource = {
 
 export type DiscordResourceOperationErrorCode =
   | "approved_role_missing"
+  | "channel_permission_rejected"
   | "channel_limit_reached"
   | "excessive_bot_permissions"
   | "missing_channel_permissions"
@@ -60,6 +61,7 @@ export type DiscordResourceOperationErrorCode =
   | "missing_manage_roles"
   | "reconciliation_lease_lost"
   | "role_hierarchy"
+  | "unsafe_guild_role_permissions"
   | "api_failure";
 
 type PermissionOverwrite = {
@@ -81,6 +83,10 @@ type ApiRole = {
   id: string;
   permissions: string;
   position: number;
+  managed?: boolean;
+  tags?: {
+    bot_id?: string;
+  };
 };
 
 type ApiMember = {
@@ -193,27 +199,37 @@ const BOT_PUBLISH =
   | PermissionFlagsBits.ManageChannels
   | PermissionFlagsBits.SendMessages
   | PermissionFlagsBits.EmbedLinks
-  | PermissionFlagsBits.ManageMessages
-  | PermissionFlagsBits.ManageRoles;
+  | PermissionFlagsBits.ManageMessages;
 const PRIVILEGE_ESCALATION_PERMISSIONS =
   PermissionFlagsBits.ManageChannels
   | PermissionFlagsBits.ManageMessages
   | PermissionFlagsBits.ManageRoles
   | PermissionFlagsBits.ManageWebhooks
   | PermissionFlagsBits.UseExternalApps;
+const BOT_UNMANAGEABLE_OVERWRITE_PERMISSIONS =
+  PermissionFlagsBits.Administrator
+  | PermissionFlagsBits.ManageRoles
+  | PermissionFlagsBits.ManageWebhooks
+  | PermissionFlagsBits.ManageThreads
+  | PermissionFlagsBits.PinMessages;
+const BOT_MANAGEABLE_PRIVILEGE_ESCALATION_PERMISSIONS =
+  PRIVILEGE_ESCALATION_PERMISSIONS
+  & ~BOT_UNMANAGEABLE_OVERWRITE_PERMISSIONS;
 const USER_POSTING =
   PermissionFlagsBits.SendMessages
   | PermissionFlagsBits.AddReactions
   | PermissionFlagsBits.CreatePublicThreads
   | PermissionFlagsBits.CreatePrivateThreads
   | PermissionFlagsBits.SendMessagesInThreads
-  | PermissionFlagsBits.ManageThreads
-  | PermissionFlagsBits.PinMessages
   | PermissionFlagsBits.UseApplicationCommands
   | PermissionFlagsBits.SendVoiceMessages
   | PermissionFlagsBits.SendPolls
-  | PRIVILEGE_ESCALATION_PERMISSIONS;
-const MANAGED_PERMISSION_MASK = VIEW_AND_READ | BOT_PUBLISH | USER_POSTING;
+  | BOT_MANAGEABLE_PRIVILEGE_ESCALATION_PERMISSIONS;
+const MANAGED_PERMISSION_MASK =
+  VIEW_AND_READ
+  | BOT_PUBLISH
+  | USER_POSTING
+  | BOT_UNMANAGEABLE_OVERWRITE_PERMISSIONS;
 const REQUIRED_BOT_PERMISSIONS =
   PermissionFlagsBits.ManageRoles
   | PermissionFlagsBits.ManageChannels
@@ -371,6 +387,10 @@ function hasTrustedStaffPermission(
   if (overwrite.type !== 0) return false;
   const role = roles.find((candidate) => candidate.id === overwrite.id);
   if (!role) return false;
+  return hasTrustedStaffRolePermission(role);
+}
+
+function hasTrustedStaffRolePermission(role: ApiRole): boolean {
   const permissions = BigInt(role.permissions);
   return TRUSTED_STAFF_PERMISSIONS.some(
     (permission) => (permissions & permission) === permission,
@@ -380,11 +400,17 @@ function hasTrustedStaffPermission(
 function unsafeUntrustedAllowMask(
   definition: ResourceDefinition,
 ): bigint {
-  if (definition.publicRead) return USER_POSTING;
-  if (definition.resourceType === "category" || definition.sellerCanSend) {
-    return PermissionFlagsBits.ViewChannel | PRIVILEGE_ESCALATION_PERMISSIONS;
+  if (definition.publicRead) {
+    return USER_POSTING | BOT_UNMANAGEABLE_OVERWRITE_PERMISSIONS;
   }
-  return PermissionFlagsBits.ViewChannel | USER_POSTING;
+  if (definition.resourceType === "category" || definition.sellerCanSend) {
+    return PermissionFlagsBits.ViewChannel
+      | PRIVILEGE_ESCALATION_PERMISSIONS
+      | BOT_UNMANAGEABLE_OVERWRITE_PERMISSIONS;
+  }
+  return PermissionFlagsBits.ViewChannel
+    | USER_POSTING
+    | BOT_UNMANAGEABLE_OVERWRITE_PERMISSIONS;
 }
 
 export function managedResourceOverwrites(input: {
@@ -415,21 +441,20 @@ export function managedResourceOverwrites(input: {
         allow: BigInt(0),
         deny:
           PermissionFlagsBits.ViewChannel
-          | PRIVILEGE_ESCALATION_PERMISSIONS,
+          | PermissionFlagsBits.ManageChannels,
       },
       {
         id: approvedSellerRoleId,
         type: 0,
         allow: VIEW_AND_READ,
-        deny: PRIVILEGE_ESCALATION_PERMISSIONS,
+        deny: PermissionFlagsBits.ManageChannels,
       },
       {
         id: botId,
         type: 1,
         allow:
           VIEW_AND_READ
-          | PermissionFlagsBits.ManageChannels
-          | PermissionFlagsBits.ManageRoles,
+          | PermissionFlagsBits.ManageChannels,
         deny: BigInt(0),
       },
     ];
@@ -442,7 +467,7 @@ export function managedResourceOverwrites(input: {
       allow: BigInt(0),
       deny:
         PermissionFlagsBits.ViewChannel
-        | PRIVILEGE_ESCALATION_PERMISSIONS,
+        | BOT_MANAGEABLE_PRIVILEGE_ESCALATION_PERMISSIONS,
     },
     {
       id: approvedSellerRoleId,
@@ -454,7 +479,7 @@ export function managedResourceOverwrites(input: {
             : BigInt(0)
         ),
       deny: definition.sellerCanSend
-        ? PRIVILEGE_ESCALATION_PERMISSIONS
+        ? BOT_MANAGEABLE_PRIVILEGE_ESCALATION_PERMISSIONS
         : USER_POSTING,
     },
     { id: botId, type: 1, allow: BOT_PUBLISH, deny: BigInt(0) },
@@ -579,11 +604,6 @@ export class DiscordRestResourceManager implements DiscordResourceManager {
           cause: error,
         });
       }
-      if (code === 50001 || code === 50013) {
-        throw new DiscordResourceOperationError("missing_channel_permissions", {
-          cause: error,
-        });
-      }
       throw new DiscordResourceOperationError("api_failure", { cause: error });
     }
   }
@@ -630,6 +650,19 @@ export class DiscordRestResourceManager implements DiscordResourceManager {
     if (!permissions.has(REQUIRED_BOT_PERMISSIONS, false)) {
       throw new DiscordResourceOperationError("missing_channel_permissions");
     }
+    const unsafeGuildRole = roles.find((role) =>
+      role.tags?.bot_id !== botId
+      && (
+        role.id === this.guildId
+        || role.id === approvedSellerRoleId
+        || !hasTrustedStaffRolePermission(role)
+      )
+      && (
+        BigInt(role.permissions) & BOT_UNMANAGEABLE_OVERWRITE_PERMISSIONS
+      ) !== BigInt(0));
+    if (unsafeGuildRole) {
+      throw new DiscordResourceOperationError("unsafe_guild_role_permissions");
+    }
 
     const approvedRole = roles.find((role) => role.id === approvedSellerRoleId);
     if (!approvedRole) {
@@ -655,28 +688,39 @@ export class DiscordRestResourceManager implements DiscordResourceManager {
       approvedSellerRoleId: input.approvedSellerRoleId,
       botId: input.botId,
     });
-    const created = await this.rest.post(Routes.guildChannels(this.guildId), {
-      body: {
-        name: provisioningName(
-          input.definition.key,
-          input.provisioningToken,
-        ),
-        type: channelType(input.definition.resourceType),
-        ...(input.definition.resourceType === "text_channel"
-          ? {
-              parent_id: input.parentId,
-              topic: input.definition.topic,
-            }
-          : {}),
-        permission_overwrites: overwrites.map((overwrite) => ({
-          id: overwrite.id,
-          type: overwrite.type,
-          allow: overwrite.allow.toString(),
-          deny: overwrite.deny.toString(),
-        })),
-      },
-      reason: `Alpha Traders managed Discord resource: ${input.definition.key}`,
-    }) as ApiChannel;
+    let created: ApiChannel;
+    try {
+      created = await this.rest.post(Routes.guildChannels(this.guildId), {
+        body: {
+          name: provisioningName(
+            input.definition.key,
+            input.provisioningToken,
+          ),
+          type: channelType(input.definition.resourceType),
+          ...(input.definition.resourceType === "text_channel"
+            ? {
+                parent_id: input.parentId,
+                topic: input.definition.topic,
+              }
+            : {}),
+          permission_overwrites: overwrites.map((overwrite) => ({
+            id: overwrite.id,
+            type: overwrite.type,
+            allow: overwrite.allow.toString(),
+            deny: overwrite.deny.toString(),
+          })),
+        },
+        reason: `Alpha Traders managed Discord resource: ${input.definition.key}`,
+      }) as ApiChannel;
+    } catch (error) {
+      const code = apiErrorCode(error);
+      if (code === 50001 || code === 50013) {
+        throw new DiscordResourceOperationError("channel_permission_rejected", {
+          cause: error,
+        });
+      }
+      throw error;
+    }
     if (
       !isSnowflake(created.id)
       || created.type !== channelType(input.definition.resourceType)
@@ -701,90 +745,105 @@ export class DiscordRestResourceManager implements DiscordResourceManager {
     approvedSellerRoleId: string;
     botId: string;
   }): Promise<boolean> {
-    let repaired = false;
     const expectedParent = input.definition.resourceType === "category"
       ? null
       : input.parentId;
-    if (
-      input.channel.name !== input.displayName
-      || input.channel.parent_id !== expectedParent
-    ) {
-      await this.rest.patch(Routes.channel(input.channel.id), {
-        body: {
-          ...(input.channel.name !== input.displayName
-            ? { name: input.displayName }
-            : {}),
-          ...(input.channel.parent_id !== expectedParent
-            ? { parent_id: expectedParent }
-            : {}),
-        },
-        reason: `Alpha Traders managed Discord resource repair: ${input.definition.key}`,
-      });
-      input.channel.name = input.displayName;
-      input.channel.parent_id = expectedParent;
-      repaired = true;
-    }
-
     const desiredOverwrites = managedResourceOverwrites({
       definition: input.definition,
       guildId: this.guildId,
       approvedSellerRoleId: input.approvedSellerRoleId,
       botId: input.botId,
     });
-    input.channel.permission_overwrites ??= [];
+    const nextOverwrites = (input.channel.permission_overwrites ?? []).map(
+      (overwrite) => ({ ...overwrite }),
+    );
+    let permissionsChanged = false;
     for (const desired of desiredOverwrites) {
-      const current = input.channel.permission_overwrites.find(
+      const current = nextOverwrites.find(
         (overwrite) => overwrite.id === desired.id,
       );
       if (overwriteMatches(current, desired)) continue;
       const replacement = replaceManagedPermissions(current, desired);
-      await this.rest.put(
-        Routes.channelPermission(input.channel.id, desired.id),
-        {
-          body: { type: desired.type, ...replacement },
-          reason: `Alpha Traders managed Discord permissions: ${input.definition.key}`,
-        },
-      );
       const updated = {
         id: desired.id,
         type: desired.type,
         ...replacement,
       };
       if (current) Object.assign(current, updated);
-      else input.channel.permission_overwrites.push(updated);
-      repaired = true;
+      else nextOverwrites.push(updated);
+      permissionsChanged = true;
     }
 
     const managedSubjectIds = new Set(
       desiredOverwrites.map((overwrite) => overwrite.id),
     );
     const unsafeAllowMask = unsafeUntrustedAllowMask(input.definition);
-    for (const current of input.channel.permission_overwrites) {
-      if (
-        managedSubjectIds.has(current.id)
-        || hasTrustedStaffPermission(current, input.roles)
-      ) {
-        continue;
-      }
+    for (const current of nextOverwrites) {
+      if (hasTrustedStaffPermission(current, input.roles)) continue;
       const currentAllow = BigInt(current.allow);
-      if ((currentAllow & unsafeAllowMask) === BigInt(0)) continue;
+      const currentDeny = BigInt(current.deny);
+      const removableAllowMask = managedSubjectIds.has(current.id)
+        ? BOT_UNMANAGEABLE_OVERWRITE_PERMISSIONS
+        : unsafeAllowMask;
       const replacement = {
-        type: current.type,
-        allow: (currentAllow & ~unsafeAllowMask).toString(),
-        deny: current.deny,
+        allow: (currentAllow & ~removableAllowMask).toString(),
+        deny: (
+          currentDeny & ~BOT_UNMANAGEABLE_OVERWRITE_PERMISSIONS
+        ).toString(),
       };
-      await this.rest.put(
-        Routes.channelPermission(input.channel.id, current.id),
-        {
-          body: replacement,
-          reason:
-            `Alpha Traders seller access boundary repair: ${input.definition.key}`,
-        },
-      );
+      if (
+        replacement.allow === current.allow
+        && replacement.deny === current.deny
+      ) continue;
       Object.assign(current, replacement);
-      repaired = true;
+      permissionsChanged = true;
     }
-    return repaired;
+    const patchBody: {
+      name?: string;
+      parent_id?: string | null;
+      permission_overwrites?: PermissionOverwrite[];
+    } = {
+      ...(input.channel.name !== input.displayName
+        ? { name: input.displayName }
+        : {}),
+      ...(input.channel.parent_id !== expectedParent
+        ? { parent_id: expectedParent }
+        : {}),
+    };
+    if (permissionsChanged) {
+      if (nextOverwrites.some((overwrite) =>
+        (
+          (BigInt(overwrite.allow) | BigInt(overwrite.deny))
+          & BOT_UNMANAGEABLE_OVERWRITE_PERMISSIONS
+        ) !== BigInt(0))) {
+        throw new DiscordResourceOperationError("channel_permission_rejected");
+      }
+      patchBody.permission_overwrites = nextOverwrites;
+    }
+    if (Object.keys(patchBody).length === 0) return false;
+    try {
+      await this.rest.patch(Routes.channel(input.channel.id), {
+        body: patchBody,
+        reason: `Alpha Traders managed Discord resource repair: ${input.definition.key}`,
+      });
+    } catch (error) {
+      const code = apiErrorCode(error);
+      if (
+        patchBody.permission_overwrites
+        && (code === 50001 || code === 50013)
+      ) {
+        throw new DiscordResourceOperationError("channel_permission_rejected", {
+          cause: error,
+        });
+      }
+      throw error;
+    }
+    input.channel.name = input.displayName;
+    input.channel.parent_id = expectedParent;
+    if (permissionsChanged) {
+      input.channel.permission_overwrites = nextOverwrites;
+    }
+    return true;
   }
 }
 

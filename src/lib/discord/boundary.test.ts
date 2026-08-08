@@ -44,6 +44,6 @@ describe("Discord worker trust boundary", () => {
       readFileSync(resolve("src/lib/discord/resource-sync-worker.ts"), "utf8"),
     ].join("\n");
     expect(source).not.toMatch(/["']\d{17,20}["']/);
-    expect(source.match(/PermissionFlagsBits\.Administrator/g)).toHaveLength(1);
+    expect(source.match(/PermissionFlagsBits\.Administrator/g)).toHaveLength(2);
   });
 });
