@@ -11,6 +11,7 @@ export type DiscordReadyState =
 export type DiscordDiagnosticErrorCode =
   | "configuration_invalid"
   | "login_failed"
+  | "privileged_intent_required"
   | "application_mismatch"
   | "guild_verification_failed"
   | "gateway_error"
@@ -53,6 +54,23 @@ export type DiscordMarketIntelligenceDiagnostics = {
   errorCode: string | null;
 };
 
+export type DiscordCommunityNotificationDiagnostics = {
+  status: "ready" | "degraded";
+  pendingCount: number | null;
+  deadCount: number | null;
+  suppressedCount: number | null;
+  lastDeliveredAt: string | null;
+  errorCode: string | null;
+};
+
+export type DiscordCommunityCommandDiagnostics = {
+  status: "ready" | "degraded";
+  registeredCount: number | null;
+  definitionHash: string | null;
+  lastReconciledAt: string | null;
+  errorCode: string | null;
+};
+
 export type DiscordDiagnostics = {
   status: "healthy" | "degraded";
   connected: boolean;
@@ -66,6 +84,9 @@ export type DiscordDiagnostics = {
   resources?: DiscordResourceDiagnostics;
   listings?: DiscordListingDiagnostics;
   marketIntelligence?: DiscordMarketIntelligenceDiagnostics;
+  notifications?: DiscordCommunityNotificationDiagnostics;
+  commands?: DiscordCommunityCommandDiagnostics;
+  requiredPrivilegedIntents?: readonly ["GuildMembers"];
 };
 
 export const DISCORD_SAFE_ERROR_MESSAGES: Record<
@@ -75,6 +96,8 @@ export const DISCORD_SAFE_ERROR_MESSAGES: Record<
   configuration_invalid:
     "Discord service configuration is invalid. Check DISCORD_BOT_TOKEN, DISCORD_APPLICATION_ID, and DISCORD_GUILD_ID.",
   login_failed: "Discord gateway login failed.",
+  privileged_intent_required:
+    "Discord Guild Members privileged intent is required for welcome delivery and must be enabled in the Developer Portal.",
   application_mismatch: "The connected Discord bot does not match the configured application.",
   guild_verification_failed: "The configured Discord guild could not be verified.",
   gateway_error: "The Discord gateway reported a connection error.",
@@ -126,5 +149,21 @@ export function degradedDiscordDiagnostics(
       lastSuccessAt: null,
       errorCode: code,
     },
+    notifications: {
+      status: "degraded",
+      pendingCount: null,
+      deadCount: null,
+      suppressedCount: null,
+      lastDeliveredAt: null,
+      errorCode: code,
+    },
+    commands: {
+      status: "degraded",
+      registeredCount: null,
+      definitionHash: null,
+      lastReconciledAt: null,
+      errorCode: code,
+    },
+    requiredPrivilegedIntents: ["GuildMembers"],
   };
 }

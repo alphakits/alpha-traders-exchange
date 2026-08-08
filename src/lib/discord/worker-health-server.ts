@@ -12,6 +12,8 @@ import type {
   DiscordListingDiagnostics,
   DiscordMarketIntelligenceDiagnostics,
   DiscordResourceDiagnostics,
+  DiscordCommunityCommandDiagnostics,
+  DiscordCommunityNotificationDiagnostics,
 } from "@/lib/discord/diagnostics";
 import {
   DISCORD_WORKER_AUTH_HEADERS,
@@ -28,12 +30,20 @@ type ListingHealth = {
 type MarketIntelligenceHealth = {
   getDiagnostics(): DiscordMarketIntelligenceDiagnostics;
 };
+type NotificationHealth = {
+  getDiagnostics(): DiscordCommunityNotificationDiagnostics;
+};
+type CommandHealth = {
+  getDiagnostics(): DiscordCommunityCommandDiagnostics;
+};
 
 export type DiscordWorkerHealthServerDependencies = {
   service: HealthService;
   resources?: ResourceHealth;
   listings?: ListingHealth;
   marketIntelligence?: MarketIntelligenceHealth;
+  notifications?: NotificationHealth;
+  commands?: CommandHealth;
   healthSecret: string;
   now?: () => number;
 };
@@ -63,6 +73,8 @@ export function createDiscordWorkerHealthServer({
   resources,
   listings,
   marketIntelligence,
+  notifications,
+  commands,
   healthSecret,
   now,
 }: DiscordWorkerHealthServerDependencies): Server {
@@ -101,6 +113,8 @@ export function createDiscordWorkerHealthServer({
       const resourceDiagnostics = resources?.getDiagnostics();
       const listingDiagnostics = listings?.getDiagnostics();
       const marketIntelligenceDiagnostics = marketIntelligence?.getDiagnostics();
+      const notificationDiagnostics = notifications?.getDiagnostics();
+      const commandDiagnostics = commands?.getDiagnostics();
       const diagnostics = {
         ...serviceDiagnostics,
         status:
@@ -109,6 +123,9 @@ export function createDiscordWorkerHealthServer({
           && (!listingDiagnostics || listingDiagnostics.status === "ready")
           && (!marketIntelligenceDiagnostics
             || marketIntelligenceDiagnostics.status === "ready")
+          && (!notificationDiagnostics
+            || notificationDiagnostics.status === "ready")
+          && (!commandDiagnostics || commandDiagnostics.status === "ready")
             ? "healthy" as const
             : "degraded" as const,
         ...(resourceDiagnostics ? { resources: resourceDiagnostics } : {}),
@@ -116,6 +133,10 @@ export function createDiscordWorkerHealthServer({
         ...(marketIntelligenceDiagnostics
           ? { marketIntelligence: marketIntelligenceDiagnostics }
           : {}),
+        ...(notificationDiagnostics
+           ? { notifications: notificationDiagnostics }
+           : {}),
+        ...(commandDiagnostics ? { commands: commandDiagnostics } : {}),
       };
       sendJson(response, diagnostics.status === "healthy" ? 200 : 503, diagnostics);
       return;

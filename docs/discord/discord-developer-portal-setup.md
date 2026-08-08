@@ -21,10 +21,14 @@ This guide sets up a brand-new Discord application and bot for your existing Alp
 
 1. In the left menu, open Bot.
 2. Click Add Bot, then confirm.
-3. Optional but recommended:
+3. Bot settings:
    - Disable Public Bot (if you only want private use).
-   - Enable Presence Intent if you plan to use presence-based features later.
-   - Keep all privileged intents disabled for now unless your future bot logic needs them.
+   - Enable **Server Members Intent** before deploying Phase C4. This is the
+     only privileged intent required and is used solely for genuine member-join
+     welcome delivery.
+   - Keep Presence Intent and Message Content Intent disabled.
+   - Missing Server Members Intent is a deployment blocker. The worker reports
+     `privileged_intent_required` and does not silently broaden access.
 4. Click Reset Token (or Copy Token if newly created) and save the value securely.
    - This value is your DISCORD_BOT_TOKEN.
    - Never share this token.
@@ -51,6 +55,9 @@ The Layer A channel permission bitset is `93200`. Combined with the existing
 Manage Roles foundation, the exact production bot permission bitset is
 `268528656`. Do not grant Administrator, Manage Server, moderation, member-ban,
 or mention-everyone permissions.
+
+Phase C4 does not change this bitset. Server Members Intent is configured on the
+Developer Portal Bot page and is not an OAuth permission.
 
 Before deploying Layer A, remove legacy Administrator, Manage Server, Manage
 Threads, Manage Webhooks, View Audit Log, moderation, ban/kick, and
@@ -163,6 +170,16 @@ Apply both `supabase/migrations/20260807000000_discord_identity_sync.sql` and
 and then `supabase/migrations/20260808070000_discord_channel_topology.sql`
 before starting the new worker image.
 
+For the Phase C4 upgrade, also apply these forward-only migrations in order:
+
+1. `20260808030000_discord_listing_sharing.sql` (C2)
+2. `20260808100000_discord_market_intelligence.sql` (C3)
+3. `20260808140000_discord_community_interactions.sql` (C4)
+
+Then enable Server Members Intent and deploy one Railway worker replica. A
+rollback may restore the C3 worker while leaving the C4 tables in place. Do not
+drop delivery, replay, rate-limit, or registry rows during rollback.
+
 The lease migration was a stop-the-worker upgrade from the first Layer A image.
 For the C1 upgrade from accepted Layer B, use this order:
 
@@ -190,6 +207,74 @@ Permission profiles:
 | Buyer support | View, history, and messages; threads and moderation denied | Same | Bot can publish and reconcile; staff moderation remains inherited |
 | Seller read-only | Hidden | View and history; posting denied | Bot can publish and reconcile; inherited trusted staff access is preserved |
 | Seller writable | Hidden | View, history, and messages; threads and moderation denied | Bot can publish and reconcile; inherited trusted staff access is preserved |
+
+## Phase C4 community interactions
+
+All seven commands are reconciled at guild scope by the Railway worker. Every
+response is ephemeral, so commands cannot create a public-message flood.
+
+| Command | Data source | Behavior |
+| --- | --- | --- |
+| `/market` | C3 authoritative 24-hour aggregate | Privacy-safe summary |
+| `/pulse` | C3 authoritative live pulse | Privacy-safe totals |
+| `/profile [seller]` | C3 public profile builder | Excludes hidden, suspended, unapproved, or unsearchable sellers |
+| `/listing [seller]` | Authoritative active approved listings | Read-only marketplace link |
+| `/share` | Linked identity and existing website cooldown state | Website/My Listings link only; never publishes or claims cooldown |
+| `/website` | Server-derived canonical HTTPS origin | Official website links |
+| `/help` | Static locale-neutral help | Onboarding and command guidance |
+
+Interaction validation binds the configured application and guild, rejects DM
+context, defers within a bounded response window, and stores only the
+interaction snowflake, Discord user snowflake, command name, outcome, and
+expiry. It never stores interaction tokens or raw payloads. Per-user/per-command
+rate limits allow five requests per minute. Replays return a safe ephemeral
+response.
+
+Welcome delivery is keyed by guild, member, and Discord join timestamp. Duplicate
+gateway events and restarts therefore do not duplicate a DM. Delivery uses a
+fenced two-minute lease, exponential retry, and a maximum of five attempts.
+Discord's DM-disabled response is recorded as terminal `suppressed`, not retried.
+
+Approved Seller congratulations are enqueued only when role sync actually adds
+the managed Approved Seller role and an authoritative
+`seller_status_changed`-to-approved outbox generation exists. The transition
+outbox UUID—not the reconciliation job UUID—is the durable generation key. This
+also covers the race where an older reconciliation job observes the newly
+approved state and performs the grant before the transition job itself runs.
+Periodic reconciliation and restarts cannot create a generation, and the unique
+transition key prevents them from duplicating a prior delivery. Revocation and
+unchanged approved state do not send a message. A deliberate later transition
+out of and back into approved creates a new authoritative generation and may
+send one new congratulations DM.
+
+Terminal delivery rows are retained as compact dedupe records. Cleanup removes
+expired interaction claims, stale rate-limit windows, and old aggregate audit
+rows, but never deletes delivered/suppressed notification generation keys that
+would allow a restart or later role repair to congratulate again.
+
+DM examples are intentionally locale-neutral:
+
+```text
+Welcome to Alpha Traders. Connect your Discord account on the website to unlock
+verified community access. Complete the website seller application to become an
+Approved Seller.
+```
+
+```text
+Approved Seller access unlocked. Your authoritative Alpha Traders approval is
+active. Manage and share listings only from the website.
+```
+
+Signed readiness exposes only aggregate command registration and notification
+delivery counts, the deterministic definition hash, timestamps, and safe error
+codes. It never exposes Discord member IDs, interaction IDs, command payloads,
+DM content, emails, wallets, buyers, or listing details.
+
+Production enablement is intentionally manual: apply the C4 migration, enable
+Server Members Intent, deploy one Railway replica, verify signed readiness, then
+exercise commands in the configured guild. Roll back by restoring the C3 image;
+the forward-only schema is safe to retain. Phase C4 does not include an admin
+dashboard and must not be deployed or merged automatically.
 
 ## 7) Verify Bot Can Connect
 
