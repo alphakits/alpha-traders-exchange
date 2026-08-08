@@ -121,4 +121,57 @@ describe("Discord operator reconciliation worker", () => {
     expect(query.mock.calls.some(([sql]) =>
       String(sql).includes("set refresh_after = now()"))).toBe(false);
   });
+
+  it("waits for an active listing reconciliation before reading fresh diagnostics", async () => {
+    const { worker, dependencies, query } = harness();
+    let release!: () => void;
+    const active = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let settled = false;
+    dependencies.listings.reconcile.mockImplementation(async () => {
+      await active;
+      settled = true;
+    });
+    dependencies.listings.getDiagnostics.mockImplementation(() => ({
+      status: "ready",
+      pendingJobs: settled ? 0 : 1,
+      deadJobs: 0,
+      failedMappings: 0,
+    }));
+
+    const tick = worker.tick();
+    await Promise.resolve();
+    expect(query.mock.calls.some(([sql]) =>
+      String(sql).includes("result_code = 'reconciliation_completed'"))).toBe(
+      false,
+    );
+
+    release();
+    await tick;
+
+    expect(settled).toBe(true);
+    expect(query.mock.calls.some(([sql]) =>
+      String(sql).includes("result_code = 'reconciliation_completed'"))).toBe(
+      true,
+    );
+  });
+
+  it("propagates an active listing reconciliation failure into the operator retry", async () => {
+    const { worker, dependencies, query } = harness();
+    dependencies.listings.reconcile.mockRejectedValue(
+      new Error("listing_active_run_failed"),
+    );
+
+    await worker.tick();
+
+    expect(query.mock.calls.some(([, params]) =>
+      Array.isArray(params)
+      && params.includes("listing_active_run_failed")
+      && params.includes("retry_scheduled"))).toBe(true);
+    expect(query.mock.calls.some(([sql]) =>
+      String(sql).includes("result_code = 'reconciliation_completed'"))).toBe(
+      false,
+    );
+  });
 });

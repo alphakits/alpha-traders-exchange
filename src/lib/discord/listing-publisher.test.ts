@@ -189,4 +189,22 @@ describe("Discord listing message", () => {
     expect(serialized).not.toMatch(/seller@example|0x123456|buyer-private|private-review|listing-private/i);
     expect(JSON.parse(serialized).allowed_mentions).toEqual({ parse: [] });
   });
+
+  it("escapes every seller-controlled text field before rendering embeds", () => {
+    const malicious = "[Trusted](https://phishing.example) @everyone";
+    const serialized = JSON.stringify(buildDiscordListingMessage({
+      ...snapshot,
+      sellerDisplayName: malicious,
+      sellerLevel: malicious,
+      reliabilityTier: malicious,
+      network: malicious,
+      paymentMethods: [malicious],
+      presenceLabel: malicious,
+    }));
+
+    expect(serialized).not.toContain("[Trusted](");
+    expect(serialized).not.toContain("https://phishing.example");
+    expect(serialized).not.toContain("@everyone");
+    expect(serialized).toContain("@​everyone");
+  });
 });

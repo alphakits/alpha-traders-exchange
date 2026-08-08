@@ -15,6 +15,9 @@ import {
   isSafeDiscordLinkUrl,
   resolveDiscordPublicSiteUrl,
 } from "@/lib/discord/listing-publisher";
+import { escapeDiscordPlainText } from "@/lib/discord/message-safety";
+
+export { escapeDiscordPlainText } from "@/lib/discord/message-safety";
 
 export const DISCORD_MARKET_BRAND_COLOR = 0xc9a227;
 const MARKET_CONTENT_MARKER = "Alpha Traders • Managed market intelligence";
@@ -69,6 +72,7 @@ export interface DiscordMarketContentPublisher {
     channelId: string;
     nonce: string;
     snapshot: DiscordMarketContentSnapshot;
+    requestTimeoutMs: number;
   }): Promise<string>;
   findOwnedMessage(input: {
     channelId: string;
@@ -83,7 +87,18 @@ export interface DiscordMarketContentPublisher {
     channelId: string;
     messageId: string;
     snapshot: DiscordMarketContentSnapshot;
+    requestTimeoutMs: number;
   }): Promise<void>;
+}
+
+export class DiscordMarketMutationError extends Error {
+  readonly code: "market_mutation_outcome_unknown";
+
+  constructor(options?: ErrorOptions) {
+    super("market_mutation_outcome_unknown", options);
+    this.name = "DiscordMarketMutationError";
+    this.code = "market_mutation_outcome_unknown";
+  }
 }
 
 function formatInteger(value: number): string {
@@ -94,17 +109,6 @@ function formatUsdt(value: number): string {
   return `${Math.max(0, value).toLocaleString("en-IL", {
     maximumFractionDigits: 2,
   })} USDT`;
-}
-
-export function escapeDiscordPlainText(value: string): string {
-  return value
-    .replace(/[\u0000-\u001f\u007f]/g, " ")
-    .replace(/([\\`*_{}[\]()<>#+\-.!|~])/g, "\\$1")
-    .replace(/https?:\/\//gi, "")
-    .replace(/@/g, "@\u200b")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 100);
 }
 
 function pulseMessage(
@@ -269,18 +273,28 @@ implements DiscordMarketContentPublisher {
     channelId: string;
     nonce: string;
     snapshot: DiscordMarketContentSnapshot;
+    requestTimeoutMs: number;
   }): Promise<string> {
-    const result = await this.rest.post(
-      Routes.channelMessages(input.channelId),
-      {
-        body: {
-          ...buildDiscordMarketContentMessage(input.snapshot),
-          nonce: input.nonce.slice(0, 25),
-          enforce_nonce: true,
+    const signal = AbortSignal.timeout(input.requestTimeoutMs);
+    try {
+      const result = await this.rest.post(
+        Routes.channelMessages(input.channelId),
+        {
+          body: {
+            ...buildDiscordMarketContentMessage(input.snapshot),
+            nonce: input.nonce.slice(0, 25),
+            enforce_nonce: true,
+          },
+          signal,
         },
-      },
-    ) as RESTGetAPIChannelMessageResult;
-    return result.id;
+      ) as RESTGetAPIChannelMessageResult;
+      return result.id;
+    } catch (error) {
+      if (signal.aborted) {
+        throw new DiscordMarketMutationError({ cause: error });
+      }
+      throw error;
+    }
   }
 
   async findOwnedMessage(input: {
@@ -315,11 +329,23 @@ implements DiscordMarketContentPublisher {
     channelId: string;
     messageId: string;
     snapshot: DiscordMarketContentSnapshot;
+    requestTimeoutMs: number;
   }): Promise<void> {
-    await this.rest.patch(
-      Routes.channelMessage(input.channelId, input.messageId),
-      { body: buildDiscordMarketContentMessage(input.snapshot) },
-    );
+    const signal = AbortSignal.timeout(input.requestTimeoutMs);
+    try {
+      await this.rest.patch(
+        Routes.channelMessage(input.channelId, input.messageId),
+        {
+          body: buildDiscordMarketContentMessage(input.snapshot),
+          signal,
+        },
+      );
+    } catch (error) {
+      if (signal.aborted) {
+        throw new DiscordMarketMutationError({ cause: error });
+      }
+      throw error;
+    }
   }
 }
 

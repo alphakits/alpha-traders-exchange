@@ -152,7 +152,7 @@ async function resolveCurrentDesiredStatus(
 async function completeJob(
   database: Queryable,
   job: OutboxJob,
-  approvedRoleGranted: boolean,
+  currentDesiredStatus: DiscordSellerRoleStatus,
 ): Promise<void> {
   await database.query(
     `with completed as (
@@ -183,7 +183,7 @@ async function completeJob(
               and source.reason = 'seller_status_changed'
             order by source.created_at desc
             limit 1
-         ) transition on $5::boolean = true
+         ) transition on $5::text = 'approved'
        on conflict (source_key) do nothing
      )
      update alpha_exchange.discord_identities
@@ -195,7 +195,7 @@ async function completeJob(
       job.lockToken,
       job.platformUserId,
       job.discordUserId,
-      approvedRoleGranted,
+      currentDesiredStatus,
     ],
   );
 }
@@ -396,7 +396,7 @@ export class DiscordRoleSyncWorker {
               lockClient,
               job,
             );
-            const syncResult = await this.manager.synchronizeMemberRoles({
+            await this.manager.synchronizeMemberRoles({
               discordUserId: job.discordUserId,
               desiredStatus: currentDesiredStatus,
               roleIds: this.roleIds,
@@ -404,7 +404,7 @@ export class DiscordRoleSyncWorker {
             await completeJob(
               lockClient,
               job,
-              syncResult?.approvedRoleGranted === true,
+              currentDesiredStatus,
             );
             await lockClient.query("commit");
           } catch (error) {

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
+
 import {
   DiscordAPIError,
   REST,
@@ -20,6 +22,8 @@ import { logEvent } from "@/lib/structured-logging";
 
 const POLL_INTERVAL_MS = 5_000;
 const MAX_DELIVERIES_PER_TICK = 20;
+const MAINTENANCE_INTERVAL_MS = 24 * 60 * 60 * 1_000;
+const NONCE_RETRY_WINDOW_MINUTES = 3;
 
 export type DiscordCommunityNotificationDiagnostics = {
   status: "ready" | "degraded";
@@ -38,6 +42,7 @@ type NotificationClaim = {
   discordUserId: string;
   leaseToken: string;
   attempts: number;
+  sourceKey: string;
 };
 
 type Queryable = Pick<Pool, "query">;
@@ -45,12 +50,16 @@ type Queryable = Pick<Pool, "query">;
 export interface DiscordDirectMessagePublisher {
   send(input: {
     discordUserId: string;
+    nonce: string;
     body: RESTPostAPIChannelMessageJSONBody;
   }): Promise<void>;
 }
 
 export class DiscordDirectMessageError extends Error {
-  readonly code: "dm_disabled" | "dm_delivery_failed";
+  readonly code:
+    | "dm_disabled"
+    | "dm_delivery_failed"
+    | "dm_delivery_outcome_unknown";
 
   constructor(code: DiscordDirectMessageError["code"], options?: ErrorOptions) {
     super(code, options);
@@ -69,6 +78,7 @@ implements DiscordDirectMessagePublisher {
 
   async send(input: {
     discordUserId: string;
+    nonce: string;
     body: RESTPostAPIChannelMessageJSONBody;
   }): Promise<void> {
     try {
@@ -79,16 +89,30 @@ implements DiscordDirectMessagePublisher {
         throw new DiscordDirectMessageError("dm_delivery_failed");
       }
       await this.rest.post(Routes.channelMessages(channel.id), {
-        body: input.body,
+        body: {
+          ...input.body,
+          nonce: input.nonce.slice(0, 25),
+          enforce_nonce: true,
+        },
       });
     } catch (error) {
       if (error instanceof DiscordDirectMessageError) throw error;
       if (error instanceof DiscordAPIError && error.code === 50007) {
         throw new DiscordDirectMessageError("dm_disabled", { cause: error });
       }
-      throw new DiscordDirectMessageError("dm_delivery_failed", { cause: error });
+      throw new DiscordDirectMessageError(
+        "dm_delivery_outcome_unknown",
+        { cause: error },
+      );
     }
   }
+}
+
+export function notificationNonce(sourceKey: string): string {
+  return createHash("sha256")
+    .update(`alpha-notification:${sourceKey}`)
+    .digest("hex")
+    .slice(0, 25);
 }
 
 export function buildDiscordWelcomeMessage(
@@ -191,14 +215,50 @@ async function claimNotification(pool: Pool): Promise<NotificationClaim | null> 
     discord_user_id: string;
     lease_token: string;
     attempts: number;
+    source_key: string;
   }>(`
-    with candidate as (
+    with indeterminate as (
+      update alpha_exchange.discord_notification_deliveries
+         set status = 'dead',
+             lease_token = null,
+             leased_until = null,
+             last_error_code = 'dm_delivery_indeterminate',
+             updated_at = now()
+       where (
+         status = 'processing'
+         and leased_until < now()
+         and updated_at < now()
+           - ($1 * interval '1 minute')
+       ) or (
+         status = 'pending'
+         and last_error_code = 'dm_delivery_outcome_unknown'
+         and updated_at < now()
+           - ($1 * interval '1 minute')
+       )
+      returning notification_type
+    ),
+    indeterminate_audit as (
+      insert into alpha_exchange.discord_notification_audit
+        (notification_type, outcome, detail_code)
+      select notification_type, 'dead', 'dm_delivery_indeterminate'
+        from indeterminate
+    ),
+    candidate as (
       select id
         from alpha_exchange.discord_notification_deliveries
        where (
-         status = 'pending' and available_at <= now()
+         status = 'pending'
+         and available_at <= now()
+         and not (
+           last_error_code = 'dm_delivery_outcome_unknown'
+           and updated_at < now()
+             - ($1 * interval '1 minute')
+         )
        ) or (
-         status = 'processing' and leased_until < now()
+         status = 'processing'
+         and leased_until < now()
+         and updated_at >= now()
+           - ($1 * interval '1 minute')
        )
        order by created_at
        for update skip locked
@@ -214,8 +274,8 @@ async function claimNotification(pool: Pool): Promise<NotificationClaim | null> 
      where delivery.id = candidate.id
     returning delivery.id::text, delivery.notification_type,
               delivery.discord_user_id, delivery.lease_token::text,
-              delivery.attempts
-  `);
+              delivery.attempts, delivery.source_key
+  `, [NONCE_RETRY_WINDOW_MINUTES]);
   const row = result.rows[0];
   return row
     ? {
@@ -224,6 +284,7 @@ async function claimNotification(pool: Pool): Promise<NotificationClaim | null> 
         discordUserId: row.discord_user_id,
         leaseToken: row.lease_token,
         attempts: row.attempts,
+        sourceKey: row.source_key,
       }
     : null;
 }
@@ -231,8 +292,8 @@ async function claimNotification(pool: Pool): Promise<NotificationClaim | null> 
 async function completeNotification(
   pool: Pool,
   claim: NotificationClaim,
-): Promise<void> {
-  await pool.query(
+): Promise<boolean> {
+  const result = await pool.query(
     `with completed as (
        update alpha_exchange.discord_notification_deliveries
           set status = 'delivered',
@@ -251,6 +312,7 @@ async function completeNotification(
      select notification_type, 'delivered', 'dm_delivered' from completed`,
     [claim.id, claim.leaseToken],
   );
+  return result.rowCount === 1;
 }
 
 async function failNotification(
@@ -294,7 +356,9 @@ export class DiscordCommunityNotificationWorker {
   private readonly siteUrl: string;
   private readonly guildId: string;
   private readonly pollIntervalMs: number;
+  private readonly maintenanceIntervalMs: number;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private maintenanceTimer: ReturnType<typeof setInterval> | null = null;
   private unsubscribeMemberJoin: (() => void) | null = null;
   private activeTick: Promise<void> | null = null;
   private diagnostics: DiscordCommunityNotificationDiagnostics = {
@@ -313,6 +377,7 @@ export class DiscordCommunityNotificationWorker {
     siteUrl: string;
     guildId: string;
     pollIntervalMs?: number;
+    maintenanceIntervalMs?: number;
   }) {
     this.pool = input.pool;
     this.gateway = input.gateway;
@@ -320,6 +385,8 @@ export class DiscordCommunityNotificationWorker {
     this.siteUrl = normalizeMarketSiteUrl(input.siteUrl);
     this.guildId = input.guildId;
     this.pollIntervalMs = input.pollIntervalMs ?? POLL_INTERVAL_MS;
+    this.maintenanceIntervalMs =
+      input.maintenanceIntervalMs ?? MAINTENANCE_INTERVAL_MS;
   }
 
   getDiagnostics(): DiscordCommunityNotificationDiagnostics {
@@ -349,12 +416,18 @@ export class DiscordCommunityNotificationWorker {
         });
       });
     }, this.pollIntervalMs);
+    await this.runMaintenance();
+    this.maintenanceTimer = setInterval(() => {
+      void this.runMaintenance();
+    }, this.maintenanceIntervalMs);
     await this.tick();
   }
 
   async shutdown(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
+    if (this.maintenanceTimer) clearInterval(this.maintenanceTimer);
     this.timer = null;
+    this.maintenanceTimer = null;
     this.unsubscribeMemberJoin?.();
     this.unsubscribeMemberJoin = null;
     await this.activeTick;
@@ -382,13 +455,36 @@ export class DiscordCommunityNotificationWorker {
             sellerLoungeChannelId,
           });
       try {
-        await this.publisher.send({ discordUserId: claim.discordUserId, body });
-        await completeNotification(this.pool, claim);
+        await this.publisher.send({
+          discordUserId: claim.discordUserId,
+          nonce: notificationNonce(claim.sourceKey),
+          body,
+        });
       } catch (error) {
         const code = error instanceof DiscordDirectMessageError
           ? error.code
-          : "dm_delivery_failed";
+          : "dm_delivery_outcome_unknown";
         await failNotification(this.pool, claim, code);
+        continue;
+      }
+      try {
+        const completed = await completeNotification(this.pool, claim);
+        if (!completed) {
+          logEvent("warn", {
+            event: "discord_notification_completion",
+            outcome: "failed",
+            reason: "stale_notification_lease",
+          });
+        }
+      } catch (error) {
+        logEvent("error", {
+          event: "discord_notification_completion",
+          outcome: "failed",
+          reason: "notification_completion_failed",
+          metadata: {
+            errorType: error instanceof Error ? error.name : typeof error,
+          },
+        });
       }
     }
     await this.refreshDiagnostics();
@@ -431,5 +527,29 @@ export class DiscordCommunityNotificationWorker {
         ? row?.error_code ?? "notification_delivery_dead"
         : null,
     };
+  }
+
+  private async runMaintenance(): Promise<void> {
+    try {
+      await this.pool.query(`
+        select case
+          when pg_try_advisory_xact_lock(61422919)
+          then (
+            select row_to_json(cleanup)
+              from alpha_exchange.cleanup_discord_community_state() cleanup
+          )
+          else null
+        end as cleanup_result
+      `);
+    } catch (error) {
+      logEvent("error", {
+        event: "discord_community_retention",
+        outcome: "failed",
+        reason: "community_retention_failed",
+        metadata: {
+          errorType: error instanceof Error ? error.name : typeof error,
+        },
+      });
+    }
   }
 }

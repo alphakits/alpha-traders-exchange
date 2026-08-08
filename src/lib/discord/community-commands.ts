@@ -32,6 +32,7 @@ import { logEvent } from "@/lib/structured-logging";
 const RESPONSE_TIMEOUT_MS = 2_500;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 5;
+const COMMAND_RESERVATION_RECOVERY_MINUTES = 5;
 
 export const DISCORD_COMMUNITY_COMMAND_NAMES = [
   "market",
@@ -502,30 +503,76 @@ export class DiscordCommunityCommandService {
   }
 
   async reconcile(): Promise<void> {
-    const route = Routes.applicationGuildCommands(
-      this.applicationId,
-      this.guildId,
-    );
-    const remote = await this.rest.get(route) as APIApplicationCommand[];
-    const registry = await this.pool.query<{
+    const database = await this.pool.connect();
+    let locked = false;
+    try {
+      await database.query(
+        "select pg_advisory_lock(hashtext($1))",
+        [`discord-community-commands:${this.applicationId}:${this.guildId}`],
+      );
+      locked = true;
+      const route = Routes.applicationGuildCommands(
+        this.applicationId,
+        this.guildId,
+      );
+      const remote = await this.rest.get(route) as APIApplicationCommand[];
+      const registry = await database.query<{
       command_name: string;
       discord_command_id: string | null;
+      definition_hash: string;
     }>(
-      `select command_name, discord_command_id
+      `select command_name, discord_command_id, definition_hash
          from alpha_exchange.discord_command_registry`,
     );
-    const previousOwned = new Map(
-      registry.rows.map((row) => [row.command_name, row.discord_command_id]),
+    const ownership = new Map(
+      registry.rows.map((row) => [row.command_name, {
+        commandId: row.discord_command_id,
+        definitionHash: row.definition_hash,
+      }]),
     );
     const desiredNames = new Set<string>(
       DISCORD_COMMUNITY_COMMANDS.map((definition) => definition.name),
     );
+    for (const definition of DISCORD_COMMUNITY_COMMANDS) {
+      const reserved = ownership.get(definition.name);
+      const sameName = remote.find((command) =>
+        command.name === definition.name);
+      if (!sameName || sameName.id === reserved?.commandId) continue;
+      if (
+        reserved
+        && reserved.commandId === null
+        && commandHash(sameName) === reserved.definitionHash
+      ) {
+        const recovered = await database.query(
+          `update alpha_exchange.discord_command_registry
+              set discord_command_id = $2,
+                  reconciled_at = now()
+            where command_name = $1
+              and discord_command_id is null
+              and definition_hash = $3`,
+          [definition.name, sameName.id, reserved.definitionHash],
+        );
+        if (recovered.rowCount === 1) {
+          reserved.commandId = sameName.id;
+          continue;
+        }
+      }
+      this.diagnostics = {
+        status: "degraded",
+        registeredCount: null,
+        definitionHash: DISCORD_COMMUNITY_COMMAND_DEFINITION_HASH,
+        lastReconciledAt: null,
+        errorCode: "unowned_command_name_conflict",
+      };
+      throw new Error("unowned_command_name_conflict");
+    }
 
-    for (const staleName of previousOwned.keys()) {
+    for (const staleName of ownership.keys()) {
       if (desiredNames.has(staleName)) continue;
+      const ownedId = ownership.get(staleName)?.commandId;
       const stale = remote.find((command) =>
         command.name === staleName
-        && command.id === previousOwned.get(staleName));
+        && command.id === ownedId);
       if (stale) {
         await this.rest.delete(
           Routes.applicationGuildCommand(
@@ -535,7 +582,7 @@ export class DiscordCommunityCommandService {
           ),
         );
       }
-      await this.pool.query(
+      await database.query(
         `delete from alpha_exchange.discord_command_registry
           where command_name = $1`,
         [staleName],
@@ -543,7 +590,57 @@ export class DiscordCommunityCommandService {
     }
 
     for (const definition of DISCORD_COMMUNITY_COMMANDS) {
-      const existing = remote.find((command) => command.name === definition.name);
+      let reserved = ownership.get(definition.name);
+      if (!reserved) {
+        const definitionDigest = definitionHash(definition);
+        const reservation = await database.query(
+          `insert into alpha_exchange.discord_command_registry
+             (command_name, discord_command_id, definition_hash, reconciled_at)
+           values ($1, null, $2, now())
+           on conflict (command_name) do nothing
+           returning command_name`,
+          [definition.name, definitionDigest],
+        );
+        if (reservation.rowCount !== 1) {
+          throw new Error("command_ownership_changed");
+        }
+        reserved = {
+          commandId: null,
+          definitionHash: definitionDigest,
+        };
+        ownership.set(definition.name, reserved);
+      }
+      const definitionDigest = definitionHash(definition);
+      if (
+        reserved.commandId === null
+        && reserved.definitionHash !== definitionDigest
+      ) {
+        const takeover = await database.query(
+          `update alpha_exchange.discord_command_registry
+              set definition_hash = $3,
+                  reconciled_at = now()
+            where command_name = $1
+              and discord_command_id is null
+              and definition_hash = $2
+              and reconciled_at <= now()
+                - ($4 * interval '1 minute')
+          returning command_name`,
+          [
+            definition.name,
+            reserved.definitionHash,
+            definitionDigest,
+            COMMAND_RESERVATION_RECOVERY_MINUTES,
+          ],
+        );
+        if (takeover.rowCount !== 1) {
+          throw new Error("command_reconciliation_pending");
+        }
+        reserved.definitionHash = definitionDigest;
+      }
+      const ownedId = reserved.commandId;
+      const existing = ownedId
+        ? remote.find((command) => command.id === ownedId)
+        : undefined;
       const body = { ...definition };
       let commandId: string;
       if (!existing) {
@@ -562,24 +659,53 @@ export class DiscordCommunityCommandService {
       } else {
         commandId = existing.id;
       }
-      await this.pool.query(
-        `insert into alpha_exchange.discord_command_registry
-           (command_name, discord_command_id, definition_hash, reconciled_at)
-         values ($1, $2, $3, now())
-         on conflict (command_name) do update set
-           discord_command_id = excluded.discord_command_id,
-           definition_hash = excluded.definition_hash,
-           reconciled_at = now()`,
-        [definition.name, commandId, definitionHash(definition)],
+      const completed = await database.query(
+        `update alpha_exchange.discord_command_registry
+            set discord_command_id = $2,
+                definition_hash = $3,
+                reconciled_at = now()
+          where command_name = $1
+            and discord_command_id is not distinct from $4
+            and definition_hash = $5
+        returning command_name`,
+        [
+          definition.name,
+          commandId,
+          definitionDigest,
+          ownedId,
+          reserved.definitionHash,
+        ],
       );
+      if (completed.rowCount !== 1) {
+        throw new Error("command_ownership_changed");
+      }
+      reserved.commandId = commandId;
+      reserved.definitionHash = definitionDigest;
     }
-    this.diagnostics = {
-      status: "ready",
-      registeredCount: DISCORD_COMMUNITY_COMMANDS.length,
-      definitionHash: DISCORD_COMMUNITY_COMMAND_DEFINITION_HASH,
-      lastReconciledAt: new Date().toISOString(),
-      errorCode: null,
-    };
+      this.diagnostics = {
+        status: "ready",
+        registeredCount: DISCORD_COMMUNITY_COMMANDS.length,
+        definitionHash: DISCORD_COMMUNITY_COMMAND_DEFINITION_HASH,
+        lastReconciledAt: new Date().toISOString(),
+        errorCode: null,
+      };
+    } finally {
+      let destroyClient = false;
+      let unlockError: unknown;
+      if (locked) {
+        try {
+          await database.query(
+            "select pg_advisory_unlock(hashtext($1))",
+            [`discord-community-commands:${this.applicationId}:${this.guildId}`],
+          );
+        } catch (error: unknown) {
+          destroyClient = true;
+          unlockError = error;
+        }
+      }
+      database.release(destroyClient);
+      if (unlockError) throw unlockError;
+    }
   }
 
   async handle(interaction: ChatInputCommandInteraction): Promise<void> {

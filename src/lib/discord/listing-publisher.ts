@@ -11,6 +11,7 @@ import {
   type RESTGetAPIChannelMessagesResult,
   type RESTPostAPIChannelMessageJSONBody,
 } from "discord.js";
+import { escapeDiscordPlainText } from "@/lib/discord/message-safety";
 
 export const DISCORD_LISTING_BRAND_COLOR = 0xc9a227;
 export const DISCORD_LISTING_SOLD_COLOR = 0x6b7280;
@@ -64,7 +65,9 @@ function normalizeDecimal(value: string, minimumFractionDigits = 0): string {
 
 function levelLabel(level: string | null): string | null {
   if (!level) return null;
-  return `${level[0]?.toUpperCase()}${level.slice(1).toLowerCase()} Seller`;
+  return escapeDiscordPlainText(
+    `${level[0]?.toUpperCase()}${level.slice(1).toLowerCase()} Seller`,
+  );
 }
 
 function isPrivateOrReservedHostname(hostname: string): boolean {
@@ -156,7 +159,9 @@ export function buildDiscordListingMessage(
 ): RESTPostAPIChannelMessageJSONBody {
   const sellerMeta = [
     levelLabel(snapshot.sellerLevel),
-    snapshot.reliabilityTier,
+    snapshot.reliabilityTier
+      ? escapeDiscordPlainText(snapshot.reliabilityTier)
+      : null,
     snapshot.approvedSeller ? "✅ Approved Seller" : null,
   ].filter(Boolean).join(" • ");
   const fields = [
@@ -174,20 +179,22 @@ export function buildDiscordListingMessage(
     },
     {
       name: "Network",
-      value: snapshot.network,
+      value: escapeDiscordPlainText(snapshot.network),
       inline: true,
     },
     ...(snapshot.paymentMethods.length
       ? [{
           name: "Payment methods",
-          value: snapshot.paymentMethods.join(" • "),
+          value: snapshot.paymentMethods
+            .map(escapeDiscordPlainText)
+            .join(" • "),
           inline: false,
         }]
       : []),
     ...(snapshot.presenceLabel
       ? [{
           name: "Availability",
-          value: snapshot.presenceLabel,
+          value: escapeDiscordPlainText(snapshot.presenceLabel),
           inline: true,
         }]
       : []),
@@ -242,8 +249,8 @@ export function buildDiscordListingMessage(
       {
         title: sold ? "✅ SOLD" : "🔥 NEW USDT LISTING",
         description: sold
-          ? `This listing is complete. Historical details below reflect the last active Alpha Traders post.\n\n**Seller:** ${snapshot.sellerDisplayName}${sellerMeta ? `\n${sellerMeta}` : ""}`
-          : `**${snapshot.sellerDisplayName}**${sellerMeta ? `\n${sellerMeta}` : ""}`,
+          ? `This listing is complete. Historical details below reflect the last active Alpha Traders post.\n\n**Seller:** ${escapeDiscordPlainText(snapshot.sellerDisplayName)}${sellerMeta ? `\n${sellerMeta}` : ""}`
+          : `**${escapeDiscordPlainText(snapshot.sellerDisplayName)}**${sellerMeta ? `\n${sellerMeta}` : ""}`,
         color: sold ? DISCORD_LISTING_SOLD_COLOR : DISCORD_LISTING_BRAND_COLOR,
         url: !sold && isSafeDiscordLinkUrl(snapshot.listingUrl) ? snapshot.listingUrl : undefined,
         author: {

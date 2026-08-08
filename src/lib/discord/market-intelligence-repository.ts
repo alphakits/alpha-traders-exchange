@@ -36,6 +36,9 @@ export type DiscordMarketContentClaim = {
 export interface DiscordMarketContentRepository {
   claimDueContent(): Promise<DiscordMarketContentClaim | null>;
   ownsClaim(claim: DiscordMarketContentClaim): Promise<boolean>;
+  renewClaimForMutation(
+    claim: DiscordMarketContentClaim,
+  ): Promise<Date | null>;
   buildSnapshot(
     contentKey: DiscordMarketContentKey,
   ): Promise<DiscordMarketContentSnapshot>;
@@ -49,6 +52,9 @@ export interface DiscordMarketContentRepository {
     claim: DiscordMarketContentClaim;
     errorCode: string;
   }): Promise<void>;
+  quarantineUnknownMutation(
+    claim: DiscordMarketContentClaim,
+  ): Promise<void>;
   getDiagnostics(): Promise<DiscordMarketIntelligenceDiagnostics>;
 }
 
@@ -397,6 +403,30 @@ implements DiscordMarketContentRepository {
     return result.rowCount === 1;
   }
 
+  async renewClaimForMutation(
+    claim: DiscordMarketContentClaim,
+  ): Promise<Date | null> {
+    const result = await this.pool.query<{ leased_until: Date }>(
+      `update alpha_exchange.discord_market_content
+          set leased_until = now() + interval '2 minutes',
+              updated_at = now()
+        where content_key = $1
+          and content_version = $2
+          and lease_fence = $3
+          and lease_token = $4::uuid
+          and state = 'processing'
+          and leased_until > now()
+      returning leased_until`,
+      [
+        claim.contentKey,
+        claim.contentVersion,
+        claim.leaseFence,
+        claim.leaseToken,
+      ],
+    );
+    return result.rows[0]?.leased_until ?? null;
+  }
+
   async completeContent(input: {
     claim: DiscordMarketContentClaim;
     messageId: string;
@@ -423,6 +453,7 @@ implements DiscordMarketContentRepository {
             and lease_fence = $3
             and lease_token = $4::uuid
             and state = 'processing'
+            and leased_until > now()
          returning content_key
        )
        insert into alpha_exchange.discord_market_content_audit
@@ -481,6 +512,39 @@ implements DiscordMarketContentRepository {
         dead ? "dead" : "scheduled",
         delaySeconds,
         input.errorCode,
+      ],
+    );
+  }
+
+  async quarantineUnknownMutation(
+    claim: DiscordMarketContentClaim,
+  ): Promise<void> {
+    await this.pool.query(
+      `with quarantined as (
+         update alpha_exchange.discord_market_content
+            set leased_until = greatest(
+                  leased_until,
+                  now() + interval '2 minutes'
+                ),
+                last_error_code = 'market_mutation_outcome_unknown',
+                updated_at = now()
+          where content_key = $1
+            and content_version = $2
+            and lease_fence = $3
+            and lease_token = $4::uuid
+            and state = 'processing'
+         returning content_key
+       )
+       insert into alpha_exchange.discord_market_content_audit
+         (content_key, content_version, lease_fence, outcome, detail_code)
+       select content_key, $2, $3, 'degraded',
+              'market_mutation_outcome_unknown'
+         from quarantined`,
+      [
+        claim.contentKey,
+        claim.contentVersion,
+        claim.leaseFence,
+        claim.leaseToken,
       ],
     );
   }

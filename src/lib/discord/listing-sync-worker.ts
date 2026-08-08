@@ -692,8 +692,8 @@ export class DiscordListingSyncWorker {
   private readonly siteUrl: string;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private reconciliationTimer: ReturnType<typeof setInterval> | null = null;
-  private processing = false;
-  private reconciling = false;
+  private activeProcessing: Promise<void> | null = null;
+  private activeReconciliation: Promise<void> | null = null;
   private diagnostics: DiscordListingDiagnostics = {
     status: "degraded",
     pendingJobs: null,
@@ -750,76 +750,98 @@ export class DiscordListingSyncWorker {
     if (this.reconciliationTimer) clearInterval(this.reconciliationTimer);
     this.pollTimer = null;
     this.reconciliationTimer = null;
-  }
-
-  async processAvailableJobs(): Promise<void> {
-    if (this.processing) return;
-    this.processing = true;
-    try {
-      for (let processed = 0; processed < 25; processed += 1) {
-        const job = await claimJob(this.pool);
-        if (!job) break;
-        const client = await this.pool.connect();
-        let destroyClient = false;
-        try {
-          await client.query("begin");
-          await client.query(
-            "select pg_advisory_xact_lock(hashtext($1))",
-            [`discord-listing-seller:${job.sellerId}`],
-          );
-          if (!await ownsClaim(client, job)) {
-            await client.query("commit");
-            continue;
-          }
-          try {
-            await reconcileJob(client, this.publisher, job, this.siteUrl);
-            await client.query("commit");
-          } catch (error) {
-            const failureCode = safeFailureCode(error);
-            await failJob(client, job, failureCode);
-            await client.query("commit");
-            logEvent("error", {
-              event: "discord_listing_sync",
-              targetUserId: job.sellerId,
-              outcome: "failed",
-              reason: failureCode,
-              metadata: {
-                mappingId: job.mappingId,
-                attempts: job.attempts,
-              },
-            });
-          }
-        } catch (error) {
-          try {
-            await client.query("rollback");
-          } catch (rollbackError) {
-            destroyClient = true;
-            throw new AggregateError(
-              [error, rollbackError],
-              "Discord listing synchronization rollback failed.",
-            );
-          }
-          throw error;
-        } finally {
-          client.release(destroyClient);
-        }
-      }
-      this.diagnostics = await readDiagnostics(this.pool);
-    } finally {
-      this.processing = false;
+    const active = [
+      this.activeProcessing,
+      this.activeReconciliation,
+    ].filter((operation): operation is Promise<void> => operation !== null);
+    const results = await Promise.allSettled(active);
+    const failures = results.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : []);
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) {
+      throw new AggregateError(
+        failures,
+        "Discord listing worker shutdown failed.",
+      );
     }
   }
 
-  async reconcile(): Promise<void> {
-    if (this.reconciling) return;
-    this.reconciling = true;
-    try {
+  processAvailableJobs(): Promise<void> {
+    if (this.activeProcessing) return this.activeProcessing;
+    const processing = this.performAvailableJobs().finally(() => {
+      if (this.activeProcessing === processing) {
+        this.activeProcessing = null;
+      }
+    });
+    this.activeProcessing = processing;
+    return processing;
+  }
+
+  private async performAvailableJobs(): Promise<void> {
+    for (let processed = 0; processed < 25; processed += 1) {
+      const job = await claimJob(this.pool);
+      if (!job) break;
+      const client = await this.pool.connect();
+      let destroyClient = false;
+      try {
+        await client.query("begin");
+        await client.query(
+          "select pg_advisory_xact_lock(hashtext($1))",
+          [`discord-listing-seller:${job.sellerId}`],
+        );
+        if (!await ownsClaim(client, job)) {
+          await client.query("commit");
+          continue;
+        }
+        try {
+          await reconcileJob(client, this.publisher, job, this.siteUrl);
+          await client.query("commit");
+        } catch (error) {
+          const failureCode = safeFailureCode(error);
+          await failJob(client, job, failureCode);
+          await client.query("commit");
+          logEvent("error", {
+            event: "discord_listing_sync",
+            targetUserId: job.sellerId,
+            outcome: "failed",
+            reason: failureCode,
+            metadata: {
+              mappingId: job.mappingId,
+              attempts: job.attempts,
+            },
+          });
+        }
+      } catch (error) {
+        try {
+          await client.query("rollback");
+        } catch (rollbackError) {
+          destroyClient = true;
+          throw new AggregateError(
+            [error, rollbackError],
+            "Discord listing synchronization rollback failed.",
+          );
+        }
+        throw error;
+      } finally {
+        client.release(destroyClient);
+      }
+    }
+    this.diagnostics = await readDiagnostics(this.pool);
+  }
+
+  reconcile(): Promise<void> {
+    if (this.activeReconciliation) return this.activeReconciliation;
+    const reconciliation = (async () => {
       await enqueueReconciliation(this.pool);
       await this.processAvailableJobs();
       this.diagnostics = await readDiagnostics(this.pool);
-    } finally {
-      this.reconciling = false;
-    }
+    })().finally(() => {
+      if (this.activeReconciliation === reconciliation) {
+        this.activeReconciliation = null;
+      }
+    });
+    this.activeReconciliation = reconciliation;
+    return reconciliation;
   }
 }
 

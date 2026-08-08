@@ -176,6 +176,10 @@ fail-closed boundary.
 - Stop the Railway worker before investigating a suspected duplicate gateway owner.
 - Preserve operator, listing, notification, market content, role sync, and audit
   rows. Do not “repair” by deleting queues or resetting attempts.
+- The Railway notification worker runs the C4 privacy cleanup at startup and every
+  24 hours behind a transaction-scoped advisory lock. It removes expired
+  interaction replay claims, command rate-limit rows older than 7 days, and
+  notification audit rows older than 90 days without requiring `pg_cron`.
 - Do not manually delete managed Discord content unless the reviewed rollback for
   that exact owned resource requires it.
 - Do not retry permanent DM suppression or dead jobs from generic SQL. Resolve the

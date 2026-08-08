@@ -12,12 +12,17 @@ vi.mock("discord.js", () => ({
       return this;
     }
   },
-  Routes: {},
+  Routes: {
+    channelMessage: () => "/channels/channel/messages/message",
+    channelMessages: () => "/channels/channel/messages",
+  },
 }));
 
 import type { DiscordMarketIntelligenceDiagnostics } from "@/lib/discord/diagnostics";
 import {
   buildDiscordMarketContentMessage,
+  DiscordMarketMutationError,
+  DiscordRestMarketContentPublisher,
   escapeDiscordPlainText,
   type DiscordMarketContentPublisher,
   type DiscordMarketContentSnapshot,
@@ -70,6 +75,7 @@ class SharedRepository implements DiscordMarketContentRepository {
   claimed = false;
   completed = 0;
   failed: string[] = [];
+  quarantined = 0;
 
   async claimDueContent() {
     if (this.claimed) return null;
@@ -85,6 +91,10 @@ class SharedRepository implements DiscordMarketContentRepository {
     return true;
   }
 
+  async renewClaimForMutation(): Promise<Date | null> {
+    return new Date(Date.now() + 120_000);
+  }
+
   async completeContent() {
     this.completed += 1;
     return true;
@@ -92,6 +102,10 @@ class SharedRepository implements DiscordMarketContentRepository {
 
   async failContent(input: { errorCode: string }) {
     this.failed.push(input.errorCode);
+  }
+
+  async quarantineUnknownMutation() {
+    this.quarantined += 1;
   }
 
   async getDiagnostics() {
@@ -356,18 +370,114 @@ describe("Discord market intelligence content", () => {
     expect(calls[1]?.values).toContain("discord_api_failure");
   });
 
-  it("checks lease ownership immediately before any Discord mutation", async () => {
+  it("renews and revalidates lease ownership immediately before any Discord mutation", async () => {
     const repository = new SharedRepository();
-    repository.ownsClaim = vi.fn(async () => false);
+    repository.renewClaimForMutation = vi.fn(async () => null);
     const publisher = new SharedPublisher();
     const worker = new DiscordMarketIntelligenceWorker({ repository, publisher });
 
     await worker.tick();
 
-    expect(repository.ownsClaim).toHaveBeenCalledOnce();
+    expect(repository.renewClaimForMutation).toHaveBeenCalledOnce();
     expect(publisher.created).toBe(0);
     expect(publisher.updated).toBe(0);
     expect(repository.failed).toEqual(["stale_content_lease"]);
+  });
+
+  it("bounds a delayed old mutation so a newer worker snapshot wins", async () => {
+    const appliedSnapshots: string[] = [];
+    const oldRepository = new SharedRepository();
+    oldRepository.buildSnapshot = vi.fn(async () => ({
+      ...pulse,
+      generatedAt: "2026-08-08T05:00:00.000Z",
+    }));
+    const newRepository = new SharedRepository();
+    newRepository.buildSnapshot = vi.fn(async () => ({
+      ...pulse,
+      generatedAt: "2026-08-08T05:01:00.000Z",
+    }));
+    const delayedPublisher: DiscordMarketContentPublisher = {
+      findOwnedMessage: vi.fn(async () => "2".repeat(18)),
+      ownsMessage: vi.fn(async () => true),
+      createMessage: vi.fn(async () => {
+        throw new Error("unexpected create");
+      }),
+      updateMessage: vi.fn(async ({ requestTimeoutMs }) => {
+        setTimeout(() => {
+          appliedSnapshots.push("2026-08-08T05:00:00.000Z");
+        }, requestTimeoutMs + 5);
+        await new Promise((resolve) => setTimeout(resolve, requestTimeoutMs));
+        throw new DiscordMarketMutationError();
+      }),
+    };
+    const currentPublisher: DiscordMarketContentPublisher = {
+      findOwnedMessage: vi.fn(async () => "2".repeat(18)),
+      ownsMessage: vi.fn(async () => true),
+      createMessage: vi.fn(async () => {
+        throw new Error("unexpected create");
+      }),
+      updateMessage: vi.fn(async ({ snapshot }) => {
+        appliedSnapshots.push(snapshot.generatedAt);
+      }),
+    };
+    oldRepository.claimDueContent = vi.fn()
+      .mockResolvedValueOnce({ ...claim(1), messageId: "2".repeat(18) })
+      .mockResolvedValue(null);
+    newRepository.claimDueContent = vi.fn()
+      .mockResolvedValueOnce({ ...claim(2), messageId: "2".repeat(18) })
+      .mockResolvedValue(null);
+    const oldWorker = new DiscordMarketIntelligenceWorker({
+      repository: oldRepository,
+      publisher: delayedPublisher,
+      mutationTimeoutMs: 5,
+    });
+    const newWorker = new DiscordMarketIntelligenceWorker({
+      repository: newRepository,
+      publisher: currentPublisher,
+    });
+
+    await oldWorker.tick();
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    await newWorker.tick();
+
+    expect(oldRepository.failed).toEqual([]);
+    expect(oldRepository.quarantined).toBe(1);
+    expect(appliedSnapshots).toEqual([
+      "2026-08-08T05:00:00.000Z",
+      "2026-08-08T05:01:00.000Z",
+    ]);
+    expect(appliedSnapshots.at(-1)).toBe("2026-08-08T05:01:00.000Z");
+    expect(newRepository.completed).toBe(1);
+  });
+
+  it("passes an abort deadline to Discord REST mutations", async () => {
+    let signal: AbortSignal | undefined;
+    const rest = {
+      patch: vi.fn(async (
+        _route: string,
+        input: { signal?: AbortSignal },
+      ) => {
+        signal = input.signal;
+        await new Promise<void>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => {
+            reject(new Error("aborted"));
+          }, { once: true });
+        });
+      }),
+    };
+    const publisher = new DiscordRestMarketContentPublisher(
+      "test-token",
+      rest as never,
+    );
+
+    await expect(publisher.updateMessage({
+      channelId: "1".repeat(18),
+      messageId: "2".repeat(18),
+      snapshot: pulse,
+      requestTimeoutMs: 5,
+    })).rejects.toThrow("market_mutation_outcome_unknown");
+
+    expect(signal?.aborted).toBe(true);
   });
 
   it("drains an in-flight reconciliation during clean shutdown", async () => {
@@ -470,6 +580,29 @@ describe("Discord public seller profile boundary", () => {
     const serialized = JSON.stringify(card);
 
     expect(serialized).not.toContain("[Support](");
+    expect(serialized).not.toContain("@everyone");
+  });
+
+  it("escapes every user-derived reusable profile field", () => {
+    const malicious = "[Trusted](https://phishing.example) @everyone";
+    const card = buildDiscordSellerProfileCard({
+      displayName: malicious,
+      level: malicious,
+      rating: null,
+      reliabilityScore: null,
+      completedTrades: null,
+      publicVolumeRange: malicious,
+      memberSince: "2024-01-01T00:00:00.000Z",
+      presenceLabel: malicious,
+      responseTimeMinutes: null,
+      profileUrl: "https://www.alphatraders.co.il/en/exchange/seller/support",
+      imageUrl: null,
+      siteUrl: "https://www.alphatraders.co.il",
+    });
+    const serialized = JSON.stringify(card);
+
+    expect(serialized).not.toContain("[Trusted](");
+    expect(serialized).not.toContain("https://phishing.example");
     expect(serialized).not.toContain("@everyone");
   });
 

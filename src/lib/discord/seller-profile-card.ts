@@ -4,9 +4,9 @@ import type { RESTPostAPIChannelMessageJSONBody } from "discord.js";
 
 import {
   DISCORD_MARKET_BRAND_COLOR,
-  escapeDiscordPlainText,
   normalizeMarketSiteUrl,
 } from "@/lib/discord/market-intelligence-publisher";
+import { escapeDiscordPlainText } from "@/lib/discord/message-safety";
 import {
   isSafeDiscordImageUrl,
   isSafeDiscordLinkUrl,
@@ -41,7 +41,11 @@ export function buildDiscordSellerProfileCard(
     : siteUrl;
   const fields = [
     ...(profile.level
-      ? [{ name: "Level", value: formatLevel(profile.level), inline: true }]
+      ? [{
+          name: "Level",
+          value: escapeDiscordPlainText(formatLevel(profile.level)),
+          inline: true,
+        }]
       : []),
     ...(profile.rating === null
       ? []
@@ -63,7 +67,7 @@ export function buildDiscordSellerProfileCard(
     ...(profile.publicVolumeRange
       ? [{
           name: "Public volume",
-          value: profile.publicVolumeRange,
+          value: escapeDiscordPlainText(profile.publicVolumeRange),
           inline: true,
         }]
       : []),
@@ -77,7 +81,11 @@ export function buildDiscordSellerProfileCard(
       inline: true,
     },
     ...(profile.presenceLabel
-      ? [{ name: "Presence", value: profile.presenceLabel, inline: true }]
+      ? [{
+          name: "Presence",
+          value: escapeDiscordPlainText(profile.presenceLabel),
+          inline: true,
+        }]
       : []),
     ...(profile.responseTimeMinutes === null
       ? []

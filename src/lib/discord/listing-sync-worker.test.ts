@@ -7,7 +7,10 @@ vi.mock("server-only", () => ({}));
 import {
   buildAuthoritativeDiscordListingSnapshot,
   determineDiscordListingLifecycle,
+  DiscordListingSyncWorker,
 } from "@/lib/discord/listing-sync-worker";
+import type { DiscordListingPublisher } from "@/lib/discord/listing-publisher";
+import type { Pool } from "pg";
 
 describe("Discord listing authoritative snapshot", () => {
   it("uses measured trust data, real presence, and a safe seller image", () => {
@@ -202,6 +205,130 @@ describe("Discord listing lifecycle decisions", () => {
         now,
       )).toBe("terminal");
     }
+  });
+
+  describe("Discord listing reconciliation concurrency", () => {
+    it("returns the active reconciliation promise instead of reporting early", async () => {
+      let releaseEnqueue!: () => void;
+      const enqueueGate = new Promise<void>((resolve) => {
+        releaseEnqueue = resolve;
+      });
+      let enqueueCalls = 0;
+      const pool = {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("with candidates as")) {
+            enqueueCalls += 1;
+            await enqueueGate;
+            return { rows: [], rowCount: 0 };
+          }
+          if (sql.includes("with candidate as")) {
+            return { rows: [], rowCount: 0 };
+          }
+          if (sql.includes("pending_jobs")) {
+            return {
+              rows: [{
+                pending_jobs: 0,
+                dead_jobs: 0,
+                active_mappings: 0,
+                failed_mappings: 0,
+                cooldown_claims: 0,
+              }],
+              rowCount: 1,
+            };
+          }
+          throw new Error(`Unexpected SQL: ${sql}`);
+        }),
+      } as unknown as Pool;
+      const worker = new DiscordListingSyncWorker({
+        pool,
+        publisher: {} as DiscordListingPublisher,
+        pollIntervalMs: 60_000,
+        reconciliationIntervalMs: 60_000,
+        siteUrl: "https://www.alphatraders.co.il",
+      });
+
+      const periodic = worker.reconcile();
+      const operator = worker.reconcile();
+      let operatorSettled = false;
+      void operator.then(() => {
+        operatorSettled = true;
+      });
+      await Promise.resolve();
+
+      expect(operatorSettled).toBe(false);
+      expect(enqueueCalls).toBe(1);
+
+      releaseEnqueue();
+      await Promise.all([periodic, operator]);
+
+      expect(operatorSettled).toBe(true);
+      expect(enqueueCalls).toBe(1);
+    });
+
+    it("waits for every active operation before propagating shutdown failures", async () => {
+      let releaseProcessing!: () => void;
+      let releaseReconciliation!: () => void;
+      const processingGate = new Promise<void>((resolve) => {
+        releaseProcessing = resolve;
+      });
+      const reconciliationGate = new Promise<void>((resolve) => {
+        releaseReconciliation = resolve;
+      });
+      let claimCalls = 0;
+      const pool = {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("with candidates as")) {
+            await reconciliationGate;
+            return { rows: [], rowCount: 0 };
+          }
+          if (sql.includes("with candidate as")) {
+            claimCalls += 1;
+            if (claimCalls === 1) {
+              await processingGate;
+              throw new Error("processing_failed");
+            }
+            return { rows: [], rowCount: 0 };
+          }
+          if (sql.includes("pending_jobs")) {
+            return {
+              rows: [{
+                pending_jobs: 0,
+                dead_jobs: 0,
+                active_mappings: 0,
+                failed_mappings: 0,
+                cooldown_claims: 0,
+              }],
+              rowCount: 1,
+            };
+          }
+          throw new Error(`Unexpected SQL: ${sql}`);
+        }),
+      } as unknown as Pool;
+      const worker = new DiscordListingSyncWorker({
+        pool,
+        publisher: {} as DiscordListingPublisher,
+        pollIntervalMs: 60_000,
+        reconciliationIntervalMs: 60_000,
+        siteUrl: "https://www.alphatraders.co.il",
+      });
+
+      void worker.processAvailableJobs().catch(() => undefined);
+      void worker.reconcile();
+      const shutdown = worker.shutdown();
+      let settled = false;
+      void shutdown.catch(() => undefined).finally(() => {
+        settled = true;
+      });
+
+      releaseProcessing();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      releaseReconciliation();
+      await expect(shutdown).rejects.toThrow("processing_failed");
+      expect(settled).toBe(true);
+    });
   });
 
   it("deletes Discord visibility when a seller hides their public profile", () => {
