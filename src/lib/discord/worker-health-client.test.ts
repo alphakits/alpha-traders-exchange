@@ -23,8 +23,8 @@ const healthyDiagnostics = {
   error: null,
   resources: {
     status: "ready",
-    totalCount: 7,
-    readyCount: 7,
+    totalCount: 13,
+    readyCount: 13,
     missingCount: 0,
     errorCode: null,
   },
@@ -124,9 +124,9 @@ describe("Discord worker health client", () => {
         ...healthyDiagnostics,
         resources: {
           status: "degraded",
-          totalCount: 7,
+          totalCount: 13,
           readyCount: 0,
-          missingCount: 7,
+          missingCount: 13,
           errorCode: "token=raw-secret",
           channelId: "9".repeat(18),
         },

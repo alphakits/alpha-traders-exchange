@@ -61,8 +61,8 @@ function runtimeFixture(
     shutdown: vi.fn(async () => undefined),
     getDiagnostics: vi.fn(() => ({
       status: "ready" as const,
-      totalCount: 7,
-      readyCount: 7,
+      totalCount: 13,
+      readyCount: 13,
       missingCount: 0,
       errorCode: null,
     })),
@@ -123,9 +123,9 @@ describe("Discord worker runtime", () => {
       shutdown: vi.fn(async () => undefined),
       getDiagnostics: vi.fn(() => ({
         status: "degraded" as const,
-        totalCount: 7,
+        totalCount: 13,
         readyCount: 0,
-        missingCount: 7,
+        missingCount: 13,
         errorCode: "missing_manage_channels",
       })),
     };
