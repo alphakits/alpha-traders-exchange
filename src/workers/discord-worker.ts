@@ -1,6 +1,9 @@
 import "server-only";
 
-import { getDiscordService } from "@/lib/discord";
+import {
+  getDiscordGatewayClient,
+  getDiscordService,
+} from "@/lib/discord";
 import { logEvent } from "@/lib/structured-logging";
 import { readDiscordWorkerRuntimeConfig } from "@/lib/discord/worker-config";
 import {
@@ -11,6 +14,14 @@ import { createDiscordRoleSyncWorker } from "@/lib/discord/role-sync-worker";
 import { createDiscordResourceSyncWorker } from "@/lib/discord/resource-sync-worker";
 import { createDiscordListingSyncWorker } from "@/lib/discord/listing-sync-worker";
 import { createDiscordMarketIntelligenceWorker } from "@/lib/discord/market-intelligence-worker";
+import {
+  DiscordCommunityNotificationWorker,
+  DiscordRestDirectMessagePublisher,
+} from "@/lib/discord/community-notifications";
+import { DiscordCommunityCommandService } from "@/lib/discord/community-commands";
+import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
+import { readDiscordConfig } from "@/lib/discord/config";
+import { getSiteUrl } from "@/lib/site-url";
 
 async function main(): Promise<void> {
   let runtime: DiscordWorkerRuntime | null = null;
@@ -19,6 +30,15 @@ async function main(): Promise<void> {
 
   try {
     const config = readDiscordWorkerRuntimeConfig();
+    const discordConfig = readDiscordConfig();
+    const pool = getRuntimePostgresPool();
+    if (!pool) {
+      throw new Error(
+        "Discord community interactions require DATABASE_URL or SUPABASE_DB_URL.",
+      );
+    }
+    const gateway = getDiscordGatewayClient();
+    const siteUrl = getSiteUrl();
     runtime = new DiscordWorkerRuntime({
       config,
       service: getDiscordService(),
@@ -26,6 +46,21 @@ async function main(): Promise<void> {
       resourceSync: createDiscordResourceSyncWorker(),
       listingSync: createDiscordListingSyncWorker(),
       marketIntelligence: createDiscordMarketIntelligenceWorker(),
+      commands: new DiscordCommunityCommandService({
+        pool,
+        gateway,
+        token: discordConfig.token,
+        applicationId: discordConfig.applicationId,
+        guildId: discordConfig.guildId,
+        siteUrl,
+      }),
+      notifications: new DiscordCommunityNotificationWorker({
+        pool,
+        gateway,
+        publisher: new DiscordRestDirectMessagePublisher(discordConfig.token),
+        siteUrl,
+        guildId: discordConfig.guildId,
+      }),
     });
     removeSignalHandlers = installDiscordWorkerSignalHandlers(
       runtime,

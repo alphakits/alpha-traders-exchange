@@ -190,4 +190,54 @@ describe("Discord worker health server", () => {
       /embed|displayName|messageId|channelId|seller/i,
     );
   });
+
+  it("includes aggregate C4 readiness without member or interaction identifiers", async () => {
+    const server = createDiscordWorkerHealthServer({
+      service: { getDiagnostics: () => diagnostics },
+      notifications: {
+        getDiagnostics: () => ({
+          status: "ready",
+          pendingCount: 2,
+          deadCount: 0,
+          suppressedCount: 1,
+          lastDeliveredAt: "2026-08-08T05:00:00.000Z",
+          errorCode: null,
+        }),
+      },
+      commands: {
+        getDiagnostics: () => ({
+          status: "ready",
+          registeredCount: 7,
+          definitionHash: "a".repeat(64),
+          lastReconciledAt: "2026-08-08T05:00:00.000Z",
+          errorCode: null,
+        }),
+      },
+      healthSecret,
+      now: () => now,
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    const headers = createDiscordWorkerAuthHeaders(
+      healthSecret,
+      () => now,
+      () => nonce,
+    );
+
+    const response = await fetch(`http://127.0.0.1:${port}/health/ready`, {
+      headers,
+    });
+    const payload = await response.json();
+    expect(response.status).toBe(200);
+    expect(payload.notifications).toMatchObject({
+      pendingCount: 2,
+      suppressedCount: 1,
+    });
+    expect(payload.commands).toMatchObject({ registeredCount: 7 });
+    expect(JSON.stringify({
+      notifications: payload.notifications,
+      commands: payload.commands,
+    })).not.toMatch(/\d{17,20}|discordUserId|interactionId|token|email|wallet/i);
+  });
 });

@@ -556,10 +556,23 @@ export async function getPublicDiscordSellerProfileByUsername(input: {
       : false;
   });
   if (!row) return null;
+  return buildPublicDiscordSellerProfile({
+    row,
+    siteUrl: input.siteUrl,
+    now: input.now,
+  });
+}
 
+function buildPublicDiscordSellerProfile(input: {
+  row: PublicProfileRow;
+  siteUrl: string;
+  now?: number;
+}): DiscordPublicSellerProfile | null {
+  const { row } = input;
   const displayName = publicText(row.payload.buyerDisplayName);
   if (!displayName) return null;
   const siteUrl = normalizeMarketSiteUrl(input.siteUrl);
+  const normalizedUsername = normalizePublicProfileUsername(displayName);
   const trust = row.trust_payload?.snapshot
     && typeof row.trust_payload.snapshot === "object"
     ? row.trust_payload.snapshot as Record<string, unknown>
@@ -601,4 +614,34 @@ export async function getPublicDiscordSellerProfileByUsername(input: {
     imageUrl,
     siteUrl,
   };
+}
+
+export async function getPublicDiscordSellerProfileByDiscordUserId(input: {
+  discordUserId: string;
+  pool: Pool;
+  siteUrl: string;
+  now?: number;
+}): Promise<DiscordPublicSellerProfile | null> {
+  const result = await input.pool.query<PublicProfileRow>(
+    `select users.created_at,
+            users.payload,
+            trust.payload as trust_payload
+       from alpha_exchange.discord_identities identity
+       join alpha_exchange.users users
+         on users.id = identity.platform_user_id
+       left join alpha_exchange.trust_snapshots trust
+         on trust.seller_id = users.id
+      where identity.discord_user_id = $1
+        and ${PUBLIC_SELLER_SQL}
+      limit 1`,
+    [input.discordUserId],
+  );
+  const row = result.rows[0];
+  return row
+    ? buildPublicDiscordSellerProfile({
+        row,
+        siteUrl: input.siteUrl,
+        now: input.now,
+      })
+    : null;
 }

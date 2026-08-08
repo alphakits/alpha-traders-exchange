@@ -76,7 +76,7 @@ export interface DiscordRoleManager {
     discordUserId: string;
     desiredStatus: DiscordSellerRoleStatus;
     roleIds: DiscordManagedRoleIds;
-  }): Promise<void>;
+  }): Promise<{ approvedRoleGranted: boolean } | void>;
 }
 
 export class DiscordRestRoleManager implements DiscordRoleManager {
@@ -137,7 +137,7 @@ export class DiscordRestRoleManager implements DiscordRoleManager {
     discordUserId: string;
     desiredStatus: DiscordSellerRoleStatus;
     roleIds: DiscordManagedRoleIds;
-  }): Promise<void> {
+  }): Promise<{ approvedRoleGranted: boolean }> {
     try {
       const [member, roles] = await Promise.all([
         this.rest.get(
@@ -148,6 +148,7 @@ export class DiscordRestRoleManager implements DiscordRoleManager {
       await this.assertManageable(roles, input.roleIds);
       const current = new Set(member.roles);
       const desired = desiredDiscordRoleKeys(input.desiredStatus);
+      let approvedRoleGranted = false;
 
       for (const definition of DISCORD_MANAGED_ROLES) {
         const roleId = input.roleIds[definition.key];
@@ -157,6 +158,9 @@ export class DiscordRestRoleManager implements DiscordRoleManager {
             Routes.guildMemberRole(this.guildId, input.discordUserId, roleId),
             { reason: "Alpha Traders seller status synchronization" },
           );
+          if (definition.key === "approved_seller") {
+            approvedRoleGranted = true;
+          }
         } else if (!shouldHave && current.has(roleId)) {
           await this.rest.delete(
             Routes.guildMemberRole(this.guildId, input.discordUserId, roleId),
@@ -164,6 +168,7 @@ export class DiscordRestRoleManager implements DiscordRoleManager {
           );
         }
       }
+      return { approvedRoleGranted };
     } catch (error) {
       const code = apiErrorCode(error);
       if (code === 10007 || code === 10013) {

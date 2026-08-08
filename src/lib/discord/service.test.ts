@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   DiscordGatewayClient,
   DiscordGatewayEvent,
+  DiscordGuildMemberJoin,
 } from "@/lib/discord/gateway-client";
+import type { ChatInputCommandInteraction } from "discord.js";
 import {
   DiscordService,
   DiscordServiceError,
@@ -37,6 +39,20 @@ class MockGateway implements DiscordGatewayClient {
   subscribe(listener: (event: DiscordGatewayEvent) => void): () => void {
     this.subscribers.add(listener);
     return () => this.subscribers.delete(listener);
+  }
+
+  subscribeGuildMemberJoin(
+    listener: (event: DiscordGuildMemberJoin) => void,
+  ): () => void {
+    void listener;
+    return () => undefined;
+  }
+
+  subscribeInteraction(
+    listener: (interaction: ChatInputCommandInteraction) => void,
+  ): () => void {
+    void listener;
+    return () => undefined;
   }
 
   isReady(): boolean {
@@ -172,10 +188,27 @@ describe("DiscordService", () => {
     await expect(service.start()).rejects.toMatchObject({
       code: "login_failed",
     });
+
     const serialized = JSON.stringify(service.getDiagnostics());
     expect(serialized).toContain("Discord gateway login failed.");
     expect(serialized).not.toContain("unit-test-credential");
     expect(serialized).not.toContain("request failed");
+  });
+
+  it("reports the GuildMembers portal toggle as an explicit startup blocker", async () => {
+    const gateway = new MockGateway();
+    gateway.login.mockRejectedValueOnce(
+      Object.assign(new Error("disallowed intent"), { code: 4014 }),
+    );
+    const service = new DiscordService({ gateway, env: validEnv() });
+
+    await expect(service.start()).rejects.toMatchObject({
+      code: "privileged_intent_required",
+    });
+    expect(service.getDiagnostics()).toMatchObject({
+      error: { code: "privileged_intent_required" },
+      requiredPrivilegedIntents: ["GuildMembers"],
+    });
   });
 
   it("reports missing configuration names without exposing configured values", async () => {

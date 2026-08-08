@@ -28,6 +28,8 @@ function workerFixture(input: {
   currentDesiredStatus?: "approved" | "pending" | "suspended" | "none";
   linkedDiscordUserId?: string | null;
   ownsClaim?: boolean;
+  approvedRoleGranted?: boolean;
+  reason?: string;
 } = {}) {
   const clientStatements: string[] = [];
   const clientQueries: Array<{ sql: string; values?: unknown[] }> = [];
@@ -67,6 +69,8 @@ function workerFixture(input: {
           discord_user_id: "777777777777777777",
           lock_token: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
           attempts: 1,
+          desired_status: "approved",
+          reason: input.reason ?? "seller_status_changed",
         }]);
       }
       return result([], sql.includes("periodic_reconciliation") ? 0 : 1);
@@ -79,6 +83,7 @@ function workerFixture(input: {
     }),
     synchronizeMemberRoles: vi.fn(async () => {
       if (input.syncError) throw input.syncError;
+      return { approvedRoleGranted: input.approvedRoleGranted === true };
     }),
   };
   const worker = new DiscordRoleSyncWorker({
@@ -183,6 +188,7 @@ describe("Discord role sync worker", () => {
       currentDesiredStatus: "approved",
       linkedDiscordUserId: "777777777777777777",
     });
+
     await fixture.worker.start();
     await fixture.worker.shutdown();
     expect(fixture.manager.synchronizeMemberRoles).toHaveBeenCalledWith({
@@ -190,5 +196,42 @@ describe("Discord role sync worker", () => {
       desiredStatus: "approved",
       roleIds,
     });
+  });
+
+  it("enqueues one approval DM only when a status transition adds the role", async () => {
+    const fixture = workerFixture({ approvedRoleGranted: true });
+    await fixture.worker.start();
+    await fixture.worker.shutdown();
+
+    const completion = fixture.clientQueries.find(({ sql }) =>
+      sql.includes("discord_notification_deliveries"));
+    expect(completion?.sql).toContain("'approved-status:' || transition.id::text");
+    expect(completion?.values?.slice(4)).toEqual([
+      true,
+    ]);
+  });
+
+  it("uses the authoritative approval transition as the durable generation", async () => {
+    const reconciliation = workerFixture({
+      approvedRoleGranted: true,
+      reason: "periodic_reconciliation",
+    });
+    await reconciliation.worker.start();
+    await reconciliation.worker.shutdown();
+    const periodic = reconciliation.clientQueries.find(({ sql }) =>
+      sql.includes("discord_notification_deliveries"));
+    expect(periodic?.values?.slice(4)).toEqual([true]);
+    expect(periodic?.sql).toContain("source.reason = 'seller_status_changed'");
+    expect(periodic?.sql).toContain(
+      "'approved-status:' || transition.id::text",
+    );
+    expect(periodic?.sql).toContain("on conflict (source_key) do nothing");
+
+    const unchanged = workerFixture({ approvedRoleGranted: false });
+    await unchanged.worker.start();
+    await unchanged.worker.shutdown();
+    const noGrant = unchanged.clientQueries.find(({ sql }) =>
+      sql.includes("discord_notification_deliveries"));
+    expect(noGrant?.values?.[4]).toBe(false);
   });
 });

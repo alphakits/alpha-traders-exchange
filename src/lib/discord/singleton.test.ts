@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => {
   const gateway = {
     subscribe: vi.fn(() => vi.fn()),
+    subscribeGuildMemberJoin: vi.fn(() => vi.fn()),
+    subscribeInteraction: vi.fn(() => vi.fn()),
     login: vi.fn(),
     isReady: vi.fn(() => false),
     getIdentity: vi.fn(() => null),
@@ -27,7 +29,11 @@ describe("Discord process singleton", () => {
   afterEach(() => {
     delete (globalThis as typeof globalThis & {
       __alphaDiscordService?: unknown;
+      __alphaDiscordGateway?: unknown;
     }).__alphaDiscordService;
+    delete (globalThis as typeof globalThis & {
+      __alphaDiscordGateway?: unknown;
+    }).__alphaDiscordGateway;
     vi.resetModules();
   });
 

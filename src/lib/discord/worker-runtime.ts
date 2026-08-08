@@ -8,6 +8,8 @@ import type {
   DiscordListingDiagnostics,
   DiscordMarketIntelligenceDiagnostics,
   DiscordResourceDiagnostics,
+  DiscordCommunityCommandDiagnostics,
+  DiscordCommunityNotificationDiagnostics,
 } from "@/lib/discord/diagnostics";
 import type { DiscordService } from "@/lib/discord/service";
 import { logEvent } from "@/lib/structured-logging";
@@ -40,6 +42,16 @@ type WorkerRuntimeDependencies = {
     start(): Promise<void>;
     shutdown(): Promise<void>;
     getDiagnostics(): DiscordMarketIntelligenceDiagnostics;
+  };
+  notifications?: {
+    start(): Promise<void>;
+    shutdown(): Promise<void>;
+    getDiagnostics(): DiscordCommunityNotificationDiagnostics;
+  };
+  commands?: {
+    start(): Promise<void>;
+    shutdown(): Promise<void>;
+    getDiagnostics(): DiscordCommunityCommandDiagnostics;
   };
   createHealthServer?: typeof createDiscordWorkerHealthServer;
 };
@@ -89,6 +101,8 @@ export class DiscordWorkerRuntime {
   private readonly resourceSync: WorkerRuntimeDependencies["resourceSync"];
   private readonly listingSync: WorkerRuntimeDependencies["listingSync"];
   private readonly marketIntelligence: WorkerRuntimeDependencies["marketIntelligence"];
+  private readonly notifications: WorkerRuntimeDependencies["notifications"];
+  private readonly commands: WorkerRuntimeDependencies["commands"];
   private healthServer: Server | null = null;
   private startPromise: Promise<DiscordDiagnostics> | null = null;
   private shutdownPromise: Promise<void> | null = null;
@@ -100,6 +114,8 @@ export class DiscordWorkerRuntime {
     resourceSync,
     listingSync,
     marketIntelligence,
+    notifications,
+    commands,
     createHealthServer = createDiscordWorkerHealthServer,
   }: WorkerRuntimeDependencies) {
     this.config = config;
@@ -109,6 +125,8 @@ export class DiscordWorkerRuntime {
     this.resourceSync = resourceSync;
     this.listingSync = listingSync;
     this.marketIntelligence = marketIntelligence;
+    this.notifications = notifications;
+    this.commands = commands;
   }
 
   start(): Promise<DiscordDiagnostics> {
@@ -140,6 +158,8 @@ export class DiscordWorkerRuntime {
       resources: this.resourceSync,
       listings: this.listingSync,
       marketIntelligence: this.marketIntelligence,
+      notifications: this.notifications,
+      commands: this.commands,
       healthSecret: this.config.healthSecret,
     });
 
@@ -151,6 +171,14 @@ export class DiscordWorkerRuntime {
         throw new Error("Discord worker startup completed without healthy diagnostics.");
       }
       recordPhase("gateway_ready");
+      if (this.commands) {
+        await this.commands.start();
+        recordPhase("community_commands_ready");
+      }
+      if (this.notifications) {
+        await this.notifications.start();
+        recordPhase("community_notifications_ready");
+      }
       if (this.roleSync) {
         await this.roleSync.start();
         recordPhase("role_sync_ready");
@@ -194,6 +222,16 @@ export class DiscordWorkerRuntime {
 
   private async performShutdown(): Promise<void> {
     const failures: unknown[] = [];
+    try {
+      await this.notifications?.shutdown();
+    } catch (error) {
+      failures.push(error);
+    }
+    try {
+      await this.commands?.shutdown();
+    } catch (error) {
+      failures.push(error);
+    }
     try {
       await this.marketIntelligence?.shutdown();
     } catch (error) {
