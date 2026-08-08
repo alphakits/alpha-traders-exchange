@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/api-auth";
-import { beginBuyerVerification } from "@/lib/alpha-exchange-store";
+import { beginBuyerVerification, beginProfilePhoneVerification } from "@/lib/alpha-exchange-store";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
-import { getSmsProvider, OtpProviderError } from "@/lib/sms-provider";
+import { sendTwilioMessageWithRetry } from "@/lib/notification-platform";
 
 export async function POST(request: NextRequest) {
   const requestId = crypto.randomUUID();
@@ -72,8 +72,9 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    const smsProvider = getSmsProvider();
-    await smsProvider.sendOtp({ phone: started.phone });
+    const otp = await beginProfilePhoneVerification({ userId: user.id, phone: started.phone });
+    const sent = await sendTwilioMessageWithRetry({ to: otp.phone, body: `Alpha Traders verification code: ${otp.code}. Expires in 10 minutes.` });
+    if (!sent.ok) throw new Error(sent.error);
     logEvent("info", {
       event: "buyer_verification_otp_send",
       actorUserId: user.id,
@@ -83,33 +84,6 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ ok: true, message: "Verification code sent." });
   } catch (error) {
-    if (error instanceof OtpProviderError) {
-      logEvent("error", {
-        event: "buyer_verification_otp_send_provider_failed",
-        actorUserId: user.id,
-        actorRole: user.role,
-        outcome: "failed",
-        reason: error.message,
-        metadata: {
-          requestId,
-          supportCode: error.supportCode,
-          stage: error.stage,
-          provider: error.provider,
-          rawCode: error.rawCode ?? null,
-          rawStatus: error.rawStatus ?? null,
-          rawMessage: error.rawMessage,
-        },
-      });
-      return NextResponse.json(
-        {
-          error: error.message,
-          supportCode: error.supportCode,
-          requestId,
-        },
-        { status: 503 },
-      );
-    }
-
     logEvent("error", {
       event: "buyer_verification_otp_send",
       actorUserId: user.id,

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Megaphone, Search, Settings, ShieldCheck, Star, Store, TrendingUp, Trophy, Users, Users2, WalletCards, X, Zap } from "lucide-react";
+import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Megaphone, MessageSquareText, Search, Settings, ShieldCheck, Star, Store, TrendingUp, Trophy, Users, Users2, WalletCards, X, Zap } from "lucide-react";
 import { AdminAnnouncementsPanel } from "@/components/admin/admin-announcements-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { createExchangeDisplayLookup, replaceExchangeEntityIds } from "@/lib/alpha-exchange-display";
 import { formatCommissionId, formatListingId, formatRequestId, formatTradeId } from "@/lib/format-id";
 import { RoleBadge } from "@/components/ui/role-badge";
-import { SELLER_LEVELS, normalizeSellerLevel, type AlphaExchangeActivityLogEntry, type AlphaExchangeNotification, type AuditLogEntry, type BetaAnnouncement, type BetaAnnouncementType, type BetaFeedbackCategory, type CommissionRecord, type MarketplaceListing, type OwnerBusinessDashboardMetrics, type OwnerPrivateBetaDashboardData, type PurchaseRequest, type SellerApplication, type SellerAvailabilityStatus, type SellerLevel, type SellerReviewRecord, type SupportedNetwork } from "@/types/alpha-exchange";
+import { SELLER_LEVELS, normalizeSellerLevel, type AlphaExchangeActivityLogEntry, type AlphaExchangeNotification, type AuditLogEntry, type BetaAnnouncement, type BetaAnnouncementType, type BetaFeedbackCategory, type CommissionRecord, type MarketplaceListing, type OwnerBusinessDashboardMetrics, type OwnerPrivateBetaDashboardData, type PurchaseRequest, type SellerApplication, type SellerAvailabilityStatus, type SellerLevel, type SellerReviewRecord, type SmsDeliveryRecord, type SupportedNetwork } from "@/types/alpha-exchange";
 
 const RANK_BADGE_COLOR: Record<SellerLevel, string> = {
   bronze: "border-[#CD7F32]/30 bg-[#CD7F32]/10 text-[#E8A96A]",
@@ -78,6 +78,11 @@ type AdminPayload = {
   privateBeta: OwnerPrivateBetaDashboardData;
   users: Array<{ id: string; fullName: string; email: string; role: string; roles?: string[]; disabled?: boolean; createdAt: string }>;
   sellerReviews: SellerReviewRecord[];
+  smsDeliveries: AdminSmsDelivery[];
+};
+
+type AdminSmsDelivery = Omit<SmsDeliveryRecord, "recipientPhone" | "body"> & {
+  recipientPhoneMasked: string;
 };
 
 type SectionKey =
@@ -89,6 +94,7 @@ type SectionKey =
   | "purchase-requests"
   | "commissions"
   | "audit-logs"
+  | "sms-deliveries"
   | "announcements"
   | "private-beta"
   | "settings"
@@ -108,6 +114,7 @@ const sectionItems: Array<{ key: SectionKey; label: string; icon: typeof BarChar
   { key: "purchase-requests", label: "Purchase Requests", icon: ListChecks },
   { key: "commissions", label: "Commissions", icon: Coins },
   { key: "audit-logs", label: "Audit Logs", icon: FileClock },
+  { key: "sms-deliveries", label: "SMS Deliveries", icon: MessageSquareText },
   { key: "announcements", label: "Marketing · Announcements", icon: Megaphone },
   { key: "private-beta", label: "Access Control", icon: ShieldCheck },
   { key: "analytics", label: "Analytics", icon: TrendingUp },
@@ -231,6 +238,7 @@ export function AlphaExchangeAdminDashboard() {
   const [auditPage, setAuditPage] = useState(1);
   const [notificationQuery, setNotificationQuery] = useState("");
   const [notificationPage, setNotificationPage] = useState(1);
+  const [smsDeliveriesPage, setSmsDeliveriesPage] = useState(1);
   const [inviteMaxUses, setInviteMaxUses] = useState("10");
   const [inviteExpiresAt, setInviteExpiresAt] = useState("");
   const [betaFeedbackStatusFilter, setBetaFeedbackStatusFilter] = useState<"all" | "new" | "in_review" | "resolved">("all");
@@ -261,10 +269,14 @@ export function AlphaExchangeAdminDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/alpha-exchange/admin-prep", { cache: "no-store" });
-      const payload = (await response.json()) as AdminPayload & { error?: string };
-      if (!response.ok) throw new Error(safeAdminError("load"));
-      setData(payload);
+      const [response, smsResponse] = await Promise.all([
+        fetch("/api/alpha-exchange/admin-prep", { cache: "no-store" }),
+        fetch("/api/alpha-exchange/admin/sms-deliveries", { cache: "no-store" }),
+      ]);
+      const payload = (await response.json()) as Omit<AdminPayload, "smsDeliveries"> & { error?: string };
+      const smsPayload = (await smsResponse.json()) as { deliveries?: AdminSmsDelivery[]; error?: string };
+      if (!response.ok || !smsResponse.ok) throw new Error(safeAdminError("load"));
+      setData({ ...payload, smsDeliveries: smsPayload.deliveries ?? [] });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : safeAdminError("load"));
     } finally {
@@ -461,6 +473,11 @@ export function AlphaExchangeAdminDashboard() {
     });
     return paginate(items, notificationPage);
   }, [data?.notifications, displayLookup, notificationPage, notificationQuery, sellersById]);
+
+  const smsDeliveryRows = useMemo(
+    () => paginate(data?.smsDeliveries ?? [], smsDeliveriesPage),
+    [data?.smsDeliveries, smsDeliveriesPage],
+  );
 
   const expirationHistory = useMemo(
     () => (data?.auditLogs ?? []).filter((entry) => entry.action === "listing_expired" || entry.action === "listing_renewed" || entry.action === "listing_expiration_extended" || entry.action === "admin_override"),
@@ -2197,6 +2214,65 @@ export function AlphaExchangeAdminDashboard() {
                           </div>
                           <div className="mt-3">{renderPagination(notificationRows.safePage, notificationRows.totalPages, setNotificationPage)}</div>
                         </div>
+                      </CardContent>
+                    </Card>
+                  ) : null}
+
+                  {activeSection === "sms-deliveries" ? (
+                    <Card className="border-white/10 bg-[#0B0B0B]/90">
+                      <CardHeader>
+                        <CardTitle>SMS Delivery History</CardTitle>
+                        <CardDescription>Recent lifecycle messages. Recipient numbers are always masked.</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="overflow-x-auto rounded-xl border border-white/10">
+                          <table className="w-full min-w-[1320px] text-sm">
+                            <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
+                              <tr>
+                                <th className="px-4 py-3">Recipient</th>
+                                <th className="px-4 py-3">Event</th>
+                                <th className="px-4 py-3">Status</th>
+                                <th className="px-4 py-3">Retries</th>
+                                <th className="px-4 py-3">Provider SID</th>
+                                <th className="px-4 py-3">Created</th>
+                                <th className="px-4 py-3">Updated</th>
+                                <th className="px-4 py-3">Delivery timestamp</th>
+                                <th className="px-4 py-3">Error</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {smsDeliveryRows.rows.map((delivery) => {
+                                const statusClass = delivery.status === "delivered"
+                                  ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300"
+                                  : delivery.status === "failed"
+                                    ? "border-red-400/30 bg-red-400/10 text-red-300"
+                                    : delivery.status === "sent"
+                                      ? "border-blue-400/30 bg-blue-400/10 text-blue-300"
+                                      : "border-amber-400/30 bg-amber-400/10 text-amber-300";
+                                const deliveryTimestamp = delivery.deliveredAt ?? delivery.failedAt ?? delivery.sentAt;
+                                return (
+                                  <tr key={delivery.id} className="border-t border-white/10">
+                                    <td className="px-4 py-3 font-mono text-white">{delivery.recipientPhoneMasked}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{delivery.eventType}</td>
+                                    <td className="px-4 py-3">
+                                      <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium capitalize ${statusClass}`}>
+                                        {delivery.status}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{delivery.retryCount}</td>
+                                    <td className="px-4 py-3 font-mono text-xs text-[#D1D5DB]">{delivery.twilioMessageSid ?? "—"}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(delivery.createdAt)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(delivery.updatedAt)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{deliveryTimestamp ? formatDate(deliveryTimestamp) : "—"}</td>
+                                    <td className="max-w-xs px-4 py-3 text-[#D1D5DB]">{delivery.lastError ?? "—"}</td>
+                                  </tr>
+                                );
+                              })}
+                              {smsDeliveryRows.rows.length === 0 ? renderEmptyTableRow("No SMS deliveries recorded yet.", 9) : null}
+                            </tbody>
+                          </table>
+                        </div>
+                        {renderPagination(smsDeliveryRows.safePage, smsDeliveryRows.totalPages, setSmsDeliveriesPage)}
                       </CardContent>
                     </Card>
                   ) : null}

@@ -25,6 +25,7 @@ import type {
   TrustScoreChangeLog,
   TrustSnapshotRecord,
   AlphaExchangeActivityLogEntry,
+  SmsDeliveryRecord,
 } from "@/types/alpha-exchange";
 
 type Queryable = Pool | PoolClient;
@@ -276,6 +277,19 @@ const SCHEMA_SQL = [
     sort_index integer not null,
     payload jsonb not null
   )`,
+  `create table if not exists alpha_exchange.sms_deliveries (
+    id text primary key,
+    event_key text not null unique,
+    event_type text not null,
+    recipient_user_id text not null references alpha_exchange.users(id) on delete cascade,
+    status text not null,
+    retry_count integer not null default 0,
+    twilio_message_sid text,
+    created_at timestamptz not null,
+    updated_at timestamptz not null,
+    sort_index integer not null,
+    payload jsonb not null
+  )`,
   "alter table alpha_exchange.admin_announcement_runs add column if not exists request_key text",
   "create index if not exists idx_alpha_exchange_users_email on alpha_exchange.users (email)",
   "create index if not exists idx_alpha_exchange_users_role on alpha_exchange.users (role)",
@@ -293,6 +307,7 @@ const SCHEMA_SQL = [
   "create index if not exists idx_alpha_exchange_trades_status on alpha_exchange.trades (status, created_at desc)",
   "create index if not exists idx_alpha_exchange_announcement_runs_created_at on alpha_exchange.admin_announcement_runs (created_at desc)",
   "create unique index if not exists idx_alpha_exchange_announcement_runs_request_key on alpha_exchange.admin_announcement_runs (created_by_user_id, request_key)",
+  "create index if not exists idx_alpha_exchange_sms_deliveries_status on alpha_exchange.sms_deliveries (status, updated_at desc)",
 ];
 
 const DEFAULT_DB = alphaExchangeSeed as unknown as AlphaExchangeDb;
@@ -335,6 +350,7 @@ const SNAPSHOT_TABLE_NAMES = [
   "beta_feedback",
   "beta_announcements",
   "admin_announcement_runs",
+  "sms_deliveries",
 ] as const;
 
 export type SnapshotTableName = (typeof SNAPSHOT_TABLE_NAMES)[number];
@@ -912,6 +928,21 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
       ]);
     },
   },
+  {
+    name: "sms_deliveries",
+    selectSql: "select payload from alpha_exchange.sms_deliveries order by sort_index asc",
+    values: (db) => db.smsDeliveries ?? [],
+    insert: async (tx, rows: SmsDeliveryRecord[]) => {
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.sms_deliveries (id, event_key, event_type, recipient_user_id, status, retry_count, twilio_message_sid, created_at, updated_at, sort_index, payload)
+SELECT id, event_key, event_type, recipient_user_id, status, retry_count::int, twilio_message_sid, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[],$11::text[])
+  AS t(id,event_key,event_type,recipient_user_id,status,retry_count,twilio_message_sid,created_at,updated_at,sort_index,payload)`, [
+        rows.map(r => r.id), rows.map(r => r.eventKey), rows.map(r => r.eventType), rows.map(r => r.recipientUserId),
+        rows.map(r => r.status), rows.map(r => String(r.retryCount)), rows.map(r => r.twilioMessageSid ?? null),
+        rows.map(r => r.createdAt), rows.map(r => r.updatedAt), rows.map((_, i) => String(i)), rows.map(r => json(r)),
+      ]);
+    },
+  },
 ] as Array<RepoTable<unknown>>;
 
 const tableByName = new Map(tables.map((table) => [table.name, table]));
@@ -1022,6 +1053,7 @@ function emptySnapshotCollections(): AlphaExchangeDb {
     betaAnnouncements: [],
     adminAnnouncementRuns: [],
     sellerReviews: [],
+    smsDeliveries: [],
   };
 }
 
@@ -1091,6 +1123,9 @@ function snapshotFromTableRows(
         break;
       case "admin_announcement_runs":
         snapshot.adminAnnouncementRuns = fromPayloadRows(rows as Array<{ payload: AdminAnnouncementRun }>);
+        break;
+      case "sms_deliveries":
+        snapshot.smsDeliveries = fromPayloadRows(rows as Array<{ payload: SmsDeliveryRecord }>);
         break;
       default:
         break;
@@ -1170,6 +1205,25 @@ function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchang
       mergedAnnouncementRuns.set(run.id, run);
     }
   }
+  const smsStatusRank = { queued: 0, sent: 1, failed: 2, delivered: 3 } as const;
+  const mergedSmsDeliveries = new Map(
+    getCollection(latest.smsDeliveries, []).map((delivery) => [delivery.id, delivery]),
+  );
+  for (const delivery of getCollection(incoming.smsDeliveries, [])) {
+    const current = mergedSmsDeliveries.get(delivery.id);
+    if (!current) {
+      mergedSmsDeliveries.set(delivery.id, delivery);
+      continue;
+    }
+    const currentRank = smsStatusRank[current.status];
+    const incomingRank = smsStatusRank[delivery.status];
+    if (
+      incomingRank > currentRank
+      || (incomingRank === currentRank && new Date(delivery.updatedAt).getTime() > new Date(current.updatedAt).getTime())
+    ) {
+      mergedSmsDeliveries.set(delivery.id, delivery);
+    }
+  }
 
   return {
     ...latest,
@@ -1196,6 +1250,8 @@ function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchang
     adminAnnouncementRuns: [...mergedAnnouncementRuns.values()]
       .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()),
     sellerReviews: getCollection(incoming.sellerReviews, latest.sellerReviews),
+    smsDeliveries: [...mergedSmsDeliveries.values()]
+      .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()),
   };
 }
 

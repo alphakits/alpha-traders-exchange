@@ -1,3 +1,6 @@
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
 export type MarketplaceEmailEvent =
   | "new_buy_request"
   | "trade_accepted"
@@ -22,6 +25,87 @@ export type MarketplaceEmailPayload = {
   actionUrl: string;
   referenceLabel?: string;
 };
+
+export type MarketplaceEmailAttempt = {
+  event: MarketplaceEmailEvent;
+  to: string;
+  referenceLabel?: string;
+  createdAt: string;
+};
+
+const marketplaceEmailAttempts: MarketplaceEmailAttempt[] = [];
+const MARKETPLACE_EMAIL_ATTEMPTS_FILE = join(process.cwd(), "tmp", "marketplace-email-attempts.jsonl");
+
+function isNonProductionRuntime() {
+  return process.env.NODE_ENV !== "production";
+}
+
+function appendMarketplaceEmailAttemptToDisk(attempt: MarketplaceEmailAttempt) {
+  if (!isNonProductionRuntime()) return;
+  try {
+    mkdirSync(dirname(MARKETPLACE_EMAIL_ATTEMPTS_FILE), { recursive: true });
+    appendFileSync(MARKETPLACE_EMAIL_ATTEMPTS_FILE, `${JSON.stringify(attempt)}\n`, "utf8");
+  } catch {
+    // Test harness persistence must never break notification delivery flow.
+  }
+}
+
+function readMarketplaceEmailAttemptsFromDisk() {
+  if (!isNonProductionRuntime()) {
+    return [...marketplaceEmailAttempts];
+  }
+  try {
+    const content = readFileSync(MARKETPLACE_EMAIL_ATTEMPTS_FILE, "utf8");
+    if (!content.trim()) return [] as MarketplaceEmailAttempt[];
+    const attempts: MarketplaceEmailAttempt[] = [];
+    for (const line of content.split(/\r?\n/)) {
+      const nextLine = line.trim();
+      if (!nextLine) continue;
+      const parsed = JSON.parse(nextLine) as MarketplaceEmailAttempt;
+      if (!parsed || typeof parsed !== "object") continue;
+      if (typeof parsed.event !== "string" || typeof parsed.to !== "string" || typeof parsed.createdAt !== "string") continue;
+      if (parsed.referenceLabel != null && typeof parsed.referenceLabel !== "string") continue;
+      attempts.push(parsed);
+    }
+    return attempts;
+  } catch {
+    return [] as MarketplaceEmailAttempt[];
+  }
+}
+
+function clearMarketplaceEmailAttemptsFromDisk() {
+  if (!isNonProductionRuntime()) return;
+  try {
+    mkdirSync(dirname(MARKETPLACE_EMAIL_ATTEMPTS_FILE), { recursive: true });
+    writeFileSync(MARKETPLACE_EMAIL_ATTEMPTS_FILE, "", "utf8");
+  } catch {
+    // Best effort clear for test-only observability.
+  }
+}
+
+export function recordMarketplaceEmailAttempt(input: {
+  event: MarketplaceEmailEvent;
+  to: string;
+  referenceLabel?: string;
+}) {
+  const attempt: MarketplaceEmailAttempt = {
+    event: input.event,
+    to: input.to,
+    referenceLabel: input.referenceLabel,
+    createdAt: new Date().toISOString(),
+  };
+  marketplaceEmailAttempts.push(attempt);
+  appendMarketplaceEmailAttemptToDisk(attempt);
+}
+
+export function listMarketplaceEmailAttempts() {
+  return readMarketplaceEmailAttemptsFromDisk();
+}
+
+export function clearMarketplaceEmailAttempts() {
+  marketplaceEmailAttempts.length = 0;
+  clearMarketplaceEmailAttemptsFromDisk();
+}
 
 function escapeHtml(value: string) {
   return value
@@ -86,6 +170,11 @@ export function buildMarketplaceEmail(input: MarketplaceEmailPayload) {
 }
 
 export async function sendMarketplaceEmail(input: MarketplaceEmailPayload & { to: string; idempotencyKey?: string }) {
+  recordMarketplaceEmailAttempt({
+    event: input.event,
+    to: input.to,
+    referenceLabel: input.referenceLabel,
+  });
   const apiKey = process.env.RESEND_API_KEY?.trim() ?? "";
   const from = process.env.EMAIL_FROM?.trim() ?? "";
   if (!apiKey || !from) {

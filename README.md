@@ -107,6 +107,10 @@ npm run start
 - Unit tests: `npm run test`
 - E2E tests: `npm run test:e2e`
 
+Marketplace listing publication notification regression is now covered by
+`e2e/listing-publication-notifications.spec.ts` and runs against the local QA
+runtime via test-support endpoints (no production credentials required).
+
 E2E credentialed login/seller lifecycle checks are opt-in and require seeded accounts:
 
 - `E2E_OWNER_EMAIL`, `E2E_OWNER_PASSWORD`
@@ -114,6 +118,16 @@ E2E credentialed login/seller lifecycle checks are opt-in and require seeded acc
 - `E2E_SELLER_EMAIL`, `E2E_SELLER_PASSWORD`
 
 Without these variables, credential-dependent E2E cases are skipped and public/auth-guard infrastructure checks still run.
+
+### Manual production checklist (no credentials in repo)
+
+After deployment, validate once with three buyer accounts:
+
+1. Create and approve a new listing.
+2. Confirm each buyer gets exactly one in-app "New USDT Listing Available" notification.
+3. Confirm each buyer gets exactly one `new_listing_published` email.
+4. Confirm the listing creator gets neither the listing-publication in-app notification nor `new_listing_published` email.
+5. Edit the same listing and confirm no additional listing-publication notifications or emails are generated.
 
 ## Vercel deployment
 
