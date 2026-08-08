@@ -18,6 +18,10 @@ export async function GET() {
       browserPushFeedback: user.notificationPreferences?.browserPushFeedback !== false,
       browserPushAdminAlerts: user.notificationPreferences?.browserPushAdminAlerts === true,
     },
+    phone: {
+      verified: Boolean(user.verifiedPhone && user.phoneVerifiedAt),
+      masked: user.verifiedPhone ? `${user.verifiedPhone.slice(0, 3)}•••${user.verifiedPhone.slice(-2)}` : null,
+    },
   });
 }
 
@@ -29,6 +33,9 @@ export async function PATCH(request: NextRequest) {
 
   try {
     const body = await request.json();
+    if (body.sms === true && (!user.verifiedPhone || !user.phoneVerifiedAt)) {
+      return NextResponse.json({ error: "Verify a phone number before enabling SMS notifications." }, { status: 400 });
+    }
     const preferences = await updateNotificationPreferences({
       userId: user.id,
       preferences: {

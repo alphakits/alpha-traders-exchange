@@ -122,6 +122,11 @@ export interface AlphaExchangeUser {
   registeredViaInviteCodeId?: string;
   verifiedPhone?: string;
   phoneVerifiedAt?: string;
+  phoneOtpHash?: string;
+  phoneOtpSalt?: string;
+  phoneOtpExpiresAt?: string;
+  phoneOtpAttempts?: number;
+  phoneOtpPhone?: string;
   buyerVerificationStatus?: "not_started" | "otp_sent" | "verified";
   buyerVerificationAttempts?: number;
   buyerVerificationWindowStartedAt?: string;
@@ -837,6 +842,37 @@ export interface TrustScoreChangeLog {
   createdAt: string;
 }
 
+export type SmsDeliveryStatus = "queued" | "sent" | "delivered" | "failed";
+export type SmsEventType =
+  | "seller_application_submitted"
+  | "trade_requires_admin_review"
+  | "purchase_request_created"
+  | "trade_accepted"
+  | "payment_sent"
+  | "funds_received"
+  | "usdt_sent"
+  | "trade_completed";
+
+export interface SmsDeliveryRecord {
+  id: string;
+  eventKey: string;
+  eventType: SmsEventType;
+  recipientUserId: string;
+  /** E.164 number; never return this field to browser clients. */
+  recipientPhone: string;
+  body: string;
+  status: SmsDeliveryStatus;
+  retryCount: number;
+  twilioMessageSid?: string;
+  providerStatus?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+  sentAt?: string;
+  deliveredAt?: string;
+  failedAt?: string;
+}
+
 export interface AlphaExchangeDb {
   users: AlphaExchangeUser[];
   sellerApplications: SellerApplication[];
@@ -860,6 +896,7 @@ export interface AlphaExchangeDb {
   betaAnnouncements: BetaAnnouncement[];
   adminAnnouncementRuns: AdminAnnouncementRun[];
   sellerReviews: SellerReviewRecord[];
+  smsDeliveries?: SmsDeliveryRecord[];
 }
 
 export interface OwnerBusinessDashboardMetrics {
