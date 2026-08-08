@@ -8,6 +8,7 @@ COPY src/workers/discord-worker.ts /app/src/workers/discord-worker.ts
 COPY src/lib/discord /app/src/lib/discord
 COPY src/lib/env-validation.ts /app/src/lib/env-validation.ts
 COPY src/lib/postgres-runtime.ts /app/src/lib/postgres-runtime.ts
+COPY src/lib/seller-presence.ts /app/src/lib/seller-presence.ts
 COPY src/lib/site-url.ts /app/src/lib/site-url.ts
 COPY src/lib/structured-logging.ts /app/src/lib/structured-logging.ts
 RUN npm run build && npm prune --omit=dev

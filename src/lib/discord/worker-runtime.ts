@@ -4,6 +4,7 @@ import type { Server } from "node:http";
 
 import type {
   DiscordDiagnostics,
+  DiscordListingDiagnostics,
   DiscordResourceDiagnostics,
 } from "@/lib/discord/diagnostics";
 import type { DiscordService } from "@/lib/discord/service";
@@ -27,6 +28,11 @@ type WorkerRuntimeDependencies = {
     start(): Promise<void>;
     shutdown(): Promise<void>;
     getDiagnostics(): DiscordResourceDiagnostics;
+  };
+  listingSync?: {
+    start(): Promise<void>;
+    shutdown(): Promise<void>;
+    getDiagnostics(): DiscordListingDiagnostics;
   };
   createHealthServer?: typeof createDiscordWorkerHealthServer;
 };
@@ -74,6 +80,7 @@ export class DiscordWorkerRuntime {
   private readonly createHealthServer: typeof createDiscordWorkerHealthServer;
   private readonly roleSync: WorkerRuntimeDependencies["roleSync"];
   private readonly resourceSync: WorkerRuntimeDependencies["resourceSync"];
+  private readonly listingSync: WorkerRuntimeDependencies["listingSync"];
   private healthServer: Server | null = null;
   private startPromise: Promise<DiscordDiagnostics> | null = null;
   private shutdownPromise: Promise<void> | null = null;
@@ -83,6 +90,7 @@ export class DiscordWorkerRuntime {
     service,
     roleSync,
     resourceSync,
+    listingSync,
     createHealthServer = createDiscordWorkerHealthServer,
   }: WorkerRuntimeDependencies) {
     this.config = config;
@@ -90,6 +98,7 @@ export class DiscordWorkerRuntime {
     this.createHealthServer = createHealthServer;
     this.roleSync = roleSync;
     this.resourceSync = resourceSync;
+    this.listingSync = listingSync;
   }
 
   start(): Promise<DiscordDiagnostics> {
@@ -108,6 +117,7 @@ export class DiscordWorkerRuntime {
     this.healthServer = this.createHealthServer({
       service: this.service,
       resources: this.resourceSync,
+      listings: this.listingSync,
       healthSecret: this.config.healthSecret,
     });
 
@@ -119,6 +129,7 @@ export class DiscordWorkerRuntime {
       }
       await this.roleSync?.start();
       await this.resourceSync?.start();
+      await this.listingSync?.start();
       logEvent("info", {
         event: "discord_worker_started",
         outcome: "success",
@@ -146,6 +157,11 @@ export class DiscordWorkerRuntime {
 
   private async performShutdown(): Promise<void> {
     const failures: unknown[] = [];
+    try {
+      await this.listingSync?.shutdown();
+    } catch (error) {
+      failures.push(error);
+    }
     try {
       await this.resourceSync?.shutdown();
     } catch (error) {

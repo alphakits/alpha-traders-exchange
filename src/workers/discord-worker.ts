@@ -9,6 +9,7 @@ import {
 } from "@/lib/discord/worker-runtime";
 import { createDiscordRoleSyncWorker } from "@/lib/discord/role-sync-worker";
 import { createDiscordResourceSyncWorker } from "@/lib/discord/resource-sync-worker";
+import { createDiscordListingSyncWorker } from "@/lib/discord/listing-sync-worker";
 
 async function main(): Promise<void> {
   let runtime: DiscordWorkerRuntime | null = null;
@@ -22,6 +23,7 @@ async function main(): Promise<void> {
       service: getDiscordService(),
       roleSync: createDiscordRoleSyncWorker(),
       resourceSync: createDiscordResourceSyncWorker(),
+      listingSync: createDiscordListingSyncWorker(),
     });
     removeSignalHandlers = installDiscordWorkerSignalHandlers(
       runtime,
