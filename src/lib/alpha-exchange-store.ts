@@ -1,6 +1,7 @@
                   import { appendFileSync, mkdirSync } from "fs";
 import path from "path";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "crypto";
+import { after } from "next/server";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { createExchangeDisplayLookup, normalizeDisplayNumber, replaceExchangeEntityIds } from "./alpha-exchange-display";
@@ -22,6 +23,7 @@ import {
 } from "@/lib/admin-announcement-email";
 import { getSiteUrl } from "@/lib/site-url";
 import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
+import { getSmsTemplate, normalizeE164, resolveSmsDeliveryStatusTransition, sendTwilioMessageWithRetry, twilioStatusCallbackUrl } from "@/lib/notification-platform";
 import { normalizeSellerLevel } from "@/types/alpha-exchange";
 import {
   MAX_LISTING_PAYMENT_METHODS,
@@ -95,6 +97,9 @@ import type {
   SellerReviewRecord,
   TrustSnapshotRecord,
   TrustScoreChangeLog,
+  SmsDeliveryRecord,
+  SmsDeliveryStatus,
+  SmsEventType,
 } from "@/types/alpha-exchange";
 import { getWalletAddressValidationError, normalizeWalletAddress } from "@/lib/wallet-address";
 
@@ -185,6 +190,7 @@ const defaultDb: AlphaExchangeDb = {
   betaAnnouncements: [],
   adminAnnouncementRuns: [],
   sellerReviews: [],
+  smsDeliveries: [],
 };
 
 // Cache TTL: writeDb() always updates the cache on write, so correctness is
@@ -2114,15 +2120,15 @@ const USER_PROFILE_TABLES = ["users", "seller_profiles", "seller_settings"] as c
 const TRUST_INIT_TABLES = [...USER_PROFILE_TABLES, "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
 const LISTING_WRITE_TABLES = ["listings", "audit_logs", "notifications"] as const satisfies readonly SnapshotTableName[];
 const LISTING_TRUST_WRITE_TABLES = [...USER_PROFILE_TABLES, "listings", "audit_logs", "notifications", "activity_logs", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
-const SELLER_APPLICATION_REVIEW_TABLES = [...USER_PROFILE_TABLES, "seller_applications", "notifications", "audit_logs", "activity_logs", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
+const SELLER_APPLICATION_REVIEW_TABLES = [...USER_PROFILE_TABLES, "seller_applications", "notifications", "audit_logs", "activity_logs", "trust_snapshots", "trust_score_history", "sms_deliveries"] as const satisfies readonly SnapshotTableName[];
 const SELLER_STATUS_TRUST_TABLES = [...USER_PROFILE_TABLES, "audit_logs", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
 const SELLER_STATUS_NOTIFICATION_TABLES = [...USER_PROFILE_TABLES, "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const SELLER_PROFILE_STATE_TABLES = [...USER_PROFILE_TABLES, "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const SELLER_PRESTIGE_TABLES = [...USER_PROFILE_TABLES, "notifications", "audit_logs", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
-const PURCHASE_REQUEST_CREATE_TABLES = ["purchase_requests", "notifications", "audit_logs", "activity_logs"] as const satisfies readonly SnapshotTableName[];
-const TRADE_STATUS_BASE_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
+const PURCHASE_REQUEST_CREATE_TABLES = ["purchase_requests", "notifications", "audit_logs", "activity_logs", "sms_deliveries"] as const satisfies readonly SnapshotTableName[];
+const TRADE_STATUS_BASE_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "sms_deliveries"] as const satisfies readonly SnapshotTableName[];
 // For completed/declined/cancelled: core trade state written synchronously (critical path).
-const TRADE_COMPLETION_CORE_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "commissions"] as const satisfies readonly SnapshotTableName[];
+const TRADE_COMPLETION_CORE_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "commissions", "sms_deliveries"] as const satisfies readonly SnapshotTableName[];
 // For completed/declined/cancelled: trust data written after the response via after() (non-critical path).
 const TRADE_COMPLETION_TRUST_TABLES = [...USER_PROFILE_TABLES, "activity_logs", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
 const TRADE_EVIDENCE_BASE_TABLES = ["purchase_requests", "audit_logs", "activity_logs", "evidence"] as const satisfies readonly SnapshotTableName[];
@@ -2135,7 +2141,7 @@ const COMMISSION_STATUS_TABLES = ["purchase_requests", "commissions", "notificat
 const AUDIT_LOG_ONLY_TABLES = ["audit_logs"] as const satisfies readonly SnapshotTableName[];
 const NOTIFICATION_ONLY_TABLES = ["notifications"] as const satisfies readonly SnapshotTableName[];
 const NOTIFICATION_PREFERENCES_TABLES = [...USER_PROFILE_TABLES, "activity_logs"] as const satisfies readonly SnapshotTableName[];
-const DISPUTE_WRITE_TABLES = ["purchase_requests", "disputes", "notifications", "activity_logs"] as const satisfies readonly SnapshotTableName[];
+const DISPUTE_WRITE_TABLES = ["purchase_requests", "disputes", "notifications", "activity_logs", "sms_deliveries"] as const satisfies readonly SnapshotTableName[];
 const SELLER_REPORT_TABLES = ["seller_reports", "notifications", "activity_logs"] as const satisfies readonly SnapshotTableName[];
 const BETA_ANNOUNCEMENT_TABLES = ["beta_announcements", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const BETA_ANNOUNCEMENT_STATE_TABLES = ["beta_announcements", "audit_logs"] as const satisfies readonly SnapshotTableName[];
@@ -2310,12 +2316,24 @@ function getAdminNotificationRecipients(db: AlphaExchangeDb) {
   return db.users.filter((user) => hasRole(user, "owner") || hasRole(user, "admin"));
 }
 
+export function isEligibleBuyerForListingBroadcast(
+  user: Pick<AlphaExchangeUser, "id" | "role" | "roles" | "sellerStatus" | "disabled">,
+  creatorUserId: string,
+) {
+  if (user.id === creatorUserId) return false;
+  if (user.sellerStatus === "suspended") return false;
+  if (user.disabled === true) return false;
+  const roles = user.roles ?? [user.role];
+  return roles.includes("buyer");
+}
+
 function getListingBroadcastRecipients(db: AlphaExchangeDb, creatorUserId: string) {
-  return db.users.filter((user) =>
-    user.id !== creatorUserId
-    && user.sellerStatus !== "suspended"
-    && ((hasRole(user, "buyer") && !hasRole(user, "approved_seller")) || hasRole(user, "admin") || hasRole(user, "owner")),
-  );
+  const byUserId = new Map<string, AlphaExchangeUser>();
+  for (const user of db.users) {
+    if (!isEligibleBuyerForListingBroadcast(user, creatorUserId)) continue;
+    if (!byUserId.has(user.id)) byUserId.set(user.id, user);
+  }
+  return [...byUserId.values()];
 }
 
 async function sendListingOwnerLifecycleEmail(
@@ -2357,7 +2375,6 @@ async function sendListingOwnerLifecycleEmail(
 export async function getListingBroadcastEmailRecipients(creatorUserId: string) {
   const db = await readDb();
   return getListingBroadcastRecipients(db, creatorUserId)
-    .filter((user) => user.notificationPreferences?.email === true)
     .map((user) => ({
       id: user.id,
       fullName: user.fullName,
@@ -2386,7 +2403,7 @@ function pushNotification(
   ensureDisplayNumbers(db);
   const user = db.users.find((item) => item.id === input.userId);
   if (!user) return;
-  if (user.notificationPreferences?.inApp === false && input.category !== "trade") return;
+  if (user.notificationPreferences?.inApp === false) return;
   const inferredRequest = resolveTradeContextForNotification(db, {
     userId: input.userId,
     relatedRequestId: input.relatedRequestId,
@@ -2475,6 +2492,69 @@ function pushNotification(
     type: "notification.created",
     payload: { notification },
   });
+}
+
+export function hasVerifiedPhoneForSms(user: Pick<AlphaExchangeUser, "verifiedPhone" | "phoneVerifiedAt">) {
+  return Boolean(user.verifiedPhone && user.phoneVerifiedAt && normalizeE164(user.verifiedPhone));
+}
+
+function queueSmsDelivery(db: AlphaExchangeDb, input: { eventType: SmsEventType; eventKey: string; recipientUserId: string; destinationPath: string }) {
+  const user = db.users.find((item) => item.id === input.recipientUserId);
+  if (!user || user.notificationPreferences?.sms !== true || !hasVerifiedPhoneForSms(user)) return;
+  const phone = normalizeE164(user.verifiedPhone ?? "");
+  if (!phone || (db.smsDeliveries ?? []).some((item) => item.eventKey === input.eventKey)) return;
+  const now = nowIso();
+  const destination = new URL(input.destinationPath, getSiteUrl()).toString();
+  const record: SmsDeliveryRecord = {
+    id: `sms-${randomUUID()}`, eventKey: input.eventKey, eventType: input.eventType, recipientUserId: user.id,
+    recipientPhone: phone, body: getSmsTemplate(input.eventType, destination), status: "queued", retryCount: 0, createdAt: now, updatedAt: now,
+  };
+  (db.smsDeliveries ??= []).push(record);
+}
+
+async function dispatchSmsDelivery(deliveryIds: string[]) {
+  const db = await readDb({ bypassCache: true });
+  const deliveryIdSet = new Set(deliveryIds);
+  const pending = (db.smsDeliveries ?? [])
+    .map((delivery, index) => ({ delivery, index }))
+    .filter(({ delivery }) => deliveryIdSet.has(delivery.id) && delivery.status === "queued" && delivery.retryCount === 0);
+  if (pending.length === 0) return;
+  const results = await Promise.all(pending.map(({ delivery }) => (
+    sendTwilioMessageWithRetry({
+      to: delivery.recipientPhone,
+      body: delivery.body,
+      statusCallback: twilioStatusCallbackUrl(delivery.id),
+    })
+  )));
+  const now = nowIso();
+  pending.forEach(({ delivery, index }, resultIndex) => {
+    const result = results[resultIndex];
+    db.smsDeliveries![index] = result.ok
+      ? { ...delivery, status: result.status === "delivered" ? "delivered" : "sent", twilioMessageSid: result.sid, providerStatus: result.status, retryCount: result.attempts - 1, sentAt: now, deliveredAt: result.status === "delivered" ? now : undefined, updatedAt: now }
+      : { ...delivery, status: "failed", retryCount: result.attempts, providerStatus: result.providerStatus, lastError: result.error, failedAt: now, updatedAt: now };
+  });
+  await writeDb(db, { selectedTables: ["sms_deliveries"] });
+}
+
+async function dispatchCommittedSms(db: AlphaExchangeDb, previousCount: number) {
+  const deliveryIds = (db.smsDeliveries ?? []).slice(previousCount).map((delivery) => delivery.id);
+  if (deliveryIds.length === 0) return;
+  const task = async () => {
+    try {
+      await dispatchSmsDelivery(deliveryIds);
+    } catch (error) {
+      console.error("[sms] delivery dispatch failed after primary commit", {
+        deliveryIds,
+        message: error instanceof Error ? error.message : "unknown",
+      });
+    }
+  };
+  try {
+    after(task);
+  } catch {
+    // Direct store invocations outside a Next.js request still complete delivery.
+    await task();
+  }
 }
 
 function requestDetailsHref(requestId: string) {
@@ -3361,6 +3441,59 @@ export function normalizeIsraeliPhone(rawPhone: string) {
   return null;
 }
 
+function hashPhoneOtp(phone: string, code: string, salt: string) {
+  return createHash("sha256").update(`${phone}:${code}:${salt}`).digest("hex");
+}
+
+export async function beginProfilePhoneVerification(input: { userId: string; phone: string }) {
+  const phone = normalizeE164(input.phone);
+  if (!phone) throw new Error("Enter a valid international E.164 phone number.");
+  const db = await readDb();
+  const index = db.users.findIndex((user) => user.id === input.userId);
+  if (index === -1) throw new Error("User not found.");
+  if (db.users.some((user) => user.id !== input.userId && user.verifiedPhone === phone)) {
+    throw new Error("This phone number is already linked to another account.");
+  }
+  const code = String(randomBytes(4).readUInt32BE(0) % 1_000_000).padStart(6, "0");
+  const salt = randomBytes(16).toString("hex");
+  const now = nowIso();
+  db.users[index] = {
+    ...db.users[index], phoneOtpPhone: phone, phoneOtpSalt: salt, phoneOtpHash: hashPhoneOtp(phone, code, salt),
+    phoneOtpExpiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), phoneOtpAttempts: 0, updatedAt: now,
+  };
+  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
+  return { phone, code };
+}
+
+export async function confirmProfilePhoneVerification(input: { userId: string; phone: string; code: string }) {
+  const phone = normalizeIsraeliPhone(input.phone) ?? normalizeE164(input.phone);
+  if (!phone || !/^\d{6}$/.test(input.code)) throw new Error("Invalid verification code.");
+  const db = await readDb();
+  const index = db.users.findIndex((user) => user.id === input.userId);
+  if (index === -1) throw new Error("User not found.");
+  const user = db.users[index];
+  const expiresAt = new Date(user.phoneOtpExpiresAt ?? 0).getTime();
+  const attempts = Number(user.phoneOtpAttempts ?? 0);
+  if (user.phoneOtpPhone !== phone || !user.phoneOtpHash || !user.phoneOtpSalt || !Number.isFinite(expiresAt) || expiresAt < Date.now() || attempts >= 5) {
+    throw new Error("Verification code expired or invalid. Request a new code.");
+  }
+  const expected = Buffer.from(user.phoneOtpHash, "hex");
+  const actual = Buffer.from(hashPhoneOtp(phone, input.code, user.phoneOtpSalt), "hex");
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+    db.users[index] = { ...user, phoneOtpAttempts: attempts + 1, updatedAt: nowIso() };
+    await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
+    throw new Error("Invalid verification code.");
+  }
+  if (db.users.some((item) => item.id !== user.id && item.verifiedPhone === phone)) throw new Error("This phone number is already linked to another account.");
+  db.users[index] = {
+    ...user, verifiedPhone: phone, phoneVerifiedAt: nowIso(),
+    phoneOtpHash: undefined, phoneOtpSalt: undefined, phoneOtpExpiresAt: undefined, phoneOtpPhone: undefined, phoneOtpAttempts: undefined,
+    updatedAt: nowIso(),
+  };
+  await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
+  return db.users[index];
+}
+
 export async function grantStudentRole(userId: string) {
   const db = await readDb();
   const index = db.users.findIndex((user) => user.id === userId);
@@ -3886,6 +4019,7 @@ export async function createSellerApplication(input: {
   if (preferredNetworks.length === 0) throw new Error("At least one selling method is required.");
 
   const db = await readDb();
+  const priorSmsCount = db.smsDeliveries?.length ?? 0;
   const now = nowIso();
   const user = db.users.find((item) => item.id === input.userId);
   if (!user) throw new Error("Account not found.");
@@ -3944,6 +4078,7 @@ export async function createSellerApplication(input: {
       actionLabel: "Review Application",
       relatedHref: `/admin/alpha-exchange?section=seller-applications&sellerApplication=${encodeURIComponent(next.id)}`,
     });
+    queueSmsDelivery(db, { eventType: "seller_application_submitted", eventKey: `seller-application:${next.id}:owner:${owner.id}`, recipientUserId: owner.id, destinationPath: "/admin/alpha-exchange?section=seller-applications" });
   }
   pushActivityLog(db, {
     userId: input.userId,
@@ -3953,6 +4088,7 @@ export async function createSellerApplication(input: {
   });
 
   await writeDb(db, { selectedTables: SELLER_APPLICATION_REVIEW_TABLES });
+  await dispatchCommittedSms(db, priorSmsCount);
   return next;
 }
 
@@ -5429,6 +5565,7 @@ export async function createPurchaseRequest(input: {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
   const db = await readDb({ bypassCache: true });
+  const priorSmsCount = db.smsDeliveries?.length ?? 0;
   const dbReadMs = Date.now() - dbReadStartedAt;
   const validationStartedAt = Date.now();
   const now = nowIso();
@@ -5586,6 +5723,7 @@ export async function createPurchaseRequest(input: {
     relatedListingId: request.listingId,
     relatedHref: requestDetailsHref(request.id),
   });
+  queueSmsDelivery(db, { eventType: "purchase_request_created", eventKey: `purchase-request:${request.id}:seller:${sellerId}`, recipientUserId: sellerId, destinationPath: requestDetailsHref(request.id) });
   pushActivityLog(db, {
     userId: input.buyerId,
     category: "trade",
@@ -5600,16 +5738,9 @@ export async function createPurchaseRequest(input: {
   const updatedUsers = db.users.filter((user) => user !== startingUsersById.get(user.id));
   const updatedTrustSnapshots = db.trustSnapshots.filter((snapshot) => snapshot !== startingTrustSnapshotsBySellerId.get(snapshot.sellerId));
   const writeStartedAt = Date.now();
-  await writeDbForPurchaseRequestCreation(db, {
-    purchaseRequest: request,
-    users: updatedUsers.length ? updatedUsers : db.users,
-    trustSnapshots: updatedTrustSnapshots.length ? updatedTrustSnapshots : db.trustSnapshots,
-    newAuditLogs,
-    newNotifications,
-    newActivityLogs,
-    newTrustHistoryEntries,
-  });
+  await writeDb(db, { selectedTables: PURCHASE_REQUEST_CREATE_TABLES });
   const writeMs = Date.now() - writeStartedAt;
+  await dispatchCommittedSms(db, priorSmsCount);
   const sseStartedAt = Date.now();
   publishRealtimeEvent({
     type: "trade.request_created",
@@ -6119,7 +6250,7 @@ export async function getAccountProfileData(userId: string): Promise<{
   const user = db.users.find((row) => row.id === userId);
   if (!user) throw new Error("User not found.");
 
-  const username = derivePublicProfileUsername({ fullName: user.fullName, email: user.email, id: user.id });
+  const username = derivePublicProfileUsername({ fullName: user.fullName, email: user.email, id: user.id, publicTradingName: user.buyerDisplayName });
   const lastLogin = db.authSessions
     .filter((session) => session.userId === user.id)
     .map((session) => new Date(session.createdAt).getTime())
@@ -6752,6 +6883,7 @@ export async function updatePurchaseRequestStatus(input: {
     });
   }
   let db = await readDb({ bypassCache: true });
+  const priorSmsCount = db.smsDeliveries?.length ?? 0;
   const readDbMs = Date.now() - startedAt;
   let timelineMs = 0;
   let chatMs = 0;
@@ -7043,6 +7175,7 @@ export async function updatePurchaseRequestStatus(input: {
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
     });
+    queueSmsDelivery(db, { eventType: "trade_accepted", eventKey: `trade:${request.id}:accepted:buyer:${request.buyerId}`, recipientUserId: request.buyerId, destinationPath: requestDetailsHref(request.id) });
   } else if (input.nextStatus === "declined") {
     next.status = "declined";
     appendTradeTimelineEntry(next, { type: "request_declined", actorUserId: input.actorUserId, actorRole, message: "Seller declined request", createdAt: now });
@@ -7107,6 +7240,7 @@ export async function updatePurchaseRequestStatus(input: {
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
     });
+    queueSmsDelivery(db, { eventType: "payment_sent", eventKey: `trade:${request.id}:payment-sent:seller:${request.sellerId}`, recipientUserId: request.sellerId, destinationPath: requestDetailsHref(request.id) });
     notificationMs += Date.now() - notificationStartedAt;
   } else if (input.nextStatus === "funds_received") {
     next.status = "funds_received";
@@ -7131,6 +7265,7 @@ export async function updatePurchaseRequestStatus(input: {
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
     });
+    queueSmsDelivery(db, { eventType: "funds_received", eventKey: `trade:${request.id}:funds-received:buyer:${request.buyerId}`, recipientUserId: request.buyerId, destinationPath: requestDetailsHref(request.id) });
   } else if (input.nextStatus === "usdt_release_pending") {
     next.status = "usdt_release_pending";
     next.usdtReleaseStartedAt = now;
@@ -7177,6 +7312,7 @@ export async function updatePurchaseRequestStatus(input: {
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
     });
+    queueSmsDelivery(db, { eventType: "usdt_sent", eventKey: `trade:${request.id}:usdt-sent:buyer:${request.buyerId}`, recipientUserId: request.buyerId, destinationPath: requestDetailsHref(request.id) });
   } else if (input.nextStatus === "completed") {
     next.completedAt = now;
     appendTradeTimelineEntry(next, { type: "trade_completed", actorUserId: input.actorUserId, actorRole, message: "Buyer confirmed trade completed", createdAt: now });
@@ -7312,6 +7448,7 @@ export async function updatePurchaseRequestStatus(input: {
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
     });
+    queueSmsDelivery(db, { eventType: "trade_completed", eventKey: `trade:${request.id}:completed:seller:${request.sellerId}`, recipientUserId: request.sellerId, destinationPath: requestDetailsHref(request.id) });
     const owner = getOwnerUser(db);
     const largeTradeThreshold = getLargeTradeThreshold();
     const gross = toNumber(next.fiatAmount);
@@ -7395,6 +7532,7 @@ export async function updatePurchaseRequestStatus(input: {
     selectedTables: shouldRecalculateTrust ? TRADE_COMPLETION_CORE_TABLES : TRADE_STATUS_BASE_TABLES,
   });
   const writeDbMs = Date.now() - beforeWriteMs;
+  await dispatchCommittedSms(db, priorSmsCount);
   console.log("[trade-consistency] mutation commit-complete", {
     requestId: input.requestId,
     actorUserId: input.actorUserId,
@@ -9383,6 +9521,9 @@ export async function updateNotificationPreferences(
   const db = await readDb();
   const index = db.users.findIndex((user) => user.id === input.userId);
   if (index === -1) throw new Error("User not found.");
+  if (input.preferences.sms === true && !hasVerifiedPhoneForSms(db.users[index])) {
+    throw new Error("Verify a phone number before enabling SMS notifications.");
+  }
   const current = normalizeNotificationPreferences(db.users[index].notificationPreferences);
   const next = normalizeNotificationPreferences({
     inApp: typeof input.preferences.inApp === "boolean" ? input.preferences.inApp : current.inApp,
@@ -9404,12 +9545,69 @@ export async function updateNotificationPreferences(
   return next;
 }
 
+export async function updateSmsDeliveryStatus(input: { deliveryId?: string; messageSid: string; status: SmsDeliveryStatus; providerStatus: string }) {
+  const db = await readDb({ bypassCache: true });
+  const index = (db.smsDeliveries ?? []).findIndex((item) =>
+    (input.deliveryId && item.id === input.deliveryId) || item.twilioMessageSid === input.messageSid
+  );
+  if (index < 0) return false;
+  const current = db.smsDeliveries![index];
+  const status = resolveSmsDeliveryStatusTransition(current.status, input.status);
+  if (status === current.status && input.status !== current.status) return false;
+  const now = nowIso();
+  db.smsDeliveries![index] = {
+    ...current,
+    status,
+    twilioMessageSid: current.twilioMessageSid ?? input.messageSid,
+    providerStatus: input.providerStatus,
+    updatedAt: now,
+    deliveredAt: status === "delivered" ? (current.deliveredAt ?? now) : current.deliveredAt,
+    failedAt: status === "failed" ? (current.failedAt ?? now) : current.failedAt,
+  };
+  await writeDb(db, { selectedTables: ["sms_deliveries"] });
+  return true;
+}
+
+export function toAdminSmsDelivery(delivery: SmsDeliveryRecord) {
+  const lastError = delivery.lastError?.replace(/\+[1-9]\d{7,14}/g, (phone) => (
+    phone.length > 5 ? `${phone.slice(0, 3)}•••${phone.slice(-2)}` : "••••"
+  ));
+  return {
+    id: delivery.id,
+    eventKey: delivery.eventKey,
+    eventType: delivery.eventType,
+    recipientUserId: delivery.recipientUserId,
+    recipientPhoneMasked: delivery.recipientPhone.length > 5
+      ? `${delivery.recipientPhone.slice(0, 3)}•••${delivery.recipientPhone.slice(-2)}`
+      : "••••",
+    status: delivery.status,
+    retryCount: delivery.retryCount,
+    twilioMessageSid: delivery.twilioMessageSid,
+    providerStatus: delivery.providerStatus,
+    lastError,
+    createdAt: delivery.createdAt,
+    updatedAt: delivery.updatedAt,
+    sentAt: delivery.sentAt,
+    deliveredAt: delivery.deliveredAt,
+    failedAt: delivery.failedAt,
+  };
+}
+
+export async function getSmsDeliveriesForAdmin() {
+  const db = await readDb();
+  return (db.smsDeliveries ?? [])
+    .map(toAdminSmsDelivery)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, 100);
+}
+
 export async function openTradeDispute(input: {
   purchaseRequestId: string;
   openedByUserId: string;
   reason: string;
 }) {
   const db = await readDb();
+  const priorSmsCount = db.smsDeliveries?.length ?? 0;
   const request = db.purchaseRequests.find((item) => item.id === input.purchaseRequestId);
   if (!request) throw new Error("Trade not found.");
   const isParticipant = request.buyerId === input.openedByUserId || request.sellerId === input.openedByUserId;
@@ -9455,6 +9653,7 @@ export async function openTradeDispute(input: {
       relatedTradeId: dispute.tradeId,
       relatedHref: "/admin/alpha-exchange",
     });
+    queueSmsDelivery(db, { eventType: "trade_requires_admin_review", eventKey: `trade:${request.id}:admin-review:${adminUser.id}`, recipientUserId: adminUser.id, destinationPath: "/admin/alpha-exchange?section=purchase-requests" });
   }
   pushNotification(db, {
     userId: request.buyerId,
@@ -9483,6 +9682,7 @@ export async function openTradeDispute(input: {
     payload: { request: enrichRequestWithEvidence(db, request) },
   });
   await writeDb(db, { selectedTables: DISPUTE_WRITE_TABLES });
+  await dispatchCommittedSms(db, priorSmsCount);
   return dispute;
 }
 

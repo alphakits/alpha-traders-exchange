@@ -101,6 +101,10 @@ export function AccountSettingsPanel({
   const [userId, setUserId] = useState<string | null>(null);
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>(defaultNotifications());
   const [notifChannels, setNotifChannels] = useState({ inApp: true, email: false, sms: false });
+  const [phone, setPhone] = useState("");
+  const [phoneCode, setPhoneCode] = useState("");
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [phoneMessage, setPhoneMessage] = useState<string | null>(null);
   const [notifChannelsLoaded, setNotifChannelsLoaded] = useState(false);
   const [browserPushPrefs, setBrowserPushPrefs] = useState<BrowserPushPrefs>({
     browserPush: false,
@@ -156,7 +160,7 @@ export function AccountSettingsPanel({
       }
       const channelRes = await fetch("/api/alpha-exchange/notification-preferences", { cache: "no-store" });
       if (channelRes.ok) {
-        const channelData = (await channelRes.json()) as { preferences?: { inApp?: boolean; email?: boolean; sms?: boolean; browserPush?: boolean; browserPushTradeUpdates?: boolean; browserPushChatMessages?: boolean; browserPushListings?: boolean; browserPushFeedback?: boolean; browserPushAdminAlerts?: boolean } };
+        const channelData = (await channelRes.json()) as { preferences?: { inApp?: boolean; email?: boolean; sms?: boolean; browserPush?: boolean; browserPushTradeUpdates?: boolean; browserPushChatMessages?: boolean; browserPushListings?: boolean; browserPushFeedback?: boolean; browserPushAdminAlerts?: boolean }; phone?: { verified?: boolean; masked?: string | null } };
         setNotifChannels({
           inApp: channelData.preferences?.inApp !== false,
           email: channelData.preferences?.email === true,
@@ -171,6 +175,8 @@ export function AccountSettingsPanel({
           browserPushAdminAlerts: channelData.preferences?.browserPushAdminAlerts === true,
         });
         setNotifChannelsLoaded(true);
+        setPhoneVerified(channelData.phone?.verified === true);
+        if (channelData.phone?.masked) setPhone(channelData.phone.masked);
       }
       try {
         const rawNotif = localStorage.getItem(`notification_prefs_${id}`);
@@ -297,17 +303,40 @@ export function AccountSettingsPanel({
       const controller = new AbortController();
       channelSaveAbortRef.current = controller;
       try {
-        await fetch("/api/alpha-exchange/notification-preferences", {
+        const response = await fetch("/api/alpha-exchange/notification-preferences", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           signal: controller.signal,
           body: JSON.stringify(next),
         });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          setNotifChannels((current) => ({ ...current, sms: current.sms && !phoneVerified ? false : current.sms }));
+          setPhoneMessage(typeof data.error === "string" ? data.error : "Failed to save notification preference.");
+        }
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") return;
         // keep optimistic state
       }
+
     }, 300);
+  }
+
+  async function sendPhoneCode() {
+    const response = await fetch("/api/alpha-exchange/phone/send-code", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone }) });
+    const data = await response.json().catch(() => ({}));
+    setPhoneMessage(response.ok ? "Verification code sent." : (data.error ?? "Unable to send code."));
+  }
+
+  async function verifyPhoneCode() {
+    const response = await fetch("/api/alpha-exchange/phone/verify-code", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone, code: phoneCode }) });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok) {
+      setPhoneVerified(true);
+      setPhoneMessage("Phone verified. You can now enable SMS notifications.");
+    } else {
+      setPhoneMessage(data.error ?? "Unable to verify code.");
+    }
   }
 
   async function saveBrowserPushPrefs(next: BrowserPushPrefs) {
@@ -688,8 +717,24 @@ export function AccountSettingsPanel({
                   <span className="text-sm text-[#D1D5DB]">{isAr ? "إشعارات الرسائل النصية" : "SMS notifications"}</span>
                   <PillToggle
                     checked={notifChannels.sms}
-                    onChange={(v) => void saveNotificationChannels({ ...notifChannels, sms: v })}
+                    onChange={(v) => {
+                      if (v && !phoneVerified) {
+                        setPhoneMessage("Verify your phone number before enabling SMS notifications.");
+                        return;
+                      }
+                      void saveNotificationChannels({ ...notifChannels, sms: v });
+                    }}
                   />
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-2">
+                  <p className="text-sm text-[#D1D5DB]">{phoneVerified ? "Phone verified for SMS notifications." : "Verify an E.164 phone number to enable SMS notifications."}</p>
+                  {!phoneVerified && <div className="flex flex-wrap gap-2">
+                    <Input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+15551234567" className="max-w-xs" />
+                    <Button type="button" variant="secondary" onClick={() => void sendPhoneCode()}>Send code</Button>
+                    <Input value={phoneCode} onChange={(event) => setPhoneCode(event.target.value)} placeholder="6-digit code" className="max-w-36" />
+                    <Button type="button" onClick={() => void verifyPhoneCode()}>Verify</Button>
+                  </div>}
+                  {phoneMessage && <p className="text-xs text-[#C9A227]">{phoneMessage}</p>}
                 </div>
               </div>
               <div className="space-y-3">
