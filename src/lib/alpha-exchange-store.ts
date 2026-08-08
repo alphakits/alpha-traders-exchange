@@ -99,6 +99,14 @@ import type {
   SmsDeliveryRecord,
   SmsDeliveryStatus,
   SmsEventType,
+  CompliancePaymentRail,
+  MarketplaceComplianceEvidenceReference,
+  MarketplaceComplianceRecoveryWalletConfig,
+  MarketplaceEnforcementAuditEntry,
+  MarketplaceEnforcementAuditAction,
+  MarketplaceEnforcementRecord,
+  MarketplaceEnforcementStatus,
+  OwnerSettings,
 } from "@/types/alpha-exchange";
 import { getWalletAddressValidationError, normalizeWalletAddress } from "@/lib/wallet-address";
 
@@ -162,6 +170,7 @@ function ensureDisplayNumbers(db: AlphaExchangeDb) {
 }
 
 const supportedEvidenceMimeTypes = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
+const supportedComplianceEvidenceMimeTypes = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
 
 // Validate environment variables on first module load
 runEnvValidation();
@@ -190,6 +199,8 @@ const defaultDb: AlphaExchangeDb = {
   adminAnnouncementRuns: [],
   sellerReviews: [],
   smsDeliveries: [],
+  marketplaceEnforcementRecords: [],
+  marketplaceEnforcementAuditLog: [],
 };
 
 // Cache TTL: writeDb() always updates the cache on write, so correctness is
@@ -620,7 +631,91 @@ function getSellerOpenListingCount(db: AlphaExchangeDb, sellerId: string) {
   return db.marketplaceListings.filter((listing) => listing.sellerId === sellerId && isListingCountedAgainstCreateLimit(listing.status)).length;
 }
 
+function getMarketplaceEnforcementRecords(db: AlphaExchangeDb) {
+  return db.marketplaceEnforcementRecords ?? [];
+}
+
+function getMarketplaceEnforcementAuditLog(db: AlphaExchangeDb) {
+  return db.marketplaceEnforcementAuditLog ?? [];
+}
+
+function getOwnerComplianceRecoveryWalletConfig(db: AlphaExchangeDb): MarketplaceComplianceRecoveryWalletConfig | null {
+  const owner = db.users.find((user) => hasRole(user, "owner"));
+  const config = owner?.ownerSettings?.marketplaceComplianceRecoveryWallet;
+  if (!config) return null;
+  const walletAddress = normalizeWalletAddress(config.walletAddress ?? "");
+  if (!walletAddress || !isSupportedNetwork(config.network)) return null;
+  return {
+    network: config.network,
+    walletAddress,
+    defaultPaymentRail: config.defaultPaymentRail === "alpha_wallet_one_click" ? "alpha_wallet_one_click" : "manual_wallet_transfer",
+    updatedAt: config.updatedAt,
+    updatedByUserId: config.updatedByUserId,
+  };
+}
+
+function getRecoveryFeePaymentStatus(record: MarketplaceEnforcementRecord) {
+  if (record.recoveryPaymentStatus === "awaiting_verification") return "awaiting_verification" as const;
+  if (record.recoveryPaymentStatus === "confirmed_paid") return "confirmed_paid" as const;
+  return "pending_payment" as const;
+}
+
+function getSellerLatestEnforcementRecord(db: AlphaExchangeDb, sellerId: string) {
+  return getMarketplaceEnforcementRecords(db)
+    .filter((record) => record.sellerId === sellerId)
+    .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0];
+}
+
+function getSellerActiveEnforcementRecord(db: AlphaExchangeDb, sellerId: string) {
+  return getMarketplaceEnforcementRecords(db)
+    .filter((record) => record.sellerId === sellerId && record.status === "active")
+    .sort((left, right) => new Date(right.issuedAt).getTime() - new Date(left.issuedAt).getTime())[0];
+}
+
+function appendMarketplaceEnforcementAudit(db: AlphaExchangeDb, input: {
+  sellerId: string;
+  enforcementRecordId?: string;
+  action: MarketplaceEnforcementAuditAction;
+  actorUserId: string;
+  reason?: string;
+  notes?: string;
+  evidenceReferences?: MarketplaceComplianceEvidenceReference[];
+  metadata?: Record<string, string | number | boolean | null | undefined>;
+}) {
+  const entry: MarketplaceEnforcementAuditEntry = {
+    id: `enforcement-audit-${randomUUID()}`,
+    sellerId: input.sellerId,
+    enforcementRecordId: input.enforcementRecordId,
+    action: input.action,
+    actorUserId: input.actorUserId,
+    reason: input.reason,
+    notes: input.notes,
+    evidenceReferences: input.evidenceReferences,
+    metadata: input.metadata,
+    createdAt: nowIso(),
+  };
+  const existing = db.marketplaceEnforcementAuditLog ?? [];
+  db.marketplaceEnforcementAuditLog = [entry, ...existing];
+}
+
+function getSellerEnforcementRestrictionMessage(db: AlphaExchangeDb, sellerId: string) {
+  const activeRecord = getSellerActiveEnforcementRecord(db, sellerId);
+  if (!activeRecord) return null;
+  const paymentStatus = getRecoveryFeePaymentStatus(activeRecord);
+  const statusText = paymentStatus === "awaiting_verification"
+    ? " Payment is awaiting owner verification."
+    : "";
+  const dueText = activeRecord.dueAt
+    ? ` Due by ${new Date(activeRecord.dueAt).toLocaleString("en-IL", { dateStyle: "medium", timeStyle: "short" })}.`
+    : "";
+  return `Your seller account is temporarily restricted due to marketplace policy violation #${activeRecord.violationNumber}. Pay the Marketplace Recovery Fee (${activeRecord.feeAmount.toLocaleString("en-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${activeRecord.feeCurrency}) to restore listing and publishing access.${statusText}${dueText}`;
+}
+
 function getSellerListingBlockReason(db: AlphaExchangeDb, sellerId: string) {
+  const enforcementRestriction = getSellerEnforcementRestrictionMessage(db, sellerId);
+  if (enforcementRestriction) {
+    return enforcementRestriction;
+  }
   const pendingCommissionCount = getSellerPendingCommissionCount(db, sellerId);
   if (pendingCommissionCount > 0) {
     return "You have commission payments pending. Clear them before creating or renewing listings.";
@@ -1482,6 +1577,17 @@ export async function getPremiumSellerProfile(input: {
           .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
           .slice(0, 50)
           .map((request) => enrichRequestWithEvidence(db, request)),
+        marketplaceEnforcement: {
+          restricted: Boolean(getSellerActiveEnforcementRecord(db, seller.id)),
+          blockReason: getSellerEnforcementRestrictionMessage(db, seller.id),
+          activeRecord: getSellerActiveEnforcementRecord(db, seller.id),
+          latestRecord: getSellerLatestEnforcementRecord(db, seller.id),
+          recentAuditEntries: getMarketplaceEnforcementAuditLog(db)
+            .filter((entry) => entry.sellerId === seller.id)
+            .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+            .slice(0, 20),
+          totalCases: getMarketplaceEnforcementRecords(db).filter((entry) => entry.sellerId === seller.id).length,
+        },
       }
     : undefined;
 
@@ -1580,6 +1686,21 @@ function isValidAnnouncementType(value: string): value is BetaAnnouncementType {
   return value === "maintenance" || value === "new_feature" || value === "bug_fix" || value === "known_issue";
 }
 
+function isMarketplaceEnforcementStatus(value: string | undefined): value is MarketplaceEnforcementStatus {
+  return value === "active" || value === "resolved_paid" || value === "resolved_removed" || value === "revoked";
+}
+
+function isMarketplaceEnforcementAuditAction(value: string | undefined): value is MarketplaceEnforcementAuditAction {
+  return value === "fee_issued"
+    || value === "payment_submitted"
+    || value === "fee_paid"
+    || value === "appeal_submitted"
+    || value === "appeal_decided"
+    || value === "restriction_removed"
+    || value === "seller_revoked"
+    || value === "admin_note";
+}
+
 function inferSellerStatus(role: UserRole): SellerStatus {
   if (role === "approved_seller") return "approved_seller";
   if (role === "pending_seller_approval") return "pending_seller_approval";
@@ -1588,6 +1709,27 @@ function inferSellerStatus(role: UserRole): SellerStatus {
 
 function isOnboardingSelection(value: string): value is OnboardingSelection {
   return value === "guest" || value === "student" || value === "buyer" || value === "seller_applicant";
+}
+
+function normalizeOwnerSettings(
+  ownerSettings: OwnerSettings | undefined,
+  fallbackUpdatedAt: string,
+  fallbackUpdatedByUserId: string,
+): OwnerSettings | undefined {
+  const config = ownerSettings?.marketplaceComplianceRecoveryWallet;
+  if (!config) return undefined;
+  if (!isSupportedNetwork(config.network)) return undefined;
+  const walletAddress = normalizeWalletAddress(config.walletAddress ?? "");
+  if (!walletAddress) return undefined;
+  return {
+    marketplaceComplianceRecoveryWallet: {
+      network: config.network,
+      walletAddress,
+      defaultPaymentRail: config.defaultPaymentRail === "alpha_wallet_one_click" ? "alpha_wallet_one_click" : "manual_wallet_transfer",
+      updatedAt: typeof config.updatedAt === "string" ? config.updatedAt : fallbackUpdatedAt,
+      updatedByUserId: typeof config.updatedByUserId === "string" ? config.updatedByUserId : fallbackUpdatedByUserId,
+    },
+  };
 }
 
 function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
@@ -1745,6 +1887,11 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         sellerRankOverride,
         sellerPromotionHistory,
         sellerAchievements: sellerAchievementsRaw.map((entry) => entry as SellerAchievement),
+        ownerSettings: normalizeOwnerSettings(
+          (user as { ownerSettings?: OwnerSettings }).ownerSettings,
+          typeof user.updatedAt === "string" ? user.updatedAt : nowIso(),
+          typeof user.id === "string" ? user.id : SYSTEM_ACTOR_USER_ID,
+        ),
       };
     }),
     sellerApplications: (db.sellerApplications ?? []).map((application) => ({
@@ -1998,6 +2145,111 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       tradeAmount: String((review as { tradeAmount?: string }).tradeAmount ?? "0"),
       network: String((review as { network?: string }).network ?? "TRC20"),
     })),
+    marketplaceEnforcementRecords: (db.marketplaceEnforcementRecords ?? [])
+      .filter((entry) => entry && typeof entry.id === "string" && typeof entry.sellerId === "string")
+      .map((entry) => {
+        const recoveryWalletNetworkValue = (entry as { recoveryWalletNetwork?: string }).recoveryWalletNetwork;
+        return {
+          ...entry,
+          violationNumber: Math.max(1, Math.floor(Number((entry as { violationNumber?: number }).violationNumber ?? 1))),
+          status: isMarketplaceEnforcementStatus((entry as { status?: string }).status) ? (entry as { status: MarketplaceEnforcementStatus }).status : "active",
+          feeAmount: Math.max(0, Number((entry as { feeAmount?: number }).feeAmount ?? 0)),
+          feeCurrency: "USDT" as const,
+          recoveryWalletNetwork: typeof recoveryWalletNetworkValue === "string" && isSupportedNetwork(recoveryWalletNetworkValue)
+            ? recoveryWalletNetworkValue
+            : undefined,
+        recoveryWalletAddress: typeof (entry as { recoveryWalletAddress?: string }).recoveryWalletAddress === "string"
+          ? normalizeWalletAddress((entry as { recoveryWalletAddress: string }).recoveryWalletAddress) || undefined
+          : undefined,
+        recoveryPaymentRail: (entry as { recoveryPaymentRail?: string }).recoveryPaymentRail === "alpha_wallet_one_click"
+          ? "alpha_wallet_one_click"
+          : "manual_wallet_transfer",
+        recoveryPaymentStatus:
+          (entry as { recoveryPaymentStatus?: string }).recoveryPaymentStatus === "awaiting_verification"
+            ? "awaiting_verification"
+            : (entry as { recoveryPaymentStatus?: string }).recoveryPaymentStatus === "confirmed_paid"
+              ? "confirmed_paid"
+              : "pending_payment",
+        recoveryPaymentRequestedAt: typeof (entry as { recoveryPaymentRequestedAt?: string }).recoveryPaymentRequestedAt === "string"
+          ? (entry as { recoveryPaymentRequestedAt: string }).recoveryPaymentRequestedAt
+          : undefined,
+        recoveryPaymentSubmittedAt: typeof (entry as { recoveryPaymentSubmittedAt?: string }).recoveryPaymentSubmittedAt === "string"
+          ? (entry as { recoveryPaymentSubmittedAt: string }).recoveryPaymentSubmittedAt
+          : undefined,
+        recoveryPaymentSubmittedByUserId: typeof (entry as { recoveryPaymentSubmittedByUserId?: string }).recoveryPaymentSubmittedByUserId === "string"
+          ? (entry as { recoveryPaymentSubmittedByUserId: string }).recoveryPaymentSubmittedByUserId
+          : undefined,
+        recoveryPaymentSubmissionNote: typeof (entry as { recoveryPaymentSubmissionNote?: string }).recoveryPaymentSubmissionNote === "string"
+          ? (entry as { recoveryPaymentSubmissionNote: string }).recoveryPaymentSubmissionNote.trim() || undefined
+          : undefined,
+        recoveryPaymentConfirmedAt: typeof (entry as { recoveryPaymentConfirmedAt?: string }).recoveryPaymentConfirmedAt === "string"
+          ? (entry as { recoveryPaymentConfirmedAt: string }).recoveryPaymentConfirmedAt
+          : undefined,
+        recoveryPaymentConfirmedByUserId: typeof (entry as { recoveryPaymentConfirmedByUserId?: string }).recoveryPaymentConfirmedByUserId === "string"
+          ? (entry as { recoveryPaymentConfirmedByUserId: string }).recoveryPaymentConfirmedByUserId
+          : undefined,
+        recoveryPaymentQrPayload: typeof (entry as { recoveryPaymentQrPayload?: string }).recoveryPaymentQrPayload === "string"
+          ? (entry as { recoveryPaymentQrPayload: string }).recoveryPaymentQrPayload
+          : undefined,
+        appealStatus:
+          (entry as { appealStatus?: string }).appealStatus === "submitted"
+            ? "submitted"
+            : (entry as { appealStatus?: string }).appealStatus === "accepted"
+              ? "accepted"
+              : (entry as { appealStatus?: string }).appealStatus === "rejected"
+                ? "rejected"
+                : "none",
+        appealMessage: typeof (entry as { appealMessage?: string }).appealMessage === "string"
+          ? (entry as { appealMessage: string }).appealMessage.trim() || undefined
+          : undefined,
+        appealSubmittedAt: typeof (entry as { appealSubmittedAt?: string }).appealSubmittedAt === "string"
+          ? (entry as { appealSubmittedAt: string }).appealSubmittedAt
+          : undefined,
+        appealSubmittedByUserId: typeof (entry as { appealSubmittedByUserId?: string }).appealSubmittedByUserId === "string"
+          ? (entry as { appealSubmittedByUserId: string }).appealSubmittedByUserId
+          : undefined,
+        appealDecisionByUserId: typeof (entry as { appealDecisionByUserId?: string }).appealDecisionByUserId === "string"
+          ? (entry as { appealDecisionByUserId: string }).appealDecisionByUserId
+          : undefined,
+        appealDecisionAt: typeof (entry as { appealDecisionAt?: string }).appealDecisionAt === "string"
+          ? (entry as { appealDecisionAt: string }).appealDecisionAt
+          : undefined,
+        appealDecisionNotes: typeof (entry as { appealDecisionNotes?: string }).appealDecisionNotes === "string"
+          ? (entry as { appealDecisionNotes: string }).appealDecisionNotes.trim() || undefined
+          : undefined,
+        reason: String((entry as { reason?: string }).reason ?? "").trim(),
+          adminNotes: typeof (entry as { adminNotes?: string }).adminNotes === "string"
+            ? (entry as { adminNotes: string }).adminNotes.trim() || undefined
+            : undefined,
+        };
+      }),
+    marketplaceEnforcementAuditLog: (db.marketplaceEnforcementAuditLog ?? [])
+      .filter((entry) => entry && typeof entry.id === "string" && typeof entry.sellerId === "string")
+      .map((entry) => ({
+        ...entry,
+        action: isMarketplaceEnforcementAuditAction((entry as { action?: string }).action)
+          ? (entry as { action: MarketplaceEnforcementAuditAction }).action
+          : "admin_note",
+        reason: typeof (entry as { reason?: string }).reason === "string" ? (entry as { reason: string }).reason.trim() || undefined : undefined,
+        notes: typeof (entry as { notes?: string }).notes === "string" ? (entry as { notes: string }).notes.trim() || undefined : undefined,
+        evidenceReferences: Array.isArray((entry as { evidenceReferences?: unknown[] }).evidenceReferences)
+          ? (entry as { evidenceReferences: unknown[] }).evidenceReferences
+              .filter((item) => item && typeof item === "object")
+              .map((item) => {
+                const value = item as Record<string, unknown>;
+                return {
+                  id: String(value.id ?? ""),
+                  fileName: String(value.fileName ?? ""),
+                  mimeType: String(value.mimeType ?? ""),
+                  sizeBytes: Math.max(0, Number(value.sizeBytes ?? 0)),
+                  url: String(value.url ?? ""),
+                  uploadedByUserId: String(value.uploadedByUserId ?? ""),
+                  uploadedAt: String(value.uploadedAt ?? nowIso()),
+                } satisfies MarketplaceComplianceEvidenceReference;
+              })
+              .filter((item) => Boolean(item.id) && Boolean(item.url) && Boolean(item.fileName))
+          : undefined,
+      })),
     marketplaceListings: (db.marketplaceListings ?? []).map((listing) => ({
       ...listing,
       displayNumber: normalizeDisplayNumber((listing as { displayNumber?: unknown }).displayNumber),
@@ -2132,6 +2384,7 @@ async function readDb(options?: { bypassCache?: boolean }): Promise<AlphaExchang
 }
 
 const USER_PROFILE_TABLES = ["users", "seller_profiles", "seller_settings"] as const satisfies readonly SnapshotTableName[];
+const MARKETPLACE_ENFORCEMENT_TABLES = ["marketplace_enforcement_records", "marketplace_enforcement_audit_log"] as const satisfies readonly SnapshotTableName[];
 const TRUST_INIT_TABLES = [...USER_PROFILE_TABLES, "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
 const LISTING_WRITE_TABLES = ["listings", "audit_logs", "notifications"] as const satisfies readonly SnapshotTableName[];
 const LISTING_TRUST_WRITE_TABLES = [...USER_PROFILE_TABLES, "listings", "audit_logs", "notifications", "activity_logs", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
@@ -2162,6 +2415,7 @@ const BETA_ANNOUNCEMENT_TABLES = ["beta_announcements", "notifications", "audit_
 const BETA_ANNOUNCEMENT_STATE_TABLES = ["beta_announcements", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const ADMIN_ANNOUNCEMENT_TABLES = ["admin_announcement_runs", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const ADMIN_LISTING_OVERRIDE_TABLES = ["listings", "purchase_requests", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
+const ENFORCEMENT_MUTATION_TABLES = [...USER_PROFILE_TABLES, "listings", "notifications", "audit_logs", ...MARKETPLACE_ENFORCEMENT_TABLES] as const satisfies readonly SnapshotTableName[];
 
 async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<string, Buffer>; traceTag?: string; selectedTables?: readonly SnapshotTableName[] }) {
   const normalized = normalizeDb(db);
@@ -2395,6 +2649,42 @@ export async function getListingBroadcastEmailRecipients(creatorUserId: string) 
       fullName: user.fullName,
       email: user.email,
     }));
+}
+
+async function sendSellerEnforcementEmail(
+  db: AlphaExchangeDb,
+  sellerId: string,
+  input: {
+    event: Extract<MarketplaceEmailEvent, "marketplace_enforcement_fee_issued" | "marketplace_enforcement_fee_paid" | "marketplace_enforcement_seller_revoked">;
+    title: string;
+    message: string;
+    referenceLabel: string;
+    idempotencyKey?: string;
+  },
+) {
+  const seller = db.users.find((user) => user.id === sellerId);
+  if (!seller || seller.notificationPreferences?.email !== true) return true;
+  const result = await sendMarketplaceEmail({
+    event: input.event,
+    to: seller.email,
+    recipientName: seller.fullName,
+    title: input.title,
+    message: input.message,
+    actionLabel: "Open Account",
+    actionUrl: `${getSiteUrl()}/en/dashboard`,
+    referenceLabel: input.referenceLabel,
+    idempotencyKey: input.idempotencyKey,
+  });
+  if (!result.ok) {
+    console.error("[marketplace-email] seller enforcement delivery failed", {
+      event: input.event,
+      recipientUserId: seller.id,
+      reason: result.reason,
+      providerStatus: "providerStatus" in result ? result.providerStatus : undefined,
+      providerMessage: "providerMessage" in result ? result.providerMessage : undefined,
+    });
+  }
+  return result.ok;
 }
 
 function pushNotification(
@@ -3836,6 +4126,107 @@ export async function updateUserSellerSettings(input: {
   return db.users[index];
 }
 
+function normalizeComplianceEvidenceDataUrl(value: string) {
+  const trimmed = String(value ?? "").trim();
+  const marker = ";base64,";
+  const markerIndex = trimmed.indexOf(marker);
+  if (markerIndex === -1) {
+    return { mimeTypeFromDataUrl: "", contentBase64: trimmed };
+  }
+  const prefix = trimmed.slice(0, markerIndex);
+  const mimeTypeFromDataUrl = prefix.startsWith("data:") ? prefix.slice(5) : "";
+  return {
+    mimeTypeFromDataUrl,
+    contentBase64: trimmed.slice(markerIndex + marker.length),
+  };
+}
+
+async function uploadComplianceEvidence(input: {
+  sellerId: string;
+  actorUserId: string;
+  fileName: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  fileData: string;
+}) {
+  const fileName = path.basename(String(input.fileName ?? "").trim() || "compliance-evidence");
+  if (!fileName) throw new Error("Evidence filename is required.");
+  const parsed = normalizeComplianceEvidenceDataUrl(input.fileData);
+  if (!parsed.contentBase64) throw new Error("Evidence file payload is required.");
+  const mimeType = String(input.mimeType ?? parsed.mimeTypeFromDataUrl ?? "").trim().toLowerCase();
+  if (!supportedComplianceEvidenceMimeTypes.has(mimeType)) {
+    throw new Error("Evidence must be image/png, image/jpeg, image/webp, or application/pdf.");
+  }
+  const maxBytes = getMaxEvidenceSizeBytes();
+  const raw = Buffer.from(parsed.contentBase64, "base64");
+  if (!raw.length || raw.length > maxBytes) {
+    throw new Error(`Evidence file exceeds limit (${Math.round(maxBytes / (1024 * 1024))}MB).`);
+  }
+  const sizeBytes = Number.isFinite(Number(input.sizeBytes)) && Number(input.sizeBytes) > 0
+    ? Number(input.sizeBytes)
+    : raw.byteLength;
+  const extension = extensionForEvidenceMimeType(mimeType);
+  const evidenceId = `compliance-evidence-${randomUUID()}`;
+  const safeFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, "-") || `compliance-evidence.${extension}`;
+  const storagePath = `db://alpha-exchange-evidence/compliance/${input.sellerId}/${evidenceId}.${extension}`;
+
+  const repository = await getAlphaExchangeRepository();
+  await repository.writeEvidenceContent(storagePath, raw);
+
+  return {
+    id: evidenceId,
+    fileName: safeFileName,
+    mimeType,
+    sizeBytes,
+    url: `/api/alpha-exchange/admin/sellers/${input.sellerId}/compliance-evidence/${evidenceId}`,
+    uploadedByUserId: input.actorUserId,
+    uploadedAt: nowIso(),
+    storagePath,
+  } satisfies MarketplaceComplianceEvidenceReference & { storagePath: string };
+}
+
+export async function updateOwnerMarketplaceComplianceRecoveryWallet(input: {
+  actorUserId: string;
+  network: SupportedNetwork;
+  walletAddress: string;
+  defaultPaymentRail?: CompliancePaymentRail;
+}) {
+  const db = await readDb();
+  const ownerIndex = db.users.findIndex((user) => user.id === input.actorUserId && hasRole(user, "owner"));
+  if (ownerIndex === -1) throw new Error("Owner account not found.");
+  const walletAddress = normalizeWalletAddress(input.walletAddress);
+  const validationError = getWalletAddressValidationError(input.network, walletAddress);
+  if (validationError) throw new Error(validationError);
+  const now = nowIso();
+  db.users[ownerIndex] = {
+    ...db.users[ownerIndex],
+    ownerSettings: {
+      ...(db.users[ownerIndex].ownerSettings ?? {}),
+      marketplaceComplianceRecoveryWallet: {
+        network: input.network,
+        walletAddress,
+        defaultPaymentRail: input.defaultPaymentRail === "alpha_wallet_one_click" ? "alpha_wallet_one_click" : "manual_wallet_transfer",
+        updatedAt: now,
+        updatedByUserId: input.actorUserId,
+      },
+    },
+    updatedAt: now,
+  };
+  await appendAuditLog(db, {
+    action: "admin_override",
+    actorUserId: input.actorUserId,
+    targetUserId: input.actorUserId,
+    details: "Updated Marketplace Compliance Recovery Wallet settings.",
+    newValue: {
+      network: input.network,
+      walletAddress,
+      defaultPaymentRail: input.defaultPaymentRail === "alpha_wallet_one_click" ? "alpha_wallet_one_click" : "manual_wallet_transfer",
+    },
+  });
+  await writeDb(db, { selectedTables: ["users", "seller_profiles", "seller_settings", "audit_logs"] });
+  return db.users[ownerIndex].ownerSettings?.marketplaceComplianceRecoveryWallet;
+}
+
 export async function findUserByEmail(email: string) {
   const db = await readDb();
   const normalized = normalizeEmail(email);
@@ -4273,6 +4664,596 @@ export async function reactivateSellerByAdmin(userId: string, adminUserId: strin
 
   await writeDb(db, { selectedTables: SELLER_STATUS_TRUST_TABLES });
   return db.users[userIndex];
+}
+
+function closeRevokedSellerListings(db: AlphaExchangeDb, sellerId: string) {
+  const now = nowIso();
+  const closableStatuses: ListingStatus[] = ["active", "paused", "expired", "draft"];
+  const closedListingIds: string[] = [];
+  for (const listing of db.marketplaceListings) {
+    if (listing.sellerId !== sellerId) continue;
+    if (isListingLocked(listing.status)) continue;
+    if (!closableStatuses.includes(listing.status)) continue;
+    listing.status = "closed";
+    listing.closedAt = now;
+    listing.updatedAt = now;
+    listing.activeTradeRequestId = undefined;
+    listing.lockedAt = undefined;
+    closedListingIds.push(listing.id);
+  }
+  return closedListingIds;
+}
+
+export async function getSellerMarketplaceEnforcementStatus(sellerId: string, dbInput?: AlphaExchangeDb) {
+  const db = dbInput ?? await readDb();
+  const activeRecord = getSellerActiveEnforcementRecord(db, sellerId);
+  const latestRecord = getSellerLatestEnforcementRecord(db, sellerId);
+  const latestAuditEntries = getMarketplaceEnforcementAuditLog(db)
+    .filter((entry) => entry.sellerId === sellerId)
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+    .slice(0, 30);
+
+  return {
+    restricted: Boolean(activeRecord),
+    blockReason: getSellerEnforcementRestrictionMessage(db, sellerId),
+    activeRecord,
+    latestRecord,
+    recentAuditEntries: latestAuditEntries,
+    totalCases: getMarketplaceEnforcementRecords(db).filter((record) => record.sellerId === sellerId).length,
+  };
+}
+
+export async function issueMarketplaceEnforcementFeeByAdmin(input: {
+  sellerId: string;
+  actorUserId: string;
+  feeAmount: number;
+  reason: string;
+  adminNotes: string;
+  evidenceFiles: Array<{
+    fileName: string;
+    mimeType?: string;
+    sizeBytes?: number;
+    fileData: string;
+  }>;
+  dueAt?: string;
+}) {
+  const db = await readDb();
+  const seller = db.users.find((user) => user.id === input.sellerId);
+  if (!seller) throw new Error("Seller not found.");
+  if (hasRole(seller, "owner")) throw new Error("Owner account cannot be modified.");
+  if (seller.sellerStatus !== "approved_seller" && seller.sellerStatus !== "suspended") {
+    throw new Error("Marketplace Compliance actions can be issued only to active or suspended seller accounts.");
+  }
+  const trimmedReason = input.reason.trim();
+  if (!trimmedReason) throw new Error("Violation reason is required.");
+  const adminNotes = String(input.adminNotes ?? "").trim();
+  if (!adminNotes) throw new Error("Internal admin notes are required before issuing a compliance action.");
+  if (!Array.isArray(input.evidenceFiles) || input.evidenceFiles.length === 0) {
+    throw new Error("At least one evidence attachment is required before issuing a compliance action.");
+  }
+  const feeAmount = Number(input.feeAmount);
+  if (!Number.isFinite(feeAmount) || feeAmount <= 0) throw new Error("Fee amount must be greater than zero.");
+  if (getSellerActiveEnforcementRecord(db, input.sellerId)) {
+    throw new Error("This seller already has an active marketplace restriction.");
+  }
+
+  const sellerRecords = getMarketplaceEnforcementRecords(db).filter((record) => record.sellerId === input.sellerId);
+  const priorViolationNumber = sellerRecords.reduce((max, record) => Math.max(max, record.violationNumber), 0);
+  const violationNumber = priorViolationNumber + 1;
+  if (violationNumber > 1) {
+    throw new Error("Second confirmed violation must use permanent revoke action.");
+  }
+
+  const walletConfig = getOwnerComplianceRecoveryWalletConfig(db);
+  if (!walletConfig) {
+    throw new Error("Marketplace Compliance Recovery Wallet is not configured in Owner Settings.");
+  }
+
+  const evidenceReferences: MarketplaceComplianceEvidenceReference[] = [];
+  for (const item of input.evidenceFiles) {
+    const uploaded = await uploadComplianceEvidence({
+      sellerId: input.sellerId,
+      actorUserId: input.actorUserId,
+      fileName: item.fileName,
+      mimeType: item.mimeType,
+      sizeBytes: item.sizeBytes,
+      fileData: item.fileData,
+    });
+    evidenceReferences.push({
+      id: uploaded.id,
+      fileName: uploaded.fileName,
+      mimeType: uploaded.mimeType,
+      sizeBytes: uploaded.sizeBytes,
+      url: uploaded.url,
+      uploadedByUserId: uploaded.uploadedByUserId,
+      uploadedAt: uploaded.uploadedAt,
+    });
+  }
+
+  const now = nowIso();
+  const dueAt = input.dueAt?.trim() ? new Date(input.dueAt).toISOString() : undefined;
+  const qrPayload = `${walletConfig.network}:${walletConfig.walletAddress}?token=USDT&amount=${feeAmount.toFixed(2)}&reference=${encodeURIComponent(`violation-${violationNumber}`)}`;
+  const enforcementRecord: MarketplaceEnforcementRecord = {
+    id: `enforcement-${randomUUID()}`,
+    sellerId: input.sellerId,
+    violationNumber,
+    status: "active",
+    feeAmount,
+    feeCurrency: "USDT",
+    recoveryWalletNetwork: walletConfig.network,
+    recoveryWalletAddress: walletConfig.walletAddress,
+    recoveryPaymentRail: walletConfig.defaultPaymentRail,
+    recoveryPaymentStatus: "pending_payment",
+    recoveryPaymentRequestedAt: now,
+    recoveryPaymentQrPayload: qrPayload,
+    reason: trimmedReason,
+    adminNotes,
+    dueAt,
+    issuedByUserId: input.actorUserId,
+    issuedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.marketplaceEnforcementRecords = [enforcementRecord, ...getMarketplaceEnforcementRecords(db)];
+
+  appendMarketplaceEnforcementAudit(db, {
+    sellerId: input.sellerId,
+    enforcementRecordId: enforcementRecord.id,
+    action: "fee_issued",
+    actorUserId: input.actorUserId,
+    reason: trimmedReason,
+    notes: enforcementRecord.adminNotes,
+    evidenceReferences,
+    metadata: {
+      feeAmount,
+      feeCurrency: "USDT",
+      violationNumber,
+      recoveryWalletNetwork: walletConfig.network,
+      recoveryWalletAddress: walletConfig.walletAddress,
+    },
+  });
+  await appendAuditLog(db, {
+    action: "marketplace_enforcement_fee_issued",
+    actorUserId: input.actorUserId,
+    targetUserId: input.sellerId,
+    details: `Issued marketplace enforcement fee (${feeAmount.toFixed(2)} USDT) for violation #${violationNumber}.`,
+    reason: trimmedReason,
+    newValue: {
+      enforcementRecordId: enforcementRecord.id,
+      feeAmount,
+      feeCurrency: "USDT",
+      violationNumber,
+      dueAt,
+      recoveryWalletNetwork: walletConfig.network,
+      recoveryWalletAddress: walletConfig.walletAddress,
+      evidenceCount: evidenceReferences.length,
+    },
+  });
+  pushNotification(db, {
+    userId: input.sellerId,
+    category: "system",
+    priority: "high",
+    title: "Marketplace compliance restriction issued",
+    message: `A Marketplace Recovery Fee of ${feeAmount.toFixed(2)} USDT was issued. Complete payment to ${walletConfig.walletAddress} on ${walletConfig.network} and submit proof for verification to restore listing access.`,
+    relatedHref: "/dashboard/seller/compliance-payment",
+  });
+  await sendSellerEnforcementEmail(db, input.sellerId, {
+    event: "marketplace_enforcement_fee_issued",
+    title: "Marketplace Compliance Restriction Issued",
+    message: `A Marketplace Recovery Fee of ${feeAmount.toFixed(2)} USDT was issued for your seller account. Send payment to ${walletConfig.walletAddress} on ${walletConfig.network}, then submit payment proof for verification.`,
+    referenceLabel: enforcementRecord.id,
+    idempotencyKey: `enforcement-${enforcementRecord.id}-issued`,
+  });
+  await writeDb(db, { selectedTables: ENFORCEMENT_MUTATION_TABLES });
+  return getSellerMarketplaceEnforcementStatus(input.sellerId, db);
+}
+
+export async function submitMarketplaceEnforcementPaymentBySeller(input: {
+  sellerId: string;
+  note?: string;
+}) {
+  const db = await readDb();
+  const activeRecord = getSellerActiveEnforcementRecord(db, input.sellerId);
+  if (!activeRecord) throw new Error("No active marketplace restriction found for this seller.");
+  if (!activeRecord.recoveryWalletAddress || !activeRecord.recoveryWalletNetwork) {
+    throw new Error("Recovery wallet details are missing from this compliance record.");
+  }
+  if (getRecoveryFeePaymentStatus(activeRecord) === "awaiting_verification") {
+    throw new Error("Payment submission is already awaiting owner verification.");
+  }
+  const now = nowIso();
+  activeRecord.recoveryPaymentStatus = "awaiting_verification";
+  activeRecord.recoveryPaymentSubmittedAt = now;
+  activeRecord.recoveryPaymentSubmittedByUserId = input.sellerId;
+  activeRecord.recoveryPaymentSubmissionNote = input.note?.trim() || undefined;
+  activeRecord.updatedAt = now;
+
+  appendMarketplaceEnforcementAudit(db, {
+    sellerId: input.sellerId,
+    enforcementRecordId: activeRecord.id,
+    action: "payment_submitted",
+    actorUserId: input.sellerId,
+    notes: activeRecord.recoveryPaymentSubmissionNote,
+    metadata: {
+      recoveryWalletNetwork: activeRecord.recoveryWalletNetwork,
+      recoveryWalletAddress: activeRecord.recoveryWalletAddress,
+      feeAmount: activeRecord.feeAmount,
+      feeCurrency: activeRecord.feeCurrency,
+    },
+  });
+  pushNotification(db, {
+    userId: input.sellerId,
+    category: "system",
+    priority: "high",
+    title: "Payment submitted",
+    message: "Your Marketplace Recovery Fee payment was submitted and is awaiting owner verification.",
+    relatedHref: "/dashboard/seller/compliance-payment",
+  });
+
+  const owner = db.users.find((user) => hasRole(user, "owner"));
+  if (owner) {
+    pushNotification(db, {
+      userId: owner.id,
+      category: "system",
+      priority: "high",
+      title: "Compliance payment awaiting verification",
+      message: `Seller ${input.sellerId} submitted payment proof for enforcement ${activeRecord.id}.`,
+      relatedHref: "/admin/alpha-exchange?section=marketplace-enforcement",
+    });
+  }
+
+  await writeDb(db, { selectedTables: ENFORCEMENT_MUTATION_TABLES });
+  return getSellerMarketplaceEnforcementStatus(input.sellerId, db);
+}
+
+export async function submitMarketplaceEnforcementAppealBySeller(input: {
+  sellerId: string;
+  message: string;
+}) {
+  const db = await readDb();
+  const activeRecord = getSellerActiveEnforcementRecord(db, input.sellerId);
+  if (!activeRecord) throw new Error("No active marketplace restriction found for this seller.");
+  const message = String(input.message ?? "").trim();
+  if (!message) throw new Error("Appeal message is required.");
+  if ((activeRecord.appealStatus ?? "none") === "submitted") {
+    throw new Error("An appeal is already pending owner decision.");
+  }
+  const now = nowIso();
+  activeRecord.appealStatus = "submitted";
+  activeRecord.appealMessage = message;
+  activeRecord.appealSubmittedAt = now;
+  activeRecord.appealSubmittedByUserId = input.sellerId;
+  activeRecord.appealDecisionAt = undefined;
+  activeRecord.appealDecisionByUserId = undefined;
+  activeRecord.appealDecisionNotes = undefined;
+  activeRecord.updatedAt = now;
+
+  appendMarketplaceEnforcementAudit(db, {
+    sellerId: input.sellerId,
+    enforcementRecordId: activeRecord.id,
+    action: "appeal_submitted",
+    actorUserId: input.sellerId,
+    notes: message,
+  });
+
+  const owner = db.users.find((user) => hasRole(user, "owner"));
+  if (owner) {
+    pushNotification(db, {
+      userId: owner.id,
+      category: "system",
+      priority: "high",
+      title: "Compliance appeal submitted",
+      message: `Seller ${input.sellerId} submitted a compliance appeal.`,
+      relatedHref: "/admin/alpha-exchange?section=marketplace-enforcement",
+    });
+  }
+
+  await writeDb(db, { selectedTables: ENFORCEMENT_MUTATION_TABLES });
+  return getSellerMarketplaceEnforcementStatus(input.sellerId, db);
+}
+
+export async function decideMarketplaceEnforcementAppealByOwner(input: {
+  sellerId: string;
+  actorUserId: string;
+  decision: "accepted" | "rejected";
+  notes: string;
+}) {
+  const db = await readDb();
+  const actor = db.users.find((user) => user.id === input.actorUserId);
+  if (!actor || !hasRole(actor, "owner")) throw new Error("Owner access required.");
+  const activeRecord = getSellerActiveEnforcementRecord(db, input.sellerId);
+  if (!activeRecord) throw new Error("No active marketplace restriction found for this seller.");
+  if ((activeRecord.appealStatus ?? "none") !== "submitted") {
+    throw new Error("No submitted appeal exists for this seller.");
+  }
+  const notes = String(input.notes ?? "").trim();
+  if (!notes) throw new Error("Appeal decision notes are required.");
+  const now = nowIso();
+  activeRecord.appealStatus = input.decision;
+  activeRecord.appealDecisionAt = now;
+  activeRecord.appealDecisionByUserId = input.actorUserId;
+  activeRecord.appealDecisionNotes = notes;
+  activeRecord.updatedAt = now;
+
+  appendMarketplaceEnforcementAudit(db, {
+    sellerId: input.sellerId,
+    enforcementRecordId: activeRecord.id,
+    action: "appeal_decided",
+    actorUserId: input.actorUserId,
+    notes,
+    metadata: { decision: input.decision },
+  });
+
+  pushNotification(db, {
+    userId: input.sellerId,
+    category: "system",
+    priority: "high",
+    title: "Compliance appeal decision",
+    message: input.decision === "accepted"
+      ? "Your compliance appeal was accepted."
+      : "Your compliance appeal was reviewed and rejected.",
+    relatedHref: "/dashboard/seller/compliance-payment",
+  });
+
+  await writeDb(db, { selectedTables: ENFORCEMENT_MUTATION_TABLES });
+  return getSellerMarketplaceEnforcementStatus(input.sellerId, db);
+}
+
+export async function confirmMarketplaceEnforcementPaymentByOwner(input: {
+  sellerId: string;
+  actorUserId: string;
+  reason?: string;
+  notes?: string;
+}) {
+  const db = await readDb();
+  const actor = db.users.find((user) => user.id === input.actorUserId);
+  if (!actor || !hasRole(actor, "owner")) throw new Error("Owner access required.");
+  const activeRecord = getSellerActiveEnforcementRecord(db, input.sellerId);
+  if (!activeRecord) throw new Error("No active marketplace restriction found for this seller.");
+  if (getRecoveryFeePaymentStatus(activeRecord) !== "awaiting_verification") {
+    throw new Error("This recovery fee is not awaiting verification.");
+  }
+  const result = await markMarketplaceEnforcementFeePaidByAdmin({
+    sellerId: input.sellerId,
+    actorUserId: input.actorUserId,
+    reason: input.reason?.trim() || "Recovery fee payment verified by owner.",
+    notes: input.notes,
+  });
+  return result;
+}
+
+export async function markMarketplaceEnforcementFeePaidByAdmin(input: {
+  sellerId: string;
+  actorUserId: string;
+  reason?: string;
+  notes?: string;
+}) {
+  const db = await readDb();
+  const activeRecord = getSellerActiveEnforcementRecord(db, input.sellerId);
+  if (!activeRecord) throw new Error("No active marketplace restriction found for this seller.");
+  const now = nowIso();
+  activeRecord.status = "resolved_paid";
+  activeRecord.paidAt = now;
+  activeRecord.paidByUserId = input.actorUserId;
+  activeRecord.recoveryPaymentStatus = "confirmed_paid";
+  activeRecord.recoveryPaymentConfirmedAt = now;
+  activeRecord.recoveryPaymentConfirmedByUserId = input.actorUserId;
+  activeRecord.updatedAt = now;
+
+  appendMarketplaceEnforcementAudit(db, {
+    sellerId: input.sellerId,
+    enforcementRecordId: activeRecord.id,
+    action: "fee_paid",
+    actorUserId: input.actorUserId,
+    reason: input.reason?.trim() || undefined,
+    notes: input.notes?.trim() || undefined,
+    metadata: { feeAmount: activeRecord.feeAmount, feeCurrency: activeRecord.feeCurrency },
+  });
+  await appendAuditLog(db, {
+    action: "marketplace_enforcement_fee_paid",
+    actorUserId: input.actorUserId,
+    targetUserId: input.sellerId,
+    details: `Marked marketplace enforcement fee as paid (${activeRecord.feeAmount.toFixed(2)} USDT).`,
+    reason: input.reason?.trim() || undefined,
+    oldValue: { status: "active" },
+    newValue: { status: activeRecord.status, paidAt: activeRecord.paidAt },
+  });
+  pushNotification(db, {
+    userId: input.sellerId,
+    category: "system",
+    priority: "high",
+    title: "Marketplace compliance restriction cleared",
+    message: "Your Marketplace Recovery Fee was confirmed and the compliance restriction is now cleared. Listing and publishing permissions are restored.",
+    relatedHref: "/dashboard/seller",
+  });
+  await sendSellerEnforcementEmail(db, input.sellerId, {
+    event: "marketplace_enforcement_fee_paid",
+    title: "Marketplace Compliance Restriction Cleared",
+    message: "Your Marketplace Recovery Fee was marked as paid. Listing and publishing permissions are now restored.",
+    referenceLabel: activeRecord.id,
+    idempotencyKey: `enforcement-${activeRecord.id}-paid`,
+  });
+  await writeDb(db, { selectedTables: ENFORCEMENT_MUTATION_TABLES });
+  return getSellerMarketplaceEnforcementStatus(input.sellerId, db);
+}
+
+export async function removeMarketplaceEnforcementRestrictionByAdmin(input: {
+  sellerId: string;
+  actorUserId: string;
+  reason: string;
+  notes?: string;
+}) {
+  const db = await readDb();
+  const activeRecord = getSellerActiveEnforcementRecord(db, input.sellerId);
+  if (!activeRecord) throw new Error("No active marketplace restriction found for this seller.");
+  const trimmedReason = input.reason.trim();
+  if (!trimmedReason) throw new Error("Reason is required.");
+  const now = nowIso();
+  activeRecord.status = "resolved_removed";
+  activeRecord.restrictionRemovedAt = now;
+  activeRecord.restrictionRemovedByUserId = input.actorUserId;
+  activeRecord.updatedAt = now;
+
+  appendMarketplaceEnforcementAudit(db, {
+    sellerId: input.sellerId,
+    enforcementRecordId: activeRecord.id,
+    action: "restriction_removed",
+    actorUserId: input.actorUserId,
+    reason: trimmedReason,
+    notes: input.notes?.trim() || undefined,
+  });
+  await appendAuditLog(db, {
+    action: "marketplace_enforcement_restriction_removed",
+    actorUserId: input.actorUserId,
+    targetUserId: input.sellerId,
+    details: "Removed active marketplace restriction.",
+    reason: trimmedReason,
+    oldValue: { status: "active" },
+    newValue: { status: activeRecord.status, removedAt: activeRecord.restrictionRemovedAt },
+  });
+  pushNotification(db, {
+    userId: input.sellerId,
+    category: "system",
+    priority: "high",
+    title: "Marketplace compliance restriction removed",
+    message: "Your marketplace compliance restriction was removed by owner review. Listing and publishing permissions are restored.",
+    relatedHref: "/dashboard/seller",
+  });
+  await writeDb(db, { selectedTables: ENFORCEMENT_MUTATION_TABLES });
+  return getSellerMarketplaceEnforcementStatus(input.sellerId, db);
+}
+
+export async function revokeSellerMarketplacePrivilegesByAdmin(input: {
+  sellerId: string;
+  actorUserId: string;
+  reason: string;
+  notes?: string;
+}) {
+  const db = await readDb();
+  const sellerIndex = db.users.findIndex((user) => user.id === input.sellerId);
+  if (sellerIndex === -1) throw new Error("Seller not found.");
+  const seller = db.users[sellerIndex];
+  if (hasRole(seller, "owner")) throw new Error("Owner account cannot be modified.");
+
+  const sellerRecords = getMarketplaceEnforcementRecords(db).filter((record) => record.sellerId === input.sellerId);
+  const priorViolationNumber = sellerRecords.reduce((max, record) => Math.max(max, record.violationNumber), 0);
+  if (priorViolationNumber < 1) {
+    throw new Error("Permanent revoke requires at least one confirmed prior violation.");
+  }
+  const trimmedReason = input.reason.trim();
+  if (!trimmedReason) throw new Error("Reason is required.");
+
+  const now = nowIso();
+  const activeRecord = getSellerActiveEnforcementRecord(db, input.sellerId);
+  const revokeRecord = activeRecord ?? {
+    id: `enforcement-${randomUUID()}`,
+    sellerId: input.sellerId,
+    violationNumber: priorViolationNumber + 1,
+    status: "revoked" as MarketplaceEnforcementStatus,
+    feeAmount: 0,
+    feeCurrency: "USDT" as const,
+    reason: trimmedReason,
+    adminNotes: input.notes?.trim() || undefined,
+    issuedByUserId: input.actorUserId,
+    issuedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  revokeRecord.status = "revoked";
+  revokeRecord.revokedAt = now;
+  revokeRecord.revokedByUserId = input.actorUserId;
+  revokeRecord.updatedAt = now;
+  revokeRecord.reason = trimmedReason;
+  revokeRecord.adminNotes = input.notes?.trim() || revokeRecord.adminNotes;
+
+  if (!activeRecord) {
+    db.marketplaceEnforcementRecords = [revokeRecord, ...getMarketplaceEnforcementRecords(db)];
+  }
+
+  const nextRoles = addRole(
+    removeRole(removeRole(seller.roles ?? [seller.role], "approved_seller"), "pending_seller_approval"),
+    "buyer",
+  );
+  db.users[sellerIndex] = {
+    ...seller,
+    role: resolvePrimaryRole(nextRoles),
+    roles: nextRoles,
+    sellerStatus: "buyer",
+    availabilityStatus: "available",
+    updatedAt: now,
+  };
+
+  const closedListingIds = closeRevokedSellerListings(db, input.sellerId);
+
+  appendMarketplaceEnforcementAudit(db, {
+    sellerId: input.sellerId,
+    enforcementRecordId: revokeRecord.id,
+    action: "seller_revoked",
+    actorUserId: input.actorUserId,
+    reason: trimmedReason,
+    notes: input.notes?.trim() || undefined,
+    metadata: { closedListingCount: closedListingIds.length, violationNumber: revokeRecord.violationNumber },
+  });
+  await appendAuditLog(db, {
+    action: "marketplace_enforcement_seller_revoked",
+    actorUserId: input.actorUserId,
+    targetUserId: input.sellerId,
+    details: `Revoked marketplace seller privileges permanently. Closed ${closedListingIds.length} open listings.`,
+    reason: trimmedReason,
+    newValue: { sellerStatus: "buyer", closedListingIds },
+  });
+  pushNotification(db, {
+    userId: input.sellerId,
+    category: "system",
+    priority: "high",
+    title: "Seller privileges revoked",
+    message: "Your seller marketplace privileges were permanently revoked after repeated policy violations. Existing active trades remain available for completion.",
+    relatedHref: "/dashboard",
+  });
+  await sendSellerEnforcementEmail(db, input.sellerId, {
+    event: "marketplace_enforcement_seller_revoked",
+    title: "Seller Marketplace Privileges Revoked",
+    message: "Your seller marketplace privileges were permanently revoked after repeated policy violations. Existing active trades remain available for completion.",
+    referenceLabel: revokeRecord.id,
+    idempotencyKey: `enforcement-${revokeRecord.id}-revoked`,
+  });
+  await recalculateTrustEngine(db, { reason: "Seller marketplace privileges revoked", triggeredBy: input.actorUserId });
+  await writeDb(db, { selectedTables: [...ENFORCEMENT_MUTATION_TABLES, "trust_snapshots", "trust_score_history", "activity_logs"] });
+  return getSellerMarketplaceEnforcementStatus(input.sellerId, db);
+}
+
+export async function getMarketplaceEnforcementDashboardData(dbInput?: AlphaExchangeDb) {
+  const db = dbInput ?? await readDb();
+  const records = getMarketplaceEnforcementRecords(db);
+  const audit = getMarketplaceEnforcementAuditLog(db)
+    .slice()
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+  const sellersById = new Map(db.users.map((user) => [user.id, user]));
+  const activeCases = records.filter((record) => record.status === "active");
+  const revokedCases = records.filter((record) => record.status === "revoked");
+  const resolvedCases = records.filter((record) => record.status === "resolved_paid" || record.status === "resolved_removed");
+  return {
+    metrics: {
+      activeCases: activeCases.length,
+      resolvedCases: resolvedCases.length,
+      revokedCases: revokedCases.length,
+      totalCases: records.length,
+      outstandingFeeAmountUsdt: activeCases.reduce((sum, record) => sum + Math.max(0, Number(record.feeAmount)), 0),
+    },
+    activeCases: activeCases
+      .map((record) => ({
+        ...record,
+        sellerName: sellersById.get(record.sellerId)?.fullName ?? "Unknown Seller",
+        sellerEmail: sellersById.get(record.sellerId)?.email ?? "unknown@unknown",
+      }))
+      .sort((left, right) => new Date(right.issuedAt).getTime() - new Date(left.issuedAt).getTime()),
+    recentActivity: audit.slice(0, 50).map((entry) => ({
+      ...entry,
+      sellerName: sellersById.get(entry.sellerId)?.fullName ?? "Unknown Seller",
+      actorName: sellersById.get(entry.actorUserId)?.fullName ?? "System",
+    })),
+  };
 }
 
 export async function getApprovedSellersForAdmin(dbInput?: AlphaExchangeDb) {
@@ -4943,6 +5924,10 @@ export async function updateMarketplaceListingForSeller(input: {
   if (index === -1) throw new Error("Listing not found.");
   const current = db.marketplaceListings[index];
   if (current.sellerId !== input.sellerId) throw new Error("You can edit only your own listings.");
+  const enforcementRestriction = getSellerEnforcementRestrictionMessage(db, input.sellerId);
+  if (enforcementRestriction) {
+    throw new Error(enforcementRestriction);
+  }
   if (isListingLocked(current.status)) {
     throw new Error("This listing is locked by an active trade and cannot be edited right now.");
   }
@@ -5101,6 +6086,12 @@ export async function renewMarketplaceListing(input: {
   if (index === -1) throw new Error("Listing not found.");
   const listing = db.marketplaceListings[index];
   if (input.sellerId && listing.sellerId !== input.sellerId) throw new Error("You can renew only your own listings.");
+  if (input.sellerId) {
+    const enforcementRestriction = getSellerEnforcementRestrictionMessage(db, input.sellerId);
+    if (enforcementRestriction) {
+      throw new Error(enforcementRestriction);
+    }
+  }
   if (input.sellerId) {
     const pendingCommissionCount = getSellerPendingCommissionCount(db, input.sellerId);
     if (pendingCommissionCount > 0) {
@@ -5481,6 +6472,7 @@ export async function getMyMarketplaceListings(sellerId: string, status?: string
 export async function getSellerListingWorkspaceSummary(sellerId: string, dbInput?: AlphaExchangeDb) {
   const db = dbInput ?? await readDb();
   const blockedReason = getSellerListingBlockReason(db, sellerId);
+  const enforcement = await getSellerMarketplaceEnforcementStatus(sellerId, db);
   return {
     activeListingLimit: MAX_ACTIVE_LISTINGS_PER_SELLER,
     openListingCount: getSellerOpenListingCount(db, sellerId),
@@ -5488,6 +6480,20 @@ export async function getSellerListingWorkspaceSummary(sellerId: string, dbInput
     pendingCommissionCount: getSellerPendingCommissionCount(db, sellerId),
     canCreateListing: blockedReason === null,
     blockedReason,
+    enforcement,
+  };
+}
+
+export async function getSellerDashboardAccessState(userId: string) {
+  const db = await readDb();
+  const seller = db.users.find((user) => user.id === userId);
+  if (!seller) return null;
+  const enforcement = await getSellerMarketplaceEnforcementStatus(userId, db);
+  return {
+    sellerId: seller.id,
+    sellerName: seller.fullName,
+    sellerStatus: seller.sellerStatus,
+    enforcement,
   };
 }
 
@@ -6644,6 +7650,35 @@ export async function downloadTradeEvidenceContent(input: {
     throw new Error("Evidence content not found.");
   }
   return { evidence, request, buffer };
+}
+
+export async function downloadMarketplaceComplianceEvidenceById(input: {
+  sellerId: string;
+  evidenceId: string;
+  actorUserId: string;
+  actorRole: UserRole;
+}) {
+  const db = await readDb();
+  if (input.actorRole !== "admin" && input.actorRole !== "owner") {
+    throw new Error("Admin access required.");
+  }
+  const auditEntry = getMarketplaceEnforcementAuditLog(db).find((entry) =>
+    entry.sellerId === input.sellerId
+    && Array.isArray(entry.evidenceReferences)
+    && entry.evidenceReferences.some((item) => item.id === input.evidenceId),
+  );
+  if (!auditEntry || !auditEntry.evidenceReferences) {
+    throw new Error("Compliance evidence not found.");
+  }
+  const evidence = auditEntry.evidenceReferences.find((item) => item.id === input.evidenceId);
+  if (!evidence) throw new Error("Compliance evidence not found.");
+  const storagePath = `db://alpha-exchange-evidence/compliance/${input.sellerId}/${input.evidenceId}.${extensionForEvidenceMimeType(evidence.mimeType)}`;
+
+  const repository = await getAlphaExchangeRepository();
+  const buffer = await repository.readEvidenceContent(storagePath);
+  if (!buffer?.length) throw new Error("Evidence content not found.");
+
+  return { evidence, buffer };
 }
 
 function buildSellerReviewFromTrade(request: PurchaseRequest, input: { buyerUserId: string; rating: number; comment: string; sellerReviewId?: string; createdAt?: string }) {
@@ -10066,7 +11101,7 @@ export async function getAdminPrepDashboardData() {
     await writeDb(db, { selectedTables: TRUST_INIT_TABLES });
   }
 
-  const [summary, applications, approvedSellers, listings, purchaseRequests, commissionRecords, auditLogs, trustEngine, ownerBusiness, privateBeta, listingReliability] = await Promise.all([
+  const [summary, applications, approvedSellers, listings, purchaseRequests, commissionRecords, auditLogs, trustEngine, ownerBusiness, privateBeta, listingReliability, enforcement] = await Promise.all([
     getAlphaExchangeSummaryForAdmin(db),
     getAllSellerApplicationsForAdmin(db),
     getApprovedSellersForAdmin(db),
@@ -10078,12 +11113,16 @@ export async function getAdminPrepDashboardData() {
     getOwnerBusinessDashboardForAdmin(db),
     getOwnerPrivateBetaDashboardData(db),
     getListingReliabilityForAdmin(db),
+    getMarketplaceEnforcementDashboardData(db),
   ]);
   const notifications = [...db.notifications].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250);
   const activityLog = [...db.activityLog].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const users = db.users.map(({ passwordHash: _ph, ...rest }) => rest);
   const sellerReviews = db.sellerReviews ?? [];
+  const complianceSettings = {
+    recoveryWallet: getOwnerComplianceRecoveryWalletConfig(db),
+  };
 
   return {
     summary,
@@ -10101,6 +11140,8 @@ export async function getAdminPrepDashboardData() {
     users,
     sellerReviews,
     listingReliability,
+    enforcement,
+    complianceSettings,
   };
 }
 

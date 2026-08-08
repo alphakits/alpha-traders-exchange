@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
 import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
+import { getSellerDashboardAccessState } from "@/lib/alpha-exchange-store";
 import { hasRole } from "@/lib/roles";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
+import { SellerEnforcementRestrictionScreen } from "@/components/sections/seller/seller-enforcement-restriction-screen";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +32,18 @@ export default async function SellerDashboardPage({ params }: { params: Promise<
 
   if (!hasRole(user, "approved_seller")) {
     redirect(`/${locale}/dashboard`);
+  }
+
+  const accessState = await getSellerDashboardAccessState(user.id);
+  if (accessState?.enforcement.restricted && accessState.enforcement.blockReason) {
+    return (
+      <SellerEnforcementRestrictionScreen
+        locale={locale as "ar" | "en"}
+        sellerName={accessState.sellerName}
+        activeRecord={accessState.enforcement.activeRecord}
+        blockReason={accessState.enforcement.blockReason}
+      />
+    );
   }
 
   return <UsdtExchangePage locale={locale as "ar" | "en"} />;

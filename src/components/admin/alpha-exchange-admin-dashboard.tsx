@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { createExchangeDisplayLookup, replaceExchangeEntityIds } from "@/lib/alpha-exchange-display";
 import { formatCommissionId, formatListingId, formatRequestId, formatTradeId } from "@/lib/format-id";
 import { RoleBadge } from "@/components/ui/role-badge";
-import { SELLER_LEVELS, normalizeSellerLevel, type AlphaExchangeActivityLogEntry, type AlphaExchangeNotification, type AuditLogEntry, type BetaAnnouncement, type BetaAnnouncementType, type BetaFeedbackCategory, type CommissionRecord, type MarketplaceEnforcementAuditEntry, type MarketplaceEnforcementRecord, type MarketplaceListing, type OwnerBusinessDashboardMetrics, type OwnerPrivateBetaDashboardData, type PurchaseRequest, type SellerApplication, type SellerAvailabilityStatus, type SellerLevel, type SellerReviewRecord, type SmsDeliveryRecord, type SupportedNetwork } from "@/types/alpha-exchange";
+import { SELLER_LEVELS, normalizeSellerLevel, type AlphaExchangeActivityLogEntry, type AlphaExchangeNotification, type AuditLogEntry, type BetaAnnouncement, type BetaAnnouncementType, type BetaFeedbackCategory, type CommissionRecord, type MarketplaceEnforcementRecord, type MarketplaceListing, type OwnerBusinessDashboardMetrics, type OwnerPrivateBetaDashboardData, type PurchaseRequest, type SellerApplication, type SellerAvailabilityStatus, type SellerLevel, type SellerReviewRecord, type SmsDeliveryRecord, type SupportedNetwork } from "@/types/alpha-exchange";
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 
@@ -50,6 +50,16 @@ type AdminSeller = {
   sellerPromotionHistory?: Array<{ id: string; rank: SellerLevel; promotedAt: string; reason?: string }>;
   createdAt: string;
   updatedAt: string;
+};
+
+type AdminEnforcementAuditEntry = {
+  id: string;
+  sellerId: string;
+  actorUserId: string;
+  action: string;
+  createdAt: string;
+  reason?: string;
+  notes?: string;
 };
 
 type AdminPayload = {
@@ -91,7 +101,7 @@ type AdminPayload = {
       outstandingFeeAmountUsdt: number;
     };
     activeCases: Array<MarketplaceEnforcementRecord & { sellerName: string; sellerEmail: string }>;
-    recentActivity: Array<MarketplaceEnforcementAuditEntry & { sellerName: string; actorName: string }>;
+    recentActivity: Array<AdminEnforcementAuditEntry & { sellerName: string; actorName: string }>;
   };
   complianceSettings?: {
     recoveryWallet: {

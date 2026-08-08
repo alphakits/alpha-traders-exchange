@@ -14,7 +14,10 @@ export type MarketplaceEmailEvent =
   | "listing_submitted"
   | "listing_expired"
   | "listing_renewed"
-  | "new_listing_published";
+  | "new_listing_published"
+  | "marketplace_enforcement_fee_issued"
+  | "marketplace_enforcement_fee_paid"
+  | "marketplace_enforcement_seller_revoked";
 
 export type MarketplaceEmailPayload = {
   event: MarketplaceEmailEvent;

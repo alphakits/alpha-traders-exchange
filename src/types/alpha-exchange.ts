@@ -71,6 +71,20 @@ export interface SellerAchievement {
   metadata?: Record<string, string | number | boolean | undefined>;
 }
 
+export type CompliancePaymentRail = "manual_wallet_transfer" | "alpha_wallet_one_click";
+
+export interface MarketplaceComplianceRecoveryWalletConfig {
+  network: SupportedNetwork;
+  walletAddress: string;
+  defaultPaymentRail: CompliancePaymentRail;
+  updatedAt: string;
+  updatedByUserId: string;
+}
+
+export interface OwnerSettings {
+  marketplaceComplianceRecoveryWallet?: MarketplaceComplianceRecoveryWalletConfig;
+}
+
 export interface SellerHallOfFameEntry {
   sellerId: string;
   sellerName: string;
@@ -143,6 +157,7 @@ export interface AlphaExchangeUser {
   sellerRankOverride?: SellerRankOverride;
   sellerPromotionHistory?: SellerPromotionHistoryEntry[];
   sellerAchievements?: SellerAchievement[];
+  ownerSettings?: OwnerSettings;
   disabled?: boolean;
   createdAt: string;
   updatedAt: string;
@@ -282,6 +297,14 @@ export interface SellerOwnerToolData {
   auditHistory: AuditLogEntry[];
   commissionHistory: CommissionRecord[];
   tradeHistory: PurchaseRequest[];
+  marketplaceEnforcement?: {
+    restricted: boolean;
+    blockReason: string | null;
+    activeRecord?: MarketplaceEnforcementRecord;
+    latestRecord?: MarketplaceEnforcementRecord;
+    recentAuditEntries: MarketplaceEnforcementAuditEntry[];
+    totalCases: number;
+  };
 }
 
 export interface PremiumSellerProfileData {
@@ -748,6 +771,85 @@ export interface CommissionRecord {
   updatedAt: string;
 }
 
+export type MarketplaceEnforcementStatus =
+  | "active"
+  | "resolved_paid"
+  | "resolved_removed"
+  | "revoked";
+
+export interface MarketplaceEnforcementRecord {
+  id: string;
+  sellerId: string;
+  violationNumber: number;
+  status: MarketplaceEnforcementStatus;
+  feeAmount: number;
+  feeCurrency: "USDT";
+  recoveryWalletNetwork?: SupportedNetwork;
+  recoveryWalletAddress?: string;
+  recoveryPaymentRail?: CompliancePaymentRail;
+  recoveryPaymentStatus?: "pending_payment" | "awaiting_verification" | "confirmed_paid";
+  recoveryPaymentRequestedAt?: string;
+  recoveryPaymentSubmittedAt?: string;
+  recoveryPaymentSubmittedByUserId?: string;
+  recoveryPaymentSubmissionNote?: string;
+  recoveryPaymentConfirmedAt?: string;
+  recoveryPaymentConfirmedByUserId?: string;
+  recoveryPaymentQrPayload?: string;
+  appealStatus?: "none" | "submitted" | "accepted" | "rejected";
+  appealMessage?: string;
+  appealSubmittedAt?: string;
+  appealSubmittedByUserId?: string;
+  appealDecisionByUserId?: string;
+  appealDecisionAt?: string;
+  appealDecisionNotes?: string;
+  reason: string;
+  adminNotes?: string;
+  dueAt?: string;
+  issuedByUserId: string;
+  issuedAt: string;
+  paidAt?: string;
+  paidByUserId?: string;
+  restrictionRemovedAt?: string;
+  restrictionRemovedByUserId?: string;
+  revokedAt?: string;
+  revokedByUserId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type MarketplaceEnforcementAuditAction =
+  | "fee_issued"
+  | "payment_submitted"
+  | "fee_paid"
+  | "appeal_submitted"
+  | "appeal_decided"
+  | "restriction_removed"
+  | "seller_revoked"
+  | "admin_note";
+
+export interface MarketplaceComplianceEvidenceReference {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  url: string;
+  uploadedByUserId: string;
+  uploadedAt: string;
+}
+
+export interface MarketplaceEnforcementAuditEntry {
+  id: string;
+  sellerId: string;
+  enforcementRecordId?: string;
+  action: MarketplaceEnforcementAuditAction;
+  actorUserId: string;
+  reason?: string;
+  notes?: string;
+  evidenceReferences?: MarketplaceComplianceEvidenceReference[];
+  metadata?: Record<string, string | number | boolean | null | undefined>;
+  createdAt: string;
+}
+
 export type AuditAction =
   | "seller_approved"
   | "seller_rejected"
@@ -795,7 +897,11 @@ export type AuditAction =
   | "trade_evidence_viewed_by_moderator"
   | "trade_evidence_downloaded"
   | "seller_prestige_promoted"
-  | "seller_prestige_overridden";
+  | "seller_prestige_overridden"
+  | "marketplace_enforcement_fee_issued"
+  | "marketplace_enforcement_fee_paid"
+  | "marketplace_enforcement_restriction_removed"
+  | "marketplace_enforcement_seller_revoked";
 
 export interface AuditLogEntry {
   id: string;
@@ -897,6 +1003,8 @@ export interface AlphaExchangeDb {
   adminAnnouncementRuns: AdminAnnouncementRun[];
   sellerReviews: SellerReviewRecord[];
   smsDeliveries?: SmsDeliveryRecord[];
+  marketplaceEnforcementRecords?: MarketplaceEnforcementRecord[];
+  marketplaceEnforcementAuditLog?: MarketplaceEnforcementAuditEntry[];
 }
 
 export interface OwnerBusinessDashboardMetrics {

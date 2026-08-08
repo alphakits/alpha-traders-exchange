@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { UsdtIcon } from "@/components/ui/usdt-icon";
+import { MarketplaceEnforcementOwnerPanel } from "@/components/sections/seller/marketplace-enforcement-owner-panel";
 import { buildSellerReviewStats, getVisibleSellerReviews } from "@/lib/reviews";
 import { deriveSellerPresence } from "@/lib/seller-presence";
 import { cn } from "@/lib/utils";
@@ -492,6 +493,14 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
             </CardContent>
           </Card>
         </div>
+
+        {profile.ownerTools?.marketplaceEnforcement ? (
+          <MarketplaceEnforcementOwnerPanel
+            locale={locale}
+            sellerId={profile.sellerId}
+            initialStatus={profile.ownerTools.marketplaceEnforcement}
+          />
+        ) : null}
 
         <Card className="border-white/10 bg-[#0B0B0B]/95">
           <CardHeader>

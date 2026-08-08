@@ -5,6 +5,8 @@ import alphaExchangeSeed from "../../data/alpha-exchange-db.json";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import type {
   AlphaExchangeDb,
+  MarketplaceEnforcementAuditEntry,
+  MarketplaceEnforcementRecord,
   AdminAnnouncementRun,
   AlphaExchangeNotification,
   AlphaExchangeUser,
@@ -40,6 +42,18 @@ const FALLBACK_SNAPSHOT_DIR = path.join(
   process.env.NODE_ENV === "test" ? `.next-runtime-test${TEST_FALLBACK_DIR_SUFFIX}` : ".next-runtime",
 );
 const FALLBACK_SNAPSHOT_PATH = path.join(FALLBACK_SNAPSHOT_DIR, "alpha-exchange-fallback.json");
+const EVIDENCE_BLOB_ROOT = path.join(process.cwd(), "data");
+
+function resolveDbEvidenceBlobPath(evidenceId: string) {
+  if (!evidenceId.startsWith("db://")) return null;
+  const withoutScheme = evidenceId.slice(5).replace(/\\/g, "/").replace(/^\/+/, "");
+  if (!withoutScheme) return null;
+  const segments = withoutScheme.split("/").filter(Boolean);
+  if (segments.some((segment) => segment === "." || segment === "..")) {
+    throw new Error("Invalid evidence storage path.");
+  }
+  return path.join(EVIDENCE_BLOB_ROOT, ...segments);
+}
 
 const SCHEMA_SQL = [
   "create schema if not exists alpha_exchange",
@@ -290,6 +304,27 @@ const SCHEMA_SQL = [
     sort_index integer not null,
     payload jsonb not null
   )`,
+  `create table if not exists alpha_exchange.marketplace_enforcement_records (
+    id text primary key,
+    seller_id text not null references alpha_exchange.users(id) on delete cascade,
+    status text not null,
+    violation_number integer not null,
+    issued_at timestamptz not null,
+    due_at timestamptz,
+    created_at timestamptz not null,
+    updated_at timestamptz not null,
+    sort_index integer not null,
+    payload jsonb not null
+  )`,
+  `create table if not exists alpha_exchange.marketplace_enforcement_audit_log (
+    id text primary key,
+    seller_id text not null references alpha_exchange.users(id) on delete cascade,
+    action text not null,
+    actor_user_id text not null references alpha_exchange.users(id) on delete cascade,
+    created_at timestamptz not null,
+    sort_index integer not null,
+    payload jsonb not null
+  )`,
   "alter table alpha_exchange.admin_announcement_runs add column if not exists request_key text",
   "create index if not exists idx_alpha_exchange_users_email on alpha_exchange.users (email)",
   "create index if not exists idx_alpha_exchange_users_role on alpha_exchange.users (role)",
@@ -308,6 +343,8 @@ const SCHEMA_SQL = [
   "create index if not exists idx_alpha_exchange_announcement_runs_created_at on alpha_exchange.admin_announcement_runs (created_at desc)",
   "create unique index if not exists idx_alpha_exchange_announcement_runs_request_key on alpha_exchange.admin_announcement_runs (created_by_user_id, request_key)",
   "create index if not exists idx_alpha_exchange_sms_deliveries_status on alpha_exchange.sms_deliveries (status, updated_at desc)",
+  "create index if not exists idx_alpha_exchange_marketplace_enforcement_records_seller_status on alpha_exchange.marketplace_enforcement_records (seller_id, status, updated_at desc)",
+  "create index if not exists idx_alpha_exchange_marketplace_enforcement_audit_seller_created on alpha_exchange.marketplace_enforcement_audit_log (seller_id, created_at desc)",
 ];
 
 const DEFAULT_DB = alphaExchangeSeed as unknown as AlphaExchangeDb;
@@ -351,6 +388,8 @@ const SNAPSHOT_TABLE_NAMES = [
   "beta_announcements",
   "admin_announcement_runs",
   "sms_deliveries",
+  "marketplace_enforcement_records",
+  "marketplace_enforcement_audit_log",
 ] as const;
 
 export type SnapshotTableName = (typeof SNAPSHOT_TABLE_NAMES)[number];
@@ -960,6 +999,47 @@ FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7
       ]);
     },
   },
+  {
+    name: "marketplace_enforcement_records",
+    selectSql: "select payload from alpha_exchange.marketplace_enforcement_records order by sort_index asc",
+    values: (db) => db.marketplaceEnforcementRecords ?? [],
+    insert: async (tx, rows: MarketplaceEnforcementRecord[]) => {
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.marketplace_enforcement_records (id, seller_id, status, violation_number, issued_at, due_at, created_at, updated_at, sort_index, payload)
+SELECT id, seller_id, status, violation_number::int, issued_at::timestamptz, due_at::timestamptz, created_at::timestamptz, updated_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[])
+  AS t(id,seller_id,status,violation_number,issued_at,due_at,created_at,updated_at,sort_index,payload)`, [
+        rows.map((r) => r.id),
+        rows.map((r) => r.sellerId),
+        rows.map((r) => r.status),
+        rows.map((r) => String(r.violationNumber)),
+        rows.map((r) => r.issuedAt),
+        rows.map((r) => r.dueAt ?? null),
+        rows.map((r) => r.createdAt),
+        rows.map((r) => r.updatedAt),
+        rows.map((_, i) => String(i)),
+        rows.map((r) => json(r)),
+      ]);
+    },
+  },
+  {
+    name: "marketplace_enforcement_audit_log",
+    selectSql: "select payload from alpha_exchange.marketplace_enforcement_audit_log order by sort_index asc",
+    values: (db) => db.marketplaceEnforcementAuditLog ?? [],
+    insert: async (tx, rows: MarketplaceEnforcementAuditEntry[]) => {
+      await bulkInsert(tx, `INSERT INTO alpha_exchange.marketplace_enforcement_audit_log (id, seller_id, action, actor_user_id, created_at, sort_index, payload)
+SELECT id, seller_id, action, actor_user_id, created_at::timestamptz, sort_index::int, payload::jsonb
+FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::text[],$7::text[])
+  AS t(id,seller_id,action,actor_user_id,created_at,sort_index,payload)`, [
+        rows.map((r) => r.id),
+        rows.map((r) => r.sellerId),
+        rows.map((r) => r.action),
+        rows.map((r) => r.actorUserId),
+        rows.map((r) => r.createdAt),
+        rows.map((_, i) => String(i)),
+        rows.map((r) => json(r)),
+      ]);
+    },
+  },
 ] as Array<RepoTable<unknown>>;
 
 const tableByName = new Map(tables.map((table) => [table.name, table]));
@@ -1087,6 +1167,8 @@ function emptySnapshotCollections(): AlphaExchangeDb {
     adminAnnouncementRuns: [],
     sellerReviews: [],
     smsDeliveries: [],
+    marketplaceEnforcementRecords: [],
+    marketplaceEnforcementAuditLog: [],
   };
 }
 
@@ -1159,6 +1241,12 @@ function snapshotFromTableRows(
         break;
       case "sms_deliveries":
         snapshot.smsDeliveries = fromPayloadRows(rows as Array<{ payload: SmsDeliveryRecord }>);
+        break;
+      case "marketplace_enforcement_records":
+        snapshot.marketplaceEnforcementRecords = fromPayloadRows(rows as Array<{ payload: MarketplaceEnforcementRecord }>);
+        break;
+      case "marketplace_enforcement_audit_log":
+        snapshot.marketplaceEnforcementAuditLog = fromPayloadRows(rows as Array<{ payload: MarketplaceEnforcementAuditEntry }>);
         break;
       default:
         break;
@@ -1285,6 +1373,8 @@ function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchang
     sellerReviews: getCollection(incoming.sellerReviews, latest.sellerReviews),
     smsDeliveries: [...mergedSmsDeliveries.values()]
       .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()),
+    marketplaceEnforcementRecords: getCollection(incoming.marketplaceEnforcementRecords, latest.marketplaceEnforcementRecords ?? []),
+    marketplaceEnforcementAuditLog: getCollection(incoming.marketplaceEnforcementAuditLog, latest.marketplaceEnforcementAuditLog ?? []),
   };
 }
 
@@ -2061,6 +2151,11 @@ export class AlphaExchangeRepository {
   }
 
   async readEvidenceContent(evidenceId: string) {
+    const blobPath = resolveDbEvidenceBlobPath(evidenceId);
+    if (blobPath) {
+      if (!existsSync(blobPath)) return null;
+      return readFileSync(blobPath);
+    }
     await this.ensureReady();
     const pool = this.pool;
     if (this.usesMemoryFallback || !pool) {
@@ -2072,6 +2167,28 @@ export class AlphaExchangeRepository {
       [evidenceId],
     );
     return result.rows[0]?.content ?? null;
+  }
+
+  async writeEvidenceContent(evidenceId: string, content: Buffer) {
+    const blobPath = resolveDbEvidenceBlobPath(evidenceId);
+    if (blobPath) {
+      mkdirSync(path.dirname(blobPath), { recursive: true });
+      writeFileSync(blobPath, content);
+      return;
+    }
+
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      ensureMemorySeed();
+      globalThis.__alphaExchangeMemoryEvidenceContent?.set(evidenceId, content);
+      return;
+    }
+
+    await pool.query(
+      "update alpha_exchange.evidence set content = $2 where id = $1",
+      [evidenceId, content],
+    );
   }
 
   // Targeted read — loads only the 11 tables required by createMarketplaceListing.
