@@ -11,10 +11,14 @@ import {
   type RESTGetAPIChannelMessagesResult,
   type RESTPostAPIChannelMessageJSONBody,
 } from "discord.js";
+import { escapeDiscordPlainText } from "@/lib/discord/message-safety";
 
 export const DISCORD_LISTING_BRAND_COLOR = 0xc9a227;
+export const DISCORD_LISTING_SOLD_COLOR = 0x6b7280;
+const DEFAULT_PUBLIC_SITE_URL = "https://www.alphatraders.co.il";
 
 export type DiscordListingSnapshot = {
+  snapshotVersion?: 2;
   sellerDisplayName: string;
   sellerLevel: string | null;
   reliabilityTier: string | null;
@@ -24,10 +28,15 @@ export type DiscordListingSnapshot = {
   currency: string;
   network: string;
   paymentMethods: string[];
-  presenceLabel: string;
+  presenceLabel: string | null;
   responseTimeMinutes: number | null;
+  rating?: number | null;
+  completedTrades?: number | null;
   imageUrl: string;
+  brandImageUrl?: string;
   listingUrl: string;
+  sellerProfileUrl?: string | null;
+  websiteUrl?: string;
 };
 
 export interface DiscordListingPublisher {
@@ -47,14 +56,18 @@ export interface DiscordListingPublisher {
   findMessageByNonce(input: { channelId: string; nonce: string }): Promise<string | null>;
 }
 
-function normalizeDecimal(value: string): string {
+function normalizeDecimal(value: string, minimumFractionDigits = 0): string {
   const parsed = Number(String(value).replace(/[^\d.]/g, ""));
-  return Number.isFinite(parsed) ? parsed.toLocaleString("en-IL", { maximumFractionDigits: 2 }) : "0";
+  return Number.isFinite(parsed)
+    ? parsed.toLocaleString("en-IL", { minimumFractionDigits, maximumFractionDigits: 2 })
+    : minimumFractionDigits > 0 ? "0.00" : "0";
 }
 
 function levelLabel(level: string | null): string | null {
   if (!level) return null;
-  return `${level[0]?.toUpperCase()}${level.slice(1).toLowerCase()} Seller`;
+  return escapeDiscordPlainText(
+    `${level[0]?.toUpperCase()}${level.slice(1).toLowerCase()} Seller`,
+  );
 }
 
 function isPrivateOrReservedHostname(hostname: string): boolean {
@@ -92,6 +105,13 @@ function isPrivateOrReservedHostname(hostname: string): boolean {
   return false;
 }
 
+function containsSensitiveIdentifier(value: string): boolean {
+  const decoded = decodeURIComponent(value);
+  return /(?:^|[^a-z0-9])[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}(?:$|[^a-z0-9])/i.test(decoded)
+    || /0x[a-f0-9]{32,}/i.test(decoded)
+    || /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i.test(decoded);
+}
+
 export function isSafeDiscordImageUrl(value: unknown): value is string {
   if (typeof value !== "string" || value.length > 2048) return false;
   try {
@@ -99,10 +119,34 @@ export function isSafeDiscordImageUrl(value: unknown): value is string {
     return parsed.protocol === "https:"
       && parsed.username === ""
       && parsed.password === ""
+      && parsed.search === ""
+      && parsed.hash === ""
+      && !containsSensitiveIdentifier(parsed.pathname)
       && !isPrivateOrReservedHostname(parsed.hostname);
   } catch {
     return false;
   }
+}
+
+export function isSafeDiscordLinkUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 2048) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:"
+      && parsed.username === ""
+      && parsed.password === ""
+      && parsed.search === ""
+      && parsed.hash === ""
+      && !isPrivateOrReservedHostname(parsed.hostname)
+      && !containsSensitiveIdentifier(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+export function resolveDiscordPublicSiteUrl(value: unknown): string {
+  if (!isSafeDiscordLinkUrl(value)) return DEFAULT_PUBLIC_SITE_URL;
+  return new URL(value).origin;
 }
 
 export function hashDiscordListingSnapshot(snapshot: DiscordListingSnapshot): string {
@@ -115,35 +159,45 @@ export function buildDiscordListingMessage(
 ): RESTPostAPIChannelMessageJSONBody {
   const sellerMeta = [
     levelLabel(snapshot.sellerLevel),
-    snapshot.reliabilityTier,
-    snapshot.approvedSeller ? "✓ Approved Seller" : null,
+    snapshot.reliabilityTier
+      ? escapeDiscordPlainText(snapshot.reliabilityTier)
+      : null,
+    snapshot.approvedSeller ? "✅ Approved Seller" : null,
   ].filter(Boolean).join(" • ");
   const fields = [
     {
-      name: sold ? "Last available amount" : "Available",
-      value: sold ? `${normalizeDecimal(snapshot.availableAmount)} USDT` : `**${normalizeDecimal(snapshot.availableAmount)} USDT**`,
+      name: sold ? "Last available amount" : "Available USDT",
+      value: sold
+        ? `${normalizeDecimal(snapshot.availableAmount)} USDT`
+        : `**${normalizeDecimal(snapshot.availableAmount)} USDT**`,
       inline: true,
     },
     {
-      name: "Price",
-      value: `**₪${normalizeDecimal(snapshot.price)} / USDT**`,
+      name: "Price per USDT",
+      value: `**₪${normalizeDecimal(snapshot.price, 2)}**`,
       inline: true,
     },
     {
       name: "Network",
-      value: snapshot.network,
+      value: escapeDiscordPlainText(snapshot.network),
       inline: true,
     },
-    {
-      name: "Payment",
-      value: snapshot.paymentMethods.join(" • "),
-      inline: false,
-    },
-    {
-      name: "Seller availability",
-      value: snapshot.presenceLabel,
-      inline: true,
-    },
+    ...(snapshot.paymentMethods.length
+      ? [{
+          name: "Payment methods",
+          value: snapshot.paymentMethods
+            .map(escapeDiscordPlainText)
+            .join(" • "),
+          inline: false,
+        }]
+      : []),
+    ...(snapshot.presenceLabel
+      ? [{
+          name: "Availability",
+          value: escapeDiscordPlainText(snapshot.presenceLabel),
+          inline: true,
+        }]
+      : []),
     ...(snapshot.responseTimeMinutes
       ? [{
           name: "Measured response",
@@ -151,44 +205,77 @@ export function buildDiscordListingMessage(
           inline: true,
         }]
       : []),
+    ...(snapshot.rating
+      ? [{
+          name: "Seller rating",
+          value: `⭐ ${snapshot.rating.toFixed(2)} / 5`,
+          inline: true,
+        }]
+      : []),
+    ...(snapshot.completedTrades
+      ? [{
+          name: "Completed trades",
+          value: snapshot.completedTrades.toLocaleString("en-IL"),
+          inline: true,
+        }]
+      : []),
   ];
+  const websiteUrl = isSafeDiscordLinkUrl(snapshot.websiteUrl)
+    ? snapshot.websiteUrl
+    : isSafeDiscordLinkUrl(snapshot.listingUrl)
+      ? new URL(snapshot.listingUrl).origin
+      : DEFAULT_PUBLIC_SITE_URL;
+  const brandImageUrl = isSafeDiscordImageUrl(snapshot.brandImageUrl)
+    ? snapshot.brandImageUrl
+    : `${websiteUrl}/images/brand/alpha-traders-logo.png`;
+  const sellerImageUrl = isSafeDiscordImageUrl(snapshot.imageUrl)
+    ? snapshot.imageUrl
+    : brandImageUrl;
+  const activeButtons = [
+    isSafeDiscordLinkUrl(snapshot.listingUrl)
+      ? { type: 2 as const, style: 5 as const, label: "View Marketplace", url: snapshot.listingUrl }
+      : null,
+    isSafeDiscordLinkUrl(snapshot.sellerProfileUrl)
+      ? { type: 2 as const, style: 5 as const, label: "Seller Profile", url: snapshot.sellerProfileUrl }
+      : null,
+    isSafeDiscordLinkUrl(websiteUrl)
+      ? { type: 2 as const, style: 5 as const, label: "Website", url: websiteUrl }
+      : null,
+  ].filter((button): button is NonNullable<typeof button> => Boolean(button));
 
   return {
     allowed_mentions: { parse: [] },
     embeds: [
       {
-        title: sold ? "SOLD • USDT listing completed" : `${normalizeDecimal(snapshot.availableAmount)} USDT available`,
-        description: sellerMeta || "Alpha Traders marketplace seller",
-        color: sold ? 0x6b7280 : DISCORD_LISTING_BRAND_COLOR,
-        url: snapshot.listingUrl,
+        title: sold ? "✅ SOLD" : "🔥 NEW USDT LISTING",
+        description: sold
+          ? `This listing is complete. Historical details below reflect the last active Alpha Traders post.\n\n**Seller:** ${escapeDiscordPlainText(snapshot.sellerDisplayName)}${sellerMeta ? `\n${sellerMeta}` : ""}`
+          : `**${escapeDiscordPlainText(snapshot.sellerDisplayName)}**${sellerMeta ? `\n${sellerMeta}` : ""}`,
+        color: sold ? DISCORD_LISTING_SOLD_COLOR : DISCORD_LISTING_BRAND_COLOR,
+        url: !sold && isSafeDiscordLinkUrl(snapshot.listingUrl) ? snapshot.listingUrl : undefined,
         author: {
-          name: snapshot.sellerDisplayName,
+          name: "Alpha Traders Marketplace",
+          icon_url: brandImageUrl,
+          url: websiteUrl,
         },
         thumbnail: {
-          url: snapshot.imageUrl,
+          url: sellerImageUrl,
         },
         fields,
         footer: {
           text: sold
-            ? "Alpha Traders • Historical sold listing"
-            : "Alpha Traders • Trusted marketplace listing",
-          icon_url: snapshot.imageUrl,
+            ? "Alpha Traders • Completed listing history"
+            : "Alpha Traders • Premium USDT marketplace",
+          icon_url: brandImageUrl,
         },
       },
     ],
-    components: sold
+    components: sold || activeButtons.length === 0
       ? []
       : [
           {
             type: 1,
-            components: [
-              {
-                type: 2,
-                style: 5,
-                label: "View Listing",
-                url: snapshot.listingUrl,
-              },
-            ],
+            components: activeButtons,
           },
         ],
   };

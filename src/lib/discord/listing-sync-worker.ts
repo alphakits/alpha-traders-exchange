@@ -8,6 +8,7 @@ import {
   DiscordRestListingPublisher,
   hashDiscordListingSnapshot,
   isSafeDiscordImageUrl,
+  resolveDiscordPublicSiteUrl,
   type DiscordListingPublisher,
   type DiscordListingSnapshot,
 } from "@/lib/discord/listing-publisher";
@@ -15,6 +16,7 @@ import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { deriveSellerPresence } from "@/lib/seller-presence";
 import { getSiteUrl } from "@/lib/site-url";
 import { logEvent } from "@/lib/structured-logging";
+import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
 
 const POLL_INTERVAL_MS = 5_000;
 const RECONCILIATION_INTERVAL_MS = 15 * 60 * 1000;
@@ -94,9 +96,34 @@ function stringValue(value: unknown, fallback = ""): string {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
 
+function publicTextValue(value: unknown, fallback = ""): string {
+  const normalized = stringValue(value);
+  if (
+    !normalized
+    || /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.test(normalized)
+    || /0x[a-f0-9]{32,}/i.test(normalized)
+    || /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i.test(normalized)
+  ) {
+    return fallback;
+  }
+  return normalized.slice(0, 100);
+}
+
 function numberValue(value: unknown): number | null {
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function ratingValue(value: unknown): number | null {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) && parsed > 0 && parsed <= 5
+    ? Math.round(parsed * 100) / 100
+    : null;
+}
+
+function integerValue(value: unknown): number | null {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function amountValue(value: unknown): number {
@@ -105,7 +132,7 @@ function amountValue(value: unknown): number {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value)
-    ? value.map((item) => stringValue(item)).filter(Boolean).slice(0, 3)
+    ? value.map((item) => publicTextValue(item)).filter(Boolean).slice(0, 3)
     : [];
 }
 
@@ -128,33 +155,56 @@ export function buildAuthoritativeDiscordListingSnapshot(input: {
   const trustSnapshot = input.trust?.snapshot && typeof input.trust.snapshot === "object"
     ? input.trust.snapshot as Record<string, unknown>
     : null;
-  const profilePhoto = input.seller.profilePhotoUrl;
-  const fallbackImage = `${input.siteUrl}/images/brand/alpha-traders-logo.png`;
+  const profilePhoto = input.seller.isProfileHidden === true
+    ? null
+    : input.seller.profilePhotoUrl;
+  const websiteUrl = resolveDiscordPublicSiteUrl(input.siteUrl);
+  const fallbackImage = `${websiteUrl}/images/brand/alpha-traders-logo.png`;
   const paymentMethods = stringArray(input.listing.paymentMethods);
-  const primaryPayment = stringValue(input.listing.paymentMethod);
-  const presence = deriveSellerPresence({
-    onlineStatus: input.seller.onlineStatus === "online" ? "online" : "offline",
-    lastActiveAt: stringValue(input.seller.lastActiveAt) || null,
-  }, input.now);
+  const primaryPayment = publicTextValue(input.listing.paymentMethod);
+  const hasAuthoritativePresence = (input.seller.onlineStatus === "online" || input.seller.onlineStatus === "offline")
+    && input.seller.showLastActive !== false;
+  const presence = hasAuthoritativePresence
+    ? deriveSellerPresence({
+        onlineStatus: input.seller.onlineStatus as "online" | "offline",
+        lastActiveAt: stringValue(input.seller.lastActiveAt) || null,
+      }, input.now)
+    : null;
+  const publicTradingName = publicTextValue(input.seller.buyerDisplayName);
+  const profileIsPublic = Boolean(publicTradingName)
+    && input.seller.isProfileHidden !== true
+    && input.seller.allowProfileSearch !== false;
+  const showTradeStats = input.seller.showTradeStats !== false;
+  const completedTrades = showTradeStats
+    ? integerValue(trustSnapshot?.completedTrades)
+    : null;
 
   return {
-    sellerDisplayName: stringValue(input.listing.sellerDisplayName)
-      || stringValue(input.seller.buyerDisplayName)
-      || "Alpha Traders Seller",
+    snapshotVersion: 2,
+    sellerDisplayName: publicTradingName || "Alpha Traders Seller",
     sellerLevel: stringValue(trustSnapshot?.level) || null,
     reliabilityTier: reliabilityTier(numberValue(trustSnapshot?.reliabilityScore)),
     approvedSeller: input.sellerStatus === "approved_seller",
     availableAmount: stringValue(input.listing.availableAmount, "0"),
     price: stringValue(input.listing.price, "0"),
     currency: stringValue(input.listing.currency, "ILS"),
-    network: stringValue(input.listing.network, "USDT"),
+    network: publicTextValue(input.listing.network, "USDT"),
     paymentMethods: paymentMethods.length
       ? paymentMethods
-      : (primaryPayment ? [primaryPayment] : ["Contact seller on Alpha Traders"]),
-    presenceLabel: presence.label,
-    responseTimeMinutes: numberValue(trustSnapshot?.responseTimeMinutes),
+      : (primaryPayment ? [primaryPayment] : []),
+    presenceLabel: presence?.label ?? null,
+    responseTimeMinutes: showTradeStats
+      ? numberValue(trustSnapshot?.responseTimeMinutes)
+      : null,
+    rating: completedTrades ? ratingValue(trustSnapshot?.rating) : null,
+    completedTrades,
     imageUrl: isSafeDiscordImageUrl(profilePhoto) ? profilePhoto : fallbackImage,
-    listingUrl: `${input.siteUrl}/en/usdt-exchange`,
+    brandImageUrl: fallbackImage,
+    listingUrl: `${websiteUrl}/en/usdt-exchange`,
+    sellerProfileUrl: profileIsPublic
+      ? `${websiteUrl}/en/exchange/seller/${encodeURIComponent(normalizePublicProfileUsername(publicTradingName))}`
+      : null,
+    websiteUrl,
   };
 }
 
@@ -271,6 +321,7 @@ export function determineDiscordListingLifecycle(
     || input.sellerStatus !== "approved_seller"
     || !input.identityLinked
     || input.userPayload.disabled === true
+    || input.userPayload.isProfileHidden === true
     || input.listingPayload.approvalStatus !== "approved"
   ) {
     return "delete";
@@ -487,10 +538,15 @@ async function reconcileJob(
       await markDeleted(client, job, "sold_message_missing");
       return;
     }
+    const soldSnapshot = {
+      ...row.snapshot,
+      sellerDisplayName: publicTextValue(row.user_payload?.buyerDisplayName)
+        || "Alpha Traders Seller",
+    };
     await publisher.updateMessage({
       channelId: row.channel_id,
       messageId: row.message_id,
-      snapshot: row.snapshot,
+      snapshot: soldSnapshot,
       sold: true,
     });
     await client.query(
@@ -636,8 +692,8 @@ export class DiscordListingSyncWorker {
   private readonly siteUrl: string;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private reconciliationTimer: ReturnType<typeof setInterval> | null = null;
-  private processing = false;
-  private reconciling = false;
+  private activeProcessing: Promise<void> | null = null;
+  private activeReconciliation: Promise<void> | null = null;
   private diagnostics: DiscordListingDiagnostics = {
     status: "degraded",
     pendingJobs: null,
@@ -694,76 +750,98 @@ export class DiscordListingSyncWorker {
     if (this.reconciliationTimer) clearInterval(this.reconciliationTimer);
     this.pollTimer = null;
     this.reconciliationTimer = null;
-  }
-
-  async processAvailableJobs(): Promise<void> {
-    if (this.processing) return;
-    this.processing = true;
-    try {
-      for (let processed = 0; processed < 25; processed += 1) {
-        const job = await claimJob(this.pool);
-        if (!job) break;
-        const client = await this.pool.connect();
-        let destroyClient = false;
-        try {
-          await client.query("begin");
-          await client.query(
-            "select pg_advisory_xact_lock(hashtext($1))",
-            [`discord-listing-seller:${job.sellerId}`],
-          );
-          if (!await ownsClaim(client, job)) {
-            await client.query("commit");
-            continue;
-          }
-          try {
-            await reconcileJob(client, this.publisher, job, this.siteUrl);
-            await client.query("commit");
-          } catch (error) {
-            const failureCode = safeFailureCode(error);
-            await failJob(client, job, failureCode);
-            await client.query("commit");
-            logEvent("error", {
-              event: "discord_listing_sync",
-              targetUserId: job.sellerId,
-              outcome: "failed",
-              reason: failureCode,
-              metadata: {
-                mappingId: job.mappingId,
-                attempts: job.attempts,
-              },
-            });
-          }
-        } catch (error) {
-          try {
-            await client.query("rollback");
-          } catch (rollbackError) {
-            destroyClient = true;
-            throw new AggregateError(
-              [error, rollbackError],
-              "Discord listing synchronization rollback failed.",
-            );
-          }
-          throw error;
-        } finally {
-          client.release(destroyClient);
-        }
-      }
-      this.diagnostics = await readDiagnostics(this.pool);
-    } finally {
-      this.processing = false;
+    const active = [
+      this.activeProcessing,
+      this.activeReconciliation,
+    ].filter((operation): operation is Promise<void> => operation !== null);
+    const results = await Promise.allSettled(active);
+    const failures = results.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : []);
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) {
+      throw new AggregateError(
+        failures,
+        "Discord listing worker shutdown failed.",
+      );
     }
   }
 
-  async reconcile(): Promise<void> {
-    if (this.reconciling) return;
-    this.reconciling = true;
-    try {
+  processAvailableJobs(): Promise<void> {
+    if (this.activeProcessing) return this.activeProcessing;
+    const processing = this.performAvailableJobs().finally(() => {
+      if (this.activeProcessing === processing) {
+        this.activeProcessing = null;
+      }
+    });
+    this.activeProcessing = processing;
+    return processing;
+  }
+
+  private async performAvailableJobs(): Promise<void> {
+    for (let processed = 0; processed < 25; processed += 1) {
+      const job = await claimJob(this.pool);
+      if (!job) break;
+      const client = await this.pool.connect();
+      let destroyClient = false;
+      try {
+        await client.query("begin");
+        await client.query(
+          "select pg_advisory_xact_lock(hashtext($1))",
+          [`discord-listing-seller:${job.sellerId}`],
+        );
+        if (!await ownsClaim(client, job)) {
+          await client.query("commit");
+          continue;
+        }
+        try {
+          await reconcileJob(client, this.publisher, job, this.siteUrl);
+          await client.query("commit");
+        } catch (error) {
+          const failureCode = safeFailureCode(error);
+          await failJob(client, job, failureCode);
+          await client.query("commit");
+          logEvent("error", {
+            event: "discord_listing_sync",
+            targetUserId: job.sellerId,
+            outcome: "failed",
+            reason: failureCode,
+            metadata: {
+              mappingId: job.mappingId,
+              attempts: job.attempts,
+            },
+          });
+        }
+      } catch (error) {
+        try {
+          await client.query("rollback");
+        } catch (rollbackError) {
+          destroyClient = true;
+          throw new AggregateError(
+            [error, rollbackError],
+            "Discord listing synchronization rollback failed.",
+          );
+        }
+        throw error;
+      } finally {
+        client.release(destroyClient);
+      }
+    }
+    this.diagnostics = await readDiagnostics(this.pool);
+  }
+
+  reconcile(): Promise<void> {
+    if (this.activeReconciliation) return this.activeReconciliation;
+    const reconciliation = (async () => {
       await enqueueReconciliation(this.pool);
       await this.processAvailableJobs();
       this.diagnostics = await readDiagnostics(this.pool);
-    } finally {
-      this.reconciling = false;
-    }
+    })().finally(() => {
+      if (this.activeReconciliation === reconciliation) {
+        this.activeReconciliation = null;
+      }
+    });
+    this.activeReconciliation = reconciliation;
+    return reconciliation;
   }
 }
 

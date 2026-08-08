@@ -9,6 +9,7 @@ vi.mock("server-only", () => ({}));
 
 import type {
   DiscordDiagnostics,
+  DiscordMarketIntelligenceDiagnostics,
   DiscordResourceDiagnostics,
 } from "@/lib/discord/diagnostics";
 import {
@@ -67,6 +68,45 @@ function runtimeFixture(
       errorCode: null,
     })),
   },
+  marketIntelligence: {
+    start: () => Promise<void>;
+    shutdown: () => Promise<void>;
+    getDiagnostics: () => DiscordMarketIntelligenceDiagnostics;
+  } = {
+    start: vi.fn(async () => undefined),
+    shutdown: vi.fn(async () => undefined),
+    getDiagnostics: vi.fn(() => ({
+      status: "ready" as const,
+      activeCount: 3,
+      pendingCount: 0,
+      deadCount: 0,
+      lastSuccessAt: "2026-08-08T05:00:00.000Z",
+      errorCode: null,
+    })),
+  },
+  commands = {
+    start: vi.fn(async () => undefined),
+    shutdown: vi.fn(async () => undefined),
+    getDiagnostics: vi.fn(() => ({
+      status: "ready" as const,
+      registeredCount: 7,
+      definitionHash: "a".repeat(64),
+      lastReconciledAt: "2026-08-08T05:00:00.000Z",
+      errorCode: null,
+    })),
+  },
+  notifications = {
+    start: vi.fn(async () => undefined),
+    shutdown: vi.fn(async () => undefined),
+    getDiagnostics: vi.fn(() => ({
+      status: "ready" as const,
+      pendingCount: 0,
+      deadCount: 0,
+      suppressedCount: 1,
+      lastDeliveredAt: "2026-08-08T05:00:00.000Z",
+      errorCode: null,
+    })),
+  },
 ) {
   const server = new FakeServer();
   const service = {
@@ -79,14 +119,35 @@ function runtimeFixture(
     service,
     roleSync,
     resourceSync,
+    marketIntelligence,
+    commands,
+    notifications,
     createHealthServer: vi.fn(() => server as unknown as Server),
   });
-  return { runtime, server, service, roleSync, resourceSync };
+  return {
+    runtime,
+    server,
+    service,
+    roleSync,
+    resourceSync,
+    marketIntelligence,
+    commands,
+    notifications,
+  };
 }
 
 describe("Discord worker runtime", () => {
   it("starts health serving and the singleton service, then shuts both down once", async () => {
-    const { runtime, server, service, roleSync, resourceSync } = runtimeFixture();
+    const {
+      runtime,
+      server,
+      service,
+      roleSync,
+      resourceSync,
+      marketIntelligence,
+      commands,
+      notifications,
+    } = runtimeFixture();
 
     await expect(runtime.start()).resolves.toEqual(diagnostics);
     await Promise.all([runtime.shutdown(), runtime.shutdown()]);
@@ -95,10 +156,16 @@ describe("Discord worker runtime", () => {
     expect(service.start).toHaveBeenCalledOnce();
     expect(roleSync.start).toHaveBeenCalledOnce();
     expect(resourceSync.start).toHaveBeenCalledOnce();
+    expect(marketIntelligence.start).toHaveBeenCalledOnce();
+    expect(commands.start).toHaveBeenCalledOnce();
+    expect(notifications.start).toHaveBeenCalledOnce();
     expect(server.close).toHaveBeenCalledOnce();
     expect(service.shutdown).toHaveBeenCalledOnce();
     expect(roleSync.shutdown).toHaveBeenCalledOnce();
     expect(resourceSync.shutdown).toHaveBeenCalledOnce();
+    expect(marketIntelligence.shutdown).toHaveBeenCalledOnce();
+    expect(commands.shutdown).toHaveBeenCalledOnce();
+    expect(notifications.shutdown).toHaveBeenCalledOnce();
   });
 
   it("fails startup and cleans up when durable role synchronization cannot start", async () => {

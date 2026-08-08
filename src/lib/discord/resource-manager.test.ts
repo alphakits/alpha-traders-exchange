@@ -58,6 +58,7 @@ type FakeChannel = {
   type: number;
   name: string;
   parent_id: string | null;
+  topic?: string | null;
   position?: number;
   permission_overwrites: Array<{
     id: string;
@@ -163,6 +164,7 @@ function fakeDiscord(input: {
       type: options.body.type as number,
       name: options.body.name as string,
       parent_id: (options.body.parent_id as string | undefined) ?? null,
+      topic: (options.body.topic as string | undefined) ?? null,
       position: channels.length,
       permission_overwrites: structuredClone(
         options.body.permission_overwrites as FakeChannel["permission_overwrites"],
@@ -179,6 +181,7 @@ function fakeDiscord(input: {
     }> | {
       name?: string;
       parent_id?: string | null;
+      topic?: string;
       permission_overwrites?: FakeChannel["permission_overwrites"];
     };
   }) => {
@@ -395,6 +398,21 @@ describe("Discord managed resource manager", () => {
     expect(discord.rest.post).toHaveBeenCalledTimes(managedResourceCount);
     expect(discord.channels.filter((channel) =>
       channel.type === ChannelType.GuildCategory)).toHaveLength(2);
+  });
+
+  it("keeps shared support and community topics explicit about privacy and off-platform safety", () => {
+    const byKey = new Map(DISCORD_MANAGED_RESOURCE_DEFINITIONS.map(
+      (definition) => [definition.key, definition.topic],
+    ));
+
+    expect(byKey.get("seller_support")).toContain("Shared support");
+    expect(byKey.get("seller_support")).not.toContain("Private support");
+    expect(byKey.get("seller_lounge")).toContain("Do not post buyer identities");
+    expect(byKey.get("seller_chat")).toContain("Never share buyer data");
+    expect(byKey.get("seller_chat")).toContain("off-platform trade");
+    expect(byKey.get("share_your_success")).toContain("Never identify buyers");
+    expect(byKey.get("buyer_support")).toContain("Never send payments");
+    expect(byKey.get("buyer_support")).toContain("off-platform trades");
   });
 
   it("applies exact private, read-only, writable, and bot-only public permissions", async () => {
@@ -806,6 +824,7 @@ describe("Discord managed resource manager", () => {
       channel.name === displayNames.seller_lounge)!;
     lounge.name = "drifted-name";
     lounge.parent_id = null;
+    lounge.topic = "Private conversation space for approved Alpha Traders sellers.";
     overwrite(lounge, approvedRoleId).allow = (
       PermissionFlagsBits.AttachFiles
     ).toString();
@@ -831,6 +850,11 @@ describe("Discord managed resource manager", () => {
     expect(lounge.parent_id).toBe(
       first.find((resource) => resource.key === "seller_category")?.discordId,
     );
+    expect(lounge.topic).toBe(
+      DISCORD_MANAGED_RESOURCE_DEFINITIONS.find(
+        (definition) => definition.key === "seller_lounge",
+      )?.topic,
+    );
     expect(BigInt(overwrite(lounge, approvedRoleId).allow)
       & PermissionFlagsBits.AttachFiles).toBe(PermissionFlagsBits.AttachFiles);
     expect(overwrite(lounge, unrelatedRoleId).allow)
@@ -841,6 +865,7 @@ describe("Discord managed resource manager", () => {
       expect.stringContaining(lounge.id),
       expect.objectContaining({
         body: expect.objectContaining({
+          topic: expect.stringContaining("Do not post buyer identities"),
           permission_overwrites: expect.any(Array),
         }),
       }),

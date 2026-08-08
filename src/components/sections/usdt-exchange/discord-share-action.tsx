@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useMemo, useSyncExternalStore } from "react";
 import { Loader2, MessageCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,41 @@ function toAmount(value: string): number {
   return Number(value.replace(/[^\d.]/g, "")) || 0;
 }
 
+const secondClockListeners = new Set<() => void>();
+let secondClockTimer: number | null = null;
+let secondClockSnapshot = 0;
+
+function subscribeToSecondClock(listener: () => void) {
+  secondClockListeners.add(listener);
+  if (secondClockTimer === null) {
+    secondClockSnapshot = Date.now();
+    secondClockTimer = window.setInterval(() => {
+      secondClockSnapshot = Date.now();
+      for (const notify of secondClockListeners) notify();
+    }, 1_000);
+  }
+  return () => {
+    secondClockListeners.delete(listener);
+    if (secondClockListeners.size === 0 && secondClockTimer !== null) {
+      window.clearInterval(secondClockTimer);
+      secondClockTimer = null;
+    }
+  };
+}
+
+const subscribeToNothing = () => () => undefined;
+const getSecondClockSnapshot = () => secondClockSnapshot;
+const getServerClockSnapshot = () => 0;
+
+export function formatDiscordShareCountdown(seconds: number) {
+  const safeSeconds = Math.max(0, Math.ceil(seconds));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m`;
+  return safeSeconds > 0 ? "<1m" : "now";
+}
+
 export const DiscordShareAction = memo(function DiscordShareAction({
   listing,
   sharing,
@@ -43,34 +78,29 @@ export const DiscordShareAction = memo(function DiscordShareAction({
     () => sharing ? new Date(sharing.serverTime).getTime() - Date.now() : 0,
     [sharing],
   );
-  const calculateRemaining = useCallback(() => {
-    if (!sharing?.nextEligibleAt) return 0;
-    return Math.max(
-      0,
-      Math.ceil(
-        (new Date(sharing.nextEligibleAt).getTime() - (Date.now() + serverOffsetMs)) / 1000,
-      ),
-    );
-  }, [serverOffsetMs, sharing?.nextEligibleAt]);
-  const [secondsRemaining, setSecondsRemaining] = useState(calculateRemaining);
-
-  useEffect(() => {
-    setSecondsRemaining(calculateRemaining());
-    if (!sharing?.nextEligibleAt || calculateRemaining() <= 0) return;
-    const timer = window.setInterval(() => {
-      const next = calculateRemaining();
-      setSecondsRemaining(next);
-      if (next <= 0) window.clearInterval(timer);
-    }, 1_000);
-    return () => window.clearInterval(timer);
-  }, [calculateRemaining, sharing?.nextEligibleAt]);
+  const targetTime = sharing?.nextEligibleAt
+    ? new Date(sharing.nextEligibleAt).getTime()
+    : 0;
+  const initialSecondsRemaining = targetTime
+    ? Math.max(0, Math.ceil((targetTime - (Date.now() + serverOffsetMs)) / 1000))
+    : 0;
+  const clockNow = useSyncExternalStore(
+    initialSecondsRemaining > 0 ? subscribeToSecondClock : subscribeToNothing,
+    getSecondClockSnapshot,
+    getServerClockSnapshot,
+  );
+  const secondsRemaining = targetTime
+    ? initialSecondsRemaining <= 0
+      ? 0
+      : Math.max(0, Math.ceil((targetTime - ((clockNow || Date.now()) + serverOffsetMs)) / 1000))
+    : 0;
 
   const listingEligible = listing.status === "active"
     && listing.approvalStatus === "approved"
     && toAmount(listing.availableAmount) > 0
     && (!listing.expiresAt || new Date(listing.expiresAt).getTime() > Date.now());
   const cooldownLabel = secondsRemaining > 0
-    ? `${String(Math.floor(secondsRemaining / 3600)).padStart(2, "0")}:${String(Math.floor((secondsRemaining % 3600) / 60)).padStart(2, "0")}:${String(secondsRemaining % 60).padStart(2, "0")}`
+    ? formatDiscordShareCountdown(secondsRemaining)
     : null;
 
   let label = "Share to Discord";
@@ -101,8 +131,10 @@ export const DiscordShareAction = memo(function DiscordShareAction({
     detail = "The share window remains claimed to prevent spam. Support can inspect the safe delivery diagnostics.";
     disabled = true;
   } else if (cooldownLabel) {
-    label = mapping?.state === "active" ? "Shared to Discord" : "Share cooldown";
-    detail = `Next Discord share available in ${cooldownLabel}.`;
+    label = mapping?.state === "active" ? "Shared" : `Next Share ${cooldownLabel}`;
+    detail = mapping?.state === "active"
+      ? `Next Share ${cooldownLabel}`
+      : `Seller-wide cooldown • Next Share ${cooldownLabel}`;
     disabled = true;
   } else if (mapping?.state === "active") {
     label = "Refresh Discord post";

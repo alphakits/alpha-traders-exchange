@@ -1,7 +1,10 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { DiscordShareAction } from "@/components/sections/usdt-exchange/discord-share-action";
+import {
+  DiscordShareAction,
+  formatDiscordShareCountdown,
+} from "@/components/sections/usdt-exchange/discord-share-action";
 import type { MarketplaceListing } from "@/types/alpha-exchange";
 
 const listing: MarketplaceListing = {
@@ -44,6 +47,14 @@ afterEach(() => {
 });
 
 describe("Discord Share action", () => {
+  it("formats compact exact-boundary countdowns", () => {
+    expect(formatDiscordShareCountdown(43_200)).toBe("12h 0m");
+    expect(formatDiscordShareCountdown(43_020)).toBe("11h 57m");
+    expect(formatDiscordShareCountdown(60)).toBe("1m");
+    expect(formatDiscordShareCountdown(1)).toBe("<1m");
+    expect(formatDiscordShareCountdown(0)).toBe("now");
+  });
+
   it.each([320, 390, 430, 1280])(
     "keeps a 44px full-width mobile target without overflow at %ipx",
     (width) => {
@@ -67,7 +78,7 @@ describe("Discord Share action", () => {
     },
   );
 
-  it("shows an accessible server-time countdown and disables every listing during cooldown", () => {
+  it("shows Shared with an accessible server-time Next Share countdown", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-08T00:00:00.000Z"));
     render(
@@ -76,16 +87,79 @@ describe("Discord Share action", () => {
         sharing={sharing({
           nextEligibleAt: "2026-08-08T12:00:00.000Z",
           cooldownSecondsRemaining: 43_200,
+          listings: [{
+            listingId: listing.id,
+            state: "active",
+            publishedAt: "2026-08-08T00:00:00.000Z",
+            updatedAt: "2026-08-08T00:00:00.000Z",
+            errorCode: null,
+          }],
         })}
         busy={false}
         onShare={vi.fn()}
       />,
     );
 
-    expect((screen.getByRole("button", { name: "Share cooldown" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByRole("timer").textContent).toContain("12:00:00");
-    act(() => vi.advanceTimersByTime(1_000));
-    expect(screen.getByRole("timer").textContent).toContain("11:59:59");
+    expect((screen.getByRole("button", { name: "Shared" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("timer").textContent).toBe("Next Share 12h 0m");
+    act(() => vi.advanceTimersByTime(181_000));
+    expect(screen.getByRole("timer").textContent).toBe("Next Share 11h 56m");
+  });
+
+  it("uses one shared clock for multiple listing countdowns", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-08T00:00:00.000Z"));
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    const cooldown = sharing({
+      nextEligibleAt: "2026-08-08T12:00:00.000Z",
+      cooldownSecondsRemaining: 43_200,
+    });
+    const { unmount } = render(
+      <>
+        <DiscordShareAction listing={listing} sharing={cooldown} busy={false} onShare={vi.fn()} />
+        <DiscordShareAction
+          listing={{ ...listing, id: "listing-2" }}
+          sharing={cooldown}
+          busy={false}
+          onShare={vi.fn()}
+        />
+      </>,
+    );
+
+    expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByRole("button", { name: "Next Share 12h 0m" })).toHaveLength(2);
+    unmount();
+    setIntervalSpy.mockRestore();
+  });
+
+  it("does not freeze disabled after an expiry-adjacent rerender", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-08T00:00:00.000Z"));
+    const expiring = sharing({
+      nextEligibleAt: "2026-08-08T00:00:01.500Z",
+      cooldownSecondsRemaining: 2,
+    });
+    const { rerender } = render(
+      <DiscordShareAction
+        listing={listing}
+        sharing={expiring}
+        busy={false}
+        onShare={vi.fn()}
+      />,
+    );
+
+    act(() => vi.advanceTimersByTime(1_600));
+    rerender(
+      <DiscordShareAction
+        listing={listing}
+        sharing={expiring}
+        busy={false}
+        onShare={vi.fn()}
+      />,
+    );
+
+    expect((screen.getByRole("button", { name: "Share to Discord" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByRole("timer")).toBeNull();
   });
 
   it("distinguishes accepted processing, published, update pending, failure, and ineligible states", () => {

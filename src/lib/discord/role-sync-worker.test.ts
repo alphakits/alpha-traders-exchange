@@ -28,6 +28,8 @@ function workerFixture(input: {
   currentDesiredStatus?: "approved" | "pending" | "suspended" | "none";
   linkedDiscordUserId?: string | null;
   ownsClaim?: boolean;
+  approvedRoleGranted?: boolean;
+  reason?: string;
 } = {}) {
   const clientStatements: string[] = [];
   const clientQueries: Array<{ sql: string; values?: unknown[] }> = [];
@@ -67,6 +69,8 @@ function workerFixture(input: {
           discord_user_id: "777777777777777777",
           lock_token: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
           attempts: 1,
+          desired_status: "approved",
+          reason: input.reason ?? "seller_status_changed",
         }]);
       }
       return result([], sql.includes("periodic_reconciliation") ? 0 : 1);
@@ -79,6 +83,7 @@ function workerFixture(input: {
     }),
     synchronizeMemberRoles: vi.fn(async () => {
       if (input.syncError) throw input.syncError;
+      return { approvedRoleGranted: input.approvedRoleGranted === true };
     }),
   };
   const worker = new DiscordRoleSyncWorker({
@@ -183,6 +188,7 @@ describe("Discord role sync worker", () => {
       currentDesiredStatus: "approved",
       linkedDiscordUserId: "777777777777777777",
     });
+
     await fixture.worker.start();
     await fixture.worker.shutdown();
     expect(fixture.manager.synchronizeMemberRoles).toHaveBeenCalledWith({
@@ -190,5 +196,130 @@ describe("Discord role sync worker", () => {
       desiredStatus: "approved",
       roleIds,
     });
+  });
+
+  it("enqueues one approval DM from the authoritative approval generation", async () => {
+    const fixture = workerFixture({ approvedRoleGranted: true });
+    await fixture.worker.start();
+    await fixture.worker.shutdown();
+
+    const completion = fixture.clientQueries.find(({ sql }) =>
+      sql.includes("discord_notification_deliveries"));
+    expect(completion?.sql).toContain("'approved-status:' || transition.id::text");
+    expect(completion?.values?.slice(4)).toEqual([
+      "approved",
+    ]);
+  });
+
+  it("uses the authoritative approval transition as the durable generation", async () => {
+    const reconciliation = workerFixture({
+      approvedRoleGranted: true,
+      reason: "periodic_reconciliation",
+    });
+    await reconciliation.worker.start();
+    await reconciliation.worker.shutdown();
+    const periodic = reconciliation.clientQueries.find(({ sql }) =>
+      sql.includes("discord_notification_deliveries"));
+    expect(periodic?.values?.slice(4)).toEqual(["approved"]);
+    expect(periodic?.sql).toContain("source.reason = 'seller_status_changed'");
+    expect(periodic?.sql).toContain(
+      "'approved-status:' || transition.id::text",
+    );
+    expect(periodic?.sql).toContain("on conflict (source_key) do nothing");
+
+    const unchanged = workerFixture({ approvedRoleGranted: false });
+    await unchanged.worker.start();
+    await unchanged.worker.shutdown();
+    const noGrant = unchanged.clientQueries.find(({ sql }) =>
+      sql.includes("discord_notification_deliveries"));
+    expect(noGrant?.values?.[4]).toBe("approved");
+  });
+
+  it("retries the durable approval notification after role grant completion fails", async () => {
+    let firstClaimed = false;
+    let retryClaimed = false;
+    let allowRetry = false;
+    let completionAttempts = 0;
+    const clientQueries: Array<{ sql: string; values?: unknown[] }> = [];
+    const client = {
+      query: vi.fn(async (sql: string, values?: unknown[]) => {
+        clientQueries.push({ sql, values });
+        if (sql.includes("select role_key")) return result([]);
+        if (sql.includes("and lock_token = $2::uuid") && sql.includes("select 1")) {
+          return result([{ "?column?": 1 }]);
+        }
+        if (sql.includes("where identity.discord_user_id = $1")) {
+          return result([{ desired_status: "approved" }]);
+        }
+        if (sql.includes("discord_notification_deliveries")) {
+          completionAttempts += 1;
+          if (completionAttempts === 1) {
+            throw new Error("completion_write_failed");
+          }
+        }
+        return result([], 1);
+      }),
+      release: vi.fn(),
+    } as unknown as PoolClient;
+    const pool = {
+      connect: vi.fn(async () => client),
+      query: vi.fn(async (sql: string) => {
+        if (
+          sql.includes("with candidate as")
+          && sql.includes("returning job.id::text")
+        ) {
+          if (!firstClaimed) {
+            firstClaimed = true;
+            return result([{
+                id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                platform_user_id: "alpha-user",
+                discord_user_id: "777777777777777777",
+                lock_token: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                attempts: 1,
+              }]);
+          }
+          if (allowRetry && !retryClaimed) {
+            retryClaimed = true;
+            return result([{
+              id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+              platform_user_id: "alpha-user",
+              discord_user_id: "777777777777777777",
+              lock_token: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+              attempts: 2,
+            }]);
+          }
+          return result([]);
+        }
+        return result([]);
+      }),
+    } as unknown as Pool;
+    const manager: DiscordRoleManager = {
+      discoverOrCreateManagedRoles: vi.fn(async () => roleIds),
+      synchronizeMemberRoles: vi.fn()
+        .mockResolvedValueOnce({ approvedRoleGranted: true })
+        .mockResolvedValueOnce({ approvedRoleGranted: false }),
+    };
+    const worker = new DiscordRoleSyncWorker({
+      pool,
+      manager,
+      pollIntervalMs: 60_000,
+      reconciliationIntervalMs: 60_000,
+    });
+
+    await worker.start();
+    allowRetry = true;
+    await worker.processAvailableJobs();
+    await worker.shutdown();
+
+    expect(manager.synchronizeMemberRoles).toHaveBeenCalledTimes(2);
+    const completions = clientQueries.filter(({ sql }) =>
+      sql.includes("discord_notification_deliveries"));
+    expect(completions).toHaveLength(2);
+    expect(completions.every(({ values }) => values?.[4] === "approved")).toBe(
+      true,
+    );
+    expect(completions[1]?.sql).toContain(
+      "on conflict (source_key) do nothing",
+    );
   });
 });

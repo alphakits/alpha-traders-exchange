@@ -149,7 +149,11 @@ async function resolveCurrentDesiredStatus(
   return row?.desired_status ?? "none";
 }
 
-async function completeJob(database: Queryable, job: OutboxJob): Promise<void> {
+async function completeJob(
+  database: Queryable,
+  job: OutboxJob,
+  currentDesiredStatus: DiscordSellerRoleStatus,
+): Promise<void> {
   await database.query(
     `with completed as (
        update alpha_exchange.discord_role_sync_outbox
@@ -166,12 +170,33 @@ async function completeJob(database: Queryable, job: OutboxJob): Promise<void> {
        insert into alpha_exchange.discord_sync_audit
          (platform_user_id, discord_user_id, event_type, outcome, outbox_id)
        select $3, $4, 'role_sync', 'success', id from completed
+     ), notified as (
+       insert into alpha_exchange.discord_notification_deliveries
+         (notification_type, discord_user_id, source_key)
+       select 'approved_seller', $4, 'approved-status:' || transition.id::text
+         from completed
+         join lateral (
+           select source.id
+             from alpha_exchange.discord_role_sync_outbox source
+            where source.platform_user_id = $3
+              and source.desired_status = 'approved'
+              and source.reason = 'seller_status_changed'
+            order by source.created_at desc
+            limit 1
+         ) transition on $5::text = 'approved'
+       on conflict (source_key) do nothing
      )
      update alpha_exchange.discord_identities
         set last_synced_at = now()
       where discord_user_id = $4
         and exists (select 1 from completed)`,
-    [job.id, job.lockToken, job.platformUserId, job.discordUserId],
+    [
+      job.id,
+      job.lockToken,
+      job.platformUserId,
+      job.discordUserId,
+      currentDesiredStatus,
+    ],
   );
 }
 
@@ -376,7 +401,11 @@ export class DiscordRoleSyncWorker {
               desiredStatus: currentDesiredStatus,
               roleIds: this.roleIds,
             });
-            await completeJob(lockClient, job);
+            await completeJob(
+              lockClient,
+              job,
+              currentDesiredStatus,
+            );
             await lockClient.query("commit");
           } catch (error) {
             const failureCode = safeFailureCode(error);

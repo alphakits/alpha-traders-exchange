@@ -4,6 +4,7 @@ import {
   Client,
   Events,
   GatewayIntentBits,
+  type ChatInputCommandInteraction,
   type CloseEvent,
 } from "discord.js";
 import { performance } from "node:perf_hooks";
@@ -27,8 +28,21 @@ export type DiscordGuildIdentity = {
   name: string;
 };
 
+export type DiscordGuildMemberJoin = {
+  guildId: string;
+  discordUserId: string;
+  joinedAt: string;
+  isBot: boolean;
+};
+
 export interface DiscordGatewayClient {
   subscribe(listener: (event: DiscordGatewayEvent) => void): () => void;
+  subscribeGuildMemberJoin(
+    listener: (event: DiscordGuildMemberJoin) => void,
+  ): () => void;
+  subscribeInteraction(
+    listener: (interaction: ChatInputCommandInteraction) => void,
+  ): () => void;
   login(token: string): Promise<void>;
   isReady(): boolean;
   getIdentity(): DiscordGatewayIdentity | null;
@@ -42,13 +56,19 @@ const READY_TIMEOUT_MS = 20_000;
 export class DiscordJsGatewayClient implements DiscordGatewayClient {
   private readonly client: Client;
   private readonly subscribers = new Set<(event: DiscordGatewayEvent) => void>();
+  private readonly memberJoinSubscribers = new Set<
+    (event: DiscordGuildMemberJoin) => void
+  >();
+  private readonly interactionSubscribers = new Set<
+    (interaction: ChatInputCommandInteraction) => void
+  >();
   private loginPromise: Promise<void> | null = null;
   private sessionStarted = false;
   private loginStartedAt: number | null = null;
 
   constructor() {
     this.client = new Client({
-      intents: [GatewayIntentBits.Guilds],
+      intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
     });
 
     this.client.on(Events.ClientReady, () => {
@@ -73,11 +93,48 @@ export class DiscordJsGatewayClient implements DiscordGatewayClient {
     this.client.on(Events.ShardError, (error) => {
       this.emit({ type: "error", error, sinceLoginMs: this.loginElapsedMs() });
     });
+    this.client.on(Events.GuildMemberAdd, (member) => {
+      if (!member.joinedAt) {
+        logEvent("warn", {
+          event: "discord_member_join_ignored",
+          outcome: "failed",
+          reason: "missing_join_timestamp",
+        });
+        return;
+      }
+      const event = {
+        guildId: member.guild.id,
+        discordUserId: member.id,
+        joinedAt: member.joinedAt.toISOString(),
+        isBot: member.user.bot,
+      };
+      for (const subscriber of this.memberJoinSubscribers) subscriber(event);
+    });
+    this.client.on(Events.InteractionCreate, (interaction) => {
+      if (!interaction.isChatInputCommand()) return;
+      for (const subscriber of this.interactionSubscribers) {
+        subscriber(interaction);
+      }
+    });
   }
 
   subscribe(listener: (event: DiscordGatewayEvent) => void): () => void {
     this.subscribers.add(listener);
     return () => this.subscribers.delete(listener);
+  }
+
+  subscribeGuildMemberJoin(
+    listener: (event: DiscordGuildMemberJoin) => void,
+  ): () => void {
+    this.memberJoinSubscribers.add(listener);
+    return () => this.memberJoinSubscribers.delete(listener);
+  }
+
+  subscribeInteraction(
+    listener: (interaction: ChatInputCommandInteraction) => void,
+  ): () => void {
+    this.interactionSubscribers.add(listener);
+    return () => this.interactionSubscribers.delete(listener);
   }
 
   async login(token: string): Promise<void> {
@@ -172,6 +229,13 @@ export class DiscordJsGatewayClient implements DiscordGatewayClient {
           clearTimeout(timeout);
           unsubscribe();
           resolve();
+        } else if (event.type === "disconnect" && event.code === 4014) {
+          clearTimeout(timeout);
+          unsubscribe();
+          reject(Object.assign(
+            new Error("Discord Guild Members privileged intent is not enabled."),
+            { code: 4014 },
+          ));
         }
       });
 

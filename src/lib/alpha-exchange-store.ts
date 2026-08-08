@@ -22,6 +22,7 @@ import {
   type AdminAnnouncementEmailContent,
 } from "@/lib/admin-announcement-email";
 import { getSiteUrl } from "@/lib/site-url";
+import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
 import { getSmsTemplate, normalizeE164, resolveSmsDeliveryStatusTransition, sendTwilioMessageWithRetry, twilioStatusCallbackUrl } from "@/lib/notification-platform";
 import { normalizeSellerLevel } from "@/types/alpha-exchange";
 import {
@@ -995,22 +996,6 @@ export async function getPublicUserProfileById(input: {
   });
 }
 
-function normalizeSellerRouteUsername(value: string | undefined) {
-  const base = (value || "seller")
-    .toString()
-    .trim()
-    .toLowerCase()
-    .split("@")[0];
-
-  const normalized = base
-    .normalize("NFKD")
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-
-  return normalized || "seller";
-}
-
 function deriveStablePublicAliasFromId(id: string | undefined) {
   const normalized = String(id ?? "").trim();
   if (!normalized) return "seller";
@@ -1018,23 +1003,23 @@ function deriveStablePublicAliasFromId(id: string | undefined) {
 }
 
 function deriveLegacyPublicProfileUsername(input: { fullName?: string; email?: string; id?: string }) {
-  return normalizeSellerRouteUsername(input.email || input.fullName || input.id);
+  return normalizePublicProfileUsername(input.email || input.fullName || input.id);
 }
 
 export function derivePublicProfileUsername(input: { fullName?: string; email?: string; id?: string; publicTradingName?: string }) {
   const safeSource = input.publicTradingName || deriveStablePublicAliasFromId(input.id);
-  return normalizeSellerRouteUsername(safeSource);
+  return normalizePublicProfileUsername(safeSource);
 }
 
 export function matchesPublicProfileUsername(
   input: { fullName?: string; email?: string; id?: string; publicTradingName?: string },
   username: string,
 ) {
-  const normalizedUsername = normalizeSellerRouteUsername(username);
+  const normalizedUsername = normalizePublicProfileUsername(username);
   const aliases = new Set([
     derivePublicProfileUsername(input),
     deriveLegacyPublicProfileUsername(input),
-    normalizeSellerRouteUsername(input.fullName || input.email || input.id),
+    normalizePublicProfileUsername(input.fullName || input.email || input.id),
   ]);
   return aliases.has(normalizedUsername);
 }

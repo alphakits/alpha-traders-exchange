@@ -21,6 +21,9 @@ const mocks = vi.hoisted(() => {
   };
   return {
     client,
+    clientConstructor: vi.fn(function ClientMock() {
+      return client;
+    }),
     listeners,
     logEvent: vi.fn(),
   };
@@ -29,9 +32,7 @@ const mocks = vi.hoisted(() => {
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/structured-logging", () => ({ logEvent: mocks.logEvent }));
 vi.mock("discord.js", () => ({
-  Client: vi.fn(function ClientMock() {
-    return mocks.client;
-  }),
+  Client: mocks.clientConstructor,
   Events: {
     ClientReady: "clientReady",
     Error: "error",
@@ -39,8 +40,10 @@ vi.mock("discord.js", () => ({
     ShardError: "shardError",
     ShardReconnecting: "shardReconnecting",
     ShardResume: "shardResume",
+    GuildMemberAdd: "guildMemberAdd",
+    InteractionCreate: "interactionCreate",
   },
-  GatewayIntentBits: { Guilds: 1 },
+  GatewayIntentBits: { Guilds: 1, GuildMembers: 2 },
 }));
 
 import { DiscordJsGatewayClient } from "@/lib/discord/gateway-client";
@@ -91,6 +94,16 @@ describe("DiscordJsGatewayClient", () => {
     }));
   });
 
+  it("fails immediately with code 4014 when GuildMembers is not enabled", async () => {
+    mocks.client.login.mockReturnValue(new Promise(() => undefined));
+    const gateway = new DiscordJsGatewayClient();
+    const startup = gateway.login("unit-test-token");
+
+    mocks.listeners.get("shardDisconnect")?.({ code: 4014 });
+
+    await expect(startup).rejects.toMatchObject({ code: 4014 });
+  });
+
   it("waits for both discord.js login and the ready event", async () => {
     let resolveLogin: (token: string) => void = () => undefined;
     mocks.client.login.mockReturnValue(new Promise((resolve) => {
@@ -109,5 +122,42 @@ describe("DiscordJsGatewayClient", () => {
       event: "discord_gateway_login_ready",
       outcome: "success",
     }));
+  });
+
+  it("requests only Guilds and GuildMembers without MessageContent", () => {
+    new DiscordJsGatewayClient();
+    expect(mocks.clientConstructor).toHaveBeenCalledWith({ intents: [1, 2] });
+  });
+
+  it("subscribes to member joins and interactions without exposing message content", () => {
+    const gateway = new DiscordJsGatewayClient();
+    const onJoin = vi.fn();
+    const onInteraction = vi.fn();
+    const removeJoin = gateway.subscribeGuildMemberJoin(onJoin);
+    const removeInteraction = gateway.subscribeInteraction(onInteraction);
+    const interaction = {
+      isChatInputCommand: () => true,
+    };
+
+    mocks.listeners.get("guildMemberAdd")?.({
+      guild: { id: "1".repeat(18) },
+      id: "2".repeat(18),
+      joinedAt: new Date("2026-08-08T05:00:00.000Z"),
+      user: { bot: false },
+    });
+    mocks.listeners.get("interactionCreate")?.(interaction);
+
+    expect(onJoin).toHaveBeenCalledWith({
+      guildId: "1".repeat(18),
+      discordUserId: "2".repeat(18),
+      joinedAt: "2026-08-08T05:00:00.000Z",
+      isBot: false,
+    });
+    expect(onInteraction).toHaveBeenCalledWith(interaction);
+
+    removeJoin();
+    removeInteraction();
+    mocks.listeners.get("interactionCreate")?.(interaction);
+    expect(onInteraction).toHaveBeenCalledOnce();
   });
 });

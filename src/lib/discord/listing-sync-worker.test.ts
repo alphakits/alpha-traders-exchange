@@ -7,7 +7,10 @@ vi.mock("server-only", () => ({}));
 import {
   buildAuthoritativeDiscordListingSnapshot,
   determineDiscordListingLifecycle,
+  DiscordListingSyncWorker,
 } from "@/lib/discord/listing-sync-worker";
+import type { DiscordListingPublisher } from "@/lib/discord/listing-publisher";
+import type { Pool } from "pg";
 
 describe("Discord listing authoritative snapshot", () => {
   it("uses measured trust data, real presence, and a safe seller image", () => {
@@ -22,6 +25,7 @@ describe("Discord listing authoritative snapshot", () => {
       },
       seller: {
         fullName: "Private Legal Name",
+        buyerDisplayName: "Seller Alpha",
         profilePhotoUrl: "https://cdn.example.com/avatar.png",
         onlineStatus: "online",
         lastActiveAt: "2026-08-08T00:00:00.000Z",
@@ -31,6 +35,8 @@ describe("Discord listing authoritative snapshot", () => {
           level: "diamond",
           reliabilityScore: 92,
           responseTimeMinutes: 3,
+          rating: 4.94,
+          completedTrades: 72,
         },
       },
       sellerStatus: "approved_seller",
@@ -45,8 +51,12 @@ describe("Discord listing authoritative snapshot", () => {
       approvedSeller: true,
       presenceLabel: "Online",
       responseTimeMinutes: 3,
+      rating: 4.94,
+      completedTrades: 72,
       imageUrl: "https://cdn.example.com/avatar.png",
       listingUrl: "https://www.alphatraders.co.il/en/usdt-exchange",
+      sellerProfileUrl: "https://www.alphatraders.co.il/en/exchange/seller/seller-alpha",
+      websiteUrl: "https://www.alphatraders.co.il",
     });
     expect(JSON.stringify(snapshot)).not.toContain("Private Legal Name");
   });
@@ -75,6 +85,9 @@ describe("Discord listing authoritative snapshot", () => {
     );
     expect(snapshot.responseTimeMinutes).toBeNull();
     expect(snapshot.paymentMethods).toEqual(["Face-to-Face (Meet in Person)"]);
+    expect(snapshot.rating).toBeNull();
+    expect(snapshot.completedTrades).toBeNull();
+    expect(snapshot.sellerProfileUrl).toBeNull();
   });
 
   it("never falls back to a private legal name for the public seller identity", () => {
@@ -96,6 +109,77 @@ describe("Discord listing authoritative snapshot", () => {
 
     expect(snapshot.sellerDisplayName).toBe("Alpha Traders Seller");
     expect(JSON.stringify(snapshot)).not.toContain("Private Legal Name");
+  });
+
+  it("honors public profile privacy and rejects unsafe site origins", () => {
+    const snapshot = buildAuthoritativeDiscordListingSnapshot({
+      listing: {
+        sellerDisplayName: "Seller Privacy",
+        availableAmount: "100",
+        price: "3.40",
+        currency: "ILS",
+        network: "TRC20",
+        paymentMethods: ["Bank Transfer"],
+      },
+      seller: {
+        buyerDisplayName: "Seller Privacy",
+        onlineStatus: "online",
+        showLastActive: false,
+        showTradeStats: false,
+        isProfileHidden: true,
+        profilePhotoUrl: "https://cdn.example.com/private-seller.png",
+      },
+      trust: {
+        snapshot: {
+          rating: 4.99,
+          completedTrades: 200,
+          responseTimeMinutes: 1,
+        },
+      },
+      sellerStatus: "approved_seller",
+      siteUrl: "http://localhost:3000",
+    });
+
+    expect(snapshot.presenceLabel).toBeNull();
+    expect(snapshot.sellerProfileUrl).toBeNull();
+    expect(snapshot.rating).toBeNull();
+    expect(snapshot.completedTrades).toBeNull();
+    expect(snapshot.responseTimeMinutes).toBeNull();
+    expect(snapshot.imageUrl).toBe("https://www.alphatraders.co.il/images/brand/alpha-traders-logo.png");
+    expect(snapshot.websiteUrl).toBe("https://www.alphatraders.co.il");
+    expect(JSON.stringify(snapshot)).not.toContain("localhost");
+  });
+
+  it("filters PII, wallet-like values, internal IDs, and unsafe photo URLs", () => {
+    const snapshot = buildAuthoritativeDiscordListingSnapshot({
+      listing: {
+        sellerDisplayName: "seller@example.com",
+        availableAmount: "100",
+        price: "3.40",
+        currency: "ILS",
+        network: "TRC20",
+        paymentMethods: [
+          "Bank Transfer",
+          "0x1234567890abcdef1234567890abcdef12345678",
+          "123e4567-e89b-42d3-a456-426614174000",
+        ],
+      },
+      seller: {
+        fullName: "Private Legal Name",
+        buyerDisplayName: "public@example.com",
+        profilePhotoUrl: "https://cdn.example.com/seller@example.com/avatar.png",
+      },
+      trust: null,
+      sellerStatus: "approved_seller",
+      siteUrl: "https://www.alphatraders.co.il",
+    });
+    const serialized = JSON.stringify(snapshot);
+
+    expect(snapshot.sellerDisplayName).toBe("Alpha Traders Seller");
+    expect(snapshot.paymentMethods).toEqual(["Bank Transfer"]);
+    expect(snapshot.imageUrl).toContain("/images/brand/alpha-traders-logo.png");
+    expect(snapshot.sellerProfileUrl).toBeNull();
+    expect(serialized).not.toMatch(/@|0x1234|123e4567|Private Legal Name/i);
   });
 });
 
@@ -121,6 +205,137 @@ describe("Discord listing lifecycle decisions", () => {
         now,
       )).toBe("terminal");
     }
+  });
+
+  describe("Discord listing reconciliation concurrency", () => {
+    it("returns the active reconciliation promise instead of reporting early", async () => {
+      let releaseEnqueue!: () => void;
+      const enqueueGate = new Promise<void>((resolve) => {
+        releaseEnqueue = resolve;
+      });
+      let enqueueCalls = 0;
+      const pool = {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("with candidates as")) {
+            enqueueCalls += 1;
+            await enqueueGate;
+            return { rows: [], rowCount: 0 };
+          }
+          if (sql.includes("with candidate as")) {
+            return { rows: [], rowCount: 0 };
+          }
+          if (sql.includes("pending_jobs")) {
+            return {
+              rows: [{
+                pending_jobs: 0,
+                dead_jobs: 0,
+                active_mappings: 0,
+                failed_mappings: 0,
+                cooldown_claims: 0,
+              }],
+              rowCount: 1,
+            };
+          }
+          throw new Error(`Unexpected SQL: ${sql}`);
+        }),
+      } as unknown as Pool;
+      const worker = new DiscordListingSyncWorker({
+        pool,
+        publisher: {} as DiscordListingPublisher,
+        pollIntervalMs: 60_000,
+        reconciliationIntervalMs: 60_000,
+        siteUrl: "https://www.alphatraders.co.il",
+      });
+
+      const periodic = worker.reconcile();
+      const operator = worker.reconcile();
+      let operatorSettled = false;
+      void operator.then(() => {
+        operatorSettled = true;
+      });
+      await Promise.resolve();
+
+      expect(operatorSettled).toBe(false);
+      expect(enqueueCalls).toBe(1);
+
+      releaseEnqueue();
+      await Promise.all([periodic, operator]);
+
+      expect(operatorSettled).toBe(true);
+      expect(enqueueCalls).toBe(1);
+    });
+
+    it("waits for every active operation before propagating shutdown failures", async () => {
+      let releaseProcessing!: () => void;
+      let releaseReconciliation!: () => void;
+      const processingGate = new Promise<void>((resolve) => {
+        releaseProcessing = resolve;
+      });
+      const reconciliationGate = new Promise<void>((resolve) => {
+        releaseReconciliation = resolve;
+      });
+      let claimCalls = 0;
+      const pool = {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("with candidates as")) {
+            await reconciliationGate;
+            return { rows: [], rowCount: 0 };
+          }
+          if (sql.includes("with candidate as")) {
+            claimCalls += 1;
+            if (claimCalls === 1) {
+              await processingGate;
+              throw new Error("processing_failed");
+            }
+            return { rows: [], rowCount: 0 };
+          }
+          if (sql.includes("pending_jobs")) {
+            return {
+              rows: [{
+                pending_jobs: 0,
+                dead_jobs: 0,
+                active_mappings: 0,
+                failed_mappings: 0,
+                cooldown_claims: 0,
+              }],
+              rowCount: 1,
+            };
+          }
+          throw new Error(`Unexpected SQL: ${sql}`);
+        }),
+      } as unknown as Pool;
+      const worker = new DiscordListingSyncWorker({
+        pool,
+        publisher: {} as DiscordListingPublisher,
+        pollIntervalMs: 60_000,
+        reconciliationIntervalMs: 60_000,
+        siteUrl: "https://www.alphatraders.co.il",
+      });
+
+      void worker.processAvailableJobs().catch(() => undefined);
+      void worker.reconcile();
+      const shutdown = worker.shutdown();
+      let settled = false;
+      void shutdown.catch(() => undefined).finally(() => {
+        settled = true;
+      });
+
+      releaseProcessing();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      releaseReconciliation();
+      await expect(shutdown).rejects.toThrow("processing_failed");
+      expect(settled).toBe(true);
+    });
+  });
+
+  it("deletes Discord visibility when a seller hides their public profile", () => {
+    expect(determineDiscordListingLifecycle({
+      ...active,
+      userPayload: { isProfileHidden: true },
+    }, now)).toBe("delete");
   });
 
   it("deletes closed, expired, and unapproved listings even when their amount is zero", () => {
