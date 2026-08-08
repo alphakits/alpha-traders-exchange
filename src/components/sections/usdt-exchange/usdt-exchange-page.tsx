@@ -47,6 +47,7 @@ const MAX_NOTIFICATION_ITEMS = 60;
 const MAX_PRICE_MARKUP_ILS = 0.35;
 const DEFAULT_MARKET_PRICE_PER_USDT = 3.05;
 const DEFAULT_RESPONSE_TIME = "5 min";
+const BUYER_TRADE_HISTORY_SECTION_ID = "my-trade-requests-section";
 
 const ISRAELI_BANKS = [
   { id: "hapoalim", name: "Bank Hapoalim", code: "בנק הפועלים", brandPrimary: "#E31C23", brandSecondary: "#B01016", accent: "#FCA5A5" },
@@ -1464,6 +1465,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     return true;
   }, []);
 
+  const scrollToBuyerTradeHistorySection = useCallback(() => {
+    if (typeof document === "undefined") return false;
+    const target = document.getElementById(BUYER_TRADE_HISTORY_SECTION_ID);
+    if (!target) return false;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    return true;
+  }, []);
+
   const fetchSellerProfileData = useCallback(async (sellerId: string) => {
     const requestId = sellerProfileRequestIdRef.current + 1;
     sellerProfileRequestIdRef.current = requestId;
@@ -2545,7 +2554,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         title: "My Trade Requests",
         subtitle: "Request Queue",
         stat: `${totalBuyerRequests.toLocaleString("en-IL")}`,
-        onClick: () => router.push("/trade-room"),
+        onClick: () => {
+          if (scrollToBuyerTradeHistorySection()) return;
+          router.push(`/usdt-exchange#${BUYER_TRADE_HISTORY_SECTION_ID}`);
+        },
         icon: HandCoins,
         tone: "blue",
       },
@@ -2681,7 +2693,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         key: "trade-requests",
         label: "My Trade Requests",
         enabled: true,
-        onClick: () => router.push("/trade-room"),
+        onClick: () => {
+          if (scrollToBuyerTradeHistorySection()) return;
+          router.push(`/usdt-exchange#${BUYER_TRADE_HISTORY_SECTION_ID}`);
+        },
       },
       {
         key: "active-trades",
@@ -2753,7 +2768,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       {
         key: "hero-my-trades",
         label: "My Trade Requests",
-        onClick: () => router.push("/trade-room"),
+        onClick: () => {
+          if (scrollToBuyerTradeHistorySection()) return;
+          router.push(`/usdt-exchange#${BUYER_TRADE_HISTORY_SECTION_ID}`);
+        },
       },
     ];
 
@@ -5991,7 +6009,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           </Card>
 
           {sessionUser ? (
-            <Card className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
+            <Card id={BUYER_TRADE_HISTORY_SECTION_ID} className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
               <CardHeader>
                 <CardTitle>My Trade History</CardTitle>
                 <CardDescription>Newest first, compact rows, and expandable details for each trade.</CardDescription>

@@ -2338,7 +2338,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
   return normalized;
 }
 
-async function readDb(options?: { bypassCache?: boolean }): Promise<AlphaExchangeDb> {
+async function readDb(options?: { bypassCache?: boolean; skipMaintenance?: boolean }): Promise<AlphaExchangeDb> {
   if (options?.bypassCache) {
     const repository = await getAlphaExchangeRepository();
     const parsed = await repository.loadSnapshot();
@@ -2356,6 +2356,10 @@ async function readDb(options?: { bypassCache?: boolean }): Promise<AlphaExchang
         const repository = await getAlphaExchangeRepository();
         const parsed = await repository.loadSnapshot();
         const normalized = normalizeDb(parsed);
+        if (options?.skipMaintenance) {
+          dbCache = { value: normalized, updatedAt: Date.now() };
+          return normalized;
+        }
         const numberingChanged = ensureDisplayNumbers(normalized);
         const changed = await applyMarketplaceReliabilityRules(normalized);
         if (changed || numberingChanged) {
@@ -3630,7 +3634,7 @@ export async function upsertUserProfileForAuth(input: {
   whatsappNumber: string;
   emailVerified?: boolean;
 }) {
-  const db = await readDb();
+  const db = await readDb({ skipMaintenance: true });
   const email = normalizeEmail(input.email);
   const existingIndex = db.users.findIndex((user) => normalizeEmail(user.email) === email);
   const timestamp = nowIso();
@@ -4228,13 +4232,13 @@ export async function updateOwnerMarketplaceComplianceRecoveryWallet(input: {
 }
 
 export async function findUserByEmail(email: string) {
-  const db = await readDb();
+  const db = await readDb({ skipMaintenance: true });
   const normalized = normalizeEmail(email);
   return db.users.find((user) => normalizeEmail(user.email) === normalized) ?? null;
 }
 
 export async function findUsersByEmail(email: string) {
-  const db = await readDb();
+  const db = await readDb({ skipMaintenance: true });
   const normalized = normalizeEmail(email);
   return db.users.filter((user) => normalizeEmail(user.email) === normalized);
 }
@@ -4327,7 +4331,7 @@ export async function getCommissionResetTraceByEmail(email: string) {
 }
 
 export async function findUserById(userId: string) {
-  const db = await readDb();
+  const db = await readDb({ skipMaintenance: true });
   return db.users.find((user) => user.id === userId) ?? null;
 }
 

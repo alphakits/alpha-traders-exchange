@@ -14,6 +14,21 @@ export type BuyerFixture = {
   userId?: string;
 };
 
+function hasPrivilegedRole(user: Record<string, unknown>) {
+  const role = typeof user.role === "string" ? user.role : "";
+  if (role === "admin" || role === "owner") return true;
+  const roles = Array.isArray(user.roles) ? user.roles.filter((entry): entry is string => typeof entry === "string") : [];
+  return roles.includes("admin") || roles.includes("owner");
+}
+
+function isBuyerAccount(user: Record<string, unknown>) {
+  if (hasPrivilegedRole(user)) return false;
+  const role = typeof user.role === "string" ? user.role : "";
+  const sellerStatus = typeof user.sellerStatus === "string" ? user.sellerStatus : "";
+  const roles = Array.isArray(user.roles) ? user.roles.filter((entry): entry is string => typeof entry === "string") : [];
+  return role === "buyer" || sellerStatus === "buyer" || roles.includes("buyer");
+}
+
 async function canLogin(email: string, password: string) {
   if (!email || !password) return false;
   const response = await fetch(`${BASE_URL}/api/auth/login`, {
@@ -54,7 +69,17 @@ async function writeRuntimeDb(db: Record<string, unknown>) {
 export async function resolveBuyerFixture(configuredEmail: string, configuredPassword: string): Promise<BuyerFixture> {
   const normalizedEmail = configuredEmail.trim().toLowerCase();
   if (await canLogin(normalizedEmail, configuredPassword)) {
-    return { email: normalizedEmail, password: configuredPassword };
+    const db = await readRuntimeDb();
+    const users = Array.isArray(db.users) ? db.users : [];
+    const configuredUser = users.find((entry) => {
+      if (!entry || typeof entry !== "object") return false;
+      const candidateEmail = (entry as Record<string, unknown>).email;
+      return typeof candidateEmail === "string" && candidateEmail.toLowerCase() === normalizedEmail;
+    });
+
+    if (configuredUser && typeof configuredUser === "object" && isBuyerAccount(configuredUser as Record<string, unknown>)) {
+      return { email: normalizedEmail, password: configuredPassword };
+    }
   }
 
   const db = await readRuntimeDb();
