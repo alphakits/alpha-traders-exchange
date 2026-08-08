@@ -5,6 +5,7 @@ import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
 import { AUTH_COOKIE_NAME, getCurrentSessionUser } from "@/lib/auth";
 import { getFirstActiveTradeForUser, getTradeReminderForUser } from "@/lib/alpha-exchange-store";
+import { hasRole } from "@/lib/roles";
 import { HeaderNav } from "@/components/layout/header-nav";
 import { HeaderAuthArea } from "@/components/layout/header-auth-area";
 
@@ -26,6 +27,9 @@ export async function SiteHeader({ locale }: { locale: AppLocale }) {
     { href: "/community", label: t("community") },
     { href: "/contact", label: t("contact") },
     { href: "/usdt-exchange", label: t("alphaExchange"), cta: true },
+    ...(sessionUser && hasRole(sessionUser, "admin")
+      ? [{ href: "/admin/discord", label: locale === "ar" ? "إدارة ديسكورد" : "Discord Management" }]
+      : []),
   ];
 
   return (

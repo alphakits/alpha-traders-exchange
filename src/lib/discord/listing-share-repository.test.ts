@@ -62,7 +62,7 @@ describe("Discord listing share repository", () => {
       if (sql === "begin" || sql === "commit") return result([]);
       if (sql.includes("select pg_advisory_xact_lock")) return result([]);
       if (sql.includes("from alpha_exchange.users users")) {
-        return result([{ seller_status: "approved_seller", disabled: false, linked: true }]);
+        return result([{ seller_status: "approved_seller", disabled: false, profile_hidden: false, linked: true }]);
       }
       if (sql.includes("from alpha_exchange.listings")) {
         return result([{
@@ -123,7 +123,7 @@ describe("Discord listing share repository", () => {
       if (sql === "begin" || sql === "commit") return result([]);
       if (sql.includes("select pg_advisory_xact_lock")) return result([]);
       if (sql.includes("from alpha_exchange.users users")) {
-        return result([{ seller_status: "approved_seller", disabled: false, linked: true }]);
+        return result([{ seller_status: "approved_seller", disabled: false, profile_hidden: false, linked: true }]);
       }
       if (sql.includes("from alpha_exchange.listings")) {
         return result([{
@@ -176,5 +176,43 @@ describe("Discord listing share repository", () => {
       requestKey: "short",
       pool: { connect: vi.fn() } as unknown as Pool,
     })).rejects.toMatchObject({ code: "INVALID_REQUEST_KEY", status: 400 });
+  });
+
+  it("rejects sharing while the seller public profile is hidden", async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql === "begin" || sql === "commit") return result([]);
+      if (sql.includes("select pg_advisory_xact_lock")) return result([]);
+      if (sql.includes("from alpha_exchange.users users")) {
+        return result([{
+          seller_status: "approved_seller",
+          disabled: false,
+          profile_hidden: true,
+          linked: true,
+        }]);
+      }
+      if (sql.includes("select now() as server_time,")) {
+        return result([{
+          server_time: new Date("2026-08-08T00:00:00.000Z"),
+          next_eligible_at: null,
+          linked: true,
+        }]);
+      }
+      if (sql.includes("select distinct on (listing_id)")) return result([]);
+      return result([]);
+    });
+    const client = { query, release: vi.fn() } as unknown as PoolClient;
+    const pool = { connect: vi.fn(async () => client) } as unknown as Pool;
+
+    await expect(claimDiscordListingShare({
+      sellerId: "seller-1",
+      listingId: "listing-1",
+      requestKey: "hidden-profile-123456",
+      pool,
+    })).rejects.toMatchObject({
+      code: "SELLER_PROFILE_PRIVATE",
+      status: 409,
+    });
+    expect(query.mock.calls.some(([sql]) =>
+      String(sql).includes("from alpha_exchange.listings"))).toBe(false);
   });
 });

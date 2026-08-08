@@ -11,6 +11,7 @@ export type DiscordReadyState =
 export type DiscordDiagnosticErrorCode =
   | "configuration_invalid"
   | "login_failed"
+  | "privileged_intent_required"
   | "application_mismatch"
   | "guild_verification_failed"
   | "gateway_error"
@@ -19,7 +20,8 @@ export type DiscordDiagnosticErrorCode =
   | "worker_unavailable"
   | "worker_timeout"
   | "worker_response_invalid"
-  | "worker_authentication_failed";
+  | "worker_authentication_failed"
+  | "worker_response_authentication_failed";
 
 export type DiscordSafeError = {
   code: DiscordDiagnosticErrorCode;
@@ -44,6 +46,38 @@ export type DiscordListingDiagnostics = {
   errorCode: string | null;
 };
 
+export type DiscordMarketIntelligenceDiagnostics = {
+  status: "ready" | "degraded";
+  activeCount: number | null;
+  pendingCount: number | null;
+  deadCount: number | null;
+  lastSuccessAt: string | null;
+  errorCode: string | null;
+};
+
+export type DiscordCommunityNotificationDiagnostics = {
+  status: "ready" | "degraded";
+  pendingCount: number | null;
+  deadCount: number | null;
+  suppressedCount: number | null;
+  lastDeliveredAt: string | null;
+  errorCode: string | null;
+};
+
+export type DiscordCommunityCommandDiagnostics = {
+  status: "ready" | "degraded";
+  registeredCount: number | null;
+  definitionHash: string | null;
+  lastReconciledAt: string | null;
+  errorCode: string | null;
+};
+
+export type DiscordDeploymentDiagnostics = {
+  source: "railway" | "local";
+  revision: string | null;
+  environment: string | null;
+};
+
 export type DiscordDiagnostics = {
   status: "healthy" | "degraded";
   connected: boolean;
@@ -56,6 +90,11 @@ export type DiscordDiagnostics = {
   error: DiscordSafeError | null;
   resources?: DiscordResourceDiagnostics;
   listings?: DiscordListingDiagnostics;
+  marketIntelligence?: DiscordMarketIntelligenceDiagnostics;
+  notifications?: DiscordCommunityNotificationDiagnostics;
+  commands?: DiscordCommunityCommandDiagnostics;
+  requiredPrivilegedIntents?: readonly ["GuildMembers"];
+  deployment?: DiscordDeploymentDiagnostics;
 };
 
 export const DISCORD_SAFE_ERROR_MESSAGES: Record<
@@ -65,6 +104,8 @@ export const DISCORD_SAFE_ERROR_MESSAGES: Record<
   configuration_invalid:
     "Discord service configuration is invalid. Check DISCORD_BOT_TOKEN, DISCORD_APPLICATION_ID, and DISCORD_GUILD_ID.",
   login_failed: "Discord gateway login failed.",
+  privileged_intent_required:
+    "Discord Guild Members privileged intent is required for welcome delivery and must be enabled in the Developer Portal.",
   application_mismatch: "The connected Discord bot does not match the configured application.",
   guild_verification_failed: "The configured Discord guild could not be verified.",
   gateway_error: "The Discord gateway reported a connection error.",
@@ -74,6 +115,8 @@ export const DISCORD_SAFE_ERROR_MESSAGES: Record<
   worker_timeout: "Discord worker diagnostics timed out.",
   worker_response_invalid: "Discord worker returned an invalid diagnostics response.",
   worker_authentication_failed: "Discord worker diagnostics authentication failed.",
+  worker_response_authentication_failed:
+    "Discord worker diagnostics response authentication failed.",
 };
 
 export function degradedDiscordDiagnostics(
@@ -108,5 +151,47 @@ export function degradedDiscordDiagnostics(
       cooldownClaims: null,
       errorCode: code,
     },
+    marketIntelligence: {
+      status: "degraded",
+      activeCount: null,
+      pendingCount: null,
+      deadCount: null,
+      lastSuccessAt: null,
+      errorCode: code,
+    },
+    notifications: {
+      status: "degraded",
+      pendingCount: null,
+      deadCount: null,
+      suppressedCount: null,
+      lastDeliveredAt: null,
+      errorCode: code,
+    },
+    commands: {
+      status: "degraded",
+      registeredCount: null,
+      definitionHash: null,
+      lastReconciledAt: null,
+      errorCode: code,
+    },
+    requiredPrivilegedIntents: ["GuildMembers"],
+  };
+}
+
+export function readDiscordDeploymentDiagnostics(
+  env: NodeJS.ProcessEnv = process.env,
+): DiscordDeploymentDiagnostics {
+  const revisionCandidate =
+    env.RAILWAY_GIT_COMMIT_SHA ?? env.VERCEL_GIT_COMMIT_SHA ?? "";
+  const environmentCandidate =
+    env.RAILWAY_ENVIRONMENT_NAME ?? env.NODE_ENV ?? "";
+  return {
+    source: env.RAILWAY_PROJECT_ID ? "railway" : "local",
+    revision: /^[0-9a-f]{7,64}$/i.test(revisionCandidate)
+      ? revisionCandidate.toLowerCase()
+      : null,
+    environment: /^[a-z0-9][a-z0-9_-]{0,31}$/i.test(environmentCandidate)
+      ? environmentCandidate
+      : null,
   };
 }

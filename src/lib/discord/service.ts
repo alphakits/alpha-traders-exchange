@@ -50,6 +50,14 @@ function errorMetadata(error: unknown): Record<string, unknown> {
   };
 }
 
+function isPrivilegedIntentError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return false;
+  }
+  const code = (error as { code?: unknown }).code;
+  return code === 4014 || code === "DisallowedIntents";
+}
+
 export class DiscordService {
   private readonly gateway: DiscordGatewayClient;
   private readonly env: EnvironmentValues;
@@ -113,6 +121,7 @@ export class DiscordService {
       apiLatencyMs: connected ? this.gateway.getLatencyMs() : null,
       connectionUptimeMs,
       error: this.lastError,
+      requiredPrivilegedIntents: ["GuildMembers"],
     };
   }
 
@@ -154,7 +163,12 @@ export class DiscordService {
         await this.gateway.login(config.token);
         this.gatewaySessionStarted = true;
       } catch (error) {
-        const mapped = serviceError("login_failed", error);
+        const mapped = serviceError(
+          isPrivilegedIntentError(error)
+            ? "privileged_intent_required"
+            : "login_failed",
+          error,
+        );
         this.recordError(mapped, errorMetadata(error));
         throw mapped;
       }

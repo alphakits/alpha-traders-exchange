@@ -76,7 +76,7 @@ for (const width of [320, 390, 430, 1280]) {
     await workspace.scrollIntoViewIfNeeded();
 
     const shareButtons = workspace.getByRole("button", {
-      name: /Shared to Discord|Share cooldown/,
+      name: /Shared|Next Share/,
     });
     await expect(shareButtons).toHaveCount(2);
     for (const button of await shareButtons.all()) {
@@ -86,7 +86,7 @@ for (const width of [320, 390, 430, 1280]) {
       expect(box?.width).toBeLessThanOrEqual(width);
     }
 
-    await expect(workspace.getByRole("timer").first()).toContainText(/11:59:|12:00:/);
+    await expect(workspace.getByRole("timer").first()).toContainText(/Next Share (11h 59m|12h 0m)/);
     await expect(workspace.getByRole("button", { name: "Edit" })).toHaveCount(2);
     await expect(workspace.getByRole("button", { name: "Pause" })).toHaveCount(2);
     await expect(workspace.getByRole("button", { name: "Renew" })).toHaveCount(2);

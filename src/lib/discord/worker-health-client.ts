@@ -6,21 +6,30 @@ import {
   type DiscordDiagnosticErrorCode,
   type DiscordDiagnostics,
   type DiscordListingDiagnostics,
+  type DiscordMarketIntelligenceDiagnostics,
   type DiscordResourceDiagnostics,
   type DiscordReadyState,
+  type DiscordCommunityCommandDiagnostics,
+  type DiscordCommunityNotificationDiagnostics,
+  type DiscordDeploymentDiagnostics,
 } from "@/lib/discord/diagnostics";
 import { logEvent } from "@/lib/structured-logging";
 import {
   DiscordWorkerConfigurationError,
   readDiscordWorkerProxyConfig,
 } from "@/lib/discord/worker-config";
-import { createDiscordWorkerAuthHeaders } from "@/lib/discord/worker-health-auth";
+import {
+  createDiscordWorkerAuthHeaders,
+  DISCORD_WORKER_AUTH_HEADERS,
+  verifyDiscordWorkerResponse,
+} from "@/lib/discord/worker-health-auth";
 import type { EnvironmentValues } from "@/lib/env-validation";
 
 const WORKER_DIAGNOSTICS_TIMEOUT_MS = 3_000;
 const WORKER_ERROR_CODES = new Set<DiscordDiagnosticErrorCode>([
   "configuration_invalid",
   "login_failed",
+  "privileged_intent_required",
   "application_mismatch",
   "guild_verification_failed",
   "gateway_error",
@@ -141,6 +150,143 @@ function parseListingDiagnostics(value: unknown): DiscordListingDiagnostics | nu
   };
 }
 
+function parseMarketIntelligenceDiagnostics(
+  value: unknown,
+): DiscordMarketIntelligenceDiagnostics | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.status !== "ready" && candidate.status !== "degraded") return null;
+  const activeCount = nullableNonNegativeNumber(candidate.activeCount);
+  const pendingCount = nullableNonNegativeNumber(candidate.pendingCount);
+  const deadCount = nullableNonNegativeNumber(candidate.deadCount);
+  const lastSuccessAt = nullableString(candidate.lastSuccessAt, 40);
+  const errorCode = nullableString(candidate.errorCode, 64);
+  if (
+    activeCount === undefined
+    || pendingCount === undefined
+    || deadCount === undefined
+    || lastSuccessAt === undefined
+    || errorCode === undefined
+    || [activeCount, pendingCount, deadCount]
+      .some((count) => count !== null && !Number.isInteger(count))
+    || (
+      lastSuccessAt !== null
+      && (
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(lastSuccessAt)
+        || !Number.isFinite(Date.parse(lastSuccessAt))
+      )
+    )
+    || (errorCode !== null && !/^[a-z0-9_]+$/.test(errorCode))
+  ) {
+    return null;
+  }
+
+  return {
+    status: candidate.status,
+    activeCount,
+    pendingCount,
+    deadCount,
+    lastSuccessAt,
+    errorCode,
+  };
+}
+
+function parseNotificationDiagnostics(
+  value: unknown,
+): DiscordCommunityNotificationDiagnostics | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.status !== "ready" && candidate.status !== "degraded") return null;
+  const pendingCount = nullableNonNegativeNumber(candidate.pendingCount);
+  const deadCount = nullableNonNegativeNumber(candidate.deadCount);
+  const suppressedCount = nullableNonNegativeNumber(candidate.suppressedCount);
+  const lastDeliveredAt = nullableString(candidate.lastDeliveredAt, 40);
+  const errorCode = nullableString(candidate.errorCode, 64);
+  if (
+    pendingCount === undefined
+    || deadCount === undefined
+    || suppressedCount === undefined
+    || lastDeliveredAt === undefined
+    || errorCode === undefined
+    || [pendingCount, deadCount, suppressedCount]
+      .some((countValue) => countValue !== null && !Number.isInteger(countValue))
+    || (
+      lastDeliveredAt !== null
+      && (
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(lastDeliveredAt)
+        || !Number.isFinite(Date.parse(lastDeliveredAt))
+      )
+    )
+    || (errorCode !== null && !/^[a-z0-9_]+$/.test(errorCode))
+  ) {
+    return null;
+  }
+  return {
+    status: candidate.status,
+    pendingCount,
+    deadCount,
+    suppressedCount,
+    lastDeliveredAt,
+    errorCode,
+  };
+}
+
+function parseCommandDiagnostics(
+  value: unknown,
+): DiscordCommunityCommandDiagnostics | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.status !== "ready" && candidate.status !== "degraded") return null;
+  const registeredCount = nullableNonNegativeNumber(candidate.registeredCount);
+  const definitionHash = nullableString(candidate.definitionHash, 64);
+  const lastReconciledAt = nullableString(candidate.lastReconciledAt, 40);
+  const errorCode = nullableString(candidate.errorCode, 64);
+  if (
+    registeredCount === undefined
+    || definitionHash === undefined
+    || lastReconciledAt === undefined
+    || errorCode === undefined
+    || (registeredCount !== null && !Number.isInteger(registeredCount))
+    || (definitionHash !== null && !/^[0-9a-f]{64}$/.test(definitionHash))
+    || (
+      lastReconciledAt !== null
+      && (
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(lastReconciledAt)
+        || !Number.isFinite(Date.parse(lastReconciledAt))
+      )
+    )
+    || (errorCode !== null && !/^[a-z0-9_]+$/.test(errorCode))
+  ) {
+    return null;
+  }
+  return {
+    status: candidate.status,
+    registeredCount,
+    definitionHash,
+    lastReconciledAt,
+    errorCode,
+  };
+}
+
+function parseDeploymentDiagnostics(
+  value: unknown,
+): DiscordDeploymentDiagnostics | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.source !== "railway" && candidate.source !== "local") return null;
+  const revision = nullableString(candidate.revision, 64);
+  const environment = nullableString(candidate.environment, 32);
+  if (
+    revision === undefined
+    || environment === undefined
+    || (revision !== null && !/^[0-9a-f]{7,64}$/.test(revision))
+    || (environment !== null && !/^[a-z0-9][a-z0-9_-]{0,31}$/i.test(environment))
+  ) {
+    return null;
+  }
+  return { source: candidate.source, revision, environment };
+}
+
 function parseWorkerDiagnostics(value: unknown): DiscordDiagnostics | null {
   if (!value || typeof value !== "object") return null;
   const candidate = value as Record<string, unknown>;
@@ -197,6 +343,43 @@ function parseWorkerDiagnostics(value: unknown): DiscordDiagnostics | null {
     if (!parsed) return null;
     listings = parsed;
   }
+  let marketIntelligence: DiscordMarketIntelligenceDiagnostics | undefined;
+  if (candidate.marketIntelligence !== undefined) {
+    const parsed = parseMarketIntelligenceDiagnostics(
+      candidate.marketIntelligence,
+    );
+    if (!parsed) return null;
+    marketIntelligence = parsed;
+  }
+  let notifications: DiscordCommunityNotificationDiagnostics | undefined;
+  if (candidate.notifications !== undefined) {
+    const parsed = parseNotificationDiagnostics(candidate.notifications);
+    if (!parsed) return null;
+    notifications = parsed;
+  }
+  let commands: DiscordCommunityCommandDiagnostics | undefined;
+  if (candidate.commands !== undefined) {
+    const parsed = parseCommandDiagnostics(candidate.commands);
+    if (!parsed) return null;
+    commands = parsed;
+  }
+  let deployment: DiscordDeploymentDiagnostics | undefined;
+  if (candidate.deployment !== undefined) {
+    const parsed = parseDeploymentDiagnostics(candidate.deployment);
+    if (!parsed) return null;
+    deployment = parsed;
+  }
+  let requiredPrivilegedIntents: readonly ["GuildMembers"] | undefined;
+  if (candidate.requiredPrivilegedIntents !== undefined) {
+    if (
+      !Array.isArray(candidate.requiredPrivilegedIntents)
+      || candidate.requiredPrivilegedIntents.length !== 1
+      || candidate.requiredPrivilegedIntents[0] !== "GuildMembers"
+    ) {
+      return null;
+    }
+    requiredPrivilegedIntents = ["GuildMembers"];
+  }
 
   return {
     status: candidate.status,
@@ -210,6 +393,11 @@ function parseWorkerDiagnostics(value: unknown): DiscordDiagnostics | null {
     error,
     ...(resources ? { resources } : {}),
     ...(listings ? { listings } : {}),
+    ...(marketIntelligence ? { marketIntelligence } : {}),
+    ...(notifications ? { notifications } : {}),
+    ...(commands ? { commands } : {}),
+    ...(deployment ? { deployment } : {}),
+    ...(requiredPrivilegedIntents ? { requiredPrivilegedIntents } : {}),
   };
 }
 
@@ -252,39 +440,49 @@ export async function fetchDiscordWorkerDiagnostics({
 
   let response: Response;
   try {
+    const authHeaders = createDiscordWorkerAuthHeaders(
+      config.healthSecret,
+      now,
+      createNonce,
+    );
     response = await fetchImpl(`${config.baseUrl}/health/ready`, {
       method: "GET",
-      headers: createDiscordWorkerAuthHeaders(
-        config.healthSecret,
-        now,
-        createNonce,
-      ),
+      headers: authHeaders,
       cache: "no-store",
       signal: AbortSignal.timeout(timeoutMs),
     });
+    if (response.status === 401 || response.status === 403) {
+      return recordProxyFailure("worker_authentication_failed");
+    }
+    const body = await response.text();
+    if (!verifyDiscordWorkerResponse({
+      headers: response.headers,
+      secret: config.healthSecret,
+      requestNonce: authHeaders[DISCORD_WORKER_AUTH_HEADERS.nonce],
+      statusCode: response.status,
+      body,
+      now,
+    })) {
+      return recordProxyFailure("worker_response_authentication_failed");
+    }
+    if (response.status !== 200 && response.status !== 503) {
+      return recordProxyFailure("worker_unavailable");
+    }
+    let payload: unknown;
+    try {
+      payload = JSON.parse(body);
+    } catch (error) {
+      return recordProxyFailure("worker_response_invalid", error);
+    }
+    const diagnostics = parseWorkerDiagnostics(payload);
+    if (!diagnostics) {
+      return recordProxyFailure("worker_response_invalid");
+    }
+    return diagnostics;
   } catch (error) {
     return recordProxyFailure(
       isTimeoutError(error) ? "worker_timeout" : "worker_unavailable",
       error,
     );
   }
-
-  if (response.status === 401 || response.status === 403) {
-    return recordProxyFailure("worker_authentication_failed");
-  }
-  if (response.status !== 200 && response.status !== 503) {
-    return recordProxyFailure("worker_unavailable");
-  }
-
-  let payload: unknown;
-  try {
-    payload = await response.json();
-  } catch (error) {
-    return recordProxyFailure("worker_response_invalid", error);
-  }
-  const diagnostics = parseWorkerDiagnostics(payload);
-  if (!diagnostics) {
-    return recordProxyFailure("worker_response_invalid");
-  }
-  return diagnostics;
 }
