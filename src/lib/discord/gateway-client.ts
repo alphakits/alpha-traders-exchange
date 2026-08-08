@@ -6,13 +6,16 @@ import {
   GatewayIntentBits,
   type CloseEvent,
 } from "discord.js";
+import { performance } from "node:perf_hooks";
+
+import { logEvent } from "@/lib/structured-logging";
 
 export type DiscordGatewayEvent =
-  | { type: "ready" }
-  | { type: "disconnect"; code: number }
-  | { type: "reconnecting" }
-  | { type: "resume" }
-  | { type: "error"; error: unknown };
+  | { type: "ready"; sinceLoginMs?: number }
+  | { type: "disconnect"; code: number; sinceLoginMs?: number }
+  | { type: "reconnecting"; sinceLoginMs?: number }
+  | { type: "resume"; sinceLoginMs?: number }
+  | { type: "error"; error: unknown; sinceLoginMs?: number };
 
 export type DiscordGatewayIdentity = {
   username: string;
@@ -41,20 +44,35 @@ export class DiscordJsGatewayClient implements DiscordGatewayClient {
   private readonly subscribers = new Set<(event: DiscordGatewayEvent) => void>();
   private loginPromise: Promise<void> | null = null;
   private sessionStarted = false;
+  private loginStartedAt: number | null = null;
 
   constructor() {
     this.client = new Client({
       intents: [GatewayIntentBits.Guilds],
     });
 
-    this.client.on(Events.ClientReady, () => this.emit({ type: "ready" }));
-    this.client.on(Events.ShardDisconnect, (event: CloseEvent) => {
-      this.emit({ type: "disconnect", code: event.code });
+    this.client.on(Events.ClientReady, () => {
+      this.emit({ type: "ready", sinceLoginMs: this.loginElapsedMs() });
     });
-    this.client.on(Events.ShardReconnecting, () => this.emit({ type: "reconnecting" }));
-    this.client.on(Events.ShardResume, () => this.emit({ type: "resume" }));
-    this.client.on(Events.Error, (error) => this.emit({ type: "error", error }));
-    this.client.on(Events.ShardError, (error) => this.emit({ type: "error", error }));
+    this.client.on(Events.ShardDisconnect, (event: CloseEvent) => {
+      this.emit({
+        type: "disconnect",
+        code: event.code,
+        sinceLoginMs: this.loginElapsedMs(),
+      });
+    });
+    this.client.on(Events.ShardReconnecting, () => {
+      this.emit({ type: "reconnecting", sinceLoginMs: this.loginElapsedMs() });
+    });
+    this.client.on(Events.ShardResume, () => {
+      this.emit({ type: "resume", sinceLoginMs: this.loginElapsedMs() });
+    });
+    this.client.on(Events.Error, (error) => {
+      this.emit({ type: "error", error, sinceLoginMs: this.loginElapsedMs() });
+    });
+    this.client.on(Events.ShardError, (error) => {
+      this.emit({ type: "error", error, sinceLoginMs: this.loginElapsedMs() });
+    });
   }
 
   subscribe(listener: (event: DiscordGatewayEvent) => void): () => void {
@@ -105,14 +123,40 @@ export class DiscordJsGatewayClient implements DiscordGatewayClient {
   }
 
   private async performLogin(token: string): Promise<void> {
+    this.loginStartedAt = performance.now();
+    logEvent("info", {
+      event: "discord_gateway_login_started",
+      outcome: "success",
+      metadata: { readyTimeoutMs: READY_TIMEOUT_MS },
+    });
     const ready = this.waitUntilReady();
     try {
-      await this.client.login(token);
-      await ready.promise;
+      const login = this.client.login(token);
+      await Promise.all([login, ready.promise]);
       this.sessionStarted = true;
+      logEvent("info", {
+        event: "discord_gateway_login_ready",
+        outcome: "success",
+        metadata: { elapsedMs: this.loginElapsedMs() },
+      });
+    } catch (error) {
+      logEvent("error", {
+        event: "discord_gateway_login_failed",
+        outcome: "failed",
+        metadata: {
+          elapsedMs: this.loginElapsedMs(),
+          errorType: error instanceof Error ? error.name : typeof error,
+        },
+      });
+      throw error;
     } finally {
       ready.cancel();
     }
+  }
+
+  private loginElapsedMs(): number | undefined {
+    if (this.loginStartedAt === null) return undefined;
+    return Math.max(0, Math.round(performance.now() - this.loginStartedAt));
   }
 
   private waitUntilReady(): { promise: Promise<void>; cancel: () => void } {

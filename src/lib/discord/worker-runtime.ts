@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { Server } from "node:http";
+import { performance } from "node:perf_hooks";
 
 import type {
   DiscordDiagnostics,
@@ -114,6 +115,17 @@ export class DiscordWorkerRuntime {
   }
 
   private async performStart(): Promise<DiscordDiagnostics> {
+    const startedAt = performance.now();
+    const recordPhase = (phase: string) => {
+      logEvent("info", {
+        event: "discord_worker_start_phase",
+        outcome: "success",
+        metadata: {
+          phase,
+          elapsedMs: Math.max(0, Math.round(performance.now() - startedAt)),
+        },
+      });
+    };
     this.healthServer = this.createHealthServer({
       service: this.service,
       resources: this.resourceSync,
@@ -123,13 +135,24 @@ export class DiscordWorkerRuntime {
 
     try {
       await listen(this.healthServer, this.config.port);
+      recordPhase("health_server_listening");
       const diagnostics = await this.service.start();
       if (diagnostics.status !== "healthy") {
         throw new Error("Discord worker startup completed without healthy diagnostics.");
       }
-      await this.roleSync?.start();
-      await this.resourceSync?.start();
-      await this.listingSync?.start();
+      recordPhase("gateway_ready");
+      if (this.roleSync) {
+        await this.roleSync.start();
+        recordPhase("role_sync_ready");
+      }
+      if (this.resourceSync) {
+        await this.resourceSync.start();
+        recordPhase("resource_sync_ready");
+      }
+      if (this.listingSync) {
+        await this.listingSync.start();
+        recordPhase("listing_sync_ready");
+      }
       logEvent("info", {
         event: "discord_worker_started",
         outcome: "success",
