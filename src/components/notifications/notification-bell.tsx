@@ -10,6 +10,8 @@ import { appendLoginJourneyStep, incrementLoginJourneyApiCall } from "@/lib/logi
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
 import { formatListingId, formatTradeId } from "@/lib/format-id";
 import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
+import { formatNotificationRelativeTime } from "@/lib/notification-time";
+import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -25,21 +27,6 @@ type NotificationsStreamPayload = {
 };
 
 const TRADE_ROOM_DEBUG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
-
-function formatRelativeTime(isoDate: string, locale: AppLocale) {
-  const date = new Date(isoDate);
-  const diffMs = Date.now() - date.getTime();
-  const minute = 60_000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-  if (diffMs < hour) {
-    return `${Math.max(1, Math.floor(diffMs / minute))}m`;
-  }
-  if (diffMs < day) {
-    return `${Math.floor(diffMs / hour)}h`;
-  }
-  return date.toLocaleDateString(locale === "ar" ? "ar-EG" : "en-IL", { month: "short", day: "numeric" });
-}
 
 function notificationIcon(notification: AlphaExchangeNotification) {
   if (notification.category === "trade") return Scale;
@@ -121,7 +108,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
       const response = await fetch(`/api/alpha-exchange/notifications?limit=${limit}&includeActivity=0`, { cache: "no-store" });
       if (!response.ok) throw new Error("Failed to load notifications.");
       const payload = (await response.json()) as NotificationsPayload;
-      setNotifications(payload.notifications ?? []);
+      setNotifications(sortNotificationsNewestFirst(payload.notifications ?? []));
       setUnreadCount(payload.unreadCount ?? 0);
       setLastLoadedAt(Date.now());
       appendLoginJourneyStep("Notifications loading (header bell)", startedAt, Date.now(), { limit, status: response.status });
@@ -142,7 +129,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
       const messageEvent = event as MessageEvent<string>;
       try {
         const payload = JSON.parse(messageEvent.data) as NotificationsStreamPayload;
-        setNotifications(Array.isArray(payload.notifications) ? payload.notifications : []);
+        setNotifications(sortNotificationsNewestFirst(Array.isArray(payload.notifications) ? payload.notifications : []));
         setUnreadCount(typeof payload.unreadCount === "number" ? payload.unreadCount : 0);
       } catch {
         // Ignore malformed stream payloads and keep current state.
@@ -385,7 +372,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
                           <p className="truncate text-sm font-medium text-white">{formatNotificationTitle(notification)}</p>
-                          <span className="shrink-0 text-[11px] text-[#9CA3AF]">{formatRelativeTime(notification.createdAt, locale)}</span>
+                          <span className="shrink-0 text-[11px] text-[#9CA3AF]">{formatNotificationRelativeTime(notification.createdAt, locale)}</span>
                         </div>
                         <p className="mt-1 line-clamp-2">{formatNotificationMessage(notification)}</p>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">

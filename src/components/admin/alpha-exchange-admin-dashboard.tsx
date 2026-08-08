@@ -11,7 +11,9 @@ import { Input } from "@/components/ui/input";
 import { createExchangeDisplayLookup, replaceExchangeEntityIds } from "@/lib/alpha-exchange-display";
 import { formatCommissionId, formatListingId, formatRequestId, formatTradeId } from "@/lib/format-id";
 import { RoleBadge } from "@/components/ui/role-badge";
-import { SELLER_LEVELS, normalizeSellerLevel, type AlphaExchangeActivityLogEntry, type AlphaExchangeNotification, type AuditLogEntry, type BetaAnnouncement, type BetaAnnouncementType, type BetaFeedbackCategory, type CommissionRecord, type MarketplaceListing, type OwnerBusinessDashboardMetrics, type OwnerPrivateBetaDashboardData, type PurchaseRequest, type SellerApplication, type SellerAvailabilityStatus, type SellerLevel, type SellerReviewRecord, type SmsDeliveryRecord, type SupportedNetwork } from "@/types/alpha-exchange";
+import { SELLER_LEVELS, normalizeSellerLevel, type AlphaExchangeActivityLogEntry, type AlphaExchangeNotification, type AuditLogEntry, type BetaAnnouncement, type BetaAnnouncementType, type BetaFeedbackCategory, type CommissionRecord, type MarketplaceEnforcementAuditEntry, type MarketplaceEnforcementRecord, type MarketplaceListing, type OwnerBusinessDashboardMetrics, type OwnerPrivateBetaDashboardData, type PurchaseRequest, type SellerApplication, type SellerAvailabilityStatus, type SellerLevel, type SellerReviewRecord, type SmsDeliveryRecord, type SupportedNetwork } from "@/types/alpha-exchange";
+import { formatNotificationRelativeTime } from "@/lib/notification-time";
+import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 
 const RANK_BADGE_COLOR: Record<SellerLevel, string> = {
   bronze: "border-[#CD7F32]/30 bg-[#CD7F32]/10 text-[#E8A96A]",
@@ -80,6 +82,26 @@ type AdminPayload = {
   sellerReviews: SellerReviewRecord[];
   listingReliability: ListingReliabilityReport[];
   smsDeliveries: AdminSmsDelivery[];
+  enforcement: {
+    metrics: {
+      activeCases: number;
+      resolvedCases: number;
+      revokedCases: number;
+      totalCases: number;
+      outstandingFeeAmountUsdt: number;
+    };
+    activeCases: Array<MarketplaceEnforcementRecord & { sellerName: string; sellerEmail: string }>;
+    recentActivity: Array<MarketplaceEnforcementAuditEntry & { sellerName: string; actorName: string }>;
+  };
+  complianceSettings?: {
+    recoveryWallet: {
+      network: SupportedNetwork;
+      walletAddress: string;
+      defaultPaymentRail: "manual_wallet_transfer" | "alpha_wallet_one_click";
+      updatedAt: string;
+      updatedByUserId: string;
+    } | null;
+  };
 };
 
 type ListingReliabilityReport = {
@@ -118,6 +140,7 @@ type SectionKey =
   | "commissions"
   | "audit-logs"
   | "sms-deliveries"
+  | "marketplace-enforcement"
   | "announcements"
   | "private-beta"
   | "settings"
@@ -139,6 +162,7 @@ const sectionItems: Array<{ key: SectionKey; label: string; icon: typeof BarChar
   { key: "commissions", label: "Commissions", icon: Coins },
   { key: "audit-logs", label: "Audit Logs", icon: FileClock },
   { key: "sms-deliveries", label: "SMS Deliveries", icon: MessageSquareText },
+  { key: "marketplace-enforcement", label: "Marketplace Compliance", icon: ShieldCheck },
   { key: "announcements", label: "Marketing · Announcements", icon: Megaphone },
   { key: "private-beta", label: "Access Control", icon: ShieldCheck },
   { key: "analytics", label: "Analytics", icon: TrendingUp },
@@ -146,6 +170,17 @@ const sectionItems: Array<{ key: SectionKey; label: string; icon: typeof BarChar
   { key: "reviews", label: "Reviews", icon: Star },
   { key: "emergency", label: "Emergency", icon: Zap },
   { key: "settings", label: "Settings", icon: Settings },
+];
+
+const sectionGroups: Array<{ title: string; keys: SectionKey[] }> = [
+  { title: "Marketplace", keys: ["overview", "marketplace-listings", "purchase-requests", "commissions", "listing-reliability"] },
+  { title: "Sellers", keys: ["seller-applications", "approved-sellers", "seller-rank", "users", "reviews"] },
+  { title: "Compliance", keys: ["marketplace-enforcement", "audit-logs"] },
+  { title: "Analytics", keys: ["analytics", "private-beta"] },
+  { title: "Notifications", keys: ["sms-deliveries"] },
+  { title: "Discord", keys: ["announcements"] },
+  { title: "Wallet", keys: ["settings"] },
+  { title: "Platform", keys: ["emergency"] },
 ];
 
 function formatDate(value: string) {
@@ -263,6 +298,7 @@ export function AlphaExchangeAdminDashboard() {
   const [notificationQuery, setNotificationQuery] = useState("");
   const [notificationPage, setNotificationPage] = useState(1);
   const [smsDeliveriesPage, setSmsDeliveriesPage] = useState(1);
+  const [enforcementPage, setEnforcementPage] = useState(1);
   const [inviteMaxUses, setInviteMaxUses] = useState("10");
   const [inviteExpiresAt, setInviteExpiresAt] = useState("");
   const [betaFeedbackStatusFilter, setBetaFeedbackStatusFilter] = useState<"all" | "new" | "in_review" | "resolved">("all");
@@ -288,6 +324,10 @@ export function AlphaExchangeAdminDashboard() {
   const [rankMgmtBulkRank, setRankMgmtBulkRank] = useState<SellerLevel>("bronze");
   const [rankConfirmPending, setRankConfirmPending] = useState<{ sellerId: string; sellerName: string; fromRank: SellerLevel; toRank: SellerLevel } | null>(null);
   const [rankConfirmReason, setRankConfirmReason] = useState("");
+  const [complianceWalletNetwork, setComplianceWalletNetwork] = useState<SupportedNetwork>("TRC20");
+  const [complianceWalletAddress, setComplianceWalletAddress] = useState("");
+
+  const sectionItemsByKey = useMemo(() => new Map(sectionItems.map((item) => [item.key, item])), []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -311,6 +351,12 @@ export function AlphaExchangeAdminDashboard() {
   useEffect(() => {
     void fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    if (!data?.complianceSettings?.recoveryWallet) return;
+    setComplianceWalletNetwork(data.complianceSettings.recoveryWallet.network);
+    setComplianceWalletAddress(data.complianceSettings.recoveryWallet.walletAddress);
+  }, [data?.complianceSettings?.recoveryWallet]);
 
   useEffect(() => {
     if (deepLinkAppliedRef.current) return;
@@ -495,12 +541,17 @@ export function AlphaExchangeAdminDashboard() {
       const haystack = `${entry.title} ${entry.message} ${replaceExchangeEntityIds(entry.title, displayLookup)} ${replaceExchangeEntityIds(entry.message, displayLookup)} ${entry.category} ${seller?.fullName ?? entry.userId} ${entry.relatedTradeId ?? ""} ${entry.relatedListingId ?? ""}`.toLowerCase();
       return haystack.includes(query);
     });
-    return paginate(items, notificationPage);
+    return paginate(sortNotificationsNewestFirst(items), notificationPage);
   }, [data?.notifications, displayLookup, notificationPage, notificationQuery, sellersById]);
 
   const smsDeliveryRows = useMemo(
     () => paginate(data?.smsDeliveries ?? [], smsDeliveriesPage),
     [data?.smsDeliveries, smsDeliveriesPage],
+  );
+
+  const enforcementRows = useMemo(
+    () => paginate(data?.enforcement.recentActivity ?? [], enforcementPage),
+    [data?.enforcement.recentActivity, enforcementPage],
   );
 
   const expirationHistory = useMemo(
@@ -600,6 +651,26 @@ export function AlphaExchangeAdminDashboard() {
         body: JSON.stringify({ rank, reason, clearOverride }),
       }),
       clearOverride ? "Prestige override cleared." : `Seller prestige set to ${sellerLevelLabel(rank)}.`,
+    );
+  }
+
+  async function handleSaveComplianceRecoveryWallet() {
+    const walletAddress = complianceWalletAddress.trim();
+    if (!walletAddress) {
+      pushToast("Recovery wallet address is required.");
+      return;
+    }
+    await runAction(
+      fetch("/api/alpha-exchange/admin/compliance/recovery-wallet", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          network: complianceWalletNetwork,
+          walletAddress,
+          defaultPaymentRail: "manual_wallet_transfer",
+        }),
+      }),
+      "Marketplace Compliance Recovery Wallet saved.",
     );
   }
 
@@ -917,34 +988,43 @@ export function AlphaExchangeAdminDashboard() {
   }
 
   return (
-    <section className="section-container page-shell">
-      <div className="grid gap-5 xl:grid-cols-[260px_minmax(0,1fr)] xl:items-start">
-        <aside className="h-fit rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-4 backdrop-blur-sm xl:sticky xl:top-4">
+    <section className="section-container page-shell admin-dashboard-shell !max-w-[118rem] 2xl:!max-w-[128rem]">
+      <div className="grid gap-6 xl:grid-cols-[290px_minmax(0,1fr)] xl:items-start">
+        <aside className="h-fit rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5 backdrop-blur-sm xl:sticky xl:top-4">
           <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-[#C9A227]">
             <ShieldCheck className="h-3.5 w-3.5" />
             Alpha Exchange Admin
           </p>
-          <nav className="space-y-1">
-            {sectionItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeSection === item.key;
-              return (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => setActiveSection(item.key)}
-                  aria-label={`Open ${item.label}`}
-                  className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition ${isActive ? "border border-[#C9A227]/30 bg-[#C9A227]/10 text-white" : "text-[#9CA3AF] hover:bg-white/5 hover:text-white"}`}
-                >
-                  <Icon className="h-4 w-4" />
-                  {item.label}
-                </button>
-              );
-            })}
+          <nav className="space-y-3">
+            {sectionGroups.map((group) => (
+              <div key={group.title} className="space-y-1.5">
+                <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#C9A227]">
+                  {group.title}
+                </p>
+                {group.keys.map((key) => {
+                  const item = sectionItemsByKey.get(key);
+                  if (!item) return null;
+                  const Icon = item.icon;
+                  const isActive = activeSection === item.key;
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => setActiveSection(item.key)}
+                      aria-label={`Open ${item.label}`}
+                      className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm transition ${isActive ? "border border-[#C9A227]/30 bg-[#C9A227]/10 text-white" : "text-[#9CA3AF] hover:bg-white/5 hover:text-white"}`}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
           </nav>
         </aside>
 
-        <div className="min-w-0">
+        <div className="admin-main-panel min-w-0">
           <AnimatePresence mode="wait">
             <motion.div key={activeSection} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.2 }}>
               {loading ? (
@@ -968,10 +1048,10 @@ export function AlphaExchangeAdminDashboard() {
               {!loading && !error && data ? (
                 <>
                   {activeSection === "overview" ? (
-                    <div className="space-y-5 xl:space-y-6">
+                    <div className="space-y-6 xl:space-y-8">
                       <Card className="border-white/10 bg-[#0B0B0B]/90">
                         <CardHeader>
-                          <CardTitle>Owner Business Dashboard</CardTitle>
+                          <CardTitle className="text-xl md:text-2xl">Owner Business Dashboard</CardTitle>
                           <CardDescription>Business health at a glance for Alpha Exchange.</CardDescription>
                         </CardHeader>
                         <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -983,19 +1063,56 @@ export function AlphaExchangeAdminDashboard() {
                           ].map((stat) => {
                             const Icon = stat.icon;
                             return (
-                              <Card key={stat.label} className="border-white/10 bg-black/20">
-                                <CardHeader className="pb-2">
-                                  <CardDescription className="text-xs uppercase tracking-[0.15em] text-[#9CA3AF]">{stat.label}</CardDescription>
-                                  <CardTitle className="text-2xl">{stat.value}</CardTitle>
+                              <Card key={stat.label} className="admin-kpi-card border-white/10 bg-[linear-gradient(140deg,rgba(16,16,16,0.95),rgba(11,11,11,0.86))]">
+                                <CardHeader className="pb-3">
+                                  <CardDescription className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{stat.label}</CardDescription>
+                                  <CardTitle className="text-2xl md:text-3xl">{stat.value}</CardTitle>
                                 </CardHeader>
                                 <CardContent className="pt-0">
-                                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 text-[#C9A227]">
-                                    <Icon className="h-4 w-4" />
+                                  <span className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 text-[#C9A227]">
+                                    <Icon className="h-5 w-5" />
                                   </span>
                                 </CardContent>
                               </Card>
                             );
                           })}
+                        </CardContent>
+                      </Card>
+
+                      <Card className="border-red-500/20 bg-[#0B0B0B]/90">
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2 text-red-100">
+                            <ShieldCheck className="h-5 w-5 text-red-300" />
+                            Marketplace Compliance
+                          </CardTitle>
+                          <CardDescription>Current compliance restriction load and the latest immutable activity.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          <div className="grid gap-3 sm:grid-cols-5">
+                            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">Active</p>
+                              <p className="mt-1 text-lg font-semibold text-red-200">{data.enforcement.metrics.activeCases}</p>
+                            </div>
+                            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">Resolved</p>
+                              <p className="mt-1 text-lg font-semibold text-emerald-200">{data.enforcement.metrics.resolvedCases}</p>
+                            </div>
+                            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">Revoked</p>
+                              <p className="mt-1 text-lg font-semibold text-red-300">{data.enforcement.metrics.revokedCases}</p>
+                            </div>
+                            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">Total Cases</p>
+                              <p className="mt-1 text-lg font-semibold text-white">{data.enforcement.metrics.totalCases}</p>
+                            </div>
+                            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                              <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">Outstanding</p>
+                              <p className="mt-1 text-lg font-semibold text-[#FDE68A]">{formatUsdt(data.enforcement.metrics.outstandingFeeAmountUsdt)}</p>
+                            </div>
+                          </div>
+                          <Button type="button" variant="secondary" onClick={() => setActiveSection("marketplace-enforcement")}>
+                            Open Compliance Activity
+                          </Button>
                         </CardContent>
                       </Card>
 
@@ -2334,7 +2451,7 @@ export function AlphaExchangeAdminDashboard() {
                               <tbody>
                                 {notificationRows.rows.map((entry) => (
                                   <tr key={entry.id} className="border-t border-white/10">
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(entry.createdAt)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]" title={formatDate(entry.createdAt)}>{formatNotificationRelativeTime(entry.createdAt, "en")}</td>
                                     <td className="px-4 py-3 text-white">{sellersById.get(entry.userId)?.fullName ?? entry.userId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{entry.category}</td>
                                     <td className="px-4 py-3 text-white">{replaceExchangeEntityIds(entry.title, displayLookup)}</td>
@@ -2408,6 +2525,100 @@ export function AlphaExchangeAdminDashboard() {
                         {renderPagination(smsDeliveryRows.safePage, smsDeliveryRows.totalPages, setSmsDeliveriesPage)}
                       </CardContent>
                     </Card>
+                  ) : null}
+
+                  {activeSection === "marketplace-enforcement" ? (
+                    <div className="space-y-4">
+                      <Card className="border-red-500/20 bg-[#0B0B0B]/90">
+                        <CardHeader>
+                          <CardTitle>Marketplace Compliance</CardTitle>
+                          <CardDescription>Policy violations, temporary restrictions, recovery fee status, and permanent revocations.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="grid gap-3 md:grid-cols-5 text-sm text-[#D1D5DB]">
+                          <p>Active Cases: <span className="text-white">{data.enforcement.metrics.activeCases}</span></p>
+                          <p>Resolved Cases: <span className="text-white">{data.enforcement.metrics.resolvedCases}</span></p>
+                          <p>Revoked Sellers: <span className="text-white">{data.enforcement.metrics.revokedCases}</span></p>
+                          <p>Total Cases: <span className="text-white">{data.enforcement.metrics.totalCases}</span></p>
+                          <p>Outstanding Fees: <span className="text-white">{formatUsdt(data.enforcement.metrics.outstandingFeeAmountUsdt)}</span></p>
+                        </CardContent>
+                      </Card>
+
+                      <Card className="border-white/10 bg-[#0B0B0B]/90">
+                        <CardHeader>
+                          <CardTitle>Active Restriction Cases</CardTitle>
+                          <CardDescription>Sellers currently blocked from listing/editing/renewing/publishing.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="overflow-x-auto rounded-xl border border-white/10">
+                            <table className="w-full min-w-[980px] text-sm">
+                              <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
+                                <tr>
+                                  <th className="px-4 py-3">Seller</th>
+                                  <th className="px-4 py-3">Violation</th>
+                                  <th className="px-4 py-3">Fee</th>
+                                  <th className="px-4 py-3">Issued</th>
+                                  <th className="px-4 py-3">Due</th>
+                                  <th className="px-4 py-3">Reason</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {data.enforcement.activeCases.map((record) => (
+                                  <tr key={record.id} className="border-t border-white/10">
+                                    <td className="px-4 py-3">
+                                      <p className="font-medium text-white">{record.sellerName}</p>
+                                      <p className="text-xs text-[#9CA3AF]">{record.sellerEmail}</p>
+                                    </td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">#{record.violationNumber}</td>
+                                    <td className="px-4 py-3 text-[#FDE68A]">{record.feeAmount.toFixed(2)} {record.feeCurrency}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(record.issuedAt)}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{record.dueAt ? formatDate(record.dueAt) : "—"}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{record.reason}</td>
+                                  </tr>
+                                ))}
+                                {data.enforcement.activeCases.length === 0 ? renderEmptyTableRow("No active compliance cases.", 6) : null}
+                              </tbody>
+                            </table>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      <Card className="border-white/10 bg-[#0B0B0B]/90">
+                        <CardHeader>
+                          <CardTitle>Recent Compliance Activity</CardTitle>
+                          <CardDescription>Immutable action log of compliance decisions.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="overflow-x-auto rounded-xl border border-white/10">
+                            <table className="w-full min-w-[980px] text-sm">
+                              <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
+                                <tr>
+                                  <th className="px-4 py-3">Timestamp</th>
+                                  <th className="px-4 py-3">Seller</th>
+                                  <th className="px-4 py-3">Action</th>
+                                  <th className="px-4 py-3">Actor</th>
+                                  <th className="px-4 py-3">Reason</th>
+                                  <th className="px-4 py-3">Notes</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {enforcementRows.rows.map((entry) => (
+                                  <tr key={entry.id} className="border-t border-white/10">
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{formatDate(entry.createdAt)}</td>
+                                    <td className="px-4 py-3 text-white">{entry.sellerName}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{entry.action.replaceAll("_", " ")}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{entry.actorName}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{entry.reason ?? "—"}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">{entry.notes ?? "—"}</td>
+                                  </tr>
+                                ))}
+                                {enforcementRows.rows.length === 0 ? renderEmptyTableRow("No compliance activity yet.", 6) : null}
+                              </tbody>
+                            </table>
+                          </div>
+                          {renderPagination(enforcementRows.safePage, enforcementRows.totalPages, setEnforcementPage)}
+                        </CardContent>
+                      </Card>
+                    </div>
                   ) : null}
 
                   {activeSection === "announcements" ? <AdminAnnouncementsPanel /> : null}
@@ -2809,11 +3020,37 @@ export function AlphaExchangeAdminDashboard() {
                         </Card>
                         <Card className="border-white/10 bg-black/20">
                           <CardHeader>
-                            <CardTitle className="text-base">Commission Rules</CardTitle>
-                            <CardDescription>Current fee logic is tracked at 1% per completed trade.</CardDescription>
+                            <CardTitle className="text-base">Marketplace Compliance Recovery Wallet</CardTitle>
+                            <CardDescription>Configure once as owner. Every issued Marketplace Recovery Fee auto-populates from this wallet.</CardDescription>
                           </CardHeader>
-                          <CardContent className="pt-0 text-sm text-[#D1D5DB]">
-                            Total earned: <span className="text-white">{formatUsdt(data.summary.totalCommissionAmount)}</span>
+                          <CardContent className="space-y-3 pt-0 text-sm text-[#D1D5DB]">
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <select
+                                value={complianceWalletNetwork}
+                                onChange={(event) => setComplianceWalletNetwork(event.target.value as SupportedNetwork)}
+                                className="h-10 rounded-lg border border-white/15 bg-[#101010] px-3 text-white"
+                              >
+                                <option value="TRC20">TRC20</option>
+                                <option value="ERC20">ERC20</option>
+                                <option value="BEP20">BEP20</option>
+                                <option value="SOL">SOL</option>
+                              </select>
+                              <Input
+                                value={complianceWalletAddress}
+                                onChange={(event) => setComplianceWalletAddress(event.target.value)}
+                                placeholder="Platform recovery wallet address"
+                              />
+                            </div>
+                            <Button type="button" variant="secondary" onClick={() => void handleSaveComplianceRecoveryWallet()}>
+                              Save Recovery Wallet
+                            </Button>
+                            {data.complianceSettings?.recoveryWallet ? (
+                              <p className="text-xs text-[#9CA3AF]">
+                                Current: <span className="text-white">{data.complianceSettings.recoveryWallet.network}</span> • {data.complianceSettings.recoveryWallet.walletAddress}
+                              </p>
+                            ) : (
+                              <p className="text-xs text-amber-300">No recovery wallet configured yet.</p>
+                            )}
                           </CardContent>
                         </Card>
                       </CardContent>
