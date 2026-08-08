@@ -324,6 +324,8 @@ function helpMessage(siteUrl: string): RESTPostAPIChannelMessageJSONBody {
       "`/share` — open My Listings on the website; never publishes from Discord",
       "`/website` — official links",
       "",
+      `New here? Start with Alpha Academy: ${siteUrl}/en/academy`,
+      `Safety and rules: ${siteUrl}/en/safety-trust`,
       `Link your account and apply to become an Approved Seller: ${siteUrl}/en/settings`,
     ].join("\n"),
   };

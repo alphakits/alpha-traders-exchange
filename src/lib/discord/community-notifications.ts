@@ -124,12 +124,17 @@ export function buildDiscordWelcomeMessage(
     embeds: [{
       title: "Welcome to Alpha Traders",
       description:
-        "Connect your Discord account on the Alpha Traders website to unlock your verified community access.",
+        "Start safely: create or sign in to your official Alpha Traders account, link Discord, then learn the marketplace basics before trading.",
       color: DISCORD_MARKET_BRAND_COLOR,
       fields: [{
-        name: "Become an Approved Seller",
-        value:
-          "Complete your seller application on the website. Approval and marketplace access are managed only by Alpha Traders.",
+        name: "1 · Sign in and link Discord",
+        value: "Use the official website to create or sign in to your account, then link Discord and verify every seller, listing, and trade there.",
+      }, {
+        name: "2 · Learn before trading",
+        value: "Once signed in, use Alpha Academy and the Safety Center. Never send funds, passwords, recovery codes, or identity documents through Discord.",
+      }, {
+        name: "3 · Become an Approved Seller",
+        value: "Apply and manage listings on the website. Discord never approves sellers or creates trades.",
       }],
       footer: { text: "Alpha Traders • Trusted community access" },
     }],
@@ -143,8 +148,13 @@ export function buildDiscordWelcomeMessage(
       }, {
         type: 2,
         style: 5,
-        label: "Visit Alpha Traders",
-        url: siteUrl,
+        label: "Alpha Academy",
+        url: `${siteUrl}/en/academy`,
+      }, {
+        type: 2,
+        style: 5,
+        label: "Safety Center",
+        url: `${siteUrl}/en/safety-trust`,
       }],
     }],
   };
@@ -169,6 +179,10 @@ export function buildDiscordApprovedSellerMessage(input: {
         name: "Manage listings safely",
         value:
           "Create, edit, and share listings only from the website. Discord commands never publish or modify listing data.",
+      }, {
+        name: "Keep every trade on-platform",
+        value:
+          "Confirm buyers, listings, payment steps, and trade status on the official website. Ignore unsolicited Discord DMs.",
       }],
       footer: { text: "Alpha Traders • Approved Seller" },
     }],
@@ -184,6 +198,11 @@ export function buildDiscordApprovedSellerMessage(input: {
         style: 5,
         label: "Open Marketplace",
         url: `${siteUrl}/en/usdt-exchange`,
+      }, {
+        type: 2,
+        style: 5,
+        label: "Seller Academy",
+        url: `${siteUrl}/en/academy`,
       }],
     }],
   };

@@ -299,6 +299,10 @@ export function DiscordManagementDashboard() {
                 Aggregate health only. Discord mutations remain Railway-owned and no
                 Discord IDs, account data, raw payloads, or secrets are shown.
               </p>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-[#D8C98B]">
+                Monitoring and reconciliation only. Seller approvals, role decisions,
+                listings, payments, and trades stay in the authoritative website workflows.
+              </p>
             </div>
             <div
               className={`inline-flex min-h-11 shrink-0 items-center gap-2 self-start rounded-full border px-4 py-2 text-sm font-semibold ${statusClasses(diagnostics.status)}`}

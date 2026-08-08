@@ -122,6 +122,8 @@ describe("DiscordManagementDashboard", () => {
     expect(screen.getByText("Connected identities")).toBeTruthy();
     expect(screen.getByText("Guild Members intent is mandatory. Registered commands never mutate listings."))
       .toBeTruthy();
+    expect(screen.getByText(/Monitoring and reconciliation only/)).toBeTruthy();
+    expect(screen.getByText(/Seller approvals, role decisions/)).toBeTruthy();
     expect(screen.queryByLabelText(/channel id|message id|user id|cooldown reset/i))
       .toBeNull();
     const control = screen.getByRole("button", {

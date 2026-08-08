@@ -43,8 +43,16 @@ describe("Discord community notifications", () => {
     const serialized = JSON.stringify([welcome, approval]);
     expect(serialized).toContain("Welcome to Alpha Traders");
     expect(serialized).toContain("Approved Seller access unlocked");
+    expect(serialized).toContain("Alpha Academy");
+    expect(serialized).toContain("Safety Center");
+    expect(serialized).toContain("Keep every trade on-platform");
     expect(serialized).toContain("https://www.alphatraders.co.il");
     expect(serialized).not.toMatch(/email|wallet|interaction.token|platform_user_id/i);
+    expect(welcome.embeds?.[0]?.fields?.map((field) => field.name)).toEqual([
+      "1 · Sign in and link Discord",
+      "2 · Learn before trading",
+      "3 · Become an Approved Seller",
+    ]);
   });
 
   it("deduplicates reconnect copies by durable join generation and ignores bots", async () => {

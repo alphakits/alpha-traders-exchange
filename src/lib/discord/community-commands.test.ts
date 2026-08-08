@@ -648,6 +648,63 @@ describe("Discord community commands", () => {
     }));
   });
 
+  it("links accepted help responses to the authoritative Academy and Safety Center", async () => {
+    const client = {
+      query: vi.fn(async (sql: string) => {
+        if (
+          sql.includes("discord_interaction_claims")
+          && sql.includes("select 1")
+        ) {
+          return result([]);
+        }
+        if (
+          sql.includes("discord_command_rate_limits")
+          && sql.includes("for update")
+        ) {
+          return result([]);
+        }
+        return result([], 1);
+      }),
+      release: vi.fn(),
+    } as unknown as PoolClient;
+    const editReply = vi.fn();
+    const service = new DiscordCommunityCommandService({
+      pool: {
+        connect: vi.fn(async () => client),
+        query: vi.fn(),
+      } as unknown as Pool,
+      gateway: gatewayFixture(),
+      token: "test-token",
+      applicationId,
+      guildId,
+      siteUrl: "https://www.alphatraders.co.il",
+      rest: {} as REST,
+    });
+    const interaction = {
+      applicationId,
+      guildId,
+      commandName: "help",
+      id: "4".repeat(18),
+      user: { id: userId },
+      options: { getString: vi.fn(() => null) },
+      deferReply: vi.fn(async () => undefined),
+      editReply,
+    } as unknown as ChatInputCommandInteraction;
+
+    await service.handle(interaction);
+
+    expect(editReply).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.stringContaining(
+        "https://www.alphatraders.co.il/en/academy",
+      ),
+    }));
+    expect(editReply).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.stringContaining(
+        "https://www.alphatraders.co.il/en/safety-trust",
+      ),
+    }));
+  });
+
   it("bounds the initial defer window before any database work", async () => {
     vi.useFakeTimers();
     const pool = {

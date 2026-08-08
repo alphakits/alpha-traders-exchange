@@ -82,6 +82,7 @@ type ApiChannel = {
   type: number;
   name: string;
   parent_id: string | null;
+  topic?: string | null;
   position?: number;
   permission_overwrites?: PermissionOverwrite[];
 };
@@ -142,7 +143,7 @@ const RESOURCE_DEFINITIONS: readonly ResourceDefinition[] = [
     resourceType: "text_channel",
     parentKey: "seller_category",
     sortOrder: 0,
-    topic: "Private conversation space for approved Alpha Traders sellers.",
+    topic: "Shared approved-seller lounge. Do not post buyer identities, payment details, wallets, private documents, or off-platform trade arrangements.",
     permissionProfile: "seller_writable",
   },
   {
@@ -166,7 +167,7 @@ const RESOURCE_DEFINITIONS: readonly ResourceDefinition[] = [
     resourceType: "text_channel",
     parentKey: "seller_category",
     sortOrder: 3,
-    topic: "Community chat for approved Alpha Traders sellers.",
+    topic: "Approved-seller community chat. Never share buyer data, payment details, wallets, private documents, or off-platform trade arrangements.",
     permissionProfile: "seller_writable",
   },
   {
@@ -182,7 +183,7 @@ const RESOURCE_DEFINITIONS: readonly ResourceDefinition[] = [
     resourceType: "text_channel",
     parentKey: "seller_category",
     sortOrder: 5,
-    topic: "Private support channel for approved sellers.",
+    topic: "Shared support for Approved Sellers. Ask operational questions only; never post buyer data, payment details, wallets, or identity documents.",
     permissionProfile: "seller_writable",
   },
   {
@@ -190,7 +191,7 @@ const RESOURCE_DEFINITIONS: readonly ResourceDefinition[] = [
     resourceType: "text_channel",
     parentKey: "seller_category",
     sortOrder: 6,
-    topic: "Approved sellers can share marketplace milestones and successes.",
+    topic: "Approved sellers can share privacy-safe marketplace milestones. Never identify buyers or expose payment, wallet, document, or private trade data.",
     permissionProfile: "seller_writable",
   },
   {
@@ -229,7 +230,7 @@ const RESOURCE_DEFINITIONS: readonly ResourceDefinition[] = [
     resourceType: "text_channel",
     parentKey: "marketplace_category",
     sortOrder: 3,
-    topic: "Public buyer support chat for Alpha Traders marketplace questions.",
+    topic: "Marketplace guidance only. Never send payments, wallet details, identity documents, or arrange off-platform trades in Discord.",
     permissionProfile: "public_support",
   },
 ];
@@ -921,6 +922,7 @@ export class DiscordRestResourceManager implements DiscordResourceManager {
     const patchBody: {
       name?: string;
       parent_id?: string | null;
+      topic?: string;
       permission_overwrites?: PermissionOverwrite[];
     } = {
       ...(input.channel.name !== input.displayName
@@ -928,6 +930,10 @@ export class DiscordRestResourceManager implements DiscordResourceManager {
         : {}),
       ...(input.channel.parent_id !== expectedParent
         ? { parent_id: expectedParent }
+        : {}),
+      ...(input.definition.resourceType === "text_channel"
+        && input.channel.topic !== input.definition.topic
+        ? { topic: input.definition.topic }
         : {}),
     };
     if (permissionsChanged) {
