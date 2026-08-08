@@ -32,15 +32,9 @@ const unrelatedRoleId = "555555555555555555";
 const moderatorRoleId = "555555555555555556";
 const additionalBotRoleId = "555555555555555557";
 const requiredBotPermissions = DISCORD_LAYER_A_WITH_MANAGE_ROLES_BITSET;
-const displayNames: DiscordResourceDisplayNames = {
-  seller_category: "ALPHA SELLER SUITE",
-  seller_lounge: "seller-lounge",
-  seller_announcements: "seller-announcements",
-  seller_updates: "seller-updates",
-  seller_guides: "seller-guides",
-  seller_support: "seller-support",
-  marketplace_listings: "marketplace-listings",
-};
+const displayNames: DiscordResourceDisplayNames =
+  readDiscordResourceDisplayNames({});
+const managedResourceCount = 13;
 const provisioningToken = "123e4567-e89b-42d3-a456-426614174000";
 
 function seededPersisted(): Partial<
@@ -64,6 +58,7 @@ type FakeChannel = {
   type: number;
   name: string;
   parent_id: string | null;
+  position?: number;
   permission_overwrites: Array<{
     id: string;
     type: number;
@@ -168,6 +163,7 @@ function fakeDiscord(input: {
       type: options.body.type as number,
       name: options.body.name as string,
       parent_id: (options.body.parent_id as string | undefined) ?? null,
+      position: channels.length,
       permission_overwrites: structuredClone(
         options.body.permission_overwrites as FakeChannel["permission_overwrites"],
       ),
@@ -176,12 +172,25 @@ function fakeDiscord(input: {
     return created;
   });
   const patch = vi.fn(async (route: string, options: {
-    body: {
+    body: Array<{
+      id: string;
+      position: number;
+      parent_id: string;
+    }> | {
       name?: string;
       parent_id?: string | null;
       permission_overwrites?: FakeChannel["permission_overwrites"];
     };
   }) => {
+    if (Array.isArray(options.body)) {
+      for (const update of options.body) {
+        const channel = channels.find((candidate) => candidate.id === update.id);
+        if (!channel) throw new Error(`Unknown channel ${update.id}`);
+        channel.position = update.position;
+        channel.parent_id = update.parent_id;
+      }
+      return channels;
+    }
     const channel = channels.find((candidate) => route.endsWith(candidate.id));
     if (!channel) throw new Error(`Unknown channel ${route}`);
     if (input.patchErrorCode) {
@@ -248,8 +257,8 @@ function overwrite(channel: FakeChannel, id: string) {
   return value!;
 }
 
-describe("Discord seller resource manager", () => {
-  it("provisions every Layer A resource once and repeats idempotently", async () => {
+describe("Discord managed resource manager", () => {
+  it("provisions every Phase C1 resource once and repeats idempotently", async () => {
     const discord = fakeDiscord();
     const manager = new DiscordRestResourceManager({
       token: "bot-token",
@@ -269,11 +278,11 @@ describe("Discord seller resource manager", () => {
       displayNames,
     });
 
-    expect(first).toHaveLength(7);
+    expect(first).toHaveLength(managedResourceCount);
     expect(first.every((resource) => resource.action === "created")).toBe(true);
     expect(second.every((resource) => resource.action === "verified")).toBe(true);
-    expect(discord.rest.post).toHaveBeenCalledTimes(7);
-    expect(patchCallsAfterFirst).toBe(7);
+    expect(discord.rest.post).toHaveBeenCalledTimes(managedResourceCount);
+    expect(patchCallsAfterFirst).toBe(managedResourceCount);
     expect(discord.rest.patch).toHaveBeenCalledTimes(patchCallsAfterFirst);
     expect(discord.rest.put).not.toHaveBeenCalled();
   });
@@ -295,8 +304,8 @@ describe("Discord seller resource manager", () => {
       displayNames,
     });
 
-    expect(resources).toHaveLength(7);
-    expect(discord.rest.post).toHaveBeenCalledTimes(7);
+    expect(resources).toHaveLength(managedResourceCount);
+    expect(discord.rest.post).toHaveBeenCalledTimes(managedResourceCount);
   });
 
   it("fails before mutation when a non-staff guild role can bypass unsettable denies", async () => {
@@ -383,9 +392,9 @@ describe("Discord seller resource manager", () => {
 
     expect(recovered.find((resource) => resource.key === "seller_category"))
       .toMatchObject({ action: "recovered" });
-    expect(discord.rest.post).toHaveBeenCalledTimes(7);
+    expect(discord.rest.post).toHaveBeenCalledTimes(managedResourceCount);
     expect(discord.channels.filter((channel) =>
-      channel.type === ChannelType.GuildCategory)).toHaveLength(1);
+      channel.type === ChannelType.GuildCategory)).toHaveLength(2);
   });
 
   it("applies exact private, read-only, writable, and bot-only public permissions", async () => {
@@ -402,13 +411,114 @@ describe("Discord seller resource manager", () => {
     });
 
     const category = discord.channels.find((channel) =>
-      channel.type === ChannelType.GuildCategory)!;
+      channel.name === displayNames.seller_category)!;
+    const marketplaceCategory = discord.channels.find((channel) =>
+      channel.name === displayNames.marketplace_category)!;
     const lounge = discord.channels.find((channel) =>
       channel.name === displayNames.seller_lounge)!;
     const announcements = discord.channels.find((channel) =>
       channel.name === displayNames.seller_announcements)!;
     const marketplace = discord.channels.find((channel) =>
       channel.name === displayNames.marketplace_listings)!;
+    const activity = discord.channels.find((channel) =>
+      channel.name === displayNames.market_activity)!;
+    const pulse = discord.channels.find((channel) =>
+      channel.name === displayNames.live_market_pulse)!;
+    const buyerSupport = discord.channels.find((channel) =>
+      channel.name === displayNames.buyer_support)!;
+    const viewAndRead =
+      PermissionFlagsBits.ViewChannel | PermissionFlagsBits.ReadMessageHistory;
+    const botManageable =
+      PermissionFlagsBits.ManageChannels
+      | PermissionFlagsBits.ManageMessages
+      | PermissionFlagsBits.UseExternalApps;
+    const userPosting =
+      PermissionFlagsBits.SendMessages
+      | PermissionFlagsBits.AddReactions
+      | PermissionFlagsBits.CreatePublicThreads
+      | PermissionFlagsBits.CreatePrivateThreads
+      | PermissionFlagsBits.SendMessagesInThreads
+      | PermissionFlagsBits.UseApplicationCommands
+      | PermissionFlagsBits.SendVoiceMessages
+      | PermissionFlagsBits.SendPolls
+      | botManageable;
+    const writableDeny = userPosting & ~(
+      PermissionFlagsBits.SendMessages | PermissionFlagsBits.AddReactions
+    );
+    const botPublish =
+      viewAndRead
+      | PermissionFlagsBits.ManageChannels
+      | PermissionFlagsBits.SendMessages
+      | PermissionFlagsBits.EmbedLinks
+      | PermissionFlagsBits.ManageMessages;
+
+    expect(overwrite(category, guildId)).toMatchObject({
+      allow: "0",
+      deny: (
+        PermissionFlagsBits.ViewChannel | PermissionFlagsBits.ManageChannels
+      ).toString(),
+    });
+    expect(overwrite(category, approvedRoleId)).toMatchObject({
+      allow: viewAndRead.toString(),
+      deny: PermissionFlagsBits.ManageChannels.toString(),
+    });
+    expect(overwrite(category, botId)).toMatchObject({
+      allow: (
+        viewAndRead | PermissionFlagsBits.ManageChannels
+      ).toString(),
+      deny: "0",
+    });
+    for (const publicBotOnly of [
+      marketplaceCategory,
+      marketplace,
+      activity,
+      pulse,
+    ]) {
+      expect(overwrite(publicBotOnly, guildId)).toMatchObject({
+        allow: viewAndRead.toString(),
+        deny: userPosting.toString(),
+      });
+      expect(overwrite(publicBotOnly, approvedRoleId)).toMatchObject({
+        allow: viewAndRead.toString(),
+        deny: userPosting.toString(),
+      });
+      expect(overwrite(publicBotOnly, botId)).toMatchObject({
+        allow: botPublish.toString(),
+        deny: "0",
+      });
+    }
+    expect(overwrite(lounge, guildId)).toMatchObject({
+      allow: "0",
+      deny: (
+        PermissionFlagsBits.ViewChannel | botManageable
+      ).toString(),
+    });
+    expect(overwrite(lounge, approvedRoleId)).toMatchObject({
+      allow: (
+        viewAndRead | PermissionFlagsBits.SendMessages
+      ).toString(),
+      deny: writableDeny.toString(),
+    });
+    expect(overwrite(announcements, approvedRoleId)).toMatchObject({
+      allow: viewAndRead.toString(),
+      deny: userPosting.toString(),
+    });
+    expect(overwrite(buyerSupport, guildId)).toMatchObject({
+      allow: (
+        viewAndRead | PermissionFlagsBits.SendMessages
+      ).toString(),
+      deny: writableDeny.toString(),
+    });
+    expect(overwrite(buyerSupport, approvedRoleId)).toMatchObject({
+      allow: (
+        viewAndRead | PermissionFlagsBits.SendMessages
+      ).toString(),
+      deny: writableDeny.toString(),
+    });
+    expect(overwrite(buyerSupport, botId)).toMatchObject({
+      allow: botPublish.toString(),
+      deny: "0",
+    });
 
     expect(BigInt(overwrite(category, guildId).deny)
       & PermissionFlagsBits.ViewChannel).toBe(PermissionFlagsBits.ViewChannel);
@@ -438,6 +548,41 @@ describe("Discord seller resource manager", () => {
       & PermissionFlagsBits.ManageRoles).toBe(BigInt(0));
     expect(BigInt(overwrite(marketplace, botId).allow)
       & PermissionFlagsBits.ManageChannels).toBe(PermissionFlagsBits.ManageChannels);
+    for (const botOnly of [marketplace, activity, pulse]) {
+      const everyone = overwrite(botOnly, guildId);
+      expect(BigInt(everyone.allow)).toBe(
+        PermissionFlagsBits.ViewChannel | PermissionFlagsBits.ReadMessageHistory,
+      );
+      expect(BigInt(everyone.deny) & (
+        PermissionFlagsBits.SendMessages
+        | PermissionFlagsBits.CreatePublicThreads
+        | PermissionFlagsBits.CreatePrivateThreads
+        | PermissionFlagsBits.SendMessagesInThreads
+      )).toBe(
+        PermissionFlagsBits.SendMessages
+        | PermissionFlagsBits.CreatePublicThreads
+        | PermissionFlagsBits.CreatePrivateThreads
+        | PermissionFlagsBits.SendMessagesInThreads,
+      );
+    }
+    expect(BigInt(overwrite(buyerSupport, guildId).allow)).toBe(
+      PermissionFlagsBits.ViewChannel
+      | PermissionFlagsBits.ReadMessageHistory
+      | PermissionFlagsBits.SendMessages,
+    );
+    expect(BigInt(overwrite(buyerSupport, guildId).deny) & (
+      PermissionFlagsBits.ManageChannels
+      | PermissionFlagsBits.ManageMessages
+      | PermissionFlagsBits.CreatePublicThreads
+      | PermissionFlagsBits.CreatePrivateThreads
+      | PermissionFlagsBits.SendMessagesInThreads
+    )).toBe(
+      PermissionFlagsBits.ManageChannels
+      | PermissionFlagsBits.ManageMessages
+      | PermissionFlagsBits.CreatePublicThreads
+      | PermissionFlagsBits.CreatePrivateThreads
+      | PermissionFlagsBits.SendMessagesInThreads,
+    );
     const liveEveryonePermissions = BigInt("2248473465619009");
     const marketplaceEveryone = overwrite(marketplace, guildId);
     const ordinaryMarketplacePermissions =
@@ -520,7 +665,82 @@ describe("Discord seller resource manager", () => {
       .toMatchObject({ action: "created" });
     expect(reconciled.find((resource) => resource.key === "seller_guides")?.discordId)
       .not.toBe(staleId);
-    expect(discord.rest.post).toHaveBeenCalledTimes(8);
+    expect(discord.rest.post).toHaveBeenCalledTimes(managedResourceCount + 1);
+  });
+
+  it("preserves accepted IDs and reconciles only managed channel ordering", async () => {
+    const discord = fakeDiscord();
+    const unrelatedId = "888888888888888888";
+    discord.channels.push({
+      id: unrelatedId,
+      type: ChannelType.GuildText,
+      name: "unrelated-community-channel",
+      parent_id: null,
+      position: 99,
+      permission_overwrites: [],
+    });
+    const manager = new DiscordRestResourceManager({
+      token: "bot-token",
+      guildId,
+      rest: discord.rest as unknown as REST,
+    });
+    const first = await manager.reconcileResources({
+      persisted: seededPersisted(),
+      approvedSellerRoleId: approvedRoleId,
+      displayNames,
+    });
+    const acceptedIds = new Map(first.map((resource) => [
+      resource.key,
+      resource.discordId,
+    ]));
+    const marketplaceChildren = [
+      "marketplace_listings",
+      "market_activity",
+      "live_market_pulse",
+      "buyer_support",
+    ] as const;
+    const sellerChildren = [
+      "seller_lounge",
+      "seller_announcements",
+      "seller_updates",
+      "seller_chat",
+      "seller_guides",
+      "seller_support",
+      "share_your_success",
+    ] as const;
+    for (const [index, key] of [...marketplaceChildren].reverse().entries()) {
+      discord.channels.find((channel) =>
+        channel.id === acceptedIds.get(key))!.position = index;
+    }
+    for (const [index, key] of [...sellerChildren].reverse().entries()) {
+      discord.channels.find((channel) =>
+        channel.id === acceptedIds.get(key))!.position = index;
+    }
+    const patchCallsBeforeRepair = discord.rest.patch.mock.calls.length;
+
+    const repaired = await manager.reconcileResources({
+      persisted: persistedFrom(first),
+      approvedSellerRoleId: approvedRoleId,
+      displayNames,
+    });
+
+    expect(new Map(repaired.map((resource) => [
+      resource.key,
+      resource.discordId,
+    ]))).toEqual(acceptedIds);
+    expect(discord.rest.post).toHaveBeenCalledTimes(managedResourceCount);
+    const orderingCalls = discord.rest.patch.mock.calls
+      .slice(patchCallsBeforeRepair)
+      .filter(([, options]) => Array.isArray(options.body));
+    expect(orderingCalls).toHaveLength(1);
+    const orderedIds = orderingCalls[0]![1].body as Array<{ id: string }>;
+    expect(orderedIds.map((entry) => entry.id)).not.toContain(unrelatedId);
+    expect(orderedIds.map((entry) => entry.id)).toEqual([
+      ...sellerChildren.map((key) => acceptedIds.get(key)!),
+      ...marketplaceChildren.map((key) => acceptedIds.get(key)!),
+    ]);
+    expect(discord.channels.find((channel) => channel.id === unrelatedId))
+      .toMatchObject({ position: 99, parent_id: null });
   });
 
   it("never adopts or mutates an unrelated same-name channel", async () => {
@@ -641,8 +861,12 @@ describe("Discord seller resource manager", () => {
     });
     const announcements = discord.channels.find((channel) =>
       channel.name === displayNames.seller_announcements)!;
+    const lounge = discord.channels.find((channel) =>
+      channel.name === displayNames.seller_lounge)!;
     const marketplace = discord.channels.find((channel) =>
       channel.name === displayNames.marketplace_listings)!;
+    const buyerSupport = discord.channels.find((channel) =>
+      channel.name === displayNames.buyer_support)!;
     const legacyMemberId = "777777777777777777";
     for (const channel of [announcements, marketplace]) {
       channel.permission_overwrites.push({
@@ -671,6 +895,35 @@ describe("Discord seller resource manager", () => {
         deny: "0",
       });
     }
+    buyerSupport.permission_overwrites.push({
+      id: legacyMemberId,
+      type: 1,
+      allow: (
+        PermissionFlagsBits.SendMessages
+        | PermissionFlagsBits.CreatePublicThreads
+        | PermissionFlagsBits.CreatePrivateThreads
+        | PermissionFlagsBits.SendMessagesInThreads
+        | PermissionFlagsBits.UseApplicationCommands
+        | PermissionFlagsBits.SendVoiceMessages
+        | PermissionFlagsBits.SendPolls
+        | PermissionFlagsBits.UseExternalEmojis
+      ).toString(),
+      deny: "0",
+    });
+    lounge.permission_overwrites.push({
+      id: legacyMemberId,
+      type: 1,
+      allow: (
+        PermissionFlagsBits.CreatePublicThreads
+        | PermissionFlagsBits.CreatePrivateThreads
+        | PermissionFlagsBits.SendMessagesInThreads
+        | PermissionFlagsBits.UseApplicationCommands
+        | PermissionFlagsBits.SendVoiceMessages
+        | PermissionFlagsBits.SendPolls
+        | PermissionFlagsBits.UseExternalEmojis
+      ).toString(),
+      deny: "0",
+    });
 
     await manager.reconcileResources({
       persisted: persistedFrom(first),
@@ -686,6 +939,12 @@ describe("Discord seller resource manager", () => {
       .toBe(PermissionFlagsBits.ViewChannel | PermissionFlagsBits.SendMessages);
     expect(BigInt(overwrite(marketplace, moderatorRoleId).allow))
       .toBe(PermissionFlagsBits.ViewChannel | PermissionFlagsBits.SendMessages);
+    expect(BigInt(overwrite(buyerSupport, legacyMemberId).allow)).toBe(
+      PermissionFlagsBits.SendMessages | PermissionFlagsBits.UseExternalEmojis,
+    );
+    expect(BigInt(overwrite(lounge, legacyMemberId).allow)).toBe(
+      PermissionFlagsBits.UseExternalEmojis,
+    );
   });
 
   it("atomically removes unsettable untrusted drift without resending rejected bits", async () => {
@@ -932,5 +1191,22 @@ describe("Discord seller resource manager", () => {
       DISCORD_SELLER_LOUNGE_CHANNEL_NAME: "duplicate-channel",
       DISCORD_SELLER_SUPPORT_CHANNEL_NAME: "duplicate-channel",
     })).toThrow("Discord channel display names");
+  });
+
+  it("uses the exact requested Phase C1 display names", () => {
+    expect(readDiscordResourceDisplayNames({})).toMatchObject({
+      seller_category: "🛡️ Seller Lounge",
+      seller_announcements: "📢 seller-announcements",
+      seller_updates: "seller-updates",
+      seller_chat: "💬 seller-chat",
+      seller_guides: "📚 seller-guides",
+      seller_support: "❓ seller-support",
+      share_your_success: "🚀 share-your-success",
+      marketplace_category: "💰 Alpha Exchange",
+      marketplace_listings: "📢 marketplace-listings",
+      market_activity: "📈 market-activity",
+      live_market_pulse: "🔥 live-market-pulse",
+      buyer_support: "💬 buyer-support",
+    });
   });
 });

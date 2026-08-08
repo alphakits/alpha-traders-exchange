@@ -133,7 +133,8 @@ same repository.
 
 Apply `supabase/migrations/20260807190000_discord_seller_resources.sql`, then
 `supabase/migrations/20260807210000_discord_resource_reconciliation_lease.sql`,
-before deploying this worker version. This lease upgrade is not rolling-safe
+then `supabase/migrations/20260808070000_discord_channel_topology.sql` before
+deploying this worker version. The lease upgrade is not rolling-safe
 with the first Layer A worker: scale the Railway worker to zero, apply the lease
 migration, deploy the new image, then start exactly one replica. The required
 Layer A channel permission bitset is `93200`; combined with the existing Manage
@@ -142,12 +143,13 @@ grant Administrator.
 
 The Railway worker owns the process-global `discord.js` singleton, login,
 Discord-managed reconnect/resume, application-ID verification, forced guild API
-fetch, managed seller resource reconciliation, and graceful `SIGINT`/`SIGTERM`
-shutdown. Seller resources use stable database keys and persisted Discord IDs;
-the worker repairs owned names, parents, and permission bits without deleting,
-reordering, or replacing unrelated guild resources and overwrites. It preserves
-non-conflicting overwrite bits while removing legacy untrusted visibility or
-posting allows that would bypass the Approved Seller and bot-only boundaries.
+fetch, managed channel reconciliation, and graceful `SIGINT`/`SIGTERM`
+shutdown. The 13 managed resources use stable database keys and persisted
+Discord IDs. The worker repairs owned names, parents, deterministic child
+ordering, and permission bits without deleting or replacing unrelated guild
+resources. It preserves non-conflicting overwrite bits while removing legacy
+untrusted visibility or posting allows that would bypass Approved Seller,
+bot-only, or buyer-support boundaries.
 
 Railway probes `GET /health/live`, which returns only generic process liveness.
 Detailed `GET /health/ready` diagnostics require a short-lived HMAC signature

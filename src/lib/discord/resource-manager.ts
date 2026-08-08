@@ -18,9 +18,15 @@ export const DISCORD_MANAGED_RESOURCE_KEYS = [
   "seller_lounge",
   "seller_announcements",
   "seller_updates",
+  "seller_chat",
   "seller_guides",
   "seller_support",
+  "share_your_success",
+  "marketplace_category",
   "marketplace_listings",
+  "market_activity",
+  "live_market_pulse",
+  "buyer_support",
 ] as const;
 
 export type DiscordManagedResourceKey =
@@ -76,6 +82,7 @@ type ApiChannel = {
   type: number;
   name: string;
   parent_id: string | null;
+  position?: number;
   permission_overwrites?: PermissionOverwrite[];
 };
 
@@ -107,10 +114,19 @@ type ManagedOverwrite = {
 type ResourceDefinition = {
   key: DiscordManagedResourceKey;
   resourceType: DiscordManagedResourceType;
-  parentKey: "seller_category" | null;
+  parentKey: Extract<
+    DiscordManagedResourceKey,
+    "seller_category" | "marketplace_category"
+  > | null;
+  sortOrder: number;
   topic?: string;
-  sellerCanSend: boolean;
-  publicRead: boolean;
+  permissionProfile:
+    | "seller_category"
+    | "seller_read_only"
+    | "seller_writable"
+    | "public_category"
+    | "public_bot_only"
+    | "public_support";
 };
 
 const RESOURCE_DEFINITIONS: readonly ResourceDefinition[] = [
@@ -118,67 +134,120 @@ const RESOURCE_DEFINITIONS: readonly ResourceDefinition[] = [
     key: "seller_category",
     resourceType: "category",
     parentKey: null,
-    sellerCanSend: false,
-    publicRead: false,
+    sortOrder: 0,
+    permissionProfile: "seller_category",
   },
   {
     key: "seller_lounge",
     resourceType: "text_channel",
     parentKey: "seller_category",
+    sortOrder: 0,
     topic: "Private conversation space for approved Alpha Traders sellers.",
-    sellerCanSend: true,
-    publicRead: false,
+    permissionProfile: "seller_writable",
   },
   {
     key: "seller_announcements",
     resourceType: "text_channel",
     parentKey: "seller_category",
+    sortOrder: 1,
     topic: "Official announcements for approved Alpha Traders sellers.",
-    sellerCanSend: false,
-    publicRead: false,
+    permissionProfile: "seller_read_only",
   },
   {
     key: "seller_updates",
     resourceType: "text_channel",
     parentKey: "seller_category",
+    sortOrder: 2,
     topic: "Operational and marketplace updates for approved sellers.",
-    sellerCanSend: false,
-    publicRead: false,
+    permissionProfile: "seller_read_only",
+  },
+  {
+    key: "seller_chat",
+    resourceType: "text_channel",
+    parentKey: "seller_category",
+    sortOrder: 3,
+    topic: "Community chat for approved Alpha Traders sellers.",
+    permissionProfile: "seller_writable",
   },
   {
     key: "seller_guides",
     resourceType: "text_channel",
     parentKey: "seller_category",
+    sortOrder: 4,
     topic: "Approved seller guides and operating standards.",
-    sellerCanSend: false,
-    publicRead: false,
+    permissionProfile: "seller_read_only",
   },
   {
     key: "seller_support",
     resourceType: "text_channel",
     parentKey: "seller_category",
+    sortOrder: 5,
     topic: "Private support channel for approved sellers.",
-    sellerCanSend: true,
-    publicRead: false,
+    permissionProfile: "seller_writable",
+  },
+  {
+    key: "share_your_success",
+    resourceType: "text_channel",
+    parentKey: "seller_category",
+    sortOrder: 6,
+    topic: "Approved sellers can share marketplace milestones and successes.",
+    permissionProfile: "seller_writable",
+  },
+  {
+    key: "marketplace_category",
+    resourceType: "category",
+    parentKey: null,
+    sortOrder: 0,
+    permissionProfile: "public_category",
   },
   {
     key: "marketplace_listings",
     resourceType: "text_channel",
-    parentKey: null,
+    parentKey: "marketplace_category",
+    sortOrder: 0,
     topic: "Automated Alpha Traders marketplace listings. Posting is bot-only.",
-    sellerCanSend: false,
-    publicRead: true,
+    permissionProfile: "public_bot_only",
+  },
+  {
+    key: "market_activity",
+    resourceType: "text_channel",
+    parentKey: "marketplace_category",
+    sortOrder: 1,
+    topic: "Reserved bot-only feed for Alpha Traders marketplace activity.",
+    permissionProfile: "public_bot_only",
+  },
+  {
+    key: "live_market_pulse",
+    resourceType: "text_channel",
+    parentKey: "marketplace_category",
+    sortOrder: 2,
+    topic: "Reserved bot-only singleton feed for the live market pulse.",
+    permissionProfile: "public_bot_only",
+  },
+  {
+    key: "buyer_support",
+    resourceType: "text_channel",
+    parentKey: "marketplace_category",
+    sortOrder: 3,
+    topic: "Public buyer support chat for Alpha Traders marketplace questions.",
+    permissionProfile: "public_support",
   },
 ];
 
 const DEFAULT_DISPLAY_NAMES: DiscordResourceDisplayNames = {
-  seller_category: "ALPHA SELLER SUITE",
+  seller_category: "🛡️ Seller Lounge",
   seller_lounge: "seller-lounge",
-  seller_announcements: "seller-announcements",
+  seller_announcements: "📢 seller-announcements",
   seller_updates: "seller-updates",
-  seller_guides: "seller-guides",
-  seller_support: "seller-support",
-  marketplace_listings: "marketplace-listings",
+  seller_chat: "💬 seller-chat",
+  seller_guides: "📚 seller-guides",
+  seller_support: "❓ seller-support",
+  share_your_success: "🚀 share-your-success",
+  marketplace_category: "💰 Alpha Exchange",
+  marketplace_listings: "📢 marketplace-listings",
+  market_activity: "📈 market-activity",
+  live_market_pulse: "🔥 live-market-pulse",
+  buyer_support: "💬 buyer-support",
 };
 
 const DISPLAY_NAME_ENV: Record<DiscordManagedResourceKey, string> = {
@@ -186,9 +255,15 @@ const DISPLAY_NAME_ENV: Record<DiscordManagedResourceKey, string> = {
   seller_lounge: "DISCORD_SELLER_LOUNGE_CHANNEL_NAME",
   seller_announcements: "DISCORD_SELLER_ANNOUNCEMENTS_CHANNEL_NAME",
   seller_updates: "DISCORD_SELLER_UPDATES_CHANNEL_NAME",
+  seller_chat: "DISCORD_SELLER_CHAT_CHANNEL_NAME",
   seller_guides: "DISCORD_SELLER_GUIDES_CHANNEL_NAME",
   seller_support: "DISCORD_SELLER_SUPPORT_CHANNEL_NAME",
+  share_your_success: "DISCORD_SELLER_SUCCESS_CHANNEL_NAME",
+  marketplace_category: "DISCORD_MARKETPLACE_CATEGORY_NAME",
   marketplace_listings: "DISCORD_MARKETPLACE_LISTINGS_CHANNEL_NAME",
+  market_activity: "DISCORD_MARKET_ACTIVITY_CHANNEL_NAME",
+  live_market_pulse: "DISCORD_LIVE_MARKET_PULSE_CHANNEL_NAME",
+  buyer_support: "DISCORD_BUYER_SUPPORT_CHANNEL_NAME",
 };
 
 const VIEW_AND_READ =
@@ -215,16 +290,22 @@ const BOT_UNMANAGEABLE_OVERWRITE_PERMISSIONS =
 const BOT_MANAGEABLE_PRIVILEGE_ESCALATION_PERMISSIONS =
   PRIVILEGE_ESCALATION_PERMISSIONS
   & ~BOT_UNMANAGEABLE_OVERWRITE_PERMISSIONS;
-const USER_POSTING =
+const MEMBER_CHAT =
   PermissionFlagsBits.SendMessages
-  | PermissionFlagsBits.AddReactions
   | PermissionFlagsBits.CreatePublicThreads
   | PermissionFlagsBits.CreatePrivateThreads
-  | PermissionFlagsBits.SendMessagesInThreads
+  | PermissionFlagsBits.SendMessagesInThreads;
+const USER_POSTING =
+  MEMBER_CHAT
+  | PermissionFlagsBits.AddReactions
   | PermissionFlagsBits.UseApplicationCommands
   | PermissionFlagsBits.SendVoiceMessages
   | PermissionFlagsBits.SendPolls
   | BOT_MANAGEABLE_PRIVILEGE_ESCALATION_PERMISSIONS;
+const WRITABLE_CHANNEL_DENY =
+  (USER_POSTING & ~(
+    PermissionFlagsBits.SendMessages | PermissionFlagsBits.AddReactions
+  ));
 const MANAGED_PERMISSION_MASK =
   VIEW_AND_READ
   | BOT_PUBLISH
@@ -317,9 +398,10 @@ export function readDiscordResourceDisplayNames(
     const variable = DISPLAY_NAME_ENV[key];
     const configured = env[variable]?.trim();
     const name = configured || DEFAULT_DISPLAY_NAMES[key];
-    const valid = key === "seller_category"
-      ? name.length >= 1 && name.length <= 100
-      : /^[a-z0-9][a-z0-9_-]{0,99}$/.test(name);
+    const valid =
+      name.length >= 1
+      && name.length <= 100
+      && !/[\u0000-\u001f\u007f]/.test(name);
     if (!valid) throw new DiscordResourceConfigurationError(variable);
     return [key, name] as const;
   });
@@ -400,12 +482,24 @@ function hasTrustedStaffRolePermission(role: ApiRole): boolean {
 function unsafeUntrustedAllowMask(
   definition: ResourceDefinition,
 ): bigint {
-  if (definition.publicRead) {
+  if (
+    definition.permissionProfile === "public_bot_only"
+    || definition.permissionProfile === "public_category"
+  ) {
     return USER_POSTING | BOT_UNMANAGEABLE_OVERWRITE_PERMISSIONS;
   }
-  if (definition.resourceType === "category" || definition.sellerCanSend) {
+  if (definition.permissionProfile === "public_support") {
+    return WRITABLE_CHANNEL_DENY
+      | BOT_UNMANAGEABLE_OVERWRITE_PERMISSIONS;
+  }
+  if (definition.permissionProfile === "seller_category") {
     return PermissionFlagsBits.ViewChannel
-      | PRIVILEGE_ESCALATION_PERMISSIONS
+      | USER_POSTING
+      | BOT_UNMANAGEABLE_OVERWRITE_PERMISSIONS;
+  }
+  if (definition.permissionProfile === "seller_writable") {
+    return PermissionFlagsBits.ViewChannel
+      | WRITABLE_CHANNEL_DENY
       | BOT_UNMANAGEABLE_OVERWRITE_PERMISSIONS;
   }
   return PermissionFlagsBits.ViewChannel
@@ -420,7 +514,10 @@ export function managedResourceOverwrites(input: {
   botId: string;
 }): ManagedOverwrite[] {
   const { definition, guildId, approvedSellerRoleId, botId } = input;
-  if (definition.publicRead) {
+  if (
+    definition.permissionProfile === "public_category"
+    || definition.permissionProfile === "public_bot_only"
+  ) {
     return [
       { id: guildId, type: 0, allow: VIEW_AND_READ, deny: USER_POSTING },
       {
@@ -433,7 +530,25 @@ export function managedResourceOverwrites(input: {
     ];
   }
 
-  if (definition.resourceType === "category") {
+  if (definition.permissionProfile === "public_support") {
+    return [
+      {
+        id: guildId,
+        type: 0,
+        allow: VIEW_AND_READ | PermissionFlagsBits.SendMessages,
+        deny: WRITABLE_CHANNEL_DENY,
+      },
+      {
+        id: approvedSellerRoleId,
+        type: 0,
+        allow: VIEW_AND_READ | PermissionFlagsBits.SendMessages,
+        deny: WRITABLE_CHANNEL_DENY,
+      },
+      { id: botId, type: 1, allow: BOT_PUBLISH, deny: BigInt(0) },
+    ];
+  }
+
+  if (definition.permissionProfile === "seller_category") {
     return [
       {
         id: guildId,
@@ -472,14 +587,13 @@ export function managedResourceOverwrites(input: {
     {
       id: approvedSellerRoleId,
       type: 0,
-      allow: VIEW_AND_READ
-        | (
-          definition.sellerCanSend
-            ? PermissionFlagsBits.SendMessages
-            : BigInt(0)
-        ),
-      deny: definition.sellerCanSend
-        ? BOT_MANAGEABLE_PRIVILEGE_ESCALATION_PERMISSIONS
+      allow: VIEW_AND_READ | (
+        definition.permissionProfile === "seller_writable"
+          ? PermissionFlagsBits.SendMessages
+          : BigInt(0)
+      ),
+      deny: definition.permissionProfile === "seller_writable"
+        ? WRITABLE_CHANNEL_DENY
         : USER_POSTING,
     },
     { id: botId, type: 1, allow: BOT_PUBLISH, deny: BigInt(0) },
@@ -581,16 +695,22 @@ export class DiscordRestResourceManager implements DiscordResourceManager {
         });
         if (action === "verified" && repaired) action = "repaired";
 
-        const resource = {
+        const resource: DiscordReconciledResource = {
           key: definition.key,
           discordId: channel.id,
           resourceType: definition.resourceType,
           displayName,
           action,
         };
-        await runPersistenceCallback(input.persistReconciledResource, resource);
         resolved.set(definition.key, channel);
         reconciled.push(resource);
+      }
+      const reordered = await this.repairManagedOrdering(resolved);
+      for (const resource of reconciled) {
+        if (resource.action === "verified" && reordered.has(resource.key)) {
+          resource.action = "repaired";
+        }
+        await runPersistenceCallback(input.persistReconciledResource, resource);
       }
       return reconciled;
     } catch (error) {
@@ -844,6 +964,67 @@ export class DiscordRestResourceManager implements DiscordResourceManager {
       input.channel.permission_overwrites = nextOverwrites;
     }
     return true;
+  }
+
+  private async repairManagedOrdering(
+    resolved: ReadonlyMap<DiscordManagedResourceKey, ApiChannel>,
+  ): Promise<Set<DiscordManagedResourceKey>> {
+    const changed = new Set<DiscordManagedResourceKey>();
+    const updates: Array<{ id: string; position: number; parent_id: string }> = [];
+    for (const parentKey of [
+      "seller_category",
+      "marketplace_category",
+    ] as const) {
+      const parent = resolved.get(parentKey);
+      if (!parent) throw new DiscordResourceOperationError("api_failure");
+      const children = RESOURCE_DEFINITIONS
+        .filter((definition) => definition.parentKey === parentKey)
+        .sort((left, right) => left.sortOrder - right.sortOrder);
+      const currentOrder = children
+        .map((definition) => ({
+          definition,
+          channel: resolved.get(definition.key),
+        }))
+        .sort((left, right) => {
+          const leftPosition = left.channel?.position;
+          const rightPosition = right.channel?.position;
+          if (leftPosition === undefined || rightPosition === undefined) return 0;
+          if (leftPosition !== rightPosition) return leftPosition - rightPosition;
+          return BigInt(left.channel!.id) < BigInt(right.channel!.id) ? -1 : 1;
+        })
+        .map(({ definition }) => definition.key);
+      const desiredOrder = children.map((definition) => definition.key);
+      if (
+        currentOrder.every((key, index) => key === desiredOrder[index])
+        && children.every((definition) =>
+          resolved.get(definition.key)?.position !== undefined)
+      ) continue;
+      for (const definition of children) {
+        const channel = resolved.get(definition.key);
+        if (!channel) throw new DiscordResourceOperationError("api_failure");
+        updates.push({
+          id: channel.id,
+          position: definition.sortOrder,
+          parent_id: parent.id,
+        });
+        changed.add(definition.key);
+      }
+    }
+    if (updates.length === 0) return changed;
+    await this.rest.patch(Routes.guildChannels(this.guildId), {
+      body: updates,
+      reason: "Alpha Traders managed Discord channel ordering",
+    });
+    for (const update of updates) {
+      const definition = RESOURCE_DEFINITIONS.find((candidate) =>
+        resolved.get(candidate.key)?.id === update.id);
+      if (!definition) continue;
+      const channel = resolved.get(definition.key);
+      if (!channel) continue;
+      channel.position = update.position;
+      channel.parent_id = update.parent_id;
+    }
+    return changed;
   }
 }
 

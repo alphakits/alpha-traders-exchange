@@ -40,8 +40,8 @@ async function startServer() {
 
 const resourceDiagnostics = {
   status: "ready" as const,
-  totalCount: 7,
-  readyCount: 7,
+  totalCount: 13,
+  readyCount: 13,
   missingCount: 0,
   errorCode: null,
 };
@@ -115,7 +115,7 @@ describe("Discord worker health server", () => {
           ...resourceDiagnostics,
           status: "degraded",
           readyCount: 5,
-          missingCount: 2,
+          missingCount: 8,
           errorCode: "missing_channel_permissions",
         }),
       },
@@ -138,11 +138,13 @@ describe("Discord worker health server", () => {
     expect(response.status).toBe(503);
     expect(payload.resources).toEqual({
       status: "degraded",
-      totalCount: 7,
+      totalCount: 13,
       readyCount: 5,
-      missingCount: 2,
+      missingCount: 8,
       errorCode: "missing_channel_permissions",
     });
+    expect(payload.resources.readyCount + payload.resources.missingCount)
+      .toBe(payload.resources.totalCount);
     expect(JSON.stringify(payload.resources)).not.toMatch(/\d{17,20}/);
   });
 });

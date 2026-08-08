@@ -19,6 +19,7 @@ import { DiscordResourceSyncWorker } from "@/lib/discord/resource-sync-worker";
 
 const guildId = "111111111111111111";
 const approvedRoleId = "444444444444444444";
+const managedResourceCount = 13;
 const displayNames = Object.fromEntries(
   DISCORD_MANAGED_RESOURCE_DEFINITIONS.map((definition) => [
     definition.key,
@@ -230,11 +231,11 @@ describe("Discord seller resource sync worker", () => {
     await Promise.all([first.reconcile(), second.reconcile()]);
     await first.reconcile();
 
-    expect(manager.created()).toBe(7);
-    expect(database.rows.size).toBe(7);
+    expect(manager.created()).toBe(managedResourceCount);
+    expect(database.rows.size).toBe(managedResourceCount);
     expect([...database.rows.values()].every((row) =>
       row.reconciliation_state === "ready" && row.discord_resource_id)).toBe(true);
-    expect(database.audits).toHaveLength(7);
+    expect(database.audits).toHaveLength(managedResourceCount);
     expect(database.statements.some((sql) =>
       sql.includes("discord_resource_reconciliation_leases"))).toBe(true);
     expect(database.statements.some((sql) =>
@@ -248,8 +249,8 @@ describe("Discord seller resource sync worker", () => {
     );
     expect(first.getDiagnostics()).toEqual({
       status: "ready",
-      totalCount: 7,
-      readyCount: 7,
+      totalCount: managedResourceCount,
+      readyCount: managedResourceCount,
       missingCount: 0,
       errorCode: null,
     });
@@ -263,7 +264,7 @@ describe("Discord seller resource sync worker", () => {
     await expect(resourceWorker.start()).resolves.toBeUndefined();
     expect(resourceWorker.getDiagnostics()).toMatchObject({
       status: "degraded",
-      missingCount: 7,
+      missingCount: managedResourceCount,
       errorCode: "missing_manage_channels",
     });
 
@@ -274,12 +275,12 @@ describe("Discord seller resource sync worker", () => {
 
     expect(resourceWorker.getDiagnostics()).toMatchObject({
       status: "ready",
-      readyCount: 7,
+      readyCount: managedResourceCount,
       missingCount: 0,
     });
     expect(database.audits.filter((audit) =>
       audit === "degraded:missing_manage_channels")).toHaveLength(1);
-    expect(database.audits).toHaveLength(8);
+    expect(database.audits).toHaveLength(managedResourceCount + 1);
   });
 
   it("reapplies degraded state without duplicating the same audit", async () => {
@@ -313,8 +314,8 @@ describe("Discord seller resource sync worker", () => {
     await contender.start();
     expect(contender.getDiagnostics()).toEqual({
       status: "ready",
-      totalCount: 7,
-      readyCount: 7,
+      totalCount: managedResourceCount,
+      readyCount: managedResourceCount,
       missingCount: 0,
       errorCode: null,
     });

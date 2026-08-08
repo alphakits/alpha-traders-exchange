@@ -142,31 +142,54 @@ DATABASE_URL (or SUPABASE_DB_URL)
 Optional Railway display-name overrides:
 
 ```text
-DISCORD_SELLER_CATEGORY_NAME=ALPHA SELLER SUITE
+DISCORD_SELLER_CATEGORY_NAME=🛡️ Seller Lounge
 DISCORD_SELLER_LOUNGE_CHANNEL_NAME=seller-lounge
-DISCORD_SELLER_ANNOUNCEMENTS_CHANNEL_NAME=seller-announcements
+DISCORD_SELLER_ANNOUNCEMENTS_CHANNEL_NAME=📢 seller-announcements
 DISCORD_SELLER_UPDATES_CHANNEL_NAME=seller-updates
-DISCORD_SELLER_GUIDES_CHANNEL_NAME=seller-guides
-DISCORD_SELLER_SUPPORT_CHANNEL_NAME=seller-support
-DISCORD_MARKETPLACE_LISTINGS_CHANNEL_NAME=marketplace-listings
+DISCORD_SELLER_CHAT_CHANNEL_NAME=💬 seller-chat
+DISCORD_SELLER_GUIDES_CHANNEL_NAME=📚 seller-guides
+DISCORD_SELLER_SUPPORT_CHANNEL_NAME=❓ seller-support
+DISCORD_SELLER_SUCCESS_CHANNEL_NAME=🚀 share-your-success
+DISCORD_MARKETPLACE_CATEGORY_NAME=💰 Alpha Exchange
+DISCORD_MARKETPLACE_LISTINGS_CHANNEL_NAME=📢 marketplace-listings
+DISCORD_MARKET_ACTIVITY_CHANNEL_NAME=📈 market-activity
+DISCORD_LIVE_MARKET_PULSE_CHANNEL_NAME=🔥 live-market-pulse
+DISCORD_BUYER_SUPPORT_CHANNEL_NAME=💬 buyer-support
 ```
 
 Apply both `supabase/migrations/20260807000000_discord_identity_sync.sql` and
 `supabase/migrations/20260807190000_discord_seller_resources.sql`, followed by
 `supabase/migrations/20260807210000_discord_resource_reconciliation_lease.sql`,
+and then `supabase/migrations/20260808070000_discord_channel_topology.sql`
 before starting the new worker image.
 
-The lease migration is a stop-the-worker upgrade because the first Layer A
-image used a different lock. Do not use a rolling deployment:
+The lease migration was a stop-the-worker upgrade from the first Layer A image.
+For the C1 upgrade from accepted Layer B, use this order:
 
-1. Scale the Railway Discord worker to zero replicas.
-2. Apply `20260807210000_discord_resource_reconciliation_lease.sql`.
+1. Update any explicit display-name overrides to the C1 values above.
+2. Apply `20260808070000_discord_channel_topology.sql`.
 3. Deploy the new worker image.
-4. Start exactly one Railway replica and wait for resource readiness `7/7`.
+4. Wait for signed resource readiness `13/13`.
 
-The Railway worker provisions and reconciles the category and channels; do not
-run it from Vercel. Do not activate website linking until the three website
-OAuth variables are configured on Vercel.
+The topology migration is forward-only and only widens the stable-key
+constraint. Apply it before the C1 worker; it does not rename, delete, or
+reassign existing Discord IDs. A rollback may restore the previous worker while
+leaving the migration and new rows in place. Do not delete the accepted
+`marketplace_listings` or Layer A rows.
+
+The Railway worker provisions and reconciles the categories and channels; do
+not run it from Vercel. Update any existing display-name overrides to the values
+above before the C1 worker starts. Do not activate website linking until the
+three website OAuth variables are configured on Vercel.
+
+Permission profiles:
+
+| Profile | Members | Approved Seller | Bot/staff path |
+| --- | --- | --- | --- |
+| Public bot-only | View and history; posting and threads denied | Same | Bot can publish embeds and reconcile; inherited trusted staff access is preserved |
+| Buyer support | View, history, and messages; threads and moderation denied | Same | Bot can publish and reconcile; staff moderation remains inherited |
+| Seller read-only | Hidden | View and history; posting denied | Bot can publish and reconcile; inherited trusted staff access is preserved |
+| Seller writable | Hidden | View, history, and messages; threads and moderation denied | Bot can publish and reconcile; inherited trusted staff access is preserved |
 
 ## 7) Verify Bot Can Connect
 
