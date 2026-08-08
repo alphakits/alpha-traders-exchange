@@ -240,10 +240,12 @@ export async function claimDiscordListingShare(input: {
     const actor = await client.query<{
       seller_status: string;
       disabled: boolean;
+      profile_hidden: boolean;
       linked: boolean;
     }>(
       `select users.seller_status,
               coalesce((users.payload ->> 'disabled')::boolean, false) as disabled,
+              coalesce(users.payload ->> 'isProfileHidden', 'false') = 'true' as profile_hidden,
               exists (
                 select 1 from alpha_exchange.discord_identities identity
                  where identity.platform_user_id = users.id
@@ -262,6 +264,16 @@ export async function claimDiscordListingShare(input: {
         "SELLER_INELIGIBLE",
         "Only approved active sellers can share listings to Discord.",
         403,
+      );
+    }
+    if (seller.profile_hidden) {
+      return deny(
+        client,
+        input.sellerId,
+        input.listingId,
+        "SELLER_PROFILE_PRIVATE",
+        "Make your public seller profile visible before sharing a listing to Discord.",
+        409,
       );
     }
     if (!seller.linked) {
