@@ -16,6 +16,7 @@ import {
 } from "discord.js";
 import type { Pool, PoolClient } from "pg";
 
+import { resolveDiscordContactOwnerUrl } from "@/lib/discord/contact-owner-link";
 import type { DiscordGatewayClient } from "@/lib/discord/gateway-client";
 import {
   buildDiscordMarketContentMessage,
@@ -26,6 +27,12 @@ import {
   getPublicDiscordSellerProfileByUsername,
   PostgresDiscordMarketContentRepository,
 } from "@/lib/discord/market-intelligence-repository";
+import {
+  getNextSellerPrestigeRank,
+  getSellerPrestigeProgress,
+  resolveSellerPrestigeRank,
+} from "@/lib/seller-prestige";
+import type { SellerLevel } from "@/types/alpha-exchange";
 import { buildDiscordSellerProfileCard } from "@/lib/discord/seller-profile-card";
 import { logEvent } from "@/lib/structured-logging";
 
@@ -35,6 +42,12 @@ const RATE_LIMIT_MAX_REQUESTS = 5;
 const COMMAND_RESERVATION_RECOVERY_MINUTES = 5;
 
 export const DISCORD_COMMUNITY_COMMAND_NAMES = [
+  "buy",
+  "seller",
+  "rank",
+  "rules",
+  "support",
+  "exchange",
   "market",
   "profile",
   "listing",
@@ -64,6 +77,42 @@ const PUBLIC_SELLER_OPTION: APIApplicationCommandOption = {
 };
 
 export const DISCORD_COMMUNITY_COMMANDS: readonly CommandDefinition[] = [
+  {
+    name: "buy",
+    description: "Open buyer onboarding and safe trading guidance",
+    type: ApplicationCommandType.ChatInput,
+    dm_permission: false,
+  },
+  {
+    name: "seller",
+    description: "Check seller application status and onboarding next step",
+    type: ApplicationCommandType.ChatInput,
+    dm_permission: false,
+  },
+  {
+    name: "rank",
+    description: "View your private seller rank progress",
+    type: ApplicationCommandType.ChatInput,
+    dm_permission: false,
+  },
+  {
+    name: "rules",
+    description: "Open seller rules and trust policy guidance",
+    type: ApplicationCommandType.ChatInput,
+    dm_permission: false,
+  },
+  {
+    name: "support",
+    description: "Open onboarding support and owner contact links",
+    type: ApplicationCommandType.ChatInput,
+    dm_permission: false,
+  },
+  {
+    name: "exchange",
+    description: "Open the Alpha Exchange marketplace",
+    type: ApplicationCommandType.ChatInput,
+    dm_permission: false,
+  },
   {
     name: "market",
     description: "View the current privacy-safe Alpha Traders market summary",
@@ -318,6 +367,12 @@ function helpMessage(siteUrl: string): RESTPostAPIChannelMessageJSONBody {
     allowed_mentions: { parse: [] },
     content: [
       "**Alpha Traders commands**",
+      "`/buy` — buyer onboarding and safe trading flow",
+      "`/seller` — seller application status and next steps",
+      "`/rank` — private seller rank progress",
+      "`/rules` — seller rules and trust policies",
+      "`/support` — onboarding support and owner contact",
+      "`/exchange` — open Alpha Exchange marketplace",
       "`/market` and `/pulse` — privacy-safe marketplace totals",
       "`/profile [seller]` — eligible public seller card",
       "`/listing [seller]` — authoritative public listing link",
@@ -328,6 +383,306 @@ function helpMessage(siteUrl: string): RESTPostAPIChannelMessageJSONBody {
       `Safety and rules: ${siteUrl}/en/safety-trust`,
       `Link your account and apply to become an Approved Seller: ${siteUrl}/en/settings`,
     ].join("\n"),
+  };
+}
+
+function buyMessage(siteUrl: string): RESTPostAPIChannelMessageJSONBody {
+  return {
+    allowed_mentions: { parse: [] },
+    content: [
+      "Buyer onboarding starts with platform safety and verified flow:",
+      "1) Read buyer guide and safety policy.",
+      "2) Open Alpha Exchange and submit a request only through the website.",
+      "3) Never share payment details, wallet credentials, or identity documents in Discord.",
+    ].join("\n"),
+    components: [{
+      type: 1,
+      components: [{
+        type: 2,
+        style: 5,
+        label: "Open Buyer Guide",
+        url: `${siteUrl}/en/academy`,
+      }, {
+        type: 2,
+        style: 5,
+        label: "Open Exchange",
+        url: `${siteUrl}/en/usdt-exchange`,
+      }, {
+        type: 2,
+        style: 5,
+        label: "Safety Center",
+        url: `${siteUrl}/en/safety-trust`,
+      }],
+    }],
+  };
+}
+
+function rulesMessage(siteUrl: string): RESTPostAPIChannelMessageJSONBody {
+  return {
+    allowed_mentions: { parse: [] },
+    content:
+      "Seller rules are enforced from website state: approved listings only, privacy-safe conduct, and no off-platform trade handling in Discord.",
+    components: [{
+      type: 1,
+      components: [{
+        type: 2,
+        style: 5,
+        label: "Seller Rules",
+        url: `${siteUrl}/en/safety-trust`,
+      }, {
+        type: 2,
+        style: 5,
+        label: "Account Settings",
+        url: `${siteUrl}/en/settings`,
+      }],
+    }],
+  };
+}
+
+function supportMessage(input: {
+  siteUrl: string;
+  contactOwnerUrl: string;
+}): RESTPostAPIChannelMessageJSONBody {
+  return {
+    allowed_mentions: { parse: [] },
+    content:
+      "Use support for onboarding questions. Never post payment proof, wallet credentials, or identity documents in Discord.",
+    components: [{
+      type: 1,
+      components: [{
+        type: 2,
+        style: 5,
+        label: "Open Support",
+        url: `${input.siteUrl}/en/contact`,
+      }, {
+        type: 2,
+        style: 5,
+        label: "Contact Owner",
+        url: input.contactOwnerUrl,
+      }],
+    }],
+  };
+}
+
+function exchangeMessage(siteUrl: string): RESTPostAPIChannelMessageJSONBody {
+  return {
+    allowed_mentions: { parse: [] },
+    content: "Open the Alpha Exchange marketplace for live verified listings and buyer requests.",
+    components: [{
+      type: 1,
+      components: [{
+        type: 2,
+        style: 5,
+        label: "Open Exchange",
+        url: `${siteUrl}/en/usdt-exchange`,
+      }],
+    }],
+  };
+}
+
+type LinkedSellerState = {
+  sellerStatus: string;
+  rank: SellerLevel;
+  volumeUsdt: number;
+};
+
+async function linkedSellerState(
+  pool: Pool,
+  discordUserId: string,
+): Promise<LinkedSellerState | null> {
+  const result = await pool.query<{
+    seller_status: string;
+    trust_payload: unknown;
+  }>(
+    `select users.seller_status,
+            trust.payload as trust_payload
+       from alpha_exchange.discord_identities identity
+       join alpha_exchange.users users
+         on users.id = identity.platform_user_id
+       left join alpha_exchange.trust_snapshots trust
+         on trust.seller_id = users.id
+      where identity.discord_user_id = $1
+      limit 1`,
+    [discordUserId],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  const trust = row.trust_payload
+    && typeof row.trust_payload === "object"
+    ? row.trust_payload as { snapshot?: Record<string, unknown> }
+    : null;
+  const snapshot = trust?.snapshot ?? null;
+  const rankRaw = typeof snapshot?.level === "string"
+    ? snapshot.level.toLowerCase()
+    : null;
+  const normalizedRank: SellerLevel | null = rankRaw === "bronze"
+    || rankRaw === "silver"
+    || rankRaw === "gold"
+    || rankRaw === "diamond"
+    || rankRaw === "elite"
+    ? rankRaw
+    : null;
+  const volumeRaw = snapshot?.totalUsdtVolume;
+  const volume = typeof volumeRaw === "number"
+    ? volumeRaw
+    : typeof volumeRaw === "string"
+      ? Number(volumeRaw)
+      : 0;
+  const safeVolume = Number.isFinite(volume) ? Math.max(0, volume) : 0;
+  return {
+    sellerStatus: row.seller_status,
+    rank: normalizedRank ?? resolveSellerPrestigeRank(safeVolume),
+    volumeUsdt: safeVolume,
+  };
+}
+
+async function sellerMessage(input: {
+  pool: Pool;
+  siteUrl: string;
+  discordUserId: string;
+}): Promise<RESTPostAPIChannelMessageJSONBody> {
+  const state = await linkedSellerState(input.pool, input.discordUserId);
+  if (!state) {
+    return {
+      allowed_mentions: { parse: [] },
+      content:
+        "Link your website account first, then apply to become a seller from Account Settings.",
+      components: [{
+        type: 1,
+        components: [{
+          type: 2,
+          style: 5,
+          label: "Link Account",
+          url: `${input.siteUrl}/en/settings`,
+        }],
+      }],
+    };
+  }
+  if (state.sellerStatus === "approved_seller") {
+    return {
+      allowed_mentions: { parse: [] },
+      content:
+        "Your account is already approved as a seller. Manage listings and seller settings on the website.",
+      components: [{
+        type: 1,
+        components: [{
+          type: 2,
+          style: 5,
+          label: "Seller Dashboard",
+          url: `${input.siteUrl}/en/dashboard/seller`,
+        }],
+      }],
+    };
+  }
+  if (state.sellerStatus === "pending_seller_approval") {
+    return {
+      allowed_mentions: { parse: [] },
+      content:
+        "Your seller application is pending review. Discord cannot accelerate approval decisions.",
+      components: [{
+        type: 1,
+        components: [{
+          type: 2,
+          style: 5,
+          label: "Open Settings",
+          url: `${input.siteUrl}/en/settings`,
+        }],
+      }],
+    };
+  }
+  if (state.sellerStatus === "suspended") {
+    return {
+      allowed_mentions: { parse: [] },
+      content:
+        "Your seller status is suspended. Use website support to resolve compliance or account issues.",
+      components: [{
+        type: 1,
+        components: [{
+          type: 2,
+          style: 5,
+          label: "Open Support",
+          url: `${input.siteUrl}/en/contact`,
+        }],
+      }],
+    };
+  }
+  return {
+    allowed_mentions: { parse: [] },
+    content:
+      "Ready to become a seller? Complete your application in Account Settings. Discord cannot submit or edit applications.",
+    components: [{
+      type: 1,
+      components: [{
+        type: 2,
+        style: 5,
+        label: "Become a Seller",
+        url: `${input.siteUrl}/en/settings`,
+      }],
+    }],
+  };
+}
+
+async function rankMessage(input: {
+  pool: Pool;
+  siteUrl: string;
+  discordUserId: string;
+}): Promise<RESTPostAPIChannelMessageJSONBody> {
+  const state = await linkedSellerState(input.pool, input.discordUserId);
+  if (!state) {
+    return {
+      allowed_mentions: { parse: [] },
+      content:
+        "Link your website account to check seller rank progress. Rank details are private to your linked account.",
+      components: [{
+        type: 1,
+        components: [{
+          type: 2,
+          style: 5,
+          label: "Link Account",
+          url: `${input.siteUrl}/en/settings`,
+        }],
+      }],
+    };
+  }
+  if (
+    state.sellerStatus !== "approved_seller"
+    && state.sellerStatus !== "suspended"
+  ) {
+    return {
+      allowed_mentions: { parse: [] },
+      content:
+        "Seller rank progress is available after seller approval. Apply first from Account Settings.",
+      components: [{
+        type: 1,
+        components: [{
+          type: 2,
+          style: 5,
+          label: "Open Settings",
+          url: `${input.siteUrl}/en/settings`,
+        }],
+      }],
+    };
+  }
+  const progress = getSellerPrestigeProgress(state.volumeUsdt, state.rank);
+  const nextRank = getNextSellerPrestigeRank(state.rank);
+  return {
+    allowed_mentions: { parse: [] },
+    content: [
+      `Your current private seller rank: **${state.rank.toUpperCase()}**`,
+      `Lifetime completed volume (private): ${Math.round(state.volumeUsdt).toLocaleString("en-IL")} USDT`,
+      nextRank
+        ? `Next rank: **${nextRank.toUpperCase()}** (${Math.round(progress.remainingUsdt).toLocaleString("en-IL")} USDT remaining)`
+        : "You are at the highest available rank.",
+    ].join("\n"),
+    components: [{
+      type: 1,
+      components: [{
+        type: 2,
+        style: 5,
+        label: "Open Seller Dashboard",
+        url: `${input.siteUrl}/en/dashboard/seller`,
+      }],
+    }],
   };
 }
 
@@ -449,6 +804,7 @@ export class DiscordCommunityCommandService {
   private readonly applicationId: string;
   private readonly guildId: string;
   private readonly siteUrl: string;
+  private readonly contactOwnerUrl: string;
   private unsubscribeInteraction: (() => void) | null = null;
   private diagnostics: DiscordCommunityCommandDiagnostics = {
     status: "degraded",
@@ -473,6 +829,7 @@ export class DiscordCommunityCommandService {
     this.applicationId = input.applicationId;
     this.guildId = input.guildId;
     this.siteUrl = normalizeMarketSiteUrl(input.siteUrl);
+    this.contactOwnerUrl = resolveDiscordContactOwnerUrl(this.siteUrl);
   }
 
   getDiagnostics(): DiscordCommunityCommandDiagnostics {
@@ -775,6 +1132,29 @@ export class DiscordCommunityCommandService {
     commandName: DiscordCommunityCommandName,
     interaction: ChatInputCommandInteraction,
   ): Promise<RESTPostAPIChannelMessageJSONBody> {
+    if (commandName === "buy") return buyMessage(this.siteUrl);
+    if (commandName === "rules") return rulesMessage(this.siteUrl);
+    if (commandName === "support") {
+      return supportMessage({
+        siteUrl: this.siteUrl,
+        contactOwnerUrl: this.contactOwnerUrl,
+      });
+    }
+    if (commandName === "exchange") return exchangeMessage(this.siteUrl);
+    if (commandName === "seller") {
+      return sellerMessage({
+        pool: this.pool,
+        siteUrl: this.siteUrl,
+        discordUserId: interaction.user.id,
+      });
+    }
+    if (commandName === "rank") {
+      return rankMessage({
+        pool: this.pool,
+        siteUrl: this.siteUrl,
+        discordUserId: interaction.user.id,
+      });
+    }
     if (commandName === "website") return linksMessage(this.siteUrl);
     if (commandName === "help") return helpMessage(this.siteUrl);
     if (commandName === "share") {

@@ -47,8 +47,14 @@ function withCommandLock(pool: Pool): Pool {
 }
 
 describe("Discord community commands", () => {
-  it("defines exactly seven deterministic guild-only commands", () => {
+  it("defines deterministic guild-only commands including onboarding", () => {
     expect(DISCORD_COMMUNITY_COMMAND_NAMES).toEqual([
+      "buy",
+      "seller",
+      "rank",
+      "rules",
+      "support",
+      "exchange",
       "market",
       "profile",
       "listing",
@@ -57,7 +63,7 @@ describe("Discord community commands", () => {
       "help",
       "pulse",
     ]);
-    expect(DISCORD_COMMUNITY_COMMANDS).toHaveLength(7);
+    expect(DISCORD_COMMUNITY_COMMANDS).toHaveLength(13);
     expect(DISCORD_COMMUNITY_COMMANDS.every((command) =>
       command.dm_permission === false)).toBe(true);
     expect(DISCORD_COMMUNITY_COMMAND_DEFINITION_HASH).toMatch(/^[0-9a-f]{64}$/);
@@ -178,7 +184,7 @@ describe("Discord community commands", () => {
     await service.reconcile();
     await service.reconcile();
 
-    expect(rest.post).toHaveBeenCalledTimes(7);
+    expect(rest.post).toHaveBeenCalledTimes(DISCORD_COMMUNITY_COMMANDS.length);
     expect(rest.patch).not.toHaveBeenCalled();
     expect(rest.delete).toHaveBeenCalledOnce();
     expect(remote.map((command) => command.name)).toContain("admin");
@@ -236,7 +242,7 @@ describe("Discord community commands", () => {
 
     expect(rest.patch).toHaveBeenCalledOnce();
     expect(rest.patch.mock.calls[0]?.[0]).toContain(ownedId);
-    expect(rest.post).toHaveBeenCalledTimes(6);
+    expect(rest.post).toHaveBeenCalledTimes(DISCORD_COMMUNITY_COMMANDS.length - 1);
   });
 
   it("reports an unowned desired-name collision without mutating any command", async () => {
@@ -445,7 +451,12 @@ describe("Discord community commands", () => {
   it("waits instead of creating across an unexpired version-skewed reservation", async () => {
     const rest = {
       get: vi.fn(async () => []),
-      post: vi.fn(),
+      post: vi.fn(async (_route: string, input: { body: Record<string, unknown> }) => ({
+        id: "7".repeat(18),
+        application_id: applicationId,
+        ...input.body,
+        options: input.body.options ?? [],
+      })),
       patch: vi.fn(),
       delete: vi.fn(),
     };
@@ -476,7 +487,7 @@ describe("Discord community commands", () => {
       "command_reconciliation_pending",
     );
 
-    expect(rest.post).not.toHaveBeenCalled();
+    expect(rest.post).toHaveBeenCalledTimes(6);
     expect(rest.patch).not.toHaveBeenCalled();
     expect(rest.delete).not.toHaveBeenCalled();
   });
@@ -703,6 +714,112 @@ describe("Discord community commands", () => {
         "https://www.alphatraders.co.il/en/safety-trust",
       ),
     }));
+  });
+
+  it("keeps /rank private and requires linked account context", async () => {
+    const client = {
+      query: vi.fn(async (sql: string) => {
+        if (
+          sql.includes("discord_interaction_claims")
+          && sql.includes("select 1")
+        ) {
+          return result([]);
+        }
+        if (
+          sql.includes("discord_command_rate_limits")
+          && sql.includes("for update")
+        ) {
+          return result([]);
+        }
+        return result([], 1);
+      }),
+      release: vi.fn(),
+    } as unknown as PoolClient;
+    const editReply = vi.fn();
+    const service = new DiscordCommunityCommandService({
+      pool: {
+        connect: vi.fn(async () => client),
+        query: vi.fn(async () => result([])),
+      } as unknown as Pool,
+      gateway: gatewayFixture(),
+      token: "test-token",
+      applicationId,
+      guildId,
+      siteUrl: "https://www.alphatraders.co.il",
+      rest: {} as REST,
+    });
+    const interaction = {
+      applicationId,
+      guildId,
+      commandName: "rank",
+      id: "4".repeat(18),
+      user: { id: userId },
+      options: { getString: vi.fn(() => null) },
+      deferReply: vi.fn(async () => undefined),
+      editReply,
+    } as unknown as ChatInputCommandInteraction;
+
+    await service.handle(interaction);
+
+    expect(editReply).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.stringContaining("Link your website account"),
+    }));
+    expect(JSON.stringify(editReply.mock.calls[0]?.[0])).not.toMatch(
+      /platform_user_id|seller_status|wallet|email/i,
+    );
+  });
+
+  it("routes approved sellers from /seller to the website dashboard", async () => {
+    const client = {
+      query: vi.fn(async (sql: string) => {
+        if (
+          sql.includes("discord_interaction_claims")
+          && sql.includes("select 1")
+        ) {
+          return result([]);
+        }
+        if (
+          sql.includes("discord_command_rate_limits")
+          && sql.includes("for update")
+        ) {
+          return result([]);
+        }
+        return result([], 1);
+      }),
+      release: vi.fn(),
+    } as unknown as PoolClient;
+    const editReply = vi.fn();
+    const service = new DiscordCommunityCommandService({
+      pool: {
+        connect: vi.fn(async () => client),
+        query: vi.fn(async () => result([{
+          seller_status: "approved_seller",
+          trust_payload: null,
+        }])),
+      } as unknown as Pool,
+      gateway: gatewayFixture(),
+      token: "test-token",
+      applicationId,
+      guildId,
+      siteUrl: "https://www.alphatraders.co.il",
+      rest: {} as REST,
+    });
+    const interaction = {
+      applicationId,
+      guildId,
+      commandName: "seller",
+      id: "4".repeat(18),
+      user: { id: userId },
+      options: { getString: vi.fn(() => null) },
+      deferReply: vi.fn(async () => undefined),
+      editReply,
+    } as unknown as ChatInputCommandInteraction;
+
+    await service.handle(interaction);
+
+    const payload = JSON.stringify(editReply.mock.calls[0]?.[0]);
+    expect(payload).toContain("already approved as a seller");
+    expect(payload).toContain("/en/dashboard/seller");
   });
 
   it("bounds the initial defer window before any database work", async () => {

@@ -34,7 +34,7 @@ const additionalBotRoleId = "555555555555555557";
 const requiredBotPermissions = DISCORD_LAYER_A_WITH_MANAGE_ROLES_BITSET;
 const displayNames: DiscordResourceDisplayNames =
   readDiscordResourceDisplayNames({});
-const managedResourceCount = 13;
+const managedResourceCount = DISCORD_MANAGED_RESOURCE_DEFINITIONS.length;
 const provisioningToken = "123e4567-e89b-42d3-a456-426614174000";
 
 function seededPersisted(): Partial<
@@ -382,7 +382,7 @@ describe("Discord managed resource manager", () => {
 
     expect(discord.channels).toHaveLength(1);
     expect(discord.channels[0]?.name).toBe(discordResourceProvisioningName(
-      "seller_category",
+      DISCORD_MANAGED_RESOURCE_DEFINITIONS[0]!.key,
       provisioningToken,
     ));
 
@@ -393,11 +393,13 @@ describe("Discord managed resource manager", () => {
       persistResolvedResource: vi.fn(async () => undefined),
     });
 
-    expect(recovered.find((resource) => resource.key === "seller_category"))
+    expect(recovered.find((resource) =>
+      resource.key === DISCORD_MANAGED_RESOURCE_DEFINITIONS[0]!.key,
+    ))
       .toMatchObject({ action: "recovered" });
     expect(discord.rest.post).toHaveBeenCalledTimes(managedResourceCount);
     expect(discord.channels.filter((channel) =>
-      channel.type === ChannelType.GuildCategory)).toHaveLength(2);
+      channel.type === ChannelType.GuildCategory)).toHaveLength(3);
   });
 
   it("keeps shared support and community topics explicit about privacy and off-platform safety", () => {
@@ -711,6 +713,16 @@ describe("Discord managed resource manager", () => {
       resource.key,
       resource.discordId,
     ]));
+    const onboardingChildren = [
+      "welcome",
+      "how_alpha_exchange_works",
+      "buyer_guide",
+      "become_a_seller",
+      "seller_ranks",
+      "seller_rules",
+      "support",
+      "contact_owner",
+    ] as const;
     const marketplaceChildren = [
       "marketplace_listings",
       "market_activity",
@@ -731,6 +743,10 @@ describe("Discord managed resource manager", () => {
         channel.id === acceptedIds.get(key))!.position = index;
     }
     for (const [index, key] of [...sellerChildren].reverse().entries()) {
+      discord.channels.find((channel) =>
+        channel.id === acceptedIds.get(key))!.position = index;
+    }
+    for (const [index, key] of [...onboardingChildren].reverse().entries()) {
       discord.channels.find((channel) =>
         channel.id === acceptedIds.get(key))!.position = index;
     }
@@ -759,6 +775,7 @@ describe("Discord managed resource manager", () => {
     expect(orderedIds.map((entry) => entry.id)).not.toContain(unrelatedId);
     expect(orderedIds.every((entry) => entry.parent_id === undefined)).toBe(true);
     expect(orderedIds.map((entry) => entry.id)).toEqual([
+      ...onboardingChildren.map((key) => acceptedIds.get(key)!),
       ...sellerChildren.map((key) => acceptedIds.get(key)!),
       ...marketplaceChildren.map((key) => acceptedIds.get(key)!),
     ]);
@@ -1223,8 +1240,17 @@ describe("Discord managed resource manager", () => {
     })).toThrow("Discord channel display names");
   });
 
-  it("uses the exact requested Phase C1 display names", () => {
+  it("uses the exact requested managed display names", () => {
     expect(readDiscordResourceDisplayNames({})).toMatchObject({
+      onboarding_category: "00 START HERE",
+      welcome: "welcome",
+      how_alpha_exchange_works: "how-alpha-exchange-works",
+      buyer_guide: "buyer-guide",
+      become_a_seller: "become-a-seller",
+      seller_ranks: "seller-ranks",
+      seller_rules: "seller-rules",
+      support: "support",
+      contact_owner: "contact-owner",
       seller_category: "🛡️ Seller Lounge",
       seller_announcements: "📢 seller-announcements",
       seller_updates: "seller-updates",

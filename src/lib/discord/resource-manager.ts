@@ -14,6 +14,15 @@ export const DISCORD_LAYER_A_PERMISSION_BITSET = "93200";
 export const DISCORD_LAYER_A_WITH_MANAGE_ROLES_BITSET = "268528656";
 
 export const DISCORD_MANAGED_RESOURCE_KEYS = [
+  "onboarding_category",
+  "welcome",
+  "how_alpha_exchange_works",
+  "buyer_guide",
+  "become_a_seller",
+  "seller_ranks",
+  "seller_rules",
+  "support",
+  "contact_owner",
   "seller_category",
   "seller_lounge",
   "seller_announcements",
@@ -117,7 +126,7 @@ type ResourceDefinition = {
   resourceType: DiscordManagedResourceType;
   parentKey: Extract<
     DiscordManagedResourceKey,
-    "seller_category" | "marketplace_category"
+    "onboarding_category" | "seller_category" | "marketplace_category"
   > | null;
   sortOrder: number;
   topic?: string;
@@ -131,6 +140,77 @@ type ResourceDefinition = {
 };
 
 const RESOURCE_DEFINITIONS: readonly ResourceDefinition[] = [
+  {
+    key: "onboarding_category",
+    resourceType: "category",
+    parentKey: null,
+    sortOrder: 0,
+    permissionProfile: "public_category",
+  },
+  {
+    key: "welcome",
+    resourceType: "text_channel",
+    parentKey: "onboarding_category",
+    sortOrder: 0,
+    topic: "Start here for Alpha Exchange onboarding and safety-first orientation.",
+    permissionProfile: "public_bot_only",
+  },
+  {
+    key: "how_alpha_exchange_works",
+    resourceType: "text_channel",
+    parentKey: "onboarding_category",
+    sortOrder: 1,
+    topic: "How Alpha Exchange works end-to-end, including safety checkpoints and verified workflow boundaries.",
+    permissionProfile: "public_bot_only",
+  },
+  {
+    key: "buyer_guide",
+    resourceType: "text_channel",
+    parentKey: "onboarding_category",
+    sortOrder: 2,
+    topic: "Buyer onboarding guidance for safe request flow, verification, and dispute-prevention basics.",
+    permissionProfile: "public_bot_only",
+  },
+  {
+    key: "become_a_seller",
+    resourceType: "text_channel",
+    parentKey: "onboarding_category",
+    sortOrder: 3,
+    topic: "Seller onboarding path and approval requirements. Applications and account actions stay on the website.",
+    permissionProfile: "public_bot_only",
+  },
+  {
+    key: "seller_ranks",
+    resourceType: "text_channel",
+    parentKey: "onboarding_category",
+    sortOrder: 4,
+    topic: "Seller prestige rank framework and progression thresholds.",
+    permissionProfile: "public_bot_only",
+  },
+  {
+    key: "seller_rules",
+    resourceType: "text_channel",
+    parentKey: "onboarding_category",
+    sortOrder: 5,
+    topic: "Seller operating rules, compliance boundaries, and platform trust requirements.",
+    permissionProfile: "public_bot_only",
+  },
+  {
+    key: "support",
+    resourceType: "text_channel",
+    parentKey: "onboarding_category",
+    sortOrder: 6,
+    topic: "General onboarding support. Never send payments, wallet details, identity documents, or off-platform trade offers in Discord.",
+    permissionProfile: "public_support",
+  },
+  {
+    key: "contact_owner",
+    resourceType: "text_channel",
+    parentKey: "onboarding_category",
+    sortOrder: 7,
+    topic: "Official owner contact direction for unresolved safety or account issues.",
+    permissionProfile: "public_bot_only",
+  },
   {
     key: "seller_category",
     resourceType: "category",
@@ -236,6 +316,15 @@ const RESOURCE_DEFINITIONS: readonly ResourceDefinition[] = [
 ];
 
 const DEFAULT_DISPLAY_NAMES: DiscordResourceDisplayNames = {
+  onboarding_category: "00 START HERE",
+  welcome: "welcome",
+  how_alpha_exchange_works: "how-alpha-exchange-works",
+  buyer_guide: "buyer-guide",
+  become_a_seller: "become-a-seller",
+  seller_ranks: "seller-ranks",
+  seller_rules: "seller-rules",
+  support: "support",
+  contact_owner: "contact-owner",
   seller_category: "🛡️ Seller Lounge",
   seller_lounge: "seller-lounge",
   seller_announcements: "📢 seller-announcements",
@@ -252,6 +341,15 @@ const DEFAULT_DISPLAY_NAMES: DiscordResourceDisplayNames = {
 };
 
 const DISPLAY_NAME_ENV: Record<DiscordManagedResourceKey, string> = {
+  onboarding_category: "DISCORD_ONBOARDING_CATEGORY_NAME",
+  welcome: "DISCORD_WELCOME_CHANNEL_NAME",
+  how_alpha_exchange_works: "DISCORD_HOW_EXCHANGE_WORKS_CHANNEL_NAME",
+  buyer_guide: "DISCORD_BUYER_GUIDE_CHANNEL_NAME",
+  become_a_seller: "DISCORD_BECOME_SELLER_CHANNEL_NAME",
+  seller_ranks: "DISCORD_SELLER_RANKS_CHANNEL_NAME",
+  seller_rules: "DISCORD_SELLER_RULES_CHANNEL_NAME",
+  support: "DISCORD_ONBOARDING_SUPPORT_CHANNEL_NAME",
+  contact_owner: "DISCORD_CONTACT_OWNER_CHANNEL_NAME",
   seller_category: "DISCORD_SELLER_CATEGORY_NAME",
   seller_lounge: "DISCORD_SELLER_LOUNGE_CHANNEL_NAME",
   seller_announcements: "DISCORD_SELLER_ANNOUNCEMENTS_CHANNEL_NAME",
@@ -406,7 +504,12 @@ export function readDiscordResourceDisplayNames(
     if (!valid) throw new DiscordResourceConfigurationError(variable);
     return [key, name] as const;
   });
-  const channelNames = entries.filter(([key]) => key !== "seller_category");
+  const categoryKeys = new Set(
+    RESOURCE_DEFINITIONS
+      .filter((definition) => definition.resourceType === "category")
+      .map((definition) => definition.key),
+  );
+  const channelNames = entries.filter(([key]) => !categoryKeys.has(key));
   if (new Set(channelNames.map(([, name]) => name)).size !== channelNames.length) {
     throw new DiscordResourceConfigurationError("Discord channel display names");
   }
@@ -978,6 +1081,7 @@ export class DiscordRestResourceManager implements DiscordResourceManager {
     const changed = new Set<DiscordManagedResourceKey>();
     const updates: Array<{ id: string; position: number }> = [];
     for (const parentKey of [
+      "onboarding_category",
       "seller_category",
       "marketplace_category",
     ] as const) {
