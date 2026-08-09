@@ -32,7 +32,28 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
+      let closed = false;
+      const enqueueSafe = (payload: string) => {
+        if (closed) return false;
+        try {
+          controller.enqueue(encoder.encode(payload));
+          return true;
+        } catch {
+          closed = true;
+          return false;
+        }
+      };
+      const closeSafe = () => {
+        if (closed) return;
+        closed = true;
+        try {
+          controller.close();
+        } catch {
+          // Stream can already be closed by the runtime when abort races with send.
+        }
+      };
       const sendSnapshot = async (trigger: "init" | "event" | "keepalive", publishedAtEpochMs?: number) => {
+        if (closed) return;
         const snapshotStartMs = Date.now();
         try {
           const room = await getTradeRoomData({
@@ -62,22 +83,23 @@ export async function GET(request: NextRequest, context: RouteContext) {
               publishToSentMs: envelope._timing.publishToSentMs,
             });
           }
-          controller.enqueue(encoder.encode(`event: trade-room\ndata: ${JSON.stringify(envelope)}\n\n`));
+          enqueueSafe(`event: trade-room\ndata: ${JSON.stringify(envelope)}\n\n`);
         } catch (error) {
           const message = error instanceof Error ? error.message : "trade_room_stream_failed";
-          controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ message })}\n\n`));
+          enqueueSafe(`event: error\ndata: ${JSON.stringify({ message })}\n\n`);
         }
       };
 
       void sendSnapshot("init");
       const unsubscribe = subscribeRealtimeEvents((event) => {
+        if (closed) return;
         if (!isRelevantTradeRoomEvent(event, requestId)) return;
         const publishedAt = event.type === "trade.status_changed" ? event.payload.publishedAtEpochMs : undefined;
         void sendSnapshot("event", publishedAt);
       });
 
       const keepAlive = setInterval(() => {
-        controller.enqueue(encoder.encode(": keepalive\n\n"));
+        if (!enqueueSafe(": keepalive\n\n")) return;
         void sendSnapshot("keepalive");
       }, 15_000);
 
@@ -85,14 +107,14 @@ export async function GET(request: NextRequest, context: RouteContext) {
       if (signal.aborted) {
         clearInterval(keepAlive);
         unsubscribe();
-        controller.close();
+        closeSafe();
         return;
       }
 
       signal.addEventListener("abort", () => {
         clearInterval(keepAlive);
         unsubscribe();
-        controller.close();
+        closeSafe();
       }, { once: true });
     },
   });

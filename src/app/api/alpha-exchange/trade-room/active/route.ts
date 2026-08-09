@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFirstActionableTradeForUser, getFirstActiveTradeForUser, resolveTradeRoomRequestForNotification } from "@/lib/alpha-exchange-store";
 import { requireApiUser } from "@/lib/api-auth";
+import { buildTradeRoomDestination } from "@/lib/trade-room-destination";
 
 export async function GET(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest) {
       includePendingFallback: includePending,
     });
     const resolvedRequestId = resolved.request?.id ?? null;
-    const destination = resolvedRequestId ? `/trade-room/${resolvedRequestId}` : null;
+    const destination = resolved.request ? buildTradeRoomDestination(resolved.request, user.id) : null;
     if (process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") console.log("[trade-room-open] notification resolution", {
       userId: user.id,
       role: user.role,
@@ -61,6 +62,6 @@ export async function GET(request: NextRequest) {
   });
   return NextResponse.json({
     activeRequestId: activeTrade?.id ?? null,
-    destination: activeTrade?.id ? `/trade-room/${activeTrade.id}` : null,
+    destination: activeTrade ? buildTradeRoomDestination(activeTrade, user.id) : null,
   });
 }

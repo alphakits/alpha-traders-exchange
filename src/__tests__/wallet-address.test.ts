@@ -37,8 +37,11 @@ describe("receiving wallet privacy", () => {
     expect(sanitizePurchaseRequestForActor(request, "seller-1", "approved_seller").buyerReceivingWalletAddress).toBeUndefined();
   });
 
-  it("reveals the wallet to the seller only after payment is submitted", () => {
+  it("reveals the wallet to the seller only after seller confirms funds", () => {
     const paymentSent = { ...request, status: "payment_sent" as const };
-    expect(sanitizePurchaseRequestForActor(paymentSent, "seller-1", "approved_seller").buyerReceivingWalletAddress).toBe(TRON_ADDRESS);
+    expect(sanitizePurchaseRequestForActor(paymentSent, "seller-1", "approved_seller").buyerReceivingWalletAddress).toBeUndefined();
+
+    const fundsReceived = { ...request, status: "funds_received" as const };
+    expect(sanitizePurchaseRequestForActor(fundsReceived, "seller-1", "approved_seller").buyerReceivingWalletAddress).toBe(TRON_ADDRESS);
   });
 });

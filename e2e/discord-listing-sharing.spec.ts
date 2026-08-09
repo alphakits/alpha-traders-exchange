@@ -77,9 +77,10 @@ for (const width of [320, 390, 430, 1280]) {
     await workspace.scrollIntoViewIfNeeded();
 
     const shareButtons = workspace.getByRole("button", {
-      name: /Shared|Next Share/,
+      name: /Share to Discord|Shared|Next Share/,
     });
-    await expect(shareButtons).toHaveCount(2);
+    await expect(workspace.getByRole("timer").first()).toContainText(/Next Share (11h 59m|12h 0m)/, { timeout: 20_000 });
+    await expect(shareButtons).toHaveCount(2, { timeout: 20_000 });
     for (const button of await shareButtons.all()) {
       await expect(button).toBeDisabled();
       const box = await button.boundingBox();

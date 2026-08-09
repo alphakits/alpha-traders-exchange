@@ -123,9 +123,16 @@ function extractTradeRoomHrefFromRelatedHref(relatedHref?: string) {
 
 function extractRequestIdFromTradeRoomHref(href: string | null) {
   if (!href) return null;
-  const normalized = href.replace(/\/+$/, "");
-  const requestId = normalized.slice(normalized.lastIndexOf("/") + 1).trim();
-  return requestId || null;
+  try {
+    const parsed = new URL(href, "https://www.alphatraders.co.il");
+    const segments = parsed.pathname.replace(/\/+$/, "").split("/");
+    const requestId = segments[segments.length - 1]?.trim();
+    return requestId || null;
+  } catch {
+    const normalized = href.split("?")[0]?.split("#")[0]?.replace(/\/+$/, "") ?? "";
+    const requestId = normalized.slice(normalized.lastIndexOf("/") + 1).trim();
+    return requestId || null;
+  }
 }
 
 function formatNotificationTitle(notification: AlphaExchangeNotification) {
@@ -334,27 +341,28 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
     return null;
   }
 
-  async function resolveActiveTradeHref(input?: { notificationId?: string; includePending?: boolean }) {
+  async function resolveActiveTradeHref(input?: { notificationId?: string; includePending?: boolean; fallbackHref?: string | null }) {
     try {
       const query = new URLSearchParams();
       if (input?.notificationId) query.set("notificationId", input.notificationId);
       if (input?.includePending) query.set("includePending", "1");
       const suffix = query.size ? `?${query.toString()}` : "";
       const response = await fetch(`/api/alpha-exchange/trade-room/active${suffix}`, { cache: "no-store" });
-      if (!response.ok) return null;
+      if (!response.ok) return input?.fallbackHref ?? null;
       const payload = (await response.json()) as { activeRequestId?: string | null; destination?: string | null };
       if (payload.destination?.trim()) return payload.destination.trim();
       if (!payload.activeRequestId) return null;
       return `/trade-room/${payload.activeRequestId}`;
     } catch {
-      return null;
+      return input?.fallbackHref ?? null;
     }
   }
 
   async function resolveNotificationDestination(notification: AlphaExchangeNotification) {
     if (isTradeNotification(notification)) {
-      return resolveTradeRoomHref(notification)
-        ?? await resolveActiveTradeHref({ notificationId: notification.id, includePending: true });
+      const fallbackHref = resolveTradeRoomHref(notification);
+      return await resolveActiveTradeHref({ notificationId: notification.id, includePending: true, fallbackHref })
+        ?? fallbackHref;
     }
     return notification.actionHref ?? notification.relatedHref ?? null;
   }

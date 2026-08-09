@@ -1316,6 +1316,31 @@ function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchang
     }
     mergedPurchaseRequests[index] = incomingUpdatedAt > latestUpdatedAt ? request : latestRequest;
   }
+  const mergedNotificationsById = new Map<string, AlphaExchangeNotification>();
+  for (const notification of latest.notifications) {
+    mergedNotificationsById.set(notification.id, notification);
+  }
+  for (const notification of incoming.notifications) {
+    const current = mergedNotificationsById.get(notification.id);
+    if (!current) {
+      mergedNotificationsById.set(notification.id, notification);
+      continue;
+    }
+    const currentUpdatedAt = new Date(current.updatedAt ?? current.createdAt ?? 0).getTime();
+    const incomingUpdatedAt = new Date(notification.updatedAt ?? notification.createdAt ?? 0).getTime();
+    if (incomingUpdatedAt >= currentUpdatedAt) {
+      mergedNotificationsById.set(notification.id, notification);
+    }
+  }
+  const mergedNotifications = [...mergedNotificationsById.values()].sort((left, right) => {
+    const leftCreatedAt = new Date(left.createdAt ?? 0).getTime();
+    const rightCreatedAt = new Date(right.createdAt ?? 0).getTime();
+    if (rightCreatedAt !== leftCreatedAt) return rightCreatedAt - leftCreatedAt;
+    const leftUpdatedAt = new Date(left.updatedAt ?? left.createdAt ?? 0).getTime();
+    const rightUpdatedAt = new Date(right.updatedAt ?? right.createdAt ?? 0).getTime();
+    if (rightUpdatedAt !== leftUpdatedAt) return rightUpdatedAt - leftUpdatedAt;
+    return right.id.localeCompare(left.id);
+  });
   const getCollection = <T>(value: T[] | undefined, fallback: T[]) => Array.isArray(value) ? value : fallback;
   const mergedAnnouncementRuns = new Map(
     getCollection(latest.adminAnnouncementRuns, []).map((run) => [run.id, run]),
@@ -1357,7 +1382,7 @@ function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchang
     auditLogs: getCollection(incoming.auditLogs, latest.auditLogs),
     authSessions: pruneOrphanAuthSessions(latest).authSessions,
     passwordResetTokens: getCollection(incoming.passwordResetTokens, latest.passwordResetTokens),
-    notifications: getCollection(incoming.notifications, latest.notifications),
+    notifications: mergedNotifications,
     activityLog: getCollection(incoming.activityLog, latest.activityLog),
     disputes: getCollection(incoming.disputes, latest.disputes),
     sellerReports: getCollection(incoming.sellerReports, latest.sellerReports),

@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
-import { getFirstActiveTradeForUser } from "@/lib/alpha-exchange-store";
+import { getFirstActiveTradeForUser, getFirstActionableTradeForUser, resolveTradeRoomRequestForNotification } from "@/lib/alpha-exchange-store";
 import { hasRole } from "@/lib/roles";
+import { buildTradeRoomDestination } from "@/lib/trade-room-destination";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -14,12 +15,42 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   });
 }
 
-export default async function TradeRoomLandingPage({ params }: { params: Promise<{ locale: string }> }) {
+export default async function TradeRoomLandingPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ locale: string }>;
+  searchParams: Promise<{ notificationId?: string | string[]; includePending?: string | string[] }>;
+}) {
   const { locale } = await params;
+  const { notificationId, includePending } = await searchParams;
   const user = await getCurrentSessionUser();
   if (!user) {
     redirect(`/${locale}/login?redirectTo=/${locale}/trade-room`);
   }
+
+  const requestedNotificationId = typeof notificationId === "string" ? notificationId.trim() : "";
+  const includePendingFallback = includePending === "1" || includePending === "true";
+  if (requestedNotificationId) {
+    const resolved = await resolveTradeRoomRequestForNotification({
+      notificationId: requestedNotificationId,
+      userId: user.id,
+      role: user.role,
+      includePendingFallback,
+    });
+    if (resolved.request) {
+      redirect(`/${locale}${buildTradeRoomDestination(resolved.request, user.id)}`);
+    }
+  }
+
+
+  if (includePendingFallback) {
+    const actionableTrade = await getFirstActionableTradeForUser(user.id, user.role);
+    if (actionableTrade) {
+      redirect(`/${locale}${buildTradeRoomDestination(actionableTrade, user.id)}`);
+    }
+  }
+
   const activeTrade = await getFirstActiveTradeForUser(user.id, user.role);
   if (activeTrade) {
     redirect(`/${locale}/trade-room/${activeTrade.id}`);
