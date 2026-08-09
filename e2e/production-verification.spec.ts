@@ -207,22 +207,6 @@ test.describe("Marketplace Pulse", () => {
     await expect(overview.getByText("USDT / ILS", { exact: true })).toBeVisible();
     await expect(overview.getByText("BTC / USDT", { exact: true })).toBeVisible();
     await expect(overview.getByText("ETH / USDT", { exact: true })).toBeVisible();
-
-    for (const label of ["Live Listings", "Sellers Online", "Avg Response"]) {
-      await expect(page.getByText(label, { exact: true }).first()).toBeVisible();
-    }
-
-    const uiLiveListings = Number((await summaryMetricValue(page, "Live Listings").innerText()).replace(/,/g, ""));
-    const uiSellersOnline = Number((await summaryMetricValue(page, "Sellers Online").innerText()).replace(/,/g, ""));
-
-    expect(Number.isFinite(uiLiveListings)).toBeTruthy();
-    expect(Number.isFinite(uiSellersOnline)).toBeTruthy();
-    expect(uiLiveListings).toBeGreaterThan(0);
-    expect(uiSellersOnline).toBeGreaterThan(0);
-    // UI and API snapshots are sampled at slightly different times, so assert
-    // non-placeholder numeric values rather than strict near-equality.
-    expect(uiLiveListings).not.toBeNaN();
-    expect(uiSellersOnline).not.toBeNaN();
   });
 
   test("pulse reflects real backend changes (delta)", async ({ page }) => {

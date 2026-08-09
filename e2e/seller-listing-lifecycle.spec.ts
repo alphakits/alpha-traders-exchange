@@ -120,10 +120,15 @@ async function runWithDialogs(
   action: () => Promise<unknown>,
   steps: Array<{ type: "confirm" | "prompt"; value?: string }>,
 ) {
+  let pendingDialog = page.waitForEvent("dialog");
   const pendingAction = action();
-  for (const step of steps) {
-    const dialog = await page.waitForEvent("dialog");
+  for (let index = 0; index < steps.length; index += 1) {
+    const step = steps[index];
+    const dialog = await pendingDialog;
     expect(dialog.type()).toBe(step.type);
+    if (index < steps.length - 1) {
+      pendingDialog = page.waitForEvent("dialog");
+    }
     if (step.type === "prompt") {
       await dialog.accept(step.value ?? "");
     } else {
