@@ -21,7 +21,7 @@ const roleIds: DiscordManagedRoleIds = {
   suspended_seller: "666666666666666666",
 };
 
-const manageRoles = String(1n << 28n);
+const manageRoles = String(BigInt(1) << BigInt(28));
 
 function roles(overrides: Partial<Record<keyof DiscordManagedRoleIds, number>> = {}) {
   return [

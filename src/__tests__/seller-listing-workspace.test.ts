@@ -14,6 +14,7 @@ vi.mock("@/lib/alpha-exchange-repository", () => ({
 import { getSellerListingWorkspaceSummary } from "@/lib/alpha-exchange-store";
 
 function buildDb(overrides: Partial<AlphaExchangeDb> = {}): AlphaExchangeDb {
+  const { adminAnnouncementRuns, sellerReviews, ...restOverrides } = overrides;
   return {
     users: [],
     sellerApplications: [],
@@ -34,7 +35,9 @@ function buildDb(overrides: Partial<AlphaExchangeDb> = {}): AlphaExchangeDb {
     privateBetaInviteUses: [],
     betaFeedback: [],
     betaAnnouncements: [],
-    ...overrides,
+    adminAnnouncementRuns: adminAnnouncementRuns ?? [],
+    sellerReviews: sellerReviews ?? [],
+    ...restOverrides,
   };
 }
 

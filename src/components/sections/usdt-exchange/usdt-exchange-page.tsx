@@ -79,7 +79,7 @@ type SellerApplicationMethod = (typeof SELLER_APPLICATION_METHOD_OPTIONS)[number
 
 type Locale = "ar" | "en";
 
-type SessionUser = {
+export type SessionUser = {
   id: string;
   fullName: string;
   email: string;
@@ -842,7 +842,7 @@ function Portal({ children }: { children: React.ReactNode }) {
   return createPortal(children, document.body);
 }
 
-export function UsdtExchangePage({ locale }: { locale: Locale }) {
+export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Locale; initialSessionUser?: SessionUser | null }) {
   const isAr = locale === "ar";
   const router = useRouter();
   const [isMobileViewport, setIsMobileViewport] = useState(() => {
@@ -852,7 +852,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const marketFeed = useMarketFeed({ refreshMs: 45_000 });
   const marketSnapshot = marketFeed.snapshot;
 
-  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(initialSessionUser ?? null);
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
   const [isSessionResolving, setIsSessionResolving] = useState(true);
   const [isLoadingListings, setIsLoadingListings] = useState(true);
@@ -1035,8 +1035,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const renderCompleteRecordedRef = useRef(false);
   const interactivePaintRecordedRef = useRef(false);
   const notificationsLoadRecordedRef = useRef(false);
-  const [showDeferredSections, setShowDeferredSections] = useState(false);
-  const [showDeepDeferredSections, setShowDeepDeferredSections] = useState(false);
+  const [showDeferredSections] = useState(true);
+  const [showDeepDeferredSections] = useState(true);
 
   useEffect(() => {
     const media = window.matchMedia(MOBILE_VIEWPORT_QUERY);
@@ -1045,16 +1045,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
-
-  useEffect(() => {
-    const timerId = window.setTimeout(() => setShowDeferredSections(true), isMobileViewport ? 420 : 180);
-    return () => window.clearTimeout(timerId);
-  }, [isMobileViewport]);
-
-  useEffect(() => {
-    const timerId = window.setTimeout(() => setShowDeepDeferredSections(true), isMobileViewport ? 1200 : 260);
-    return () => window.clearTimeout(timerId);
-  }, [isMobileViewport]);
 
   const [buyerInfo, setBuyerInfo] = useState({ name: "", whatsapp: "", notes: "", usdtAmount: "", receivingWalletAddress: "" });
   const [sellerForm, setSellerForm] = useState({
@@ -1290,25 +1280,50 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     if (isLoginJourneyTraceEnabled()) {
       finalizeLoginJourneyRedirectEnd(Date.now());
     }
+
     const controller = new AbortController();
     let cancelled = false;
+
+    async function loadListings(shellReadyAt: number, listingsPromise: Promise<Response>) {
+      try {
+        const listingsRes = await listingsPromise;
+        if (cancelled) return;
+        const listingsJson = (await listingsRes.json()) as { listings: MarketplaceListing[] };
+        if (cancelled) return;
+        setListings(listingsJson.listings ?? []);
+        listingsLoadedAtRef.current = Date.now();
+        appendLoginJourneyStep("Dashboard data loading", shellReadyAt, Date.now());
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") return;
+        if (!cancelled) setWorkspaceError(safeErrorMessage("workspace"));
+      } finally {
+        if (!cancelled) setIsLoadingListings(false);
+      }
+    }
 
     async function bootstrap() {
       const workspaceInitStartedAt = Date.now();
       try {
-        const meRes = await tracedFetch("/api/auth/me", "/api/auth/me", { cache: "no-store", signal: controller.signal });
-        if (cancelled) return;
-        const meJson = (await meRes.json()) as { user: SessionUser | null };
-        if (cancelled) return;
-        setSessionUser(meJson.user);
+        const listingsPromise = tracedFetch("Dashboard data loading: listings", "/api/alpha-exchange/listings", { cache: "no-store", signal: controller.signal });
+        let resolvedUser = initialSessionUser ?? null;
+
+        if (!resolvedUser) {
+          const meRes = await tracedFetch("/api/auth/me", "/api/auth/me", { cache: "no-store", signal: controller.signal });
+          if (cancelled) return;
+          const meJson = (await meRes.json()) as { user: SessionUser | null };
+          if (cancelled) return;
+          resolvedUser = meJson.user;
+        }
+
+        setSessionUser(resolvedUser);
         setIsSessionResolving(false);
         const shellReadyAt = Date.now();
         appendLoginJourneyStep("Dashboard shell ready", workspaceInitStartedAt, shellReadyAt);
         bootstrapCompletedAtRef.current = shellReadyAt;
         appendLoginJourneyStep("Workspace initialization", workspaceInitStartedAt, shellReadyAt);
 
-        if (meJson.user) {
-          const user = meJson.user;
+        if (resolvedUser) {
+          const user = resolvedUser;
           setSellerForm((prev) => ({
             ...prev,
             firstName: user.fullName?.split(" ")[0] ?? prev.firstName,
@@ -1324,23 +1339,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         }
 
         // Listings are not required to make the dashboard shell interactive.
-        // Load them in parallel and keep only the listings area in skeleton mode meanwhile.
-        void (async () => {
-          try {
-            const listingsRes = await tracedFetch("Dashboard data loading: listings", "/api/alpha-exchange/listings", { cache: "no-store", signal: controller.signal });
-            if (cancelled) return;
-            const listingsJson = (await listingsRes.json()) as { listings: MarketplaceListing[] };
-            if (cancelled) return;
-            setListings(listingsJson.listings ?? []);
-            listingsLoadedAtRef.current = Date.now();
-            appendLoginJourneyStep("Dashboard data loading", shellReadyAt, Date.now());
-          } catch (error) {
-            if (error instanceof Error && error.name === "AbortError") return;
-            if (!cancelled) setWorkspaceError(safeErrorMessage("workspace"));
-          } finally {
-            if (!cancelled) setIsLoadingListings(false);
-          }
-        })();
+        // Start the fetch in parallel with session bootstrap and resolve it after shell-ready.
+        void loadListings(shellReadyAt, listingsPromise);
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") return;
         setIsSessionResolving(false);
@@ -1355,7 +1355,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       cancelled = true;
       controller.abort();
     };
-  }, [tracedFetch]);
+  }, [initialSessionUser, tracedFetch]);
 
   useEffect(() => {
     if (!sessionUser) return;

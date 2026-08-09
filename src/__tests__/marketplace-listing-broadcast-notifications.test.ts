@@ -79,7 +79,7 @@ function createUser(input: {
     onboardingCompletedAt: now,
     lifetimeCompletedVolumeUsdt: 0,
     sellerPrestigeRank: "bronze",
-    sellerRankOverride: null,
+    sellerRankOverride: undefined,
     sellerPromotionHistory: [],
     sellerAchievements: [],
     disabled: input.disabled ?? false,
@@ -115,6 +115,7 @@ function seedDb(): AlphaExchangeDb & { __runtimeVersion: number } {
     privateBetaInviteUses: [],
     betaFeedback: [],
     betaAnnouncements: [],
+    adminAnnouncementRuns: [],
     sellerReviews: [],
     __runtimeVersion: 0,
   };
@@ -203,7 +204,14 @@ describe("marketplace listing publication broadcasts", () => {
     });
     await deliver();
 
-    const calls = sendMarketplaceEmailMock.mock.calls.map((call) => call[0] as { event: string; to: string });
+    const rawCalls = sendMarketplaceEmailMock.mock.calls as unknown[][];
+    const calls: Array<{ event: string; to: string }> = [];
+    for (const call of rawCalls) {
+      const maybeCall = call[0] as Record<string, unknown> | undefined;
+      if (!maybeCall) continue;
+      if (typeof maybeCall.event !== "string" || typeof maybeCall.to !== "string") continue;
+      calls.push({ event: maybeCall.event, to: maybeCall.to });
+    }
     const listingBroadcastCalls = calls.filter((call) => call.event === "new_listing_published");
 
     expect(calls.some((call) => call.event === "listing_approved" && call.to === "seller.creator@example.com")).toBe(true);
@@ -237,7 +245,7 @@ describe("marketplace listing publication broadcasts", () => {
       if (hasListingBroadcast) inAppRecipientIds.add(userId);
     }
 
-    const emailToUserId = new Map([
+    const emailToUserId = new Map<string, string>([
       ["buyer.eligible@example.com", BUYER_ID],
       ["seller.buyer.eligible@example.com", DUAL_ROLE_BUYER_ID],
       ["guest.excluded@example.com", GUEST_ID],
@@ -248,7 +256,7 @@ describe("marketplace listing publication broadcasts", () => {
     const emailRecipientIds = new Set(
       listingBroadcastCalls
         .map((call) => emailToUserId.get(call.to))
-        .filter((value): value is string => Boolean(value)),
+        .filter((value): value is string => typeof value === "string"),
     );
 
     expect([...inAppRecipientIds].sort()).toEqual([...emailRecipientIds].sort());

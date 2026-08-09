@@ -17,6 +17,15 @@ import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 
 const originalNodeEnv = process.env.NODE_ENV;
 
+function setNodeEnv(value: string | undefined) {
+  Object.defineProperty(process.env, "NODE_ENV", {
+    configurable: true,
+    enumerable: true,
+    writable: true,
+    value,
+  });
+}
+
 describe("PostgreSQL runtime TLS", () => {
   afterEach(() => {
     delete (globalThis as typeof globalThis & {
@@ -25,12 +34,12 @@ describe("PostgreSQL runtime TLS", () => {
     delete process.env.SUPABASE_DB_URL;
     delete process.env.SUPABASE_DB_SSL;
     delete process.env.SUPABASE_DB_CA;
-    process.env.NODE_ENV = originalNodeEnv;
+    setNodeEnv(originalNodeEnv);
     vi.clearAllMocks();
   });
 
   it("forbids disabling database TLS verification in production", () => {
-    process.env.NODE_ENV = "production";
+    setNodeEnv("production");
     process.env.SUPABASE_DB_URL = "postgresql://user:pass@pooler.example.com/db";
     process.env.SUPABASE_DB_SSL = "false";
     expect(() => getRuntimePostgresPool()).toThrow(/cannot be disabled/i);
@@ -38,7 +47,7 @@ describe("PostgreSQL runtime TLS", () => {
   });
 
   it("verifies the server certificate and accepts an explicit provider CA", () => {
-    process.env.NODE_ENV = "production";
+    setNodeEnv("production");
     process.env.SUPABASE_DB_URL = "postgresql://user:pass@pooler.example.com/db?ssl=no-verify&sslmode=no-verify&uselibpqcompat=true";
     process.env.SUPABASE_DB_CA = "test-provider-ca";
     getRuntimePostgresPool();
@@ -54,7 +63,7 @@ describe("PostgreSQL runtime TLS", () => {
   it.each(["0", "no-verify"])(
     "strips the pg ssl=%s connection-string TLS bypass",
     (ssl) => {
-      process.env.NODE_ENV = "production";
+      setNodeEnv("production");
       process.env.SUPABASE_DB_URL =
         `postgresql://user:pass@pooler.example.com/db?ssl=${ssl}`;
       getRuntimePostgresPool();

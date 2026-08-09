@@ -7,6 +7,8 @@ import {
 } from "./support/buyer-fixture";
 
 let buyerFixture: BuyerFixture | undefined;
+const SELLER_EMAIL = (process.env.E2E_SELLER_EMAIL ?? "").toLowerCase();
+const SELLER_PASSWORD = process.env.E2E_SELLER_PASSWORD ?? "";
 
 async function login(request: APIRequestContext, email: string, password: string) {
   const response = await request.post("/api/auth/login", {
@@ -63,6 +65,20 @@ test.describe("Navigation hardening", () => {
 
     await expect(page).not.toHaveURL(/\/en\/dashboard$/);
     await expect(page).toHaveURL(/\/en\/usdt-exchange(#my-trade-requests-section)?$/);
+  });
+
+  test("seller refresh keeps the approved workspace stable", async ({ page }) => {
+    test.skip(!SELLER_EMAIL || !SELLER_PASSWORD, "Set E2E_SELLER_EMAIL and E2E_SELLER_PASSWORD to run seller refresh checks.");
+
+    await login(page.request, SELLER_EMAIL, SELLER_PASSWORD);
+    await page.goto("/en/dashboard/seller");
+    await expect(page.getByText(/seller status/i).first()).toBeVisible();
+
+    await page.reload({ waitUntil: "commit" });
+
+    await expect(page).toHaveURL(/\/en\/dashboard\/seller$/);
+    await expect(page.getByText(/seller status/i).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Manage Listings$/ }).first()).toBeVisible();
   });
 
   test("guest protected trade-room route redirects to login with redirectTo", async ({ page }) => {

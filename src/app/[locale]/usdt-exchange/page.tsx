@@ -28,5 +28,5 @@ export default async function UsdtExchangeRoute({ params }: { params: Promise<{ 
       redirect(`/${locale}/trade-room/${activeTrade.id}`);
     }
   }
-  return <UsdtExchangePage locale={locale as "ar" | "en"} />;
+  return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={user} />;
 }

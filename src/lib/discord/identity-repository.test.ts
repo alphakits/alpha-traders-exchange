@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import type { Pool, PoolClient, QueryResult } from "pg";
+import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
@@ -12,7 +12,7 @@ import {
   unlinkDiscordIdentity,
 } from "@/lib/discord/identity-repository";
 
-function result<T>(rows: T[]): QueryResult<T> {
+function result<T extends QueryResultRow>(rows: T[]): QueryResult<T> {
   return {
     command: "",
     rowCount: rows.length,
@@ -127,9 +127,11 @@ describe("Discord identity repository", () => {
       sql.includes("delete from alpha_exchange.discord_identities"));
     expect(deleteIndex).toBeGreaterThan(-1);
     expect(statements[deleteIndex]).toContain("returning discord_user_id");
-    const auditCall = query.mock.calls.find(([sql]) =>
-      String(sql).includes("insert into alpha_exchange.discord_sync_audit"));
-    expect(auditCall?.[1]).toEqual(["alpha-user", "987654321098765432"]);
+    const allCalls = query.mock.calls as unknown[][];
+    const auditCall = allCalls.find((call) =>
+      String(call[0]).includes("insert into alpha_exchange.discord_sync_audit"));
+    const auditArgs = (Array.isArray(auditCall?.[1]) ? auditCall[1] : []) as unknown[];
+    expect(auditArgs).toEqual(["alpha-user", "987654321098765432"]);
     expect(statements.indexOf("commit")).toBeGreaterThan(deleteIndex);
   });
 
@@ -144,7 +146,8 @@ describe("Discord identity repository", () => {
     })).resolves.toBe(false);
 
     expect(query).toHaveBeenCalledWith("commit");
-    expect(query.mock.calls.some(([sql]) =>
-      String(sql).includes("discord_sync_audit"))).toBe(false);
+    const allCalls = query.mock.calls as unknown[][];
+    expect(allCalls.some((call) =>
+      String(call[0]).includes("discord_sync_audit"))).toBe(false);
   });
 });

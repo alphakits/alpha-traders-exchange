@@ -11,7 +11,7 @@
  *   E2E_SELLER_EMAIL, E2E_SELLER_PASSWORD
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { cleanupBuyerFixture, resolveBuyerFixture, type BuyerFixture } from "./support/buyer-fixture";
 
 const OWNER_EMAIL = process.env.E2E_OWNER_EMAIL ?? "";
@@ -38,7 +38,7 @@ test.afterAll(async () => {
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function login(page: Parameters<typeof test>[1] extends infer T ? T extends { page: infer P } ? P : never : never, email: string, password: string) {
+async function login(page: Page, email: string, password: string) {
   await page.goto("/en/login");
   const form = page.locator('form[data-hydrated="true"]').first();
   await form.waitFor({ timeout: 15_000 });

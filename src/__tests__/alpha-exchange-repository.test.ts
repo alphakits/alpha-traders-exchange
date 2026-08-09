@@ -29,6 +29,32 @@ import { upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 
 const TEST_FALLBACK_DIR = `.next-runtime-test${process.env.VITEST_WORKER_ID ? `-${process.env.VITEST_WORKER_ID}` : ""}`;
 
+function createEmptyDb(): AlphaExchangeDb {
+  return {
+    users: [],
+    sellerApplications: [],
+    marketplaceListings: [],
+    purchaseRequests: [],
+    commissionRecords: [],
+    auditLogs: [],
+    authSessions: [],
+    passwordResetTokens: [],
+    notifications: [],
+    activityLog: [],
+    disputes: [],
+    sellerReports: [],
+    trustSnapshots: [],
+    trustScoreHistory: [],
+    tradeEvidenceFiles: [],
+    privateBetaInvites: [],
+    privateBetaInviteUses: [],
+    betaFeedback: [],
+    betaAnnouncements: [],
+    adminAnnouncementRuns: [],
+    sellerReviews: [],
+  };
+}
+
 describe("AlphaExchangeRepository", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -186,26 +212,7 @@ describe("AlphaExchangeRepository", () => {
   it("prefers a newer persisted fallback snapshot over stale in-memory state after a load failure", async () => {
     const fallbackPath = path.join(process.cwd(), TEST_FALLBACK_DIR, "alpha-exchange-fallback.json");
     globalThis.__alphaExchangeMemorySnapshot = {
-      users: [],
-      sellerApplications: [],
-      marketplaceListings: [],
-      purchaseRequests: [],
-      commissionRecords: [],
-      auditLogs: [],
-      authSessions: [],
-      passwordResetTokens: [],
-      notifications: [],
-      activityLog: [],
-      disputes: [],
-      sellerReports: [],
-      trustSnapshots: [],
-      trustScoreHistory: [],
-      tradeEvidenceFiles: [],
-      privateBetaInvites: [],
-      privateBetaInviteUses: [],
-      betaFeedback: [],
-      betaAnnouncements: [],
-      sellerReviews: [],
+      ...createEmptyDb(),
       __runtimeVersion: 1,
     } as never;
 
@@ -251,6 +258,7 @@ describe("AlphaExchangeRepository", () => {
       privateBetaInviteUses: [],
       betaFeedback: [],
       betaAnnouncements: [],
+      adminAnnouncementRuns: [],
       sellerReviews: [],
       __runtimeVersion: 12,
     }), "utf8");
@@ -293,33 +301,16 @@ describe("AlphaExchangeRepository", () => {
     const repository = new AlphaExchangeRepository(pool);
 
     await expect(repository.saveSnapshot({
+      ...createEmptyDb(),
       users: [{ id: "user-1", email: "user@example.com", role: "buyer", roles: ["buyer"], sellerStatus: "buyer", availabilityStatus: "available", onlineStatus: "online", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as never],
-      sellerApplications: [],
-      marketplaceListings: [],
-      purchaseRequests: [],
-      commissionRecords: [],
-      auditLogs: [],
-      authSessions: [],
-      passwordResetTokens: [],
-      notifications: [],
-      activityLog: [],
-      disputes: [],
-      sellerReports: [],
-      trustSnapshots: [],
-      trustScoreHistory: [],
-      tradeEvidenceFiles: [],
-      privateBetaInvites: [],
-      privateBetaInviteUses: [],
-      betaFeedback: [],
-      betaAnnouncements: [],
-      sellerReviews: [],
     })).resolves.toBeUndefined();
 
-    const sessionInserts = client.query.mock.calls
+    const sessionInserts = (client.query.mock.calls as unknown[][])
       .filter(([sql]) => typeof sql === "string" && sql.toLowerCase().includes("insert into alpha_exchange.sessions"));
     expect(sessionInserts).toHaveLength(1);
-    expect(sessionInserts[0]?.[1][0]).toEqual(expect.arrayContaining(["good-token"]));
-    expect(sessionInserts[0]?.[1][1]).toEqual(expect.arrayContaining(["user-1"]));
+    const firstInsertArgs = (Array.isArray(sessionInserts[0]?.[1]) ? sessionInserts[0]?.[1] : []) as unknown[];
+    expect(firstInsertArgs[0]).toEqual(expect.arrayContaining(["good-token"]));
+    expect(firstInsertArgs[1]).toEqual(expect.arrayContaining(["user-1"]));
     expect(JSON.stringify(sessionInserts)).not.toContain("orphan-token");
   });
 
@@ -344,8 +335,8 @@ describe("AlphaExchangeRepository", () => {
 
     const repository = new AlphaExchangeRepository(pool);
     await repository.saveSnapshot({
+      ...createEmptyDb(),
       users: [{ id: "user-1", email: "user@example.com", role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller", availabilityStatus: "available", onlineStatus: "online", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as never],
-      sellerApplications: [],
       marketplaceListings: [{
         id: "listing-1",
         sellerId: "user-1",
@@ -369,23 +360,6 @@ describe("AlphaExchangeRepository", () => {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }] as never,
-      purchaseRequests: [],
-      commissionRecords: [],
-      auditLogs: [],
-      authSessions: [],
-      passwordResetTokens: [],
-      notifications: [],
-      activityLog: [],
-      disputes: [],
-      sellerReports: [],
-      trustSnapshots: [],
-      trustScoreHistory: [],
-      tradeEvidenceFiles: [],
-      privateBetaInvites: [],
-      privateBetaInviteUses: [],
-      betaFeedback: [],
-      betaAnnouncements: [],
-      sellerReviews: [],
       __runtimeVersion: 4,
     } as AlphaExchangeDb, { selectedTables: ["users"] });
 
@@ -407,28 +381,7 @@ describe("AlphaExchangeRepository", () => {
     const repository = new AlphaExchangeRepository(pool);
     await expect(repository.loadSnapshot()).resolves.toBeDefined();
 
-    await expect(repository.saveSnapshot({
-      users: [],
-      sellerApplications: [],
-      marketplaceListings: [],
-      purchaseRequests: [],
-      commissionRecords: [],
-      auditLogs: [],
-      authSessions: [],
-      passwordResetTokens: [],
-      notifications: [],
-      activityLog: [],
-      disputes: [],
-      sellerReports: [],
-      trustSnapshots: [],
-      trustScoreHistory: [],
-      tradeEvidenceFiles: [],
-      privateBetaInvites: [],
-      privateBetaInviteUses: [],
-      betaFeedback: [],
-      betaAnnouncements: [],
-      sellerReviews: [],
-    })).resolves.toBeUndefined();
+    await expect(repository.saveSnapshot(createEmptyDb())).resolves.toBeUndefined();
 
     expect(globalThis.__alphaExchangeMemorySnapshot).toBeDefined();
   });
@@ -441,28 +394,29 @@ describe("AlphaExchangeRepository", () => {
     baselineSnapshot.purchaseRequests = [{ id: "request-1", status: "accepted", listingId: "listing-1", sellerId: "seller-1", buyerId: "buyer-1", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as never];
     globalThis.__alphaExchangeMemorySnapshot = baselineSnapshot as never;
 
-    const staleDb = {
-      users: [],
-      sellerApplications: [],
-      marketplaceListings: [],
-      purchaseRequests: [{ id: "request-2", status: "pending", listingId: "listing-1", sellerId: "seller-1", buyerId: "buyer-1", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }],
-      commissionRecords: [],
-      auditLogs: [],
-      authSessions: [],
-      passwordResetTokens: [],
-      notifications: [],
-      activityLog: [],
-      disputes: [],
-      sellerReports: [],
-      trustSnapshots: [],
-      trustScoreHistory: [],
-      tradeEvidenceFiles: [],
-      privateBetaInvites: [],
-      privateBetaInviteUses: [],
-      betaFeedback: [],
-      betaAnnouncements: [],
+    const staleDb: AlphaExchangeDb & { __runtimeVersion: number } = {
+      ...createEmptyDb(),
+      purchaseRequests: [{
+        id: "request-2",
+        status: "pending",
+        listingId: "listing-1",
+        sellerId: "seller-1",
+        buyerId: "buyer-1",
+        buyerName: "Buyer One",
+        buyerWhatsapp: "+972500000000",
+        buyerNotes: "",
+        buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+        usdtAmount: "100",
+        fiatAmount: "320",
+        currency: "ILS",
+        network: "TRC20",
+        paymentMethod: "Bank Transfer",
+        timeline: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }],
       __runtimeVersion: 1,
-    } as unknown as AlphaExchangeDb;
+    };
 
     await expect(repository.saveSnapshot(staleDb)).resolves.toBeUndefined();
     const savedSnapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb & { __runtimeVersion?: number };
@@ -472,28 +426,7 @@ describe("AlphaExchangeRepository", () => {
 
   it("clears the in-flight store state after a failed save so the next write can proceed", async () => {
     const repository = {
-      loadSnapshot: vi.fn().mockResolvedValue({
-        users: [],
-        sellerApplications: [],
-        marketplaceListings: [],
-        purchaseRequests: [],
-        commissionRecords: [],
-        auditLogs: [],
-        authSessions: [],
-        passwordResetTokens: [],
-        notifications: [],
-        activityLog: [],
-        disputes: [],
-        sellerReports: [],
-        trustSnapshots: [],
-        trustScoreHistory: [],
-        tradeEvidenceFiles: [],
-        privateBetaInvites: [],
-        privateBetaInviteUses: [],
-        betaFeedback: [],
-        betaAnnouncements: [],
-        sellerReviews: [],
-      }),
+      loadSnapshot: vi.fn().mockResolvedValue(createEmptyDb()),
       saveSnapshot: vi.fn()
         .mockRejectedValueOnce(new Error("save failed"))
         .mockResolvedValueOnce(undefined),
@@ -540,8 +473,9 @@ describe("AlphaExchangeRepository", () => {
     const calls = (pool.query as ReturnType<typeof vi.fn>).mock.calls as [string, unknown[]][];
     const cteCall = calls.find(([sql]) => typeof sql === "string" && sql.includes("WITH del AS"));
     expect(cteCall).toBeDefined();
-    expect(cteCall![1][0]).toBe("user-1");
-    expect(cteCall![1][1]).toBe("session-token");
+    const cteArgs = (cteCall?.[1] as unknown[] | undefined) ?? [];
+    expect(cteArgs[0]).toBe("user-1");
+    expect(cteArgs[1]).toBe("session-token");
   });
 
   it("retries after an advisory lock timeout so saveSnapshot can continue", async () => {
@@ -566,28 +500,7 @@ describe("AlphaExchangeRepository", () => {
 
     const repository = new AlphaExchangeRepository(pool);
 
-    await expect(repository.saveSnapshot({
-      users: [],
-      sellerApplications: [],
-      marketplaceListings: [],
-      purchaseRequests: [],
-      commissionRecords: [],
-      auditLogs: [],
-      authSessions: [],
-      passwordResetTokens: [],
-      notifications: [],
-      activityLog: [],
-      disputes: [],
-      sellerReports: [],
-      trustSnapshots: [],
-      trustScoreHistory: [],
-      tradeEvidenceFiles: [],
-      privateBetaInvites: [],
-      privateBetaInviteUses: [],
-      betaFeedback: [],
-      betaAnnouncements: [],
-      sellerReviews: [],
-    })).resolves.toBeUndefined();
+    await expect(repository.saveSnapshot(createEmptyDb())).resolves.toBeUndefined();
 
     expect(firstClient.release).toHaveBeenCalled();
     expect(secondClient.release).not.toHaveBeenCalled();
@@ -610,28 +523,7 @@ describe("AlphaExchangeRepository", () => {
 
     const repository = new AlphaExchangeRepository(pool);
 
-    await expect(repository.saveSnapshot({
-      users: [],
-      sellerApplications: [],
-      marketplaceListings: [],
-      purchaseRequests: [],
-      commissionRecords: [],
-      auditLogs: [],
-      authSessions: [],
-      passwordResetTokens: [],
-      notifications: [],
-      activityLog: [],
-      disputes: [],
-      sellerReports: [],
-      trustSnapshots: [],
-      trustScoreHistory: [],
-      tradeEvidenceFiles: [],
-      privateBetaInvites: [],
-      privateBetaInviteUses: [],
-      betaFeedback: [],
-      betaAnnouncements: [],
-      sellerReviews: [],
-    })).resolves.toBeUndefined();
+    await expect(repository.saveSnapshot(createEmptyDb())).resolves.toBeUndefined();
 
     expect(firstClient.release).toHaveBeenCalledWith(true);
     expect(secondClient.release).toHaveBeenCalled();
