@@ -82,7 +82,8 @@ describe("Discord operator reconciliation worker", () => {
     await worker.tick();
 
     expect(dependencies.commands.reconcile).not.toHaveBeenCalled();
-    expect(query.mock.calls.some(([, params]) =>
+    const queryCalls = query.mock.calls as Array<[string, unknown[]?]>;
+    expect(queryCalls.some(([, params]) =>
       Array.isArray(params)
       && params.includes("retry_scheduled")
       && params.includes("resource_reconciliation_busy"))).toBe(true);
@@ -165,7 +166,8 @@ describe("Discord operator reconciliation worker", () => {
 
     await worker.tick();
 
-    expect(query.mock.calls.some(([, params]) =>
+    const queryCalls = query.mock.calls as Array<[string, unknown[]?]>;
+    expect(queryCalls.some(([, params]) =>
       Array.isArray(params)
       && params.includes("listing_active_run_failed")
       && params.includes("retry_scheduled"))).toBe(true);

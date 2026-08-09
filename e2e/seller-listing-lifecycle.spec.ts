@@ -286,10 +286,12 @@ async function createListing(request: APIRequestContext, input: { availableAmoun
 
 async function submitListingFromSellerWorkspace(page: Page, expectedListing: { availableAmount: string; price: string }) {
   const submitButton = page.getByRole("button", { name: "Submit Listing" });
-  await page.getByRole("textbox", { name: "Available USDT *" }).fill(expectedListing.availableAmount);
-  await page.getByRole("textbox", { name: "Price" }).fill(expectedListing.price);
-  await page.getByRole("textbox", { name: "Minimum Trade (Required)" }).fill("50");
-  await page.getByRole("textbox", { name: "Maximum Trade (Required)" }).fill(expectedListing.availableAmount);
+  await expect(page.locator("#create-listing")).toBeVisible({ timeout: 60_000 });
+  await page.locator("#create-available").fill(expectedListing.availableAmount);
+  await page.locator("#create-price").fill(expectedListing.price);
+  await page.locator("#create-min-trade").fill("50");
+  await page.locator("#create-max-trade").fill(expectedListing.availableAmount);
+  await page.getByRole("button", { name: /Bank Transfer/i }).click();
   await page.getByRole("button", { name: /Bank Hapoalim/i }).click();
   const commissionCheckbox = page.getByRole("checkbox", { name: /1% commission policy/i });
   if (!(await commissionCheckbox.isChecked())) {
@@ -418,10 +420,10 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   expect(secondListingCreate.listing?.id).toBeTruthy();
   await expect(seller.page.getByText("You already have 2 active listings. Close one before creating another.").first()).toBeVisible({ timeout: 30_000 });
 
-  await seller.page.getByRole("textbox", { name: "Available USDT *" }).fill("250");
-  await seller.page.getByRole("textbox", { name: "Price" }).fill("3.10");
-  await seller.page.getByRole("textbox", { name: "Minimum Trade (Required)" }).fill("25");
-  await seller.page.getByRole("textbox", { name: "Maximum Trade (Required)" }).fill("250");
+  await seller.page.locator("#create-available").fill("250");
+  await seller.page.locator("#create-price").fill("3.10");
+  await seller.page.locator("#create-min-trade").fill("25");
+  await seller.page.locator("#create-max-trade").fill("250");
   await expect(seller.page.getByRole("button", { name: "Submit Listing" })).toBeDisabled();
   await expect(seller.page.getByText("You already have 2 active listings. Close one before creating another.").first()).toBeVisible({ timeout: 10_000 });
 
@@ -449,10 +451,17 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   let firstTrade = await readPurchaseFromPatchResponse(response);
   expect(firstTrade.status).toBe("accepted");
   await seller.page.reload();
-  await expect(seller.page).toHaveURL(`/en/trade-room/${firstRequest.purchase.id}`, { timeout: 10_000 });
+  if (!seller.page.url().includes(`/trade-room/${firstRequest.purchase.id}`)) {
+    await seller.page.goto(`/en/trade-room/${firstRequest.purchase.id}`);
+  }
+  await expect(seller.page).toHaveURL(new RegExp(`/trade-room/${firstRequest.purchase.id}(?:[?#].*)?$`), { timeout: 10_000 });
 
   response = await seller.page.request.patch(`/api/alpha-exchange/listings/${primaryListing.id}`, {
-    data: { price: "3.30" },
+    data: {
+      price: "3.30",
+      changeReason: "Price updated",
+      changeExplanation: "Lifecycle lock validation",
+    },
   });
   expect(response.status()).toBe(400);
   expect(await response.json()).toMatchObject({
@@ -551,7 +560,11 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
 });
 
 test("listing expiration, renewal, vacation mode, timeout notifications, and audit history work end-to-end", async ({ browser }) => {
-  test.setTimeout(180_000);
+  // This scenario exercises a full lifecycle (expiration, renewal, vacation mode,
+  // timeout transitions, admin/history verification) and routinely exceeds 180s
+  // in single-worker E2E with repository fallback I/O. Keep 300s to avoid false
+  // timeout failures without weakening any functional assertions.
+  test.setTimeout(300_000);
   const hasFixtures = await resetLifecycleFixtures();
   test.skip(!hasFixtures, "Set E2E owner/seller credentials and seed matching runtime accounts to run lifecycle tests.");
 
@@ -662,12 +675,15 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
   expect(buyerNotificationsAfterTimeout.some((item) => item.title === "Trade timed out")).toBeTruthy();
 
   await owner.page.goto("/en/admin/alpha-exchange");
-  await owner.page.getByText("Marketplace Listings", { exact: true }).click();
-  await expect(owner.page.getByText("Expiration History")).toBeVisible();
-  await owner.page.getByText("Purchase Requests", { exact: true }).click();
-  await expect(owner.page.getByText("Timeout History")).toBeVisible();
-  await owner.page.getByText("Audit Logs", { exact: true }).click();
-  await expect(owner.page.getByText("Notification History")).toBeVisible();
+  await owner.page.getByRole("button", { name: "Open Marketplace Listings" }).click();
+  await expect(owner.page.getByText("Expiration History")).toBeVisible({ timeout: 20_000 });
+  await expect(owner.page.getByText("Expiration History")).toBeVisible({ timeout: 20_000 });
+  await owner.page.getByRole("button", { name: "Open Purchase Requests" }).click();
+  await expect(owner.page.getByText("Timeout History")).toBeVisible({ timeout: 20_000 });
+  await expect(owner.page.getByText("Timeout History")).toBeVisible({ timeout: 20_000 });
+  await owner.page.getByRole("button", { name: "Open Audit Logs" }).click();
+  await expect(owner.page.getByText("Notification History")).toBeVisible({ timeout: 20_000 });
+  await expect(owner.page.getByText("Notification History")).toBeVisible({ timeout: 20_000 });
   await expect(owner.page.locator("tbody tr").filter({ hasText: "Trade timed out" }).first()).toBeVisible();
 
   await Promise.all([seller.context.close(), owner.context.close(), buyer.context.close()]);

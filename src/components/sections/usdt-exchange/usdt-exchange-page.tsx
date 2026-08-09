@@ -1021,6 +1021,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   const [mobileVisibleListingsCount, setMobileVisibleListingsCount] = useState(MOBILE_MARKETPLACE_BATCH_SIZE);
   const notificationsRequestIdRef = useRef(0);
   const deepLinkAppliedRef = useRef(false);
+  const sellerActiveTradeRedirectedRef = useRef<string | null>(null);
   const sellerDeferredPanelsSentinelRef = useRef<HTMLDivElement | null>(null);
   const bootstrapCompletedAtRef = useRef<number | null>(null);
   const renderCompleteRecordedRef = useRef(false);
@@ -1185,13 +1186,32 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       if (category !== "all") params.set("category", category);
       if (query.trim()) params.set("q", query.trim());
       if (unreadOnly) params.set("unreadOnly", "1");
+      params.set("includeActivity", "0");
       const notificationsStartedAt = Date.now();
-      const response = await tracedFetch("Notifications loading", `/api/alpha-exchange/notifications?${params.toString()}`, { cache: "no-store" });
+      let response: Response | null = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 20_000);
+        try {
+          response = await tracedFetch("Notifications loading", `/api/alpha-exchange/notifications?${params.toString()}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          break;
+        } catch {
+          if (attempt === 2) throw new Error("failed");
+        } finally {
+          window.clearTimeout(timeout);
+        }
+      }
+      if (!response) throw new Error("failed");
       if (!response.ok) throw new Error("failed");
       const payload = (await response.json()) as { notifications: AlphaExchangeNotification[]; activity: AlphaExchangeActivityLogEntry[] };
       if (requestId !== notificationsRequestIdRef.current) return;
       setNotifications(keepLatestItems(sortNotificationsNewestFirst(payload.notifications ?? []), MAX_NOTIFICATION_ITEMS));
-      setActivityHistory(keepLatestItems(payload.activity ?? [], MAX_ACTIVITY_ITEMS));
+      if (Array.isArray(payload.activity)) {
+        setActivityHistory(keepLatestItems(payload.activity, MAX_ACTIVITY_ITEMS));
+      }
       if (!notificationsLoadRecordedRef.current) {
         notificationsLoadRecordedRef.current = true;
         appendLoginJourneyStep("Notifications loading (first dashboard load)", notificationsStartedAt, Date.now(), { firstLoad: true });
@@ -1350,6 +1370,11 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
 
   useEffect(() => {
     if (!sessionUser) return;
+    if (!isApprovedSellerSession) {
+      setIsSellerApplicationLoading(false);
+      setIsWorkspaceWidgetsLoading(false);
+      return;
+    }
     setIsWorkspaceWidgetsLoading(true);
     setIsSellerApplicationLoading(true);
     let cancelled = false;
@@ -1381,7 +1406,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [refreshNotificationPreferences, refreshSellerWorkspace, sessionUser, tracedFetch]);
+  }, [isApprovedSellerSession, refreshNotificationPreferences, refreshSellerWorkspace, sessionUser, tracedFetch]);
 
   useEffect(() => {
     if (!isApprovedSellerSession || isSessionResolving || deferredSellerPanelsReady) return;
@@ -1413,14 +1438,36 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   useEffect(() => {
     if (!sessionUser || notificationsInitialized) return;
     if (isSessionResolving) return;
-    if (isApprovedSellerSession && !deferredSellerPanelsReady) return;
     setNotificationsInitialized(true);
-  }, [deferredSellerPanelsReady, isApprovedSellerSession, isSessionResolving, notificationsInitialized, sessionUser]);
+  }, [isSessionResolving, notificationsInitialized, sessionUser]);
 
   useEffect(() => {
     if (!sessionUser || !notificationsInitialized) return;
     void refreshNotifications();
   }, [sessionUser, notificationsInitialized, notificationCategory, notificationQuery, notificationUnreadOnly, refreshNotifications]);
+
+  useEffect(() => {
+    if (!sessionUser || !notificationsInitialized) return;
+    const stream = new EventSource("/api/alpha-exchange/notifications/stream");
+    const onNotifications = (event: Event) => {
+      const messageEvent = event as MessageEvent<string>;
+      try {
+        const payload = JSON.parse(messageEvent.data) as { notifications?: AlphaExchangeNotification[] };
+        if (!Array.isArray(payload.notifications)) return;
+        setNotifications(keepLatestItems(sortNotificationsNewestFirst(payload.notifications), MAX_NOTIFICATION_ITEMS));
+      } catch {
+        // Keep stream updates best-effort and preserve current UI state on malformed payloads.
+      }
+    };
+    stream.addEventListener("notifications", onNotifications);
+    const onBeforeUnload = () => stream.close();
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      stream.removeEventListener("notifications", onNotifications);
+      stream.close();
+    };
+  }, [notificationsInitialized, sessionUser]);
 
   useEffect(() => {
     if (isSessionResolving) return;
@@ -2362,6 +2409,20 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   const unreadNotificationsTotal = notifications.filter((item) => !item.isRead).length;
   const latestOpenBuyerTrade = buyerRequests.find((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status));
   const latestOpenSellerTrade = sellerRequests.find((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status));
+  const latestSellerInProgressTrade = sellerRequests.find((request) => ["accepted", "payment_sent", "funds_received", "usdt_release_pending"].includes(request.status));
+  useEffect(() => {
+    if (!sessionUser || !isApprovedSeller) return;
+    if (typeof window === "undefined") return;
+    if (!window.location.pathname.endsWith("/usdt-exchange")) return;
+    const tradeId = latestSellerInProgressTrade?.id;
+    if (!tradeId) {
+      sellerActiveTradeRedirectedRef.current = null;
+      return;
+    }
+    if (sellerActiveTradeRedirectedRef.current === tradeId) return;
+    sellerActiveTradeRedirectedRef.current = tradeId;
+    handleOpenTradeRoom(tradeId);
+  }, [handleOpenTradeRoom, isApprovedSeller, latestSellerInProgressTrade?.id, sessionUser]);
   const complianceCaseActive = (sellerCommissionStatus?.status ?? "clear") !== "clear";
   const workspaceIdentityName = isAr ? `السيد/السيدة ${workspacePrimaryName}` : `Mr./Mrs. ${workspacePrimaryName}`;
   type AttentionItem = {
@@ -2766,11 +2827,141 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       },
     ];
 
+  const extractTradeRoomHrefFromRelatedHref = useCallback((relatedHref?: string) => {
+    const href = relatedHref?.trim();
+    if (!href) return null;
+    const normalized = href.startsWith("/") ? href : `/${href}`;
+    const roomMatch = normalized.match(/\/trade-room\/([^/?#]+)/i);
+    if (roomMatch?.[1]) return `/trade-room/${decodeURIComponent(roomMatch[1])}`;
+    const requestMatch = normalized.match(/[?&]requestId=([^&]+)/i);
+    if (requestMatch?.[1]) return `/trade-room/${decodeURIComponent(requestMatch[1])}`;
+    return null;
+  }, []);
+
+  const resolveTradeRoomDestinationFromSnapshot = useCallback((notification: AlphaExchangeNotification) => {
+    const snapshot = notification.tradeSnapshot;
+    if (!snapshot?.requestId || !snapshot.currentStage || !sessionUser) return null;
+    const isSellerActor = snapshot.sellerId === sessionUser.id;
+    const isBuyerActor = snapshot.buyerId === sessionUser.id;
+    let action: "accept-trade" | "upload-payment-receipt" | "confirm-money-received" | "release-usdt" | "upload-seller-evidence" | "confirm-usdt-received" | "review-trade" | "open-trade" = "open-trade";
+    if (snapshot.currentStage === "pending" && isSellerActor) action = "accept-trade";
+    else if (snapshot.currentStage === "accepted" && isBuyerActor) action = "upload-payment-receipt";
+    else if (snapshot.currentStage === "payment_sent" && isSellerActor) action = "confirm-money-received";
+    else if (snapshot.currentStage === "funds_received" && isSellerActor) action = "upload-seller-evidence";
+    else if (snapshot.currentStage === "usdt_release_pending" && isSellerActor) action = "upload-seller-evidence";
+    else if (snapshot.currentStage === "usdt_sent" && isBuyerActor) action = "confirm-usdt-received";
+    else if ((snapshot.currentStage === "review_open" || snapshot.currentStage === "completed" || snapshot.currentStage === "locked") && isBuyerActor) action = "review-trade";
+    if (action === "open-trade") return null;
+    const hash = action === "upload-payment-receipt" || action === "upload-seller-evidence"
+      ? "evidence"
+      : action === "review-trade"
+        ? "status-banner"
+        : "action-required";
+    return `/trade-room/${snapshot.requestId}?action=${encodeURIComponent(action)}#${hash}`;
+  }, [sessionUser]);
+
+  const buildTradeRoomDestinationFromRequest = useCallback((request: PurchaseRequest) => {
+    if (!sessionUser) return `/trade-room/${request.id}`;
+    const isSellerActor = request.sellerId === sessionUser.id;
+    const isBuyerActor = request.buyerId === sessionUser.id;
+    let action: "accept-trade" | "upload-payment-receipt" | "confirm-money-received" | "release-usdt" | "upload-seller-evidence" | "confirm-usdt-received" | "review-trade" | "open-trade" = "open-trade";
+    if (request.status === "pending" && isSellerActor) action = "accept-trade";
+    else if (request.status === "accepted" && isBuyerActor) action = "upload-payment-receipt";
+    else if (request.status === "payment_sent" && isSellerActor) action = "confirm-money-received";
+    else if (request.status === "funds_received" && isSellerActor) action = "upload-seller-evidence";
+    else if (request.status === "usdt_release_pending" && isSellerActor) action = "upload-seller-evidence";
+    else if (request.status === "usdt_sent" && isBuyerActor) action = "confirm-usdt-received";
+    else if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && isBuyerActor) action = "review-trade";
+    const hash = action === "upload-payment-receipt" || action === "upload-seller-evidence"
+      ? "evidence"
+      : action === "review-trade" || action === "open-trade"
+        ? "status-banner"
+        : "action-required";
+    return `/trade-room/${request.id}?action=${encodeURIComponent(action)}#${hash}`;
+  }, [sessionUser]);
+
+  const resolveTradeRoomDestinationFromRequests = useCallback((notification: AlphaExchangeNotification) => {
+    const text = `${notification.title} ${notification.message}`.toLowerCase();
+    if (!text.includes("trade")) return null;
+    const direct = myRequests.find((request) =>
+      request.id === notification.relatedRequestId
+      || request.tradeId === notification.relatedTradeId,
+    );
+    if (direct) return buildTradeRoomDestinationFromRequest(direct);
+
+    const tradeRefMatch = text.match(/tr-\d{3,}/i)?.[0]?.toLowerCase();
+    if (tradeRefMatch) {
+      const byDisplay = myRequests.find((request) => (
+        String(request.displayNumber ?? "").toLowerCase() === tradeRefMatch
+        || String(request.tradeId ?? "").toLowerCase() === tradeRefMatch
+      ));
+      if (byDisplay) return buildTradeRoomDestinationFromRequest(byDisplay);
+    }
+
+    const relevant = myRequests
+      .filter((request) => request.status !== "declined" && request.status !== "cancelled")
+      .sort((left, right) => new Date(right.updatedAt ?? right.createdAt).getTime() - new Date(left.updatedAt ?? left.createdAt).getTime());
+    if (!relevant.length) return null;
+    return buildTradeRoomDestinationFromRequest(relevant[0]);
+  }, [buildTradeRoomDestinationFromRequest, myRequests]);
+
+  const isTradeIntentNotification = useCallback((notification: AlphaExchangeNotification) => {
+    const combinedText = `${notification.title} ${notification.message}`;
+    const actionLabel = String(notification.actionLabel ?? "").toLowerCase();
+    const centerCategory = String(notification.centerCategory ?? "").toLowerCase();
+    const looksTradeRelated = /trade|payment sent|usdt|purchase request|\brequest\b|buyer marked|seller marked|confirm money|confirm usdt/i.test(combinedText);
+    return notification.category === "trade"
+      || centerCategory === "trades"
+      || Boolean(notification.relatedRequestId)
+      || Boolean(notification.relatedTradeId)
+      || Boolean(notification.tradeSnapshot?.requestId)
+      || actionLabel.includes("trade")
+      || actionLabel.includes("payment")
+      || actionLabel.includes("usdt")
+      || looksTradeRelated;
+  }, []);
+
+  const inferTradeActionFromNotification = useCallback((notification: AlphaExchangeNotification) => {
+    const text = `${notification.title} ${notification.message}`.toLowerCase();
+    if (/new trade request/.test(text)) return "accept-trade";
+    if (/trade request accepted/.test(text)) return "upload-payment-receipt";
+    if (/buyer marked payment sent|payment sent/.test(text)) return "confirm-money-received";
+    if (/seller confirmed funds received|usdt release pending/.test(text)) return "upload-seller-evidence";
+    if (/seller marked usdt sent|usdt sent/.test(text)) return "confirm-usdt-received";
+    if (/review available|trade completed/.test(text)) return "review-trade";
+    return null;
+  }, []);
+
+  const tradeActionHash = useCallback((action: string) => {
+    if (action === "upload-payment-receipt" || action === "upload-seller-evidence") return "evidence";
+    if (action === "review-trade" || action === "open-trade") return "status-banner";
+    return "action-required";
+  }, []);
+
   const resolveNotificationHref = useCallback((notification: AlphaExchangeNotification) => {
+    if (isTradeIntentNotification(notification)) {
+      const relatedRequestId = notification.relatedRequestId?.trim()
+        || notification.tradeSnapshot?.requestId
+        || extractTradeRoomHrefFromRelatedHref(notification.relatedHref ?? notification.actionHref)?.replace(/^\/trade-room\//, "")
+        || null;
+      const inferredAction = inferTradeActionFromNotification(notification);
+      if (relatedRequestId && inferredAction) {
+        return `/trade-room/${relatedRequestId}?action=${encodeURIComponent(inferredAction)}#${tradeActionHash(inferredAction)}`;
+      }
+      const directTradeDestination = resolveTradeRoomDestinationFromSnapshot(notification)
+        ?? resolveTradeRoomDestinationFromRequests(notification);
+      if (directTradeDestination) return directTradeDestination;
+      const params = new URLSearchParams();
+      params.set("notificationId", notification.id);
+      params.set("includePending", "1");
+      return `/trade-room?${params.toString()}`;
+    }
+
+    const inferredTradeDestination = resolveTradeRoomDestinationFromRequests(notification);
+    if (inferredTradeDestination) return inferredTradeDestination;
+
     const explicit = (notification.actionHref ?? notification.relatedHref ?? "").trim();
     if (explicit) return explicit;
-    if (notification.relatedTradeId) return `/trade-room/${notification.relatedTradeId}`;
-    if (notification.relatedRequestId) return `/trade-room/${notification.relatedRequestId}`;
     if (notification.relatedListingId) return `/usdt-exchange#listing-${notification.relatedListingId}`;
     const text = `${notification.title} ${notification.message}`.toLowerCase();
     if (text.includes("compliance") || text.includes("flagged seller") || text.includes("recovery fee")) {
@@ -2779,9 +2970,25 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         : "/dashboard/seller/compliance-payment";
     }
     return null;
-  }, [isOwnerViewer]);
+  }, [extractTradeRoomHrefFromRelatedHref, inferTradeActionFromNotification, isOwnerViewer, isTradeIntentNotification, resolveTradeRoomDestinationFromRequests, resolveTradeRoomDestinationFromSnapshot, tradeActionHash]);
+
+  const handleNotificationActionClick = useCallback((notification: AlphaExchangeNotification) => {
+    const destination = resolveNotificationHref(notification) ?? "/trade-room?includePending=1";
+    if (!destination) return;
+    const isTradeIntent = isTradeIntentNotification(notification);
+    if (isTradeIntent) {
+      const routerDestination = destination.replace(/^\/(en|ar)(?=\/)/i, "") || destination;
+      router.push(routerDestination);
+      return;
+    }
+    router.push(destination);
+    if (!isTradeIntent && !notification.isRead) {
+      void handleNotificationReadState(notification.id, true);
+    }
+  }, [handleNotificationReadState, isTradeIntentNotification, resolveNotificationHref, router]);
 
   const resolveNotificationLabel = useCallback((notification: AlphaExchangeNotification) => {
+    if (isTradeIntentNotification(notification)) return "Continue Trade";
     if (notification.actionLabel?.trim()) return notification.actionLabel.trim();
     if (notification.relatedTradeId || notification.relatedRequestId) return "Open Trade Room";
     if (notification.relatedListingId) return "Open Listing";
@@ -2790,7 +2997,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       return "Open Compliance";
     }
     return "Open";
-  }, []);
+  }, [isTradeIntentNotification]);
 
   const isListingActionBusy = useCallback(
     (listingId: string) => Boolean(listingActionKey && listingActionKey.startsWith(`${listingId}:`)),
@@ -3271,8 +3478,10 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
 
   const unreadNotificationsCount = notifications.filter((item) => !item.isRead).length;
 
-  const notificationCenterCard = sessionUser ? (
-    <Card id="notification-center-section" className="border-white/10 bg-[#0B0B0B]/90">
+  function renderNotificationCenterCard(sectionId: string) {
+    if (!sessionUser) return null;
+    return (
+      <Card id={sectionId} className="border-white/10 bg-[#0B0B0B]/90">
       <CardHeader>
         <CardTitle className="inline-flex items-center gap-2">
           <BellRing className="h-4 w-4 text-[#C9A227]" />
@@ -3319,11 +3528,13 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
               No notifications yet. You’ll be notified here about trades, listings, reviews, and account activity.
             </div>
           ) : null}
-          {sortedNotifications.slice(0, 10).map((notification) => (
-            <div key={notification.id} className={`rounded-2xl border p-4 text-xs ${notification.isRead ? "border-white/10 bg-black/20 text-[#9CA3AF]" : "border-[#C9A227]/35 bg-[#C9A227]/10 text-[#F3F4F6]"}`}>
+          {sortedNotifications.slice(0, 20).map((notification) => (
+            <div key={notification.id} className={`rounded-xl border p-4 text-xs ${notification.isRead ? "border-white/10 bg-black/20 text-[#9CA3AF]" : "border-[#C9A227]/35 bg-[#C9A227]/10 text-[#F3F4F6]"}`}>
               {(() => {
-                const actionHref = resolveNotificationHref(notification);
                 const actionLabel = resolveNotificationLabel(notification);
+                const actionHref = resolveNotificationHref(notification);
+                const looksTradeRelated = /trade/i.test(`${notification.title} ${notification.message}`);
+                const hasAction = Boolean(actionHref) || looksTradeRelated || isTradeIntentNotification(notification);
                 return (
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0 space-y-2">
@@ -3340,10 +3551,14 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                         <span>{formatNotificationRelativeTime(notification.createdAt, locale)}</span>
                         <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 capitalize text-[#D1D5DB]">{notification.category}</span>
                       </div>
-                      {actionHref ? (
-                        <a href={actionHref} className="inline-flex items-center rounded-full border border-[#6CAEFF]/40 bg-[#6CAEFF]/10 px-3 py-1.5 text-[11px] font-medium text-[#93C5FD] transition hover:border-[#6CAEFF]/70">
+                      {hasAction ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleNotificationActionClick(notification)}
+                          className="inline-flex items-center rounded-full border border-[#6CAEFF]/40 bg-[#6CAEFF]/10 px-3 py-1.5 text-[11px] font-medium text-[#93C5FD] transition hover:border-[#6CAEFF]/70"
+                        >
                           {actionLabel}
-                        </a>
+                        </button>
                       ) : null}
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
@@ -3361,8 +3576,9 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
           ))}
         </div>
       </CardContent>
-    </Card>
-  ) : null;
+      </Card>
+    );
+  }
 
   const marketInsightsCard = sessionUser && isApprovedSeller ? (
     <Card className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
@@ -3715,7 +3931,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
           </Card>
 
           <div className="mt-4">
-            {notificationCenterCard}
+            {renderNotificationCenterCard("notification-center-section")}
           </div>
         </>
       ) : null}
@@ -6198,7 +6414,6 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
               </CardContent>
             </Card>
           ) : null}
-          {sessionUser ? notificationCenterCard : null}
           {sessionUser ? (
             <Card className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
               <CardHeader>

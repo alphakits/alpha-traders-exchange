@@ -235,7 +235,8 @@ describe("Discord community notifications", () => {
     expect(deliveredNonces.size).toBe(1);
     expect(physicalDeliveries).toBe(1);
     expect(completionCount).toBe(2);
-    expect(pool.query.mock.calls.some(([sql]) =>
+    const queryMock = pool.query as unknown as { mock: { calls: Array<[unknown]> } };
+    expect(queryMock.mock.calls.some(([sql]) =>
       String(sql).includes("lease_token = $2::uuid")
       && String(sql).includes("status = 'processing'"))).toBe(true);
   });

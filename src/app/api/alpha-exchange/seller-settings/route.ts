@@ -58,6 +58,21 @@ export async function PATCH(request: NextRequest) {
     const preferredNetworks = preferredNetworksInput
       ? (preferredNetworksInput.filter((network: string) => network === "TRC20" || network === "ERC20" || network === "BEP20" || network === "SOL") as SupportedNetwork[])
       : undefined;
+    const hasProfileUpdates = Boolean(
+      fullName !== undefined ||
+      whatsappNumber !== undefined ||
+      preferredNetworks !== undefined ||
+      profilePhotoUrl !== undefined ||
+      coverBannerUrl !== undefined ||
+      languagesInput !== undefined ||
+      bio !== undefined ||
+      tradingExperience !== undefined ||
+      workingHours !== undefined ||
+      preferredPaymentMethods !== undefined ||
+      country !== undefined ||
+      city !== undefined ||
+      onlineStatus !== undefined,
+    );
 
     const currentPassword = body.currentPassword ? String(body.currentPassword) : "";
     const newPassword = body.newPassword ? String(body.newPassword) : "";
@@ -72,22 +87,24 @@ export async function PATCH(request: NextRequest) {
       requestedPasswordChange = true;
     }
 
-    const updatedUser = await updateUserSellerSettings({
-      userId: user.id,
-      fullName,
-      whatsappNumber,
-      preferredNetworks,
-      profilePhotoUrl,
-      coverBannerUrl,
-      languages: languagesInput,
-      bio,
-      tradingExperience,
-      workingHours,
-      preferredPaymentMethods,
-      country,
-      city,
-      onlineStatus,
-    });
+    const updatedUser = hasProfileUpdates
+      ? await updateUserSellerSettings({
+          userId: user.id,
+          fullName,
+          whatsappNumber,
+          preferredNetworks,
+          profilePhotoUrl,
+          coverBannerUrl,
+          languages: languagesInput,
+          bio,
+          tradingExperience,
+          workingHours,
+          preferredPaymentMethods,
+          country,
+          city,
+          onlineStatus,
+        })
+      : user;
 
     const sellerWithAvailability = availabilityStatus
       ? await updateSellerAvailabilityStatus({ sellerId: user.id, actorUserId: user.id, availabilityStatus })

@@ -221,10 +221,10 @@ function profileTheme(variant: RoleBadgeVariant) {
   };
 }
 
-export function AccountProfilePanel({ locale }: { locale: "ar" | "en" }) {
+export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { locale: "ar" | "en"; initialSessionRoles?: string[] }) {
   const isAr = locale === "ar";
   const [payload, setPayload] = useState<AccountProfilePayload | null>(null);
-  const [sessionRoles, setSessionRoles] = useState<string[]>([]);
+  const [sessionRoles, setSessionRoles] = useState<string[]>(initialSessionRoles);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState("");

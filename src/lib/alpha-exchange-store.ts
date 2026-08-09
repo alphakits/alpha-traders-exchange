@@ -2333,7 +2333,17 @@ async function readDb(options?: { bypassCache?: boolean; skipMaintenance?: boole
   }
   const now = Date.now();
   if (dbCache && now - dbCache.updatedAt <= DB_CACHE_TTL_MS) {
-    return structuredClone(dbCache.value);
+    const cached = structuredClone(dbCache.value);
+    if (options?.skipMaintenance) {
+      return cached;
+    }
+    const numberingChanged = ensureDisplayNumbers(cached);
+    const changed = await applyMarketplaceReliabilityRules(cached);
+    if (changed || numberingChanged) {
+      await writeDb(cached);
+      return cached;
+    }
+    return cached;
   }
   if (!dbReadInFlight) {
     dbReadInFlight = (async () => {
@@ -2429,32 +2439,6 @@ async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<
     if (process.env.ALPHA_EXCHANGE_PERF === "1") {
       console.log(`[STORE-PERF] writeDb[${tables.join(",")}] total ${Date.now() - storeWriteStart}ms`);
     }
-    dbCache = { value: normalized, updatedAt: Date.now() };
-  } finally {
-    dbReadInFlight = null;
-  }
-}
-
-type PurchaseRequestCreationWriteDelta = {
-  purchaseRequest: PurchaseRequest;
-  users: AlphaExchangeUser[];
-  trustSnapshots: TrustSnapshotRecord[];
-  newAuditLogs: AuditLogEntry[];
-  newNotifications: AlphaExchangeNotification[];
-  newActivityLogs: AlphaExchangeActivityLogEntry[];
-  newTrustHistoryEntries: TrustScoreChangeLog[];
-};
-
-async function writeDbForPurchaseRequestCreation(db: AlphaExchangeDb, delta: PurchaseRequestCreationWriteDelta) {
-  const normalized = normalizeDb(db);
-  ensureDisplayNumbers(normalized);
-  const writeTask = dbWriteInFlight.then(async () => {
-    const repository = await getAlphaExchangeRepository();
-    await repository.savePurchaseRequestCreationSnapshotTargeted(delta);
-  });
-  dbWriteInFlight = writeTask.catch(() => undefined);
-  try {
-    await writeTask;
     dbCache = { value: normalized, updatedAt: Date.now() };
   } finally {
     dbReadInFlight = null;
@@ -6092,6 +6076,13 @@ export async function renewMarketplaceListing(input: {
   if (listing.status === "completed" || listing.status === "cancelled" || listing.status === "closed") {
     throw new Error("This listing can no longer be renewed.");
   }
+
+  // If a still-active listing already passed its expiry timestamp, emit the
+  // canonical expiration transition first so audit + notifications stay intact.
+  if (listing.status !== "expired" && listingShouldExpire(listing, Date.now()) && !listingExpirationDeferredByTrade(listing)) {
+    await expireListing(db, listing, input.actorUserId, "Listing reached expiration at renewal time.");
+  }
+
   const now = nowIso();
   const previousStatus = listing.status;
   const previousExpiresAt = listing.expiresAt;
@@ -6709,12 +6700,6 @@ export async function createPurchaseRequest(input: {
     updatedAt: now,
   };
   db.purchaseRequests.push(request);
-  const startingAuditLogCount = db.auditLogs.length;
-  const startingNotificationCount = db.notifications.length;
-  const startingActivityLogCount = db.activityLog.length;
-  const startingTrustHistoryCount = db.trustScoreHistory.length;
-  const startingUsersById = new Map(db.users.map((user) => [user.id, user] as const));
-  const startingTrustSnapshotsBySellerId = new Map(db.trustSnapshots.map((snapshot) => [snapshot.sellerId, snapshot] as const));
   await appendAuditLog(db, {
     action: "purchase_request_submitted",
     actorUserId: input.actorUserId,
@@ -6741,12 +6726,6 @@ export async function createPurchaseRequest(input: {
     details: `Trade ${request.tradeId} was submitted.`,
   });
   const businessMs = Date.now() - businessStartedAt;
-  const newAuditLogs = db.auditLogs.slice(0, db.auditLogs.length - startingAuditLogCount);
-  const newNotifications = db.notifications.slice(0, db.notifications.length - startingNotificationCount);
-  const newActivityLogs = db.activityLog.slice(0, db.activityLog.length - startingActivityLogCount);
-  const newTrustHistoryEntries = db.trustScoreHistory.slice(0, db.trustScoreHistory.length - startingTrustHistoryCount);
-  const updatedUsers = db.users.filter((user) => user !== startingUsersById.get(user.id));
-  const updatedTrustSnapshots = db.trustSnapshots.filter((snapshot) => snapshot !== startingTrustSnapshotsBySellerId.get(snapshot.sellerId));
   const writeStartedAt = Date.now();
   await writeDb(db, { selectedTables: PURCHASE_REQUEST_CREATE_TABLES });
   const writeMs = Date.now() - writeStartedAt;
@@ -6780,7 +6759,6 @@ export async function getMyPurchaseRequests(userId: string, role: UserRole, dbIn
 }
 
 const SELLER_WALLET_VISIBLE_STATUSES = new Set<PurchaseRequestStatus>([
-  "payment_sent",
   "funds_received",
   "usdt_release_pending",
   "usdt_sent",
@@ -10408,8 +10386,6 @@ export async function getNotificationsForUser(input: {
   includeActivity?: boolean;
 }) {
   const db = await readDb();
-  const now = nowIso();
-  let changed = false;
 
   // Build the display-number lookup ONCE for the entire function so that every
   // enrichNotification call below shares it rather than rebuilding it per call.
@@ -10421,31 +10397,8 @@ export async function getNotificationsForUser(input: {
     applications: db.sellerApplications,
   });
 
-  db.notifications = db.notifications.map((notification) => {
-    if (notification.userId !== input.userId) return notification;
-    if (notification.state === "archived") return notification;
-    const tradeRequest = resolveTradeContextForNotification(db, {
-      userId: notification.userId,
-      relatedRequestId: notification.relatedRequestId,
-      relatedTradeId: notification.relatedTradeId,
-      relatedListingId: notification.relatedListingId,
-    });
-    if (!tradeRequest) return notification;
-    if (tradeRequest.status !== "completed" && tradeRequest.status !== "review_open" && tradeRequest.status !== "locked") {
-      return notification;
-    }
-    changed = true;
-    return enrichNotification(db, {
-      ...notification,
-      state: "archived",
-      isRead: true,
-      archivedAt: notification.archivedAt ?? now,
-      updatedAt: now,
-    }, sharedDisplayLookup);
-  });
-  if (changed) {
-    await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
-  }
+  // Keep read paths side-effect free. Notifications should only transition
+  // state through explicit user/admin actions, not while listing data.
   const category = input.category;
   const centerCategory = input.centerCategory;
   const query = String(input.query ?? "").trim().toLowerCase();

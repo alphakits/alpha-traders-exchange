@@ -1,8 +1,6 @@
 import { buildPageMetadata } from "@/lib/seo";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
-import { redirect } from "next/navigation";
 import { getCurrentSessionUser } from "@/lib/auth";
-import { getFirstActiveTradeForUser } from "@/lib/alpha-exchange-store";
 
 export const dynamic = "force-dynamic";
 
@@ -22,11 +20,5 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 export default async function UsdtExchangeRoute({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const user = await getCurrentSessionUser();
-  if (user) {
-    const activeTrade = await getFirstActiveTradeForUser(user.id, user.role);
-    if (activeTrade) {
-      redirect(`/${locale}/trade-room/${activeTrade.id}`);
-    }
-  }
   return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={user} />;
 }

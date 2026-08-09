@@ -23,5 +23,5 @@ export default async function ProfilePage({ params }: { params: Promise<{ locale
     redirect(`/${locale}/login?redirectTo=/${locale}/profile`);
   }
 
-  return <AccountProfilePanel locale={locale === "ar" ? "ar" : "en"} />;
+  return <AccountProfilePanel locale={locale === "ar" ? "ar" : "en"} initialSessionRoles={user.roles ?? [user.role]} />;
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { motion } from "framer-motion";
 import { AlertTriangle, CheckCircle2, Clock3, Copy, LoaderCircle, MessageCircle, ShieldCheck, WalletCards } from "lucide-react";
 import Image from "next/image";
+import { useSearchParams } from "next/navigation";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -67,11 +68,15 @@ type UploadPrimaryAction = {
 
 type PrimaryAction = StatusPrimaryAction | UploadPrimaryAction;
 
+type TradeRoomDeepLinkTarget = "status-banner" | "action-required" | "evidence" | "chat";
+
 const ALLOWED_EVIDENCE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
 const MAX_EVIDENCE_SIZE_BYTES = 8 * 1024 * 1024;
 const TRADE_ROOM_DEBUG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
 const COMPLETED_TRADE_STATUSES = new Set<PurchaseRequest["status"]>(["review_open", "completed", "locked"]);
 const PERF_LOG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
+const DEFAULT_COMMISSION_WALLET_ADDRESS = "TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8";
+const COMMISSION_PAY_NOW_DESTINATION = `https://tronscan.org/#/address/${process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_ADDRESS || DEFAULT_COMMISSION_WALLET_ADDRESS}`;
 
 const STEP_ORDER: Array<{ id: StepId; icon: string; label: { en: string; ar: string } }> = [
   { id: "request", icon: "📝", label: { en: "Request Submitted", ar: "تم إرسال الطلب" } },
@@ -609,6 +614,22 @@ function buildOptimisticEvidenceRoom(
   return applyRequestToRoom(room, nextRequest);
 }
 
+function resolveDeepLinkTarget(actionParam: string | null, hash: string | null): TradeRoomDeepLinkTarget | null {
+  const normalizedHash = hash?.trim().replace(/^#/, "") || "";
+  if (normalizedHash === "status-banner" || normalizedHash === "action-required" || normalizedHash === "evidence" || normalizedHash === "chat") {
+    return normalizedHash;
+  }
+  if (!actionParam) return null;
+  if (actionParam === "upload-payment-receipt" || actionParam === "upload-seller-evidence") return "evidence";
+  if (actionParam === "accept-trade"
+    || actionParam === "confirm-money-received"
+    || actionParam === "release-usdt"
+    || actionParam === "confirm-usdt-received") {
+    return "action-required";
+  }
+  return "status-banner";
+}
+
 function shouldIgnoreRegressiveSnapshot(currentRoom: TradeRoomData, incomingRoom: TradeRoomData, completionLocked: boolean) {
   const currentStatus = currentRoom.request.status;
   const incomingStatus = incomingRoom.request.status;
@@ -646,6 +667,10 @@ export function TradeRoomPage({
 }) {
   const isAr = locale === "ar";
   const router = useRouter();
+  const openCommissionPayNow = useCallback(() => {
+    window.open(COMMISSION_PAY_NOW_DESTINATION, "_blank", "noopener,noreferrer");
+  }, []);
+  const searchParams = useSearchParams();
   const [room, setRoom] = useState<TradeRoomData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -693,7 +718,9 @@ export function TradeRoomPage({
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const typingTimeoutRef = useRef<number | null>(null);
   const statusBannerRef = useRef<HTMLDivElement | null>(null);
+  const actionRequiredRef = useRef<HTMLDivElement | null>(null);
   const evidenceSectionRef = useRef<HTMLDivElement | null>(null);
+  const chatSectionRef = useRef<HTMLDivElement | null>(null);
   const previousStatusRef = useRef<PurchaseRequest["status"] | null>(null);
   // Performance timing refs — record timestamps so useLayoutEffect can log render latency.
   const perfClickTsRef = useRef<number | null>(null);
@@ -701,6 +728,7 @@ export function TradeRoomPage({
   const perfSseReceivedTsRef = useRef<number | null>(null);
   const perfSsePublishedAtRef = useRef<number | null>(null);
   const roomRef = useRef<TradeRoomData | null>(null);
+  const lastDeepLinkHandledRef = useRef<string | null>(null);
   const buyerCompletionLockRef = useRef(false);
   const reviewSubmitInFlightRef = useRef(false);
   const reviewFormVisibleRef = useRef(false);
@@ -807,6 +835,45 @@ export function TradeRoomPage({
     previousStatusRef.current = currentRequest.status;
     setStepPulse(false);
   }, [room?.request]);
+
+  useEffect(() => {
+    const currentRequest = room?.request;
+    if (!currentRequest) return;
+    const action = searchParams.get("action")?.trim() || null;
+    const hash = typeof window !== "undefined" ? window.location.hash : null;
+    const target = resolveDeepLinkTarget(action, hash);
+    if (!target) return;
+
+    const marker = `${currentRequest.id}:${action ?? ""}:${hash ?? ""}`;
+    if (lastDeepLinkHandledRef.current === marker) return;
+
+    const ref = target === "status-banner"
+      ? statusBannerRef.current
+      : target === "action-required"
+        ? actionRequiredRef.current
+        : target === "evidence"
+          ? evidenceSectionRef.current
+          : chatSectionRef.current;
+    const resolvedRef = target === "status-banner"
+      ? (ref ?? statusBannerRef.current)
+      : ref;
+    if (!resolvedRef) return;
+    lastDeepLinkHandledRef.current = marker;
+
+    const alignTopWithHeaderOffset = () => {
+      const absoluteTop = window.scrollY + resolvedRef.getBoundingClientRect().top;
+      const targetTop = Math.max(0, absoluteTop - 120);
+      window.scrollTo({ top: targetTop, behavior: "auto" });
+    };
+
+    alignTopWithHeaderOffset();
+    window.requestAnimationFrame(() => {
+      alignTopWithHeaderOffset();
+      window.requestAnimationFrame(() => {
+        alignTopWithHeaderOffset();
+      });
+    });
+  }, [room?.request, searchParams]);
 
   // Measure T4→T5: SSE received → UI rendered (useLayoutEffect fires synchronously after DOM paint).
   useLayoutEffect(() => {
@@ -1093,6 +1160,13 @@ export function TradeRoomPage({
     }
     return actionBusy;
   }, [actionBusy, evidenceBusy, primaryAction]);
+  const primaryActionButtonLabel = useMemo(() => {
+    if (!primaryAction) return "";
+    if (primaryAction.mode === "upload") {
+      return isAr ? "المتابعة إلى قسم الإثبات" : "Continue to Evidence";
+    }
+    return primaryAction.label;
+  }, [isAr, primaryAction]);
 
   const handleStatusUpdate = useCallback(async (action: StatusPrimaryAction) => {
     const nextStatus = action.nextStatus;
@@ -1728,6 +1802,7 @@ export function TradeRoomPage({
 
         {statusBanner ? (
           <Card
+            id="status-banner"
             ref={statusBannerRef}
             className={`${turn?.isYourTurn ? "border-[#C9A227]/40 bg-[#C9A227]/10" : "border-[#6CAEFF]/35 bg-[#6CAEFF]/10"} ${stepPulse ? "ring-2 ring-[#C9A227]/30" : ""}`}
           >
@@ -1824,6 +1899,9 @@ export function TradeRoomPage({
                   <p className="font-medium">{isAr ? "عمولة مستحقة" : "Commission Due"}</p>
                   <p>{isAr ? `الإجمالي: ${room.sellerCommissionDueAmount.toFixed(2)} USDT` : `Amount: ${room.sellerCommissionDueAmount.toFixed(2)} USDT`}</p>
                   <p className="text-xs">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
+                  <Button type="button" size="sm" className="mt-2" onClick={openCommissionPayNow}>
+                    Pay Now
+                  </Button>
                 </div>
               ) : null}
               {isActorBuyer && !request.buyerReview ? (
@@ -1935,7 +2013,7 @@ export function TradeRoomPage({
 
         {!showSuccessScreen ? <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_380px] xl:items-start">
           <div className="space-y-4">
-            <Card className="border-white/10 bg-[#0B0B0B]/90">
+            <Card id="action-required" ref={actionRequiredRef} className="scroll-mt-28 border-white/10 bg-[#0B0B0B]/90">
               <CardHeader>
                 <CardTitle className="text-lg">{isAr ? "بطاقة الحالة الحالية" : "Current Status"}</CardTitle>
               </CardHeader>
@@ -1970,7 +2048,7 @@ export function TradeRoomPage({
                           <LoaderCircle className="h-4 w-4 animate-spin" />
                           <span>{isAr ? "جاري التنفيذ..." : "Processing..."}</span>
                         </span>
-                      ) : primaryAction.label}
+                      ) : primaryActionButtonLabel}
                     </Button>
                     {primaryActionDisabledReason ? <p className="text-xs text-amber-300">{primaryActionDisabledReason}</p> : null}
                     {!isSeller && request.status === "accepted" ? (
@@ -2085,7 +2163,7 @@ export function TradeRoomPage({
             </Card>
 
             <div className="grid gap-4 2xl:grid-cols-2">
-              <Card ref={evidenceSectionRef} className="border-white/10 bg-[#0B0B0B]/90">
+              <Card className="border-white/10 bg-[#0B0B0B]/90">
                 <CardHeader>
                   <CardTitle className="text-lg">{isAr ? "مهلة إصدار USDT" : "USDT Release Deadline"}</CardTitle>
                 </CardHeader>
@@ -2138,7 +2216,7 @@ export function TradeRoomPage({
             </div>
 
             <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-            <Card className="border-white/10 bg-[#0B0B0B]/90">
+            <Card id="evidence" ref={evidenceSectionRef} className="border-white/10 bg-[#0B0B0B]/90">
               <CardHeader>
                 <CardTitle className="text-lg">{isAr ? "قسم الإثبات" : "Evidence"}</CardTitle>
               </CardHeader>
@@ -2171,6 +2249,16 @@ export function TradeRoomPage({
                           {isAr ? "اختر الملف ثم استخدم زر الإجراء الرئيسي للمتابعة." : "Choose the file, then use the main action button above to continue."}
                         </p>
                       )}
+                      <Button
+                        type="button"
+                        size="sm"
+                        loading={evidenceBusy === "buyer"}
+                        loadingLabel={isAr ? "جارٍ الرفع..." : "Uploading..."}
+                        disabled={!buyerEvidenceFile}
+                        onClick={() => void handleUploadEvidence("buyer")}
+                      >
+                        {isAr ? "رفع إيصال الدفع" : "Upload Payment Receipt"}
+                      </Button>
                     </div>
                   ) : null}
                 </div>
@@ -2201,18 +2289,6 @@ export function TradeRoomPage({
                             {isAr ? `الملف المحدد: ${sellerEvidenceFile.name}` : `Selected file: ${sellerEvidenceFile.name}`}
                           </p>
                           <div className="flex flex-wrap gap-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              loading={evidenceBusy === "seller"}
-                              loadingLabel={isAr ? "جارٍ الرفع..." : "Uploading..."}
-                              onClick={() => void handleUploadEvidence("seller")}
-                            >
-                              {request.sellerEvidence
-                                ? (isAr ? "استبدال الرفع" : "Replace Upload")
-                                : (isAr ? "رفع الإثبات" : "Upload Seller Evidence")}
-                            </Button>
                             <Button type="button" size="sm" variant="secondary" onClick={() => setSellerEvidenceFile(null)}>
                               {isAr ? "إزالة الملف" : "Remove File"}
                             </Button>
@@ -2223,6 +2299,24 @@ export function TradeRoomPage({
                           {isAr ? "اختر ملفًا للرفع. يمكنك الاستبدال لاحقًا قبل المتابعة." : "Choose a file to upload. You can replace it before continuing."}
                         </p>
                       )}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        loading={evidenceBusy === "seller"}
+                        loadingLabel={isAr ? "جارٍ الرفع..." : "Uploading..."}
+                        onClick={() => {
+                          if (sellerEvidenceFile) {
+                            void handleUploadEvidence("seller");
+                            return;
+                          }
+                          sellerEvidenceInputRef.current?.click();
+                        }}
+                      >
+                        {request.sellerEvidence
+                          ? (isAr ? "استبدال الرفع" : "Replace Upload")
+                          : (isAr ? "رفع إثبات البائع" : "Upload Seller Evidence")}
+                      </Button>
                     </div>
                   ) : null}
                 </div>
@@ -2253,7 +2347,7 @@ export function TradeRoomPage({
           </div>
 
           <div className="space-y-4 xl:sticky xl:top-28">
-            <Card className="border-white/10 bg-[#0B0B0B]/90">
+            <Card id="chat" ref={chatSectionRef} className="border-white/10 bg-[#0B0B0B]/90">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg"><MessageCircle className="h-4 w-4 text-[#C9A227]" />{isAr ? "الدردشة المباشرة" : "Live Chat"}</CardTitle>
               </CardHeader>
@@ -2357,7 +2451,7 @@ export function TradeRoomPage({
                   <p>{isAr ? `عدد العمولات غير المدفوعة: ${room.sellerCommissionDueCount}` : `Pending commissions: ${room.sellerCommissionDueCount}`}</p>
                   <p className="mt-1">{isAr ? `المبلغ الإجمالي: ${room.sellerCommissionDueAmount.toFixed(2)} USDT` : `Total due: ${room.sellerCommissionDueAmount.toFixed(2)} USDT`}</p>
                   <p className="mt-1 text-xs text-amber-100">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
-                  <Button type="button" size="sm" className="mt-2" onClick={() => router.push("/usdt-exchange")}>
+                  <Button type="button" size="sm" className="mt-2" onClick={openCommissionPayNow}>
                     Pay Now
                   </Button>
                 </CardContent>
