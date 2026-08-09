@@ -129,10 +129,10 @@ test("Confirm disconnect sends exactly one DELETE to the application route", asy
 
   await page.goto("/en/settings");
   await expect(page.getByText("@alpha_user")).toBeVisible();
-  await page.getByRole("button", { name: "Disconnect" }).click();
   const responsePromise = page.waitForResponse((response) =>
     response.request().method() === "DELETE"
     && new URL(response.url()).pathname === "/api/discord/identity");
+  await page.getByRole("button", { name: "Disconnect" }).click();
   await page.getByRole("button", { name: "Confirm disconnect" }).click();
   const response = await responsePromise;
   const body = await response.json() as { unlinked?: unknown };

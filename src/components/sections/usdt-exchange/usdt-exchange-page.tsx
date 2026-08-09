@@ -3905,31 +3905,6 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
             </Card>
           ) : null}
 
-          <Card className="mt-4 border-white/10 bg-[#0B0B0B]/90">
-            <CardHeader>
-              <CardTitle>{isAr ? "السوق المباشر" : "Live Marketplace"}</CardTitle>
-              <CardDescription>{isApprovedSeller ? (isAr ? "اقفز مباشرة من إدارة حسابك إلى السوق عند الحاجة." : "Move naturally from workspace management into the market when you're ready to browse or buy.") : (isAr ? "استكشف السوق عندما تكون جاهزًا للشراء." : "Move from your account overview into the market when you're ready to browse.")}</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-xl border border-white/10 bg-black/25 p-3">
-                <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">USDT / ILS</p>
-                <p className="mt-1 text-lg font-semibold text-white">{formatIls(marketPricePerUsdt)}</p>
-              </div>
-              <div className="rounded-xl border border-white/10 bg-black/25 p-3">
-                <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">Live Listings</p>
-                <p className="mt-1 text-lg font-semibold text-white">{marketplacePulse.liveListings.toLocaleString("en-IL")}</p>
-              </div>
-              <div className="rounded-xl border border-white/10 bg-black/25 p-3">
-                <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">Sellers Online</p>
-                <p className="mt-1 text-lg font-semibold text-white">{marketplacePulse.onlineVerifiedSellers.toLocaleString("en-IL")}</p>
-              </div>
-              <div className="rounded-xl border border-white/10 bg-black/25 p-3">
-                <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">Avg Response</p>
-                <p className="mt-1 text-lg font-semibold text-white">{marketplacePulse.averageResponseMinutes} min</p>
-              </div>
-            </CardContent>
-          </Card>
-
           <div className="mt-4">
             {renderNotificationCenterCard("notification-center-section")}
           </div>
