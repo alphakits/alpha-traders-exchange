@@ -1,7 +1,7 @@
 /**
  * E2E tests — Authentication flow
  *
- * Prerequisites: dev server running at http://localhost:3000
+ * Prerequisites: Playwright starts the isolated server configured by PLAYWRIGHT_PORT.
  * Run: npx playwright test e2e/auth.spec.ts
  *
  * Credentialed checks use environment variables only:
@@ -244,10 +244,11 @@ test.describe("Role-based access", () => {
   });
 
   test("admin route /en/admin/alpha-exchange inaccessible to buyer", async ({ page }) => {
+    test.setTimeout(90_000);
     test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     await login(page, BUYER_EMAIL, BUYER_PASSWORD);
-    await page.goto("/en/admin/alpha-exchange", { waitUntil: "commit" }).catch(() => {});
-    await expect(page).toHaveURL(/\/en\/(usdt-exchange|login)/, { timeout: 30_000 });
+    await page.goto("/en/admin/alpha-exchange", { timeout: 75_000 });
+    await expect(page).toHaveURL(/\/en\/usdt-exchange$/, { timeout: 10_000 });
   });
 
   test("/api/auth/me returns user for authenticated session", async ({ page }) => {

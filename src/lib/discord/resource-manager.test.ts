@@ -34,7 +34,7 @@ const additionalBotRoleId = "555555555555555557";
 const requiredBotPermissions = DISCORD_LAYER_A_WITH_MANAGE_ROLES_BITSET;
 const displayNames: DiscordResourceDisplayNames =
   readDiscordResourceDisplayNames({});
-const managedResourceCount = 13;
+const managedResourceCount = 24;
 const provisioningToken = "123e4567-e89b-42d3-a456-426614174000";
 
 function seededPersisted(): Partial<
@@ -177,7 +177,7 @@ function fakeDiscord(input: {
     body: Array<{
       id: string;
       position: number;
-      parent_id: string;
+      parent_id?: string;
     }> | {
       name?: string;
       parent_id?: string | null;
@@ -190,7 +190,7 @@ function fakeDiscord(input: {
         const channel = channels.find((candidate) => candidate.id === update.id);
         if (!channel) throw new Error(`Unknown channel ${update.id}`);
         channel.position = update.position;
-        channel.parent_id = update.parent_id;
+        if (update.parent_id !== undefined) channel.parent_id = update.parent_id;
       }
       return channels;
     }
@@ -382,7 +382,7 @@ describe("Discord managed resource manager", () => {
 
     expect(discord.channels).toHaveLength(1);
     expect(discord.channels[0]?.name).toBe(discordResourceProvisioningName(
-      "seller_category",
+      "start_here_category",
       provisioningToken,
     ));
 
@@ -393,11 +393,11 @@ describe("Discord managed resource manager", () => {
       persistResolvedResource: vi.fn(async () => undefined),
     });
 
-    expect(recovered.find((resource) => resource.key === "seller_category"))
+    expect(recovered.find((resource) => resource.key === "start_here_category"))
       .toMatchObject({ action: "recovered" });
     expect(discord.rest.post).toHaveBeenCalledTimes(managedResourceCount);
     expect(discord.channels.filter((channel) =>
-      channel.type === ChannelType.GuildCategory)).toHaveLength(2);
+      channel.type === ChannelType.GuildCategory)).toHaveLength(3);
   });
 
   it("keeps shared support and community topics explicit about privacy and off-platform safety", () => {
@@ -432,6 +432,8 @@ describe("Discord managed resource manager", () => {
       channel.name === displayNames.seller_category)!;
     const marketplaceCategory = discord.channels.find((channel) =>
       channel.name === displayNames.marketplace_category)!;
+    const startHereCategory = discord.channels.find((channel) =>
+      channel.name === displayNames.start_here_category)!;
     const lounge = discord.channels.find((channel) =>
       channel.name === displayNames.seller_lounge)!;
     const announcements = discord.channels.find((channel) =>
@@ -487,6 +489,7 @@ describe("Discord managed resource manager", () => {
       deny: "0",
     });
     for (const publicBotOnly of [
+      startHereCategory,
       marketplaceCategory,
       marketplace,
       activity,
@@ -723,6 +726,8 @@ describe("Discord managed resource manager", () => {
       "seller_updates",
       "seller_chat",
       "seller_guides",
+      "seller_ranks",
+      "seller_rules",
       "seller_support",
       "share_your_success",
     ] as const;
@@ -1229,7 +1234,7 @@ describe("Discord managed resource manager", () => {
       seller_announcements: "📢 seller-announcements",
       seller_updates: "seller-updates",
       seller_chat: "💬 seller-chat",
-      seller_guides: "📚 seller-guides",
+      seller_guides: "📚 seller-dashboard-help",
       seller_support: "❓ seller-support",
       share_your_success: "🚀 share-your-success",
       marketplace_category: "💰 Alpha Exchange",

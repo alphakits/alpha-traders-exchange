@@ -1,6 +1,7 @@
 import { request, test, expect, type APIRequestContext, type Browser, type Page } from "@playwright/test";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 import { cleanupBuyerFixture, resolveBuyerFixture, type BuyerFixture } from "./support/buyer-fixture";
+import { E2E_BASE_URL } from "./support/base-url";
 
 const OWNER_EMAIL = (process.env.E2E_OWNER_EMAIL ?? "").toLowerCase();
 const OWNER_PASSWORD = process.env.E2E_OWNER_PASSWORD ?? "";
@@ -136,7 +137,7 @@ async function resetLifecycleFixtures() {
   if (!OWNER_EMAIL || !OWNER_PASSWORD || !ADMIN_EMAIL || !ADMIN_PASSWORD || !BUYER_EMAIL || !BUYER_PASSWORD || !SELLER_EMAIL || !SELLER_PASSWORD) {
     return false;
   }
-  const api = await request.newContext({ baseURL: "http://localhost:3000" });
+  const api = await request.newContext({ baseURL: E2E_BASE_URL });
   const db = await readRuntimeDb(api);
   const users = toRecords(db.users);
   const seller = users.find((user) => String(user.email ?? "").toLowerCase() === SELLER_EMAIL);
@@ -315,7 +316,7 @@ async function submitListingFromSellerWorkspace(page: Page, expectedListing: { a
 }
 
 async function getDbNotificationsForEmail(email: string) {
-  const api = await request.newContext({ baseURL: "http://localhost:3000" });
+  const api = await request.newContext({ baseURL: E2E_BASE_URL });
   const db = await readRuntimeDb(api);
   await api.dispose();
   const users = toRecords(db.users);

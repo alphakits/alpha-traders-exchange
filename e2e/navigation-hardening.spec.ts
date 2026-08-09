@@ -53,7 +53,10 @@ test.describe("Navigation hardening", () => {
     await page.goto("/en/trade-room");
 
     await expect(page).not.toHaveURL(/\/en\/dashboard$/);
-    await expect(page).toHaveURL(/\/en\/(trade-room\/[\w-]+|usdt-exchange#my-trade-requests-section)$/);
+    await expect(page).toHaveURL(
+      /\/en\/(trade-room\/[\w-]+|usdt-exchange#my-trade-requests-section)$/,
+      { timeout: 20_000 },
+    );
   });
 
   test("buyer refresh on My Trade Requests section keeps stable route", async ({ page }) => {

@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID, scrypt as scryptCallback } from "node:crypto";
 import { promisify } from "node:util";
+import { E2E_BASE_URL } from "./base-url";
 
-const BASE_URL = "http://localhost:3000";
 const TEST_SUPPORT_HEADERS = {
   "content-type": "application/json",
   "x-alpha-test-support": "enabled",
@@ -12,6 +12,8 @@ export type BuyerFixture = {
   email: string;
   password: string;
   userId?: string;
+  listingId: string;
+  cleanupIds: string[];
 };
 
 function hasPrivilegedRole(user: Record<string, unknown>) {
@@ -31,7 +33,7 @@ function isBuyerAccount(user: Record<string, unknown>) {
 
 async function canLogin(email: string, password: string) {
   if (!email || !password) return false;
-  const response = await fetch(`${BASE_URL}/api/auth/login`, {
+  const response = await fetch(`${E2E_BASE_URL}/api/auth/login`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ email, password, rememberMe: false }),
@@ -46,7 +48,7 @@ async function hashPassword(password: string) {
 }
 
 async function readRuntimeDb() {
-  const response = await fetch(`${BASE_URL}/api/testing/alpha-exchange-state`, {
+  const response = await fetch(`${E2E_BASE_URL}/api/testing/alpha-exchange-state`, {
     headers: TEST_SUPPORT_HEADERS,
   });
   if (!response.ok) {
@@ -56,7 +58,7 @@ async function readRuntimeDb() {
 }
 
 async function writeRuntimeDb(db: Record<string, unknown>) {
-  const response = await fetch(`${BASE_URL}/api/testing/alpha-exchange-state`, {
+  const response = await fetch(`${E2E_BASE_URL}/api/testing/alpha-exchange-state`, {
     method: "PUT",
     headers: TEST_SUPPORT_HEADERS,
     body: JSON.stringify(db),
@@ -64,6 +66,106 @@ async function writeRuntimeDb(db: Record<string, unknown>) {
   if (!response.ok) {
     throw new Error(`Unable to write E2E runtime state (${response.status}).`);
   }
+}
+
+async function waitForEligibleListing(listingId: string) {
+  const deadline = Date.now() + 30_000;
+  let consecutiveObservations = 0;
+  while (Date.now() < deadline) {
+    const response = await fetch(`${E2E_BASE_URL}/api/alpha-exchange/listings`, {
+      cache: "no-store",
+    });
+    if (response.ok) {
+      const payload = await response.json() as {
+        listings?: Array<{ id?: string }>;
+      };
+      if ((payload.listings ?? []).some((listing) => listing.id === listingId)) {
+        consecutiveObservations += 1;
+        if (consecutiveObservations >= 6) return;
+      } else {
+        consecutiveObservations = 0;
+      }
+    } else {
+      consecutiveObservations = 0;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  throw new Error("Timed out waiting for the eligible E2E listing to remain observable.");
+}
+
+async function hasEligibleListing(listingId: string) {
+  const response = await fetch(`${E2E_BASE_URL}/api/alpha-exchange/listings`, {
+    cache: "no-store",
+  });
+  if (!response.ok) return false;
+  const payload = await response.json() as {
+    listings?: Array<{ id?: string }>;
+  };
+  return (payload.listings ?? []).some((listing) => listing.id === listingId);
+}
+
+function seedEligibleListing(db: Record<string, unknown>, now: string) {
+  const sellerId = `seller-e2e-buyer-fixture-${randomUUID()}`;
+  const listingId = `listing-e2e-buyer-fixture-${randomUUID()}`;
+  const users = Array.isArray(db.users) ? db.users : [];
+  db.users = [
+    ...users,
+    {
+      id: sellerId,
+      fullName: "E2E Marketplace Seller",
+      email: `${sellerId}@example.test`,
+      passwordHash: "unused",
+      role: "approved_seller",
+      roles: ["approved_seller"],
+      sellerStatus: "approved_seller",
+      whatsappNumber: "+972500000098",
+      preferredNetworks: ["TRC20"],
+      preferredPaymentMethods: ["Bank Transfer"],
+      profilePhotoUrl: "",
+      languages: ["English"],
+      bio: "E2E marketplace fixture",
+      country: "Israel",
+      createdAt: now,
+      updatedAt: now,
+      emailVerified: true,
+      emailVerifiedAt: now,
+      verifiedPhone: "+972500000098",
+      phoneVerifiedAt: now,
+      onlineStatus: "online",
+      availabilityStatus: "available",
+      isProfileHidden: false,
+    },
+  ];
+  const listings = Array.isArray(db.marketplaceListings)
+    ? db.marketplaceListings
+    : [];
+  db.marketplaceListings = [
+    ...listings,
+    {
+      id: listingId,
+      sellerId,
+      sellerDisplayName: "E2E Marketplace Seller",
+      photos: [],
+      originalAmount: "1000",
+      availableAmount: "1000",
+      price: "3.60",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethod: "Bank Transfer",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "100",
+      maximumTrade: "1000",
+      expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      sellerDescription: "E2E listing for buyer performance validation.",
+      responseTime: "5 min",
+      status: "active",
+      approvalStatus: "approved",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+  return { cleanupIds: [sellerId, listingId], listingId };
 }
 
 export async function resolveBuyerFixture(configuredEmail: string, configuredPassword: string): Promise<BuyerFixture> {
@@ -78,7 +180,15 @@ export async function resolveBuyerFixture(configuredEmail: string, configuredPas
     });
 
     if (configuredUser && typeof configuredUser === "object" && isBuyerAccount(configuredUser as Record<string, unknown>)) {
-      return { email: normalizedEmail, password: configuredPassword };
+      const seededListing = seedEligibleListing(db, new Date().toISOString());
+      await writeRuntimeDb(db);
+      await waitForEligibleListing(seededListing.listingId);
+      return {
+        email: normalizedEmail,
+        password: configuredPassword,
+        listingId: seededListing.listingId,
+        cleanupIds: seededListing.cleanupIds,
+      };
     }
   }
 
@@ -120,12 +230,36 @@ export async function resolveBuyerFixture(configuredEmail: string, configuredPas
       isFoundingSeller: false,
     },
   ];
+  const seededListing = seedEligibleListing(db, now);
+  const cleanupIds = [
+    userId,
+    email,
+    ...seededListing.cleanupIds,
+  ];
   await writeRuntimeDb(db);
+  await waitForEligibleListing(seededListing.listingId);
 
   if (!(await canLogin(email, password))) {
     throw new Error("Provisioned E2E buyer could not authenticate.");
   }
-  return { email, password, userId };
+  return {
+    email,
+    password,
+    userId,
+    listingId: seededListing.listingId,
+    cleanupIds,
+  };
+}
+
+export async function ensureBuyerFixtureListing(fixture: BuyerFixture) {
+  if (await hasEligibleListing(fixture.listingId)) return;
+
+  const db = await readRuntimeDb();
+  const seededListing = seedEligibleListing(db, new Date().toISOString());
+  await writeRuntimeDb(db);
+  await waitForEligibleListing(seededListing.listingId);
+  fixture.listingId = seededListing.listingId;
+  fixture.cleanupIds.push(...seededListing.cleanupIds);
 }
 
 function containsIdentifier(value: unknown, identifiers: Set<string>): boolean {
@@ -138,10 +272,10 @@ function containsIdentifier(value: unknown, identifiers: Set<string>): boolean {
 }
 
 export async function cleanupBuyerFixture(fixture: BuyerFixture | undefined) {
-  if (!fixture?.userId) return;
+  if (!fixture) return;
 
   const db = await readRuntimeDb();
-  const identifiers = new Set([fixture.userId, fixture.email]);
+  const identifiers = new Set(fixture.cleanupIds);
   let expanded = true;
   while (expanded) {
     expanded = false;

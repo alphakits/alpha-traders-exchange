@@ -45,6 +45,9 @@ type OperatorReconciliationDependencies = {
   commands: {
     reconcile(): Promise<void>;
   };
+  onboardingContent?: {
+    reconcile(): Promise<void>;
+  };
   pollIntervalMs?: number;
 };
 
@@ -238,6 +241,8 @@ export class DiscordOperatorReconciliationWorker {
   private readonly marketIntelligence:
     OperatorReconciliationDependencies["marketIntelligence"];
   private readonly commands: OperatorReconciliationDependencies["commands"];
+  private readonly onboardingContent:
+    OperatorReconciliationDependencies["onboardingContent"];
   private readonly pollIntervalMs: number;
   private timer: ReturnType<typeof setInterval> | null = null;
   private maintenanceTimer: ReturnType<typeof setInterval> | null = null;
@@ -249,6 +254,7 @@ export class DiscordOperatorReconciliationWorker {
     this.listings = input.listings;
     this.marketIntelligence = input.marketIntelligence;
     this.commands = input.commands;
+    this.onboardingContent = input.onboardingContent;
     this.pollIntervalMs = input.pollIntervalMs ?? POLL_INTERVAL_MS;
   }
 
@@ -301,6 +307,7 @@ export class DiscordOperatorReconciliationWorker {
           const resourcesCompleted = await this.resources.reconcile();
           if (!resourcesCompleted) throw new Error("resource_reconciliation_busy");
           await this.commands.reconcile();
+          await this.onboardingContent?.reconcile();
           await this.listings.reconcile();
           await this.pool.query(
             `update alpha_exchange.discord_market_content

@@ -1,10 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-
-const requestedPort = Number.parseInt(process.env.PLAYWRIGHT_PORT ?? "3000", 10);
-const port =
-  Number.isInteger(requestedPort) && requestedPort > 0 && requestedPort <= 65_535
-    ? requestedPort
-    : 3000;
+import { E2E_BASE_URL, E2E_PORT } from "./e2e/support/base-url";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -14,14 +9,14 @@ export default defineConfig({
   workers: 1,
   reporter: "list",
   use: {
-    baseURL: `http://localhost:${port}`,
+    baseURL: E2E_BASE_URL,
     trace: "on-first-retry",
     headless: true,
   },
   webServer: {
-    command: `npm run dev -- -p ${port}`,
-    url: `http://localhost:${port}`,
-    reuseExistingServer: !process.env.CI,
+    command: `npm run dev:e2e -- -p ${E2E_PORT}`,
+    url: E2E_BASE_URL,
+    reuseExistingServer: false,
     timeout: 120_000,
   },
   projects: [

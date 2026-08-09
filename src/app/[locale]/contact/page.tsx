@@ -1,8 +1,8 @@
 import { buildPageMetadata } from "@/lib/seo";
 import { ContactForm } from "@/components/sections/contact/contact-form";
 import { AtSign, MessageCircle, Music2 } from "lucide-react";
+import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
 
-const WHATSAPP_URL = "https://wa.me/972525967649";
 const INSTAGRAM_URL = "https://www.instagram.com/mark_jozen/";
 const TIKTOK_URL = "https://www.tiktok.com/@mark_jozen";
 
@@ -19,6 +19,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 export default async function ContactPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const isAr = locale === "ar";
+  const whatsappUrl = getOfficialOwnerWhatsAppUrl();
 
   return (
     <section className="section-container page-shell">
@@ -27,15 +28,15 @@ export default async function ContactPage({ params }: { params: Promise<{ locale
         {isAr ? "راسل فريق Alpha Traders للاستفسارات والشراكات التعليمية." : "Reach the Alpha Traders team for inquiries and educational partnerships."}
       </p>
       <div className={`mt-6 flex flex-wrap gap-3 ${isAr ? "md:justify-end" : ""}`}>
-        <a
-          href={WHATSAPP_URL}
+        {whatsappUrl ? <a
+          href={whatsappUrl}
           target="_blank"
           rel="noreferrer"
           className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[#25D366] px-5 text-sm font-medium text-black transition hover:-translate-y-0.5 hover:opacity-90"
         >
           <MessageCircle className="h-4 w-4" />
           {isAr ? "تواصل عبر واتساب" : "Contact on WhatsApp"}
-        </a>
+        </a> : null}
         <a
           href={INSTAGRAM_URL}
           target="_blank"

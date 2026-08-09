@@ -14,12 +14,23 @@ export const DISCORD_LAYER_A_PERMISSION_BITSET = "93200";
 export const DISCORD_LAYER_A_WITH_MANAGE_ROLES_BITSET = "268528656";
 
 export const DISCORD_MANAGED_RESOURCE_KEYS = [
+  "start_here_category",
+  "onboarding_welcome",
+  "how_alpha_exchange_works",
+  "buyer_guide",
+  "become_a_seller",
+  "seller_ranks_public",
+  "seller_rules_public",
+  "onboarding_support",
+  "contact_owner",
   "seller_category",
   "seller_lounge",
   "seller_announcements",
   "seller_updates",
   "seller_chat",
   "seller_guides",
+  "seller_ranks",
+  "seller_rules",
   "seller_support",
   "share_your_success",
   "marketplace_category",
@@ -117,7 +128,7 @@ type ResourceDefinition = {
   resourceType: DiscordManagedResourceType;
   parentKey: Extract<
     DiscordManagedResourceKey,
-    "seller_category" | "marketplace_category"
+    "start_here_category" | "seller_category" | "marketplace_category"
   > | null;
   sortOrder: number;
   topic?: string;
@@ -132,10 +143,81 @@ type ResourceDefinition = {
 
 const RESOURCE_DEFINITIONS: readonly ResourceDefinition[] = [
   {
-    key: "seller_category",
+    key: "start_here_category",
     resourceType: "category",
     parentKey: null,
     sortOrder: 0,
+    permissionProfile: "public_category",
+  },
+  {
+    key: "onboarding_welcome",
+    resourceType: "text_channel",
+    parentKey: "start_here_category",
+    sortOrder: 0,
+    topic: "Start here for official Alpha Traders onboarding and Alpha Exchange links.",
+    permissionProfile: "public_bot_only",
+  },
+  {
+    key: "how_alpha_exchange_works",
+    resourceType: "text_channel",
+    parentKey: "start_here_category",
+    sortOrder: 1,
+    topic: "How the website-owned Alpha Exchange marketplace and trade flow work.",
+    permissionProfile: "public_bot_only",
+  },
+  {
+    key: "buyer_guide",
+    resourceType: "text_channel",
+    parentKey: "start_here_category",
+    sortOrder: 2,
+    topic: "Official buyer guide. Trades and payment evidence remain on the website.",
+    permissionProfile: "public_bot_only",
+  },
+  {
+    key: "become_a_seller",
+    resourceType: "text_channel",
+    parentKey: "start_here_category",
+    sortOrder: 3,
+    topic: "Authoritative Approved Seller application and onboarding guidance.",
+    permissionProfile: "public_bot_only",
+  },
+  {
+    key: "seller_ranks_public",
+    resourceType: "text_channel",
+    parentKey: "start_here_category",
+    sortOrder: 4,
+    topic: "Volume-based Alpha Exchange seller ranks generated from website contracts.",
+    permissionProfile: "public_bot_only",
+  },
+  {
+    key: "seller_rules_public",
+    resourceType: "text_channel",
+    parentKey: "start_here_category",
+    sortOrder: 5,
+    topic: "Current seller operating rules generated from website contracts.",
+    permissionProfile: "public_bot_only",
+  },
+  {
+    key: "onboarding_support",
+    resourceType: "text_channel",
+    parentKey: "start_here_category",
+    sortOrder: 6,
+    topic: "Official support routes. Never post private account or trade information here.",
+    permissionProfile: "public_bot_only",
+  },
+  {
+    key: "contact_owner",
+    resourceType: "text_channel",
+    parentKey: "start_here_category",
+    sortOrder: 7,
+    topic: "Official owner contact routes configured by Alpha Traders.",
+    permissionProfile: "public_bot_only",
+  },
+  {
+    key: "seller_category",
+    resourceType: "category",
+    parentKey: null,
+    sortOrder: 1,
     permissionProfile: "seller_category",
   },
   {
@@ -175,14 +257,30 @@ const RESOURCE_DEFINITIONS: readonly ResourceDefinition[] = [
     resourceType: "text_channel",
     parentKey: "seller_category",
     sortOrder: 4,
-    topic: "Approved seller guides and operating standards.",
+    topic: "Approved Seller dashboard help and website-owned operating guidance.",
+    permissionProfile: "seller_read_only",
+  },
+  {
+    key: "seller_ranks",
+    resourceType: "text_channel",
+    parentKey: "seller_category",
+    sortOrder: 5,
+    topic: "Approved Seller rank progress and reputation guidance.",
+    permissionProfile: "seller_read_only",
+  },
+  {
+    key: "seller_rules",
+    resourceType: "text_channel",
+    parentKey: "seller_category",
+    sortOrder: 6,
+    topic: "Approved Seller operating rules generated from website contracts.",
     permissionProfile: "seller_read_only",
   },
   {
     key: "seller_support",
     resourceType: "text_channel",
     parentKey: "seller_category",
-    sortOrder: 5,
+    sortOrder: 7,
     topic: "Shared support for Approved Sellers. Ask operational questions only; never post buyer data, payment details, wallets, or identity documents.",
     permissionProfile: "seller_writable",
   },
@@ -190,7 +288,7 @@ const RESOURCE_DEFINITIONS: readonly ResourceDefinition[] = [
     key: "share_your_success",
     resourceType: "text_channel",
     parentKey: "seller_category",
-    sortOrder: 6,
+    sortOrder: 8,
     topic: "Approved sellers can share privacy-safe marketplace milestones. Never identify buyers or expose payment, wallet, document, or private trade data.",
     permissionProfile: "seller_writable",
   },
@@ -198,7 +296,7 @@ const RESOURCE_DEFINITIONS: readonly ResourceDefinition[] = [
     key: "marketplace_category",
     resourceType: "category",
     parentKey: null,
-    sortOrder: 0,
+    sortOrder: 2,
     permissionProfile: "public_category",
   },
   {
@@ -236,12 +334,23 @@ const RESOURCE_DEFINITIONS: readonly ResourceDefinition[] = [
 ];
 
 const DEFAULT_DISPLAY_NAMES: DiscordResourceDisplayNames = {
+  start_here_category: "👋 START HERE",
+  onboarding_welcome: "welcome",
+  how_alpha_exchange_works: "how-alpha-exchange-works",
+  buyer_guide: "buyer-guide",
+  become_a_seller: "become-a-seller",
+  seller_ranks_public: "seller-ranks",
+  seller_rules_public: "seller-rules",
+  onboarding_support: "support",
+  contact_owner: "contact-owner",
   seller_category: "🛡️ Seller Lounge",
   seller_lounge: "seller-lounge",
   seller_announcements: "📢 seller-announcements",
   seller_updates: "seller-updates",
   seller_chat: "💬 seller-chat",
-  seller_guides: "📚 seller-guides",
+  seller_guides: "📚 seller-dashboard-help",
+  seller_ranks: "🏆 seller-ranks",
+  seller_rules: "📋 seller-rules",
   seller_support: "❓ seller-support",
   share_your_success: "🚀 share-your-success",
   marketplace_category: "💰 Alpha Exchange",
@@ -252,12 +361,23 @@ const DEFAULT_DISPLAY_NAMES: DiscordResourceDisplayNames = {
 };
 
 const DISPLAY_NAME_ENV: Record<DiscordManagedResourceKey, string> = {
+  start_here_category: "DISCORD_START_HERE_CATEGORY_NAME",
+  onboarding_welcome: "DISCORD_WELCOME_CHANNEL_NAME",
+  how_alpha_exchange_works: "DISCORD_EXCHANGE_WORKS_CHANNEL_NAME",
+  buyer_guide: "DISCORD_BUYER_GUIDE_CHANNEL_NAME",
+  become_a_seller: "DISCORD_BECOME_SELLER_CHANNEL_NAME",
+  seller_ranks_public: "DISCORD_PUBLIC_SELLER_RANKS_CHANNEL_NAME",
+  seller_rules_public: "DISCORD_PUBLIC_SELLER_RULES_CHANNEL_NAME",
+  onboarding_support: "DISCORD_ONBOARDING_SUPPORT_CHANNEL_NAME",
+  contact_owner: "DISCORD_CONTACT_OWNER_CHANNEL_NAME",
   seller_category: "DISCORD_SELLER_CATEGORY_NAME",
   seller_lounge: "DISCORD_SELLER_LOUNGE_CHANNEL_NAME",
   seller_announcements: "DISCORD_SELLER_ANNOUNCEMENTS_CHANNEL_NAME",
   seller_updates: "DISCORD_SELLER_UPDATES_CHANNEL_NAME",
   seller_chat: "DISCORD_SELLER_CHAT_CHANNEL_NAME",
   seller_guides: "DISCORD_SELLER_GUIDES_CHANNEL_NAME",
+  seller_ranks: "DISCORD_SELLER_RANKS_CHANNEL_NAME",
+  seller_rules: "DISCORD_SELLER_RULES_CHANNEL_NAME",
   seller_support: "DISCORD_SELLER_SUPPORT_CHANNEL_NAME",
   share_your_success: "DISCORD_SELLER_SUCCESS_CHANNEL_NAME",
   marketplace_category: "DISCORD_MARKETPLACE_CATEGORY_NAME",
@@ -977,7 +1097,28 @@ export class DiscordRestResourceManager implements DiscordResourceManager {
   ): Promise<Set<DiscordManagedResourceKey>> {
     const changed = new Set<DiscordManagedResourceKey>();
     const updates: Array<{ id: string; position: number }> = [];
+    const categories = RESOURCE_DEFINITIONS
+      .filter((definition) => definition.resourceType === "category")
+      .sort((left, right) => left.sortOrder - right.sortOrder);
+    const categoryBasePosition = Math.min(...categories.map((definition) =>
+      resolved.get(definition.key)?.position ?? definition.sortOrder));
+    const currentCategoryOrder = [...categories]
+      .sort((left, right) =>
+        (resolved.get(left.key)?.position ?? 0)
+        - (resolved.get(right.key)?.position ?? 0))
+      .map((definition) => definition.key);
+    const desiredCategoryOrder = categories.map((definition) => definition.key);
+    if (!currentCategoryOrder.every((key, index) =>
+      key === desiredCategoryOrder[index])) {
+      for (const [index, definition] of categories.entries()) {
+        const channel = resolved.get(definition.key);
+        if (!channel) throw new DiscordResourceOperationError("api_failure");
+        updates.push({ id: channel.id, position: categoryBasePosition + index });
+        changed.add(definition.key);
+      }
+    }
     for (const parentKey of [
+      "start_here_category",
       "seller_category",
       "marketplace_category",
     ] as const) {

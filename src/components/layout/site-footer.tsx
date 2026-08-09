@@ -20,6 +20,7 @@ import type { ComponentType } from "react";
 import { getTranslations } from "next-intl/server";
 import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
+import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
 
 type FooterItem = {
   href: string;
@@ -36,7 +37,6 @@ type FooterSection = {
 };
 
 const SOCIAL = {
-  whatsapp: "https://wa.me/972525967649",
   instagram: "https://www.instagram.com/mark_jozen/",
   tiktok: "https://www.tiktok.com/@mark_jozen",
   discord: "https://discord.gg/alphatraders",
@@ -160,6 +160,7 @@ function FooterNavSection({ section, locale }: { section: FooterSection; locale:
 }
 
 export async function SiteFooter({ locale }: { locale: AppLocale }) {
+  const whatsappUrl = getOfficialOwnerWhatsAppUrl();
   const isAr = locale === "ar";
   const year = new Date().getFullYear();
   const brand = (await getTranslations({ locale }))("brand");
@@ -347,7 +348,9 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
             </p>
             <div className="mt-4 grid grid-cols-2 gap-2">
               {[
-                { href: SOCIAL.whatsapp, label: "WhatsApp", icon: MessageCircle },
+                ...(whatsappUrl
+                  ? [{ href: whatsappUrl, label: "WhatsApp", icon: MessageCircle }]
+                  : []),
                 { href: SOCIAL.instagram, label: "Instagram", icon: ExternalLink },
                 { href: SOCIAL.tiktok, label: "TikTok", icon: Music2 },
                 { href: SOCIAL.discord, label: "Discord", icon: ExternalLink },

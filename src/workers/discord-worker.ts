@@ -23,6 +23,8 @@ import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { readDiscordConfig } from "@/lib/discord/config";
 import { getSiteUrl } from "@/lib/site-url";
 import { DiscordOperatorReconciliationWorker } from "@/lib/discord/operator-reconciliation";
+import { DiscordOnboardingContentSync } from "@/lib/discord/onboarding-content-sync";
+import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
 
 async function main(): Promise<void> {
   let runtime: DiscordWorkerRuntime | null = null;
@@ -43,6 +45,12 @@ async function main(): Promise<void> {
     const resourceSync = createDiscordResourceSyncWorker();
     const listingSync = createDiscordListingSyncWorker();
     const marketIntelligence = createDiscordMarketIntelligenceWorker();
+    const onboardingContent = new DiscordOnboardingContentSync({
+      pool,
+      token: discordConfig.token,
+      siteUrl,
+      ownerWhatsAppUrl: getOfficialOwnerWhatsAppUrl(),
+    });
     const commands = new DiscordCommunityCommandService({
       pool,
       gateway,
@@ -58,6 +66,7 @@ async function main(): Promise<void> {
       resourceSync,
       listingSync,
       marketIntelligence,
+      onboardingContent,
       commands,
       notifications: new DiscordCommunityNotificationWorker({
         pool,
@@ -72,6 +81,7 @@ async function main(): Promise<void> {
         listings: listingSync,
         marketIntelligence,
         commands,
+        onboardingContent,
       }),
     });
     removeSignalHandlers = installDiscordWorkerSignalHandlers(

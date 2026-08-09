@@ -4,6 +4,52 @@ import type { APIRequestContext } from "@playwright/test";
 
 const scrypt = promisify(scryptCallback);
 const TEST_SUPPORT_HEADERS = { "x-alpha-test-support": "enabled" };
+const QA_STATE_TIMEOUT_MS = 20_000;
+const QA_STATE_REQUEST_ATTEMPTS = 5;
+
+async function readQaState(request: APIRequestContext) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < QA_STATE_REQUEST_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await request.get("/api/testing/alpha-exchange-state", {
+        headers: TEST_SUPPORT_HEADERS,
+      });
+      if (response.ok()) {
+        return await response.json() as Record<string, unknown>;
+      }
+      lastError = new Error(`Testing-state read failed (${response.status()}).`);
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Testing-state read failed.");
+}
+
+async function writeQaState(
+  request: APIRequestContext,
+  db: Record<string, unknown>,
+) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < QA_STATE_REQUEST_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await request.put("/api/testing/alpha-exchange-state", {
+        headers: TEST_SUPPORT_HEADERS,
+        data: db,
+      });
+      if (response.ok()) return;
+      lastError = new Error(`Testing-state write failed (${response.status()}).`);
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Testing-state write failed.");
+}
 
 export type ProvisionedAccount = { id: string; email: string; password: string };
 
@@ -79,8 +125,7 @@ function sellerListing(id: string, sellerId: string, now: string) {
  * through the testing-state API so QA flows can exercise the real server. */
 export async function provisionQaWorld(request: APIRequestContext): Promise<QaWorld> {
   const now = new Date().toISOString();
-  const res = await request.get("/api/testing/alpha-exchange-state", { headers: TEST_SUPPORT_HEADERS });
-  const db = (await res.json()) as Record<string, unknown>;
+  const db = await readQaState(request);
 
   const adminId = `qa-admin-${randomUUID()}`;
   const sellerId = `qa-seller-${randomUUID()}`;
@@ -101,8 +146,38 @@ export async function provisionQaWorld(request: APIRequestContext): Promise<QaWo
     sellerListing(stableListingId, sellerId, now),
   ];
 
-  const putRes = await request.put("/api/testing/alpha-exchange-state", { headers: TEST_SUPPORT_HEADERS, data: db });
-  if (!putRes.ok()) throw new Error(`Failed to provision QA world (${putRes.status()}).`);
+  await writeQaState(request, db);
+
+  const deadline = Date.now() + QA_STATE_TIMEOUT_MS;
+  let authenticated = false;
+  let workspaceReady = false;
+  while (Date.now() < deadline) {
+    if (!authenticated) {
+      const loginResponse = await request.post("/api/auth/login", {
+        data: { email: sellerEmail, password: sellerPassword, rememberMe: false },
+      });
+      authenticated = loginResponse.ok();
+    }
+    if (authenticated) {
+      const listingsResponse = await request.get("/api/alpha-exchange/my-listings");
+      if (listingsResponse.ok()) {
+        const payload = await listingsResponse.json() as {
+          listings?: Array<{ id?: string }>;
+        };
+        const observedIds = new Set(
+          (payload.listings ?? []).map((listing) => listing.id),
+        );
+        if (observedIds.has(listingId) && observedIds.has(stableListingId)) {
+          workspaceReady = true;
+          break;
+        }
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  if (!workspaceReady) {
+    throw new Error("Timed out waiting for the provisioned seller workspace.");
+  }
 
   return {
     admin: { id: adminId, email: adminEmail, password: adminPassword },
@@ -116,8 +191,7 @@ export async function provisionQaWorld(request: APIRequestContext): Promise<QaWo
 /** Remove provisioned QA users/listings and anything referencing them. */
 export async function cleanupQaWorld(request: APIRequestContext, world: QaWorld | undefined) {
   if (!world) return;
-  const res = await request.get("/api/testing/alpha-exchange-state", { headers: TEST_SUPPORT_HEADERS });
-  const db = (await res.json()) as Record<string, unknown>;
+  const db = await readQaState(request);
   const ids = new Set(world.ids);
   const references = (value: unknown): boolean => {
     if (typeof value === "string") return ids.has(value);
@@ -128,5 +202,5 @@ export async function cleanupQaWorld(request: APIRequestContext, world: QaWorld 
   for (const [key, value] of Object.entries(db)) {
     if (Array.isArray(value)) db[key] = value.filter((row) => !references(row));
   }
-  await request.put("/api/testing/alpha-exchange-state", { headers: TEST_SUPPORT_HEADERS, data: db });
+  await writeQaState(request, db);
 }

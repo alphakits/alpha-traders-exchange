@@ -17,6 +17,7 @@ const ENV_VARS: EnvVar[] = [
   { key: "SUPABASE_SERVICE_ROLE_KEY", required: false, description: "Supabase service role key used for admin media uploads to object storage" },
   { key: "SUPABASE_ADMIN_MEDIA_BUCKET", required: false, description: "Supabase Storage bucket for admin lesson/media uploads" },
   { key: "NEXT_PUBLIC_SITE_URL", required: false, description: "Canonical production site URL, e.g. https://www.alphatraders.co.il" },
+  { key: "NEXT_PUBLIC_ALPHA_OWNER_WHATSAPP_URL", required: false, description: "Optional official owner WhatsApp HTTPS URL used by website and Discord contact buttons" },
   { key: "AUTH_COOKIE_SECURE", required: false, description: "Force cookie secure flag on/off" },
   { key: "ADMIN_ACCESS_KEY", required: false, description: "Extra key required for admin API endpoints" },
   { key: "DISCORD_BOT_TOKEN", required: false, description: "Discord bot credential used by the server-only gateway client" },

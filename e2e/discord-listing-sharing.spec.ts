@@ -11,6 +11,7 @@ import {
   provisionQaWorld,
   type QaWorld,
 } from "./support/qa-accounts";
+import { E2E_BASE_URL } from "./support/base-url";
 
 let world: QaWorld | undefined;
 
@@ -53,13 +54,13 @@ async function mockCooldown(page: Page) {
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
-  const request = await playwrightRequest.newContext({ baseURL: "http://localhost:3000" });
+  const request = await playwrightRequest.newContext({ baseURL: E2E_BASE_URL });
   world = await provisionQaWorld(request);
   await request.dispose();
 });
 
 test.afterAll(async () => {
-  const request = await playwrightRequest.newContext({ baseURL: "http://localhost:3000" });
+  const request = await playwrightRequest.newContext({ baseURL: E2E_BASE_URL });
   await cleanupQaWorld(request, world);
   await request.dispose();
 });

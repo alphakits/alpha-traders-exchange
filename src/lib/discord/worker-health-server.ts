@@ -15,6 +15,7 @@ import type {
   DiscordCommunityCommandDiagnostics,
   DiscordCommunityNotificationDiagnostics,
   DiscordDeploymentDiagnostics,
+  DiscordOnboardingContentDiagnostics,
 } from "@/lib/discord/diagnostics";
 import { readDiscordDeploymentDiagnostics } from "@/lib/discord/diagnostics";
 import {
@@ -39,6 +40,9 @@ type NotificationHealth = {
 type CommandHealth = {
   getDiagnostics(): DiscordCommunityCommandDiagnostics;
 };
+type OnboardingContentHealth = {
+  getDiagnostics(): DiscordOnboardingContentDiagnostics;
+};
 
 export type DiscordWorkerHealthServerDependencies = {
   service: HealthService;
@@ -47,6 +51,7 @@ export type DiscordWorkerHealthServerDependencies = {
   marketIntelligence?: MarketIntelligenceHealth;
   notifications?: NotificationHealth;
   commands?: CommandHealth;
+  onboardingContent?: OnboardingContentHealth;
   healthSecret: string;
   now?: () => number;
   deployment?: DiscordDeploymentDiagnostics;
@@ -82,6 +87,7 @@ export function createDiscordWorkerHealthServer({
   marketIntelligence,
   notifications,
   commands,
+  onboardingContent,
   healthSecret,
   now,
   deployment = readDiscordDeploymentDiagnostics(),
@@ -123,6 +129,8 @@ export function createDiscordWorkerHealthServer({
       const marketIntelligenceDiagnostics = marketIntelligence?.getDiagnostics();
       const notificationDiagnostics = notifications?.getDiagnostics();
       const commandDiagnostics = commands?.getDiagnostics();
+      const onboardingContentDiagnostics =
+        onboardingContent?.getDiagnostics();
       const diagnostics = {
         ...serviceDiagnostics,
         status:
@@ -134,6 +142,8 @@ export function createDiscordWorkerHealthServer({
           && (!notificationDiagnostics
             || notificationDiagnostics.status === "ready")
           && (!commandDiagnostics || commandDiagnostics.status === "ready")
+          && (!onboardingContentDiagnostics
+            || onboardingContentDiagnostics.status === "ready")
             ? "healthy" as const
             : "degraded" as const,
         ...(resourceDiagnostics ? { resources: resourceDiagnostics } : {}),
@@ -145,6 +155,9 @@ export function createDiscordWorkerHealthServer({
            ? { notifications: notificationDiagnostics }
            : {}),
         ...(commandDiagnostics ? { commands: commandDiagnostics } : {}),
+        ...(onboardingContentDiagnostics
+          ? { onboardingContent: onboardingContentDiagnostics }
+          : {}),
         requiredPrivilegedIntents: ["GuildMembers"] as const,
         deployment,
       };

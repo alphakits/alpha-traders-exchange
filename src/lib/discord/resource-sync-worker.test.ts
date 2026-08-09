@@ -19,7 +19,7 @@ import { DiscordResourceSyncWorker } from "@/lib/discord/resource-sync-worker";
 
 const guildId = "111111111111111111";
 const approvedRoleId = "444444444444444444";
-const managedResourceCount = 13;
+const managedResourceCount = 24;
 const displayNames = Object.fromEntries(
   DISCORD_MANAGED_RESOURCE_DEFINITIONS.map((definition) => [
     definition.key,
@@ -344,7 +344,7 @@ describe("Discord seller resource sync worker", () => {
     await expect(worker(database.pool, manager).reconcile())
       .rejects.toMatchObject({ code: "api_failure" });
 
-    expect(database.rows.get("seller_category")).toMatchObject({
+    expect(database.rows.get("start_here_category")).toMatchObject({
       discord_resource_id: "600000000000000001",
       reconciliation_state: "degraded",
     });

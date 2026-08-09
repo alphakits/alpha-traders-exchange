@@ -8,6 +8,15 @@ import { createExchangeDisplayLookup, normalizeDisplayNumber, replaceExchangeEnt
 import { calculateSellerTrustSnapshot, rankTrustSnapshots } from "@/lib/trust-engine";
 import { computeListingReliability, RELIABILITY_NEUTRAL_BASELINE, type ListingReliability } from "@/lib/listing-reliability";
 import { getSellerPrestigeProgress, getSellerPublicVolumeLabel, resolveSellerPrestigeRank, sellerPrestigeRankWeight } from "@/lib/seller-prestige";
+import {
+  ALLOWED_LISTING_EXPIRATION_HOURS,
+  BUYER_CONFIRMATION_TIMEOUT_MINUTES,
+  COMMISSION_GRACE_PERIOD_DAYS,
+  COMMISSION_RATE,
+  DEFAULT_LISTING_EXPIRATION_HOURS,
+  DEFAULT_STALE_TRADE_TIMEOUT_MINUTES,
+  MAX_ACTIVE_LISTINGS_PER_SELLER,
+} from "@/lib/marketplace-policy";
 import { evaluateSellerAchievements } from "@/lib/seller-achievements";
 import { runEnvValidation } from "@/lib/env-validation";
 import { getAlphaExchangeRepository, type SnapshotTableName } from "@/lib/alpha-exchange-repository";
@@ -208,12 +217,6 @@ const defaultDb: AlphaExchangeDb = {
 // maintained even with a long TTL. Raising from 1 s to 15 s eliminates the
 // full 22-table snapshot reload that was occurring on nearly every request.
 const DB_CACHE_TTL_MS = 15_000;
-const MAX_ACTIVE_LISTINGS_PER_SELLER = 2;
-const COMMISSION_GRACE_PERIOD_DAYS = 7;
-const DEFAULT_LISTING_EXPIRATION_HOURS = 24;
-const ALLOWED_LISTING_EXPIRATION_HOURS = [1, 6, 12, 24] as const;
-const DEFAULT_STALE_TRADE_TIMEOUT_MINUTES = 20;
-const BUYER_CONFIRMATION_TIMEOUT_MINUTES = 5;
 const EMAIL_VERIFICATION_TOKEN_BYTES = 32;
 const EMAIL_VERIFICATION_EXPIRY_HOURS = 24;
 const SYSTEM_ACTOR_USER_ID = "system:marketplace";
@@ -8411,7 +8414,9 @@ export async function updatePurchaseRequestStatus(input: {
     if (!hasCommission) {
       const normalizedGross = toNumber(next.fiatAmount);
       const normalizedUsdt = toNumber(next.usdtAmount);
-      const commissionAmount = isQaCommissionModeEnabled() ? 1 : roundUsdt(normalizedUsdt * 0.01);
+      const commissionAmount = isQaCommissionModeEnabled()
+        ? 1
+        : roundUsdt(normalizedUsdt * COMMISSION_RATE);
       const commission: CommissionRecord = {
         id: `commission-${randomUUID()}`,
         purchaseRequestId: request.id,
@@ -8419,7 +8424,7 @@ export async function updatePurchaseRequestStatus(input: {
         listingId: request.listingId,
         sellerId: request.sellerId,
         buyerId: request.buyerId,
-        rate: 0.01,
+        rate: COMMISSION_RATE,
         grossAmount: normalizedGross,
         commissionAmount,
         paymentStatus: "pending",

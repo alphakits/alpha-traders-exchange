@@ -10,7 +10,8 @@ function harness(
   resourcesCompleted = true,
   resultCode: string | null = null,
 ) {
-  const query = vi.fn(async (sql: string) => {
+  const query = vi.fn(async (sql: string, params?: unknown[]) => {
+    void params;
     if (sql.includes("select id, lease_fence, attempts, result_code from claimed")) {
       return {
         rows: [{

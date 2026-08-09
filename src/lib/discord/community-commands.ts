@@ -28,6 +28,13 @@ import {
 } from "@/lib/discord/market-intelligence-repository";
 import { buildDiscordSellerProfileCard } from "@/lib/discord/seller-profile-card";
 import { logEvent } from "@/lib/structured-logging";
+import {
+  buildDiscordOnboardingContent,
+} from "@/lib/discord/onboarding-content";
+import {
+  SELLER_PRESTIGE_TIERS,
+} from "@/lib/seller-prestige";
+import { MAX_ACTIVE_LISTINGS_PER_SELLER } from "@/lib/marketplace-policy";
 
 const RESPONSE_TIMEOUT_MS = 2_500;
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -42,6 +49,12 @@ export const DISCORD_COMMUNITY_COMMAND_NAMES = [
   "website",
   "help",
   "pulse",
+  "buy",
+  "seller",
+  "rank",
+  "rules",
+  "support",
+  "exchange",
 ] as const;
 
 export type DiscordCommunityCommandName =
@@ -105,6 +118,42 @@ export const DISCORD_COMMUNITY_COMMANDS: readonly CommandDefinition[] = [
   {
     name: "pulse",
     description: "View the current privacy-safe live market pulse",
+    type: ApplicationCommandType.ChatInput,
+    dm_permission: false,
+  },
+  {
+    name: "buy",
+    description: "Open the official Alpha Exchange buyer flow",
+    type: ApplicationCommandType.ChatInput,
+    dm_permission: false,
+  },
+  {
+    name: "seller",
+    description: "View your linked seller status and next action",
+    type: ApplicationCommandType.ChatInput,
+    dm_permission: false,
+  },
+  {
+    name: "rank",
+    description: "View your private linked seller rank progress",
+    type: ApplicationCommandType.ChatInput,
+    dm_permission: false,
+  },
+  {
+    name: "rules",
+    description: "View current Alpha Exchange seller and safety rules",
+    type: ApplicationCommandType.ChatInput,
+    dm_permission: false,
+  },
+  {
+    name: "support",
+    description: "Open official Alpha Traders support routes",
+    type: ApplicationCommandType.ChatInput,
+    dm_permission: false,
+  },
+  {
+    name: "exchange",
+    description: "Open Alpha Exchange and official account links",
     type: ApplicationCommandType.ChatInput,
     dm_permission: false,
   },
@@ -318,6 +367,10 @@ function helpMessage(siteUrl: string): RESTPostAPIChannelMessageJSONBody {
     allowed_mentions: { parse: [] },
     content: [
       "**Alpha Traders commands**",
+      "`/buy` and `/exchange` — open official Alpha Exchange flows",
+      "`/seller` — your linked seller status and next action",
+      "`/rank` — your private linked rank progress",
+      "`/rules` and `/support` — current rules and official support",
       "`/market` and `/pulse` — privacy-safe marketplace totals",
       "`/profile [seller]` — eligible public seller card",
       "`/listing [seller]` — authoritative public listing link",
@@ -328,6 +381,237 @@ function helpMessage(siteUrl: string): RESTPostAPIChannelMessageJSONBody {
       `Safety and rules: ${siteUrl}/en/safety-trust`,
       `Link your account and apply to become an Approved Seller: ${siteUrl}/en/settings`,
     ].join("\n"),
+  };
+}
+
+function buyMessage(siteUrl: string): RESTPostAPIChannelMessageJSONBody {
+  return {
+    allowed_mentions: { parse: [] },
+    content:
+      "Browse approved active listings, compare seller reputation signals, and complete every payment and trade step on Alpha Exchange.",
+    components: [{
+      type: 1,
+      components: [{
+        type: 2,
+        style: 5,
+        label: "Buy USDT",
+        url: `${siteUrl}/en/usdt-exchange`,
+      }, {
+        type: 2,
+        style: 5,
+        label: "Buyer Guide",
+        url: `${siteUrl}/en/help-center`,
+      }],
+    }],
+  };
+}
+
+export async function buildLinkedSellerStatusMessage(input: {
+  pool: Pool;
+  siteUrl: string;
+  discordUserId: string;
+}): Promise<RESTPostAPIChannelMessageJSONBody> {
+  const result = await input.pool.query<{
+    seller_status: string;
+    availability_status: string;
+    active_listings: number;
+  }>(
+    `select users.seller_status,
+            users.availability_status,
+            count(listings.id) filter (
+              where listings.status = 'active'
+                and listings.payload ->> 'approvalStatus' = 'approved'
+                and (listings.expires_at is null or listings.expires_at > now())
+            )::int as active_listings
+       from alpha_exchange.discord_identities identity
+       join alpha_exchange.users users
+         on users.id = identity.platform_user_id
+       left join alpha_exchange.listings listings
+         on listings.seller_id = users.id
+      where identity.discord_user_id = $1
+      group by users.id, users.seller_status, users.availability_status
+      limit 1`,
+    [input.discordUserId],
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return {
+      allowed_mentions: { parse: [] },
+      content:
+        "Link Discord from Alpha Traders account settings to view your seller status. Never type a Discord username as proof of identity.",
+      components: [{
+        type: 1,
+        components: [{
+          type: 2,
+          style: 5,
+          label: "Link Account",
+          url: `${input.siteUrl}/en/settings`,
+        }],
+      }],
+    };
+  }
+  const nextAction = row.seller_status === "approved_seller"
+    ? "Open your seller dashboard to manage listings and requests."
+    : row.seller_status === "pending_seller_approval"
+    ? "Your application is pending authoritative website review."
+    : row.seller_status === "suspended"
+    ? "Use official website support for account status guidance."
+    : row.seller_status === "rejected"
+    ? "Review your website account details before applying again."
+    : "Complete buyer verification, then apply on the website.";
+  const dashboard = row.seller_status === "approved_seller";
+  return {
+    allowed_mentions: { parse: [] },
+    embeds: [{
+      title: "Your Alpha Exchange seller status",
+      description: nextAction,
+      color: 0xc9a227,
+      fields: [{
+        name: "Status",
+        value: row.seller_status.replaceAll("_", " "),
+        inline: true,
+      }, {
+        name: "Vacation Mode",
+        value: row.availability_status === "vacation" ? "Enabled" : "Not enabled",
+        inline: true,
+      }, {
+        name: "Active listing slots",
+        value:
+          `${row.active_listings} / ${MAX_ACTIVE_LISTINGS_PER_SELLER} used`,
+        inline: true,
+      }],
+      footer: { text: "Alpha Traders • Private linked account response" },
+    }],
+    components: [{
+      type: 1,
+      components: [{
+        type: 2,
+        style: 5,
+        label: dashboard ? "Seller Dashboard" : "Account / Application",
+        url: dashboard
+          ? `${input.siteUrl}/en/dashboard/seller`
+          : `${input.siteUrl}/en/settings`,
+      }],
+    }],
+  };
+}
+
+export async function buildLinkedSellerRankMessage(input: {
+  pool: Pool;
+  siteUrl: string;
+  discordUserId: string;
+}): Promise<RESTPostAPIChannelMessageJSONBody> {
+  const result = await input.pool.query<{
+    snapshot: Record<string, unknown> | null;
+  }>(
+    `select trust.payload -> 'snapshot' as snapshot
+       from alpha_exchange.discord_identities identity
+       join alpha_exchange.users users
+         on users.id = identity.platform_user_id
+       left join alpha_exchange.trust_snapshots trust
+         on trust.seller_id = users.id
+      where identity.discord_user_id = $1
+        and users.seller_status = 'approved_seller'
+        and coalesce((users.payload ->> 'disabled')::boolean, false) = false
+      limit 1`,
+    [input.discordUserId],
+  );
+  const snapshot = result.rows[0]?.snapshot;
+  if (!snapshot) {
+    return {
+      allowed_mentions: { parse: [] },
+      content:
+        "A linked active Approved Seller account is required to view private rank progress.",
+      components: [{
+        type: 1,
+        components: [{
+          type: 2,
+          style: 5,
+          label: "Link Account / Apply",
+          url: `${input.siteUrl}/en/settings`,
+        }],
+      }],
+    };
+  }
+  const rank = String(snapshot.level ?? "bronze").toLowerCase();
+  const completedTrades = Math.max(0, Number(snapshot.completedTrades ?? 0));
+  const volume = Math.max(
+    0,
+    Number(
+      snapshot.lifetimeCompletedVolumeUsdt
+      ?? snapshot.totalUsdtVolume
+      ?? 0,
+    ),
+  );
+  const nextRank = typeof snapshot.nextRank === "string"
+    ? snapshot.nextRank.toLowerCase()
+    : null;
+  const nextThreshold = nextRank
+    ? SELLER_PRESTIGE_TIERS.find((tier) => tier.rank === nextRank)?.minVolumeUsdt
+      ?? null
+    : null;
+  const remaining = Math.max(
+    0,
+    Number(
+      snapshot.remainingVolumeToNextRank
+      ?? (nextThreshold === null ? 0 : nextThreshold - volume),
+    ),
+  );
+  const progress = Math.min(
+    100,
+    Math.max(0, Number(snapshot.prestigeProgressPercent ?? 0)),
+  );
+  const overridden = snapshot.isRankOverridden === true;
+  return {
+    allowed_mentions: { parse: [] },
+    embeds: [{
+      title: "Your seller rank",
+      description: overridden
+        ? "This rank is administratively assigned. Automatic threshold progress is shown only as reference."
+        : "Rank is based only on lifetime completed USDT volume.",
+      color: 0xc9a227,
+      fields: [{
+        name: "Current rank",
+        value: rank,
+        inline: true,
+      }, {
+        name: "Completed trades",
+        value: completedTrades.toLocaleString("en-IL"),
+        inline: true,
+      }, {
+        name: "Lifetime completed volume",
+        value: `${volume.toLocaleString("en-IL", { maximumFractionDigits: 2 })} USDT`,
+        inline: true,
+      }, {
+        name: "Next rank",
+        value: nextRank ?? "Top tier reached",
+        inline: true,
+      }, {
+        name: "Exact next threshold",
+        value: nextThreshold === null
+          ? "Top tier reached"
+          : `${nextThreshold.toLocaleString("en-IL")} USDT`,
+        inline: true,
+      }, {
+        name: "Remaining volume",
+        value: `${remaining.toLocaleString("en-IL", { maximumFractionDigits: 2 })} USDT`,
+        inline: true,
+      }, {
+        name: "Progress",
+        value: `${progress.toFixed(0)}%`,
+        inline: true,
+      }],
+      footer: { text: "Alpha Traders • Private linked account response" },
+    }],
+    components: [{
+      type: 1,
+      components: [{
+        type: 2,
+        style: 5,
+        label: "Seller Dashboard",
+        url: `${input.siteUrl}/en/dashboard/seller`,
+      }],
+    }],
   };
 }
 
@@ -775,8 +1059,37 @@ export class DiscordCommunityCommandService {
     commandName: DiscordCommunityCommandName,
     interaction: ChatInputCommandInteraction,
   ): Promise<RESTPostAPIChannelMessageJSONBody> {
-    if (commandName === "website") return linksMessage(this.siteUrl);
+    if (commandName === "website" || commandName === "exchange") {
+      return linksMessage(this.siteUrl);
+    }
     if (commandName === "help") return helpMessage(this.siteUrl);
+    if (commandName === "buy") return buyMessage(this.siteUrl);
+    if (commandName === "seller") {
+      return buildLinkedSellerStatusMessage({
+        pool: this.pool,
+        siteUrl: this.siteUrl,
+        discordUserId: interaction.user.id,
+      });
+    }
+    if (commandName === "rank") {
+      return buildLinkedSellerRankMessage({
+        pool: this.pool,
+        siteUrl: this.siteUrl,
+        discordUserId: interaction.user.id,
+      });
+    }
+    if (commandName === "rules") {
+      return buildDiscordOnboardingContent({
+        key: "seller_rules_public",
+        siteUrl: this.siteUrl,
+      });
+    }
+    if (commandName === "support") {
+      return buildDiscordOnboardingContent({
+        key: "support",
+        siteUrl: this.siteUrl,
+      });
+    }
     if (commandName === "share") {
       return shareMessage({
         pool: this.pool,
