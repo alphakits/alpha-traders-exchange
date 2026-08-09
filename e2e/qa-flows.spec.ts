@@ -1,6 +1,7 @@
 import { test, expect, request as playwrightRequest, type APIRequestContext, type Page } from "@playwright/test";
 import { resolveBuyerFixture, cleanupBuyerFixture, type BuyerFixture } from "./support/buyer-fixture";
 import { provisionQaWorld, cleanupQaWorld, type QaWorld } from "./support/qa-accounts";
+import { E2E_BASE_URL } from "./support/base-url";
 
 const TEST_SUPPORT_HEADERS = { "x-alpha-test-support": "enabled" };
 
@@ -21,14 +22,14 @@ async function readState(ctx: APIRequestContext) {
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
-  const ctx = await playwrightRequest.newContext({ baseURL: "http://localhost:3000" });
+  const ctx = await playwrightRequest.newContext({ baseURL: E2E_BASE_URL });
   world = await provisionQaWorld(ctx);
   await ctx.dispose();
   buyerFixture = await resolveBuyerFixture((process.env.E2E_BUYER_EMAIL ?? "").toLowerCase(), process.env.E2E_BUYER_PASSWORD ?? "");
 });
 
 test.afterAll(async () => {
-  const ctx = await playwrightRequest.newContext({ baseURL: "http://localhost:3000" });
+  const ctx = await playwrightRequest.newContext({ baseURL: E2E_BASE_URL });
   await cleanupQaWorld(ctx, world);
   await cleanupBuyerFixture(buyerFixture);
   await ctx.dispose();

@@ -1,6 +1,7 @@
 import { test, expect, request, type APIRequestContext, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { cleanupBuyerFixture, resolveBuyerFixture, type BuyerFixture } from "./support/buyer-fixture";
+import { E2E_BASE_URL } from "./support/base-url";
 
 const TEST_SUPPORT_HEADERS = { "x-alpha-test-support": "enabled" };
 
@@ -95,7 +96,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  const context = await request.newContext({ baseURL: "http://localhost:3000" });
+  const context = await request.newContext({ baseURL: E2E_BASE_URL });
   const db = await readRuntimeDb(context);
   for (const key of ["users", "marketplaceListings"]) {
     const rows = db[key];

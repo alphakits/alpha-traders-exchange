@@ -10,6 +10,7 @@ import type {
   DiscordResourceDiagnostics,
   DiscordCommunityCommandDiagnostics,
   DiscordCommunityNotificationDiagnostics,
+  DiscordOnboardingContentDiagnostics,
 } from "@/lib/discord/diagnostics";
 import type { DiscordService } from "@/lib/discord/service";
 import { logEvent } from "@/lib/structured-logging";
@@ -52,6 +53,11 @@ type WorkerRuntimeDependencies = {
     start(): Promise<void>;
     shutdown(): Promise<void>;
     getDiagnostics(): DiscordCommunityCommandDiagnostics;
+  };
+  onboardingContent?: {
+    start(): Promise<void>;
+    shutdown(): Promise<void>;
+    getDiagnostics(): DiscordOnboardingContentDiagnostics;
   };
   operatorReconciliation?: {
     start(): Promise<void>;
@@ -107,6 +113,8 @@ export class DiscordWorkerRuntime {
   private readonly marketIntelligence: WorkerRuntimeDependencies["marketIntelligence"];
   private readonly notifications: WorkerRuntimeDependencies["notifications"];
   private readonly commands: WorkerRuntimeDependencies["commands"];
+  private readonly onboardingContent:
+    WorkerRuntimeDependencies["onboardingContent"];
   private readonly operatorReconciliation:
     WorkerRuntimeDependencies["operatorReconciliation"];
   private healthServer: Server | null = null;
@@ -122,6 +130,7 @@ export class DiscordWorkerRuntime {
     marketIntelligence,
     notifications,
     commands,
+    onboardingContent,
     operatorReconciliation,
     createHealthServer = createDiscordWorkerHealthServer,
   }: WorkerRuntimeDependencies) {
@@ -134,6 +143,7 @@ export class DiscordWorkerRuntime {
     this.marketIntelligence = marketIntelligence;
     this.notifications = notifications;
     this.commands = commands;
+    this.onboardingContent = onboardingContent;
     this.operatorReconciliation = operatorReconciliation;
   }
 
@@ -168,6 +178,7 @@ export class DiscordWorkerRuntime {
       marketIntelligence: this.marketIntelligence,
       notifications: this.notifications,
       commands: this.commands,
+      onboardingContent: this.onboardingContent,
       healthSecret: this.config.healthSecret,
     });
 
@@ -194,6 +205,10 @@ export class DiscordWorkerRuntime {
       if (this.resourceSync) {
         await this.resourceSync.start();
         recordPhase("resource_sync_ready");
+      }
+      if (this.onboardingContent) {
+        await this.onboardingContent.start();
+        recordPhase("onboarding_content_ready");
       }
       if (this.listingSync) {
         await this.listingSync.start();
@@ -256,6 +271,11 @@ export class DiscordWorkerRuntime {
     }
     try {
       await this.listingSync?.shutdown();
+    } catch (error) {
+      failures.push(error);
+    }
+    try {
+      await this.onboardingContent?.shutdown();
     } catch (error) {
       failures.push(error);
     }

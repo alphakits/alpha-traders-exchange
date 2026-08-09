@@ -2,6 +2,7 @@ import { test, expect, request as pwRequest, type APIRequestContext, type Page }
 import { randomBytes, randomUUID, scrypt as scryptCb } from "node:crypto";
 import { promisify } from "node:util";
 import { resolveBuyerFixture, cleanupBuyerFixture, type BuyerFixture } from "./support/buyer-fixture";
+import { E2E_BASE_URL } from "./support/base-url";
 
 const scrypt = promisify(scryptCb);
 const H = { "x-alpha-test-support": "enabled" };
@@ -137,14 +138,14 @@ function cardFor(page: Page, sellerName: string) {
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
-  const ctx = await pwRequest.newContext({ baseURL: "http://localhost:3000" });
+  const ctx = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
   await provision(ctx);
   await ctx.dispose();
   buyer = await resolveBuyerFixture((process.env.E2E_BUYER_EMAIL ?? "").toLowerCase(), process.env.E2E_BUYER_PASSWORD ?? "");
 });
 
 test.afterAll(async () => {
-  const ctx = await pwRequest.newContext({ baseURL: "http://localhost:3000" });
+  const ctx = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
   await cleanup(ctx);
   await ctx.dispose();
   await cleanupBuyerFixture(buyer);

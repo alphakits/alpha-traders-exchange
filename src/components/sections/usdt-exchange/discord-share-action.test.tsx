@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   DiscordShareAction,
@@ -41,6 +41,11 @@ function sharing(overrides: Record<string, unknown> = {}) {
     ...overrides,
   } as never;
 }
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-08-08T00:00:00.000Z"));
+});
 
 afterEach(() => {
   vi.useRealTimers();

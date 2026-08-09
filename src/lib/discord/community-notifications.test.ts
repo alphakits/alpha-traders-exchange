@@ -170,8 +170,7 @@ describe("Discord community notifications", () => {
     let completionCount = 0;
     const sourceKey =
       "approved-status:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-    const pool = {
-      query: vi.fn(async (sql: string) => {
+    const query = vi.fn(async (sql: string) => {
         if (sql.includes("update alpha_exchange.discord_notification_deliveries delivery")) {
           claimCount += 1;
           return claimCount <= 2
@@ -204,8 +203,8 @@ describe("Discord community notifications", () => {
           return result([{ discord_resource_id: null }]);
         }
         return result([], 1);
-      }),
-    } as unknown as Pool;
+      });
+    const pool = { query } as unknown as Pool;
     const deliveredNonces = new Set<string>();
     let physicalDeliveries = 0;
     const send = vi.fn(async ({ nonce }: { nonce: string }) => {
@@ -235,7 +234,7 @@ describe("Discord community notifications", () => {
     expect(deliveredNonces.size).toBe(1);
     expect(physicalDeliveries).toBe(1);
     expect(completionCount).toBe(2);
-    expect(pool.query.mock.calls.some(([sql]) =>
+    expect(query.mock.calls.some(([sql]) =>
       String(sql).includes("lease_token = $2::uuid")
       && String(sql).includes("status = 'processing'"))).toBe(true);
   });

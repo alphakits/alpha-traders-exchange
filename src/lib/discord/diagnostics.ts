@@ -72,6 +72,13 @@ export type DiscordCommunityCommandDiagnostics = {
   errorCode: string | null;
 };
 
+export type DiscordOnboardingContentDiagnostics = {
+  status: "ready" | "degraded";
+  totalCount: number;
+  activeCount: number;
+  errorCode: string | null;
+};
+
 export type DiscordDeploymentDiagnostics = {
   source: "railway" | "local";
   revision: string | null;
@@ -93,6 +100,7 @@ export type DiscordDiagnostics = {
   marketIntelligence?: DiscordMarketIntelligenceDiagnostics;
   notifications?: DiscordCommunityNotificationDiagnostics;
   commands?: DiscordCommunityCommandDiagnostics;
+  onboardingContent?: DiscordOnboardingContentDiagnostics;
   requiredPrivilegedIntents?: readonly ["GuildMembers"];
   deployment?: DiscordDeploymentDiagnostics;
 };

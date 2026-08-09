@@ -47,7 +47,7 @@ function withCommandLock(pool: Pool): Pool {
 }
 
 describe("Discord community commands", () => {
-  it("defines exactly seven deterministic guild-only commands", () => {
+  it("defines the deterministic guild-only command contract", () => {
     expect(DISCORD_COMMUNITY_COMMAND_NAMES).toEqual([
       "market",
       "profile",
@@ -56,8 +56,16 @@ describe("Discord community commands", () => {
       "website",
       "help",
       "pulse",
+      "buy",
+      "seller",
+      "rank",
+      "rules",
+      "support",
+      "exchange",
     ]);
-    expect(DISCORD_COMMUNITY_COMMANDS).toHaveLength(7);
+    expect(DISCORD_COMMUNITY_COMMANDS).toHaveLength(13);
+    expect(DISCORD_COMMUNITY_COMMANDS.find((command) => command.name === "rank")
+      ?.options).toBeUndefined();
     expect(DISCORD_COMMUNITY_COMMANDS.every((command) =>
       command.dm_permission === false)).toBe(true);
     expect(DISCORD_COMMUNITY_COMMAND_DEFINITION_HASH).toMatch(/^[0-9a-f]{64}$/);
@@ -178,7 +186,7 @@ describe("Discord community commands", () => {
     await service.reconcile();
     await service.reconcile();
 
-    expect(rest.post).toHaveBeenCalledTimes(7);
+    expect(rest.post).toHaveBeenCalledTimes(13);
     expect(rest.patch).not.toHaveBeenCalled();
     expect(rest.delete).toHaveBeenCalledOnce();
     expect(remote.map((command) => command.name)).toContain("admin");
@@ -236,7 +244,7 @@ describe("Discord community commands", () => {
 
     expect(rest.patch).toHaveBeenCalledOnce();
     expect(rest.patch.mock.calls[0]?.[0]).toContain(ownedId);
-    expect(rest.post).toHaveBeenCalledTimes(6);
+    expect(rest.post).toHaveBeenCalledTimes(12);
   });
 
   it("reports an unowned desired-name collision without mutating any command", async () => {

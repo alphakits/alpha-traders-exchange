@@ -2,6 +2,7 @@ import { randomBytes, scrypt as scryptCallback } from "node:crypto";
 import { promisify } from "node:util";
 import { expect, request, test, type APIRequestContext } from "@playwright/test";
 import type { AlphaExchangeDb, UserRole } from "@/types/alpha-exchange";
+import { E2E_BASE_URL } from "./support/base-url";
 
 const scrypt = promisify(scryptCallback);
 const TEST_SUPPORT_HEADERS = {
@@ -68,7 +69,7 @@ async function readMarketplaceEmailHarness(api: APIRequestContext) {
 }
 
 async function loginApi(email: string, password: string) {
-  const api = await request.newContext({ baseURL: "http://localhost:3000" });
+  const api = await request.newContext({ baseURL: E2E_BASE_URL });
   const response = await api.post("/api/auth/login", {
     data: { email, password, rememberMe: true },
   });
@@ -197,7 +198,7 @@ async function waitForListingPublicationEmailCountsByUser(input: {
 
 test.describe("listing publication notification regression", () => {
   test.beforeAll(async () => {
-    const api = await request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await request.newContext({ baseURL: E2E_BASE_URL });
     const db = await readRuntimeDb(api);
     originalSnapshot = JSON.parse(JSON.stringify(db)) as AlphaExchangeDb;
 
@@ -241,7 +242,7 @@ test.describe("listing publication notification regression", () => {
   });
 
   test.afterAll(async () => {
-    const api = await request.newContext({ baseURL: "http://localhost:3000" });
+    const api = await request.newContext({ baseURL: E2E_BASE_URL });
     if (originalSnapshot) {
       await writeRuntimeDb(api, originalSnapshot);
     }

@@ -69,7 +69,8 @@ describe("Discord listing message", () => {
 
   it("creates three HTTPS public link buttons without internal identifiers", () => {
     const payload = buildDiscordListingMessage(snapshot);
-    const buttons = payload.components?.[0]?.components ?? [];
+    const row = payload.components?.[0];
+    const buttons = row && "components" in row ? row.components : [];
 
     expect(buttons).toMatchObject([
       { label: "View Marketplace", url: snapshot.listingUrl },
@@ -97,7 +98,8 @@ describe("Discord listing message", () => {
     const serialized = JSON.stringify(payload);
 
     expect(serialized).not.toMatch(/Measured response|Seller rating|Completed trades|Availability|Payment methods|Seller Profile/);
-    expect(payload.components?.[0]?.components).toHaveLength(2);
+    const row = payload.components?.[0];
+    expect(row && "components" in row ? row.components : []).toHaveLength(2);
   });
 
   it("retains truthful historical values for SOLD in grey and removes all actions", () => {

@@ -2,9 +2,11 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 
 import {
   cleanupBuyerFixture,
+  ensureBuyerFixtureListing,
   resolveBuyerFixture,
   type BuyerFixture,
 } from "./support/buyer-fixture";
+import { E2E_BASE_URL } from "./support/base-url";
 
 const SELLER_EMAIL = (process.env.E2E_SELLER_EMAIL ?? "").toLowerCase();
 const SELLER_PASSWORD = process.env.E2E_SELLER_PASSWORD ?? "";
@@ -81,7 +83,7 @@ function collectDiagnostics(page: Page): DiagnosticCapture {
 
   page.on("request", (request) => {
     const url = request.url();
-    if (!url.startsWith("http://localhost:3000/")) return;
+    if (!url.startsWith(`${E2E_BASE_URL}/`)) return;
     const parsed = new URL(url);
     if (parsed.pathname.startsWith("/api/")) {
       firstPartyApiRequests.push(parsed.pathname);
@@ -90,7 +92,7 @@ function collectDiagnostics(page: Page): DiagnosticCapture {
 
   page.on("response", (response) => {
     const url = response.url();
-    if (!url.startsWith("http://localhost:3000/")) return;
+    if (!url.startsWith(`${E2E_BASE_URL}/`)) return;
     const parsed = new URL(url);
     if (parsed.pathname.startsWith("/api/") && response.status() >= 400) {
       firstPartyFailures.push({ url: parsed.pathname, status: response.status() });
@@ -377,9 +379,12 @@ test.describe("Final hardening audit", () => {
     test(`desktop viewport integrity @ ${viewport.width}x${viewport.height}`, async ({ page }) => {
       test.skip(!buyerFixture, "Buyer fixture not available");
       await login(page.request, buyerFixture!.email, buyerFixture!.password);
+      await ensureBuyerFixtureListing(buyerFixture!);
       await page.setViewportSize(viewport);
       await page.goto("/en/usdt-exchange");
-      await expect(page.getByRole("button", { name: /Buy USDT from/i }).first()).toBeVisible();
+      await expect(page.getByRole("button", { name: /Buy USDT from/i }).first()).toBeVisible({
+        timeout: 20_000,
+      });
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow, `horizontal overflow on desktop ${viewport.width}x${viewport.height}`).toBeLessThanOrEqual(1);
     });

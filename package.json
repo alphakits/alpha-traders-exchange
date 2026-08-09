@@ -6,6 +6,7 @@
     "clean": "node -e \"const fs=require('fs'); ['.next','.next-dev','.next-runtime','.next-runtime-build','.next-stale'].forEach((dir)=>{ if (fs.existsSync(dir)) fs.rmSync(dir,{recursive:true,force:true}); });\"",
     "dev": "node scripts/ensure-single-dev.mjs && node ./node_modules/next/dist/bin/next dev",
     "dev:clean": "npm run clean && npm run dev",
+    "dev:e2e": "npm run clean && node scripts/ensure-single-dev.mjs && node ./node_modules/next/dist/bin/next dev",
     "build": "node scripts/ensure-no-active-dev.mjs && node ./node_modules/next/dist/bin/next build",
     "start": "node ./node_modules/next/dist/bin/next start",
     "lint": "node ./node_modules/eslint/bin/eslint.js",

@@ -36,9 +36,10 @@ import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { cn } from "@/lib/utils";
 import { SELLER_PRESTIGE_TIERS } from "@/lib/seller-prestige";
+import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
-const WHATSAPP_URL = "https://wa.me/972525967649";
+const WHATSAPP_URL = getOfficialOwnerWhatsAppUrl();
 const MAX_EVIDENCE_SIZE_BYTES = 8 * 1024 * 1024;
 const ALLOWED_EVIDENCE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
 const MOBILE_VIEWPORT_QUERY = "(max-width: 768px)";
@@ -4666,9 +4667,9 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
               </a>
               <p className="text-center text-xs text-[#9CA3AF]">
                 {isAr ? "هل تحتاج مساعدة؟" : "Need help?"}{" "}
-                <a href={WHATSAPP_URL} target="_blank" rel="noreferrer" className="text-[#93C5FD] hover:underline">
+                {WHATSAPP_URL ? <a href={WHATSAPP_URL} target="_blank" rel="noreferrer" className="text-[#93C5FD] hover:underline">
                   {isAr ? "تواصل مع Alpha Traders على WhatsApp" : "Contact Alpha Traders on WhatsApp"}
-                </a>
+                </a> : null}
               </p>
             </div>
           </CardContent>
@@ -6288,12 +6289,12 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
               <a href="#marketplace">
                 <Button>{isAr ? "ابدأ التداول" : "Start Trading"}</Button>
               </a>
-              <a href={WHATSAPP_URL} target="_blank" rel="noreferrer">
+              {WHATSAPP_URL ? <a href={WHATSAPP_URL} target="_blank" rel="noreferrer">
                 <Button variant="secondary" className="gap-2">
                   <MessageCircle className="h-4 w-4" />
                   {isAr ? "تواصل عبر واتساب" : "Contact on WhatsApp"}
                 </Button>
-              </a>
+              </a> : null}
             </div>
           </div>
         </CardContent>
