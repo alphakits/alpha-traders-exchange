@@ -51,6 +51,9 @@ next-env.d.ts
 /data/alpha-exchange-evidence/
 /data/alpha-exchange-repo-trace.log
 
+# Railway discord-worker deploy context: exclude large web static bundle not used by Dockerfile.discord-worker
+/public/files/
+
 # Debug / QA artifacts
 cookies.txt
 build.log
