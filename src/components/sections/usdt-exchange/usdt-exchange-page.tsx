@@ -48,6 +48,7 @@ const MAX_NOTIFICATION_ITEMS = 60;
 const MAX_PRICE_MARKUP_ILS = 0.35;
 const DEFAULT_MARKET_PRICE_PER_USDT = 3.05;
 const DEFAULT_RESPONSE_TIME = "5 min";
+const BUYER_TRADE_HISTORY_SECTION_ID = "my-trade-requests-section";
 
 const ISRAELI_BANKS = [
   { id: "hapoalim", name: "Bank Hapoalim", code: "בנק הפועלים", brandPrimary: "#E31C23", brandSecondary: "#B01016", accent: "#FCA5A5" },
@@ -79,7 +80,7 @@ type SellerApplicationMethod = (typeof SELLER_APPLICATION_METHOD_OPTIONS)[number
 
 type Locale = "ar" | "en";
 
-type SessionUser = {
+export type SessionUser = {
   id: string;
   fullName: string;
   email: string;
@@ -832,7 +833,7 @@ function Portal({ children }: { children: React.ReactNode }) {
   return createPortal(children, document.body);
 }
 
-export function UsdtExchangePage({ locale }: { locale: Locale }) {
+export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Locale; initialSessionUser?: SessionUser | null }) {
   const isAr = locale === "ar";
   const router = useRouter();
   const [isMobileViewport, setIsMobileViewport] = useState(() => {
@@ -842,7 +843,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const marketFeed = useMarketFeed({ refreshMs: 45_000 });
   const marketSnapshot = marketFeed.snapshot;
 
-  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(initialSessionUser ?? null);
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
   const [isSessionResolving, setIsSessionResolving] = useState(true);
   const [isLoadingListings, setIsLoadingListings] = useState(true);
@@ -1025,8 +1026,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const renderCompleteRecordedRef = useRef(false);
   const interactivePaintRecordedRef = useRef(false);
   const notificationsLoadRecordedRef = useRef(false);
-  const [showDeferredSections, setShowDeferredSections] = useState(false);
-  const [showDeepDeferredSections, setShowDeepDeferredSections] = useState(false);
+  const [showDeferredSections] = useState(true);
+  const [showDeepDeferredSections] = useState(true);
 
   useEffect(() => {
     const media = window.matchMedia(MOBILE_VIEWPORT_QUERY);
@@ -1035,16 +1036,6 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
-
-  useEffect(() => {
-    const timerId = window.setTimeout(() => setShowDeferredSections(true), isMobileViewport ? 420 : 180);
-    return () => window.clearTimeout(timerId);
-  }, [isMobileViewport]);
-
-  useEffect(() => {
-    const timerId = window.setTimeout(() => setShowDeepDeferredSections(true), isMobileViewport ? 1200 : 260);
-    return () => window.clearTimeout(timerId);
-  }, [isMobileViewport]);
 
   const [buyerInfo, setBuyerInfo] = useState({ name: "", whatsapp: "", notes: "", usdtAmount: "", receivingWalletAddress: "" });
   const [sellerForm, setSellerForm] = useState({
@@ -1280,25 +1271,50 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
     if (isLoginJourneyTraceEnabled()) {
       finalizeLoginJourneyRedirectEnd(Date.now());
     }
+
     const controller = new AbortController();
     let cancelled = false;
+
+    async function loadListings(shellReadyAt: number, listingsPromise: Promise<Response>) {
+      try {
+        const listingsRes = await listingsPromise;
+        if (cancelled) return;
+        const listingsJson = (await listingsRes.json()) as { listings: MarketplaceListing[] };
+        if (cancelled) return;
+        setListings(listingsJson.listings ?? []);
+        listingsLoadedAtRef.current = Date.now();
+        appendLoginJourneyStep("Dashboard data loading", shellReadyAt, Date.now());
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") return;
+        if (!cancelled) setWorkspaceError(safeErrorMessage("workspace"));
+      } finally {
+        if (!cancelled) setIsLoadingListings(false);
+      }
+    }
 
     async function bootstrap() {
       const workspaceInitStartedAt = Date.now();
       try {
-        const meRes = await tracedFetch("/api/auth/me", "/api/auth/me", { cache: "no-store", signal: controller.signal });
-        if (cancelled) return;
-        const meJson = (await meRes.json()) as { user: SessionUser | null };
-        if (cancelled) return;
-        setSessionUser(meJson.user);
+        const listingsPromise = tracedFetch("Dashboard data loading: listings", "/api/alpha-exchange/listings", { cache: "no-store", signal: controller.signal });
+        let resolvedUser = initialSessionUser ?? null;
+
+        if (!resolvedUser) {
+          const meRes = await tracedFetch("/api/auth/me", "/api/auth/me", { cache: "no-store", signal: controller.signal });
+          if (cancelled) return;
+          const meJson = (await meRes.json()) as { user: SessionUser | null };
+          if (cancelled) return;
+          resolvedUser = meJson.user;
+        }
+
+        setSessionUser(resolvedUser);
         setIsSessionResolving(false);
         const shellReadyAt = Date.now();
         appendLoginJourneyStep("Dashboard shell ready", workspaceInitStartedAt, shellReadyAt);
         bootstrapCompletedAtRef.current = shellReadyAt;
         appendLoginJourneyStep("Workspace initialization", workspaceInitStartedAt, shellReadyAt);
 
-        if (meJson.user) {
-          const user = meJson.user;
+        if (resolvedUser) {
+          const user = resolvedUser;
           setSellerForm((prev) => ({
             ...prev,
             firstName: user.fullName?.split(" ")[0] ?? prev.firstName,
@@ -1314,23 +1330,8 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         }
 
         // Listings are not required to make the dashboard shell interactive.
-        // Load them in parallel and keep only the listings area in skeleton mode meanwhile.
-        void (async () => {
-          try {
-            const listingsRes = await tracedFetch("Dashboard data loading: listings", "/api/alpha-exchange/listings", { cache: "no-store", signal: controller.signal });
-            if (cancelled) return;
-            const listingsJson = (await listingsRes.json()) as { listings: MarketplaceListing[] };
-            if (cancelled) return;
-            setListings(listingsJson.listings ?? []);
-            listingsLoadedAtRef.current = Date.now();
-            appendLoginJourneyStep("Dashboard data loading", shellReadyAt, Date.now());
-          } catch (error) {
-            if (error instanceof Error && error.name === "AbortError") return;
-            if (!cancelled) setWorkspaceError(safeErrorMessage("workspace"));
-          } finally {
-            if (!cancelled) setIsLoadingListings(false);
-          }
-        })();
+        // Start the fetch in parallel with session bootstrap and resolve it after shell-ready.
+        void loadListings(shellReadyAt, listingsPromise);
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") return;
         setIsSessionResolving(false);
@@ -1345,7 +1346,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       cancelled = true;
       controller.abort();
     };
-  }, [tracedFetch]);
+  }, [initialSessionUser, tracedFetch]);
 
   useEffect(() => {
     if (!sessionUser) return;
@@ -1450,6 +1451,14 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
   const scrollToMyListingsSection = useCallback(() => {
     if (typeof document === "undefined") return false;
     const target = document.getElementById("my-listings-section");
+    if (!target) return false;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    return true;
+  }, []);
+
+  const scrollToBuyerTradeHistorySection = useCallback(() => {
+    if (typeof document === "undefined") return false;
+    const target = document.getElementById(BUYER_TRADE_HISTORY_SECTION_ID);
     if (!target) return false;
     target.scrollIntoView({ behavior: "smooth", block: "start" });
     return true;
@@ -2536,7 +2545,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         title: "My Trade Requests",
         subtitle: "Request Queue",
         stat: `${totalBuyerRequests.toLocaleString("en-IL")}`,
-        onClick: () => router.push("/trade-room"),
+        onClick: () => {
+          if (scrollToBuyerTradeHistorySection()) return;
+          router.push(`/usdt-exchange#${BUYER_TRADE_HISTORY_SECTION_ID}`);
+        },
         icon: HandCoins,
         tone: "blue",
       },
@@ -2672,7 +2684,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
         key: "trade-requests",
         label: "My Trade Requests",
         enabled: true,
-        onClick: () => router.push("/trade-room"),
+        onClick: () => {
+          if (scrollToBuyerTradeHistorySection()) return;
+          router.push(`/usdt-exchange#${BUYER_TRADE_HISTORY_SECTION_ID}`);
+        },
       },
       {
         key: "active-trades",
@@ -2744,7 +2759,10 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
       {
         key: "hero-my-trades",
         label: "My Trade Requests",
-        onClick: () => router.push("/trade-room"),
+        onClick: () => {
+          if (scrollToBuyerTradeHistorySection()) return;
+          router.push(`/usdt-exchange#${BUYER_TRADE_HISTORY_SECTION_ID}`);
+        },
       },
     ];
 
@@ -5982,7 +6000,7 @@ export function UsdtExchangePage({ locale }: { locale: Locale }) {
           </Card>
 
           {sessionUser ? (
-            <Card className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
+            <Card id={BUYER_TRADE_HISTORY_SECTION_ID} className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
               <CardHeader>
                 <CardTitle>My Trade History</CardTitle>
                 <CardDescription>Newest first, compact rows, and expandable details for each trade.</CardDescription>

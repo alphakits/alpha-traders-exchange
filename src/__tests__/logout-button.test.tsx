@@ -8,7 +8,7 @@ describe("LogoutButton", () => {
   });
 
   it("shows immediate pending feedback and prevents duplicate clicks", async () => {
-    let resolveFetch: ((value: Response) => void) | null = null;
+    let resolveFetch: ((value: Response | PromiseLike<Response>) => void) | undefined;
     const fetchMock = vi.fn(() => new Promise<Response>((resolve) => {
       resolveFetch = resolve;
     }));

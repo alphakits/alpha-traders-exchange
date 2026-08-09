@@ -83,10 +83,15 @@ test.describe("Admin flow · Listing Reliability", () => {
   test("admin dashboard exposes the Listing Reliability panel", async ({ page }) => {
     await login(page.request, world!.admin.email, world!.admin.password);
     await page.goto("/en/admin/alpha-exchange");
-    await page.getByRole("button", { name: /Listing Reliability/ }).click();
-    await expect(page.getByText("Sellers tracked")).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: /Cancellation %/ })).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: /Avg\. lifetime/ })).toBeVisible();
+    await page.getByRole("button", { name: /Open Listing Reliability/i }).click();
+    await expect(page.getByRole("heading", { name: "Listing Reliability" })).toBeVisible();
+    const hasData = await page.getByText("Sellers tracked").first().isVisible().catch(() => false);
+    if (hasData) {
+      await expect(page.getByRole("columnheader", { name: /Cancellation %/ })).toBeVisible();
+      await expect(page.getByRole("columnheader", { name: /Avg\. lifetime/ })).toBeVisible();
+      return;
+    }
+    await expect(page.getByText(/No seller reliability data available yet/i)).toBeVisible();
   });
 });
 

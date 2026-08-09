@@ -1,7 +1,7 @@
 import { randomBytes, scrypt as scryptCallback } from "node:crypto";
 import { promisify } from "node:util";
 import { expect, request, test, type APIRequestContext } from "@playwright/test";
-import type { AlphaExchangeDb } from "@/types/alpha-exchange";
+import type { AlphaExchangeDb, UserRole } from "@/types/alpha-exchange";
 
 const scrypt = promisify(scryptCallback);
 const TEST_SUPPORT_HEADERS = {
@@ -76,8 +76,8 @@ async function loginApi(email: string, password: string) {
   return api;
 }
 
-function normalizeRoles(roles?: string[], role?: string) {
-  const next = new Set<string>(roles ?? []);
+function normalizeRoles(roles?: UserRole[], role?: UserRole) {
+  const next = new Set<UserRole>(roles ?? []);
   if (role) next.add(role);
   return [...next];
 }
@@ -280,7 +280,7 @@ test.describe("listing publication notification regression", () => {
     expect(approveResponse.ok(), await approveResponse.text()).toBeTruthy();
 
     const dbAfterApprove = await readRuntimeDb(ownerApi);
-    const qaBuyerIds = [QA_USER_IDS.buyer1, QA_USER_IDS.buyer2, QA_USER_IDS.buyer3];
+    const qaBuyerIds: string[] = [QA_USER_IDS.buyer1, QA_USER_IDS.buyer2, QA_USER_IDS.buyer3];
     expect(qaBuyerIds).toHaveLength(3);
     const qaBuyerIdSet = new Set(qaBuyerIds);
 
@@ -290,7 +290,7 @@ test.describe("listing publication notification regression", () => {
     }
     expect(notificationCounts.get(creatorUserId) ?? 0).toBe(0);
 
-    const emailToUserId = new Map(
+    const emailToUserId = new Map<string, string>(
       dbAfterApprove.users.map((user) => [user.email.trim().toLowerCase(), user.id]),
     );
     await waitForListingPublicationEmailAttempts(ownerApi, listingId, qaBuyerIds.length);

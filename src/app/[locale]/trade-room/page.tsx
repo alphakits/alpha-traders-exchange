@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { getFirstActiveTradeForUser } from "@/lib/alpha-exchange-store";
+import { hasRole } from "@/lib/roles";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -23,5 +24,14 @@ export default async function TradeRoomLandingPage({ params }: { params: Promise
   if (activeTrade) {
     redirect(`/${locale}/trade-room/${activeTrade.id}`);
   }
-  redirect(`/${locale}/dashboard`);
+
+  // Redirect directly to the final role destination when no active trade exists.
+  // This avoids a visible route bounce (trade-room -> dashboard -> role page).
+  if (hasRole(user, "owner") || hasRole(user, "admin")) {
+    redirect(`/${locale}/admin/alpha-exchange?section=purchase-requests`);
+  }
+  if (hasRole(user, "approved_seller")) {
+    redirect(`/${locale}/dashboard/seller`);
+  }
+  redirect(`/${locale}/usdt-exchange#my-trade-requests-section`);
 }

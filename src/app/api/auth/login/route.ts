@@ -97,6 +97,9 @@ export async function POST(request: NextRequest) {
   const cookieStore = await cookies();
   const locale = inferLocaleFromRequest(request);
   const clientIp = resolveClientIp(request.headers);
+  const isProduction = process.env.NODE_ENV === "production";
+  const ipRateMaxRequests = isProduction ? 120 : 600;
+  const ipEmailRateMaxRequests = isProduction ? 24 : 240;
   try {
     const body = await request.json();
     const email = String(body.email ?? "").trim().toLowerCase();
@@ -106,7 +109,7 @@ export async function POST(request: NextRequest) {
     const ipRate = checkRateLimit({
       headers: request.headers,
       key: "auth:login:ip",
-      maxRequests: 120,
+      maxRequests: ipRateMaxRequests,
       windowMs: 10 * 60_000,
     });
     if (!ipRate.allowed) {
@@ -119,7 +122,7 @@ export async function POST(request: NextRequest) {
       headers: request.headers,
       key: "auth:login:ip-email",
       identifier: `${clientIp}:${email}`,
-      maxRequests: 24,
+      maxRequests: ipEmailRateMaxRequests,
       windowMs: 10 * 60_000,
     });
     if (!ipEmailRate.allowed) {

@@ -66,7 +66,9 @@ export function HeaderAuthArea({
       }
     }
 
-    void refreshSession();
+    if (!initialSessionUser) {
+      void refreshSession();
+    }
     const handleAuthChange = () => {
       void refreshSession();
     };
@@ -76,7 +78,7 @@ export function HeaderAuthArea({
       cancelled = true;
       window.removeEventListener("alpha-auth-changed", handleAuthChange);
     };
-  }, []);
+  }, [initialSessionUser]);
 
   const sellerWorkspaceAccess = useMemo(() => canAccessSellerWorkspace(sessionUser), [sessionUser]);
   const adminDashboardAccess = useMemo(() => canAccessAdminDashboard(sessionUser), [sessionUser]);

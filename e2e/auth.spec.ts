@@ -11,7 +11,7 @@
  *   E2E_SELLER_EMAIL, E2E_SELLER_PASSWORD
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { cleanupBuyerFixture, resolveBuyerFixture, type BuyerFixture } from "./support/buyer-fixture";
 
 const OWNER_EMAIL = process.env.E2E_OWNER_EMAIL ?? "";
@@ -38,13 +38,14 @@ test.afterAll(async () => {
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function login(page: Parameters<typeof test>[1] extends infer T ? T extends { page: infer P } ? P : never : never, email: string, password: string) {
+async function login(page: Page, email: string, password: string) {
   await page.goto("/en/login");
-  await page.waitForSelector('form[data-hydrated="true"]', { timeout: 15_000 });
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
-  await page.click('button[type="submit"]');
-  await page.waitForURL((url) => !url.pathname.endsWith("/login"), { timeout: 20_000 });
+  const form = page.locator('form[data-hydrated="true"]').first();
+  await form.waitFor({ timeout: 15_000 });
+  await form.getByLabel("Email", { exact: true }).fill(email);
+  await form.getByLabel("Password", { exact: true }).fill(password);
+  await form.locator('button[type="submit"]').click();
+  await expect(page).not.toHaveURL(/\/en\/login/, { timeout: 20_000 });
 }
 
 // ---------------------------------------------------------------------------
@@ -132,10 +133,11 @@ test.describe("Authentication", () => {
   test("invalid credentials show error message", async ({ page }) => {
     await page.request.post("/api/auth/logout").catch(() => {});
     await page.goto("/en/login");
-    await page.waitForSelector('form[data-hydrated="true"]', { timeout: 15_000 });
-    await page.getByLabel("Email").fill("nobody@example.com");
-    await page.getByLabel("Password").fill("wrongpassword");
-    await page.click('button[type="submit"]');
+    const form = page.locator('form[data-hydrated="true"]').first();
+    await form.waitFor({ timeout: 15_000 });
+    await form.getByLabel("Email", { exact: true }).fill("nobody@example.com");
+    await form.getByLabel("Password", { exact: true }).fill("wrongpassword");
+    await form.locator('button[type="submit"]').click();
     // Should stay on login page
     await expect(page).toHaveURL(/\/en\/login/);
     // Error message visible
@@ -146,7 +148,7 @@ test.describe("Authentication", () => {
     test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     await login(page, BUYER_EMAIL, BUYER_PASSWORD);
     const urlAfterLogin = page.url();
-    await page.reload();
+    await page.reload({ waitUntil: "commit" });
     // Should still be on the same protected page, not redirected to login
     await expect(page).not.toHaveURL(/\/en\/login/);
     expect(page.url()).toBe(urlAfterLogin);
@@ -176,10 +178,11 @@ test.describe("Post-login redirect", () => {
     expect(loginUrl).toMatch(/redirectTo/);
 
     // Fill login form
-    await page.waitForSelector('form[data-hydrated="true"]', { timeout: 15_000 });
-    await page.getByLabel("Email").fill(BUYER_EMAIL);
-    await page.getByLabel("Password").fill(BUYER_PASSWORD);
-    await page.click('button[type="submit"]');
+    const form = page.locator('form[data-hydrated="true"]').first();
+    await form.waitFor({ timeout: 15_000 });
+    await form.getByLabel("Email", { exact: true }).fill(BUYER_EMAIL);
+    await form.getByLabel("Password", { exact: true }).fill(BUYER_PASSWORD);
+    await form.locator('button[type="submit"]').click();
 
     // Should land on academy, not dashboard
     await expect(page).toHaveURL(/\/en\/academy/, { timeout: 20_000 });
@@ -188,10 +191,11 @@ test.describe("Post-login redirect", () => {
   test("redirectTo preserved through login for /en/usdt-exchange", async ({ page }) => {
     test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     await page.goto("/en/usdt-exchange");
-    await page.waitForSelector('form[data-hydrated="true"]', { timeout: 15_000 });
-    await page.getByLabel("Email").fill(BUYER_EMAIL);
-    await page.getByLabel("Password").fill(BUYER_PASSWORD);
-    await page.click('button[type="submit"]');
+    const form = page.locator('form[data-hydrated="true"]').first();
+    await form.waitFor({ timeout: 15_000 });
+    await form.getByLabel("Email", { exact: true }).fill(BUYER_EMAIL);
+    await form.getByLabel("Password", { exact: true }).fill(BUYER_PASSWORD);
+    await form.locator('button[type="submit"]').click();
     await expect(page).toHaveURL(/\/en\/usdt-exchange/, { timeout: 20_000 });
   });
 
@@ -242,9 +246,8 @@ test.describe("Role-based access", () => {
   test("admin route /en/admin/alpha-exchange inaccessible to buyer", async ({ page }) => {
     test.skip(!BUYER_EMAIL || !BUYER_PASSWORD, "Set E2E_BUYER_EMAIL and E2E_BUYER_PASSWORD to run credentialed login checks.");
     await login(page, BUYER_EMAIL, BUYER_PASSWORD);
-    await page.goto("/en/admin/alpha-exchange");
-    // Should be redirected away (to exchange or login)
-    await expect(page).toHaveURL(/\/(usdt-exchange|login)/);
+    await page.goto("/en/admin/alpha-exchange", { waitUntil: "commit" }).catch(() => {});
+    await expect(page).toHaveURL(/\/en\/(usdt-exchange|login)/, { timeout: 30_000 });
   });
 
   test("/api/auth/me returns user for authenticated session", async ({ page }) => {

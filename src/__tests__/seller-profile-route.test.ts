@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import type { AlphaExchangeUser } from "@/types/alpha-exchange";
 import { deriveSellerRouteUsername, resolveSellerByUsername } from "@/lib/alpha-exchange-seller-profile";
+
+type SellerIdentity = Pick<AlphaExchangeUser, "id" | "fullName" | "email" | "sellerStatus" | "buyerDisplayName">;
 
 describe("seller profile route helpers", () => {
   it("derives a route username from an explicit public trading name", () => {
@@ -16,7 +19,7 @@ describe("seller profile route helpers", () => {
     const seller = resolveSellerByUsername(
       [
         { id: "seller-1", fullName: "Maya Chen", email: "maya.chen@example.com", sellerStatus: "approved_seller", buyerDisplayName: "Maya OTC" },
-      ] as Array<{ id: string; fullName: string; email: string; sellerStatus: string }>,
+      ] satisfies SellerIdentity[],
       "maya-otc",
     );
 
@@ -24,7 +27,7 @@ describe("seller profile route helpers", () => {
   });
 
   it("uses privacy-safe canonical slugs while preserving legacy route resolution", () => {
-    const identity = {
+    const identity: SellerIdentity = {
       id: "seller-2",
       fullName: "Mark",
       email: "marksally11@yahoo.com",

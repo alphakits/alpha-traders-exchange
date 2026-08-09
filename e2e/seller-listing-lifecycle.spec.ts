@@ -16,6 +16,10 @@ const TEST_SUPPORT_HEADERS = {
 };
 let buyerFixture: BuyerFixture | undefined;
 
+function toRecords(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? (value as unknown as Array<Record<string, unknown>>) : [];
+}
+
 test.beforeAll(async () => {
   buyerFixture = await resolveBuyerFixture(BUYER_EMAIL, BUYER_PASSWORD);
   BUYER_EMAIL = buyerFixture.email;
@@ -29,14 +33,14 @@ test.afterAll(async () => {
 async function readRuntimeDb(request: APIRequestContext) {
   const response = await request.get("/api/testing/alpha-exchange-state", { headers: TEST_SUPPORT_HEADERS });
   expect(response.ok()).toBeTruthy();
-  return (await response.json()) as Record<string, unknown>;
+  return (await response.json()) as unknown as AlphaExchangeDb;
 }
 
-async function writeRuntimeDb(request: APIRequestContext, db: Record<string, unknown>) {
+async function writeRuntimeDb(request: APIRequestContext, db: AlphaExchangeDb) {
   for (let attempt = 0; attempt < 3; attempt++) {
     const response = await request.put("/api/testing/alpha-exchange-state", {
       headers: TEST_SUPPORT_HEADERS,
-      data: db as AlphaExchangeDb,
+      data: db,
     });
     if (response.ok()) return;
     if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 2_000));
@@ -44,7 +48,7 @@ async function writeRuntimeDb(request: APIRequestContext, db: Record<string, unk
   throw new Error("writeRuntimeDb: PUT /api/testing/alpha-exchange-state failed after 3 attempts");
 }
 
-async function updateRuntimeDb(request: APIRequestContext, mutator: (db: Record<string, unknown>) => void) {
+async function updateRuntimeDb(request: APIRequestContext, mutator: (db: AlphaExchangeDb) => void) {
   const db = await readRuntimeDb(request);
   mutator(db);
   await writeRuntimeDb(request, db);
@@ -58,8 +62,8 @@ async function waitForSellerTrustSnapshot(request: APIRequestContext, sellerEmai
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const runtimeDb = await readRuntimeDb(request);
-    const trustSnapshots = Array.isArray(runtimeDb.trustSnapshots) ? (runtimeDb.trustSnapshots as Array<Record<string, unknown>>) : [];
-    const users = Array.isArray(runtimeDb.users) ? (runtimeDb.users as Array<Record<string, unknown>>) : [];
+    const trustSnapshots = toRecords(runtimeDb.trustSnapshots);
+    const users = toRecords(runtimeDb.users);
     const sellerUser = users.find((user) => String(user.email ?? "").toLowerCase() === sellerEmail);
     if (sellerUser) {
       const sellerTrustSnapshot = trustSnapshots.find((entry) => String(entry.sellerId ?? "") === String(sellerUser.id ?? ""));
@@ -134,7 +138,7 @@ async function resetLifecycleFixtures() {
   }
   const api = await request.newContext({ baseURL: "http://localhost:3000" });
   const db = await readRuntimeDb(api);
-  const users = Array.isArray(db.users) ? (db.users as Array<Record<string, unknown>>) : [];
+  const users = toRecords(db.users);
   const seller = users.find((user) => String(user.email ?? "").toLowerCase() === SELLER_EMAIL);
   const owner = users.find((user) => String(user.email ?? "").toLowerCase() === OWNER_EMAIL);
   const admin = users.find((user) => String(user.email ?? "").toLowerCase() === ADMIN_EMAIL);
@@ -150,48 +154,48 @@ async function resetLifecycleFixtures() {
   const buyerId = String(buyer.id);
   const relatedUserIds = new Set([sellerId, ownerId, adminId, buyerId]);
   const relatedListingIds = new Set(
-    (Array.isArray(db.marketplaceListings) ? (db.marketplaceListings as Array<Record<string, unknown>>) : [])
+    toRecords(db.marketplaceListings)
       .filter((listing) => relatedUserIds.has(String(listing.sellerId ?? "")))
       .map((listing) => String(listing.id)),
   );
   const relatedRequestIds = new Set(
-    (Array.isArray(db.purchaseRequests) ? (db.purchaseRequests as Array<Record<string, unknown>>) : [])
+    toRecords(db.purchaseRequests)
       .filter((request) => relatedUserIds.has(String(request.sellerId ?? "")) || relatedUserIds.has(String(request.buyerId ?? "")) || relatedListingIds.has(String(request.listingId ?? "")))
       .map((request) => String(request.id)),
   );
 
-  db.marketplaceListings = (Array.isArray(db.marketplaceListings) ? (db.marketplaceListings as Array<Record<string, unknown>>) : []).filter(
+  db.marketplaceListings = toRecords(db.marketplaceListings).filter(
     (listing) => !relatedUserIds.has(String(listing.sellerId ?? "")),
-  );
-  db.purchaseRequests = (Array.isArray(db.purchaseRequests) ? (db.purchaseRequests as Array<Record<string, unknown>>) : []).filter(
+  ) as unknown as AlphaExchangeDb["marketplaceListings"];
+  db.purchaseRequests = toRecords(db.purchaseRequests).filter(
     (request) => !relatedRequestIds.has(String(request.id ?? "")),
-  );
-  db.commissionRecords = (Array.isArray(db.commissionRecords) ? (db.commissionRecords as Array<Record<string, unknown>>) : []).filter(
+  ) as unknown as AlphaExchangeDb["purchaseRequests"];
+  db.commissionRecords = toRecords(db.commissionRecords).filter(
     (record) => !relatedRequestIds.has(String(record.purchaseRequestId ?? "")) && !relatedUserIds.has(String(record.sellerId ?? "")),
-  );
-  db.tradeEvidenceFiles = (Array.isArray(db.tradeEvidenceFiles) ? (db.tradeEvidenceFiles as Array<Record<string, unknown>>) : []).filter(
+  ) as unknown as AlphaExchangeDb["commissionRecords"];
+  db.tradeEvidenceFiles = toRecords(db.tradeEvidenceFiles).filter(
     (entry) => !relatedRequestIds.has(String(entry.purchaseRequestId ?? "")),
-  );
-  db.notifications = (Array.isArray(db.notifications) ? (db.notifications as Array<Record<string, unknown>>) : []).filter(
+  ) as unknown as AlphaExchangeDb["tradeEvidenceFiles"];
+  db.notifications = toRecords(db.notifications).filter(
     (entry) => !relatedUserIds.has(String(entry.userId ?? "")),
-  );
-  db.activityLog = (Array.isArray(db.activityLog) ? (db.activityLog as Array<Record<string, unknown>>) : []).filter(
+  ) as unknown as AlphaExchangeDb["notifications"];
+  db.activityLog = toRecords(db.activityLog).filter(
     (entry) => !relatedUserIds.has(String(entry.userId ?? "")),
-  );
-  db.auditLogs = (Array.isArray(db.auditLogs) ? (db.auditLogs as Array<Record<string, unknown>>) : []).filter(
+  ) as unknown as AlphaExchangeDb["activityLog"];
+  db.auditLogs = toRecords(db.auditLogs).filter(
     (entry) => !relatedRequestIds.has(String(entry.purchaseRequestId ?? "")) && !relatedListingIds.has(String(entry.listingId ?? "")),
-  );
+  ) as unknown as AlphaExchangeDb["auditLogs"];
   // Prune accumulated sessions and trust records for test users so the snapshot
   // stays small between lifecycle test runs (prevents body-size failures).
-  db.authSessions = (Array.isArray(db.authSessions) ? (db.authSessions as Array<Record<string, unknown>>) : []).filter(
+  db.authSessions = toRecords(db.authSessions).filter(
     (session) => !relatedUserIds.has(String(session.userId ?? "")),
-  );
-  db.trustSnapshots = (Array.isArray(db.trustSnapshots) ? (db.trustSnapshots as Array<Record<string, unknown>>) : []).filter(
+  ) as unknown as AlphaExchangeDb["authSessions"];
+  db.trustSnapshots = toRecords(db.trustSnapshots).filter(
     (snap) => !relatedUserIds.has(String(snap.sellerId ?? "")),
-  );
-  db.trustScoreHistory = (Array.isArray(db.trustScoreHistory) ? (db.trustScoreHistory as Array<Record<string, unknown>>) : []).filter(
+  ) as unknown as AlphaExchangeDb["trustSnapshots"];
+  db.trustScoreHistory = toRecords(db.trustScoreHistory).filter(
     (entry) => !relatedUserIds.has(String(entry.sellerId ?? "")),
-  );
+  ) as unknown as AlphaExchangeDb["trustScoreHistory"];
   db.users = users.map((user) => {
     if (String(user.id) !== sellerId && String(user.id) !== buyerId) return user;
     return {
@@ -202,7 +206,7 @@ async function resetLifecycleFixtures() {
       onlineStatus: "online",
       lastActiveAt: new Date().toISOString(),
     };
-  });
+  }) as unknown as AlphaExchangeDb["users"];
 
   await writeRuntimeDb(api, db);
   await api.dispose();
@@ -314,11 +318,11 @@ async function getDbNotificationsForEmail(email: string) {
   const api = await request.newContext({ baseURL: "http://localhost:3000" });
   const db = await readRuntimeDb(api);
   await api.dispose();
-  const users = Array.isArray(db.users) ? (db.users as Array<Record<string, unknown>>) : [];
+  const users = toRecords(db.users);
   const user = users.find((entry) => String(entry.email ?? "").toLowerCase() === email.toLowerCase());
   if (!user) throw new Error(`Notification user ${email} not found.`);
   const userId = String(user.id);
-  const notifications = Array.isArray(db.notifications) ? (db.notifications as Array<Record<string, unknown>>) : [];
+  const notifications = toRecords(db.notifications);
   return notifications
     .filter((entry) => String(entry.userId ?? "") === userId)
     .map((entry) => ({
@@ -557,7 +561,7 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
 
   const created = await createListing(seller.page.request, { availableAmount: "901", price: "3.20", minimumTrade: "100", maximumTrade: "901" });
   await updateRuntimeDb(owner.page.request, (db) => {
-    const listings = Array.isArray(db.marketplaceListings) ? (db.marketplaceListings as Array<Record<string, unknown>>) : [];
+    const listings = toRecords(db.marketplaceListings);
     const listing = listings.find((item) => String(item.id) === created.listing.id);
     if (!listing) throw new Error("Listing fixture not found.");
     const expiredAt = new Date(Date.now() - 5 * 60 * 1000).toISOString();
@@ -635,7 +639,7 @@ test("listing expiration, renewal, vacation mode, timeout notifications, and aud
   response = await seller.page.request.patch(`/api/alpha-exchange/purchase-requests/${timedRequest.purchase.id}`, { data: { status: "accepted" } });
   expect(response.ok()).toBeTruthy();
   await updateRuntimeDb(owner.page.request, (db) => {
-    const requests = Array.isArray(db.purchaseRequests) ? (db.purchaseRequests as Array<Record<string, unknown>>) : [];
+    const requests = toRecords(db.purchaseRequests);
     const request = requests.find((item) => String(item.id) === timedRequest.purchase.id);
     if (!request) throw new Error("Timed request fixture missing.");
     const staleAt = new Date(Date.now() - 30 * 60 * 1000).toISOString();
@@ -678,7 +682,7 @@ test("admin dashboard listing overrides update state, notifications, and audit h
 
   const renewCandidate = await createListing(seller.page.request, { availableAmount: "111", price: "3.11" });
   await updateRuntimeDb(seller.page.request, (db) => {
-    const listings = Array.isArray(db.marketplaceListings) ? (db.marketplaceListings as Array<Record<string, unknown>>) : [];
+    const listings = toRecords(db.marketplaceListings);
     const listing = listings.find((item) => String(item.id) === renewCandidate.listing.id);
     if (!listing) throw new Error("Renew candidate missing.");
     const past = new Date(Date.now() - 10 * 60 * 1000).toISOString();

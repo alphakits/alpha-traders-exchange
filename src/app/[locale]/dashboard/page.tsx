@@ -38,5 +38,5 @@ export default async function DashboardPage({ params }: { params: Promise<{ loca
     redirect(`/${locale}/dashboard/seller`);
   }
 
-  return <UsdtExchangePage locale={locale as "ar" | "en"} />;
+  return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={user} />;
 }

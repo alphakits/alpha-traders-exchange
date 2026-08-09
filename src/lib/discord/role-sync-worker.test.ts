@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import type { Pool, PoolClient, QueryResult } from "pg";
+import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
@@ -12,7 +12,7 @@ import {
 } from "@/lib/discord/role-manager";
 import { DiscordRoleSyncWorker } from "@/lib/discord/role-sync-worker";
 
-function result<T>(rows: T[], rowCount = rows.length): QueryResult<T> {
+function result<T extends QueryResultRow>(rows: T[], rowCount = rows.length): QueryResult<T> {
   return { command: "", rowCount, oid: 0, fields: [], rows };
 }
 

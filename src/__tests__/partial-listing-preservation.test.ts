@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AlphaExchangeDb } from "@/types/alpha-exchange";
+import type { AlphaExchangeDb, AlphaExchangeUser, SellerStatus, UserRole } from "@/types/alpha-exchange";
 
 vi.mock("@/lib/postgres-runtime", () => ({
   getRuntimePostgresPool: () => null,
@@ -32,8 +32,10 @@ const BUYER_TWO_ID = "buyer-2";
 const BUYER_THREE_ID = "buyer-3";
 const OWNER_ID = "owner-1";
 
-function createUser(id: string, email: string, role: "owner" | "buyer" | "approved_seller") {
+function createUser(id: string, email: string, role: "owner" | "buyer" | "approved_seller"): AlphaExchangeUser {
   const now = new Date().toISOString();
+  const roles: UserRole[] = role === "owner" ? ["owner", "admin"] : [role];
+  const sellerStatus: SellerStatus = role === "approved_seller" ? "approved_seller" : "buyer";
   return {
     id,
     fullName: id,
@@ -41,8 +43,8 @@ function createUser(id: string, email: string, role: "owner" | "buyer" | "approv
     passwordHash: "hash",
     whatsappNumber: "+972500000000",
     role,
-    roles: role === "owner" ? ["owner", "admin"] : [role],
-    sellerStatus: role === "approved_seller" ? "approved_seller" : "buyer",
+    roles,
+    sellerStatus,
     availabilityStatus: "available",
     onlineStatus: "online",
     createdAt: now,
@@ -70,7 +72,7 @@ function createUser(id: string, email: string, role: "owner" | "buyer" | "approv
     onboardingCompletedAt: now,
     lifetimeCompletedVolumeUsdt: 0,
     sellerPrestigeRank: "bronze",
-    sellerRankOverride: null,
+    sellerRankOverride: undefined,
     sellerPromotionHistory: [],
     sellerAchievements: [],
   };
@@ -103,6 +105,7 @@ function seedDb(): AlphaExchangeDb & { __runtimeVersion: number } {
     privateBetaInviteUses: [],
     betaFeedback: [],
     betaAnnouncements: [],
+    adminAnnouncementRuns: [],
     sellerReviews: [],
     __runtimeVersion: 0,
   };

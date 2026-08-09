@@ -1,17 +1,16 @@
 // @vitest-environment node
 
-import type { Pool, PoolClient, QueryResult } from "pg";
+import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
 import {
   claimDiscordListingShare,
-  DiscordListingShareError,
   getDiscordListingSharingStatus,
 } from "@/lib/discord/listing-share-repository";
 
-function result<T>(rows: T[]): QueryResult<T> {
+function result<T extends QueryResultRow>(rows: T[]): QueryResult<T> {
   return {
     command: "",
     rowCount: rows.length,
@@ -114,7 +113,7 @@ describe("Discord listing share repository", () => {
     expect(statements.some((sql) => sql.includes("pg_advisory_xact_lock"))).toBe(true);
     expect(statements.some((sql) => sql.includes("discord_listing_outbox"))).toBe(true);
     expect(statements.some((sql) => sql.includes("interval '12 hours'"))).toBe(true);
-    expect(statements.at(-1)).toBe("commit");
+    expect(statements[statements.length - 1]).toBe("commit");
   });
 
   it("blocks another listing during the rolling cooldown without resetting it", async () => {
@@ -160,7 +159,7 @@ describe("Discord listing share repository", () => {
       listingId: "listing-2",
       requestKey: "request-key-987654321",
       pool,
-    })).rejects.toMatchObject<Partial<DiscordListingShareError>>({
+    })).rejects.toMatchObject({
       code: "SHARE_COOLDOWN_ACTIVE",
       status: 429,
     });
