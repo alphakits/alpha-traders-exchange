@@ -1005,7 +1005,9 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   const [sellerClosedRequestsCollapsed, setSellerClosedRequestsCollapsed] = useState(true);
   const [buyerExpandedTradeId, setBuyerExpandedTradeId] = useState<string | null>(null);
   const [isSellerApplicationExpanded, setIsSellerApplicationExpanded] = useState(false);
-  const [buyerTradeVisibleCount, setBuyerTradeVisibleCount] = useState(8);
+  const [buyerTradeVisibleCount, setBuyerTradeVisibleCount] = useState(2);
+  const [sellerPrimaryRequestsExpanded, setSellerPrimaryRequestsExpanded] = useState(false);
+  const [notificationCenterExpanded, setNotificationCenterExpanded] = useState(false);
   const [tradeReviewDrafts, setTradeReviewDrafts] = useState<Record<string, string>>({});
   const [sellerResponseDrafts, setSellerResponseDrafts] = useState<Record<string, string>>({});
   const [buyerEvidenceFiles, setBuyerEvidenceFiles] = useState<Record<string, File | null>>({});
@@ -2179,6 +2181,10 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     });
   }, [sellerRequests, sellerTradeQuery, sellerTradeStatus]);
   const sellerRequestSections = useMemo(() => groupTradeRequests(filteredSellerRequests, "seller"), [filteredSellerRequests]);
+  const sellerPrimaryRequestRows = useMemo(
+    () => [...sellerRequestSections.action, ...sellerRequestSections.active, ...sellerRequestSections.waiting],
+    [sellerRequestSections.action, sellerRequestSections.active, sellerRequestSections.waiting],
+  );
   const sortedBuyerRequests = useMemo(
     () => [...filteredBuyerRequests].sort((left, right) => tradeHistoryTimestamp(right) - tradeHistoryTimestamp(left)),
     [filteredBuyerRequests],
@@ -2342,9 +2348,17 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   }, [buyerRequests, listingsById, marketPricePerUsdt, sortedBuyerRequests]);
 
   useEffect(() => {
-    setBuyerTradeVisibleCount(8);
+    setBuyerTradeVisibleCount(isMobileViewport ? 1 : 2);
     setBuyerExpandedTradeId(null);
-  }, [buyerTradeQuery, buyerTradeStatus, sessionUser?.id]);
+  }, [buyerTradeQuery, buyerTradeStatus, isMobileViewport, sessionUser?.id]);
+
+  useEffect(() => {
+    setSellerPrimaryRequestsExpanded(false);
+  }, [sellerTradeQuery, sellerTradeStatus, sessionUser?.id]);
+
+  useEffect(() => {
+    setNotificationCenterExpanded(false);
+  }, [notificationQuery, notificationCategory, notificationUnreadOnly, sessionUser?.id]);
 
   const marketplacePulse = useMemo(() => {
     const sourceListings = filteredListings.length ? filteredListings : listings;
@@ -3479,10 +3493,13 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
 
   const unreadNotificationsCount = notifications.filter((item) => !item.isRead).length;
 
-  function renderNotificationCenterCard(sectionId: string) {
+  function renderNotificationCenterCard(sectionId: string, className?: string) {
     if (!sessionUser) return null;
+    const defaultVisibleCount = isMobileViewport ? 1 : 2;
+    const visibleCount = notificationCenterExpanded ? sortedNotifications.length : defaultVisibleCount;
+    const hasHiddenNotifications = sortedNotifications.length > defaultVisibleCount;
     return (
-      <Card id={sectionId} className="border-white/10 bg-[#0B0B0B]/90">
+      <Card id={sectionId} className={cn("border-white/10 bg-[#0B0B0B]/90", className)}>
       <CardHeader>
         <CardTitle className="inline-flex items-center gap-2">
           <BellRing className="h-4 w-4 text-[#C9A227]" />
@@ -3529,7 +3546,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
               No notifications yet. You’ll be notified here about trades, listings, reviews, and account activity.
             </div>
           ) : null}
-          {sortedNotifications.slice(0, 20).map((notification) => (
+          {sortedNotifications.slice(0, visibleCount).map((notification) => (
             <div key={notification.id} className={`rounded-xl border p-4 text-xs ${notification.isRead ? "border-white/10 bg-black/20 text-[#9CA3AF]" : "border-[#C9A227]/35 bg-[#C9A227]/10 text-[#F3F4F6]"}`}>
               {(() => {
                 const actionLabel = resolveNotificationLabel(notification);
@@ -3575,6 +3592,18 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
               })()}
             </div>
           ))}
+          {hasHiddenNotifications ? (
+            <div className="flex justify-start">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={() => setNotificationCenterExpanded((prev) => !prev)}
+              >
+                {notificationCenterExpanded ? "Show less" : `View more (${sortedNotifications.length - defaultVisibleCount})`}
+              </Button>
+            </div>
+          ) : null}
         </div>
       </CardContent>
       </Card>
@@ -3906,9 +3935,6 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
             </Card>
           ) : null}
 
-          <div className="mt-4">
-            {renderNotificationCenterCard("notification-center-section")}
-          </div>
         </>
       ) : null}
 
@@ -5675,7 +5701,10 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                   No waiting trades right now.
                 </div>
               ) : null}
-              {[...sellerRequestSections.action, ...sellerRequestSections.active, ...sellerRequestSections.waiting].map((request) => {
+              {(sellerPrimaryRequestsExpanded
+                ? sellerPrimaryRequestRows
+                : sellerPrimaryRequestRows.slice(0, isMobileViewport ? 1 : 2)
+              ).map((request) => {
                 const presentation = getTradeQueuePresentation(request, "seller");
                 return (
                   <div id={`trade-${request.id}`} key={request.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
@@ -5872,6 +5901,20 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                   </div>
                 );
               })}
+              {sellerPrimaryRequestRows.length > (isMobileViewport ? 1 : 2) ? (
+                <div className="flex justify-start">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setSellerPrimaryRequestsExpanded((prev) => !prev)}
+                  >
+                    {sellerPrimaryRequestsExpanded
+                      ? "Show less"
+                      : `View more (${sellerPrimaryRequestRows.length - (isMobileViewport ? 1 : 2)})`}
+                  </Button>
+                </div>
+              ) : null}
               {(sellerRequestSections.completed.length || sellerRequestSections.cancelled.length) ? (
                 <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                   <button
@@ -5923,6 +5966,10 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
               ) : null}
             </CardContent>
           </Card>
+
+          <div className="order-6">
+            {renderNotificationCenterCard("notification-center-section")}
+          </div>
 
           <div ref={sellerDeferredPanelsSentinelRef} className="order-39 h-px w-full" aria-hidden />
           {deferredSellerPanelsReady ? (
@@ -6382,14 +6429,27 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                 ) : null}
                 {sortedBuyerRequests.length > buyerTradeVisibleCount ? (
                   <div className="flex justify-center">
-                    <Button type="button" variant="secondary" onClick={() => setBuyerTradeVisibleCount((value) => value + 8)}>
-                      Load More
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => setBuyerTradeVisibleCount((value) => (
+                        value >= sortedBuyerRequests.length ? (isMobileViewport ? 1 : 2) : sortedBuyerRequests.length
+                      ))}
+                    >
+                      View more
+                    </Button>
+                  </div>
+                ) : buyerTradeVisibleCount > (isMobileViewport ? 1 : 2) ? (
+                  <div className="flex justify-center">
+                    <Button type="button" variant="secondary" onClick={() => setBuyerTradeVisibleCount(isMobileViewport ? 1 : 2)}>
+                      Show less
                     </Button>
                   </div>
                 ) : null}
               </CardContent>
             </Card>
           ) : null}
+          {sessionUser ? renderNotificationCenterCard("notification-center-section", "md:col-span-2") : null}
           {sessionUser ? (
             <Card className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
               <CardHeader>
