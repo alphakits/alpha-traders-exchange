@@ -102,13 +102,17 @@ export async function POST(request: NextRequest) {
   const ipEmailRateMaxRequests = isProduction ? 24 : 240;
   try {
     let body: Record<string, unknown> = {};
+    let rawBody = "";
     try {
-      const rawBody = await request.text();
+      rawBody = await request.text();
+      const sanitizedBodyPreview = rawBody.replace(/"password":"([^"]*)"/g, '"password":"[REDACTED]"');
+      console.error("[auth/login] body preview", { contentType: request.headers.get("content-type"), length: rawBody.length, preview: sanitizedBodyPreview.slice(0, 400) });
       if (rawBody.trim()) {
         body = JSON.parse(rawBody) as Record<string, unknown>;
       }
     } catch (error) {
       if (error instanceof SyntaxError) {
+        console.error("[auth/login] parse failure", { error: error.message, body: rawBody });
         return NextResponse.json({ error: "Invalid JSON body." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
       }
       throw error;
