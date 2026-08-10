@@ -37,6 +37,7 @@ import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { cn } from "@/lib/utils";
 import { SELLER_PRESTIGE_TIERS } from "@/lib/seller-prestige";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
+import { deriveBuyerRankSummary, type BuyerRankSummary } from "@/lib/buyer-rank";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
 const WHATSAPP_URL = getOfficialOwnerWhatsAppUrl();
@@ -845,6 +846,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   const marketSnapshot = marketFeed.snapshot;
 
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(initialSessionUser ?? null);
+  const [buyerProfileSummary, setBuyerProfileSummary] = useState<BuyerRankSummary | null>(null);
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
   const [isSessionResolving, setIsSessionResolving] = useState(true);
   const [isLoadingListings, setIsLoadingListings] = useState(true);
@@ -1065,6 +1067,34 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     }
     return response;
   }, []);
+
+  const refreshBuyerProfileSummary = useCallback(async () => {
+    if (!sessionUser || isApprovedSellerSession) {
+      setBuyerProfileSummary(null);
+      return;
+    }
+
+    try {
+      const response = await tracedFetch("Buyer profile summary loading", "/api/auth/profile", { cache: "no-store" });
+      if (!response.ok) return;
+      const payload = (await response.json()) as {
+        stats?: {
+          kind?: string;
+          activeTrades?: number;
+          completedTrades?: number;
+          reviewsGiven?: number;
+        };
+      };
+      if (payload.stats?.kind !== "buyer") return;
+      setBuyerProfileSummary(deriveBuyerRankSummary({
+        activeTrades: Number(payload.stats.activeTrades ?? 0),
+        completedTrades: Number(payload.stats.completedTrades ?? 0),
+        reviewsGiven: Number(payload.stats.reviewsGiven ?? 0),
+      }));
+    } catch {
+      // Preserve current state if the profile payload is temporarily unavailable.
+    }
+  }, [isApprovedSellerSession, sessionUser, tracedFetch]);
 
   useEffect(() => () => {
     for (const timer of discordSharePollTimersRef.current) window.clearTimeout(timer);
@@ -1417,6 +1447,11 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     if (isApprovedSellerSession && !deferredSellerPanelsReady) return;
     setNotificationsInitialized(true);
   }, [deferredSellerPanelsReady, isApprovedSellerSession, isSessionResolving, notificationsInitialized, sessionUser]);
+
+  useEffect(() => {
+    if (!sessionUser || isApprovedSellerSession) return;
+    void refreshBuyerProfileSummary();
+  }, [isApprovedSellerSession, myRequests, refreshBuyerProfileSummary, sessionUser]);
 
   useEffect(() => {
     if (!sessionUser || !notificationsInitialized) return;
@@ -3546,6 +3581,57 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                 Welcome back, {workspacePrimaryName}
               </h1>
               <p className="mt-1 text-sm text-[#D1D5DB]">{workspacePositiveMessage}</p>
+              {!isApprovedSeller ? (
+                <div className="buyer-rank-hero-card mt-5">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[#6CAEFF]/30 bg-[#0F172A]/80 shadow-[0_0_32px_rgba(108,174,255,0.16)]">
+                        <ShieldCheck className="h-6 w-6 text-[#BFDBFE]" />
+                      </div>
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-[#93C5FD]">{isAr ? "هوية المشتري" : "Buyer identity"}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          <h2 className={cn("text-[1.35rem] font-semibold text-white md:text-[1.6rem]", "profile-identity-name--buyer")}>{isAr ? (buyerProfileSummary?.labelAr ?? "مشتري مبتدئ") : (buyerProfileSummary?.label ?? "Rookie Buyer")}</h2>
+                          <span className={cn("buyer-rank-pill", `buyer-rank-pill--${buyerProfileSummary?.key ?? "rookie"}`)}>
+                            {isAr ? "مستوى المشتري" : "Buyer level"}
+                          </span>
+                        </div>
+                        <p className="mt-2 max-w-2xl text-sm text-[#D1D5DB]">
+                          {isAr ? (buyerProfileSummary?.descriptionAr ?? "يبدأ التقدم مع كل صفقة ومراجعة جديدة.") : (buyerProfileSummary?.description ?? "Your standing grows with every completed trade and review.")}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="min-w-[min(18rem,100%)] rounded-2xl border border-white/10 bg-black/35 p-4 backdrop-blur">
+                      <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.14em] text-[#94A3B8]">
+                        <span>{isAr ? "التقدم" : "Progress"}</span>
+                        <span>{buyerProfileSummary?.progressPercent ?? 18}%</span>
+                      </div>
+                      <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-white/10">
+                        <motion.div
+                          className={cn("relative h-full rounded-full", `buyer-rank-progress buyer-rank-progress--${buyerProfileSummary?.key ?? "rookie"}`)}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${buyerProfileSummary?.progressPercent ?? 18}%` }}
+                          transition={{ type: "spring", stiffness: 90, damping: 20, mass: 0.7 }}
+                        />
+                      </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                        <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-center">
+                          <p className="text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">{isAr ? "المكتملة" : "Completed"}</p>
+                          <p className="mt-1 text-sm font-semibold text-white">{buyerProfileSummary?.completedTrades ?? 0}</p>
+                        </div>
+                        <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-center">
+                          <p className="text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">{isAr ? "المراجعات" : "Reviews"}</p>
+                          <p className="mt-1 text-sm font-semibold text-white">{buyerProfileSummary?.reviewsGiven ?? 0}</p>
+                        </div>
+                        <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-center">
+                          <p className="text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">{isAr ? "النشطة" : "Active"}</p>
+                          <p className="mt-1 text-sm font-semibold text-white">{buyerProfileSummary?.activeTrades ?? 0}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
               {isApprovedSeller ? (
                 <>
                   <p className="mt-2 text-xs text-[#9CA3AF]">

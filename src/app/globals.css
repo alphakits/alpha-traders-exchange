@@ -1497,6 +1497,80 @@ textarea {
   box-shadow: 0 0 30px rgba(108, 174, 255, 0.14);
 }
 
+.buyer-rank-hero-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(108, 174, 255, 0.22);
+  border-radius: 1.5rem;
+  padding: 1.1rem;
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.9) 60%, rgba(8, 15, 28, 0.96));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 24px 60px rgba(2, 6, 23, 0.45);
+}
+
+.buyer-rank-hero-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 90% at 15% 0%, rgba(96, 165, 250, 0.16), transparent 48%),
+    radial-gradient(120% 90% at 100% 25%, rgba(191, 219, 254, 0.12), transparent 58%);
+}
+
+.buyer-rank-hero-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.buyer-rank-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  padding: 0.28rem 0.66rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  backdrop-filter: blur(8px);
+}
+
+.buyer-rank-pill--rookie {
+  border-color: rgba(148, 163, 184, 0.28);
+  background: linear-gradient(120deg, rgba(30, 41, 59, 0.92), rgba(71, 85, 105, 0.8));
+  color: #e2e8f0;
+}
+
+.buyer-rank-pill--growing {
+  border-color: rgba(96, 165, 250, 0.34);
+  background: linear-gradient(120deg, rgba(30, 64, 175, 0.92), rgba(59, 130, 246, 0.8));
+  color: #dbeafe;
+}
+
+.buyer-rank-pill--trusted {
+  border-color: rgba(147, 197, 253, 0.38);
+  background: linear-gradient(120deg, rgba(37, 99, 235, 0.95), rgba(96, 165, 250, 0.78));
+  color: #eff6ff;
+}
+
+.buyer-rank-pill--premium {
+  border-color: rgba(191, 219, 254, 0.42);
+  background: linear-gradient(120deg, rgba(15, 23, 42, 0.95), rgba(59, 130, 246, 0.8));
+  color: #f8fbff;
+  box-shadow: 0 0 20px rgba(96, 165, 250, 0.12);
+}
+
+.buyer-rank-progress {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 0 20px rgba(96, 165, 250, 0.16);
+}
+
+.buyer-rank-progress--rookie { background: linear-gradient(90deg, #475569, #94a3b8); }
+.buyer-rank-progress--growing { background: linear-gradient(90deg, #2563eb, #60a5fa); }
+.buyer-rank-progress--trusted { background: linear-gradient(90deg, #1d4ed8, #93c5fd); }
+.buyer-rank-progress--premium { background: linear-gradient(90deg, #2563eb, #bfdbfe, #60a5fa); }
+
 @keyframes page-fade-up {
   from {
     opacity: 0;
