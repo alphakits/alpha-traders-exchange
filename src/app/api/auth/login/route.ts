@@ -103,7 +103,10 @@ export async function POST(request: NextRequest) {
   try {
     let body: Record<string, unknown> = {};
     try {
-      body = (await request.json()) as Record<string, unknown>;
+      const rawBody = await request.text();
+      if (rawBody.trim()) {
+        body = JSON.parse(rawBody) as Record<string, unknown>;
+      }
     } catch (error) {
       if (error instanceof SyntaxError) {
         return NextResponse.json({ error: "Invalid JSON body." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
