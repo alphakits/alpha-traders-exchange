@@ -105,9 +105,15 @@ export async function POST(request: NextRequest) {
     let rawBody = "";
     try {
       rawBody = await request.text();
+      const contentType = request.headers.get("content-type") ?? "";
       const sanitizedBodyPreview = rawBody.replace(/"password":"([^"]*)"/g, '"password":"[REDACTED]"');
-      console.error("[auth/login] body preview", { contentType: request.headers.get("content-type"), length: rawBody.length, preview: sanitizedBodyPreview.slice(0, 400) });
-      if (rawBody.trim()) {
+      console.error("[auth/login] body preview", { contentType, length: rawBody.length, preview: sanitizedBodyPreview.slice(0, 400) });
+      if (!rawBody.trim()) {
+        body = {};
+      } else if (contentType.includes("application/x-www-form-urlencoded")) {
+        const params = new URLSearchParams(rawBody);
+        body = Object.fromEntries(params.entries());
+      } else {
         body = JSON.parse(rawBody) as Record<string, unknown>;
       }
     } catch (error) {
