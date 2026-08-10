@@ -239,6 +239,78 @@ describe("AccountProfilePanel", () => {
     expect(screen.getByText("2")).toBeTruthy();
   });
 
+  it("renders the buyer landing when sellerStatus is buyer even if roles include approved_seller", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url.includes("/api/auth/profile")) {
+        return {
+          ok: true,
+          headers: new Headers(),
+          json: async () => ({
+            profile: {
+              id: "buyer-1",
+              profilePhotoUrl: "",
+              coverBannerUrl: "",
+              fullName: "Buyer User",
+              username: "buyer-user",
+              email: "buyer@example.com",
+              role: "buyer",
+              roles: ["buyer"],
+              memberSince: "2026-01-01T00:00:00.000Z",
+              lastLogin: "2026-08-01T12:00:00.000Z",
+              onlineStatus: "online" as const,
+              bio: "",
+              country: "",
+              language: "English",
+              whatsappNumber: "",
+              showTradeStats: true,
+              showLastActive: true,
+              allowDirectMessages: true,
+              allowProfileSearch: true,
+              showPhonePublic: false,
+              showEmailPublic: false,
+            },
+            stats: {
+              kind: "buyer" as const,
+              activeTrades: 2,
+              completedTrades: 8,
+              reviewsGiven: 4,
+            },
+            roleBadge: "buyer" as const,
+            roleLabel: "Buyer" as const,
+            accountStatuses: ["Active"],
+          }),
+        };
+      }
+
+      if (url.includes("/api/alpha-exchange/listings")) {
+        return {
+          ok: true,
+          json: async () => ({ listings: [] }),
+        };
+      }
+
+      if (url.includes("/api/alpha-exchange/notifications")) {
+        return {
+          ok: true,
+          json: async () => ({ notifications: [], activity: [] }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({ user: { id: "buyer-1", fullName: "Buyer User", email: "buyer@example.com", role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "buyer", whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: ["English"], bio: "", country: "", city: "", onlineStatus: "online" as const, createdAt: "2026-01-01T00:00:00.000Z" } }),
+      };
+    }));
+
+    render(<UsdtExchangePage locale="en" initialSessionUser={{ id: "buyer-1", fullName: "Buyer User", email: "buyer@example.com", role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "buyer", whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: ["English"], bio: "", country: "", city: "", onlineStatus: "online" as const, createdAt: "2026-01-01T00:00:00.000Z" }} />);
+
+    await waitFor(() => expect(screen.getByText("Trusted Buyer")).toBeTruthy());
+    expect(screen.getByText("Buyer level")).toBeTruthy();
+    expect(screen.getByText("4")).toBeTruthy();
+  });
+
   it("renders a buyer rank card on the exchange landing using live profile stats", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();

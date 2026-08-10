@@ -1050,7 +1050,8 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     additionalNotes: "",
   });
   const [sellerApplicationMethods, setSellerApplicationMethods] = useState<SellerApplicationMethod[]>(["USDT (ERC20 / Ethereum)"]);
-  const isApprovedSellerSession = Boolean(sessionUser && hasRole(sessionUser, "approved_seller"));
+  const sellerStatusForLanding = sessionUser?.sellerStatus ?? "buyer";
+  const isApprovedSellerSession = sellerStatusForLanding === "approved_seller";
   const isAdminSession = Boolean(sessionUser && hasRole(sessionUser, "admin"));
 
   const tracedFetch = useCallback(async (label: string, input: string, init?: RequestInit) => {
