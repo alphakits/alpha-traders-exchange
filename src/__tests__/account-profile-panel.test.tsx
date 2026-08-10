@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountProfilePanel } from "@/components/profile/account-profile-panel";
+import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
 
 vi.mock("next/image", () => ({
   default: () => <span data-testid="next-image" />,
@@ -10,6 +11,14 @@ vi.mock("@/i18n/navigation", () => ({
   Link: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
     <a href={href} {...props}>{children}</a>
   ),
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    refresh: vi.fn(),
+  }),
 }));
 
 type TestRole = "buyer" | "admin" | "owner";
@@ -127,6 +136,29 @@ describe("AccountProfilePanel", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     eventSourceInstances.length = 0;
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+    Object.defineProperty(globalThis, "EventSource", {
+      configurable: true,
+      writable: true,
+      value: class {
+        constructor() {}
+        addEventListener() {}
+        removeEventListener() {}
+        close() {}
+      },
+    });
   });
 
   afterEach(() => {
@@ -205,5 +237,77 @@ describe("AccountProfilePanel", () => {
 
     await waitFor(() => expect(screen.getByText("Silver")).toBeTruthy());
     expect(screen.getByText("2")).toBeTruthy();
+  });
+
+  it("renders a buyer rank card on the exchange landing using live profile stats", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url.includes("/api/auth/profile")) {
+        return {
+          ok: true,
+          headers: new Headers(),
+          json: async () => ({
+            profile: {
+              id: "buyer-1",
+              profilePhotoUrl: "",
+              coverBannerUrl: "",
+              fullName: "Buyer User",
+              username: "buyer-user",
+              email: "buyer@example.com",
+              role: "buyer",
+              roles: ["buyer"],
+              memberSince: "2026-01-01T00:00:00.000Z",
+              lastLogin: "2026-08-01T12:00:00.000Z",
+              onlineStatus: "online" as const,
+              bio: "",
+              country: "",
+              language: "English",
+              whatsappNumber: "",
+              showTradeStats: true,
+              showLastActive: true,
+              allowDirectMessages: true,
+              allowProfileSearch: true,
+              showPhonePublic: false,
+              showEmailPublic: false,
+            },
+            stats: {
+              kind: "buyer" as const,
+              activeTrades: 2,
+              completedTrades: 8,
+              reviewsGiven: 4,
+            },
+            roleBadge: "buyer" as const,
+            roleLabel: "Buyer" as const,
+            accountStatuses: ["Active"],
+          }),
+        };
+      }
+
+      if (url.includes("/api/alpha-exchange/listings")) {
+        return {
+          ok: true,
+          json: async () => ({ listings: [] }),
+        };
+      }
+
+      if (url.includes("/api/alpha-exchange/notifications")) {
+        return {
+          ok: true,
+          json: async () => ({ notifications: [], activity: [] }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({ user: { id: "buyer-1", fullName: "Buyer User", email: "buyer@example.com", role: "buyer", roles: ["buyer"], sellerStatus: "none", whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: ["English"], bio: "", country: "", city: "", onlineStatus: "online" as const, createdAt: "2026-01-01T00:00:00.000Z" } }),
+      };
+    }));
+
+    render(<UsdtExchangePage locale="en" initialSessionUser={{ id: "buyer-1", fullName: "Buyer User", email: "buyer@example.com", role: "buyer", roles: ["buyer"], sellerStatus: "none", whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: ["English"], bio: "", country: "", city: "", onlineStatus: "online" as const, createdAt: "2026-01-01T00:00:00.000Z" }} />);
+
+    await waitFor(() => expect(screen.getByText("Trusted Buyer")).toBeTruthy());
+    expect(screen.getByText("Buyer level")).toBeTruthy();
+    expect(screen.getByText("4")).toBeTruthy();
   });
 });
