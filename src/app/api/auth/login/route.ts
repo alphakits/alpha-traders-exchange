@@ -101,7 +101,15 @@ export async function POST(request: NextRequest) {
   const ipRateMaxRequests = isProduction ? 120 : 600;
   const ipEmailRateMaxRequests = isProduction ? 24 : 240;
   try {
-    const body = await request.json();
+    let body: Record<string, unknown> = {};
+    try {
+      body = (await request.json()) as Record<string, unknown>;
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        return NextResponse.json({ error: "Invalid JSON body." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+      }
+      throw error;
+    }
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
     const rememberMe = body.rememberMe !== false;
