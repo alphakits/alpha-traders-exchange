@@ -26,6 +26,8 @@ const eslintConfig = [
       "tmp-*.mjs",
       "tmp-*.ts",
       "tmp/**",
+      "archives/**",
+      ".preserved-task2-clean/**",
     ],
   },
 ];
