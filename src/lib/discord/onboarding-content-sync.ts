@@ -31,10 +31,13 @@ function nonceFor(key: DiscordOnboardingContentKey): string {
 function ownsMessage(
   message: RESTGetAPIChannelMessageResult,
   nonce: string,
+  botUserId?: string,
 ): boolean {
-  return String(message.nonce ?? "") === nonce
-    && message.embeds.some((embed) =>
-      embed.footer?.text === DISCORD_ONBOARDING_CONTENT_MARKER);
+  const hasMarker = message.embeds.some((embed) =>
+    embed.footer?.text === DISCORD_ONBOARDING_CONTENT_MARKER);
+  if (!hasMarker) return false;
+  if (String(message.nonce ?? "") === nonce) return true;
+  return Boolean(botUserId && message.author?.id === botUserId);
 }
 
 function containsDesiredContent(actual: unknown, desired: unknown): boolean {
@@ -126,8 +129,10 @@ export class DiscordOnboardingContentSync {
   async reconcile(): Promise<void> {
     let activeCount = 0;
     try {
+      const bot = await this.rest.get(Routes.user("@me")) as { id?: string };
+      const botUserId = typeof bot.id === "string" ? bot.id : undefined;
       for (const key of DISCORD_ONBOARDING_CONTENT_KEYS) {
-        await this.reconcileOne(key);
+        await this.reconcileOne(key, botUserId);
         activeCount += 1;
       }
       this.diagnostics = {
@@ -150,7 +155,7 @@ export class DiscordOnboardingContentSync {
     }
   }
 
-  private async reconcileOne(key: DiscordOnboardingContentKey): Promise<void> {
+  private async reconcileOne(key: DiscordOnboardingContentKey, botUserId?: string): Promise<void> {
     const resourceKey = DISCORD_ONBOARDING_RESOURCE_BY_CONTENT[key];
     const result = await this.pool.query<{
       channel_id: string;
@@ -186,10 +191,15 @@ export class DiscordOnboardingContentSync {
         const current = await this.rest.get(
           Routes.channelMessage(row.channel_id, messageId),
         ) as RESTGetAPIChannelMessageResult;
-        if (!ownsMessage(current, nonce)) {
-          throw new Error("onboarding_message_ownership_mismatch");
+        if (!ownsMessage(current, nonce, botUserId)) {
+          // A persisted message ID can outlive the worker-owned message it
+          // referred to. Never mutate the foreign message; recover through
+          // nonce-based discovery or create a new owned message below.
+          messageId = null;
+          owned = null;
+        } else {
+          owned = current;
         }
-        owned = current;
       } catch (error) {
         if (apiCode(error) !== 10008) throw error;
         messageId = null;
@@ -201,7 +211,7 @@ export class DiscordOnboardingContentSync {
         Routes.channelMessages(row.channel_id),
         { query: new URLSearchParams({ limit: "100" }) },
       ) as RESTGetAPIChannelMessagesResult;
-      owned = recent.find((candidate) => ownsMessage(candidate, nonce)) ?? null;
+      owned = recent.find((candidate) => ownsMessage(candidate, nonce, botUserId)) ?? null;
       messageId = owned?.id ?? null;
     }
 
