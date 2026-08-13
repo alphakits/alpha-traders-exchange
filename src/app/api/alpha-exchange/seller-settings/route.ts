@@ -1,12 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiSellerWorkspaceActor } from "@/lib/api-auth";
-import { updateSellerAvailabilityStatus, updateUserSellerSettings } from "@/lib/alpha-exchange-store";
+import {
+  addSellerBankAccount,
+  deleteSellerBankAccount,
+  getSellerBankAccountsForUser,
+  updateSellerAvailabilityStatus,
+  updateSellerBankAccount,
+  updateUserSellerSettings,
+} from "@/lib/alpha-exchange-store";
 import { checkRateLimit } from "@/lib/rate-limit";
 import type { SellerAvailabilityStatus, SupportedNetwork } from "@/types/alpha-exchange";
 
 export async function GET() {
   const { user, unauthorized } = await requireApiSellerWorkspaceActor();
   if (!user) return unauthorized;
+  const bankAccounts = await getSellerBankAccountsForUser(user.id);
 
   return NextResponse.json({
     profile: {
@@ -25,6 +33,7 @@ export async function GET() {
       onlineStatus: user.onlineStatus,
       availabilityStatus: user.availabilityStatus,
     },
+    bankAccounts,
   });
 }
 
@@ -38,6 +47,47 @@ export async function PATCH(request: NextRequest) {
 
   try {
     const body = await request.json();
+    const action = typeof body.action === "string" ? body.action.trim() : "";
+
+    if (action === "add_bank_account") {
+      const account = await addSellerBankAccount({
+        sellerId: user.id,
+        actorUserId: user.id,
+        accountHolderName: String(body.accountHolderName ?? ""),
+        bankName: String(body.bankName ?? ""),
+        branchNumber: String(body.branchNumber ?? ""),
+        accountNumber: String(body.accountNumber ?? ""),
+        isDefault: body.isDefault === true,
+      });
+      return NextResponse.json({ bankAccount: account, bankAccounts: await getSellerBankAccountsForUser(user.id) });
+    }
+
+    if (action === "update_bank_account") {
+      const bankAccountId = String(body.bankAccountId ?? "").trim();
+      if (!bankAccountId) {
+        return NextResponse.json({ error: "bankAccountId is required." }, { status: 400 });
+      }
+      const account = await updateSellerBankAccount({
+        sellerId: user.id,
+        actorUserId: user.id,
+        bankAccountId,
+        accountHolderName: String(body.accountHolderName ?? ""),
+        bankName: String(body.bankName ?? ""),
+        branchNumber: String(body.branchNumber ?? ""),
+        accountNumber: String(body.accountNumber ?? ""),
+        isDefault: body.isDefault === true,
+      });
+      return NextResponse.json({ bankAccount: account, bankAccounts: await getSellerBankAccountsForUser(user.id) });
+    }
+
+    if (action === "delete_bank_account") {
+      const bankAccountId = String(body.bankAccountId ?? "").trim();
+      if (!bankAccountId) {
+        return NextResponse.json({ error: "bankAccountId is required." }, { status: 400 });
+      }
+      await deleteSellerBankAccount({ sellerId: user.id, actorUserId: user.id, bankAccountId });
+      return NextResponse.json({ ok: true, bankAccounts: await getSellerBankAccountsForUser(user.id) });
+    }
 
     const fullName = body.fullName ? String(body.fullName).slice(0, 100) : undefined;
     const whatsappNumber = body.whatsappNumber ? String(body.whatsappNumber).slice(0, 30) : undefined;
@@ -131,6 +181,7 @@ export async function PATCH(request: NextRequest) {
         onlineStatus: sellerWithAvailability.onlineStatus,
         availabilityStatus: sellerWithAvailability.availabilityStatus,
       },
+      bankAccounts: await getSellerBankAccountsForUser(user.id),
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update seller settings." }, { status: 400 });

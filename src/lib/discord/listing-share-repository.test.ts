@@ -21,6 +21,16 @@ function result<T extends QueryResultRow>(rows: T[]): QueryResult<T> {
 }
 
 describe("Discord listing share repository", () => {
+  it("reports unavailable status without treating a missing runtime database as a request failure", async () => {
+    const sharing = await getDiscordListingSharingStatus("seller-1", null);
+    expect(sharing).toMatchObject({
+      available: false,
+      linked: false,
+      cooldownSecondsRemaining: 0,
+      listings: [],
+    });
+  });
+
   it("returns server-clock cooldown state without exposing Discord IDs", async () => {
     const query = vi.fn(async (sql: string) => {
       if (sql.includes("select now() as server_time")) {

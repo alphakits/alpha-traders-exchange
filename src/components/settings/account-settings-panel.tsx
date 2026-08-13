@@ -50,6 +50,18 @@ type DiscordConnection = {
   lastSyncedAt: string | null;
 };
 
+type SellerBankAccount = {
+  id: string;
+  accountHolderName: string;
+  bankName: string;
+  branchNumber: string;
+  accountLast4: string;
+  maskedAccountNumber?: string;
+  isDefault?: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 function defaultNotifications(): NotificationPrefs {
   return {
     trade_updates: true,
@@ -99,6 +111,7 @@ export function AccountSettingsPanel({
   const isAr = locale === "ar";
   const [activeTab, setActiveTab] = useState<Tab>("security");
   const [userId, setUserId] = useState<string | null>(null);
+  const [sellerStatus, setSellerStatus] = useState<string>("buyer");
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>(defaultNotifications());
   const [notifChannels, setNotifChannels] = useState({ inApp: true, email: false, sms: false });
   const [phone, setPhone] = useState("");
@@ -124,6 +137,18 @@ export function AccountSettingsPanel({
   const [discordBusy, setDiscordBusy] = useState(false);
   const [discordMessage, setDiscordMessage] = useState<string | null>(null);
   const [showDiscordUnlink, setShowDiscordUnlink] = useState(false);
+  const [bankAccounts, setBankAccounts] = useState<SellerBankAccount[]>([]);
+  const [bankAccountsLoaded, setBankAccountsLoaded] = useState(false);
+  const [bankAccountsBusy, setBankAccountsBusy] = useState(false);
+  const [bankAccountsMessage, setBankAccountsMessage] = useState<string | null>(null);
+  const [editingBankAccountId, setEditingBankAccountId] = useState<string | null>(null);
+  const [bankForm, setBankForm] = useState({
+    accountHolderName: "",
+    bankName: "",
+    branchNumber: "",
+    accountNumber: "",
+    isDefault: false,
+  });
   const privacySaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const privacySaveAbortRef = useRef<AbortController | null>(null);
   const channelSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -136,6 +161,7 @@ export function AccountSettingsPanel({
       const data = (await res.json()) as {
         profile?: {
           id?: string;
+          sellerStatus?: string;
           isProfileHidden?: boolean;
           showTradeStats?: boolean;
           showLastActive?: boolean;
@@ -147,6 +173,7 @@ export function AccountSettingsPanel({
       };
       const id = data.profile?.id ?? "unknown";
       setUserId(id);
+      setSellerStatus(data.profile?.sellerStatus ?? "buyer");
       if (data.profile) {
         setPrivacyPrefs({
           public_profile: data.profile.isProfileHidden !== true,
@@ -157,6 +184,17 @@ export function AccountSettingsPanel({
           show_phone: data.profile.showPhonePublic === true,
           show_email: data.profile.showEmailPublic === true,
         });
+      }
+      try {
+        const settingsRes = await fetch("/api/alpha-exchange/seller-settings", { cache: "no-store" });
+        if (settingsRes.ok) {
+          const settingsData = (await settingsRes.json()) as { bankAccounts?: SellerBankAccount[] };
+          setBankAccounts(Array.isArray(settingsData.bankAccounts) ? settingsData.bankAccounts : []);
+        }
+      } catch {
+        // Keep settings resilient if seller endpoint is temporarily unavailable.
+      } finally {
+        setBankAccountsLoaded(true);
       }
       const channelRes = await fetch("/api/alpha-exchange/notification-preferences", { cache: "no-store" });
       if (channelRes.ok) {
@@ -228,6 +266,88 @@ export function AccountSettingsPanel({
       if (message) setDiscordMessage(isAr ? message.ar : message.en);
     }
   }, [isAr]);
+
+  const canManageSellerBankAccounts = sellerStatus === "approved_seller";
+  const hasMaxBankAccounts = bankAccounts.length >= 2;
+
+  function resetBankForm() {
+    setEditingBankAccountId(null);
+    setBankForm({
+      accountHolderName: "",
+      bankName: "",
+      branchNumber: "",
+      accountNumber: "",
+      isDefault: false,
+    });
+  }
+
+  async function mutateBankAccount(action: "add_bank_account" | "update_bank_account" | "delete_bank_account", payload: Record<string, unknown>) {
+    setBankAccountsBusy(true);
+    setBankAccountsMessage(null);
+    try {
+      const response = await fetch("/api/alpha-exchange/seller-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ...payload }),
+      });
+      const data = await response.json().catch(() => ({})) as { error?: string; bankAccounts?: SellerBankAccount[] };
+      if (!response.ok) {
+        setBankAccountsMessage(data.error ?? (isAr ? "تعذر حفظ الحساب البنكي." : "Failed to save bank account."));
+        return;
+      }
+      setBankAccounts(Array.isArray(data.bankAccounts) ? data.bankAccounts : []);
+      setBankAccountsMessage(
+        action === "delete_bank_account"
+          ? (isAr ? "تم حذف الحساب البنكي." : "Bank account deleted.")
+          : action === "update_bank_account"
+            ? (isAr ? "تم تحديث الحساب البنكي." : "Bank account updated.")
+            : (isAr ? "تمت إضافة الحساب البنكي." : "Bank account added."),
+      );
+      resetBankForm();
+    } catch {
+      setBankAccountsMessage(isAr ? "تعذر الاتصال بالخادم لحفظ الحساب البنكي." : "Could not reach server to save bank account.");
+    } finally {
+      setBankAccountsBusy(false);
+    }
+  }
+
+  function startEditBankAccount(account: SellerBankAccount) {
+    setEditingBankAccountId(account.id);
+    setBankForm({
+      accountHolderName: account.accountHolderName,
+      bankName: account.bankName,
+      branchNumber: account.branchNumber,
+      accountNumber: "",
+      isDefault: account.isDefault === true,
+    });
+    setBankAccountsMessage(isAr ? "أدخل رقم الحساب الكامل لتأكيد التحديث." : "Enter the full account number to confirm update.");
+  }
+
+  async function handleBankAccountSubmit() {
+    if (!canManageSellerBankAccounts) return;
+    if (!bankForm.accountHolderName.trim() || !bankForm.bankName.trim() || !bankForm.branchNumber.trim() || !bankForm.accountNumber.trim()) {
+      setBankAccountsMessage(isAr ? "جميع الحقول مطلوبة لإضافة أو تحديث الحساب البنكي." : "All fields are required to add or update a bank account.");
+      return;
+    }
+    if (!editingBankAccountId && hasMaxBankAccounts) {
+      setBankAccountsMessage(isAr ? "يمكنك حفظ حسابين بنكيين كحد أقصى." : "You can save up to 2 bank accounts.");
+      return;
+    }
+    const payload = {
+      accountHolderName: bankForm.accountHolderName,
+      bankName: bankForm.bankName,
+      branchNumber: bankForm.branchNumber,
+      accountNumber: bankForm.accountNumber,
+      isDefault: bankForm.isDefault,
+      ...(editingBankAccountId ? { bankAccountId: editingBankAccountId } : {}),
+    };
+    await mutateBankAccount(editingBankAccountId ? "update_bank_account" : "add_bank_account", payload);
+  }
+
+  async function handleDeleteBankAccount(bankAccountId: string) {
+    if (!canManageSellerBankAccounts) return;
+    await mutateBankAccount("delete_bank_account", { bankAccountId });
+  }
 
   useEffect(() => {
     if (activeTab !== "notifications" || notifChannelsLoaded) return;
@@ -651,6 +771,109 @@ export function AccountSettingsPanel({
               <Link href="/profile" className={buttonVariants({ variant: "default" })}>
                 {isAr ? "انتقل إلى الملف الشخصي" : "Go to Profile"}
               </Link>
+
+              {canManageSellerBankAccounts ? (
+                <div id="seller-bank-accounts" className="space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.14em] text-[#C9A227]">{isAr ? "الحسابات البنكية" : "Bank Accounts"}</p>
+                      <p className="mt-1 text-sm text-[#D1D5DB]">
+                        {isAr
+                          ? "يمكنك حفظ حتى حسابين بنكيين لاستخدامهما في عروض التحويل البنكي."
+                          : "Save up to two bank accounts for Bank Transfer listings."}
+                      </p>
+                    </div>
+                    {!bankAccountsLoaded ? <span className="text-xs text-[#9CA3AF]">{isAr ? "جارٍ التحميل..." : "Loading..."}</span> : null}
+                  </div>
+
+                  {!bankAccountsLoaded ? null : bankAccounts.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-[#C9A227]/45 bg-[#C9A227]/10 p-3 text-sm text-[#FDE68A]">
+                      <p className="font-medium">{isAr ? "لا توجد حسابات بنكية محفوظة." : "No saved bank accounts yet."}</p>
+                      <p className="mt-1 text-xs text-[#E5E7EB]">{isAr ? "أضف حسابك البنكي الأول للبدء في إنشاء عروض التحويل البنكي." : "Add your first bank account to start creating Bank Transfer listings."}</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {bankAccounts.map((account) => (
+                        <div key={account.id} className="rounded-xl border border-white/10 bg-black/25 p-3">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-white">{account.bankName} {account.isDefault ? <span className="text-xs text-emerald-300">• {isAr ? "افتراضي" : "Default"}</span> : null}</p>
+                              <p className="text-xs text-[#D1D5DB]">{isAr ? "صاحب الحساب" : "Account holder"}: <span className="text-white">{account.accountHolderName}</span></p>
+                              <p className="text-xs text-[#D1D5DB]">{isAr ? "الفرع" : "Branch"}: <span className="text-white">{account.branchNumber}</span></p>
+                              <p className="text-xs text-[#D1D5DB]">{isAr ? "الحساب" : "Account"}: <span className="text-white">{account.maskedAccountNumber ?? `****${account.accountLast4}`}</span></p>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button type="button" size="sm" variant="secondary" disabled={bankAccountsBusy} onClick={() => startEditBankAccount(account)}>
+                                {isAr ? "تعديل" : "Edit"}
+                              </Button>
+                              <Button type="button" size="sm" variant="secondary" disabled={bankAccountsBusy} onClick={() => void handleDeleteBankAccount(account.id)}>
+                                {isAr ? "حذف" : "Delete"}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Input
+                      aria-label={isAr ? "اسم صاحب الحساب" : "Account holder name"}
+                      placeholder={isAr ? "اسم صاحب الحساب" : "Account holder name"}
+                      value={bankForm.accountHolderName}
+                      onChange={(event) => setBankForm((prev) => ({ ...prev, accountHolderName: event.target.value }))}
+                    />
+                    <Input
+                      aria-label={isAr ? "اسم البنك" : "Bank name"}
+                      placeholder={isAr ? "اسم البنك" : "Bank name"}
+                      value={bankForm.bankName}
+                      onChange={(event) => setBankForm((prev) => ({ ...prev, bankName: event.target.value }))}
+                    />
+                    <Input
+                      aria-label={isAr ? "رقم الفرع" : "Branch number"}
+                      placeholder={isAr ? "رقم الفرع" : "Branch number"}
+                      value={bankForm.branchNumber}
+                      onChange={(event) => setBankForm((prev) => ({ ...prev, branchNumber: event.target.value }))}
+                    />
+                    <Input
+                      aria-label={isAr ? "رقم الحساب" : "Account number"}
+                      placeholder={isAr ? "رقم الحساب" : "Account number"}
+                      value={bankForm.accountNumber}
+                      onChange={(event) => setBankForm((prev) => ({ ...prev, accountNumber: event.target.value }))}
+                    />
+                  </div>
+                  <label className="inline-flex items-center gap-2 text-xs text-[#D1D5DB]">
+                    <input
+                      type="checkbox"
+                      checked={bankForm.isDefault}
+                      onChange={(event) => setBankForm((prev) => ({ ...prev, isDefault: event.target.checked }))}
+                    />
+                    <span>{isAr ? "تعيين كحساب افتراضي" : "Set as default account"}</span>
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      disabled={bankAccountsBusy || (!editingBankAccountId && hasMaxBankAccounts)}
+                      onClick={() => void handleBankAccountSubmit()}
+                    >
+                      {bankAccountsBusy
+                        ? (isAr ? "جارٍ الحفظ..." : "Saving...")
+                        : editingBankAccountId
+                          ? (isAr ? "تحديث الحساب" : "Update Account")
+                          : (isAr ? "إضافة حساب بنكي" : "Add Bank Account")}
+                    </Button>
+                    {editingBankAccountId ? (
+                      <Button type="button" variant="secondary" onClick={resetBankForm}>
+                        {isAr ? "إلغاء التعديل" : "Cancel Edit"}
+                      </Button>
+                    ) : null}
+                  </div>
+                  {hasMaxBankAccounts && !editingBankAccountId ? (
+                    <p className="text-xs text-amber-300">{isAr ? "وصلت إلى الحد الأقصى (حسابان بنكيان). احذف حسابًا قبل إضافة آخر." : "You reached the maximum (2 bank accounts). Delete one before adding another."}</p>
+                  ) : null}
+                  {bankAccountsMessage ? <p className="text-xs text-[#FDE68A]">{bankAccountsMessage}</p> : null}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         )}

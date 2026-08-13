@@ -2,7 +2,8 @@
     "users":  [
                   {
                       "id":  "user-5bd6ed67-dc6f-45de-8494-11fb092792d8",
-                      "fullName":  "markjozen",
+                      "fullName":  "Mark Jozen",
+                      "buyerDisplayName":  "Mark Jozen",
                       "email":  "jozenmark834@yahoo.com",
                       "passwordHash":  "6145174e37a8edf996f934700dd3c2ba:7cbd191355cda685241a5278deef29b66b723ff72e5b86faadb37737527558d4b0ee62130fe3be90c38f9a1a0f8782901b8d53c1a141fab5113fedb5bb2b37ea",
                       "whatsappNumber":  "9725967649",

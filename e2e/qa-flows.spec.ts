@@ -9,7 +9,7 @@ let world: QaWorld | undefined;
 let buyerFixture: BuyerFixture | undefined;
 
 async function login(ctx: APIRequestContext, email: string, password: string) {
-  const res = await ctx.post("/api/auth/login", { data: { email, password, rememberMe: true } });
+  const res = await ctx.post("/api/auth/login", { headers: { "x-forwarded-for": "198.51.100.18" }, data: { email, password, rememberMe: true } });
   expect(res.ok(), `login failed for ${email}`).toBeTruthy();
 }
 

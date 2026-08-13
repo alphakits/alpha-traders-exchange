@@ -55,6 +55,10 @@ function warnIfDirectSupabaseUrl(connectionString: string) {
 }
 
 export function getRuntimePostgresPool() {
+  if (process.env.ALPHA_EXCHANGE_FORCE_INMEMORY_REPOSITORY === "1") {
+    return null;
+  }
+
   const configuredConnectionString = getRuntimePostgresConnectionString();
   if (!configuredConnectionString) {
     return null;

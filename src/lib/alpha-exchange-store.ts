@@ -7,14 +7,13 @@ import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { createExchangeDisplayLookup, normalizeDisplayNumber, replaceExchangeEntityIds } from "./alpha-exchange-display";
 import { calculateSellerTrustSnapshot, rankTrustSnapshots } from "@/lib/trust-engine";
 import { computeListingReliability, RELIABILITY_NEUTRAL_BASELINE, type ListingReliability } from "@/lib/listing-reliability";
-import { getSellerPrestigeProgress, getSellerPublicVolumeLabel, resolveSellerPrestigeRank, sellerPrestigeRankWeight } from "@/lib/seller-prestige";
+import { getSellerPrestigeProgress, getSellerPublicVolumeLabel, resolveSellerPrestigeRank, resolveSellerPrestigeRankWithFloor, sellerPrestigeRankWeight } from "@/lib/seller-prestige";
 import {
   ALLOWED_LISTING_EXPIRATION_HOURS,
   BUYER_CONFIRMATION_TIMEOUT_MINUTES,
   COMMISSION_GRACE_PERIOD_DAYS,
   COMMISSION_RATE,
   DEFAULT_LISTING_EXPIRATION_HOURS,
-  DEFAULT_STALE_TRADE_TIMEOUT_MINUTES,
   MAX_ACTIVE_LISTINGS_PER_SELLER,
 } from "@/lib/marketplace-policy";
 import { evaluateSellerAchievements } from "@/lib/seller-achievements";
@@ -32,6 +31,7 @@ import {
 } from "@/lib/admin-announcement-email";
 import { getSiteUrl } from "@/lib/site-url";
 import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
+import { redactPhoneNumbers } from "@/lib/privacy-redaction";
 import { getSmsTemplate, normalizeE164, resolveSmsDeliveryStatusTransition, sendTwilioMessageWithRetry, twilioStatusCallbackUrl } from "@/lib/notification-platform";
 import { normalizeSellerLevel } from "@/types/alpha-exchange";
 import {
@@ -92,6 +92,7 @@ import type {
   SellerAvailabilityStatus,
   SellerStatus,
   SellerOnlineStatus,
+  SellerBankAccount,
   SellerPromotionHistoryEntry,
   SellerAchievement,
   TradeDisputeCase,
@@ -220,6 +221,8 @@ const DB_CACHE_TTL_MS = 15_000;
 const EMAIL_VERIFICATION_TOKEN_BYTES = 32;
 const EMAIL_VERIFICATION_EXPIRY_HOURS = 24;
 const SYSTEM_ACTOR_USER_ID = "system:marketplace";
+const MAX_SELLER_BANK_ACCOUNTS = 2;
+const TRADE_INACTIVITY_WARNING_MINUTES = 15;
 let dbCache: { value: AlphaExchangeDb; updatedAt: number } | null = null;
 let dbReadInFlight: Promise<AlphaExchangeDb> | null = null;
 let dbWriteInFlight: Promise<void> = Promise.resolve();
@@ -255,6 +258,40 @@ function syncCachedAuthSessions(nextAuthSessions: AuthSession[]) {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function normalizeDigits(value: string | undefined) {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+function maskBankAccountNumber(accountNumber: string) {
+  const digits = normalizeDigits(accountNumber);
+  if (!digits) return "";
+  const last4 = digits.slice(-4);
+  return `${"*".repeat(Math.max(0, digits.length - 4))}${last4}`;
+}
+
+function sanitizeSellerBankAccountInput(input: {
+  accountHolderName: string;
+  bankName: string;
+  branchNumber: string;
+  accountNumber: string;
+}) {
+  const accountHolderName = String(input.accountHolderName ?? "").trim();
+  const bankName = String(input.bankName ?? "").trim();
+  const branchNumber = normalizeDigits(input.branchNumber);
+  const accountNumber = normalizeDigits(input.accountNumber);
+  if (!accountHolderName) throw new Error("Account holder name is required.");
+  if (!bankName) throw new Error("Bank name is required.");
+  if (branchNumber.length < 2 || branchNumber.length > 6) throw new Error("Branch number must be 2-6 digits.");
+  if (accountNumber.length < 6 || accountNumber.length > 16) throw new Error("Account number must be 6-16 digits.");
+  return {
+    accountHolderName,
+    bankName,
+    branchNumber,
+    accountNumber,
+    accountLast4: accountNumber.slice(-4),
+  };
 }
 
 function normalizeEmail(email: string) {
@@ -443,10 +480,19 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     disputes: db.disputes,
     applications: db.sellerApplications,
   });
+  const fallbackTitle = notification.category === "trade"
+    ? "Trade update"
+    : notification.category === "listing"
+      ? "Listing update"
+      : notification.category === "application"
+        ? "Application update"
+        : "Alpha Exchange update";
+  const title = redactPhoneNumbers(notification.title?.trim() || fallbackTitle);
+  const message = redactPhoneNumbers(notification.message?.trim() || "Open notifications for the latest account update.");
   return {
     ...notification,
-    title: replaceExchangeEntityIds(notification.title, displayLookup),
-    message: replaceExchangeEntityIds(notification.message, displayLookup),
+    title: replaceExchangeEntityIds(title, displayLookup),
+    message: replaceExchangeEntityIds(message, displayLookup),
     isRead: state !== "unread",
     state,
     centerCategory,
@@ -465,6 +511,24 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
       : undefined,
     updatedAt: notification.updatedAt ?? notification.createdAt,
   };
+}
+
+const MAX_NOTIFICATIONS_PER_USER = 600;
+const MAX_NOTIFICATIONS_GLOBAL = 2400;
+
+function pruneNotificationBacklog(db: AlphaExchangeDb) {
+  if (!Array.isArray(db.notifications) || db.notifications.length <= MAX_NOTIFICATIONS_GLOBAL) return;
+  const perUserKept = new Map<string, number>();
+  const kept: AlphaExchangeNotification[] = [];
+  for (const notification of db.notifications) {
+    const userId = String(notification.userId ?? "");
+    const current = perUserKept.get(userId) ?? 0;
+    if (current >= MAX_NOTIFICATIONS_PER_USER) continue;
+    kept.push(notification);
+    perUserKept.set(userId, current + 1);
+    if (kept.length >= MAX_NOTIFICATIONS_GLOBAL) break;
+  }
+  db.notifications = kept;
 }
 
 function getLargeTradeThreshold() {
@@ -494,9 +558,7 @@ function getListingExpirationIso(base: string, hours?: number | string) {
 }
 
 function getStaleTradeTimeoutMinutes() {
-  const raw = Number(process.env.ALPHA_EXCHANGE_STALE_TRADE_TIMEOUT_MINUTES ?? DEFAULT_STALE_TRADE_TIMEOUT_MINUTES);
-  if (Number.isNaN(raw) || raw <= 0) return DEFAULT_STALE_TRADE_TIMEOUT_MINUTES;
-  return raw;
+  return TRADE_INACTIVITY_WARNING_MINUTES;
 }
 
 function extensionForEvidenceMimeType(mimeType: string) {
@@ -1344,9 +1406,11 @@ function enrichListingsWithSellerData(
   const usersById = new Map(db.users.map((user) => [user.id, user]));
   return listings.map((listing) => {
     const seller = usersById.get(listing.sellerId);
-    if (!seller) return listing;
+    const publicListing: MarketplaceListing = { ...listing };
+    delete publicListing.bankAccountId;
+    if (!seller) return publicListing;
     return {
-      ...listing,
+      ...publicListing,
       sellerDisplayName: seller.fullName,
       sellerProfile: buildSellerPublicProfile(seller),
       sellerReputation: snapshots.get(seller.id) ?? computeSellerReputationSnapshot(db, seller.id),
@@ -1654,7 +1718,10 @@ function isValidTradeTimelineType(value: string): value is TradeTimelineEventTyp
     value === "buyer_evidence_uploaded" ||
     value === "seller_evidence_uploaded" ||
     value === "request_declined" ||
-    value === "request_cancelled"
+    value === "request_cancelled" ||
+    value === "trade_closed_manually" ||
+    value === "trade_inactivity_warning_sent" ||
+    value === "bank_details_revealed"
   );
 }
 
@@ -1880,6 +1947,29 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
           typeof user.updatedAt === "string" ? user.updatedAt : nowIso(),
           typeof user.id === "string" ? user.id : SYSTEM_ACTOR_USER_ID,
         ),
+        sellerBankAccounts: Array.isArray((user as { sellerBankAccounts?: unknown[] }).sellerBankAccounts)
+          ? (user as { sellerBankAccounts: unknown[] }).sellerBankAccounts
+              .filter((entry) => entry && typeof entry === "object")
+              .map((entry) => {
+                const value = entry as Record<string, unknown>;
+                const accountNumber = String(value.accountNumber ?? "").replace(/\D/g, "");
+                const branchNumber = String(value.branchNumber ?? "").replace(/\D/g, "");
+                return {
+                  id: String(value.id ?? `bank-${randomUUID()}`),
+                  sellerId: typeof user.id === "string" ? user.id : "",
+                  accountHolderName: String(value.accountHolderName ?? "").trim(),
+                  bankName: String(value.bankName ?? "").trim(),
+                  branchNumber,
+                  accountNumber,
+                  accountLast4: accountNumber.slice(-4),
+                  isDefault: value.isDefault === true,
+                  createdAt: typeof value.createdAt === "string" ? value.createdAt : nowIso(),
+                  updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : nowIso(),
+                } satisfies SellerBankAccount;
+              })
+              .filter((entry) => Boolean(entry.bankName) && Boolean(entry.accountNumber) && Boolean(entry.branchNumber))
+              .slice(0, 2)
+          : [],
       };
     }),
     sellerApplications: (db.sellerApplications ?? []).map((application) => ({
@@ -1915,6 +2005,10 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       paymentMethod:
         normalizeMarketplacePaymentMethod((request as { paymentMethod?: string }).paymentMethod) ??
         "Bank Transfer",
+      sellerBankAccountId:
+        typeof (request as { sellerBankAccountId?: string }).sellerBankAccountId === "string"
+          ? (request as { sellerBankAccountId: string }).sellerBankAccountId
+          : undefined,
       buyerSafetyAcknowledged:
         typeof (request as { buyerSafetyAcknowledged?: unknown }).buyerSafetyAcknowledged === "boolean"
           ? (request as { buyerSafetyAcknowledged: boolean }).buyerSafetyAcknowledged
@@ -1956,6 +2050,10 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       completedAt: typeof (request as { completedAt?: string }).completedAt === "string" ? (request as { completedAt: string }).completedAt : undefined,
       timedOutAt: typeof (request as { timedOutAt?: string }).timedOutAt === "string" ? (request as { timedOutAt: string }).timedOutAt : undefined,
       timeoutReason: typeof (request as { timeoutReason?: string }).timeoutReason === "string" ? (request as { timeoutReason: string }).timeoutReason : undefined,
+      inactivityWarningSentAt:
+        typeof (request as { inactivityWarningSentAt?: string }).inactivityWarningSentAt === "string"
+          ? (request as { inactivityWarningSentAt: string }).inactivityWarningSentAt
+          : undefined,
       lockedAt: typeof (request as { lockedAt?: string }).lockedAt === "string" ? (request as { lockedAt: string }).lockedAt : undefined,
       reviewUnlockedAt:
         typeof (request as { reviewUnlockedAt?: string }).reviewUnlockedAt === "string" ? (request as { reviewUnlockedAt: string }).reviewUnlockedAt : undefined,
@@ -1982,6 +2080,19 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
               message: String((request as { sellerResponse: { message?: string } }).sellerResponse.message ?? "").trim(),
               createdAt: String((request as { sellerResponse: { createdAt?: string } }).sellerResponse.createdAt ?? request.updatedAt),
             }
+          : undefined,
+      closedAt: typeof (request as { closedAt?: string }).closedAt === "string" ? (request as { closedAt: string }).closedAt : undefined,
+      closedByUserId:
+        typeof (request as { closedByUserId?: string }).closedByUserId === "string"
+          ? (request as { closedByUserId: string }).closedByUserId
+          : undefined,
+      closeReason:
+        typeof (request as { closeReason?: string }).closeReason === "string"
+          ? (request as { closeReason: string }).closeReason.trim()
+          : undefined,
+      closeExplanation:
+        typeof (request as { closeExplanation?: string }).closeExplanation === "string"
+          ? (request as { closeExplanation: string }).closeExplanation.trim()
           : undefined,
     })),
     commissionRecords: (db.commissionRecords ?? []).map((record) => {
@@ -2270,6 +2381,9 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         normalizeMarketplacePaymentMethod((listing as { paymentMethod?: string }).paymentMethod) ??
         resolveListingPaymentMethods((listing as { paymentMethods?: string[] }).paymentMethods)[0] ??
         "Bank Transfer",
+      bankAccountId: typeof (listing as { bankAccountId?: string }).bankAccountId === "string"
+        ? (listing as { bankAccountId: string }).bankAccountId
+        : undefined,
       sellerDescription: typeof (listing as { sellerDescription?: string }).sellerDescription === "string"
         ? (listing as { sellerDescription: string }).sellerDescription.trim()
         : "",
@@ -2385,6 +2499,16 @@ async function readDb(options?: { bypassCache?: boolean; skipMaintenance?: boole
   return structuredClone(normalized);
 }
 
+export async function runAlphaExchangeMaintenance() {
+  const db = await readDb({ bypassCache: true });
+  const numberingChanged = ensureDisplayNumbers(db);
+  const changed = await applyMarketplaceReliabilityRules(db);
+  if (changed || numberingChanged) {
+    await writeDb(db);
+  }
+  return { changed: changed || numberingChanged };
+}
+
 const USER_PROFILE_TABLES = ["users", "seller_profiles", "seller_settings"] as const satisfies readonly SnapshotTableName[];
 const MARKETPLACE_ENFORCEMENT_TABLES = ["marketplace_enforcement_records", "marketplace_enforcement_audit_log"] as const satisfies readonly SnapshotTableName[];
 const TRUST_INIT_TABLES = [...USER_PROFILE_TABLES, "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
@@ -2406,6 +2530,7 @@ const TRADE_EVIDENCE_PAYMENT_TABLES = ["purchase_requests", "listings", "notific
 const TRADE_REVIEW_TABLES = ["purchase_requests", "notifications", "audit_logs", "activity_logs"] as const satisfies readonly SnapshotTableName[];
 const COMMISSION_PAYMENT_TABLES = ["purchase_requests", "commissions", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const PURCHASE_REQUEST_ONLY_TABLES = ["purchase_requests"] as const satisfies readonly SnapshotTableName[];
+const TRADE_BANK_DETAILS_AUDIT_TABLES = ["purchase_requests", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const COMMISSION_RESET_TABLES = ["purchase_requests", "commissions", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const COMMISSION_STATUS_TABLES = ["purchase_requests", "commissions", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const AUDIT_LOG_ONLY_TABLES = ["audit_logs"] as const satisfies readonly SnapshotTableName[];
@@ -2600,7 +2725,7 @@ async function sendListingOwnerLifecycleEmail(
     title: input.title,
     message: input.message,
     actionLabel: "Open Seller Listings",
-    actionUrl: `${getSiteUrl()}/en/usdt-exchange`,
+    actionUrl: `${getSiteUrl()}/en/usdt-exchange#my-listings-section`,
     referenceLabel: listing.id,
     idempotencyKey: input.idempotencyKey,
   });
@@ -2612,6 +2737,33 @@ async function sendListingOwnerLifecycleEmail(
       reason: result.reason,
       providerStatus: "providerStatus" in result ? result.providerStatus : undefined,
       providerMessage: "providerMessage" in result ? result.providerMessage : undefined,
+    });
+  }
+  return result.ok;
+}
+
+async function sendSellerPrestigePromotionEmail(input: {
+  seller: AlphaExchangeUser;
+  rank: SellerLevel;
+  promotionId: string;
+}) {
+  if (input.seller.notificationPreferences?.email !== true) return true;
+  const result = await sendMarketplaceEmail({
+    event: "seller_prestige_promoted",
+    to: input.seller.email,
+    recipientName: input.seller.fullName,
+    title: "Congratulations on your new seller rank",
+    message: `You reached ${input.rank} seller. ${summarizePromotionBenefits(input.rank)}`,
+    actionLabel: "View Seller Insights",
+    actionUrl: `${getSiteUrl()}/en/usdt-exchange#market-overview`,
+    referenceLabel: input.promotionId,
+    idempotencyKey: `seller-prestige-${input.promotionId}`,
+  });
+  if (!result.ok) {
+    console.error("[marketplace-email] seller prestige delivery failed", {
+      event: "seller_prestige_promoted",
+      recipientUserId: input.seller.id,
+      reason: result.reason,
     });
   }
   return result.ok;
@@ -2769,6 +2921,7 @@ function pushNotification(
     createdAt,
   });
   db.notifications.unshift(notification);
+  pruneNotificationBacklog(db);
   publishRealtimeEvent({
     type: "notification.created",
     payload: { notification },
@@ -2901,9 +3054,10 @@ async function expireListing(db: AlphaExchangeDb, listing: MarketplaceListing, a
     userId: listing.sellerId,
     category: "listing",
     title: "Listing expired",
-    message: `Listing ${listing.id} expired and is no longer visible to buyers.`,
+    message: `Listing ${listing.id} expired and is no longer visible to buyers. Open My Listings to renew it when you are ready.`,
     relatedListingId: listing.id,
-    relatedHref: "/usdt-exchange",
+    relatedHref: "/usdt-exchange#my-listings-section",
+    actionLabel: "Manage Listing",
   });
   const owner = getOwnerUser(db);
   if (owner) {
@@ -2996,66 +3150,80 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
 
   for (const request of db.purchaseRequests) {
     if (request.status !== "accepted" || request.paymentSentAt || request.usdtSentAt || request.completedAt) continue;
-    const startedAtMs = new Date(request.tradeCreatedAt ?? request.updatedAt ?? request.createdAt).getTime();
+    const startedAtMs = new Date(request.updatedAt ?? request.tradeCreatedAt ?? request.createdAt).getTime();
     if (!startedAtMs || Number.isNaN(startedAtMs) || startedAtMs + timeoutWindowMs > nowMs) continue;
-    const listing = db.marketplaceListings.find((item) => item.id === request.listingId);
+    if (request.inactivityWarningSentAt) {
+      const warningAtMs = new Date(request.inactivityWarningSentAt).getTime();
+      if (Number.isFinite(warningAtMs) && warningAtMs >= startedAtMs) {
+        continue;
+      }
+    }
     changed = true;
     const now = nowIso();
-    request.status = "cancelled";
-    request.timedOutAt = now;
-    request.timeoutReason = "Buyer inactivity timeout.";
+    request.inactivityWarningSentAt = now;
     request.updatedAt = now;
-    request.timeline = [...(request.timeline ?? [])];
-    request.timeline.push({
-      id: `timeline-timeout-${randomUUID()}`,
-      type: "request_cancelled",
+    appendTradeTimelineEntry(request, {
+      type: "trade_inactivity_warning_sent",
       actorUserId: SYSTEM_ACTOR_USER_ID,
       actorRole: "admin",
-      message: "Trade timed out due to buyer inactivity",
+      message: `Inactivity warning sent after ${TRADE_INACTIVITY_WARNING_MINUTES} minutes without buyer progress.`,
       createdAt: now,
     });
-    if (listing && listing.activeTradeRequestId === request.id && !request.usdtSentAt) {
-      await unlockListingAfterCancelledTrade(db, listing, SYSTEM_ACTOR_USER_ID, request, request.timeoutReason);
-    }
     await appendAuditLog(db, {
-      action: "trade_timed_out",
+      action: "trade_inactivity_warning_sent",
       actorUserId: SYSTEM_ACTOR_USER_ID,
       targetUserId: request.buyerId,
       listingId: request.listingId,
       purchaseRequestId: request.id,
-      details: `Trade ${request.tradeId ?? request.id} timed out.`,
+      details: `Trade ${request.tradeId ?? request.id} received inactivity warning after ${TRADE_INACTIVITY_WARNING_MINUTES} minutes.`,
       oldValue: { status: "accepted" },
-      newValue: { status: "cancelled", timedOutAt: now },
-      reason: request.timeoutReason,
+      newValue: { status: "accepted", inactivityWarningSentAt: now },
+      reason: "Buyer inactivity warning.",
     });
     pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
-      title: "Trade timed out",
-      message: `Trade ${request.tradeId ?? request.id} timed out because there was no buyer activity.`,
+      title: "Action required on your trade",
+      message: `Trade ${request.tradeId ?? request.id} is still active, but requires your next step. Please upload payment proof to continue.`,
       relatedTradeId: request.tradeId ?? request.id,
       relatedListingId: request.listingId,
-      relatedHref: "/usdt-exchange",
+      relatedHref: requestDetailsHref(request.id),
     });
     pushNotification(db, {
       userId: request.sellerId,
       category: "trade",
-      title: "Trade timed out",
-      message: `Trade ${request.tradeId ?? request.id} timed out after buyer inactivity.`,
+      title: "Buyer inactivity warning sent",
+      message: `Trade ${request.tradeId ?? request.id} is still active. We reminded the buyer to continue the flow.`,
       relatedTradeId: request.tradeId ?? request.id,
       relatedListingId: request.listingId,
-      relatedHref: "/usdt-exchange",
+      relatedHref: requestDetailsHref(request.id),
     });
-    const owner = getOwnerUser(db);
-    if (owner) {
-      pushNotification(db, {
-        userId: owner.id,
-        category: "trade",
-        title: "Trade timed out",
-        message: `Trade ${request.tradeId ?? request.id} timed out and was cancelled automatically.`,
-        relatedTradeId: request.tradeId ?? request.id,
-        relatedListingId: request.listingId,
-        relatedHref: "/admin/alpha-exchange",
+    const buyer = db.users.find((user) => user.id === request.buyerId);
+    if (buyer?.notificationPreferences?.email === true) {
+      await sendMarketplaceEmail({
+        event: "trade_cancelled",
+        to: buyer.email,
+        recipientName: buyer.fullName,
+        title: "Action Required: Trade Still Waiting",
+        message: `Trade ${request.tradeId ?? request.id} is still active and waiting for your payment confirmation.`,
+        actionLabel: "Open Trade Room",
+        actionUrl: `${getSiteUrl()}/en/trade-room/${request.id}`,
+        referenceLabel: request.tradeId ?? request.id,
+        idempotencyKey: `trade-${request.id}-inactivity-warning-buyer-${request.updatedAt}`,
+      });
+    }
+    const seller = db.users.find((user) => user.id === request.sellerId);
+    if (seller?.notificationPreferences?.email === true) {
+      await sendMarketplaceEmail({
+        event: "trade_cancelled",
+        to: seller.email,
+        recipientName: seller.fullName,
+        title: "Trade Update: Buyer Reminder Sent",
+        message: `Trade ${request.tradeId ?? request.id} remains active. The buyer received an inactivity reminder.`,
+        actionLabel: "Open Trade Room",
+        actionUrl: `${getSiteUrl()}/en/trade-room/${request.id}`,
+        referenceLabel: request.tradeId ?? request.id,
+        idempotencyKey: `trade-${request.id}-inactivity-warning-seller-${request.updatedAt}`,
       });
     }
   }
@@ -3330,8 +3498,7 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
           requests: requestsBySeller.get(seller.id) ?? [],
           commissions: commissionsBySeller.get(seller.id) ?? [],
         });
-        const derivedRank = resolveSellerPrestigeRank(snapshot.totalUsdtVolume);
-        const effectiveRank = seller.sellerRankOverride?.rank ?? seller.sellerPrestigeRank ?? derivedRank;
+        const effectiveRank = seller.sellerRankOverride?.rank ?? resolveSellerPrestigeRankWithFloor(snapshot.totalUsdtVolume, seller.sellerPrestigeRank);
         snapshot.level = effectiveRank;
         snapshot.lifetimeCompletedVolumeUsdt = snapshot.totalUsdtVolume;
         Object.assign(
@@ -3469,6 +3636,7 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
         title: "Prestige promotion unlocked",
         details: `Promoted to ${snapshot.level} seller.`,
       });
+      await sendSellerPrestigePromotionEmail({ seller: db.users[sellerIndex], rank: snapshot.level, promotionId: entry.id });
     }
 
     if (owner && sharpDrop) {
@@ -4038,6 +4206,214 @@ export async function updateUserPassword(userId: string, passwordHash: string) {
     updatedAt: nowIso(),
   };
   await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
+}
+
+function getSellerBankAccounts(user: AlphaExchangeUser) {
+  return [...(user.sellerBankAccounts ?? [])].slice(0, MAX_SELLER_BANK_ACCOUNTS);
+}
+
+function getSellerBankAccountById(user: AlphaExchangeUser, bankAccountId: string) {
+  return getSellerBankAccounts(user).find((account) => account.id === bankAccountId);
+}
+
+function isTradeStatusUsingBankDetails(status: PurchaseRequestStatus) {
+  return status === "accepted"
+    || status === "payment_sent"
+    || status === "funds_received"
+    || status === "usdt_release_pending"
+    || status === "usdt_sent";
+}
+
+function hasActiveUsageForSellerBankAccount(db: AlphaExchangeDb, sellerId: string, bankAccountId: string) {
+  const activeTrade = db.purchaseRequests.find((request) =>
+    request.sellerId === sellerId
+    && request.sellerBankAccountId === bankAccountId
+    && isTradeStatusUsingBankDetails(request.status),
+  );
+  if (activeTrade) return true;
+  return db.marketplaceListings.some((listing) =>
+    listing.sellerId === sellerId
+    && listing.bankAccountId === bankAccountId
+    && listing.status !== "cancelled"
+    && listing.status !== "closed"
+    && listing.status !== "completed",
+  );
+}
+
+function toPublicSellerBankAccount(account: SellerBankAccount) {
+  return {
+    id: account.id,
+    accountHolderName: account.accountHolderName,
+    bankName: account.bankName,
+    branchNumber: account.branchNumber,
+    accountLast4: account.accountLast4,
+    maskedAccountNumber: maskBankAccountNumber(account.accountNumber),
+    isDefault: account.isDefault === true,
+    createdAt: account.createdAt,
+    updatedAt: account.updatedAt,
+  };
+}
+
+export async function getSellerBankAccountsForUser(userId: string) {
+  const db = await readDb();
+  const user = db.users.find((item) => item.id === userId);
+  if (!user) throw new Error("User not found.");
+  return getSellerBankAccounts(user).map(toPublicSellerBankAccount);
+}
+
+export async function addSellerBankAccount(input: {
+  sellerId: string;
+  actorUserId: string;
+  accountHolderName: string;
+  bankName: string;
+  branchNumber: string;
+  accountNumber: string;
+  isDefault?: boolean;
+}) {
+  const db = await readDb();
+  const userIndex = db.users.findIndex((user) => user.id === input.sellerId);
+  if (userIndex === -1) throw new Error("Seller not found.");
+  const user = db.users[userIndex];
+  const existing = getSellerBankAccounts(user);
+  if (existing.length >= MAX_SELLER_BANK_ACCOUNTS) {
+    throw new Error(`You can save up to ${MAX_SELLER_BANK_ACCOUNTS} bank accounts.`);
+  }
+  const sanitized = sanitizeSellerBankAccountInput(input);
+  const now = nowIso();
+  const newAccount: SellerBankAccount = {
+    id: `seller-bank-${randomUUID()}`,
+    sellerId: input.sellerId,
+    accountHolderName: sanitized.accountHolderName,
+    bankName: sanitized.bankName,
+    branchNumber: sanitized.branchNumber,
+    accountNumber: sanitized.accountNumber,
+    accountLast4: sanitized.accountLast4,
+    isDefault: input.isDefault === true || existing.length === 0,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const nextAccounts = [newAccount, ...existing].map((account, index) => ({
+    ...account,
+    isDefault: index === 0 ? newAccount.isDefault === true : (newAccount.isDefault === true ? false : account.isDefault === true),
+  }));
+  if (!nextAccounts.some((account) => account.isDefault === true) && nextAccounts.length > 0) {
+    nextAccounts[0] = { ...nextAccounts[0], isDefault: true, updatedAt: now };
+  }
+  db.users[userIndex] = {
+    ...user,
+    sellerBankAccounts: nextAccounts,
+    updatedAt: now,
+  };
+  await appendAuditLog(db, {
+    action: "seller_bank_account_added",
+    actorUserId: input.actorUserId,
+    targetUserId: input.sellerId,
+    details: `Seller added bank account ${newAccount.id}.`,
+    newValue: { bankAccountId: newAccount.id, bankName: newAccount.bankName, branchNumber: newAccount.branchNumber, accountLast4: newAccount.accountLast4 },
+  });
+  await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
+  return toPublicSellerBankAccount(newAccount);
+}
+
+export async function updateSellerBankAccount(input: {
+  sellerId: string;
+  actorUserId: string;
+  bankAccountId: string;
+  accountHolderName: string;
+  bankName: string;
+  branchNumber: string;
+  accountNumber: string;
+  isDefault?: boolean;
+}) {
+  const db = await readDb();
+  const userIndex = db.users.findIndex((user) => user.id === input.sellerId);
+  if (userIndex === -1) throw new Error("Seller not found.");
+  const user = db.users[userIndex];
+  const accounts = getSellerBankAccounts(user);
+  const accountIndex = accounts.findIndex((account) => account.id === input.bankAccountId);
+  if (accountIndex === -1) throw new Error("Bank account not found.");
+  const sanitized = sanitizeSellerBankAccountInput(input);
+  const now = nowIso();
+  const updatedAccount: SellerBankAccount = {
+    ...accounts[accountIndex],
+    accountHolderName: sanitized.accountHolderName,
+    bankName: sanitized.bankName,
+    branchNumber: sanitized.branchNumber,
+    accountNumber: sanitized.accountNumber,
+    accountLast4: sanitized.accountLast4,
+    isDefault: input.isDefault === true ? true : accounts[accountIndex].isDefault === true,
+    updatedAt: now,
+  };
+  const nextAccounts = accounts.map((account, index) => {
+    if (index === accountIndex) return updatedAccount;
+    if (updatedAccount.isDefault === true) return { ...account, isDefault: false, updatedAt: now };
+    return account;
+  });
+  if (!nextAccounts.some((account) => account.isDefault === true) && nextAccounts.length > 0) {
+    nextAccounts[0] = { ...nextAccounts[0], isDefault: true, updatedAt: now };
+  }
+  db.users[userIndex] = {
+    ...user,
+    sellerBankAccounts: nextAccounts,
+    updatedAt: now,
+  };
+
+  for (const listing of db.marketplaceListings) {
+    if (listing.sellerId !== input.sellerId || listing.bankAccountId !== updatedAccount.id) continue;
+    listing.bankName = updatedAccount.bankName;
+    listing.updatedAt = now;
+  }
+  for (const request of db.purchaseRequests) {
+    if (request.sellerId !== input.sellerId || request.sellerBankAccountId !== updatedAccount.id) continue;
+    request.bankName = updatedAccount.bankName;
+    request.updatedAt = now;
+  }
+
+  await appendAuditLog(db, {
+    action: "seller_bank_account_updated",
+    actorUserId: input.actorUserId,
+    targetUserId: input.sellerId,
+    details: `Seller updated bank account ${updatedAccount.id}.`,
+    newValue: { bankAccountId: updatedAccount.id, bankName: updatedAccount.bankName, branchNumber: updatedAccount.branchNumber, accountLast4: updatedAccount.accountLast4 },
+  });
+  await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
+  return toPublicSellerBankAccount(updatedAccount);
+}
+
+export async function deleteSellerBankAccount(input: {
+  sellerId: string;
+  actorUserId: string;
+  bankAccountId: string;
+}) {
+  const db = await readDb();
+  const userIndex = db.users.findIndex((user) => user.id === input.sellerId);
+  if (userIndex === -1) throw new Error("Seller not found.");
+  const user = db.users[userIndex];
+  const accounts = getSellerBankAccounts(user);
+  const account = accounts.find((item) => item.id === input.bankAccountId);
+  if (!account) throw new Error("Bank account not found.");
+  if (hasActiveUsageForSellerBankAccount(db, input.sellerId, input.bankAccountId)) {
+    throw new Error("This bank account is linked to active trades or listings and cannot be deleted right now.");
+  }
+  const now = nowIso();
+  const nextAccounts = accounts.filter((item) => item.id !== input.bankAccountId);
+  if (!nextAccounts.some((item) => item.isDefault === true) && nextAccounts.length > 0) {
+    nextAccounts[0] = { ...nextAccounts[0], isDefault: true, updatedAt: now };
+  }
+  db.users[userIndex] = {
+    ...user,
+    sellerBankAccounts: nextAccounts,
+    updatedAt: now,
+  };
+  await appendAuditLog(db, {
+    action: "seller_bank_account_deleted",
+    actorUserId: input.actorUserId,
+    targetUserId: input.sellerId,
+    details: `Seller deleted bank account ${account.id}.`,
+    oldValue: { bankAccountId: account.id, bankName: account.bankName, branchNumber: account.branchNumber, accountLast4: account.accountLast4 },
+  });
+  await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
+  return { deleted: true };
 }
 
 export async function updateUserSellerSettings(input: {
@@ -5722,6 +6098,41 @@ function createStoreProfileLogger(scope: string) {
     console.log(`[alpha-exchange-profile] ${scope} ${stage} +${Date.now() - startedAt}ms`);
   };
 }
+
+function resolveSellerListingBankAccount(
+  db: AlphaExchangeDb,
+  sellerId: string,
+  bankAccountId: string | undefined,
+  paymentMethods: string[],
+) {
+  if (!paymentMethods.some((method) => isBankTransferPaymentMethod(method))) {
+    return null;
+  }
+  const seller = db.users.find((user) => user.id === sellerId);
+  if (!seller) throw new Error("Seller not found.");
+  const accounts = getSellerBankAccounts(seller);
+  if (!accounts.length) {
+    if (bankAccountId) throw new Error("Selected bank account was not found for this seller.");
+    return null;
+  }
+  const selected = bankAccountId
+    ? accounts.find((account) => account.id === bankAccountId)
+    : accounts.find((account) => account.isDefault === true) ?? accounts[0];
+  if (!selected) {
+    throw new Error("Please select one of your saved bank accounts for Bank Transfer listings.");
+  }
+  if (bankAccountId && selected.id !== bankAccountId) {
+    throw new Error("Selected bank account does not belong to this seller.");
+  }
+  return selected;
+}
+
+function canRevealTradeBankDetailsToActor(request: PurchaseRequest, actorUserId: string, actorRole: UserRole) {
+  const participant = request.buyerId === actorUserId || request.sellerId === actorUserId;
+  const elevated = actorRole === "admin" || actorRole === "owner";
+  if (!participant && !elevated) return false;
+  return request.status !== "pending" && request.status !== "declined" && request.status !== "cancelled";
+}
 export async function createMarketplaceListing(input: {
   sellerId: string;
   sellerDisplayName: string;
@@ -5732,6 +6143,7 @@ export async function createMarketplaceListing(input: {
   network: SupportedNetwork;
   paymentMethod?: string;
   paymentMethods?: string[];
+  bankAccountId?: string;
   bankName?: string;
   minimumTrade?: string;
   maximumTrade?: string;
@@ -5762,6 +6174,7 @@ export async function createMarketplaceListing(input: {
     throw new Error(`Select no more than ${MAX_LISTING_PAYMENT_METHODS} payment methods per listing.`);
   }
   const primaryPaymentMethod = listingPaymentMethods[0];
+  const selectedSellerBankAccount = resolveSellerListingBankAccount(db, input.sellerId, input.bankAccountId, listingPaymentMethods);
   const listingBanks = parseIsraeliBankSelection(input.bankName);
   if (requiresIsraeliBankSelection(listingPaymentMethods)) {
     if (!listingBanks.length) {
@@ -5769,6 +6182,9 @@ export async function createMarketplaceListing(input: {
     }
     if (listingBanks.length > MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS) {
       throw new Error(`Select no more than ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} supported banks per listing.`);
+    }
+    if (selectedSellerBankAccount && !listingBanks.includes(selectedSellerBankAccount.bankName)) {
+      throw new Error("Supported banks must include the selected seller bank account.");
     }
   }
   const listing: MarketplaceListing = {
@@ -5783,6 +6199,7 @@ export async function createMarketplaceListing(input: {
     network: input.network,
     paymentMethods: listingPaymentMethods,
     paymentMethod: primaryPaymentMethod,
+    bankAccountId: selectedSellerBankAccount?.id,
     bankName: requiresIsraeliBankSelection(listingPaymentMethods) ? serializeIsraeliBankSelection(listingBanks) || undefined : undefined,
     minimumTrade: input.minimumTrade?.trim() || "0",
     maximumTrade: input.maximumTrade?.trim() || input.availableAmount.trim(),
@@ -5883,6 +6300,7 @@ export async function updateMarketplaceListingForSeller(input: {
   network?: SupportedNetwork;
   paymentMethod?: string;
   paymentMethods?: string[];
+  bankAccountId?: string;
   bankName?: string;
   minimumTrade?: string;
   maximumTrade?: string;
@@ -5930,6 +6348,12 @@ export async function updateMarketplaceListingForSeller(input: {
     ? normalizedPaymentMethods
     : (current.paymentMethods?.length ? current.paymentMethods : resolveListingPaymentMethods(undefined, current.paymentMethod));
   const nextPaymentMethod = nextPaymentMethods[0] ?? normalizeMarketplacePaymentMethod(current.paymentMethod) ?? "Bank Transfer";
+  const selectedSellerBankAccount = resolveSellerListingBankAccount(
+    db,
+    input.sellerId,
+    input.bankAccountId !== undefined ? input.bankAccountId : current.bankAccountId,
+    nextPaymentMethods,
+  );
   const nextRequiresBankSelection = requiresIsraeliBankSelection(nextPaymentMethods, nextPaymentMethod);
   const nextBankSelection = input.bankName !== undefined
     ? parseIsraeliBankSelection(input.bankName)
@@ -5940,6 +6364,9 @@ export async function updateMarketplaceListingForSeller(input: {
     }
     if (nextBankSelection.length > MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS) {
       throw new Error(`Select no more than ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} supported banks per listing.`);
+    }
+    if (selectedSellerBankAccount && !nextBankSelection.includes(selectedSellerBankAccount.bankName)) {
+      throw new Error("Supported banks must include the selected seller bank account.");
     }
   }
 
@@ -5953,6 +6380,7 @@ export async function updateMarketplaceListingForSeller(input: {
     network: input.network || current.network,
     paymentMethods: nextPaymentMethods,
     paymentMethod: nextPaymentMethod,
+    bankAccountId: selectedSellerBankAccount?.id,
     bankName: nextRequiresBankSelection
       ? serializeIsraeliBankSelection(nextBankSelection) || undefined
       : undefined,
@@ -6115,7 +6543,8 @@ export async function renewMarketplaceListing(input: {
     title: "Listing renewed",
     message: `Listing ${listing.id} has been renewed and is live again.`,
     relatedListingId: listing.id,
-    relatedHref: "/usdt-exchange",
+    relatedHref: "/usdt-exchange#my-listings-section",
+    actionLabel: "Manage Listing",
   });
   await writeDb(db, { selectedTables: LISTING_WRITE_TABLES });
   await sendListingOwnerLifecycleEmail(db, listing, {
@@ -6657,6 +7086,9 @@ export async function createPurchaseRequest(input: {
   const validationMs = Date.now() - validationStartedAt;
   const businessStartedAt = Date.now();
   const sellerId = listing.sellerId;
+  const sellerBankAccount = listing.bankAccountId && seller
+    ? getSellerBankAccountById(seller, listing.bankAccountId)
+    : undefined;
   const usdtAmount = requestedUsdtAmount;
   const fiatAmount = (requestedAmount * toNumber(listing.price)).toFixed(2);
   const tradeId = `trade-${randomUUID()}`;
@@ -6677,8 +7109,9 @@ export async function createPurchaseRequest(input: {
     paymentMethod: primaryPaymentMethod,
     buyerSafetyAcknowledged,
     sellerSafetyAcknowledged: !requiresFaceToFaceSafetyNotice,
+    sellerBankAccountId: sellerBankAccount?.id,
     bankName: (isBankTransferPaymentMethod(primaryPaymentMethod) || isCardlessAtmPaymentMethod(primaryPaymentMethod))
-      ? (serializeIsraeliBankSelection(parseIsraeliBankSelection(input.bankName || listing.bankName)) || undefined)
+      ? (serializeIsraeliBankSelection(parseIsraeliBankSelection(input.bankName || sellerBankAccount?.bankName || listing.bankName)) || undefined)
       : undefined,
     timeline: [
       {
@@ -6771,13 +7204,23 @@ const SELLER_WALLET_VISIBLE_STATUSES = new Set<PurchaseRequestStatus>([
 ]);
 
 export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorUserId: string, actorRole: UserRole) {
+  const canViewBuyerContact = actorRole === "admin"
+    || actorRole === "owner"
+    || request.buyerId === actorUserId;
   const canViewWallet = actorRole === "admin"
     || actorRole === "owner"
     || request.buyerId === actorUserId
     || (request.sellerId === actorUserId && SELLER_WALLET_VISIBLE_STATUSES.has(request.status));
-  if (canViewWallet) return request;
   const redacted = { ...request };
-  delete redacted.buyerReceivingWalletAddress;
+  if (!canViewBuyerContact) {
+    delete (redacted as { buyerWhatsapp?: string }).buyerWhatsapp;
+  }
+  if (!canViewWallet) {
+    delete redacted.buyerReceivingWalletAddress;
+  }
+  if (!canRevealTradeBankDetailsToActor(request, actorUserId, actorRole)) {
+    delete redacted.sellerBankAccountId;
+  }
   return redacted;
 }
 
@@ -6907,6 +7350,22 @@ export async function getFirstActionableTradeForUser(userId: string, role: UserR
     .filter((request) => isActionableTradeStatus(request.status))
     .sort(sortTradesByUpdatedAtDesc);
   return actionableTrades[0] ? enrichRequestWithEvidence(db, actionableTrades[0]) : null;
+}
+
+export async function getTradeRoomRequestForUserById(input: {
+  userId: string;
+  role: UserRole;
+  requestId: string;
+}) {
+  const requestId = String(input.requestId ?? "").trim();
+  if (!requestId) return null;
+  const db = await readDb();
+  const request = db.purchaseRequests.find((item) => item.id === requestId);
+  if (!request) return null;
+  const visibleTrades = filterTradesForUser(db, input.userId, input.role);
+  const allowed = visibleTrades.some((item) => item.id === request.id);
+  if (!allowed) return null;
+  return enrichRequestWithEvidence(db, request);
 }
 
 export async function resolveTradeRoomRequestForNotification(input: {
@@ -7103,6 +7562,188 @@ export async function getTradeRoomData(input: {
   };
 }
 
+export async function getTradeRoomBankDetails(input: {
+  purchaseRequestId: string;
+  actorUserId: string;
+  actorRole: UserRole;
+}) {
+  const db = await readDb();
+  const lookupCandidates = buildPurchaseRequestLookupCandidates(input.purchaseRequestId);
+  const requestIndex = db.purchaseRequests.findIndex((item) => lookupCandidates.includes(item.id));
+  if (requestIndex === -1) throw new Error("Trade not found.");
+  const request = db.purchaseRequests[requestIndex];
+
+  assertTradeParticipantOrAdmin(request, input.actorUserId, input.actorRole);
+  if (!canRevealTradeBankDetailsToActor(request, input.actorUserId, input.actorRole)) {
+    throw new Error("Bank details are available only after the seller accepts the trade.");
+  }
+
+  const seller = db.users.find((user) => user.id === request.sellerId);
+  if (!seller) throw new Error("Seller not found.");
+  const bankAccount = request.sellerBankAccountId
+    ? getSellerBankAccountById(seller, request.sellerBankAccountId)
+    : undefined;
+  if (!bankAccount) {
+    throw new Error("No bank account is linked to this trade.");
+  }
+
+  const now = nowIso();
+  const recentlyLogged = (request.timeline ?? []).some((entry) =>
+    entry.type === "bank_details_revealed"
+    && entry.actorUserId === input.actorUserId
+    && new Date(entry.createdAt).getTime() >= Date.now() - 5 * 60 * 1000,
+  );
+  if (!recentlyLogged) {
+    appendTradeTimelineEntry(request, {
+      type: "bank_details_revealed",
+      actorUserId: input.actorUserId,
+      actorRole: resolveActorRole(db, input.actorUserId),
+      message: "Trade bank details viewed",
+      createdAt: now,
+    });
+    request.updatedAt = now;
+    db.purchaseRequests[requestIndex] = request;
+    await appendAuditLog(db, {
+      action: "trade_bank_details_revealed",
+      actorUserId: input.actorUserId,
+      targetUserId: request.sellerId,
+      purchaseRequestId: request.id,
+      listingId: request.listingId,
+      details: `Bank details viewed for trade ${request.tradeId ?? request.id}.`,
+      newValue: { bankAccountId: bankAccount.id, bankName: bankAccount.bankName, branchNumber: bankAccount.branchNumber, accountLast4: bankAccount.accountLast4 },
+    });
+    await writeDb(db, { selectedTables: TRADE_BANK_DETAILS_AUDIT_TABLES });
+  }
+
+  return {
+    requestId: request.id,
+    tradeId: request.tradeId ?? request.id,
+    bankAccountId: bankAccount.id,
+    accountHolderName: bankAccount.accountHolderName,
+    bankName: bankAccount.bankName,
+    branchNumber: bankAccount.branchNumber,
+    accountNumber: bankAccount.accountNumber,
+    accountLast4: bankAccount.accountLast4,
+  };
+}
+
+export async function closePurchaseRequestManually(input: {
+  requestId: string;
+  actorUserId: string;
+  actorRole: UserRole;
+  reason: string;
+  explanation?: string;
+}) {
+  const db = await readDb({ bypassCache: true });
+  const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.requestId);
+  if (requestIndex === -1) throw new Error("Trade not found.");
+  const request = db.purchaseRequests[requestIndex];
+  const isParticipant = request.buyerId === input.actorUserId || request.sellerId === input.actorUserId;
+  const isAdmin = input.actorRole === "admin" || input.actorRole === "owner";
+  if (!isParticipant && !isAdmin) {
+    throw new Error("You are not allowed to close this trade.");
+  }
+  if (request.status === "review_open" || request.status === "completed" || request.status === "locked") {
+    throw new Error("Completed trades cannot be closed manually.");
+  }
+  if (request.status === "declined") {
+    throw new Error("Declined trades cannot be closed again.");
+  }
+  if (request.status === "cancelled" && request.closedAt) {
+    return enrichRequestWithEvidence(db, request);
+  }
+
+  const closeReason = String(input.reason ?? "").trim();
+  const closeExplanation = String(input.explanation ?? "").trim();
+  if (!closeReason) throw new Error("A close reason is required.");
+  if (closeReason.length > 120) throw new Error("Close reason is too long.");
+  if (closeExplanation.length > 1000) throw new Error("Close explanation is too long.");
+
+  const now = nowIso();
+  const actorRole = resolveActorRole(db, input.actorUserId);
+  const next: PurchaseRequest = {
+    ...request,
+    status: "cancelled",
+    closedAt: now,
+    closedByUserId: input.actorUserId,
+    closeReason,
+    closeExplanation: closeExplanation || undefined,
+    updatedAt: now,
+    timedOutAt: undefined,
+    timeoutReason: undefined,
+    inactivityWarningSentAt: undefined,
+    timeline: [...(request.timeline ?? [])],
+  };
+  appendTradeTimelineEntry(next, {
+    type: "trade_closed_manually",
+    actorUserId: input.actorUserId,
+    actorRole,
+    message: `Trade closed manually: ${closeReason}`,
+    createdAt: now,
+  });
+  appendSystemTradeMessage(db, next, {
+    senderUserId: input.actorUserId,
+    senderRole: actorRole,
+    message: closeExplanation
+      ? `Trade was closed manually. Reason: ${closeReason}. ${closeExplanation}`
+      : `Trade was closed manually. Reason: ${closeReason}.`,
+    createdAt: now,
+  });
+
+  const listing = db.marketplaceListings.find((item) => item.id === request.listingId);
+  if (listing && listing.activeTradeRequestId === request.id) {
+    await unlockListingAfterCancelledTrade(db, listing, input.actorUserId, request, closeReason);
+  }
+
+  db.purchaseRequests[requestIndex] = next;
+  await appendAuditLog(db, {
+    action: "trade_closed_manually",
+    actorUserId: input.actorUserId,
+    targetUserId: request.buyerId === input.actorUserId ? request.sellerId : request.buyerId,
+    purchaseRequestId: request.id,
+    listingId: request.listingId,
+    details: `Trade ${request.tradeId ?? request.id} closed manually.`,
+    reason: closeReason,
+    newValue: { closedAt: now, closeReason, closeExplanation: closeExplanation || undefined },
+  });
+
+  const counterpartyId = request.buyerId === input.actorUserId ? request.sellerId : request.buyerId;
+  pushNotification(db, {
+    userId: counterpartyId,
+    category: "trade",
+    title: "Trade closed",
+    message: closeExplanation
+      ? `The trade was closed manually. Reason: ${closeReason}. ${closeExplanation}`
+      : `The trade was closed manually. Reason: ${closeReason}.`,
+    relatedTradeId: request.tradeId ?? request.id,
+    relatedListingId: request.listingId,
+    relatedHref: requestDetailsHref(request.id),
+  });
+  pushNotification(db, {
+    userId: input.actorUserId,
+    category: "trade",
+    title: "Trade closed",
+    message: `You closed this trade. Reason: ${closeReason}.`,
+    relatedTradeId: request.tradeId ?? request.id,
+    relatedListingId: request.listingId,
+    relatedHref: requestDetailsHref(request.id),
+  });
+
+  await writeDb(db, { selectedTables: TRADE_STATUS_BASE_TABLES });
+  const enriched = enrichRequestWithEvidence(db, db.purchaseRequests[requestIndex]);
+  publishRealtimeEvent({
+    type: "trade.status_changed",
+    payload: {
+      requestId: next.id,
+      request: enriched,
+      status: next.status,
+      timeline: next.timeline,
+      publishedAtEpochMs: Date.now(),
+    },
+  });
+  return enriched;
+}
+
 export async function postTradeRoomMessage(input: {
   purchaseRequestId: string;
   actorUserId: string;
@@ -7146,6 +7787,10 @@ export async function postTradeRoomMessage(input: {
   // Store messages in request.messages (persisted inside purchase_requests.payload JSON).
   // Also keep db.tradeMessages in sync for backward compatibility.
   request.messages = [nextMessage, ...(request.messages ?? [])];
+  request.updatedAt = nowIso();
+  if (request.status === "accepted") {
+    request.inactivityWarningSentAt = undefined;
+  }
   db.purchaseRequests[requestIndex] = request;
   db.tradeMessages = [nextMessage, ...(db.tradeMessages ?? [])];
   const businessMs = Date.now() - businessStartedAt;
@@ -7488,6 +8133,7 @@ export async function uploadTradeEvidence(input: {
   if (shouldAutoSubmitPayment) {
     nextRequest.status = "payment_sent";
     nextRequest.paymentSentAt = updatedAt;
+    nextRequest.inactivityWarningSentAt = undefined;
     const listing = getListingByIdOrThrow(db, request.listingId);
     if (listing.activeTradeRequestId === request.id) {
       listing.status = "in_trade";
@@ -8507,6 +9153,9 @@ export async function updatePurchaseRequestStatus(input: {
     appendTradeTimelineEntry(next, { type: "review_unlocked", actorUserId: input.actorUserId, actorRole, message: "Review window unlocked", createdAt: now });
   } else {
     next.status = input.nextStatus;
+  }
+  if (next.status !== "accepted") {
+    next.inactivityWarningSentAt = undefined;
   }
   db.purchaseRequests[requestIndex] = next;
   console.log("[trade-consistency] mutation status-after", {
@@ -10422,13 +11071,14 @@ export async function getNotificationsForUser(input: {
       return haystack.includes(query);
     });
   const sortedNotifications = [...notifications].sort((left, right) => {
-    const leftRank = typeof left.priorityRank === "number" ? left.priorityRank : 99;
-    const rightRank = typeof right.priorityRank === "number" ? right.priorityRank : 99;
-    if (leftRank !== rightRank) return leftRank - rightRank;
     const leftUnread = left.state === "unread" ? 0 : left.state === "read" ? 1 : 2;
     const rightUnread = right.state === "unread" ? 0 : right.state === "read" ? 1 : 2;
     if (leftUnread !== rightUnread) return leftUnread - rightUnread;
-    return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+    const createdDelta = new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+    if (createdDelta !== 0) return createdDelta;
+    const leftRank = typeof left.priorityRank === "number" ? left.priorityRank : 99;
+    const rightRank = typeof right.priorityRank === "number" ? right.priorityRank : 99;
+    return leftRank - rightRank;
   });
   const safeOffset = Math.max(0, Math.floor(input.offset ?? 0));
   const safeLimit = Math.max(1, Math.min(200, Math.floor(input.limit ?? 200)));

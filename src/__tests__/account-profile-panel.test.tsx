@@ -372,11 +372,11 @@ describe("AccountProfilePanel", () => {
 
       return {
         ok: true,
-        json: async () => ({ user: { id: "buyer-1", fullName: "Buyer User", email: "buyer@example.com", role: "buyer", roles: ["buyer"], sellerStatus: "none", whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: ["English"], bio: "", country: "", city: "", onlineStatus: "online" as const, createdAt: "2026-01-01T00:00:00.000Z" } }),
+        json: async () => ({ user: { id: "buyer-1", fullName: "Buyer User", email: "buyer@example.com", role: "buyer", roles: ["buyer"], sellerStatus: "buyer", whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: ["English"], bio: "", country: "", city: "", onlineStatus: "online" as const, createdAt: "2026-01-01T00:00:00.000Z" } }),
       };
     }));
 
-    render(<UsdtExchangePage locale="en" initialSessionUser={{ id: "buyer-1", fullName: "Buyer User", email: "buyer@example.com", role: "buyer", roles: ["buyer"], sellerStatus: "none", whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: ["English"], bio: "", country: "", city: "", onlineStatus: "online" as const, createdAt: "2026-01-01T00:00:00.000Z" }} />);
+    render(<UsdtExchangePage locale="en" initialSessionUser={{ id: "buyer-1", fullName: "Buyer User", email: "buyer@example.com", role: "buyer", roles: ["buyer"], sellerStatus: "buyer", whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: ["English"], bio: "", country: "", city: "", onlineStatus: "online" as const, createdAt: "2026-01-01T00:00:00.000Z" }} />);
 
     await waitFor(() => expect(screen.getByText("Trusted Buyer")).toBeTruthy());
     expect(screen.getByText("Buyer level")).toBeTruthy();

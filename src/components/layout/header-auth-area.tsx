@@ -57,12 +57,13 @@ export function HeaderAuthArea({
         const response = await fetch("/api/auth/me", { cache: "no-store", credentials: "include" });
         const payload = (await response.json().catch(() => null)) as { user?: SessionUserSummary | null } | null;
         if (!cancelled) {
-          setSessionUser(payload?.user ?? null);
+          if (payload && "user" in payload) {
+            setSessionUser(payload.user ?? null);
+          }
         }
       } catch {
-        if (!cancelled) {
-          setSessionUser(null);
-        }
+        // Keep the current session snapshot on transient failures to avoid
+        // unmounting authenticated UI controls during active interactions.
       }
     }
 

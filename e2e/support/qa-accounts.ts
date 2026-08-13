@@ -154,6 +154,7 @@ export async function provisionQaWorld(request: APIRequestContext): Promise<QaWo
   while (Date.now() < deadline) {
     if (!authenticated) {
       const loginResponse = await request.post("/api/auth/login", {
+        headers: { "x-forwarded-for": "198.51.100.22" },
         data: { email: sellerEmail, password: sellerPassword, rememberMe: false },
       });
       authenticated = loginResponse.ok();

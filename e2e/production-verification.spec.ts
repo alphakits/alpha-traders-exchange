@@ -117,7 +117,7 @@ async function login(ctx: APIRequestContext, email: string, password: string) {
   let lastStatus: number | null = null;
   let lastBody = "";
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const r = await ctx.post("/api/auth/login", { data: { email, password, rememberMe: true } });
+    const r = await ctx.post("/api/auth/login", { headers: { "x-forwarded-for": "198.51.100.17" }, data: { email, password, rememberMe: true } });
     if (r.ok()) return;
     lastStatus = r.status();
     lastBody = await r.text().catch(() => "");

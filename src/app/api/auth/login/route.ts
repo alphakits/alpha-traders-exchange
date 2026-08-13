@@ -93,6 +93,7 @@ function setPhoneVerificationCookie(
 export async function POST(request: NextRequest) {
   const routeStartedAt = Date.now();
   const timeline: LoginTimelineStep[] = [];
+  const authDebug = process.env.ALPHA_AUTH_DEBUG === "1";
   const secureCookies = shouldUseSecureAuthCookie(request);
   const cookieStore = await cookies();
   const locale = inferLocaleFromRequest(request);
@@ -106,8 +107,10 @@ export async function POST(request: NextRequest) {
     try {
       rawBody = await request.text();
       const contentType = request.headers.get("content-type") ?? "";
-      const sanitizedBodyPreview = rawBody.replace(/"password":"([^"]*)"/g, '"password":"[REDACTED]"');
-      console.error("[auth/login] body preview", { contentType, length: rawBody.length, preview: sanitizedBodyPreview.slice(0, 400) });
+      if (authDebug) {
+        const sanitizedBodyPreview = rawBody.replace(/"password":"([^"]*)"/g, '"password":"[REDACTED]"');
+        console.error("[auth/login] body preview", { contentType, length: rawBody.length, preview: sanitizedBodyPreview.slice(0, 400) });
+      }
       if (!rawBody.trim()) {
         body = {};
       } else if (contentType.includes("application/x-www-form-urlencoded")) {
@@ -118,7 +121,9 @@ export async function POST(request: NextRequest) {
       }
     } catch (error) {
       if (error instanceof SyntaxError) {
-        console.error("[auth/login] parse failure", { error: error.message, body: rawBody });
+        if (authDebug) {
+          console.error("[auth/login] parse failure", { error: error.message, bodyLength: rawBody.length });
+        }
         return NextResponse.json({ error: "Invalid JSON body." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
       }
       throw error;

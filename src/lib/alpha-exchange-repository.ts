@@ -1,6 +1,8 @@
 import { Pool, type PoolClient } from "pg";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import path from "path";
+import { tmpdir } from "os";
+import { createHash } from "crypto";
 import alphaExchangeSeed from "../../data/alpha-exchange-db.json";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import type {
@@ -34,12 +36,14 @@ type Queryable = Pool | PoolClient;
 
 type EvidenceWriteMap = Map<string, Buffer>;
 
-const TEST_FALLBACK_DIR_SUFFIX = process.env.NODE_ENV === "test" && process.env.VITEST_WORKER_ID
-  ? `-${process.env.VITEST_WORKER_ID}`
+const TEST_FALLBACK_DIR_SUFFIX = process.env.NODE_ENV === "test"
+  ? `-${process.env.VITEST_WORKER_ID ?? "single"}-${process.pid}`
   : "";
+const WORKSPACE_FALLBACK_KEY = createHash("sha1").update(process.cwd()).digest("hex").slice(0, 12);
+const NON_TEST_FALLBACK_DIR = path.join(tmpdir(), "alpha-exchange-runtime", WORKSPACE_FALLBACK_KEY);
 const FALLBACK_SNAPSHOT_DIR = path.join(
-  process.cwd(),
-  process.env.NODE_ENV === "test" ? `.next-runtime-test${TEST_FALLBACK_DIR_SUFFIX}` : ".next-runtime",
+  process.env.NODE_ENV === "test" ? process.cwd() : NON_TEST_FALLBACK_DIR,
+  process.env.NODE_ENV === "test" ? `.next-runtime-test${TEST_FALLBACK_DIR_SUFFIX}` : "snapshot",
 );
 const FALLBACK_SNAPSHOT_PATH = path.join(FALLBACK_SNAPSHOT_DIR, "alpha-exchange-fallback.json");
 const EVIDENCE_BLOB_ROOT = path.join(process.cwd(), "data");
@@ -1441,15 +1445,9 @@ function getLatestAvailableFallbackSnapshot(): SnapshotWithVersion {
       getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
     );
   }
-  if (!persistedFallback) {
-    return memorySnapshot;
-  }
-
-  if (getVersion(persistedFallback) >= getVersion(memorySnapshot)) {
-    globalThis.__alphaExchangeMemorySnapshot = attachVersion(cloneSnapshot(persistedFallback), getVersion(persistedFallback));
-    return attachVersion(cloneSnapshot(persistedFallback), getVersion(persistedFallback));
-  }
-
+  // Prefer explicit in-process memory when present. Tests and harness flows
+  // intentionally seed memory directly and must not be silently replaced by
+  // a persisted snapshot from a previous run.
   return memorySnapshot;
 }
 
@@ -1493,7 +1491,9 @@ function syncMemoryFallbackSnapshot(snapshot: AlphaExchangeDb, version = getVers
   globalThis.__alphaExchangeMemorySnapshot = next;
   try {
     mkdirSync(FALLBACK_SNAPSHOT_DIR, { recursive: true });
-    writeFileSync(FALLBACK_SNAPSHOT_PATH, JSON.stringify(next), "utf8");
+    const tempPath = `${FALLBACK_SNAPSHOT_PATH}.tmp`;
+    writeFileSync(tempPath, JSON.stringify(next), "utf8");
+    renameSync(tempPath, FALLBACK_SNAPSHOT_PATH);
   } catch (error) {
     console.warn(
       "[alpha-exchange-repository] failed to persist fallback snapshot:",
@@ -1754,7 +1754,7 @@ export class AlphaExchangeRepository {
             options?.evidenceOverrides?.get(evidence.id) ?? previousEvidence.get(evidence.id) ?? null,
           );
         }
-        globalThis.__alphaExchangeMemorySnapshot = next;
+        syncMemoryFallbackSnapshot(next, getVersion(next));
         globalThis.__alphaExchangeMemoryEvidenceContent = nextEvidence;
         logRepoVersionFlow("save:memory:merged", {
           loadedVersion,
@@ -1775,7 +1775,7 @@ export class AlphaExchangeRepository {
           options?.evidenceOverrides?.get(evidence.id) ?? previousEvidence.get(evidence.id) ?? null,
         );
       }
-      globalThis.__alphaExchangeMemorySnapshot = next;
+      syncMemoryFallbackSnapshot(next, getVersion(next));
       globalThis.__alphaExchangeMemoryEvidenceContent = nextEvidence;
       logRepoVersionFlow("save:memory", {
         loadedVersion,
@@ -2333,10 +2333,11 @@ export class AlphaExchangeRepository {
           current.trustSnapshots.push(snap);
         }
       }
-      globalThis.__alphaExchangeMemorySnapshot = attachVersion(
+      const next = attachVersion(
         current,
         getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion) + 1,
       );
+      syncMemoryFallbackSnapshot(next, getVersion(next));
       return;
     }
 
@@ -2535,10 +2536,11 @@ export class AlphaExchangeRepository {
           current.trustSnapshots.push(snap);
         }
       }
-      globalThis.__alphaExchangeMemorySnapshot = attachVersion(
+      const next = attachVersion(
         current,
         getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion) + 1,
       );
+      syncMemoryFallbackSnapshot(next, getVersion(next));
       return;
     }
 

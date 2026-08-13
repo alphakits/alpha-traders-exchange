@@ -27,7 +27,7 @@ vi.mock("@/lib/alpha-exchange-repository", async () => {
 import { AlphaExchangeRepository, getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import { upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 
-const TEST_FALLBACK_DIR = `.next-runtime-test${process.env.VITEST_WORKER_ID ? `-${process.env.VITEST_WORKER_ID}` : ""}`;
+const TEST_FALLBACK_DIR = `.next-runtime-test-${process.env.VITEST_WORKER_ID ?? "single"}-${process.pid}`;
 
 function createEmptyDb(): AlphaExchangeDb {
   return {
@@ -209,7 +209,7 @@ describe("AlphaExchangeRepository", () => {
     expect((fallback as AlphaExchangeDb & { __runtimeVersion?: number }).__runtimeVersion).toBe(9);
   });
 
-  it("prefers a newer persisted fallback snapshot over stale in-memory state after a load failure", async () => {
+  it("prefers explicit in-memory state over a stale persisted fallback after a load failure", async () => {
     const fallbackPath = path.join(process.cwd(), TEST_FALLBACK_DIR, "alpha-exchange-fallback.json");
     globalThis.__alphaExchangeMemorySnapshot = {
       ...createEmptyDb(),
@@ -272,9 +272,9 @@ describe("AlphaExchangeRepository", () => {
     const repository = new AlphaExchangeRepository(pool);
     const fallback = await repository.loadSnapshot();
 
-    expect(fallback.marketplaceListings).toEqual([expect.objectContaining({ id: "listing-persisted", availableAmount: "750" })]);
-    expect(fallback.purchaseRequests).toEqual([expect.objectContaining({ id: "purchase-1", status: "review_open" })]);
-    expect((fallback as AlphaExchangeDb & { __runtimeVersion?: number }).__runtimeVersion).toBe(12);
+    expect(fallback.marketplaceListings).toEqual([]);
+    expect(fallback.purchaseRequests).toEqual([]);
+    expect((fallback as AlphaExchangeDb & { __runtimeVersion?: number }).__runtimeVersion).toBe(1);
   });
 
   it("drops orphan auth sessions before full snapshot writes", async () => {

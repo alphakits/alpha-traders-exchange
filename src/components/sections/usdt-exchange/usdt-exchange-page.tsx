@@ -34,6 +34,7 @@ import { LISTING_CHANGE_REASONS, listingEditRequiresReason, validateListingChang
 import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
+import { calculateSellerMarketplaceInsights } from "@/lib/marketplace-insights";
 import { cn } from "@/lib/utils";
 import { SELLER_PRESTIGE_TIERS } from "@/lib/seller-prestige";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
@@ -107,6 +108,8 @@ export type SessionUser = {
   isFoundingMember?: boolean;
   isFoundingSeller?: boolean;
   isPhotoVerified?: boolean;
+  verifiedPhone?: string;
+  phoneVerifiedAt?: string;
   notificationPreferences?: { inApp: boolean; email: boolean; sms: boolean };
   createdAt: string;
 };
@@ -120,6 +123,18 @@ type FeatureCard = {
 type TimelineStep = {
   title: string;
   body: string;
+};
+
+type SellerBankAccount = {
+  id: string;
+  accountHolderName: string;
+  bankName: string;
+  branchNumber: string;
+  accountLast4: string;
+  maskedAccountNumber?: string;
+  isDefault?: boolean;
+  createdAt: string;
+  updatedAt: string;
 };
 
 function toNumber(value: string | number | null | undefined) {
@@ -848,7 +863,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(initialSessionUser ?? null);
   const [buyerProfileSummary, setBuyerProfileSummary] = useState<BuyerRankSummary | null>(null);
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
-  const [isSessionResolving, setIsSessionResolving] = useState(true);
+  const [isSessionResolving, setIsSessionResolving] = useState(() => !initialSessionUser);
   const [isLoadingListings, setIsLoadingListings] = useState(true);
   const [isWorkspaceWidgetsLoading, setIsWorkspaceWidgetsLoading] = useState(true);
   const [isSellerApplicationLoading, setIsSellerApplicationLoading] = useState(true);
@@ -883,6 +898,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     currency: "ILS",
     network: "TRC20" as SupportedNetwork,
     paymentMethods: ["Bank Transfer"],
+    bankAccountId: "",
     bankName: "",
     minimumTrade: "0",
     maximumTrade: "",
@@ -938,13 +954,53 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     currency: "",
     network: "TRC20" as SupportedNetwork,
     paymentMethods: ["Bank Transfer"],
+    bankAccountId: "",
     bankName: "",
     minimumTrade: "0",
     maximumTrade: "",
     sellerDescription: "",
   });
+  const [sellerBankAccounts, setSellerBankAccounts] = useState<SellerBankAccount[]>([]);
+  const [sellerBankAccountsLoading, setSellerBankAccountsLoading] = useState(false);
   const [listingCreateCurrencyManualOverride, setListingCreateCurrencyManualOverride] = useState(false);
   const [selectedPurchasePaymentMethod, setSelectedPurchasePaymentMethod] = useState<string>("Bank Transfer");
+
+  useEffect(() => {
+    const canLoadBankAccounts = Boolean(sessionUser && (sessionUser.sellerStatus === "approved_seller" || sessionUser.role === "admin"));
+    if (!canLoadBankAccounts) {
+      setSellerBankAccounts([]);
+      return;
+    }
+    let cancelled = false;
+    setSellerBankAccountsLoading(true);
+    void fetch("/api/alpha-exchange/seller-settings", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return [] as SellerBankAccount[];
+        const payload = await response.json() as { bankAccounts?: SellerBankAccount[] };
+        return Array.isArray(payload.bankAccounts) ? payload.bankAccounts : [];
+      })
+      .then((accounts) => {
+        if (cancelled) return;
+        setSellerBankAccounts(accounts);
+      })
+      .catch(() => {
+        if (!cancelled) setSellerBankAccounts([]);
+      })
+      .finally(() => {
+        if (!cancelled) setSellerBankAccountsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionUser]);
+
+  useEffect(() => {
+    if (!sellerBankAccounts.length) return;
+    const preferredBankAccountId = sellerBankAccounts.find((account) => account.isDefault)?.id ?? sellerBankAccounts[0]?.id;
+    if (!preferredBankAccountId) return;
+    setListingCreateForm((prev) => (prev.bankAccountId ? prev : { ...prev, bankAccountId: preferredBankAccountId }));
+    setListingEditForm((prev) => (prev.bankAccountId ? prev : { ...prev, bankAccountId: preferredBankAccountId }));
+  }, [sellerBankAccounts]);
 
   const tradeReturnPath = selectedListing
     ? `/${locale}/usdt-exchange?listing=${encodeURIComponent(selectedListing.id)}`
@@ -993,6 +1049,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   const [paymentMethodFilter, setPaymentMethodFilter] = useState("all");
   const [networkFilter, setNetworkFilter] = useState<"all" | SupportedNetwork>("all");
   const [showMarketplaceFilters, setShowMarketplaceFilters] = useState(false);
+  const [showAllCompletedTrades, setShowAllCompletedTrades] = useState(false);
   const [minAmountFilter, setMinAmountFilter] = useState("");
   const [maxAmountFilter, setMaxAmountFilter] = useState("");
   const [minPriceFilter, setMinPriceFilter] = useState("");
@@ -1044,14 +1101,15 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   }, []);
 
   const [buyerInfo, setBuyerInfo] = useState({ name: "", whatsapp: "", notes: "", usdtAmount: "", receivingWalletAddress: "" });
-  const [sellerForm, setSellerForm] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    whatsappNumber: "",
+  const [sellerForm, setSellerForm] = useState(() => ({
+    firstName: initialSessionUser?.fullName?.split(" ")[0] ?? "",
+    lastName: initialSessionUser?.fullName?.split(" ").slice(1).join(" ") ?? "",
+    email: initialSessionUser?.email ?? "",
+    whatsappNumber: initialSessionUser?.whatsappNumber ?? "",
     expectedMonthlyTradingVolume: "",
     additionalNotes: "",
-  });
+  }));
+  const sellerFormTouchedRef = useRef(false);
   const [sellerApplicationMethods, setSellerApplicationMethods] = useState<SellerApplicationMethod[]>(["USDT (ERC20 / Ethereum)"]);
   const sellerStatusForLanding = sessionUser?.sellerStatus ?? "buyer";
   const isApprovedSellerSession = sellerStatusForLanding === "approved_seller";
@@ -1269,56 +1327,68 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   }, [tracedFetch]);
 
   const handleMarkAllNotificationsRead = useCallback(async () => {
-    const response = await fetch("/api/alpha-exchange/notifications", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "mark_all_read" }),
-    });
-    await response.json();
-    if (!response.ok) {
+    try {
+      const response = await fetch("/api/alpha-exchange/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_all_read" }),
+      });
+      if (!response.ok) {
+        setStatusMessage(await readApiErrorMessage(response, safeErrorMessage("workspace")));
+        return;
+      }
+      await refreshNotifications();
+    } catch {
       setStatusMessage(safeErrorMessage("workspace"));
-      return;
     }
-    await refreshNotifications();
   }, [refreshNotifications]);
 
   const handleNotificationReadState = useCallback(async (notificationId: string, isRead: boolean) => {
-    const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isRead }),
-    });
-    await response.json();
-    if (!response.ok) {
+    try {
+      const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isRead }),
+      });
+      if (!response.ok) {
+        setStatusMessage(await readApiErrorMessage(response, safeErrorMessage("workspace")));
+        return;
+      }
+      await refreshNotifications();
+    } catch {
       setStatusMessage(safeErrorMessage("workspace"));
-      return;
     }
-    await refreshNotifications();
   }, [refreshNotifications]);
 
   const handleDeleteNotification = useCallback(async (notificationId: string) => {
-    const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, { method: "DELETE" });
-    await response.json();
-    if (!response.ok) {
+    try {
+      const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, { method: "DELETE" });
+      if (!response.ok) {
+        setStatusMessage(await readApiErrorMessage(response, safeErrorMessage("workspace")));
+        return;
+      }
+      await refreshNotifications();
+    } catch {
       setStatusMessage(safeErrorMessage("workspace"));
-      return;
     }
-    await refreshNotifications();
   }, [refreshNotifications]);
 
   async function handleNotificationPreferencesSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const response = await fetch("/api/alpha-exchange/notification-preferences", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(notificationPreferences),
-    });
-    await response.json();
-    if (!response.ok) {
+    try {
+      const response = await fetch("/api/alpha-exchange/notification-preferences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(notificationPreferences),
+      });
+      if (!response.ok) {
+        setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("settings")));
+        return;
+      }
+      setSellerWorkspaceMessage("Notification preferences updated.");
+    } catch {
       setSellerWorkspaceMessage(safeErrorMessage("settings"));
-      return;
     }
-    setSellerWorkspaceMessage("Notification preferences updated.");
   }
 
   useEffect(() => {
@@ -1351,13 +1421,15 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       try {
         const listingsPromise = tracedFetch("Dashboard data loading: listings", "/api/alpha-exchange/listings", { cache: "no-store", signal: controller.signal });
         let resolvedUser = initialSessionUser ?? null;
-
-        if (!resolvedUser) {
+        const needsAuthoritativeSession = !initialSessionUser;
+        if (needsAuthoritativeSession) {
           const meRes = await tracedFetch("/api/auth/me", "/api/auth/me", { cache: "no-store", signal: controller.signal });
           if (cancelled) return;
-          const meJson = (await meRes.json()) as { user: SessionUser | null };
-          if (cancelled) return;
-          resolvedUser = meJson.user;
+          if (meRes.ok) {
+            const meJson = (await meRes.json()) as { user: SessionUser | null };
+            if (cancelled) return;
+            resolvedUser = meJson.user;
+          }
         }
 
         setSessionUser(resolvedUser);
@@ -1369,13 +1441,15 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
 
         if (resolvedUser) {
           const user = resolvedUser;
-          setSellerForm((prev) => ({
-            ...prev,
-            firstName: user.fullName?.split(" ")[0] ?? prev.firstName,
-            lastName: user.fullName?.split(" ").slice(1).join(" ") ?? prev.lastName,
-            email: user.email ?? prev.email,
-            whatsappNumber: user.whatsappNumber || prev.whatsappNumber,
-          }));
+          if (!initialSessionUser && !sellerFormTouchedRef.current) {
+            setSellerForm((prev) => ({
+              ...prev,
+              firstName: user.fullName?.split(" ")[0] ?? prev.firstName,
+              lastName: user.fullName?.split(" ").slice(1).join(" ") ?? prev.lastName,
+              email: user.email ?? prev.email,
+              whatsappNumber: user.whatsappNumber || prev.whatsappNumber,
+            }));
+          }
           setBuyerInfo((prev) => ({
             ...prev,
             name: user.fullName,
@@ -1403,13 +1477,13 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   }, [initialSessionUser, tracedFetch]);
 
   useEffect(() => {
-    if (!sessionUser) return;
-    if (!isApprovedSellerSession) {
+    if (isSessionResolving) return;
+    if (!sessionUser) {
       setIsSellerApplicationLoading(false);
       setIsWorkspaceWidgetsLoading(false);
       return;
     }
-    setIsWorkspaceWidgetsLoading(true);
+    if (isApprovedSellerSession) setIsWorkspaceWidgetsLoading(true);
     setIsSellerApplicationLoading(true);
     let cancelled = false;
     const timer = window.setTimeout(() => {
@@ -1417,7 +1491,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         try {
           const [applicationRes] = await Promise.all([
             tracedFetch("Workspace data loading: seller application", "/api/alpha-exchange/seller-application", { cache: "no-store" }),
-            refreshSellerWorkspace(),
+            isApprovedSellerSession ? refreshSellerWorkspace() : Promise.resolve(),
             refreshNotificationPreferences(),
           ]);
           if (cancelled) return;
@@ -1440,7 +1514,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [isApprovedSellerSession, refreshNotificationPreferences, refreshSellerWorkspace, sessionUser, tracedFetch]);
+  }, [isApprovedSellerSession, isSessionResolving, refreshNotificationPreferences, refreshSellerWorkspace, sessionUser, tracedFetch]);
 
   useEffect(() => {
     if (!isApprovedSellerSession || isSessionResolving || deferredSellerPanelsReady) return;
@@ -2083,6 +2157,8 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   const estimatedTotal = selectedAmount * selectedPrice + commission;
 
   const isApprovedSeller = isApprovedSellerSession;
+  const hasBuyerVerification = sessionUser?.isPhotoVerified === true
+    || Boolean(sessionUser?.verifiedPhone && sessionUser.phoneVerifiedAt);
   const canAccessListingCreation = isApprovedSeller || isAdminSession;
   const isOwnerViewer = sessionUser?.role === "admin" && isAlphaExchangeOwnerEmail(sessionUser.email);
   const archivedConfirmationTrade = !isApprovedSeller
@@ -2113,10 +2189,12 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   const listingCreateSelectedMethods = normalizePaymentMethodList(listingCreateForm.paymentMethods, undefined);
   const listingCreateSelectedBanks = parseIsraeliBankSelection(listingCreateForm.bankName);
   const listingCreateRequiresBank = requiresBankSelection(listingCreateSelectedMethods);
+  const listingCreateRequiresBankAccount = listingCreateRequiresBank;
   const listingCreateMissingRequired = !listingCreateAmount
     || !listingCreatePrice
     || !listingCreateSelectedMethods.length
     || (listingCreateRequiresBank && !listingCreateSelectedBanks.length)
+    || (listingCreateRequiresBankAccount && !listingCreateForm.bankAccountId)
     || !listingCommissionAgreement;
   const listingCreateTotalIls = listingCreateAmount * listingCreatePrice;
   const listingCreateCurrencyValue = Number.isFinite(listingCreateTotalIls) ? Math.round(listingCreateTotalIls) : 0;
@@ -2162,10 +2240,12 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   const listingEditSelectedMethods = normalizePaymentMethodList(listingEditForm.paymentMethods, undefined);
   const listingEditSelectedBanks = parseIsraeliBankSelection(listingEditForm.bankName);
   const listingEditRequiresBank = requiresBankSelection(listingEditSelectedMethods);
+  const listingEditRequiresBankAccount = listingEditRequiresBank;
   const listingEditMissingRequired = !listingEditAmount
     || !listingEditPrice
     || !listingEditSelectedMethods.length
-    || (listingEditRequiresBank && !listingEditSelectedBanks.length);
+    || (listingEditRequiresBank && !listingEditSelectedBanks.length)
+    || (listingEditRequiresBankAccount && !listingEditForm.bankAccountId);
   const isListingEditSubmitDisabled = listingEditMissingRequired || listingEditPriceInvalid || listingEditTradeRangeInvalid;
   const listingEditNeedsReason = listingEditOriginal
     ? listingEditRequiresReason(listingEditOriginal, {
@@ -2233,55 +2313,36 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     router.push(`/trade-room/${requestId}`);
   }, [router]);
   const pendingSellerRequests = useMemo(() => sellerRequests.filter((request) => request.status === "pending"), [sellerRequests]);
-  const completedSellerRequests = useMemo(
-    () => sellerRequests.filter((request) => request.status === "completed" || request.status === "review_open" || Boolean(request.completedAt)),
-    [sellerRequests],
-  );
   const myListingsById = useMemo(() => new Map(myListings.map((listing) => [listing.id, listing])), [myListings]);
   const listingsById = useMemo(() => new Map(listings.map((listing) => [listing.id, listing])), [listings]);
 
   const sellerOverviewStats = useMemo(() => {
-    const completedByListing = completedSellerRequests.map((request) => {
-      const listing = myListingsById.get(request.listingId);
-      return {
-        amount: toNumber(listing?.availableAmount ?? "0"),
-        price: toNumber(listing?.price ?? "0"),
-      };
-    });
-    const totalUsdtSold = completedByListing.reduce((sum, item) => sum + item.amount, 0);
-    const grossSales = completedByListing.reduce((sum, item) => sum + item.amount * item.price, 0);
-    const estimatedEarnings = grossSales * 0.99;
-    const responseMinutes = myListings.map((listing) => parseMinutes(listing.responseTime)).filter((value) => value > 0);
-    const averageResponseTime = responseMinutes.length ? `${Math.round(responseMinutes.reduce((sum, value) => sum + value, 0) / responseMinutes.length)} min` : "5 min";
-    const acceptedCount = sellerRequests.filter((request) => request.status !== "pending" && request.status !== "declined" && request.status !== "cancelled").length;
-    const completionRate = sellerRequests.length ? (completedSellerRequests.length / sellerRequests.length) * 100 : 0;
-    const successRate = sellerRequests.length ? ((acceptedCount + Math.max(0, sellerRequests.length - acceptedCount - 1)) / sellerRequests.length) * 100 : 0;
+    const insightMetrics = calculateSellerMarketplaceInsights({ requests: sellerRequests, listings: myListings });
     const repeatBuyers = sellerRequests.reduce<Record<string, number>>((acc, request) => {
       if (request.status !== "completed") return acc;
       acc[request.buyerId] = (acc[request.buyerId] ?? 0) + 1;
       return acc;
     }, {});
     const repeatBuyersCount = Object.values(repeatBuyers).filter((count) => count > 1).length;
-    const averageTradeSize = completedSellerRequests.length ? grossSales / completedSellerRequests.length : 0;
-    const estimatedCommissionPaid = grossSales * 0.01;
+    const estimatedCommissionPaid = insightMetrics.revenueGenerated * 0.01;
     const selfReputation = myListings.find((listing) => Boolean(listing.sellerReputation))?.sellerReputation ?? null;
     return {
       activeListings: myListings.filter((listing) => listing.status === "active").length,
       pendingRequests: pendingSellerRequests.length,
-      completedTrades: completedSellerRequests.length,
-      totalUsdtSold,
-      estimatedEarnings,
-      averageResponseTime,
+      completedTrades: insightMetrics.completedTrades,
+      totalUsdtSold: insightMetrics.totalUsdtSold,
+      estimatedEarnings: insightMetrics.estimatedEarnings,
+      averageResponseTime: insightMetrics.averageResponseTimeMinutes ? `${Math.round(insightMetrics.averageResponseTimeMinutes)} min` : "Not enough data",
       tradeRequests: sellerRequests.length,
-      successRate,
-      completionRate,
+      successRate: insightMetrics.successRate,
+      completionRate: insightMetrics.completionRate,
       estimatedCommissionPaid,
-      revenueGenerated: grossSales,
+      revenueGenerated: insightMetrics.revenueGenerated,
       repeatBuyers: repeatBuyersCount,
-      averageTradeSize,
+      averageTradeSize: insightMetrics.averageTradeSize,
       reputation: selfReputation,
     };
-  }, [completedSellerRequests, myListings, myListingsById, pendingSellerRequests.length, sellerRequests]);
+  }, [myListings, pendingSellerRequests.length, sellerRequests]);
   const sellerCurrentRank = sellerOverviewStats.reputation?.level ?? "bronze";
   const sellerCurrentTier = SELLER_PRESTIGE_TIERS.find((tier) => tier.rank === sellerCurrentRank) ?? SELLER_PRESTIGE_TIERS[0];
   const sellerNextTier = SELLER_PRESTIGE_TIERS.find((tier) => tier.minVolumeUsdt > sellerCurrentTier.minVolumeUsdt);
@@ -2315,6 +2376,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         .slice(0, 4),
     [deferredSellerPanelsReady, myRequests],
   );
+  const visibleRecentCompletedTrades = showAllCompletedTrades ? recentCompletedTrades : recentCompletedTrades.slice(0, 1);
   const todaysCompletedTrades = useMemo(
     () =>
       !deferredSellerPanelsReady
@@ -2725,6 +2787,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       {
         key: "create-listing",
         label: "Create Listing",
+        tone: "gold" as const,
         enabled: canAccessListingCreation,
         onClick: () => {
           void scrollToCreateListingSection();
@@ -2733,6 +2796,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       {
         key: "manage-listings",
         label: "Manage Listings",
+        tone: "gold" as const,
         enabled: true,
         onClick: () => {
           void scrollToMyListingsSection();
@@ -2741,6 +2805,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       {
         key: "active-trades",
         label: "Active Trades",
+        tone: "blue" as const,
         enabled: true,
         onClick: () => {
           if (latestOpenSellerTrade) {
@@ -2753,12 +2818,14 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       {
         key: "notifications",
         label: "Notifications",
+        tone: "green" as const,
         enabled: true,
         onClick: () => router.push("/notifications"),
       },
       {
         key: "market-overview",
         label: "Market Overview",
+        tone: "amber" as const,
         enabled: true,
         onClick: () => {
           const target = document.getElementById("market-overview");
@@ -2772,6 +2839,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       {
         key: "seller-dashboard",
         label: "Seller Dashboard",
+        tone: "blue" as const,
         enabled: true,
         onClick: () => {
           router.push("/dashboard/seller");
@@ -2782,6 +2850,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       {
         key: "browse-marketplace",
         label: "Browse Marketplace",
+        tone: "gold" as const,
         enabled: true,
         onClick: () => {
           const target = document.getElementById("marketplace");
@@ -2795,6 +2864,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       {
         key: "trade-requests",
         label: "My Trade Requests",
+        tone: "blue" as const,
         enabled: true,
         onClick: () => {
           if (scrollToBuyerTradeHistorySection()) return;
@@ -2804,6 +2874,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       {
         key: "active-trades",
         label: "Active Trades",
+        tone: "blue" as const,
         enabled: true,
         onClick: () => {
           if (latestOpenBuyerTrade) {
@@ -2816,12 +2887,14 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       {
         key: "notifications",
         label: "Notifications",
+        tone: "green" as const,
         enabled: true,
         onClick: () => router.push("/notifications"),
       },
       {
         key: "market-overview",
         label: "Market Overview",
+        tone: "amber" as const,
         enabled: true,
         onClick: () => {
           const target = document.getElementById("market-overview");
@@ -3227,6 +3300,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
           currency: "ILS",
           network: listingCreateForm.network,
           paymentMethods: listingCreateSelectedMethods,
+          bankAccountId: listingCreateForm.bankAccountId || undefined,
           bankName: serializeIsraeliBankSelection(listingCreateSelectedBanks),
           minimumTrade: listingCreateForm.minimumTrade,
           maximumTrade: listingCreateForm.maximumTrade || listingCreateForm.availableAmount,
@@ -3247,6 +3321,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         price: "",
         currency: "",
         paymentMethods: ["Bank Transfer"],
+        bankAccountId: "",
         bankName: "",
         minimumTrade: "0",
         maximumTrade: "",
@@ -3292,6 +3367,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
           currency: listingEditForm.currency,
           network: listingEditForm.network,
           paymentMethods: listingEditSelectedMethods,
+          bankAccountId: listingEditForm.bankAccountId || undefined,
           bankName: serializeIsraeliBankSelection(listingEditSelectedBanks),
           minimumTrade: listingEditForm.minimumTrade,
           maximumTrade: listingEditForm.maximumTrade || listingEditForm.availableAmount,
@@ -3984,7 +4060,15 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                     key={action.key}
                     type="button"
                     variant="secondary"
-                    className="h-12 justify-between rounded-2xl px-4 text-sm font-semibold"
+                    className={`h-12 justify-between rounded-2xl border px-4 text-sm font-semibold ${
+                      action.tone === "gold"
+                        ? "border-[#C9A227]/35 bg-[#C9A227]/10 hover:border-[#C9A227]/60"
+                        : action.tone === "blue"
+                          ? "border-[#6CAEFF]/35 bg-[#6CAEFF]/10 hover:border-[#6CAEFF]/60"
+                          : action.tone === "green"
+                            ? "border-emerald-500/35 bg-emerald-500/10 hover:border-emerald-400/60"
+                            : "border-amber-500/35 bg-amber-500/10 hover:border-amber-400/60"
+                    }`}
                     onClick={action.onClick}
                     disabled={!action.enabled}
                   >
@@ -4300,6 +4384,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                             currency: listing.currency,
                             network: listing.network,
                             paymentMethods: normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod),
+                            bankAccountId: listing.bankAccountId ?? (sellerBankAccounts.find((account) => account.isDefault)?.id ?? sellerBankAccounts[0]?.id ?? ""),
                             bankName: listing.bankName ?? "",
                             minimumTrade: listing.minimumTrade ?? "0",
                             maximumTrade: listing.maximumTrade ?? listing.availableAmount,
@@ -4446,6 +4531,34 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                           {listingEditSelectedBanks.length ? <p className="mt-2 text-xs text-[#93C5FD]">Selected: {listingEditSelectedBanks.join(", ")}</p> : null}
                         </div>
                         ) : null}
+                        {listingEditRequiresBankAccount ? (
+                        <div className="md:col-span-4 rounded-2xl border border-white/10 bg-black/20 p-3">
+                          <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Payout bank account *</p>
+                          {sellerBankAccountsLoading ? (
+                            <p className="mt-2 text-xs text-[#D1D5DB]">Loading your saved bank accounts...</p>
+                          ) : sellerBankAccounts.length === 0 ? (
+                            <p className="mt-2 text-xs text-amber-300">
+                              No saved bank accounts found. Add one in <Link href="/settings" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Settings</Link> before saving this listing.
+                            </p>
+                          ) : (
+                            <>
+                              <select
+                                className="mt-2 flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white"
+                                value={listingEditForm.bankAccountId}
+                                onChange={(event) => setListingEditForm((prev) => ({ ...prev, bankAccountId: event.target.value }))}
+                              >
+                                <option value="">Select bank account</option>
+                                {sellerBankAccounts.map((account) => (
+                                  <option key={account.id} value={account.id}>
+                                    {`${account.bankName} • ${account.maskedAccountNumber ?? `****${account.accountLast4}`}${account.isDefault ? " (Default)" : ""}`}
+                                  </option>
+                                ))}
+                              </select>
+                              <p className="mt-2 text-xs text-[#9CA3AF]">Buyers never see your full account number.</p>
+                            </>
+                          )}
+                        </div>
+                        ) : null}
                         {listingEditNeedsReason ? (
                           <div className="md:col-span-4 rounded-2xl border border-amber-500/35 bg-amber-500/[0.06] p-3">
                             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#FDE68A]">Reason for change <span className="text-red-300">*</span></p>
@@ -4489,6 +4602,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                               <p>Maximum allowed: {formatIls(maxAllowedListingPrice)}</p>
                               {listingEditTradeRangeInvalid ? <p className="text-amber-200">Maximum trade must be greater than minimum trade and less than or equal to available USDT.</p> : null}
                               {listingEditRequiresBank && !listingEditSelectedBanks.length ? <p className="text-amber-200">Select one or two supported banks before saving.</p> : null}
+                              {listingEditRequiresBankAccount && !listingEditForm.bankAccountId ? <p className="text-amber-200">Select one payout bank account before saving.</p> : null}
                               {listingEditAmount > 0 ? <p>{listingEditAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingEditAmount * marketPricePerUsdt)}</p> : null}
                             </div>
                           </div>
@@ -4516,7 +4630,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                 {isAr ? "الصفقات المكتملة مؤخرًا" : "Recently Completed Trades"}
               </p>
               <div className="mt-2 grid gap-2 md:grid-cols-2">
-                {recentCompletedTrades.map((trade) => (
+                {visibleRecentCompletedTrades.map((trade) => (
                   <div key={`recent-completed-${trade.id}`} className="flex items-start gap-3 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
                     <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
                     <div>
@@ -4527,6 +4641,20 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                   </div>
                 ))}
               </div>
+              {recentCompletedTrades.length > 1 ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="mt-3"
+                  aria-expanded={showAllCompletedTrades}
+                  onClick={() => setShowAllCompletedTrades((value) => !value)}
+                >
+                  {showAllCompletedTrades
+                    ? (isAr ? "عرض أقل" : "Show less")
+                    : (isAr ? `عرض ${recentCompletedTrades.length - 1} صفقات إضافية` : `Show ${recentCompletedTrades.length - 1} more`)}
+                </Button>
+              ) : null}
             </CardContent>
           </Card>
         ) : null}
@@ -4715,7 +4843,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                   </Button>
                 </div>
               </div>
-            ) : isSellerApplicationLoading ? (
+            ) : isSellerApplicationLoading && isApprovedSellerSession ? (
               <div className="space-y-3">
                 <div className="h-4 w-44 animate-pulse rounded bg-white/10" />
                 <div className="h-20 w-full animate-pulse rounded-2xl bg-white/10" />
@@ -4723,7 +4851,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
               </div>
             ) : (
             /* ── State 1: Buyer verification not complete ── */
-            sessionUser && sessionUser.isPhotoVerified !== true ? (
+            sessionUser && !hasBuyerVerification ? (
               <div className="rounded-2xl border border-amber-500/35 bg-amber-500/10 p-5">
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
@@ -4824,7 +4952,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                         value={sellerForm.firstName}
                         required
                         aria-required
-                        onChange={(event) => setSellerForm((prev) => ({ ...prev, firstName: event.target.value }))}
+                        onChange={(event) => { sellerFormTouchedRef.current = true; setSellerForm((prev) => ({ ...prev, firstName: event.target.value })); }}
                         className={requiredFieldClasses({ value: sellerForm.firstName, required: true })}
                       />
                     </div>
@@ -4836,7 +4964,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                         value={sellerForm.lastName}
                         required
                         aria-required
-                        onChange={(event) => setSellerForm((prev) => ({ ...prev, lastName: event.target.value }))}
+                        onChange={(event) => { sellerFormTouchedRef.current = true; setSellerForm((prev) => ({ ...prev, lastName: event.target.value })); }}
                         className={requiredFieldClasses({ value: sellerForm.lastName, required: true })}
                       />
                     </div>
@@ -4863,7 +4991,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                       value={sellerForm.whatsappNumber}
                       required
                       aria-required
-                      onChange={(event) => setSellerForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))}
+                      onChange={(event) => { sellerFormTouchedRef.current = true; setSellerForm((prev) => ({ ...prev, whatsappNumber: event.target.value })); }}
                       className={requiredFieldClasses({ value: sellerForm.whatsappNumber, required: true })}
                     />
                   </div>
@@ -4913,14 +5041,14 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                   <Input
                     placeholder={isAr ? "مثال: 5,000 USDT شهريًا" : "e.g. 5,000 USDT per month"}
                     value={sellerForm.expectedMonthlyTradingVolume}
-                    onChange={(event) => setSellerForm((prev) => ({ ...prev, expectedMonthlyTradingVolume: event.target.value }))}
+                    onChange={(event) => { sellerFormTouchedRef.current = true; setSellerForm((prev) => ({ ...prev, expectedMonthlyTradingVolume: event.target.value })); }}
                   />
 
                   {/* Additional notes */}
                   <Textarea
                     placeholder={isAr ? "ملاحظات إضافية (اختياري)" : "Additional notes (optional)"}
                     value={sellerForm.additionalNotes}
-                    onChange={(event) => setSellerForm((prev) => ({ ...prev, additionalNotes: event.target.value }))}
+                    onChange={(event) => { sellerFormTouchedRef.current = true; setSellerForm((prev) => ({ ...prev, additionalNotes: event.target.value })); }}
                   />
 
                   <Button type="submit" className="w-full" disabled={!sellerForm.firstName || !sellerForm.lastName || !sellerForm.whatsappNumber || sellerApplicationMethods.length === 0}>
@@ -5659,6 +5787,34 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                   {listingCreateSelectedBanks.length ? <p className="mt-2 text-xs text-[#93C5FD]">Selected: {listingCreateSelectedBanks.join(", ")}</p> : null}
                 </div>
                 ) : null}
+                {listingCreateRequiresBankAccount ? (
+                <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
+                  <FieldLabel required>{isAr ? "حساب البنك لاستلام الدفع" : "Payout bank account"}</FieldLabel>
+                  {sellerBankAccountsLoading ? (
+                    <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? "جارٍ تحميل الحسابات البنكية..." : "Loading saved bank accounts..."}</p>
+                  ) : sellerBankAccounts.length === 0 ? (
+                    <p className="mt-2 text-xs text-amber-300">
+                      {isAr ? "لا توجد حسابات بنكية محفوظة. أضف حسابًا في" : "No saved bank accounts found. Add one in"} <Link href="/settings" locale={locale} className="text-[#93C5FD] underline underline-offset-2">{isAr ? "الإعدادات" : "Settings"}</Link>.
+                    </p>
+                  ) : (
+                    <>
+                      <select
+                        className="mt-2 flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white"
+                        value={listingCreateForm.bankAccountId}
+                        onChange={(event) => setListingCreateForm((prev) => ({ ...prev, bankAccountId: event.target.value }))}
+                      >
+                        <option value="">{isAr ? "اختر الحساب البنكي" : "Select bank account"}</option>
+                        {sellerBankAccounts.map((account) => (
+                          <option key={account.id} value={account.id}>
+                            {`${account.bankName} • ${account.maskedAccountNumber ?? `****${account.accountLast4}`}${account.isDefault ? (isAr ? " (افتراضي)" : " (Default)") : ""}`}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-2 text-xs text-[#9CA3AF]">{isAr ? "رقم الحساب الكامل يظل مخفيًا عن المشترين حتى بداية الصفقة." : "Your full account number stays hidden from buyers until the trade starts."}</p>
+                    </>
+                  )}
+                </div>
+                ) : null}
                 <div className="md:col-span-2 rounded-2xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-4 text-sm text-[#E5E7EB]">
                   <p className="text-xs uppercase tracking-[0.14em] text-[#93C5FD]">Live total value</p>
                   <p className="mt-1">{listingCreateAmount.toLocaleString("en-IL")} USDT</p>
@@ -5689,6 +5845,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                       <p>Maximum allowed: {formatIls(maxAllowedListingPrice)}</p>
                       {listingCreateTradeRangeInvalid ? <p className="text-amber-200">Maximum trade must be greater than minimum trade and less than or equal to available USDT.</p> : null}
                       {listingCreateRequiresBank && !listingCreateSelectedBanks.length ? <p className="text-amber-200">Select one or two supported banks before submitting.</p> : null}
+                      {listingCreateRequiresBankAccount && !listingCreateForm.bankAccountId ? <p className="text-amber-200">Select one payout bank account before submitting.</p> : null}
                       {!listingCommissionAgreement ? <p className="text-amber-200">You must accept the 1% commission policy before publishing.</p> : null}
                       {listingCreateAmount > 0 ? <p>{listingCreateAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingCreateAmount * marketPricePerUsdt)}</p> : null}
                     </div>

@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { redactPhoneNumbers } from "@/lib/privacy-redaction";
 
 export type MarketplaceEmailEvent =
   | "new_buy_request"
@@ -15,6 +16,7 @@ export type MarketplaceEmailEvent =
   | "listing_expired"
   | "listing_renewed"
   | "new_listing_published"
+  | "seller_prestige_promoted"
   | "marketplace_enforcement_fee_issued"
   | "marketplace_enforcement_fee_paid"
   | "marketplace_enforcement_seller_revoked";
@@ -120,22 +122,23 @@ function escapeHtml(value: string) {
 }
 
 export function buildMarketplaceEmail(input: MarketplaceEmailPayload) {
-  const recipientName = escapeHtml(input.recipientName || "Trader");
-  const title = escapeHtml(input.title);
-  const message = escapeHtml(input.message);
+  const recipientName = escapeHtml(redactPhoneNumbers(input.recipientName || "Trader"));
+  const title = escapeHtml(redactPhoneNumbers(input.title));
+  const message = escapeHtml(redactPhoneNumbers(input.message));
   const actionLabel = escapeHtml(input.actionLabel);
   const actionUrl = escapeHtml(input.actionUrl);
-  const referenceLabel = input.referenceLabel ? escapeHtml(input.referenceLabel) : "";
-  const subject = `${input.title} | Alpha Exchange`;
+  const safeReferenceLabel = input.referenceLabel ? redactPhoneNumbers(input.referenceLabel) : "";
+  const referenceLabel = safeReferenceLabel ? escapeHtml(safeReferenceLabel) : "";
+  const subject = `${redactPhoneNumbers(input.title)} | Alpha Exchange`;
 
   return {
     subject,
     text: [
-      `Hello ${input.recipientName || "Trader"},`,
+      `Hello ${redactPhoneNumbers(input.recipientName || "Trader")},`,
       "",
-      input.title,
-      input.message,
-      input.referenceLabel ? `Reference: ${input.referenceLabel}` : "",
+      redactPhoneNumbers(input.title),
+      redactPhoneNumbers(input.message),
+      safeReferenceLabel ? `Reference: ${safeReferenceLabel}` : "",
       "",
       `${input.actionLabel}: ${input.actionUrl}`,
       "",

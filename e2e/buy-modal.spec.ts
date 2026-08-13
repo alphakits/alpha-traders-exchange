@@ -84,7 +84,7 @@ async function seedSellerAndListing(request: APIRequestContext) {
 }
 
 async function login(page: Page, email: string, password: string) {
-  const response = await page.request.post("/api/auth/login", { data: { email, password, rememberMe: true } });
+  const response = await page.request.post("/api/auth/login", { headers: { "x-forwarded-for": "198.51.100.11" }, data: { email, password, rememberMe: true } });
   expect(response.ok()).toBeTruthy();
 }
 

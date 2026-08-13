@@ -71,6 +71,7 @@ async function readMarketplaceEmailHarness(api: APIRequestContext) {
 async function loginApi(email: string, password: string) {
   const api = await request.newContext({ baseURL: E2E_BASE_URL });
   const response = await api.post("/api/auth/login", {
+    headers: { "x-forwarded-for": "198.51.100.19" },
     data: { email, password, rememberMe: true },
   });
   expect(response.ok(), `Login failed for ${email}: ${await response.text()}`).toBeTruthy();

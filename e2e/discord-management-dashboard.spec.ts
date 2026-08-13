@@ -111,6 +111,7 @@ const diagnostics = {
 
 async function login(page: Page) {
   const response = await page.request.post("/api/auth/login", {
+    headers: { "x-forwarded-for": "198.51.100.14" },
     data: {
       email: world.admin.email,
       password: world.admin.password,

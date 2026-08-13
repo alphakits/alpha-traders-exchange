@@ -12,6 +12,7 @@ const SELLER_PASSWORD = process.env.E2E_SELLER_PASSWORD ?? "";
 
 async function login(request: APIRequestContext, email: string, password: string) {
   const response = await request.post("/api/auth/login", {
+    headers: { "x-forwarded-for": "198.51.100.16" },
     data: {
       email,
       password,

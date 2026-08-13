@@ -32,6 +32,21 @@ describe("marketplace email delivery", () => {
     expect(email.html).not.toContain("Mark <Trader>");
   });
 
+  it("supports the dedicated seller prestige promotion email event", () => {
+    const email = buildMarketplaceEmail({
+      ...payload,
+      event: "seller_prestige_promoted",
+      title: "Congratulations on your new seller rank",
+      message: "You reached silver seller.",
+      actionLabel: "View Seller Insights",
+      actionUrl: "https://www.alphatraders.co.il/en/usdt-exchange#market-overview",
+      referenceLabel: "promotion-1",
+    });
+    expect(email.subject).toBe("Congratulations on your new seller rank | Alpha Exchange");
+    expect(email.text).toContain("View Seller Insights");
+    expect(email.text).toContain("promotion-1");
+  });
+
   it("does not call Resend when email delivery is not configured", async () => {
     vi.stubEnv("RESEND_API_KEY", "");
     vi.stubEnv("EMAIL_FROM", "");

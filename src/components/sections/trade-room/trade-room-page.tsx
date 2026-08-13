@@ -41,6 +41,17 @@ type TradeRoomData = {
   };
 };
 
+type TradeRoomBankDetails = {
+  requestId: string;
+  tradeId: string;
+  bankAccountId: string;
+  accountHolderName: string;
+  bankName: string;
+  branchNumber: string;
+  accountNumber: string;
+  accountLast4: string;
+};
+
 type ActorSession = {
   id: string;
   role: UserRole;
@@ -504,9 +515,24 @@ function timelineStepForEvent(event: TradeTimelineEntry): StepId {
   if (event.type === "request_submitted") return "request";
   if (event.type === "request_accepted") return "accepted";
   if (event.type === "payment_sent" || event.type === "buyer_evidence_uploaded") return "payment";
+  if (event.type === "bank_details_revealed" || event.type === "trade_inactivity_warning_sent") return "payment";
   if (event.type === "seller_confirmed_funds") return "verifying";
   if (event.type === "usdt_release_started" || event.type === "usdt_sent" || event.type === "seller_evidence_uploaded") return "release";
+  if (event.type === "trade_closed_manually") return "completed";
   return "completed";
+}
+
+function timelineEventLabel(event: TradeTimelineEntry, isAr: boolean) {
+  if (event.type === "bank_details_revealed") {
+    return isAr ? "تم فتح تفاصيل الحساب البنكي داخل غرفة الصفقة" : "Trade bank details viewed in the trade room";
+  }
+  if (event.type === "trade_inactivity_warning_sent") {
+    return isAr ? "تم إرسال تحذير بسبب عدم النشاط في الصفقة" : "Inactivity warning was sent for this trade";
+  }
+  if (event.type === "trade_closed_manually") {
+    return isAr ? "تم إغلاق الصفقة يدويًا" : "Trade closed manually";
+  }
+  return event.message;
 }
 
 function encodeFileToDataUrl(file: File) {
@@ -705,6 +731,13 @@ export function TradeRoomPage({
   const [buyerSuccessFadingOut, setBuyerSuccessFadingOut] = useState(false);
   const [walletQrDataUrl, setWalletQrDataUrl] = useState<string | null>(null);
   const [walletCopied, setWalletCopied] = useState(false);
+  const [bankDetails, setBankDetails] = useState<TradeRoomBankDetails | null>(null);
+  const [bankDetailsBusy, setBankDetailsBusy] = useState(false);
+  const [bankDetailsError, setBankDetailsError] = useState<string | null>(null);
+  const [showManualCloseComposer, setShowManualCloseComposer] = useState(false);
+  const [manualCloseReason, setManualCloseReason] = useState("");
+  const [manualCloseExplanation, setManualCloseExplanation] = useState("");
+  const [manualCloseBusy, setManualCloseBusy] = useState(false);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const actionNoticeTimeoutRef = useRef<number | null>(null);
   const actionInFlightRef = useRef<string | null>(null);
@@ -1129,6 +1162,50 @@ export function TradeRoomPage({
     }
   }, [isAr, sellerWalletAddress]);
 
+  const canRevealBankDetails = Boolean(
+    request
+    && !isSeller
+    && request.status !== "pending"
+    && request.status !== "declined"
+    && request.status !== "cancelled",
+  );
+
+  useEffect(() => {
+    if (!request) {
+      setBankDetails(null);
+      setBankDetailsError(null);
+      return;
+    }
+    if (!canRevealBankDetails) {
+      setBankDetails(null);
+      setBankDetailsError(null);
+      return;
+    }
+    let cancelled = false;
+    setBankDetailsBusy(true);
+    setBankDetailsError(null);
+    void fetch(`/api/alpha-exchange/trade-room/${request.id}/bank-details`, { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({})) as { error?: string; bankDetails?: TradeRoomBankDetails };
+        if (!response.ok) {
+          throw new Error(payload.error ?? (isAr ? "تعذر تحميل تفاصيل الحساب البنكي." : "Failed to load bank details."));
+        }
+        if (!cancelled) setBankDetails(payload.bankDetails ?? null);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setBankDetails(null);
+          setBankDetailsError(error instanceof Error ? error.message : (isAr ? "تعذر تحميل تفاصيل الحساب البنكي." : "Failed to load bank details."));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setBankDetailsBusy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canRevealBankDetails, isAr, request]);
+
   const selectedStepEvent = useMemo(() => {
     if (!request) return null;
     const timeline = [...(request.timeline ?? [])].reverse();
@@ -1546,6 +1623,46 @@ export function TradeRoomPage({
     });
   }, [actionBusy, actor.id, handleStatusUpdate, isAr, request]);
 
+  const handleManualCloseTrade = useCallback(async () => {
+    if (!request || manualCloseBusy) return;
+    const reason = manualCloseReason.trim();
+    const explanation = manualCloseExplanation.trim();
+    if (!reason) {
+      setStatusMessage(isAr ? "سبب الإغلاق مطلوب." : "Close reason is required.");
+      return;
+    }
+    setManualCloseBusy(true);
+    setStatusMessage(null);
+    try {
+      const response = await fetch(`/api/alpha-exchange/trade-room/${request.id}/close`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason, explanation }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string; request?: PurchaseRequest };
+      if (!response.ok) {
+        setStatusMessage(payload.error ?? (isAr ? "تعذر إغلاق الصفقة يدويًا." : "Failed to close trade manually."));
+        return;
+      }
+      if (payload.request && room) {
+        const nextRoom = applyRequestToRoom(room, payload.request);
+        roomRef.current = nextRoom;
+        setRoom(nextRoom);
+        writeTradeRoomCache(requestId, nextRoom);
+      } else {
+        await fetchRoom(true);
+      }
+      setShowManualCloseComposer(false);
+      setManualCloseReason("");
+      setManualCloseExplanation("");
+      setStatusMessage(isAr ? "تم إغلاق الصفقة يدويًا." : "Trade closed manually.");
+    } catch {
+      setStatusMessage(isAr ? "تعذر إغلاق الصفقة يدويًا." : "Failed to close trade manually.");
+    } finally {
+      setManualCloseBusy(false);
+    }
+  }, [fetchRoom, isAr, manualCloseBusy, manualCloseExplanation, manualCloseReason, request, requestId, room]);
+
   const handleSubmitBuyerReview = useCallback(async () => {
     if (actionBusy || Boolean(actionInFlightRef.current)) {
       logReviewDiagnostic("validation-failed", { reason: "trade-status-update-in-flight" });
@@ -1741,6 +1858,11 @@ export function TradeRoomPage({
                 {request.bankName ? (
                   <p className="text-sm text-[#9CA3AF]">
                     {isAr ? "البنوك المعتمدة" : "Supported Banks"}: <span className="text-white">{request.bankName}</span>
+                  </p>
+                ) : null}
+                {request.closedAt ? (
+                  <p className="text-sm text-[#FCA5A5]">
+                    {isAr ? "سبب إغلاق الصفقة" : "Close reason"}: <span className="text-white">{request.closeReason ?? (isAr ? "غير محدد" : "Not specified")}</span>
                   </p>
                 ) : null}
               </div>
@@ -2071,6 +2193,41 @@ export function TradeRoomPage({
                   </div>
                 ) : null}
 
+                {request.inactivityWarningSentAt ? (
+                  <div className="rounded-xl border border-amber-500/35 bg-amber-500/12 p-3 text-sm text-amber-100">
+                    <p className="font-medium">{isAr ? "تحذير عدم النشاط" : "Inactivity warning"}</p>
+                    <p className="mt-1">
+                      {isAr
+                        ? `تم إرسال تحذير بسبب عدم النشاط في ${new Date(request.inactivityWarningSentAt).toLocaleString("en-IL")}. أكمل الخطوة الحالية لتجنب التأخير.`
+                        : `An inactivity warning was sent at ${new Date(request.inactivityWarningSentAt).toLocaleString("en-IL")}. Complete the current step to avoid delays.`}
+                    </p>
+                  </div>
+                ) : null}
+
+                {canRevealBankDetails ? (
+                  <div className="rounded-2xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-4">
+                    <p className="text-xs uppercase tracking-[0.14em] text-[#BFDBFE]">{isAr ? "تفاصيل الدفع البنكي" : "Bank Payment Details"}</p>
+                    {bankDetailsBusy ? (
+                      <p className="mt-2 text-sm text-[#D1D5DB]">{isAr ? "جارٍ تحميل تفاصيل الحساب البنكي..." : "Loading bank account details..."}</p>
+                    ) : bankDetailsError ? (
+                      <p className="mt-2 text-sm text-amber-200">{bankDetailsError}</p>
+                    ) : bankDetails ? (
+                      <div className="mt-2 space-y-1 text-sm text-[#E5E7EB]">
+                        <p>{isAr ? "اسم صاحب الحساب" : "Account holder"}: <span className="text-white">{bankDetails.accountHolderName}</span></p>
+                        <p>{isAr ? "اسم البنك" : "Bank"}: <span className="text-white">{bankDetails.bankName}</span></p>
+                        <p>{isAr ? "رقم الفرع" : "Branch"}: <span className="text-white">{bankDetails.branchNumber}</span></p>
+                        <p>{isAr ? "رقم الحساب" : "Account number"}: <span className="font-mono text-white">{bankDetails.accountNumber}</span></p>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-sm text-[#D1D5DB]">{isAr ? "سيتم إظهار التفاصيل بعد قبول البائع للصفقة." : "Details appear after seller accepts the trade."}</p>
+                    )}
+                  </div>
+                ) : !isSeller && request.status === "pending" ? (
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-[#9CA3AF]">
+                    {isAr ? "تفاصيل الحساب البنكي ستكون متاحة بعد قبول البائع للصفقة." : "Bank details become available after the seller accepts the trade."}
+                  </div>
+                ) : null}
+
                 {sellerWalletAddress ? (
                   <div className="rounded-2xl border-2 border-[#C9A227]/65 bg-gradient-to-br from-[#C9A227]/20 via-black/70 to-[#6CAEFF]/10 p-4 shadow-[0_0_28px_rgba(201,162,39,0.18)]">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
@@ -2138,6 +2295,47 @@ export function TradeRoomPage({
                           ? (isAr ? "إلغاء الطلب" : "Cancel Request")
                           : (isAr ? "إلغاء الصفقة" : "Cancel Trade")}
                     </Button>
+                  </div>
+                ) : null}
+
+                {request.status !== "declined" && request.status !== "cancelled" && !COMPLETED_TRADE_STATUSES.has(request.status) ? (
+                  <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm text-red-100">{isAr ? "إغلاق يدوي للصفقة" : "Manual trade close"}</p>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={manualCloseBusy}
+                        onClick={() => setShowManualCloseComposer((value) => !value)}
+                      >
+                        {showManualCloseComposer
+                          ? (isAr ? "إلغاء" : "Cancel")
+                          : (isAr ? "إغلاق الصفقة" : "Close Trade")}
+                      </Button>
+                    </div>
+                    {showManualCloseComposer ? (
+                      <div className="mt-2 space-y-2">
+                        <Input
+                          value={manualCloseReason}
+                          onChange={(event) => setManualCloseReason(event.target.value)}
+                          aria-label={isAr ? "سبب إغلاق الصفقة" : "Trade close reason"}
+                          placeholder={isAr ? "سبب الإغلاق (مطلوب)" : "Close reason (required)"}
+                          maxLength={120}
+                        />
+                        <Textarea
+                          value={manualCloseExplanation}
+                          onChange={(event) => setManualCloseExplanation(event.target.value)}
+                          aria-label={isAr ? "تفاصيل إضافية" : "Additional details"}
+                          placeholder={isAr ? "تفاصيل إضافية (اختياري)" : "Additional details (optional)"}
+                        />
+                        <Button type="button" size="sm" disabled={manualCloseBusy} onClick={() => void handleManualCloseTrade()}>
+                          {manualCloseBusy
+                            ? (isAr ? "جارٍ الإغلاق..." : "Closing...")
+                            : (isAr ? "تأكيد الإغلاق اليدوي" : "Confirm Manual Close")}
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -2333,7 +2531,7 @@ export function TradeRoomPage({
                     <div key={event.id} className="flex gap-3 rounded-xl border border-white/10 bg-black/20 p-3 text-sm">
                       <div className="mt-1 h-2.5 w-2.5 rounded-full bg-[#C9A227]" />
                       <div>
-                        <p className="text-white">{event.message}</p>
+                        <p className="text-white">{timelineEventLabel(event, isAr)}</p>
                         <p className="text-xs text-[#9CA3AF]">{new Date(event.createdAt).toLocaleString("en-IL")}</p>
                       </div>
                     </div>

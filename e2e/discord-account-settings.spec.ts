@@ -21,6 +21,7 @@ test.afterAll(async () => {
 
 async function login(page: Page) {
   const response = await page.request.post("/api/auth/login", {
+    headers: { "x-forwarded-for": "198.51.100.12" },
     data: {
       email: buyer.email,
       password: buyer.password,

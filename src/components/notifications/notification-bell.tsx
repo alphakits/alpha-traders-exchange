@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Bell, BellDot, CircleDot, ExternalLink, Megaphone, Scale, ShieldCheck, Star, Tags, UserRound, XCircle } from "lucide-react";
 import type { AppLocale } from "@/i18n/routing";
-import { Link, usePathname, useRouter } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { appendLoginJourneyStep, incrementLoginJourneyApiCall } from "@/lib/login-journey-trace";
@@ -26,7 +26,19 @@ type NotificationsStreamPayload = {
   unreadCount: number;
 };
 
-const TRADE_ROOM_DEBUG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
+type TradeRoomRequestPayload = {
+  id: string;
+  status: string;
+  sellerId: string;
+  buyerId: string;
+};
+
+type TradeSnapshotPayload = {
+  requestId?: string;
+  currentStage?: string;
+  sellerId?: string;
+  buyerId?: string;
+};
 
 function notificationIcon(notification: AlphaExchangeNotification) {
   if (notification.category === "trade") return Scale;
@@ -58,13 +70,15 @@ function extractRequestIdFromTradeRoomHref(href: string | null) {
   if (!href) return null;
   try {
     const parsed = new URL(href, "https://www.alphatraders.co.il");
-    const segments = parsed.pathname.replace(/\/+$/, "").split("/");
-    const requestId = segments[segments.length - 1]?.trim();
-    return requestId || null;
+    const normalizedPath = parsed.pathname.replace(/\/+$/, "").toLowerCase();
+    const match = normalizedPath.match(/\/trade-room\/([^/?#]+)/i);
+    if (match?.[1]) return decodeURIComponent(match[1]);
+    return null;
   } catch {
     const normalized = href.split("?")[0]?.split("#")[0]?.replace(/\/+$/, "") ?? "";
-    const requestId = normalized.slice(normalized.lastIndexOf("/") + 1).trim();
-    return requestId || null;
+    const match = normalized.match(/\/trade-room\/([^/?#]+)/i);
+    if (match?.[1]) return decodeURIComponent(match[1]);
+    return null;
   }
 }
 
@@ -76,6 +90,59 @@ function formatNotificationMessage(notification: AlphaExchangeNotification) {
   return replaceExchangeEntityIdsWithHints(notification.message, notification);
 }
 
+function buildTradeRoomHashForAction(action: string) {
+  if (action === "upload-payment-receipt" || action === "upload-seller-evidence") return "evidence";
+  if (action === "review-trade" || action === "open-trade") return "status-banner";
+  return "action-required";
+}
+
+function buildTradeRoomActionForRequest(request: TradeRoomRequestPayload, actorUserId: string) {
+  const isSeller = request.sellerId === actorUserId;
+  const isBuyer = request.buyerId === actorUserId;
+  if (request.status === "pending" && isSeller) return "accept-trade";
+  if (request.status === "accepted" && isBuyer) return "upload-payment-receipt";
+  if (request.status === "payment_sent" && isSeller) return "confirm-money-received";
+  if (request.status === "funds_received" && isSeller) return "upload-seller-evidence";
+  if (request.status === "usdt_release_pending" && isSeller) return "upload-seller-evidence";
+  if (request.status === "usdt_sent" && isBuyer) return "confirm-usdt-received";
+  if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && isBuyer) return "review-trade";
+  return "open-trade";
+}
+
+function buildTradeRoomActionForSnapshot(snapshot: TradeSnapshotPayload, actorUserId: string) {
+  const requestId = String(snapshot.requestId ?? "").trim();
+  const status = String(snapshot.currentStage ?? "").trim();
+  const sellerId = String(snapshot.sellerId ?? "").trim();
+  const buyerId = String(snapshot.buyerId ?? "").trim();
+  if (!requestId || !status || !sellerId || !buyerId) return null;
+  return buildTradeRoomActionForRequest({ id: requestId, status, sellerId, buyerId }, actorUserId);
+}
+
+function inferTradeActionFromNotificationText(notification: AlphaExchangeNotification) {
+  const text = `${notification.title} ${notification.message}`.toLowerCase();
+  if (/new trade request/.test(text)) return "accept-trade";
+  if (/trade request accepted/.test(text)) return "upload-payment-receipt";
+  if (/buyer marked payment sent|payment sent/.test(text)) return "confirm-money-received";
+  if (/seller confirmed funds received|usdt release pending/.test(text)) return "upload-seller-evidence";
+  if (/seller marked usdt sent|usdt sent/.test(text)) return "confirm-usdt-received";
+  if (/review available|trade completed/.test(text)) return "review-trade";
+  return "open-trade";
+}
+
+function buildTradeDestinationFromNotification(notification: AlphaExchangeNotification) {
+  const requestId = notification.relatedRequestId?.trim()
+    || (notification.tradeSnapshot as TradeSnapshotPayload | undefined)?.requestId?.trim()
+    || null;
+  if (!requestId) return null;
+
+  const snapshotAction = notification.userId
+    ? buildTradeRoomActionForSnapshot(notification.tradeSnapshot as TradeSnapshotPayload, notification.userId)
+    : null;
+  const action = snapshotAction ?? inferTradeActionFromNotificationText(notification);
+  const hash = buildTradeRoomHashForAction(action);
+  return `/trade-room/${requestId}?action=${encodeURIComponent(action)}#${hash}`;
+}
+
 export function NotificationBell({ locale }: { locale: AppLocale }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -84,45 +151,85 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState(0);
+  const [openNotificationsSnapshot, setOpenNotificationsSnapshot] = useState<AlphaExchangeNotification[] | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const isOpenRef = useRef(false);
+  const notificationsCountRef = useRef(0);
   const router = useRouter();
-  const pathname = usePathname();
 
   useEffect(() => {
-    setIsOpen(false);
-  }, [pathname]);
-
-  useEffect(() => {
-    function handleOutsideClick(event: MouseEvent) {
-      if (!panelRef.current) return;
-      if (!(event.target instanceof Node)) return;
-      if (!panelRef.current.contains(event.target)) {
-        setIsOpen(false);
-      }
-    }
-    if (isOpen) {
-      document.addEventListener("mousedown", handleOutsideClick);
-    }
-    return () => document.removeEventListener("mousedown", handleOutsideClick);
+    isOpenRef.current = isOpen;
   }, [isOpen]);
 
-  async function loadNotifications(limit: number) {
+  useEffect(() => {
+    if (!isOpen) {
+      setOpenNotificationsSnapshot(null);
+      return;
+    }
+    if (openNotificationsSnapshot === null && notifications.length > 0) {
+      setOpenNotificationsSnapshot(notifications);
+    }
+  }, [isOpen, notifications, openNotificationsSnapshot]);
+
+  useEffect(() => {
+    notificationsCountRef.current = notifications.length;
+  }, [notifications.length]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const previousPaddingRight = document.body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.overflow = "hidden";
+    if (scrollbarWidth > 0) {
+      document.body.style.paddingRight = `${scrollbarWidth}px`;
+    }
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsOpen(false);
+    };
+    const closeOutside = (event: PointerEvent) => {
+      if (panelRef.current && event.target instanceof Node && !panelRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("keydown", closeOnEscape);
+    document.addEventListener("pointerdown", closeOutside);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.body.style.paddingRight = previousPaddingRight;
+      document.removeEventListener("keydown", closeOnEscape);
+      document.removeEventListener("pointerdown", closeOutside);
+    };
+  }, [isOpen]);
+
+  async function loadNotifications(limit: number, options?: { preserveOpenList?: boolean }) {
     const startedAt = Date.now();
-    setIsLoading(true);
+    const shouldPreserveList = options?.preserveOpenList && isOpenRef.current && notificationsCountRef.current > 0;
+    if (!shouldPreserveList) {
+      setIsLoading(true);
+    }
     setError(null);
     try {
       incrementLoginJourneyApiCall("/api/alpha-exchange/notifications");
       const response = await fetch(`/api/alpha-exchange/notifications?limit=${limit}&includeActivity=0`, { cache: "no-store" });
       if (!response.ok) throw new Error("Failed to load notifications.");
       const payload = (await response.json()) as NotificationsPayload;
-      setNotifications(sortNotificationsNewestFirst(payload.notifications ?? []));
+      const keepVisibleList = isOpenRef.current && notificationsCountRef.current > 0;
+      if (!shouldPreserveList && !keepVisibleList) {
+        setNotifications(sortNotificationsNewestFirst(payload.notifications ?? []));
+      }
       setUnreadCount(payload.unreadCount ?? 0);
       setLastLoadedAt(Date.now());
       appendLoginJourneyStep("Notifications loading (header bell)", startedAt, Date.now(), { limit, status: response.status });
     } catch {
       setError("Failed to load notifications.");
     } finally {
-      setIsLoading(false);
+      if (!shouldPreserveList) {
+        setIsLoading(false);
+      }
     }
   }
 
@@ -136,7 +243,9 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
       const messageEvent = event as MessageEvent<string>;
       try {
         const payload = JSON.parse(messageEvent.data) as NotificationsStreamPayload;
-        setNotifications(sortNotificationsNewestFirst(Array.isArray(payload.notifications) ? payload.notifications : []));
+        if (!isOpenRef.current) {
+          setNotifications(sortNotificationsNewestFirst(Array.isArray(payload.notifications) ? payload.notifications : []));
+        }
         setUnreadCount(typeof payload.unreadCount === "number" ? payload.unreadCount : 0);
       } catch {
         // Ignore malformed stream payloads and keep current state.
@@ -160,14 +269,16 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
 
   async function handleToggleOpen() {
     const nextOpen = !isOpen;
-    setIsOpen(nextOpen);
     if (nextOpen) {
       router.prefetch("/notifications");
       const isFresh = Date.now() - lastLoadedAt < BELL_REFRESH_WINDOW_MS;
       if (!isFresh || notifications.length === 0) {
         await loadNotifications(20);
       }
+      setIsOpen(true);
+      return;
     }
+    setIsOpen(false);
   }
 
   async function handleMarkOneRead(notificationId: string) {
@@ -213,24 +324,15 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
 
   async function handleOpenNotification(notification: AlphaExchangeNotification) {
     const destination = await resolveNotificationDestination(notification);
-    if (TRADE_ROOM_DEBUG) {
-      console.log("[notification-open] notification click", {
-        notificationId: notification.id,
-        category: notification.category,
-        relatedRequestId: notification.relatedRequestId ?? null,
-        relatedListingId: notification.relatedListingId ?? null,
-        relatedTradeId: notification.relatedTradeId ?? null,
-        destination,
-      });
-    }
+    if (!destination) return;
+
+    const requestId = extractRequestIdFromTradeRoomHref(destination);
+    if (requestId) prefetchTradeRoom(router, requestId);
+    setIsOpen(false);
+    router.push(destination);
+
     if (!notification.isRead) {
       void handleMarkOneRead(notification.id);
-    }
-    if (destination) {
-      const requestId = extractRequestIdFromTradeRoomHref(destination);
-      if (requestId) prefetchTradeRoom(router, requestId);
-      router.push(destination);
-      setIsOpen(false);
     }
   }
 
@@ -238,11 +340,10 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
     return notification.category === "trade";
   }
 
-  async function resolveNotificationDestination(notification: AlphaExchangeNotification) {
+  function resolveNotificationDestination(notification: AlphaExchangeNotification) {
     if (isTradeNotification(notification)) {
       const fallbackHref = resolveTradeRoomHref(notification);
-      return await resolveActiveTradeHref({ notificationId: notification.id, includePending: true, fallbackHref })
-        ?? fallbackHref;
+      return buildTradeDestinationFromNotification(notification) ?? fallbackHref;
     }
     return notification.actionHref ?? notification.relatedHref ?? null;
   }
@@ -285,11 +386,13 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   }
 
   function resolveNotificationActionLabel(notification: AlphaExchangeNotification) {
+    if (isTradeNotification(notification)) {
+      return "Continue Trade";
+    }
     if (notification.actionLabel?.trim()) return notification.actionLabel.trim();
     if (notification.category === "application") return "Review Application";
     if (notification.category === "listing") return "Manage Listing";
-    if (isTradeNotification(notification)) return "Open Trade Room";
-    return "Open";
+    return "View Details";
   }
 
   function resolveTradeRoomHref(notification: AlphaExchangeNotification) {
@@ -297,25 +400,9 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
     return extractTradeRoomHrefFromRelatedHref(notification.relatedHref ?? notification.actionHref);
   }
 
-  async function resolveActiveTradeHref(input?: { notificationId?: string; includePending?: boolean; fallbackHref?: string | null }) {
-    try {
-      const query = new URLSearchParams();
-      if (input?.notificationId) query.set("notificationId", input.notificationId);
-      if (input?.includePending) query.set("includePending", "1");
-      const suffix = query.size ? `?${query.toString()}` : "";
-      const response = await fetch(`/api/alpha-exchange/trade-room/active${suffix}`, { cache: "no-store" });
-      if (!response.ok) return input?.fallbackHref ?? null;
-      const payload = (await response.json()) as { activeRequestId?: string | null; destination?: string | null };
-      if (payload.destination?.trim()) return payload.destination.trim();
-      if (!payload.activeRequestId) return null;
-      return `/trade-room/${payload.activeRequestId}`;
-    } catch {
-      return input?.fallbackHref ?? null;
-    }
-  }
-
   const hasUnread = unreadCount > 0;
   const hasActionRequired = notifications.some(isActionRequiredNotification);
+  const renderedNotifications = isOpen ? (openNotificationsSnapshot ?? notifications) : notifications;
   const wrapperDirection = useMemo(() => (locale === "ar" ? "rtl" : "ltr"), [locale]);
 
   return (
@@ -336,9 +423,12 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
       </button>
 
       <div
-        className={`absolute end-0 top-11 z-50 w-[min(22rem,calc(100vw-1rem))] origin-top-right rounded-2xl border border-white/15 bg-[#0b0b0b]/95 shadow-2xl backdrop-blur-xl transition-all duration-200 ${
+        data-testid="notification-panel"
+        className={`fixed inset-x-2 top-16 z-50 flex max-h-[calc(100vh-5rem)] max-h-[calc(100dvh-5rem)] flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#0b0b0b]/95 shadow-2xl backdrop-blur-xl transition-all duration-200 md:absolute md:inset-x-auto md:end-0 md:top-11 md:max-h-none md:w-[min(22rem,calc(100vw-1rem))] md:origin-top-right ${
           isOpen ? "visible scale-100 opacity-100" : "invisible scale-95 opacity-0"
         }`}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
           <div className="inline-flex items-center gap-2 text-sm font-semibold text-white">
@@ -353,19 +443,20 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
           <button
             type="button"
             onClick={() => setIsOpen(false)}
+            aria-label="Close notifications"
             className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/15 text-[#9CA3AF] transition hover:border-white/30 hover:text-white"
           >
             <XCircle className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="max-h-[26rem] space-y-2 overflow-y-auto p-3">
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-3 [touch-action:pan-y] md:max-h-[26rem]">
           {isLoading ? <p className="empty-state-panel p-3 text-xs">Loading...</p> : null}
-          {!isLoading && error ? <p className="rounded-xl border border-red-400/20 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
-          {!isLoading && !error && notifications.length === 0 ? <p className="empty-state-panel p-3 text-xs">No notifications yet.</p> : null}
-          {!isLoading && !error
-            ? notifications.map((notification) => {
+          {error ? <p className="rounded-xl border border-red-400/20 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
+          {renderedNotifications.length === 0 ? <p className="empty-state-panel p-3 text-xs">No notifications yet.</p> : null}
+          {renderedNotifications.map((notification) => {
                 const Icon = notificationIcon(notification);
+                const destination = isTradeNotification(notification) ? resolveNotificationDestination(notification) : null;
                 return (
                   <div
                     key={notification.id}
@@ -393,27 +484,27 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                             : null}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            className="h-7 px-2.5 text-[11px]"
-                            onMouseEnter={() => {
-                              if (!isTradeNotification(notification)) return;
-                              const href = resolveTradeRoomHref(notification);
-                              const requestId = extractRequestIdFromTradeRoomHref(href);
-                              if (requestId) prefetchTradeRoom(router, requestId);
-                            }}
-                            onFocus={() => {
-                              if (!isTradeNotification(notification)) return;
-                              const href = resolveTradeRoomHref(notification);
-                              const requestId = extractRequestIdFromTradeRoomHref(href);
-                              if (requestId) prefetchTradeRoom(router, requestId);
-                            }}
-                            onClick={() => void handleOpenNotification(notification)}
-                          >
-                            {resolveNotificationActionLabel(notification)}
-                          </Button>
+                          {isTradeNotification(notification) ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              className="h-7 px-2.5 text-[11px] transition-none hover:translate-y-0 active:scale-100"
+                              onMouseEnter={() => {
+                                if (!destination) return;
+                                const requestId = extractRequestIdFromTradeRoomHref(destination);
+                                if (requestId) prefetchTradeRoom(router, requestId);
+                              }}
+                              onFocus={() => {
+                                if (!destination) return;
+                                const requestId = extractRequestIdFromTradeRoomHref(destination);
+                                if (requestId) prefetchTradeRoom(router, requestId);
+                              }}
+                              onClick={() => void handleOpenNotification(notification)}
+                            >
+                              {resolveNotificationActionLabel(notification)}
+                            </Button>
+                          ) : null}
                           {notification.category === "application" && extractSellerApplicationId(notification) ? (
                             <>
                               <Button
@@ -478,8 +569,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                     </div>
                   </div>
                 );
-              })
-            : null}
+              })}
         </div>
 
         <div className="flex items-center justify-between border-t border-white/10 px-3 py-2">

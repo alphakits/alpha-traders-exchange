@@ -56,6 +56,7 @@ export async function POST(request: NextRequest) {
     const currency = String(body.currency ?? "ILS").trim().slice(0, 10) || "ILS";
     const resolvedPaymentMethods = resolveListingPaymentMethods(body.paymentMethods, body.paymentMethod);
     const paymentMethods = resolvedPaymentMethods.slice(0, MAX_LISTING_PAYMENT_METHODS);
+    const bankAccountId = typeof body.bankAccountId === "string" ? body.bankAccountId.trim() : undefined;
     const bankSelection = parseIsraeliBankSelection(String(body.bankName ?? ""));
     const minimumTrade = String(body.minimumTrade ?? "0").trim();
     const maximumTrade = String(body.maximumTrade ?? availableAmount).trim();
@@ -126,6 +127,7 @@ export async function POST(request: NextRequest) {
       currency,
       network,
       paymentMethods,
+      bankAccountId,
       bankName: requiresIsraeliBankSelection(paymentMethods) ? (serializeIsraeliBankSelection(bankSelection) || undefined) : undefined,
       minimumTrade,
       maximumTrade,

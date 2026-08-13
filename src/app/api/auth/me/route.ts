@@ -21,9 +21,11 @@ export async function GET() {
 
   if (!user) {
     const token = await getCurrentSessionToken();
-    await clearUserSession(token);
-    const cookieStore = await cookies();
-    expireAuthCookies(cookieStore, process.env.NODE_ENV === "production");
+    if (token) {
+      await clearUserSession(token);
+      const cookieStore = await cookies();
+      expireAuthCookies(cookieStore, process.env.NODE_ENV === "production");
+    }
     const routeMs = Date.now() - routeStartedAt;
     return NextResponse.json({ user: null }, {
       status: 200,

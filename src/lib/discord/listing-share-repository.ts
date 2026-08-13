@@ -170,7 +170,18 @@ export async function getDiscordListingSharingStatus(
   sellerId: string,
   pool?: Pool | null,
 ): Promise<DiscordListingSharingStatus> {
-  return readStatus(requirePool(pool), sellerId);
+  const resolvedPool = pool ?? getRuntimePostgresPool();
+  if (!resolvedPool) {
+    return {
+      serverTime: new Date().toISOString(),
+      nextEligibleAt: null,
+      cooldownSecondsRemaining: 0,
+      linked: false,
+      available: false,
+      listings: [],
+    };
+  }
+  return readStatus(resolvedPool, sellerId);
 }
 
 async function transaction<T>(

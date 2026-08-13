@@ -14,15 +14,22 @@ function isValidRequestStatus(value: string): value is "pending" | "accepted" | 
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
+  const routeDebug = process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
   const diagId = `patch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  console.log("[patch-diag] stage=entry", { diagId, method: request.method, url: request.url });
+  if (routeDebug) {
+    console.log("[patch-diag] stage=entry", { diagId, method: request.method, url: request.url });
+  }
 
   const { user, unauthorized } = await requireApiUser();
-  console.log("[patch-diag] stage=auth", { diagId, authenticated: Boolean(user), userId: user?.id });
+  if (routeDebug) {
+    console.log("[patch-diag] stage=auth", { diagId, authenticated: Boolean(user), userId: user?.id });
+  }
   if (!user) return unauthorized;
 
   const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
-  console.log("[patch-diag] stage=phone-verification", { diagId, phoneBlocked: Boolean(phoneVerificationRequired) });
+  if (routeDebug) {
+    console.log("[patch-diag] stage=phone-verification", { diagId, phoneBlocked: Boolean(phoneVerificationRequired) });
+  }
   if (phoneVerificationRequired) return phoneVerificationRequired;
 
   const rate = checkRateLimit({
@@ -31,47 +38,61 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     maxRequests: 40,
     windowMs: 60_000,
   });
-  console.log("[patch-diag] stage=rate-limit", { diagId, allowed: rate.allowed });
+  if (routeDebug) {
+    console.log("[patch-diag] stage=rate-limit", { diagId, allowed: rate.allowed });
+  }
   if (!rate.allowed) {
     return NextResponse.json({ error: "Too many status updates. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
   }
 
   try {
-    const debug = process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
+    const debug = routeDebug;
     const startedAt = Date.now();
     const { requestId } = await context.params;
     let body: unknown;
     try {
       body = await request.json();
     } catch (parseErr) {
-      console.error("[patch-diag] stage=body-parse-failed", { diagId, requestId, error: String(parseErr) });
+      if (routeDebug) {
+        console.error("[patch-diag] stage=body-parse-failed", { diagId, requestId, error: String(parseErr) });
+      }
       return NextResponse.json({ error: "Invalid request body.", stage: "body-parse", code: "invalid-body", diagId }, { status: 400 });
     }
     const rawBody = body as Record<string, unknown>;
     const status = String(rawBody.status ?? "").trim();
     const safetyAcknowledged = rawBody.safetyAcknowledged === true;
-    console.log("[patch-diag] stage=body-parsed", { diagId, requestId, receivedStatus: rawBody.status, parsedStatus: status, safetyAcknowledged });
+    if (routeDebug) {
+      console.log("[patch-diag] stage=body-parsed", { diagId, requestId, receivedStatus: rawBody.status, parsedStatus: status, safetyAcknowledged });
+    }
     const isUsdtSent = status === "usdt_sent";
     const traceId = debug && isUsdtSent ? `usdt-sent:${requestId}:${Date.now()}` : undefined;
-    console.log("[trade-consistency] PATCH received", {
-      requestId,
-      actorUserId: user.id,
-      actorRole: user.role,
-      nextStatus: status,
-      safetyAcknowledged,
-    });
+    if (routeDebug) {
+      console.log("[trade-consistency] PATCH received", {
+        requestId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        nextStatus: status,
+        safetyAcknowledged,
+      });
+    }
     if (debug && isUsdtSent) {
       console.log("[usdt-sent-trace] route entry", { traceId, requestId, actorUserId: user.id });
     }
     if (!status) {
-      console.warn("[patch-diag] stage=early-return status-empty", { diagId, requestId, rawStatus: rawBody.status });
+      if (routeDebug) {
+        console.warn("[patch-diag] stage=early-return status-empty", { diagId, requestId, rawStatus: rawBody.status });
+      }
       return NextResponse.json({ error: "Status is required.", stage: "status-empty", code: "status-required", diagId }, { status: 400 });
     }
     if (!isValidRequestStatus(status)) {
-      console.warn("[patch-diag] stage=early-return status-invalid", { diagId, requestId, status });
+      if (routeDebug) {
+        console.warn("[patch-diag] stage=early-return status-invalid", { diagId, requestId, status });
+      }
       return NextResponse.json({ error: "Invalid purchase request status.", stage: "status-invalid", code: "invalid-status", receivedStatus: status, diagId }, { status: 400 });
     }
-    console.log("[patch-diag] stage=calling-store", { diagId, requestId, status, actorUserId: user.id, actorRole: user.role });
+    if (routeDebug) {
+      console.log("[patch-diag] stage=calling-store", { diagId, requestId, status, actorUserId: user.id, actorRole: user.role });
+    }
     if (debug) {
       console.log("[trade-room-action] request", {
         requestId,
@@ -116,7 +137,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       ]);
       after(() => Promise.all(deliveries.map((deliverEmails) => deliverEmails())));
     }
-    console.log("[patch-diag] stage=store-returned", { diagId, requestId, resultStatus: updated.status });
+    if (routeDebug) {
+      console.log("[patch-diag] stage=store-returned", { diagId, requestId, resultStatus: updated.status });
+    }
     if (debug && isUsdtSent) {
       console.log("[usdt-sent-trace] before response", { traceId, requestId, updatedStatus: updated.status });
     }
@@ -124,22 +147,24 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const responseBody = { request: sanitizePurchaseRequestForActor(updated, user.id, user.role), metrics };
     const queueMs = Math.max(0, routeMs - metrics.totalMs);
     // Always log server-side timings so production performance is visible in Vercel logs.
-    console.log("[trade-room-perf] server timings", {
-      requestId,
-      actorUserId: user.id,
-      nextStatus: status,
-      stateAfter: updated.status,
-      "queueMs (route arrival → store entry)": queueMs,
-      "readDbMs": metrics.readDbMs,
-      "timelineMs": metrics.timelineMs,
-      "chatMs": metrics.chatMs,
-      "notificationMs": metrics.notificationMs,
-      "sseMs": metrics.sseMs,
-      "writeDbMs": metrics.writeDbMs,
-      "trustMs": metrics.trustMs,
-      "totalDbMs": metrics.totalMs,
-      "routeMs (arrival → response)": routeMs,
-    });
+    if (routeDebug) {
+      console.log("[trade-room-perf] server timings", {
+        requestId,
+        actorUserId: user.id,
+        nextStatus: status,
+        stateAfter: updated.status,
+        "queueMs (route arrival → store entry)": queueMs,
+        "readDbMs": metrics.readDbMs,
+        "timelineMs": metrics.timelineMs,
+        "chatMs": metrics.chatMs,
+        "notificationMs": metrics.notificationMs,
+        "sseMs": metrics.sseMs,
+        "writeDbMs": metrics.writeDbMs,
+        "trustMs": metrics.trustMs,
+        "totalDbMs": metrics.totalMs,
+        "routeMs (arrival → response)": routeMs,
+      });
+    }
     return NextResponse.json(responseBody, {
       headers: {
         "X-Trade-Route-Ms": String(routeMs),

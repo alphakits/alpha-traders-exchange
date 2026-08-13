@@ -15,10 +15,16 @@ export default defineConfig({
     headless: true,
   },
   webServer: {
-    command: `npm run dev:e2e -- -p ${E2E_PORT}`,
+    command: `npm run clean && npm run build && npm run start -- -p ${E2E_PORT}`,
     url: E2E_BASE_URL,
     reuseExistingServer: false,
-    timeout: 120_000,
+    timeout: 600_000,
+    env: {
+      ...process.env,
+      NODE_ENV: "production",
+      ALPHA_ENABLE_TEST_SUPPORT: "1",
+      ALPHA_EXCHANGE_FORCE_INMEMORY_REPOSITORY: "1",
+    },
   },
   projects: [
     {

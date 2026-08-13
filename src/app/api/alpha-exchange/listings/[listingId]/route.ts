@@ -89,6 +89,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       : undefined;
     const paymentMethods = resolvedPaymentMethods?.slice(0, MAX_LISTING_PAYMENT_METHODS);
     const paymentMethod = paymentMethods?.[0];
+    const bankAccountId = body.bankAccountId !== undefined ? String(body.bankAccountId).trim() : undefined;
     const bankSelection = body.bankName !== undefined ? parseIsraeliBankSelection(String(body.bankName ?? "")) : undefined;
     const minimumTrade = body.minimumTrade !== undefined ? String(body.minimumTrade).trim() : undefined;
     const maximumTrade = body.maximumTrade !== undefined ? String(body.maximumTrade).trim() : undefined;
@@ -193,6 +194,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       network,
       paymentMethod,
       paymentMethods,
+      bankAccountId,
       bankName: requiresIsraeliBankSelection(effectivePaymentMethods, effectivePaymentMethod)
         ? serializeIsraeliBankSelection(bankSelection ?? parseIsraeliBankSelection(existingListing?.bankName)) || undefined
         : undefined,

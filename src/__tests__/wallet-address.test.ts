@@ -44,4 +44,10 @@ describe("receiving wallet privacy", () => {
     const fundsReceived = { ...request, status: "funds_received" as const };
     expect(sanitizePurchaseRequestForActor(fundsReceived, "seller-1", "approved_seller").buyerReceivingWalletAddress).toBe(TRON_ADDRESS);
   });
+
+  it("redacts the buyer phone from sellers while retaining it for the buyer", () => {
+    const requestWithPhone = { ...request, buyerWhatsapp: "+972500000001" } as PurchaseRequest;
+    expect(sanitizePurchaseRequestForActor(requestWithPhone, "seller-1", "approved_seller").buyerWhatsapp).toBeUndefined();
+    expect(sanitizePurchaseRequestForActor(requestWithPhone, "buyer-1", "buyer").buyerWhatsapp).toBe("+972500000001");
+  });
 });

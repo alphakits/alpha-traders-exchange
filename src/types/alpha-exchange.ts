@@ -158,7 +158,21 @@ export interface AlphaExchangeUser {
   sellerPromotionHistory?: SellerPromotionHistoryEntry[];
   sellerAchievements?: SellerAchievement[];
   ownerSettings?: OwnerSettings;
+  sellerBankAccounts?: SellerBankAccount[];
   disabled?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SellerBankAccount {
+  id: string;
+  sellerId: string;
+  accountHolderName: string;
+  bankName: string;
+  branchNumber: string;
+  accountNumber: string;
+  accountLast4: string;
+  isDefault?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -395,6 +409,7 @@ export interface MarketplaceListing {
   network: SupportedNetwork;
   paymentMethod: string;
   paymentMethods: string[];
+  bankAccountId?: string;
   bankName?: string;
   minimumTrade: string;
   maximumTrade: string;
@@ -455,7 +470,10 @@ export type TradeTimelineEventType =
   | "request_declined"
   | "request_cancelled"
   | "buyer_confirmed_receipt"
-  | "buyer_confirmation_overdue";
+  | "buyer_confirmation_overdue"
+  | "trade_closed_manually"
+  | "trade_inactivity_warning_sent"
+  | "bank_details_revealed";
 
 export interface TradeTimelineEntry {
   id: string;
@@ -718,6 +736,7 @@ export interface PurchaseRequest {
   paymentMethod: string;
   buyerSafetyAcknowledged?: boolean;
   sellerSafetyAcknowledged?: boolean;
+  sellerBankAccountId?: string;
   bankName?: string;
   timeline: TradeTimelineEntry[];
   tradeCreatedAt?: string;
@@ -729,6 +748,7 @@ export interface PurchaseRequest {
   completedAt?: string;
   timedOutAt?: string;
   timeoutReason?: string;
+  inactivityWarningSentAt?: string;
   buyerConfirmationArchivedAt?: string;
   lockedAt?: string;
   reviewUnlockedAt?: string;
@@ -736,6 +756,10 @@ export interface PurchaseRequest {
   sellerEvidence?: TradeEvidenceFile;
   buyerReview?: TradeReview;
   sellerResponse?: TradeReviewResponse;
+  closedAt?: string;
+  closedByUserId?: string;
+  closeReason?: string;
+  closeExplanation?: string;
   messages?: TradeChatMessage[];
   status: PurchaseRequestStatus;
   createdAt: string;
@@ -901,7 +925,13 @@ export type AuditAction =
   | "marketplace_enforcement_fee_issued"
   | "marketplace_enforcement_fee_paid"
   | "marketplace_enforcement_restriction_removed"
-  | "marketplace_enforcement_seller_revoked";
+  | "marketplace_enforcement_seller_revoked"
+  | "seller_bank_account_added"
+  | "seller_bank_account_updated"
+  | "seller_bank_account_deleted"
+  | "trade_closed_manually"
+  | "trade_inactivity_warning_sent"
+  | "trade_bank_details_revealed";
 
 export interface AuditLogEntry {
   id: string;

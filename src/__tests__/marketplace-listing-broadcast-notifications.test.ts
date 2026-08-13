@@ -130,6 +130,25 @@ describe("marketplace listing publication broadcasts", () => {
     invalidateAlphaExchangeStoreCache();
   });
 
+  it("repairs blank notification content while preserving the unread count", async () => {
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    snapshot.notifications.push({
+      id: "notification-blank-content",
+      userId: BUYER_ID,
+      category: "trade",
+      title: "",
+      message: "",
+      isRead: false,
+      state: "unread",
+      createdAt: new Date().toISOString(),
+    });
+
+    const result = await getNotificationsForUser({ userId: BUYER_ID });
+    const notification = result.notifications.find((item) => item.id === "notification-blank-content");
+    expect(result.unreadCount).toBe(1);
+    expect(notification).toMatchObject({ title: "Trade update", message: "Open notifications for the latest account update." });
+  });
+
   it("sends exactly one in-app new-listing notification to each eligible buyer", async () => {
     const listing = await createMarketplaceListing({
       sellerId: LISTING_CREATOR_ID,

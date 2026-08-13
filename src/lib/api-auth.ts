@@ -9,16 +9,20 @@ export async function requireApiUser() {
   const user = await getCurrentSessionUser();
   if (!user) {
     const token = await getCurrentSessionToken();
-    await clearUserSession(token);
+    if (token) {
+      await clearUserSession(token);
+    }
     logEvent("warn", {
       event: "permission_denied",
       outcome: "denied",
       reason: "Unauthenticated request",
     });
     const unauthorized = NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    unauthorized.cookies.delete(AUTH_COOKIE_NAME);
-    unauthorized.cookies.delete(AUTH_VERIFIED_COOKIE_NAME);
-    unauthorized.cookies.delete(AUTH_PHONE_VERIFIED_COOKIE_NAME);
+    if (token) {
+      unauthorized.cookies.delete(AUTH_COOKIE_NAME);
+      unauthorized.cookies.delete(AUTH_VERIFIED_COOKIE_NAME);
+      unauthorized.cookies.delete(AUTH_PHONE_VERIFIED_COOKIE_NAME);
+    }
     return {
       user: null,
       unauthorized,

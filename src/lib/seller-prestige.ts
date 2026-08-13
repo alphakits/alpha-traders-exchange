@@ -25,6 +25,12 @@ export function resolveSellerPrestigeRank(volumeUsdt: number): SellerLevel {
   return "bronze";
 }
 
+export function resolveSellerPrestigeRankWithFloor(volumeUsdt: number, currentRank?: SellerLevel): SellerLevel {
+  const derivedRank = resolveSellerPrestigeRank(volumeUsdt);
+  if (!currentRank) return derivedRank;
+  return sellerPrestigeRankWeight(currentRank) >= sellerPrestigeRankWeight(derivedRank) ? currentRank : derivedRank;
+}
+
 export function getNextSellerPrestigeRank(rank: SellerLevel): SellerLevel | undefined {
   const currentIndex = SELLER_PRESTIGE_TIERS.findIndex((tier) => tier.rank === rank);
   if (currentIndex === -1 || currentIndex >= SELLER_PRESTIGE_TIERS.length - 1) return undefined;

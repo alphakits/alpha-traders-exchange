@@ -198,6 +198,7 @@ async function cleanupState(api: APIRequestContext) {
 
 async function login(request: APIRequestContext, email: string, password: string) {
   const response = await request.post("/api/auth/login", {
+    headers: { "x-forwarded-for": "198.51.100.20" },
     data: { email, password, rememberMe: true },
   });
   expect(response.ok(), `login failed for ${email}`).toBeTruthy();
@@ -299,52 +300,49 @@ async function openNotificationAndNavigate(input: {
   const { page, title, requestId, expectedAction, expectedHash, viewport, useNotificationUi = true } = input;
 
   await page.setViewportSize(viewport);
-  const destinationRegex = new RegExp(`/en/trade-room/${requestId}\\?action=${expectedAction}`);
+  let destinationRegex = new RegExp(`/(?:ar|en)/trade-room/${requestId}\\?action=${expectedAction}`);
 
   if (useNotificationUi) {
     await page.goto("/en/usdt-exchange");
-    const panel = page.locator("div.absolute.end-0.top-11.z-50").filter({ hasText: /Notifications/i }).first();
     const bellToggle = page.locator('button[aria-label="Notifications"]').first();
+    const panel = page.getByTestId("notification-panel");
 
     const ensurePanelOpen = async () => {
-      if (await panel.isVisible()) return;
-      await bellToggle.click();
       if (await panel.isVisible()) return;
       await bellToggle.click();
       await expect(panel).toBeVisible({ timeout: 20_000 });
     };
 
     await ensurePanelOpen();
+    const panelGeometry = await page.getByTestId("notification-panel").evaluate((panel) => {
+      const rect = panel.getBoundingClientRect();
+      const list = panel.querySelector(".overflow-y-auto");
+      return {
+        top: rect.top,
+        bottom: rect.bottom,
+        viewportHeight: window.innerHeight,
+        bodyOverflow: getComputedStyle(document.body).overflow,
+        listOverflowY: list ? getComputedStyle(list).overflowY : "",
+      };
+    });
+    expect(panelGeometry.bodyOverflow).toBe("hidden");
+    expect(panelGeometry.top).toBeGreaterThanOrEqual(0);
+    expect(panelGeometry.bottom).toBeLessThanOrEqual(panelGeometry.viewportHeight);
+    expect(panelGeometry.listOverflowY).toBe("auto");
 
     const actionLabelMatcher = /Continue Trade|Open Trade Room|Open/i;
     await expect(panel).toBeVisible({ timeout: 20_000 });
-    const visibleActionButtons = panel.locator("button:visible").filter({ hasText: actionLabelMatcher });
-    await expect(visibleActionButtons.first()).toBeVisible({ timeout: 20_000 });
-
-    const buttons = visibleActionButtons;
-    const buttonCount = await buttons.count();
-    let clicked = false;
-    const labels: string[] = [];
-    for (let index = 0; index < buttonCount; index += 1) {
-      const button = buttons.nth(index);
-      if (!(await button.isVisible())) continue;
-      const label = (await button.innerText()).trim();
-      labels.push(label);
-      await button.click();
-      try {
-        await expect(page).toHaveURL(destinationRegex, { timeout: 4_000 });
-        clicked = true;
-        break;
-      } catch {
-        if (index < buttonCount - 1) {
-          await page.goto("/en/usdt-exchange");
-          await ensurePanelOpen();
-          await expect(panel).toBeVisible({ timeout: 20_000 });
-          await expect(panel.locator("button:visible").filter({ hasText: actionLabelMatcher }).first()).toBeVisible({ timeout: 20_000 });
-        }
-      }
-    }
-    expect(clicked, `Could not reach destination from notification actions for ${title}. Labels: ${labels.join(" | ")}`).toBeTruthy();
+    const titleElement = panel.locator("p.text-sm.font-medium.text-white, p.text-sm.font-medium.text-slate-100").filter({ hasText: title }).first();
+    await expect(titleElement).toBeVisible({ timeout: 20_000 });
+    const targetCard = titleElement.locator("xpath=ancestor::div[contains(@class,'rounded-xl')][1]").first();
+    await expect(targetCard).toBeVisible({ timeout: 20_000 });
+    const actionButton = targetCard.locator("button:visible").filter({ hasText: actionLabelMatcher }).first();
+    await expect(actionButton).toBeVisible({ timeout: 20_000 });
+    await Promise.all([
+      page.waitForURL(destinationRegex, { timeout: 10_000 }),
+      actionButton.click(),
+    ]);
+    await expect(page).toHaveURL(destinationRegex, { timeout: 10_000 });
   } else {
     await page.goto(`/en/trade-room/${requestId}?action=${expectedAction}#${expectedHash}`);
   }
@@ -381,19 +379,7 @@ async function openNotificationAndNavigate(input: {
     expect(sectionTop, "target section should not be hidden under sticky header").toBeGreaterThanOrEqual(0);
     expect(sectionTop, "target section should be near viewport top for direct focus").toBeLessThanOrEqual(180);
 
-    const actionButton = page.getByRole("button", {
-      name: expectedAction === "upload-payment-receipt"
-        ? /Upload Payment Receipt|Submit Payment/i
-        : expectedAction === "upload-seller-evidence"
-          ? /Upload Seller Evidence|Release USDT/i
-          : expectedAction === "accept-trade"
-            ? /Accept Trade/i
-            : expectedAction === "confirm-money-received"
-              ? /Confirm Money Received/i
-              : expectedAction === "confirm-usdt-received"
-                ? /Confirm USDT Received/i
-                : /Submit Rating|إرسال التقييم/i,
-    }).first();
+    const actionButton = page.getByRole("button", { name: localizedTradeActionMatcher(expectedAction) }).first();
     await expect(actionButton).toBeVisible({ timeout: 20_000 });
     await actionButton.scrollIntoViewIfNeeded();
     await expect(actionButton).toBeInViewport();
@@ -408,6 +394,15 @@ async function openNotificationAndNavigate(input: {
   } finally {
     page.off("framenavigated", navHandler);
   }
+}
+
+function localizedTradeActionMatcher(expectedAction: string) {
+  if (expectedAction === "upload-payment-receipt") return /Upload Payment Receipt|Submit Payment|إرسال الدفع|رفع إيصال الدفع/i;
+  if (expectedAction === "upload-seller-evidence") return /Upload Seller Evidence|Release USDT|رفع إثبات البائع|إطلاق USDT/i;
+  if (expectedAction === "accept-trade") return /Accept Trade|قبول الطلب/i;
+  if (expectedAction === "confirm-money-received") return /Confirm Money Received|تأكيد استلام الأموال/i;
+  if (expectedAction === "confirm-usdt-received") return /Confirm USDT Received|تأكيد استلام USDT/i;
+  return /Submit Rating|إرسال التقييم/i;
 }
 
 async function uploadEvidenceInUi(page: Page, side: "buyer" | "seller") {
@@ -425,12 +420,12 @@ async function uploadEvidenceInUi(page: Page, side: "buyer" | "seller") {
   });
 
   if (side === "buyer") {
-    await page.getByRole("button", { name: /Upload Payment Receipt|Submit Payment/i }).first().click();
+    await page.getByRole("button", { name: localizedTradeActionMatcher("upload-payment-receipt") }).first().click();
   } else {
-    await page.getByRole("button", { name: /Upload Seller Evidence/i }).first().click();
+    await page.getByRole("button", { name: localizedTradeActionMatcher("upload-seller-evidence") }).first().click();
   }
 
-  await expect(page.getByText(/Evidence Uploaded|Payment Submitted/i).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/Evidence Uploaded|Payment Submitted|تم رفع الإثبات|تم إرسال الدفع/i).first()).toBeVisible({ timeout: 20_000 });
 }
 
 test.describe.configure({ mode: "serial" });
@@ -470,8 +465,8 @@ test("desktop guided flow: notifications, payment/evidence, live updates, and se
     viewport,
   });
 
-  await page.getByRole("button", { name: /Accept Trade/i }).first().click();
-  await expect(page.getByText(/Trade status updated|Trade Accepted/i).first()).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: localizedTradeActionMatcher("accept-trade") }).first().click();
+  await expect(page.getByText(/Trade status updated|Trade Accepted|تم تحديث حالة الصفقة|تم قبول الطلب/i).first()).toBeVisible({ timeout: 20_000 });
 
   await login(page.request, buyerEmail, buyerPassword);
   await waitForNotification(api, buyerEmail, /trade request accepted/i, requestId);
@@ -487,7 +482,7 @@ test("desktop guided flow: notifications, payment/evidence, live updates, and se
   });
 
   await uploadEvidenceInUi(page, "buyer");
-  await expect(page.getByText(/Waiting for Seller to Confirm Payment|No action now/i).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/Waiting for Seller to Confirm Payment|No action now|بانتظار البائع لتأكيد الدفع|لا يوجد إجراء الآن/i).first()).toBeVisible({ timeout: 20_000 });
 
   await login(page.request, sellerEmail, sellerPassword);
   await waitForNotification(api, sellerEmail, /buyer marked payment sent/i, requestId);

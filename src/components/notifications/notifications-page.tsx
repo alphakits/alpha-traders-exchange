@@ -25,6 +25,20 @@ type NotificationsStreamPayload = {
   unreadCount: number;
 };
 
+type TradeRoomRequestPayload = {
+  id: string;
+  status: string;
+  sellerId: string;
+  buyerId: string;
+};
+
+type TradeSnapshotPayload = {
+  requestId?: string;
+  currentStage?: string;
+  sellerId?: string;
+  buyerId?: string;
+};
+
 type NotificationFilter = "all" | "unread" | "trades" | "listings" | "reviews" | "announcements" | "history";
 
 const PAGE_SIZE = 20;
@@ -62,6 +76,34 @@ function isReview(notification: AlphaExchangeNotification) {
 function isActionRequired(notification: AlphaExchangeNotification) {
   const text = `${notification.title} ${notification.message}`.toLowerCase();
   return text.includes("action required") || text.includes("feedback required") || text.includes("confirm usdt receipt");
+}
+
+function buildTradeRoomHashForAction(action: string) {
+  if (action === "upload-payment-receipt" || action === "upload-seller-evidence") return "evidence";
+  if (action === "review-trade" || action === "open-trade") return "status-banner";
+  return "action-required";
+}
+
+function buildTradeRoomActionForRequest(request: TradeRoomRequestPayload, actorUserId: string) {
+  const isSeller = request.sellerId === actorUserId;
+  const isBuyer = request.buyerId === actorUserId;
+  if (request.status === "pending" && isSeller) return "accept-trade";
+  if (request.status === "accepted" && isBuyer) return "upload-payment-receipt";
+  if (request.status === "payment_sent" && isSeller) return "confirm-money-received";
+  if (request.status === "funds_received" && isSeller) return "upload-seller-evidence";
+  if (request.status === "usdt_release_pending" && isSeller) return "upload-seller-evidence";
+  if (request.status === "usdt_sent" && isBuyer) return "confirm-usdt-received";
+  if ((request.status === "review_open" || request.status === "completed" || request.status === "locked") && isBuyer) return "review-trade";
+  return "open-trade";
+}
+
+function buildTradeRoomActionForSnapshot(snapshot: TradeSnapshotPayload, actorUserId: string) {
+  const requestId = String(snapshot.requestId ?? "").trim();
+  const status = String(snapshot.currentStage ?? "").trim();
+  const sellerId = String(snapshot.sellerId ?? "").trim();
+  const buyerId = String(snapshot.buyerId ?? "").trim();
+  if (!requestId || !status || !sellerId || !buyerId) return null;
+  return buildTradeRoomActionForRequest({ id: requestId, status, sellerId, buyerId }, actorUserId);
 }
 
 function matchesFilter(notification: AlphaExchangeNotification, filter: NotificationFilter) {
@@ -341,11 +383,12 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
     return null;
   }
 
-  async function resolveActiveTradeHref(input?: { notificationId?: string; includePending?: boolean; fallbackHref?: string | null }) {
+  async function resolveActiveTradeHref(input?: { notificationId?: string; requestId?: string | null; includePending?: boolean; fallbackHref?: string | null }) {
     try {
       const query = new URLSearchParams();
       if (input?.notificationId) query.set("notificationId", input.notificationId);
       if (input?.includePending) query.set("includePending", "1");
+      if (input?.requestId?.trim()) query.set("requestId", input.requestId.trim());
       const suffix = query.size ? `?${query.toString()}` : "";
       const response = await fetch(`/api/alpha-exchange/trade-room/active${suffix}`, { cache: "no-store" });
       if (!response.ok) return input?.fallbackHref ?? null;
@@ -360,8 +403,36 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
 
   async function resolveNotificationDestination(notification: AlphaExchangeNotification) {
     if (isTradeNotification(notification)) {
+      const relatedRequestId = notification.relatedRequestId?.trim() || null;
+      const snapshotAction = buildTradeRoomActionForSnapshot(notification.tradeSnapshot as TradeSnapshotPayload, notification.userId);
+      if (snapshotAction && (notification.tradeSnapshot as TradeSnapshotPayload | undefined)?.requestId) {
+        const requestId = String((notification.tradeSnapshot as TradeSnapshotPayload).requestId ?? "").trim();
+        const hash = buildTradeRoomHashForAction(snapshotAction);
+        return `/trade-room/${requestId}?action=${encodeURIComponent(snapshotAction)}#${hash}`;
+      }
+      if (relatedRequestId && notification.userId) {
+        try {
+          const response = await fetch(`/api/alpha-exchange/trade-room/${relatedRequestId}`, { cache: "no-store" });
+          if (response.ok) {
+            const payload = (await response.json()) as { request?: TradeRoomRequestPayload };
+            const request = payload.request;
+            if (request?.id) {
+              const action = buildTradeRoomActionForRequest(request, notification.userId);
+              const hash = buildTradeRoomHashForAction(action);
+              return `/trade-room/${request.id}?action=${encodeURIComponent(action)}#${hash}`;
+            }
+          }
+        } catch {
+          // Fall back to active trade resolution below.
+        }
+      }
       const fallbackHref = resolveTradeRoomHref(notification);
-      return await resolveActiveTradeHref({ notificationId: notification.id, includePending: true, fallbackHref })
+      return await resolveActiveTradeHref({
+        notificationId: notification.id,
+        requestId: relatedRequestId,
+        includePending: true,
+        fallbackHref,
+      })
         ?? fallbackHref;
     }
     return notification.actionHref ?? notification.relatedHref ?? null;

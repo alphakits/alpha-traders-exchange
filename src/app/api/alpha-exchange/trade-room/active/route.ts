@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getFirstActionableTradeForUser, getFirstActiveTradeForUser, resolveTradeRoomRequestForNotification } from "@/lib/alpha-exchange-store";
+import { getFirstActionableTradeForUser, getFirstActiveTradeForUser, getTradeRoomRequestForUserById, resolveTradeRoomRequestForNotification } from "@/lib/alpha-exchange-store";
 import { requireApiUser } from "@/lib/api-auth";
 import { buildTradeRoomDestination } from "@/lib/trade-room-destination";
 
@@ -10,6 +10,22 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const includePending = searchParams.get("includePending") === "1" || searchParams.get("includePending") === "true";
   const sourceNotificationId = String(searchParams.get("notificationId") ?? "").trim() || null;
+  const explicitRequestId = String(searchParams.get("requestId") ?? "").trim() || null;
+
+  if (explicitRequestId) {
+    const resolvedRequest = await getTradeRoomRequestForUserById({
+      userId: user.id,
+      role: user.role,
+      requestId: explicitRequestId,
+    });
+    if (resolvedRequest) {
+      return NextResponse.json({
+        activeRequestId: resolvedRequest.id,
+        destination: buildTradeRoomDestination(resolvedRequest, user.id),
+        reason: "explicit_request",
+      });
+    }
+  }
 
   if (sourceNotificationId) {
     const resolved = await resolveTradeRoomRequestForNotification({

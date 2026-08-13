@@ -28,6 +28,7 @@ const MOBILE_VIEWPORTS = [
 ] as const;
 
 const DESKTOP_VIEWPORTS = [
+  { width: 1366, height: 768 },
   { width: 1280, height: 720 },
   { width: 1440, height: 900 },
   { width: 1920, height: 1080 },
@@ -49,6 +50,7 @@ async function login(request: APIRequestContext, email: string, password: string
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const response = await request.post("/api/auth/login", {
+        headers: { "x-forwarded-for": "198.51.100.15" },
         data: {
           email,
           password,
@@ -333,6 +335,36 @@ test.describe("Final hardening audit", () => {
     await page.goto("/en/notifications");
     await expect(page).not.toHaveURL(/\/en\/login/);
   });
+
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1366, height: 768 }] as const) {
+    test(`seller listing position and navigation paths @ ${viewport.width}px`, async ({ page }) => {
+      test.skip(!SELLER_EMAIL || !SELLER_PASSWORD, "Set E2E_SELLER_EMAIL and E2E_SELLER_PASSWORD to run listing position checks.");
+      await login(page.request, SELLER_EMAIL, SELLER_PASSWORD);
+      await page.setViewportSize(viewport);
+      await page.goto("/en/usdt-exchange");
+      await expect(page.locator("#market-overview")).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator("#my-listings-section")).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator("#create-listing")).toBeVisible({ timeout: 30_000 });
+
+      const sectionOrder = await page.evaluate(() => {
+        const market = document.getElementById("market-overview");
+        const listings = document.getElementById("my-listings-section");
+        const create = document.getElementById("create-listing");
+        return {
+          marketTop: market?.getBoundingClientRect().top ?? -1,
+          listingsTop: listings?.getBoundingClientRect().top ?? -1,
+          createTop: create?.getBoundingClientRect().top ?? -1,
+        };
+      });
+      expect(sectionOrder.listingsTop).toBeGreaterThan(sectionOrder.marketTop);
+      expect(sectionOrder.createTop).toBeGreaterThan(sectionOrder.listingsTop);
+
+      await page.getByRole("button", { name: /^Manage Listings$/ }).first().click();
+      await expect(page.locator("#my-listings-section")).toBeInViewport();
+      await page.getByRole("button", { name: /^Create Listing$/ }).first().click();
+      await expect(page.locator("#create-listing")).toBeInViewport();
+    });
+  }
 
   test("route protection matrix for guest, buyer, seller, owner", async ({ page }) => {
     test.setTimeout(120_000);

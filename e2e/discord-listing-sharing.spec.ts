@@ -17,6 +17,7 @@ let world: QaWorld | undefined;
 
 async function login(request: APIRequestContext) {
   const response = await request.post("/api/auth/login", {
+    headers: { "x-forwarded-for": "198.51.100.13" },
     data: {
       email: world!.seller.email,
       password: world!.seller.password,
