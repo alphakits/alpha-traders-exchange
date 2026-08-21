@@ -4,7 +4,12 @@ import { updateSmsDeliveryStatus } from "@/lib/alpha-exchange-store";
 import { getSiteUrl } from "@/lib/site-url";
 
 export async function POST(request: NextRequest) {
-  const form = await request.formData();
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return new NextResponse(null, { status: 400 });
+  }
   const params = Object.fromEntries(Array.from(form.entries()).map(([key, value]) => [key, String(value)]));
   const url = new URL(`${request.nextUrl.pathname}${request.nextUrl.search}`, getSiteUrl()).toString();
   if (!validateTwilioSignature({ signature: request.headers.get("x-twilio-signature"), url, params })) {

@@ -4,6 +4,7 @@ import { useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { GraduationCap, ShieldCheck, Store, UserCircle2, Sparkles, Clock3, CheckCircle2, Send, Smartphone, KeyRound } from "lucide-react";
 import { useRouter } from "@/i18n/navigation";
+import { navigateAfterSuccess } from "@/lib/client-success-navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -257,10 +258,10 @@ export function GuestOnboarding({
           additionalNotes: seller.notes,
         }),
       });
-      const payload = (await res.json()) as { error?: string };
+      const payload = (await res.json()) as { error?: string; destination?: string };
       if (!res.ok) throw new Error(payload.error ?? "Failed to submit seller application.");
       setSellerStep("applied");
-      consumePostOnboardingRedirect();
+      if (!navigateAfterSuccess(router, payload.destination)) consumePostOnboardingRedirect();
     } catch (err) {
       setSellerError(err instanceof Error ? err.message : "Failed to submit seller application.");
     } finally {

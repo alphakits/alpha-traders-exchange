@@ -6,7 +6,7 @@ import {
   claimDiscordListingShare,
   DiscordListingShareError,
 } from "@/lib/discord/listing-share-repository";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { hasTrustedSameOrigin } from "@/lib/request-origin";
 import { logEvent } from "@/lib/structured-logging";
 
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     );
   }
 
-  const rate = checkRateLimit({
+  const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: `discord-listing-share:${user.id}`,
     maxRequests: 12,

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateNotificationPreferences } from "@/lib/alpha-exchange-store";
 import { requireApiUser } from "@/lib/api-auth";
-import { checkRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
+import { checkSharedRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
 
 export async function GET() {
   const { user, unauthorized } = await requireApiUser();
@@ -28,7 +28,7 @@ export async function GET() {
 export async function PATCH(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const rate = checkRateLimit({ headers: request.headers, key: "exchange:notification-preferences", maxRequests: 12, windowMs: 60_000 });
+  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:notification-preferences", maxRequests: 12, windowMs: 60_000 });
   if (!rate.allowed) return createRateLimitResponse(rate.retryAfterSeconds);
 
   try {

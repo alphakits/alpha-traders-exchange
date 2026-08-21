@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { canPublishListings, deleteMarketplaceListingForSeller, getMarketplaceListingById, renewMarketplaceListing, updateMarketplaceListingForSeller } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
 import { MAX_LISTING_PAYMENT_METHODS, requiresIsraeliBankSelection, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import { listingEditRequiresReason, validateListingChangeReason } from "@/lib/listing-change-reasons";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
+import { sellerListingWorkspaceDestination } from "@/lib/action-destinations";
 
 function toNumber(value: unknown) {
   return Number(String(value ?? "").replace(/[^\d.]/g, ""));
@@ -33,7 +34,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   if (!canPublishListings(user)) {
     return NextResponse.json({ error: "You must be approved by Alpha Traders before publishing listings." }, { status: 403 });
   }
-  const rate = checkRateLimit({ headers: request.headers, key: "exchange:update-listing", maxRequests: 30, windowMs: 60_000 });
+  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:update-listing", maxRequests: 30, windowMs: 60_000 });
   if (!rate.allowed) {
     return NextResponse.json({ error: "Too many update requests. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
   }
@@ -211,7 +212,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     });
     const logicMs = Date.now() - logicStartedAt;
     const routeMs = Date.now() - routeStartedAt;
-    return NextResponse.json({ listing }, {
+    return NextResponse.json({ listing, destination: sellerListingWorkspaceDestination(listing) }, {
       headers: {
         "X-Trade-Route-Ms": String(routeMs),
         "X-Trade-Validation-Ms": String(validationMs),

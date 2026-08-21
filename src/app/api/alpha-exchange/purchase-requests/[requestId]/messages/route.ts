@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { getTradeRoomData, postTradeRoomMessage } from "@/lib/alpha-exchange-store";
 import { requireApiUser } from "@/lib/api-auth";
 
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
 
-  const rate = checkRateLimit({
+  const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:trade-room-message",
     maxRequests: 40,

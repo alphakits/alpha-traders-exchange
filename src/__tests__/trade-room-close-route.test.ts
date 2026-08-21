@@ -14,7 +14,7 @@ vi.mock("@/lib/api-auth", () => ({
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
-  checkRateLimit: mocks.checkRateLimit,
+  checkSharedRateLimit: mocks.checkRateLimit,
 }));
 
 vi.mock("@/lib/alpha-exchange-store", () => ({

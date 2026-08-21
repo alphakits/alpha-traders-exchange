@@ -1,7 +1,7 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { getTradeEvidenceForRequest, uploadTradeEvidence } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { prepareTradeEventEmails } from "@/lib/marketplace-email-events";
 
 type RouteContext = {
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   if (!user) return unauthorized;
   const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
   if (phoneVerificationRequired) return phoneVerificationRequired;
-  const rate = checkRateLimit({
+  const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:trade-evidence-upload",
     maxRequests: 20,
@@ -84,6 +84,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
       const deliverTradeEmails = await prepareTradeEventEmails({ event: "buyer_payment_sent", request: uploaded.request });
       after(deliverTradeEmails);
     }
+    if (uploaded.metrics.autoAdvancedToUsdtSent) {
+      const deliverTradeEmails = await prepareTradeEventEmails({ event: "seller_usdt_released", request: uploaded.request });
+      after(deliverTradeEmails);
+    }
     const routeMs = Date.now() - routeStartedAt;
     console.log("[trade-room-perf] evidence timings", {
       requestId,
@@ -95,6 +99,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       dbReadMs: uploaded.metrics.dbReadMs,
       routeMs,
       autoAdvancedToPaymentSent: uploaded.metrics.autoAdvancedToPaymentSent,
+      autoAdvancedToUsdtSent: uploaded.metrics.autoAdvancedToUsdtSent,
       statusAfter: uploaded.request.status,
     });
     return NextResponse.json(

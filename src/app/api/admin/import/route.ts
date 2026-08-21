@@ -2,6 +2,7 @@ import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import { adminErrorStatus, resolveAdminIdentity } from "@/lib/admin-auth";
 import { addMediaItem, appendVersion, createLesson, inferMediaType, saveUploadedFile, validateUpload } from "@/lib/admin-store";
+import { checkSharedRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
 import type { Lesson } from "@/types/academy";
 
 function guessLessonFromFileName(fileName: string): Partial<Lesson> {
@@ -28,6 +29,8 @@ function guessLessonFromFileName(fileName: string): Partial<Lesson> {
 export async function POST(request: NextRequest) {
   try {
     const identity = await resolveAdminIdentity(request);
+    const rate = await checkSharedRateLimit({ headers: request.headers, key: "admin:lesson-import", identifier: identity.actor, maxRequests: 5, windowMs: 60 * 60_000 });
+    if (!rate.allowed) return createRateLimitResponse(rate.retryAfterSeconds);
     const formData = await request.formData();
     const files = formData.getAll("files").filter((item): item is File => item instanceof File);
     if (!files.length) {
@@ -36,8 +39,9 @@ export async function POST(request: NextRequest) {
 
     const createdLessons: Lesson[] = [];
     for (const file of files) {
-      validateUpload(file.name, file.size);
-      const upload = await saveUploadedFile(file, file.name);
+      const bytes = Buffer.from(await file.arrayBuffer());
+      const mimeType = validateUpload(file.name, file.size, bytes);
+      const upload = await saveUploadedFile(bytes, file.name, mimeType);
       const mediaType = inferMediaType(file.name);
       const base = guessLessonFromFileName(file.name);
       const lesson = await createLesson(
@@ -69,7 +73,7 @@ export async function POST(request: NextRequest) {
         url: upload.publicUrl,
         storageBucket: upload.storageBucket,
         storageKey: upload.storageKey,
-        mimeType: file.type,
+        mimeType,
         size: file.size,
         lessonId: lesson.id,
       });

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBetaFeedbackForUser, submitBetaFeedback } from "@/lib/alpha-exchange-store";
 import { requireApiUser } from "@/lib/api-auth";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
 import type { BetaFeedbackCategory } from "@/types/alpha-exchange";
 
 function isFeedbackCategory(value: string): value is BetaFeedbackCategory {
@@ -18,7 +18,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const rate = checkRateLimit({
+  const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:beta-feedback-submit",
     maxRequests: 8,

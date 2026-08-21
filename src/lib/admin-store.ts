@@ -2,6 +2,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { getAdminContentRepository } from "@/lib/admin-content-repository";
 import { createSupabaseAdminClient, getAdminMediaBucket } from "@/lib/supabase-admin";
+import { validateTextUploadContent, validateUploadContent, type ValidatedUploadType } from "@/lib/file-content-validation";
 import type { Lesson, LessonCategory, LessonStatus, QuizQuestion } from "@/types/academy";
 import type { AdminAnalytics, LessonVersion, MediaItem, MediaProvider, MediaType } from "@/types/admin";
 
@@ -380,9 +381,7 @@ export function inferMediaType(fileName: string): MediaType {
   return "other";
 }
 
-export async function saveUploadedFile(file: File, fileName: string) {
-  const arrayBuffer = await file.arrayBuffer();
-  const bytes = Buffer.from(arrayBuffer);
+export async function saveUploadedFile(bytes: Buffer, fileName: string, mimeType: string) {
   const ext = path.extname(fileName).toLowerCase();
   const stem = slugify(path.basename(fileName, ext)) || "asset";
   const safeName = `${stem}-${Date.now()}-${randomUUID().slice(0, 8)}${ext}`;
@@ -390,7 +389,7 @@ export async function saveUploadedFile(file: File, fileName: string) {
   const storageKey = `academy/${new Date().getUTCFullYear()}/${safeName}`;
   const client = createSupabaseAdminClient();
   const { error } = await client.storage.from(bucket).upload(storageKey, bytes, {
-    contentType: file.type || "application/octet-stream",
+    contentType: mimeType,
     upsert: false,
   });
   if (error) {
@@ -404,15 +403,26 @@ export async function saveUploadedFile(file: File, fileName: string) {
   };
 }
 
-export function validateUpload(fileName: string, size: number) {
+export function validateUpload(fileName: string, size: number, bytes: Buffer) {
   if (size > 150 * 1024 * 1024) {
     throw new Error("Upload exceeds maximum allowed size (150MB).");
   }
   const ext = path.extname(fileName).toLowerCase();
-  const allowed = [".mp4", ".webm", ".mov", ".mkv", ".m4v", ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".json", ".csv"];
-  if (!allowed.includes(ext)) {
+  const types: Record<string, ValidatedUploadType | "application/json" | "text/csv"> = {
+    ".mp4": "video/mp4", ".mov": "video/mp4", ".m4v": "video/mp4",
+    ".webm": "video/webm", ".mkv": "video/webm", ".pdf": "application/pdf",
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".webp": "image/webp", ".gif": "image/gif", ".json": "application/json", ".csv": "text/csv",
+  };
+  const mimeType = types[ext];
+  if (!mimeType) {
     throw new Error("Unsupported file type.");
   }
+  const valid = mimeType === "application/json" || mimeType === "text/csv"
+    ? validateTextUploadContent(bytes, mimeType)
+    : validateUploadContent(bytes, mimeType);
+  if (!valid) throw new Error("File content does not match the allowed format.");
+  return mimeType;
 }
 
 export function toCsv(lessons: Lesson[]) {

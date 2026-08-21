@@ -18,6 +18,12 @@ import { invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
 
 const SETUP_SECRET = process.env.ALPHA_SETUP_SECRET;
 
+function productionUnavailable() {
+  return process.env.NODE_ENV === "production"
+    ? NextResponse.json({ error: "Not found." }, { status: 404, headers: { "Cache-Control": "no-store" } })
+    : null;
+}
+
 const KEPT_EMAILS = new Set([
   "jozenmark834@yahoo.com",
   "marksally11@yahoo.com",
@@ -47,6 +53,8 @@ function normalizeEmail(email: string) {
 
 /** Preview what would be deleted without committing */
 export async function GET(request: NextRequest) {
+  const unavailable = productionUnavailable();
+  if (unavailable) return unavailable;
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Not authorized." }, { status: 403 });
   }
@@ -79,6 +87,8 @@ export async function GET(request: NextRequest) {
 
 /** Commit the deletion */
 export async function POST(request: NextRequest) {
+  const unavailable = productionUnavailable();
+  if (unavailable) return unavailable;
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Not authorized." }, { status: 403 });
   }

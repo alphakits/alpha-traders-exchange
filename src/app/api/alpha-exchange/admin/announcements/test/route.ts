@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAdmin } from "@/lib/api-auth";
 import { sendAdminAnnouncementTest } from "@/lib/alpha-exchange-store";
-import { checkRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
+import { checkSharedRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   const { user, unauthorized } = await requireApiAdmin();
   if (!user) return unauthorized;
-  const limit = checkRateLimit({
+  const limit = await checkSharedRateLimit({
     headers: request.headers,
     key: "admin-announcement-test",
     identifier: user.id,

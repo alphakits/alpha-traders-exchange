@@ -5,7 +5,7 @@ import {
   getAdminAnnouncementOverview,
   isAdminAnnouncementAudience,
 } from "@/lib/alpha-exchange-store";
-import { checkRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
+import { checkSharedRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
 import type { AdminAnnouncementRun } from "@/types/alpha-exchange";
 
 function toPublicRun(run: AdminAnnouncementRun) {
@@ -30,7 +30,7 @@ function toPublicRun(run: AdminAnnouncementRun) {
 export async function GET(request: NextRequest) {
   const { user, unauthorized } = await requireApiAdmin();
   if (!user) return unauthorized;
-  const limit = checkRateLimit({
+  const limit = await checkSharedRateLimit({
     headers: request.headers,
     key: "admin-announcement-overview",
     identifier: user.id,
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const { user, unauthorized } = await requireApiAdmin();
   if (!user) return unauthorized;
-  const limit = checkRateLimit({
+  const limit = await checkSharedRateLimit({
     headers: request.headers,
     key: "admin-announcement-create",
     identifier: user.id,

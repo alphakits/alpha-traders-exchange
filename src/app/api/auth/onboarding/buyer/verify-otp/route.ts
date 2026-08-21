@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { requireApiUser } from "@/lib/api-auth";
 import { completeBuyerVerification, confirmProfilePhoneVerification, findUserById, recordBuyerVerificationAttempt } from "@/lib/alpha-exchange-store";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
 import { AUTH_PHONE_VERIFIED_COOKIE_NAME } from "@/lib/auth";
 import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
   const requestId = crypto.randomUUID();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const rate = checkRateLimit({
+  const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: `auth:buyer-otp-verify:${user.id}`,
     maxRequests: 3,

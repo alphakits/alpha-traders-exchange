@@ -64,3 +64,4 @@ tmp-*.ts
 tmp-*.png
 /tmp/
 /test-results/
+.next-runtime-test-*/

@@ -39,6 +39,7 @@ import { cn } from "@/lib/utils";
 import { SELLER_PRESTIGE_TIERS } from "@/lib/seller-prestige";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
 import { deriveBuyerRankSummary, type BuyerRankSummary } from "@/lib/buyer-rank";
+import { navigateAfterSuccess, navigateOrRevealResult } from "@/lib/client-success-navigation";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
 const WHATSAPP_URL = getOfficialOwnerWhatsAppUrl();
@@ -2126,7 +2127,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         setStatusMessage(errorMessage);
         return;
       }
-      const data = (await response.json()) as { purchase?: PurchaseRequest };
+      const data = (await response.json()) as { purchase?: PurchaseRequest; destination?: string };
       if (data.purchase) {
         setMyRequests((prev) => [data.purchase as PurchaseRequest, ...prev]);
         setPurchaseSubmitted(true);
@@ -2134,7 +2135,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         setIsRedirectingToVerification(false);
         setStatusMessage(null);
         closeListingModal();
-        router.push(`/trade-room/${data.purchase.id}`);
+        navigateAfterSuccess(router, data.destination);
       }
     } catch (error) {
       const message = error instanceof Error && error.message.trim()
@@ -3248,9 +3249,10 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
-      const payload = await response.json() as { listing?: MarketplaceListing };
+      const payload = await response.json() as { listing?: MarketplaceListing; destination?: string };
       syncListingState(payload.listing ?? null);
       setSellerWorkspaceMessage("📋 Listing duplicated successfully. Review and publish it when ready.");
+      navigateOrRevealResult(router, payload.destination, "listing-publish-result");
       setEditingListingId(null);
       backgroundRefreshSellerWorkspace();
     } catch {
@@ -3272,7 +3274,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
-      const payload = await response.json() as { listing?: MarketplaceListing };
+      const payload = await response.json() as { listing?: MarketplaceListing; destination?: string };
       syncListingState(payload.listing ?? listing);
       setSellerWorkspaceMessage("🔄 Listing renewed. Your listing is now live with a refreshed expiry.");
       backgroundRefreshSellerWorkspace();
@@ -3313,7 +3315,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
-      const payload = await response.json() as { listing?: MarketplaceListing };
+      const payload = await response.json() as { listing?: MarketplaceListing; destination?: string };
       syncListingState(payload.listing ?? null);
       setListingCreateForm((prev) => ({
         ...prev,
@@ -3330,6 +3332,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       setListingCreateCurrencyManualOverride(false);
       setListingCommissionAgreement(false);
       setSellerWorkspaceMessage("✅ Listing published successfully. Buyers can now see your listing in the marketplace.");
+      navigateOrRevealResult(router, payload.destination, "listing-publish-result");
       backgroundRefreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing"));
@@ -3380,11 +3383,12 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
-      const payload = await response.json() as { listing?: MarketplaceListing };
+      const payload = await response.json() as { listing?: MarketplaceListing; destination?: string };
       syncListingState(payload.listing ?? null);
       setEditingListingId(null);
       setListingEditOriginal(null);
       setSellerWorkspaceMessage("✅ Listing updated successfully. Changes are now visible to buyers.");
+      navigateAfterSuccess(router, payload.destination);
       backgroundRefreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing"));
@@ -4538,7 +4542,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                             <p className="mt-2 text-xs text-[#D1D5DB]">Loading your saved bank accounts...</p>
                           ) : sellerBankAccounts.length === 0 ? (
                             <p className="mt-2 text-xs text-amber-300">
-                              No saved bank accounts found. Add one in <Link href="/settings" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Settings</Link> before saving this listing.
+                              No saved bank accounts found. Add one in <a href={`/${locale}/settings?tab=profile#seller-bank-accounts`} className="text-[#93C5FD] underline underline-offset-2">Settings</a> before saving this listing.
                             </p>
                           ) : (
                             <>
@@ -5794,7 +5798,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                     <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? "جارٍ تحميل الحسابات البنكية..." : "Loading saved bank accounts..."}</p>
                   ) : sellerBankAccounts.length === 0 ? (
                     <p className="mt-2 text-xs text-amber-300">
-                      {isAr ? "لا توجد حسابات بنكية محفوظة. أضف حسابًا في" : "No saved bank accounts found. Add one in"} <Link href="/settings" locale={locale} className="text-[#93C5FD] underline underline-offset-2">{isAr ? "الإعدادات" : "Settings"}</Link>.
+                      {isAr ? "لا توجد حسابات بنكية محفوظة. أضف حسابًا في" : "No saved bank accounts found. Add one in"} <a href={`/${locale}/settings?tab=profile#seller-bank-accounts`} className="text-[#93C5FD] underline underline-offset-2">{isAr ? "الإعدادات" : "Settings"}</a>.
                     </p>
                   ) : (
                     <>
@@ -5861,7 +5865,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
           </Card>
 
           {sellerWorkspaceMessage ? (
-            <div className="order-25 flex items-start justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-100 shadow-[0_0_0_1px_rgba(16,185,129,0.08)] animate-in fade-in-0 slide-in-from-top-1 duration-300">
+            <div id="listing-publish-result" tabIndex={-1} role="status" aria-live="polite" className="order-25 flex items-start justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-100 shadow-[0_0_0_1px_rgba(16,185,129,0.08)] animate-in fade-in-0 slide-in-from-top-1 duration-300">
               <span>{sellerWorkspaceMessage}</span>
               <button
                 type="button"

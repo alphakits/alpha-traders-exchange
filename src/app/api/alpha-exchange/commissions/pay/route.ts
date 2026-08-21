@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiSellerWorkspaceActor } from "@/lib/api-auth";
 import { submitSellerCommissionWalletPayment } from "@/lib/alpha-exchange-store";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   const routeStartedAt = Date.now();
   const { user, unauthorized } = await requireApiSellerWorkspaceActor();
   if (!user) return unauthorized;
 
-  const rate = checkRateLimit({
+  const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:commission-pay",
     maxRequests: 20,

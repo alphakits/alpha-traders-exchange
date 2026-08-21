@@ -8,7 +8,7 @@ import {
   updateSellerBankAccount,
   updateUserSellerSettings,
 } from "@/lib/alpha-exchange-store";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
 import type { SellerAvailabilityStatus, SupportedNetwork } from "@/types/alpha-exchange";
 
 export async function GET() {
@@ -40,7 +40,7 @@ export async function GET() {
 export async function PATCH(request: NextRequest) {
   const { user, unauthorized } = await requireApiSellerWorkspaceActor();
   if (!user) return unauthorized;
-  const rate = checkRateLimit({ headers: request.headers, key: "exchange:seller-settings", maxRequests: 20, windowMs: 60_000 });
+  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:seller-settings", maxRequests: 20, windowMs: 60_000 });
   if (!rate.allowed) {
     return NextResponse.json({ error: "Too many settings update requests. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
   }

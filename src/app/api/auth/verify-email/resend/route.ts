@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkRateLimit, resolveClientIp } from "@/lib/rate-limit";
+import { checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
@@ -17,7 +17,7 @@ function verificationDeliveryFailedMessage(locale: "ar" | "en") {
 }
 
 export async function POST(request: NextRequest) {
-  const rate = checkRateLimit({
+  const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "auth:verify-email:resend",
     maxRequests: 5,

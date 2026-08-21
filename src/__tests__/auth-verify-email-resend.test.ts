@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
-  checkRateLimit: vi.fn(),
+  checkSharedRateLimit: vi.fn(),
   resolveClientIp: vi.fn(),
   inferLocaleFromRequest: vi.fn(),
   getSupabaseEmailRedirectUrl: vi.fn(),
@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
-  checkRateLimit: mocks.checkRateLimit,
+  checkSharedRateLimit: mocks.checkSharedRateLimit,
   resolveClientIp: mocks.resolveClientIp,
 }));
 
@@ -28,13 +28,13 @@ import { POST } from "@/app/api/auth/verify-email/resend/route";
 
 describe("verify email resend route", () => {
   beforeEach(() => {
-    mocks.checkRateLimit.mockReset();
+    mocks.checkSharedRateLimit.mockReset();
     mocks.resolveClientIp.mockReset();
     mocks.inferLocaleFromRequest.mockReset();
     mocks.getSupabaseEmailRedirectUrl.mockReset();
     mocks.resend.mockReset();
 
-    mocks.checkRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
+    mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0 });
     mocks.resolveClientIp.mockReturnValue("198.51.100.10");
     mocks.inferLocaleFromRequest.mockReturnValue("en");
     mocks.getSupabaseEmailRedirectUrl.mockReturnValue("https://www.alphatraders.co.il/en/login");

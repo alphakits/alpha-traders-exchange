@@ -170,7 +170,7 @@ async function completeTrade(input: {
     nextStatus: "usdt_release_pending",
   });
 
-  await uploadTradeEvidence({
+  const sellerEvidence = await uploadTradeEvidence({
     purchaseRequestId: request.request.id,
     actorUserId: SELLER_ID,
     actorRole: "approved_seller",
@@ -180,13 +180,7 @@ async function completeTrade(input: {
     sizeBytes: 68,
     contentBase64: PNG_BASE64,
   });
-
-  await updatePurchaseRequestStatus({
-    requestId: request.request.id,
-    actorUserId: SELLER_ID,
-    actorRole: "approved_seller",
-    nextStatus: "usdt_sent",
-  });
+  expect(sellerEvidence.request.status).toBe("usdt_sent");
 
   const completion = await updatePurchaseRequestStatus({
     requestId: request.request.id,
@@ -242,7 +236,7 @@ async function advanceTradeToUsdtSent(input: { requestId: string; buyerId: strin
     actorRole: "approved_seller",
     nextStatus: "usdt_release_pending",
   });
-  await uploadTradeEvidence({
+  const sellerEvidence = await uploadTradeEvidence({
     purchaseRequestId: input.requestId,
     actorUserId: SELLER_ID,
     actorRole: "approved_seller",
@@ -252,12 +246,7 @@ async function advanceTradeToUsdtSent(input: { requestId: string; buyerId: strin
     sizeBytes: 68,
     contentBase64: PNG_BASE64,
   });
-  await updatePurchaseRequestStatus({
-    requestId: input.requestId,
-    actorUserId: SELLER_ID,
-    actorRole: "approved_seller",
-    nextStatus: "usdt_sent",
-  });
+  expect(sellerEvidence.request.status).toBe("usdt_sent");
 }
 
 describe("partial listing preservation", () => {
@@ -338,7 +327,7 @@ describe("partial listing preservation", () => {
       nextStatus: "usdt_release_pending",
     });
 
-    await uploadTradeEvidence({
+    const sellerEvidence = await uploadTradeEvidence({
       purchaseRequestId: created.request.id,
       actorUserId: SELLER_ID,
       actorRole: "approved_seller",
@@ -348,13 +337,7 @@ describe("partial listing preservation", () => {
       sizeBytes: 68,
       contentBase64: PNG_BASE64,
     });
-
-    await updatePurchaseRequestStatus({
-      requestId: created.request.id,
-      actorUserId: SELLER_ID,
-      actorRole: "approved_seller",
-      nextStatus: "usdt_sent",
-    });
+    expect(sellerEvidence.request.status).toBe("usdt_sent");
 
     const completion = await updatePurchaseRequestStatus({
       requestId: created.request.id,
@@ -704,7 +687,7 @@ describe("partial listing preservation", () => {
     });
   });
 
-  it("archives overdue buyer confirmation after usdt_sent and blocks new purchases", async () => {
+  it("auto-completes overdue buyer confirmation and blocks new purchases pending feedback", async () => {
     const lockedListing = await createMarketplaceListing({
       sellerId: SELLER_ID,
       sellerDisplayName: "Seller One",
@@ -744,7 +727,7 @@ describe("partial listing preservation", () => {
       usdtAmount: "120",
       buyerName: "Buyer One",
       buyerWhatsapp: "+972500000001",
-      buyerNotes: "Timeout archive test",
+      buyerNotes: "Timeout completion test",
       buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
       actorUserId: BUYER_ONE_ID,
     });
@@ -765,9 +748,12 @@ describe("partial listing preservation", () => {
     await getMyPurchaseRequests(BUYER_ONE_ID, "buyer");
 
     const snapshotAfter = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb & { __runtimeVersion: number };
-    const archived = snapshotAfter.purchaseRequests.find((entry) => entry.id === created.request.id);
-    expect(Boolean(archived?.buyerConfirmationArchivedAt)).toBe(true);
-    expect(snapshotAfter.notifications.some((entry) => entry.userId === BUYER_ONE_ID && entry.title === "Action Required — Confirm USDT Receipt")).toBe(true);
+    const completed = snapshotAfter.purchaseRequests.find((entry) => entry.id === created.request.id);
+    expect(completed?.status).toBe("review_open");
+    expect(Boolean(completed?.completedAt)).toBe(true);
+    expect(snapshotAfter.commissionRecords.filter((entry) => entry.purchaseRequestId === created.request.id)).toHaveLength(1);
+    expect(snapshotAfter.notifications.some((entry) => entry.userId === BUYER_ONE_ID && entry.title === "Trade completed")).toBe(true);
+    expect(snapshotAfter.notifications.some((entry) => entry.userId === BUYER_ONE_ID && entry.title === "Review available")).toBe(true);
 
     await expect(
       createPurchaseRequest({
@@ -782,11 +768,11 @@ describe("partial listing preservation", () => {
       }),
     ).rejects.toMatchObject({
       name: "TradeBlockedError",
-      code: "AWAITING_BUYER_CONFIRMATION",
+      code: "PENDING_BUYER_FEEDBACK",
     });
   });
 
-  it("supports cancellation before usdt_sent (seller decline and buyer cancel after accept)", async () => {
+  it("allows cancellation only before seller acceptance", async () => {
     const listing = await createMarketplaceListing({
       sellerId: SELLER_ID,
       sellerDisplayName: "Seller One",
@@ -832,12 +818,6 @@ describe("partial listing preservation", () => {
       buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
       actorUserId: BUYER_THREE_ID,
     });
-    await updatePurchaseRequestStatus({
-      requestId: buyerCancelled.request.id,
-      actorUserId: SELLER_ID,
-      actorRole: "approved_seller",
-      nextStatus: "accepted",
-    });
     const cancelResult = await updatePurchaseRequestStatus({
       requestId: buyerCancelled.request.id,
       actorUserId: BUYER_THREE_ID,
@@ -846,8 +826,33 @@ describe("partial listing preservation", () => {
     });
     expect(cancelResult.request.status).toBe("cancelled");
 
+    const acceptedTrade = await createPurchaseRequest({
+      buyerId: BUYER_THREE_ID,
+      listingId: listing.id,
+      usdtAmount: "120",
+      buyerName: "Buyer Three",
+      buyerWhatsapp: "+972500000003",
+      buyerNotes: "Post-acceptance cancellation guard",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      actorUserId: BUYER_THREE_ID,
+    });
+    await updatePurchaseRequestStatus({
+      requestId: acceptedTrade.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "accepted",
+    });
+    await expect(
+      updatePurchaseRequestStatus({
+        requestId: acceptedTrade.request.id,
+        actorUserId: BUYER_THREE_ID,
+        actorRole: "buyer",
+        nextStatus: "cancelled",
+      }),
+    ).rejects.toMatchObject({ code: "invalid-status-transition" });
+
     const listings = await getMyMarketplaceListings(SELLER_ID);
-    expect(listings.find((entry) => entry.id === listing.id)?.status).toBe("active");
+    expect(listings.find((entry) => entry.id === listing.id)?.status).toBe("matched");
   });
 
   it("emits one notification per trade lifecycle event with deep links", async () => {
@@ -919,7 +924,7 @@ describe("partial listing preservation", () => {
       actorRole: "approved_seller",
       nextStatus: "usdt_release_pending",
     });
-    await uploadTradeEvidence({
+    const sellerEvidence = await uploadTradeEvidence({
       purchaseRequestId: request.request.id,
       actorUserId: SELLER_ID,
       actorRole: "approved_seller",
@@ -929,12 +934,7 @@ describe("partial listing preservation", () => {
       sizeBytes: 68,
       contentBase64: PNG_BASE64,
     });
-    await updatePurchaseRequestStatus({
-      requestId: request.request.id,
-      actorUserId: SELLER_ID,
-      actorRole: "approved_seller",
-      nextStatus: "usdt_sent",
-    });
+    expect(sellerEvidence.request.status).toBe("usdt_sent");
     await updatePurchaseRequestStatus({
       requestId: request.request.id,
       actorUserId: BUYER_ONE_ID,

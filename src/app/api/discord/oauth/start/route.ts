@@ -9,7 +9,7 @@ import {
   DISCORD_OAUTH_PKCE_COOKIE,
   readDiscordOAuthConfig,
 } from "@/lib/discord/oauth";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { hasTrustedSameOrigin } from "@/lib/request-origin";
 
 export async function POST(request: NextRequest) {
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
   }
 
-  const rate = checkRateLimit({
+  const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: `discord-oauth-start:${user.id}`,
     maxRequests: 5,

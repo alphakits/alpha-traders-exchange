@@ -13,6 +13,7 @@ import {
   getMarketplaceListings,
   getTradeRoomBankDetails,
   invalidateAlphaExchangeStoreCache,
+  runAlphaExchangeMaintenance,
   updatePurchaseRequestStatus,
 } from "@/lib/alpha-exchange-store";
 
@@ -275,19 +276,32 @@ describe("seller bank accounts and trade guardrails", () => {
     const warningEvents = (warned?.timeline ?? []).filter((event) => event.type === "trade_inactivity_warning_sent");
     expect(warningEvents).toHaveLength(1);
 
+    currentSnapshot().tradeEvidenceFiles.push({
+      id: "evidence-req-2",
+      purchaseRequestId: "req-2",
+      side: "buyer",
+      uploadedByUserId: BUYER_ID,
+      uploadedAt: staleTime,
+      fileName: "payment.png",
+      mimeType: "image/png",
+      sizeBytes: 1024,
+      storagePath: "testing/req-2/payment.png",
+      status: "uploaded",
+    });
+
     await updatePurchaseRequestStatus({
       requestId: "req-2",
       actorUserId: BUYER_ID,
       actorRole: "buyer",
-      nextStatus: "cancelled",
+      nextStatus: "payment_sent",
     });
 
-    const cancelled = currentSnapshot().purchaseRequests.find((item) => item.id === "req-2");
-    expect(cancelled?.status).toBe("cancelled");
-    expect(cancelled?.inactivityWarningSentAt).toBeUndefined();
+    const paymentSent = currentSnapshot().purchaseRequests.find((item) => item.id === "req-2");
+    expect(paymentSent?.status).toBe("payment_sent");
+    expect(paymentSent?.inactivityWarningSentAt).toBeUndefined();
   });
 
-  it("allows manual close with reason and blocks second close mutation", async () => {
+  it("allows manual close before seller acceptance and blocks a second close mutation", async () => {
     const now = new Date().toISOString();
     const snapshot = currentSnapshot();
     snapshot.purchaseRequests.push({
@@ -303,7 +317,7 @@ describe("seller bank accounts and trade guardrails", () => {
       currency: "ILS",
       network: "TRC20",
       paymentMethod: "Bank Transfer",
-      status: "accepted",
+      status: "pending",
       timeline: [],
       createdAt: now,
       updatedAt: now,
@@ -328,5 +342,127 @@ describe("seller bank accounts and trade guardrails", () => {
         reason: "Second close",
       }),
     ).resolves.toMatchObject({ status: "cancelled" });
+  });
+
+  it("blocks manual close immediately after acceptance and throughout the irreversible lifecycle", async () => {
+    const now = new Date().toISOString();
+    for (const status of ["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const) {
+      const requestId = `req-irreversible-${status}`;
+      currentSnapshot().purchaseRequests.push({
+        id: requestId,
+        listingId: `listing-${requestId}`,
+        buyerId: BUYER_ID,
+        buyerName: "Buyer",
+        buyerWhatsapp: "+972500000000",
+        buyerNotes: "",
+        sellerId: SELLER_ID,
+        usdtAmount: "100",
+        fiatAmount: "320",
+        currency: "ILS",
+        network: "TRC20",
+        paymentMethod: "Bank Transfer",
+        status,
+        timeline: [],
+        createdAt: now,
+        updatedAt: now,
+      } as never);
+
+      await expect(
+        closePurchaseRequestManually({
+          requestId,
+          actorUserId: status === "usdt_sent" ? SELLER_ID : BUYER_ID,
+          actorRole: status === "usdt_sent" ? "approved_seller" : "buyer",
+          reason: "Attempted cancellation",
+        }),
+      ).rejects.toThrow("cannot be closed manually after seller acceptance");
+    }
+  });
+
+  it("rejects buyer cancellation through the canonical status endpoint after acceptance", async () => {
+    const now = new Date().toISOString();
+    for (const status of ["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const) {
+      const requestId = `req-cancel-locked-${status}`;
+      currentSnapshot().purchaseRequests.push({
+        id: requestId,
+        listingId: `listing-${requestId}`,
+        buyerId: BUYER_ID,
+        buyerName: "Buyer",
+        buyerWhatsapp: "+972500000000",
+        buyerNotes: "",
+        sellerId: SELLER_ID,
+        usdtAmount: "100",
+        fiatAmount: "320",
+        currency: "ILS",
+        network: "TRC20",
+        paymentMethod: "Bank Transfer",
+        status,
+        timeline: [],
+        createdAt: now,
+        updatedAt: now,
+      } as never);
+
+      await expect(
+        updatePurchaseRequestStatus({
+          requestId,
+          actorUserId: BUYER_ID,
+          actorRole: "buyer",
+          nextStatus: "cancelled",
+        }),
+      ).rejects.toMatchObject({ code: "invalid-status-transition" });
+    }
+  });
+
+  it("auto-completes an expired USDT receipt window idempotently", async () => {
+    const sentAt = new Date(Date.now() - 6 * 60 * 1000).toISOString();
+    const snapshot = currentSnapshot();
+    snapshot.marketplaceListings.push({
+      id: "listing-expired-receipt",
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      photos: [],
+      originalAmount: "1000",
+      availableAmount: "1000",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      paymentMethod: "Bank Transfer",
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "1000",
+      status: "in_trade",
+      activeTradeRequestId: "req-expired-receipt",
+      createdAt: sentAt,
+      updatedAt: sentAt,
+    } as never);
+    snapshot.purchaseRequests.push({
+      id: "req-expired-receipt",
+      listingId: "listing-expired-receipt",
+      buyerId: BUYER_ID,
+      buyerName: "Buyer",
+      buyerWhatsapp: "+972500000000",
+      buyerNotes: "",
+      sellerId: SELLER_ID,
+      usdtAmount: "100",
+      fiatAmount: "320",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethod: "Bank Transfer",
+      status: "usdt_sent",
+      usdtSentAt: sentAt,
+      timeline: [],
+      createdAt: sentAt,
+      updatedAt: sentAt,
+    } as never);
+
+    await runAlphaExchangeMaintenance();
+    const completed = currentSnapshot().purchaseRequests.find((item) => item.id === "req-expired-receipt");
+    expect(completed?.status).toBe("review_open");
+    expect(completed?.completedAt).toBeTruthy();
+    expect(currentSnapshot().commissionRecords.filter((item) => item.purchaseRequestId === "req-expired-receipt")).toHaveLength(1);
+    expect(currentSnapshot().marketplaceListings.find((item) => item.id === "listing-expired-receipt")?.activeTradeRequestId).toBeUndefined();
+
+    await runAlphaExchangeMaintenance();
+    expect(currentSnapshot().commissionRecords.filter((item) => item.purchaseRequestId === "req-expired-receipt")).toHaveLength(1);
   });
 });

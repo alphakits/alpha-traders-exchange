@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { closePurchaseRequestManually } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
 
 type RouteContext = {
   params: Promise<{ requestId: string }>;
@@ -14,7 +14,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
   if (phoneVerificationRequired) return phoneVerificationRequired;
 
-  const rate = checkRateLimit({
+  const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:trade-manual-close",
     maxRequests: 20,

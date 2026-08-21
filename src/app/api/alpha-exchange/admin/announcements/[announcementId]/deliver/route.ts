@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAdmin } from "@/lib/api-auth";
 import { deliverAdminAnnouncementBatch } from "@/lib/alpha-exchange-store";
-import { checkRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
+import { checkSharedRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
 
 type RouteContext = {
   params: Promise<{ announcementId: string }>;
@@ -10,7 +10,7 @@ type RouteContext = {
 export async function POST(request: NextRequest, context: RouteContext) {
   const { user, unauthorized } = await requireApiAdmin();
   if (!user) return unauthorized;
-  const limit = checkRateLimit({
+  const limit = await checkSharedRateLimit({
     headers: request.headers,
     key: "admin-announcement-deliver",
     identifier: user.id,

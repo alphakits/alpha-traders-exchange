@@ -33,6 +33,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let closed = false;
+      let snapshotInFlight = false;
+      let snapshotQueued = false;
       const enqueueSafe = (payload: string) => {
         if (closed) return false;
         try {
@@ -54,6 +56,11 @@ export async function GET(request: NextRequest, context: RouteContext) {
       };
       const sendSnapshot = async (trigger: "init" | "event" | "keepalive", publishedAtEpochMs?: number) => {
         if (closed) return;
+        if (snapshotInFlight) {
+          snapshotQueued = true;
+          return;
+        }
+        snapshotInFlight = true;
         const snapshotStartMs = Date.now();
         try {
           const room = await getTradeRoomData({
@@ -87,6 +94,12 @@ export async function GET(request: NextRequest, context: RouteContext) {
         } catch (error) {
           const message = error instanceof Error ? error.message : "trade_room_stream_failed";
           enqueueSafe(`event: error\ndata: ${JSON.stringify({ message })}\n\n`);
+        } finally {
+          snapshotInFlight = false;
+          if (snapshotQueued && !closed) {
+            snapshotQueued = false;
+            void sendSnapshot("event");
+          }
         }
       };
 

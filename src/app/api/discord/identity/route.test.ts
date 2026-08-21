@@ -17,7 +17,7 @@ vi.mock("@/lib/discord/identity-repository", () => ({
   unlinkDiscordIdentity: mocks.unlink,
 }));
 vi.mock("@/lib/rate-limit", () => ({
-  checkRateLimit: () => ({ allowed: true, retryAfterSeconds: 0 }),
+  checkSharedRateLimit: async () => ({ allowed: true, retryAfterSeconds: 0 }),
 }));
 
 import { DELETE, GET } from "@/app/api/discord/identity/route";

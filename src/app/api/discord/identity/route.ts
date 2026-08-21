@@ -5,7 +5,7 @@ import {
   getDiscordConnection,
   unlinkDiscordIdentity,
 } from "@/lib/discord/identity-repository";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { hasTrustedSameOrigin } from "@/lib/request-origin";
 import { logEvent } from "@/lib/structured-logging";
 
@@ -32,7 +32,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
   }
 
-  const rate = checkRateLimit({
+  const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: `discord-unlink:${user.id}`,
     maxRequests: 5,

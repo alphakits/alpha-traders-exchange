@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 
 type RateLimitWindow = {
   count: number;
@@ -6,6 +7,7 @@ type RateLimitWindow = {
 };
 
 const buckets = new Map<string, RateLimitWindow>();
+let sharedRateLimitSchema: Promise<void> | null = null;
 
 const IPV4_PATTERN = /^(?:\d{1,3}\.){3}\d{1,3}$/;
 
@@ -100,6 +102,84 @@ export function checkRateLimit(input: {
   existing.count += 1;
   buckets.set(bucketKey, existing);
   return { allowed: true, retryAfterSeconds: 0, reason: null as string | null };
+}
+
+async function ensureSharedRateLimitSchema() {
+  if (!sharedRateLimitSchema) {
+    const pool = getRuntimePostgresPool();
+    if (!pool) return false;
+    sharedRateLimitSchema = pool.query(`
+      create table if not exists alpha_exchange.rate_limit_windows (
+        bucket_key text primary key,
+        window_started_at timestamptz not null,
+        request_count integer not null check (request_count >= 0)
+      )
+    `).then(() => undefined);
+  }
+  try {
+    await sharedRateLimitSchema;
+  } catch (error) {
+    sharedRateLimitSchema = null;
+    throw error;
+  }
+  return true;
+}
+
+/**
+ * Uses PostgreSQL as a cross-instance fixed-window limiter when runtime
+ * persistence is configured. Development and isolated tests retain the local
+ * limiter because they intentionally run without PostgreSQL.
+ */
+export async function checkSharedRateLimit(input: {
+  headers: Headers;
+  key: string;
+  maxRequests: number;
+  windowMs: number;
+  identifier?: string;
+}) {
+  const config = resolveRateLimitConfig(input);
+  const ip = resolveClientIp(input.headers);
+  const identifier = input.identifier?.trim() || ip;
+  const bucketKey = `${input.key}:${identifier}`;
+  const pool = getRuntimePostgresPool();
+  if (!pool) {
+    return checkRateLimit({ ...input, maxRequests: config.maxRequests, windowMs: config.windowMs });
+  }
+
+  try {
+    const ready = await ensureSharedRateLimitSchema();
+    if (!ready) {
+      return checkRateLimit({ ...input, maxRequests: config.maxRequests, windowMs: config.windowMs });
+    }
+    const result = await pool.query<{ request_count: number; window_started_at: Date }>(
+      `insert into alpha_exchange.rate_limit_windows as rate_limit (bucket_key, window_started_at, request_count)
+       values ($1, now(), 1)
+       on conflict (bucket_key) do update
+       set window_started_at = case
+             when rate_limit.window_started_at <= now() - ($2::bigint * interval '1 millisecond') then now()
+             else rate_limit.window_started_at
+           end,
+           request_count = case
+             when rate_limit.window_started_at <= now() - ($2::bigint * interval '1 millisecond') then 1
+             else rate_limit.request_count + 1
+           end
+       returning request_count, window_started_at`,
+      [bucketKey, config.windowMs],
+    );
+    const row = result.rows[0];
+    const elapsedMs = Date.now() - new Date(row.window_started_at).getTime();
+    const retryAfterSeconds = Math.max(1, Math.ceil((config.windowMs - elapsedMs) / 1000));
+    return row.request_count <= config.maxRequests
+      ? { allowed: true, retryAfterSeconds: 0, reason: null as string | null }
+      : { allowed: false, retryAfterSeconds, reason: "limit_reached" as string };
+  } catch {
+    // The application requires PostgreSQL in production. Fail closed for
+    // sensitive flows rather than silently falling back to a per-instance map.
+    if (process.env.NODE_ENV === "production") {
+      return { allowed: false, retryAfterSeconds: 30, reason: "limiter_unavailable" as string };
+    }
+    return checkRateLimit({ ...input, maxRequests: config.maxRequests, windowMs: config.windowMs });
+  }
 }
 
 export function createRateLimitResponse(retryAfterSeconds: number) {

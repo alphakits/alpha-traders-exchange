@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { findUserByEmail, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
-import { checkRateLimit, resolveClientIp } from "@/lib/rate-limit";
+import { checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
@@ -30,7 +30,7 @@ function logRegistrationRateLimit(reason: string, details: Record<string, string
 export async function POST(request: NextRequest) {
   const locale = inferLocaleFromRequest(request);
   const clientIp = resolveClientIp(request.headers);
-  const ipRate = checkRateLimit({
+  const ipRate = await checkSharedRateLimit({
     headers: request.headers,
     key: "auth:register:ip",
     maxRequests: 25,
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Email already registered." }, { status: 409, headers: AUTH_RESPONSE_HEADERS });
     }
 
-    const ipEmailRate = checkRateLimit({
+    const ipEmailRate = await checkSharedRateLimit({
       headers: request.headers,
       key: "auth:register:ip-email",
       identifier: `${clientIp}:${email}`,
