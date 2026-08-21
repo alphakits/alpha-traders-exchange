@@ -1791,6 +1791,11 @@ function normalizeOwnerSettings(
 
 function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
   const runtimeVersion = (db as { __runtimeVersion?: unknown }).__runtimeVersion;
+  // Legacy seller applications could replace, rather than retain, Buyer membership.
+  // Only a persisted pending application authorizes this compatibility repair.
+  const legacyPendingApplicantIds = new Set((db.sellerApplications ?? [])
+    .filter((application) => application.status === "pending")
+    .map((application) => application.userId));
   const normalized: AlphaExchangeDb = {
     ...defaultDb,
     ...db,
@@ -1798,12 +1803,16 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       const email = normalizeEmail(typeof user.email === "string" ? user.email : "");
       const fallbackRole = isUserRole(String(user.role ?? "")) ? (user.role as UserRole) : "guest";
       const sellerStatus = isValidSellerStatus((user as { sellerStatus?: string }).sellerStatus ?? "") ? (user as { sellerStatus: SellerStatus }).sellerStatus : inferSellerStatus(fallbackRole);
+      const storedRoles = Array.isArray((user as { roles?: unknown[] }).roles)
+        ? (user as { roles: unknown[] }).roles.map((item) => String(item)).filter(isUserRole)
+        : [];
+      if (sellerStatus === "pending_seller_approval" && legacyPendingApplicantIds.has(user.id) && !storedRoles?.includes("buyer")) {
+        storedRoles.push("buyer");
+      }
       const normalizedRoles = normalizeRolesForUser({
         email,
         role: fallbackRole,
-        roles: Array.isArray((user as { roles?: unknown[] }).roles)
-          ? (user as { roles: unknown[] }).roles.map((item) => String(item)).filter(isUserRole)
-          : undefined,
+        roles: storedRoles,
         sellerStatus,
       });
       const normalizedRole = resolvePrimaryRole(normalizedRoles);
