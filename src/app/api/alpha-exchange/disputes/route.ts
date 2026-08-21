@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { openTradeDispute } from "@/lib/alpha-exchange-store";
 import { requireApiUser } from "@/lib/api-auth";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const rate = checkRateLimit({
+  const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:dispute-open",
     maxRequests: 6,

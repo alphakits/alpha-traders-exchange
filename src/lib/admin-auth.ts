@@ -20,9 +20,8 @@ export async function resolveAdminIdentity(request: NextRequest): Promise<AdminI
     throw new Error("Unauthorized admin access.");
   }
 
-  const roleHeader = request.headers.get("x-admin-role");
-  const role: UserRole = roleHeader === "editor" || roleHeader === "instructor" || roleHeader === "student" ? roleHeader : "admin";
-  const actor = request.headers.get("x-admin-actor") || user.email;
+  const role: UserRole = "admin";
+  const actor = user.email;
   return { role, actor };
 }
 

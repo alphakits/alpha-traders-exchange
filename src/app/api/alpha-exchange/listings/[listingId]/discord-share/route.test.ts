@@ -21,7 +21,7 @@ vi.mock("@/lib/discord/listing-share-repository", async (importOriginal) => {
   };
 });
 vi.mock("@/lib/rate-limit", () => ({
-  checkRateLimit: () => ({ allowed: true, retryAfterSeconds: 0 }),
+  checkSharedRateLimit: async () => ({ allowed: true, retryAfterSeconds: 0 }),
 }));
 vi.mock("@/lib/structured-logging", () => ({
   logEvent: vi.fn(),

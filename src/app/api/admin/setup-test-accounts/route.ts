@@ -17,6 +17,12 @@ import type { AlphaExchangeUser, SellerStatus, UserRole } from "@/types/alpha-ex
 
 const SETUP_SECRET = process.env.ALPHA_SETUP_SECRET;
 
+function productionUnavailable() {
+  return process.env.NODE_ENV === "production"
+    ? NextResponse.json({ error: "Not found." }, { status: 404, headers: { "Cache-Control": "no-store" } })
+    : null;
+}
+
 function isAuthorized(request: NextRequest): boolean {
   const providedSecret = request.headers.get("x-setup-secret");
 
@@ -85,6 +91,8 @@ const TARGET_ACCOUNTS: Record<string, AccountConfig> = {
 };
 
 export async function POST(request: NextRequest) {
+  const unavailable = productionUnavailable();
+  if (unavailable) return unavailable;
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Not authorized." }, { status: 403 });
   }
@@ -156,6 +164,8 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  const unavailable = productionUnavailable();
+  if (unavailable) return unavailable;
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Not authorized." }, { status: 403 });
   }

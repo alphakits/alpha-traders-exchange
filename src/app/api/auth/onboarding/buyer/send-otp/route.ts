@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/api-auth";
 import { beginBuyerVerification, beginProfilePhoneVerification } from "@/lib/alpha-exchange-store";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
 import { sendTwilioMessageWithRetry } from "@/lib/notification-platform";
 
@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
   const requestId = crypto.randomUUID();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const rate = checkRateLimit({
+  const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: `auth:buyer-otp-send:${user.id}`,
     maxRequests: 5,

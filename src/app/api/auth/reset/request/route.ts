@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkRateLimit, resolveClientIp } from "@/lib/rate-limit";
+import { checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { getSiteUrl } from "@/lib/site-url";
 import { createSupabaseAdminClient, createSupabaseAuthClient, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 import { buildAuthEmail, sendAuthEmailViaResend } from "@/lib/auth-email-delivery";
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid email format." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
 
-    const ipRate = checkRateLimit({
+    const ipRate = await checkSharedRateLimit({
       headers: request.headers,
       key: "auth:reset-request:ip",
       maxRequests: 80,
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const ipEmailRate = checkRateLimit({
+    const ipEmailRate = await checkSharedRateLimit({
       headers: request.headers,
       key: "auth:reset-request:ip-email",
       identifier: `${clientIp}:${email}`,

@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { canPublishListings, createMarketplaceListing, getMarketplaceListings } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/listing-price-validation";
 import { MAX_LISTING_PAYMENT_METHODS, requiresIsraeliBankSelection, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
+import { sellerListingWorkspaceDestination } from "@/lib/action-destinations";
 
 function toNumber(value: unknown) {
   return Number(String(value ?? "").replace(/[^\d.]/g, ""));
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest) {
   if (!canPublishListings(user)) {
     return NextResponse.json({ error: "You must be approved by Alpha Traders before publishing listings." }, { status: 403 });
   }
-  const rate = checkRateLimit({ headers: request.headers, key: "exchange:create-listing", maxRequests: 10, windowMs: 60_000 });
+  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:create-listing", maxRequests: 10, windowMs: 60_000 });
   if (!rate.allowed) {
     return NextResponse.json({ error: "Too many listing requests. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
   }
@@ -143,7 +144,7 @@ export async function POST(request: NextRequest) {
     logProfile("createMarketplaceListing");
     const routeMs = Date.now() - routeStartedAt;
     return NextResponse.json(
-      { listing },
+      { listing, destination: sellerListingWorkspaceDestination(listing) },
       {
         status: 201,
         headers: {

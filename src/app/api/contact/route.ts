@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createHash } from "crypto";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 
@@ -23,7 +23,7 @@ function hashIp(ip: string): string {
 
 export async function POST(request: NextRequest) {
   // Rate limit: 5 submissions per hour per IP
-  const rate = checkRateLimit({
+  const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "contact:submit",
     maxRequests: 5,

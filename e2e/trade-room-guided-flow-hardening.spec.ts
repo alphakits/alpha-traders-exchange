@@ -425,7 +425,7 @@ async function uploadEvidenceInUi(page: Page, side: "buyer" | "seller") {
     await page.getByRole("button", { name: localizedTradeActionMatcher("upload-seller-evidence") }).first().click();
   }
 
-  await expect(page.getByText(/Evidence Uploaded|Payment Submitted|تم رفع الإثبات|تم إرسال الدفع/i).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/Evidence Uploaded|Payment Submitted|USDT released|تم رفع الإثبات|تم إرسال الدفع|تم إصدار USDT/i).first()).toBeVisible({ timeout: 20_000 });
 }
 
 test.describe.configure({ mode: "serial" });
@@ -443,9 +443,9 @@ test.afterAll(async () => {
   await api.dispose();
 });
 
-test("desktop guided flow: notifications, payment/evidence, live updates, and security gate", async ({ page }) => {
+test("mobile guided flow: notifications, payment/evidence, live updates, and security gate", async ({ page }) => {
   test.setTimeout(240_000);
-  const viewport = { width: 1440, height: 900 };
+  const viewport = { width: 390, height: 844 };
   const api = await pwRequest.newContext({ baseURL: "http://localhost:3000" });
 
   await logout(page.request);
@@ -506,7 +506,7 @@ test("desktop guided flow: notifications, payment/evidence, live updates, and se
   await expect(page.getByText(/Buyer Receiving Wallet/i)).toHaveCount(0);
 
   await page.getByRole("button", { name: /Confirm Money Received/i }).first().click();
-  await expect(page.getByRole("button", { name: /Upload Seller Evidence/i }).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: /Release USDT/i }).first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(/Buyer Receiving Wallet/i).first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(BUYER_WALLET).first()).toBeVisible({ timeout: 20_000 });
 
@@ -515,13 +515,9 @@ test("desktop guided flow: notifications, payment/evidence, live updates, and se
   const afterConfirmRoom = (await afterConfirmResponse.json()) as { request?: { buyerReceivingWalletAddress?: string } };
   expect(afterConfirmRoom.request?.buyerReceivingWalletAddress).toBe(BUYER_WALLET);
 
-  await uploadEvidenceInUi(page, "seller");
-  await expect(page.getByRole("button", { name: /Release USDT/i }).first()).toBeVisible({ timeout: 20_000 });
-
   await page.getByRole("button", { name: /Release USDT/i }).first().click();
-  await expect(page.getByRole("button", { name: /Mark USDT Sent/i }).first()).toBeVisible({ timeout: 20_000 });
-
-  await page.getByRole("button", { name: /Mark USDT Sent/i }).first().click();
+  await expect(page.getByRole("button", { name: /Upload Seller Evidence/i }).first()).toBeVisible({ timeout: 20_000 });
+  await uploadEvidenceInUi(page, "seller");
   await expect(page.getByText(/Waiting for Buyer to Confirm Receipt/i).first()).toBeVisible({ timeout: 20_000 });
 
   await login(page.request, buyerEmail, buyerPassword);

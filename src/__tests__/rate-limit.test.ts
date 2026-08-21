@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { checkRateLimit, createRateLimitResponse, resolveClientIp } from "@/lib/rate-limit";
+import { checkRateLimit, checkSharedRateLimit, createRateLimitResponse, resolveClientIp } from "@/lib/rate-limit";
 
 function makeHeaders(ip = "1.2.3.4") {
   return new Headers({ "x-forwarded-for": ip });
@@ -76,5 +76,12 @@ describe("checkRateLimit", () => {
     const second = checkRateLimit(opts);
     expect(first.allowed).toBe(true);
     expect(second.allowed).toBe(false);
+  });
+
+  it("retains local enforcement only when no shared runtime database is configured", async () => {
+    const headers = makeHeaders("203.0.113.2");
+    const opts = { headers, key: "test-shared-fallback", maxRequests: 1, windowMs: 60_000 };
+    expect((await checkSharedRateLimit(opts)).allowed).toBe(true);
+    expect((await checkSharedRateLimit(opts)).allowed).toBe(false);
   });
 });

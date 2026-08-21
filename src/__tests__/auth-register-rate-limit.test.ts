@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
-  checkRateLimit: mocks.checkRateLimit,
+  checkSharedRateLimit: mocks.checkRateLimit,
   resolveClientIp: mocks.resolveClientIp,
 }));
 

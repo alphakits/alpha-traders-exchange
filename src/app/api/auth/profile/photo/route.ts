@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { requireApiUser } from "@/lib/api-auth";
 import { updateAccountProfileData } from "@/lib/alpha-exchange-store";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { createSupabaseAdminClient, getAdminMediaBucket } from "@/lib/supabase-admin";
+import { validateUploadContent } from "@/lib/file-content-validation";
 
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5 MB
 const ALLOWED_MIME = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"]);
@@ -20,7 +21,7 @@ export async function POST(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
 
-  const rate = checkRateLimit({ headers: request.headers, key: `auth:photo-upload:${user.id}`, maxRequests: 10, windowMs: 60 * 60 * 1000 });
+  const rate = await checkSharedRateLimit({ headers: request.headers, key: `auth:photo-upload:${user.id}`, maxRequests: 10, windowMs: 60 * 60 * 1000 });
   if (!rate.allowed) {
     return NextResponse.json({ error: "Too many photo uploads. Please wait before trying again." }, { status: 429 });
   }
@@ -50,6 +51,10 @@ export async function POST(request: NextRequest) {
 
   const arrayBuffer = await file.arrayBuffer();
   const bytes = Buffer.from(arrayBuffer);
+  const normalizedMimeType = file.type === "image/jpg" ? "image/jpeg" : file.type;
+  if (!validateUploadContent(bytes, normalizedMimeType as "image/jpeg" | "image/png" | "image/webp" | "image/gif")) {
+    return NextResponse.json({ error: "Image content does not match its declared format." }, { status: 400 });
+  }
   const ext = file.type === "image/gif" ? ".gif" : file.type === "image/webp" ? ".webp" : file.type === "image/png" ? ".png" : ".jpg";
   const safeName = `${slugify(file.name.replace(/\.[^.]+$/, "") || "photo")}-${Date.now()}-${randomUUID().slice(0, 8)}${ext}`;
   const storageKey = `profiles/${kind}/${user.id}/${safeName}`;
@@ -58,7 +63,7 @@ export async function POST(request: NextRequest) {
   const bucket = getAdminMediaBucket();
 
   const { error: uploadError } = await client.storage.from(bucket).upload(storageKey, bytes, {
-    contentType: file.type,
+    contentType: normalizedMimeType,
     upsert: false,
   });
   if (uploadError) {

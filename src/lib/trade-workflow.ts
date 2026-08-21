@@ -10,7 +10,7 @@ export function getPurchaseRequestStatusTransitionOptions(currentStatus: Purchas
   }
 
   if (currentStatus === "pending") return ["cancelled"] as const;
-  if (currentStatus === "accepted") return ["payment_sent", "cancelled"] as const;
+  if (currentStatus === "accepted") return ["payment_sent"] as const;
   if (currentStatus === "usdt_sent") return ["completed"] as const;
   return [] as const;
 }

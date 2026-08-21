@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { downloadTradeEvidenceContent } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
 
 type RouteContext = {
   params: Promise<{ requestId: string; evidenceId: string }>;
@@ -12,7 +12,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
   if (!user) return unauthorized;
   const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
   if (phoneVerificationRequired) return phoneVerificationRequired;
-  const rate = checkRateLimit({
+  const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:trade-evidence-download",
     maxRequests: 60,

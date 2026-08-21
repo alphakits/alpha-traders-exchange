@@ -66,7 +66,7 @@ function extractTradeRoomHrefFromRelatedHref(relatedHref?: string) {
   return null;
 }
 
-function extractRequestIdFromTradeRoomHref(href: string | null) {
+function extractRequestIdFromTradeRoomHref(href: string | null | undefined) {
   if (!href) return null;
   try {
     const parsed = new URL(href, "https://www.alphatraders.co.il");
@@ -132,6 +132,7 @@ function inferTradeActionFromNotificationText(notification: AlphaExchangeNotific
 function buildTradeDestinationFromNotification(notification: AlphaExchangeNotification) {
   const requestId = notification.relatedRequestId?.trim()
     || (notification.tradeSnapshot as TradeSnapshotPayload | undefined)?.requestId?.trim()
+    || extractRequestIdFromTradeRoomHref(notification.relatedHref ?? notification.actionHref)
     || null;
   if (!requestId) return null;
 
@@ -424,7 +425,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
 
       <div
         data-testid="notification-panel"
-        className={`fixed inset-x-2 top-16 z-50 flex max-h-[calc(100vh-5rem)] max-h-[calc(100dvh-5rem)] flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#0b0b0b]/95 shadow-2xl backdrop-blur-xl transition-all duration-200 md:absolute md:inset-x-auto md:end-0 md:top-11 md:max-h-none md:w-[min(22rem,calc(100vw-1rem))] md:origin-top-right ${
+        className={`absolute end-0 top-12 z-50 flex max-h-[min(26rem,calc(100vh-5rem))] max-h-[min(26rem,calc(100dvh-5rem))] w-[min(22rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#0b0b0b]/95 shadow-2xl backdrop-blur-xl transition-all duration-200 [padding-bottom:env(safe-area-inset-bottom)] md:top-11 md:origin-top-right ${
           isOpen ? "visible scale-100 opacity-100" : "invisible scale-95 opacity-0"
         }`}
         onMouseDown={(event) => event.stopPropagation()}
@@ -450,7 +451,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-3 [touch-action:pan-y] md:max-h-[26rem]">
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-3 [touch-action:pan-y]">
           {isLoading ? <p className="empty-state-panel p-3 text-xs">Loading...</p> : null}
           {error ? <p className="rounded-xl border border-red-400/20 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
           {renderedNotifications.length === 0 ? <p className="empty-state-panel p-3 text-xs">No notifications yet.</p> : null}

@@ -39,6 +39,7 @@ import { cn } from "@/lib/utils";
 import { SELLER_PRESTIGE_TIERS } from "@/lib/seller-prestige";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
 import { deriveBuyerRankSummary, type BuyerRankSummary } from "@/lib/buyer-rank";
+import { navigateAfterSuccess, navigateOrRevealResult } from "@/lib/client-success-navigation";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
 
 const WHATSAPP_URL = getOfficialOwnerWhatsAppUrl();
@@ -2126,7 +2127,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         setStatusMessage(errorMessage);
         return;
       }
-      const data = (await response.json()) as { purchase?: PurchaseRequest };
+      const data = (await response.json()) as { purchase?: PurchaseRequest; destination?: string };
       if (data.purchase) {
         setMyRequests((prev) => [data.purchase as PurchaseRequest, ...prev]);
         setPurchaseSubmitted(true);
@@ -2134,7 +2135,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         setIsRedirectingToVerification(false);
         setStatusMessage(null);
         closeListingModal();
-        router.push(`/trade-room/${data.purchase.id}`);
+        navigateAfterSuccess(router, data.destination);
       }
     } catch (error) {
       const message = error instanceof Error && error.message.trim()
@@ -2157,8 +2158,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   const estimatedTotal = selectedAmount * selectedPrice + commission;
 
   const isApprovedSeller = isApprovedSellerSession;
-  const hasBuyerVerification = sessionUser?.isPhotoVerified === true
-    || Boolean(sessionUser?.verifiedPhone && sessionUser.phoneVerifiedAt);
+  const hasBuyerRole = Boolean(sessionUser && hasRole(sessionUser, "buyer"));
   const canAccessListingCreation = isApprovedSeller || isAdminSession;
   const isOwnerViewer = sessionUser?.role === "admin" && isAlphaExchangeOwnerEmail(sessionUser.email);
   const archivedConfirmationTrade = !isApprovedSeller
@@ -2631,7 +2631,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   const shouldCondenseSellerApplication = Boolean(
     sessionUser
     && !isApprovedSeller
-    && sessionUser.isPhotoVerified === true
+    && hasBuyerRole
     && sellerApplication?.status !== "pending"
     && !applicationSubmitted,
   );
@@ -3248,9 +3248,10 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
-      const payload = await response.json() as { listing?: MarketplaceListing };
+      const payload = await response.json() as { listing?: MarketplaceListing; destination?: string };
       syncListingState(payload.listing ?? null);
       setSellerWorkspaceMessage("📋 Listing duplicated successfully. Review and publish it when ready.");
+      navigateOrRevealResult(router, payload.destination, "listing-publish-result");
       setEditingListingId(null);
       backgroundRefreshSellerWorkspace();
     } catch {
@@ -3272,7 +3273,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
-      const payload = await response.json() as { listing?: MarketplaceListing };
+      const payload = await response.json() as { listing?: MarketplaceListing; destination?: string };
       syncListingState(payload.listing ?? listing);
       setSellerWorkspaceMessage("🔄 Listing renewed. Your listing is now live with a refreshed expiry.");
       backgroundRefreshSellerWorkspace();
@@ -3313,7 +3314,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
-      const payload = await response.json() as { listing?: MarketplaceListing };
+      const payload = await response.json() as { listing?: MarketplaceListing; destination?: string };
       syncListingState(payload.listing ?? null);
       setListingCreateForm((prev) => ({
         ...prev,
@@ -3330,6 +3331,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       setListingCreateCurrencyManualOverride(false);
       setListingCommissionAgreement(false);
       setSellerWorkspaceMessage("✅ Listing published successfully. Buyers can now see your listing in the marketplace.");
+      navigateOrRevealResult(router, payload.destination, "listing-publish-result");
       backgroundRefreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing"));
@@ -3380,11 +3382,12 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
-      const payload = await response.json() as { listing?: MarketplaceListing };
+      const payload = await response.json() as { listing?: MarketplaceListing; destination?: string };
       syncListingState(payload.listing ?? null);
       setEditingListingId(null);
       setListingEditOriginal(null);
       setSellerWorkspaceMessage("✅ Listing updated successfully. Changes are now visible to buyers.");
+      navigateAfterSuccess(router, payload.destination);
       backgroundRefreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing"));
@@ -4538,7 +4541,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                             <p className="mt-2 text-xs text-[#D1D5DB]">Loading your saved bank accounts...</p>
                           ) : sellerBankAccounts.length === 0 ? (
                             <p className="mt-2 text-xs text-amber-300">
-                              No saved bank accounts found. Add one in <Link href="/settings" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Settings</Link> before saving this listing.
+                              No saved bank accounts found. Add one in <a href={`/${locale}/settings?tab=profile#seller-bank-accounts`} className="text-[#93C5FD] underline underline-offset-2">Settings</a> before saving this listing.
                             </p>
                           ) : (
                             <>
@@ -4850,26 +4853,24 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                 <div className="h-20 w-full animate-pulse rounded-2xl bg-white/10" />
               </div>
             ) : (
-            /* ── State 1: Buyer verification not complete ── */
-            sessionUser && !hasBuyerVerification ? (
+            /* ── State 1: buyer role required ── */
+            sessionUser && !hasBuyerRole ? (
               <div className="rounded-2xl border border-amber-500/35 bg-amber-500/10 p-5">
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
                   <div>
-                    <p className="font-semibold text-white">{isAr ? "إكمال التحقق من المشتري أولاً" : "Complete Buyer Verification First"}</p>
+                    <p className="font-semibold text-white">{isAr ? "أكمل إعداد حساب المشتري أولاً" : "Complete Buyer Setup First"}</p>
                     <p className="mt-2 text-sm text-[#E5E7EB]">
                       {isAr
-                        ? "يجب عليك إكمال التحقق من رقم هاتفك كمشترٍ قبل التقديم كبائع. التحقق يحمي السوق ويضمن الثقة للجميع."
-                        : "You must complete phone verification as a buyer before applying as a seller. Verification protects the marketplace and ensures trust for everyone."}
+                        ? "يجب أن يكون لديك حساب مشترٍ قبل التقديم كبائع. ستتم مراجعة طلبات البائعين يدويًا وقد يُطلب تحقق إضافي."
+                        : "You need a buyer account before applying as a seller. Seller applications are reviewed manually and may require additional verification."}
                     </p>
                     <Button
                       type="button"
                       className="mt-4 w-full"
-                      onClick={goToVerificationGate}
-                      disabled={isRedirectingToVerification}
+                      onClick={() => router.push("/onboarding")}
                     >
-                      {isRedirectingToVerification ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                      {isRedirectingToVerification ? (isAr ? "جاري التوجيه..." : "Redirecting...") : (isAr ? "إكمال التحقق الآن" : "Complete Verification Now")}
+                      {isAr ? "إعداد حساب مشترٍ" : "Set Up Buyer Account"}
                     </Button>
                   </div>
                 </div>
@@ -4897,7 +4898,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                   <div className="space-y-2">
                     {[
                       isAr ? "سيراجع فريق Alpha Traders طلبك." : "The Alpha Traders team will review your application.",
-                      isAr ? "سيتواصل معك المالك عبر WhatsApp على رقمك المحقق." : "The owner will contact you via WhatsApp using your verified phone number.",
+                      isAr ? "سيتواصل معك المالك عبر WhatsApp باستخدام الرقم الذي قدمته في الطلب." : "The owner will contact you via WhatsApp using the number in your application.",
                       isAr ? "قد تُطلب منك معلومات أو تحقق إضافي." : "Additional verification or information may be requested.",
                       isAr ? "بعد الموافقة ستحصل على شارة البائع المعتمد." : "Upon approval, you receive the Approved Seller badge and marketplace access.",
                     ].map((step, index) => (
@@ -4909,7 +4910,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                   </div>
                 </div>
                 <p className="rounded-xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-4 py-3 text-xs text-[#BFDBFE]">
-                  {isAr ? "سنتواصل معك عبر WhatsApp على رقم هاتفك المحقق." : "We'll contact you via WhatsApp using your verified phone number."}
+                  {isAr ? "سنتواصل معك عبر WhatsApp باستخدام الرقم الذي قدمته في الطلب." : "We'll contact you via WhatsApp using the number in your application."}
                 </p>
               </div>
             ) : (
@@ -4921,7 +4922,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                   <div className="space-y-2">
                     {[
                       isAr ? "يدخل طلبك في مراجعة يدوية." : "Your application enters manual review.",
-                      isAr ? "سيتواصل معك مالك Alpha Traders عبر WhatsApp على رقمك المحقق." : "The Alpha Traders owner will contact you via WhatsApp using your verified phone number.",
+                      isAr ? "سيتواصل معك مالك Alpha Traders عبر WhatsApp باستخدام الرقم الذي تقدمه في الطلب." : "The Alpha Traders owner will contact you via WhatsApp using the number you provide in your application.",
                       isAr ? "قد تُطلب منك معلومات إضافية." : "Additional verification or information may be requested.",
                       isAr ? "بعد الموافقة تحصل على شارة البائع المعتمد وصلاحيات النشر." : "Once approved, you receive the Approved Seller badge and marketplace selling privileges.",
                     ].map((step, index) => (
@@ -5794,7 +5795,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                     <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? "جارٍ تحميل الحسابات البنكية..." : "Loading saved bank accounts..."}</p>
                   ) : sellerBankAccounts.length === 0 ? (
                     <p className="mt-2 text-xs text-amber-300">
-                      {isAr ? "لا توجد حسابات بنكية محفوظة. أضف حسابًا في" : "No saved bank accounts found. Add one in"} <Link href="/settings" locale={locale} className="text-[#93C5FD] underline underline-offset-2">{isAr ? "الإعدادات" : "Settings"}</Link>.
+                      {isAr ? "لا توجد حسابات بنكية محفوظة. أضف حسابًا في" : "No saved bank accounts found. Add one in"} <a href={`/${locale}/settings?tab=profile#seller-bank-accounts`} className="text-[#93C5FD] underline underline-offset-2">{isAr ? "الإعدادات" : "Settings"}</a>.
                     </p>
                   ) : (
                     <>
@@ -5861,7 +5862,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
           </Card>
 
           {sellerWorkspaceMessage ? (
-            <div className="order-25 flex items-start justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-100 shadow-[0_0_0_1px_rgba(16,185,129,0.08)] animate-in fade-in-0 slide-in-from-top-1 duration-300">
+            <div id="listing-publish-result" tabIndex={-1} role="status" aria-live="polite" className="order-25 flex items-start justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-100 shadow-[0_0_0_1px_rgba(16,185,129,0.08)] animate-in fade-in-0 slide-in-from-top-1 duration-300">
               <span>{sellerWorkspaceMessage}</span>
               <button
                 type="button"

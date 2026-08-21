@@ -6,6 +6,8 @@ import { AlertTriangle, CheckCircle2, Clock3, Copy, LoaderCircle, MessageCircle,
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { Link, useRouter } from "@/i18n/navigation";
+import { navigateOrRevealResult } from "@/lib/client-success-navigation";
+import { tradeDestination } from "@/lib/action-destinations";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -183,14 +185,6 @@ function getPrimaryAction(request: PurchaseRequest, isSeller: boolean, isAr: boo
     };
   }
   if (request.status === "funds_received" && isSeller) {
-    if (sellerEvidenceRequired && !request.sellerEvidence) {
-      return {
-        label: isAr ? "رفع إثبات البائع" : "Upload Seller Evidence",
-        successLabel: isAr ? "تم رفع الإثبات" : "Evidence Uploaded",
-        mode: "upload",
-        uploadSide: "seller",
-      };
-    }
     return {
       label: isAr ? "إصدار USDT" : "Release USDT",
       successLabel: isAr ? "بدأ إصدار USDT" : "USDT Release Started",
@@ -564,6 +558,29 @@ function applyRequestToRoom(room: TradeRoomData, nextRequest: PurchaseRequest): 
   };
 }
 
+function tradeRoomSnapshotSignature(room: TradeRoomData) {
+  const messages = room.messages ?? [];
+  const newestMessage = messages[0];
+  const oldestMessage = messages[messages.length - 1];
+  return [
+    room.request.id,
+    room.request.status,
+    room.request.updatedAt,
+    room.request.completedAt ?? "",
+    room.request.buyerEvidence?.id ?? "",
+    room.request.sellerEvidence?.id ?? "",
+    messages.length,
+    newestMessage?.id ?? "",
+    newestMessage?.createdAt ?? "",
+    oldestMessage?.id ?? "",
+    room.deadlineAt ?? "",
+    room.sellerCommissionDueAmount,
+    room.sellerCommissionDueCount,
+    room.hasOpenDispute,
+    room.canOpenDispute,
+  ].join("|");
+}
+
 function applyOptimisticStatusFields(nextRequest: PurchaseRequest, nextStatus: PrimaryStatus, now: Date) {
   const nowIso = now.toISOString();
   const requestStatus = nextStatus === "completed" ? nextRequest.status : nextStatus;
@@ -763,6 +780,7 @@ export function TradeRoomPage({
   const roomRef = useRef<TradeRoomData | null>(null);
   const lastDeepLinkHandledRef = useRef<string | null>(null);
   const buyerCompletionLockRef = useRef(false);
+  const sellerCompletionRedirectedRef = useRef(false);
   const reviewSubmitInFlightRef = useRef(false);
   const reviewFormVisibleRef = useRef(false);
 
@@ -807,6 +825,9 @@ export function TradeRoomPage({
       if (!nextRoom) {
         return null;
       }
+      if (currentRoom && tradeRoomSnapshotSignature(currentRoom) === tradeRoomSnapshotSignature(nextRoom)) {
+        return currentRoom;
+      }
       roomRef.current = nextRoom;
       writeTradeRoomCache(requestId, nextRoom);
       setRoom(nextRoom);
@@ -826,9 +847,10 @@ export function TradeRoomPage({
       roomRef.current = cached;
       setRoom(cached);
       setIsLoading(false);
-      return;
     }
-    void fetchRoom();
+    // Cached data is only a fast first paint; the canonical server snapshot
+    // must win after a refresh, second tab update, or return to the room.
+    void fetchRoom(Boolean(cached));
   }, [fetchRoom, requestId]);
 
   useEffect(() => {
@@ -854,13 +876,20 @@ export function TradeRoomPage({
 
   useEffect(() => {
     const currentRequest = room?.request;
+    if (!currentRequest || currentRequest.sellerId !== actor.id || !COMPLETED_TRADE_STATUSES.has(currentRequest.status)) return;
+    if (sellerCompletionRedirectedRef.current) return;
+    sellerCompletionRedirectedRef.current = true;
+    router.replace(tradeDestination(currentRequest, actor.id));
+  }, [actor.id, room?.request, router]);
+
+  useEffect(() => {
+    const currentRequest = room?.request;
     if (!currentRequest) return;
     const nextStep = getStepId(currentRequest.status);
     const previousStatus = previousStatusRef.current;
     setSelectedStep(nextStep);
     if (previousStatus && previousStatus !== currentRequest.status) {
       setStepPulse(true);
-      statusBannerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       const timeoutId = window.setTimeout(() => setStepPulse(false), 1800);
       previousStatusRef.current = currentRequest.status;
       return () => window.clearTimeout(timeoutId);
@@ -1036,7 +1065,7 @@ export function TradeRoomPage({
         const shouldIgnore = currentRoom
           ? shouldIgnoreRegressiveSnapshot(currentRoom, payload, buyerCompletionLockRef.current)
           : false;
-        if (!shouldIgnore) {
+        if (!shouldIgnore && (!currentRoom || tradeRoomSnapshotSignature(currentRoom) !== tradeRoomSnapshotSignature(payload))) {
           roomRef.current = payload;
           writeTradeRoomCache(requestId, payload);
           setRoom(payload);
@@ -1121,11 +1150,7 @@ export function TradeRoomPage({
       || request.status === "locked"),
   );
   const canShowBuyerReceipt = Boolean(request?.buyerEvidence && (!isSeller || sellerCanViewBuyerReceipt));
-  const sellerEvidenceUploadOpen = Boolean(
-    isSeller
-    && request
-    && (request.status === "funds_received" || request.status === "usdt_release_pending"),
-  );
+  const sellerEvidenceUploadOpen = Boolean(isSeller && request?.status === "usdt_release_pending");
   const activeTimeline = useMemo(() => {
     if (!request) return [] as TradeTimelineEntry[];
     return [...(request.timeline ?? [])].sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
@@ -1297,7 +1322,7 @@ export function TradeRoomPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const responsePayload = (await response.json()) as { error?: string; message?: string; request?: PurchaseRequest; metrics?: { totalMs?: number } };
+      const responsePayload = (await response.json()) as { error?: string; message?: string; request?: PurchaseRequest; destination?: string; metrics?: { totalMs?: number } };
       const apiLatencyMs = Math.round(performance.now() - responseStartedAt);
       // T2+T3: server timings from response headers
       const routeMs = Number(response.headers.get("X-Trade-Route-Ms") ?? "0");
@@ -1352,6 +1377,9 @@ export function TradeRoomPage({
       }
       setActionNotice(null);
       setStatusMessage(isAr ? "تم تحديث حالة الصفقة." : "Trade status updated.");
+      if (responsePayload.destination) {
+        navigateOrRevealResult(router, responsePayload.destination, "trade-action-result");
+      }
     } catch (error) {
       const refreshedRoom = await fetchRoom(true);
       const expectedStatus = nextStatus === "completed" ? "review_open" : nextStatus;
@@ -1389,7 +1417,7 @@ export function TradeRoomPage({
       actionInFlightRef.current = null;
       setActionBusy(false);
     }
-  }, [actor, fetchRoom, isAr, request, requestId, room, startBuyerCompletionSuccessFlow, streamConnected]);
+  }, [actor, fetchRoom, isAr, request, requestId, room, router, startBuyerCompletionSuccessFlow, streamConnected]);
 
   const handleSendMessage = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1487,27 +1515,7 @@ export function TradeRoomPage({
       if (!response.ok) {
         throw new Error(readApiErrorFallback(payload, isAr ? "تعذر رفع الإثبات." : "Failed to upload evidence."));
       }
-      let nextRoom = payload.request ? applyRequestToRoom(previousRoom, payload.request) : optimisticRoom;
-      const shouldAutoSubmitSellerRelease = autoAdvanceStatus === "usdt_sent";
-      if (shouldAutoSubmitSellerRelease) {
-        const statusResponse = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "usdt_sent" }),
-        });
-        const statusPayload = (await statusResponse.json()) as { error?: string; message?: string; request?: PurchaseRequest };
-        if (!statusResponse.ok) {
-          throw new Error(readApiErrorFallback(
-            statusPayload,
-            isAr
-              ? "تم رفع إثبات البائع، لكن تعذر إكمال إصدار USDT. استخدم زر تأكيد الإرسال لإكمال الخطوة."
-              : "Seller proof uploaded, but finalizing the USDT release failed. Use Mark USDT Sent to complete the step.",
-          ));
-        }
-        if (statusPayload.request) {
-          nextRoom = applyRequestToRoom(nextRoom, statusPayload.request);
-        }
-      }
+      const nextRoom = payload.request ? applyRequestToRoom(previousRoom, payload.request) : optimisticRoom;
       roomRef.current = nextRoom;
       setRoom(nextRoom);
       writeTradeRoomCache(requestId, nextRoom);
@@ -1772,7 +1780,12 @@ export function TradeRoomPage({
   }, []);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const chatContainer = chatScrollRef.current;
+    if (!chatContainer) return;
+    const distanceFromBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight;
+    if (distanceFromBottom <= 80) {
+      chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: "smooth" });
+    }
   }, [room?.messages.length, chatTypingUserId]);
 
   const isActorBuyer = request?.buyerId === actor.id;
@@ -1851,17 +1864,17 @@ export function TradeRoomPage({
                 <p className="text-sm text-[#9CA3AF]">
                   {isSeller ? (isAr ? "المشتري" : "Buyer") : (isAr ? "البائع" : "Seller")}: <span className="text-white">{counterpartName}</span>
                 </p>
-                <p className="text-xs text-[#6B7280]">{isAr ? "حسابك" : "Your account"}: {actor.fullName}</p>
-                <p className="text-sm text-[#9CA3AF]">
+                <p className="hidden text-xs text-[#6B7280] sm:block">{isAr ? "حسابك" : "Your account"}: {actor.fullName}</p>
+                <p className="hidden text-sm text-[#9CA3AF] sm:block">
                   {isAr ? "طريقة الدفع" : "Payment Method"}: <span className="text-white">{request.paymentMethod}</span>
                 </p>
                 {request.bankName ? (
-                  <p className="text-sm text-[#9CA3AF]">
+                  <p className="hidden text-sm text-[#9CA3AF] sm:block">
                     {isAr ? "البنوك المعتمدة" : "Supported Banks"}: <span className="text-white">{request.bankName}</span>
                   </p>
                 ) : null}
                 {request.closedAt ? (
-                  <p className="text-sm text-[#FCA5A5]">
+                  <p className="hidden text-sm text-[#FCA5A5] sm:block">
                     {isAr ? "سبب إغلاق الصفقة" : "Close reason"}: <span className="text-white">{request.closeReason ?? (isAr ? "غير محدد" : "Not specified")}</span>
                   </p>
                 ) : null}
@@ -1883,7 +1896,7 @@ export function TradeRoomPage({
           </CardHeader>
         </Card>
 
-        <section className="sticky top-2 z-20 rounded-2xl border border-white/10 bg-black/65 p-3 backdrop-blur-md">
+        <section className="hidden sticky top-2 z-20 rounded-2xl border border-white/10 bg-black/65 p-3 backdrop-blur-md md:block">
           <div className="overflow-x-auto">
             <div className="flex min-w-max items-start gap-2">
               {STEP_ORDER.map((step, index) => {
@@ -1922,6 +1935,34 @@ export function TradeRoomPage({
           </p>
         </section>
 
+        <details className="rounded-2xl border border-white/10 bg-black/65 p-3 backdrop-blur-md md:hidden">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm text-white">
+            <span className="min-w-0 truncate">
+              <span className="text-[#9CA3AF]">{isAr ? "الخطوة الحالية" : "Current step"}: </span>
+              <span className="font-semibold text-[#FDE68A]">{isAr ? STEP_ORDER[currentStepIndex]?.label.ar : STEP_ORDER[currentStepIndex]?.label.en}</span>
+            </span>
+            <span className="shrink-0 text-xs text-[#C9A227]">{progressPercent}%</span>
+          </summary>
+          <div className="mt-3 space-y-2">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+              <div className="h-full bg-gradient-to-r from-[#C9A227] to-[#FDE68A]" style={{ width: `${progressPercent}%` }} />
+            </div>
+            <div className="grid grid-cols-3 gap-1.5 text-[10px] text-[#9CA3AF]">
+              {STEP_ORDER.map((step, index) => (
+                <button
+                  key={step.id}
+                  type="button"
+                  onClick={() => setSelectedStep(step.id)}
+                  className={`rounded-lg border px-1.5 py-1.5 text-center ${index === currentStepIndex ? "border-[#C9A227]/60 bg-[#C9A227]/15 text-[#FDE68A]" : index < currentStepIndex ? "border-emerald-400/30 text-emerald-300" : "border-white/10"}`}
+                >
+                  {isAr ? step.label.ar : step.label.en}
+                </button>
+              ))}
+            </div>
+            {selectedStepEvent ? <p className="text-xs text-[#9CA3AF]">{selectedStepEvent.message}</p> : null}
+          </div>
+        </details>
+
         {statusBanner ? (
           <Card
             id="status-banner"
@@ -1941,7 +1982,7 @@ export function TradeRoomPage({
                     <p className="mt-1 text-sm text-[#E5E7EB]">{statusBanner.detail}</p>
                   </div>
                 </div>
-                <div className="grid gap-2 text-sm md:grid-cols-2 xl:min-w-[430px]">
+                <div className="hidden gap-2 text-sm md:grid md:grid-cols-2 xl:min-w-[430px]">
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "إجراك الحالي" : "Your action"}</p>
                     <p className="mt-1 text-white">{statusBanner.yourAction}</p>
@@ -1965,6 +2006,22 @@ export function TradeRoomPage({
               <p>{turn?.detail}</p>
             </CardContent>
           </Card>
+        ) : null}
+
+        {!showSuccessScreen && primaryAction ? (
+          <section className="rounded-2xl border border-[#C9A227]/55 bg-[#C9A227]/10 p-3 shadow-[0_8px_24px_rgba(0,0,0,0.22)] md:hidden">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#FDE68A]">{isAr ? "الإجراء المطلوب الآن" : "Required action now"}</p>
+            <p className="mt-1 text-sm text-[#E5E7EB]">{turn?.detail}</p>
+            <Button
+              type="button"
+              className="mt-3 h-12 w-full text-base font-semibold"
+              disabled={primaryActionLoading || Boolean(primaryActionDisabledReason)}
+              onClick={() => void handlePrimaryAction()}
+            >
+              {primaryActionLoading ? (isAr ? "جاري التنفيذ..." : "Processing...") : primaryActionButtonLabel}
+            </Button>
+            {primaryActionDisabledReason ? <p className="mt-2 text-xs text-amber-300">{primaryActionDisabledReason}</p> : null}
+          </section>
         ) : null}
 
         {showSuccessScreen ? (
@@ -2158,7 +2215,7 @@ export function TradeRoomPage({
                     </span>
                   </div>
                 ) : primaryAction ? (
-                  <div className="space-y-2">
+                  <div className="hidden space-y-2 md:block">
                     <Button
                       type="button"
                       className="h-12 w-full text-base font-semibold"
@@ -2298,7 +2355,7 @@ export function TradeRoomPage({
                   </div>
                 ) : null}
 
-                {request.status !== "declined" && request.status !== "cancelled" && !COMPLETED_TRADE_STATUSES.has(request.status) ? (
+                {request.status === "pending" ? (
                   <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm text-red-100">{isAr ? "إغلاق يدوي للصفقة" : "Manual trade close"}</p>
@@ -2614,8 +2671,8 @@ export function TradeRoomPage({
                   ) : null}
                   <div ref={chatEndRef} />
                 </div>
-                <form className="space-y-2 rounded-2xl border border-white/10 bg-black/20 p-3" onSubmit={handleSendMessage}>
-                  <Textarea value={chatDraft} onChange={handleChatDraftChange} placeholder={isAr ? "اكتب رسالة..." : "Type a message..."} className="min-h-[96px] resize-none" />
+                <form className="sticky bottom-2 z-10 space-y-2 rounded-2xl border border-white/10 bg-[#101010]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-xl backdrop-blur-md" onSubmit={handleSendMessage}>
+                  <Textarea value={chatDraft} onChange={handleChatDraftChange} placeholder={isAr ? "اكتب رسالة..." : "Type a message..."} className="min-h-[56px] resize-none sm:min-h-[96px]" />
                   <Input type="file" accept="image/png,image/jpeg,image/webp" capture="environment" onChange={(event) => setChatImage(event.target.files?.[0] ?? null)} />
                   {chatImage ? <p className="text-xs text-[#9CA3AF]">{chatImage.name}</p> : null}
                   <div className="flex items-center gap-2">
@@ -2668,7 +2725,7 @@ export function TradeRoomPage({
         </div> : null}
 
         {statusMessage ? (
-          <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-[#D1D5DB]">
+          <div id="trade-action-result" tabIndex={-1} role="status" aria-live="polite" className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-[#D1D5DB]">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-emerald-300" />
               <span>{statusMessage}</span>

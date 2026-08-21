@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkRateLimit, resolveClientIp } from "@/lib/rate-limit";
+import { checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { createSupabaseAuthClient } from "@/lib/supabase-auth-provider";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Passwords do not match." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
 
-    const rate = checkRateLimit({
+    const rate = await checkSharedRateLimit({
       headers: request.headers,
       key: "auth:reset-confirm",
       identifier: `${clientIp}:${(tokenHash || accessTokenInput || authCode).slice(0, 32)}`,

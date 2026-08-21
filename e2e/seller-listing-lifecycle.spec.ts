@@ -355,6 +355,7 @@ async function uploadEvidence(page: Page, requestId: string, side: "buyer" | "se
   );
 
   expect(response.ok, `Upload ${side} evidence failed (${response.status}): ${response.text}`).toBeTruthy();
+  return JSON.parse(response.text) as { request?: PurchasePayload };
 }
 
 async function createRequest(request: APIRequestContext, listingId: string, usdtAmount: string) {
@@ -544,6 +545,12 @@ test("bank-transfer listing requires selected seller bank account and preserves 
 
   await expect(seller.page.getByText(/No saved bank accounts found/i)).toBeVisible({ timeout: 20_000 });
   await expect(seller.page.getByRole("button", { name: "Submit Listing" })).toBeDisabled();
+  await seller.page.locator("#create-listing").getByRole("link", { name: "Settings" }).click();
+  await expect(seller.page).toHaveURL(/\/en\/settings/);
+  await seller.page.getByRole("button", { name: "Profile", exact: true }).click();
+  await expect(seller.page.locator("#seller-bank-accounts")).toBeVisible({ timeout: 20_000 });
+  await seller.page.goBack();
+  await expect(seller.page.locator("#create-listing")).toBeVisible({ timeout: 60_000 });
 
   const oneBank = await ensureSellerBankAccounts(seller.page.request, 1);
   expect(oneBank).toHaveLength(1);
@@ -716,10 +723,8 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   const deadlineAtMs = new Date(String(firstTrade.usdtReleaseDeadlineAt)).getTime();
   expect(deadlineAtMs - startedAtMs).toBe(45 * 60 * 1000);
 
-  await uploadEvidence(seller.page, firstRequest.purchase.id, "seller");
-  response = await seller.page.request.patch(`/api/alpha-exchange/purchase-requests/${firstRequest.purchase.id}`, { data: { status: "usdt_sent" } });
-  expect(response.ok()).toBeTruthy();
-  firstTrade = await readPurchaseFromPatchResponse(response);
+  const sellerEvidenceResponse = await uploadEvidence(seller.page, firstRequest.purchase.id, "seller");
+  firstTrade = sellerEvidenceResponse.request as PurchasePayload;
   expect(firstTrade.status).toBe("usdt_sent");
   expect(firstTrade.sellerEvidence?.fileName).toBe("seller-proof.png");
 
@@ -728,6 +733,10 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   firstTrade = await readPurchaseFromPatchResponse(response);
   expect(firstTrade.status).toBe("review_open");
   expect(Boolean(firstTrade.completedAt)).toBeTruthy();
+
+  await expect(seller.page).toHaveURL(new RegExp(`/usdt-exchange\\?trade=${firstRequest.purchase.id}#my-trade-requests-section$`), { timeout: 20_000 });
+  await seller.page.reload();
+  await expect(seller.page).toHaveURL(new RegExp(`/usdt-exchange\\?trade=${firstRequest.purchase.id}#my-trade-requests-section$`), { timeout: 20_000 });
 
   let adminPrep = await getAdminPrep(owner.page.request);
   let firstTradeAdmin = adminPrep.purchaseRequests.find((request) => request.id === firstRequest.purchase.id);

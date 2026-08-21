@@ -16,7 +16,7 @@ vi.mock("@/lib/discord/identity-repository", () => ({
   createDiscordOAuthStateRecord: mocks.createState,
 }));
 vi.mock("@/lib/rate-limit", () => ({
-  checkRateLimit: () => ({ allowed: true, retryAfterSeconds: 0 }),
+  checkSharedRateLimit: async () => ({ allowed: true, retryAfterSeconds: 0 }),
 }));
 
 import { POST } from "@/app/api/discord/oauth/start/route";

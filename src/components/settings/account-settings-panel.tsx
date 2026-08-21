@@ -104,14 +104,19 @@ function PillToggle({ checked, onChange }: { checked: boolean; onChange: (v: boo
 export function AccountSettingsPanel({
   locale,
   phoneVerificationEnabled,
+  initialTab,
+  initialSellerBankAccess,
 }: {
   locale: "ar" | "en";
   phoneVerificationEnabled: boolean;
+  initialTab?: Tab;
+  initialSellerBankAccess?: boolean;
 }) {
   const isAr = locale === "ar";
-  const [activeTab, setActiveTab] = useState<Tab>("security");
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab ?? "security");
   const [userId, setUserId] = useState<string | null>(null);
   const [sellerStatus, setSellerStatus] = useState<string>("buyer");
+  const [userRole, setUserRole] = useState<string>("buyer");
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>(defaultNotifications());
   const [notifChannels, setNotifChannels] = useState({ inApp: true, email: false, sms: false });
   const [phone, setPhone] = useState("");
@@ -161,6 +166,7 @@ export function AccountSettingsPanel({
       const data = (await res.json()) as {
         profile?: {
           id?: string;
+          roles?: string[];
           sellerStatus?: string;
           isProfileHidden?: boolean;
           showTradeStats?: boolean;
@@ -174,6 +180,12 @@ export function AccountSettingsPanel({
       const id = data.profile?.id ?? "unknown";
       setUserId(id);
       setSellerStatus(data.profile?.sellerStatus ?? "buyer");
+      setUserRole(
+        data.profile?.roles?.find((role) => role === "approved_seller" || role === "admin" || role === "owner") ?? "buyer",
+      );
+      if (window.location.hash === "#seller-bank-accounts") {
+        setActiveTab("profile");
+      }
       if (data.profile) {
         setPrivacyPrefs({
           public_profile: data.profile.isProfileHidden !== true,
@@ -265,9 +277,13 @@ export function AccountSettingsPanel({
       const message = messages[result];
       if (message) setDiscordMessage(isAr ? message.ar : message.en);
     }
-  }, [isAr]);
+  }, [initialTab, isAr]);
 
-  const canManageSellerBankAccounts = sellerStatus === "approved_seller";
+  const canManageSellerBankAccounts = initialSellerBankAccess === true
+    || sellerStatus === "approved_seller"
+    || userRole === "approved_seller"
+    || userRole === "admin"
+    || userRole === "owner";
   const hasMaxBankAccounts = bankAccounts.length >= 2;
 
   function resetBankForm() {

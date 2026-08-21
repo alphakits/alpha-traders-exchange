@@ -2,8 +2,9 @@ import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
 import { sanitizePurchaseRequestForActor, TradeBlockedError, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
 import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { prepareTradeEventEmails, tradeEmailEventForStatus } from "@/lib/marketplace-email-events";
+import { tradeDestination } from "@/lib/action-destinations";
 
 type RouteContext = {
   params: Promise<{ requestId: string }>;
@@ -32,7 +33,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   }
   if (phoneVerificationRequired) return phoneVerificationRequired;
 
-  const rate = checkRateLimit({
+  const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "exchange:purchase-request-status",
     maxRequests: 40,
@@ -144,7 +145,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       console.log("[usdt-sent-trace] before response", { traceId, requestId, updatedStatus: updated.status });
     }
     const routeMs = Date.now() - startedAt;
-    const responseBody = { request: sanitizePurchaseRequestForActor(updated, user.id, user.role), metrics };
+    const responseRequest = sanitizePurchaseRequestForActor(updated, user.id, user.role);
+    const responseBody = { request: responseRequest, metrics, destination: tradeDestination(responseRequest, user.id) };
     const queueMs = Math.max(0, routeMs - metrics.totalMs);
     // Always log server-side timings so production performance is visible in Vercel logs.
     if (routeDebug) {

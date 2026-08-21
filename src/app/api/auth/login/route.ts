@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, authenticateLocalUser, createUserSession } from "@/lib/auth";
 import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
-import { checkRateLimit, resolveClientIp } from "@/lib/rate-limit";
+import { checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { createSupabaseAuthClient, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 import { isMarketplacePhoneVerificationDisabled } from "@/lib/phone-verification";
 import { isVerified } from "@/lib/verification-bypass";
@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
     const password = String(body.password ?? "");
     const rememberMe = body.rememberMe !== false;
 
-    const ipRate = checkRateLimit({
+    const ipRate = await checkSharedRateLimit({
       headers: request.headers,
       key: "auth:login:ip",
       maxRequests: ipRateMaxRequests,
@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
         { status: 429, headers: { ...AUTH_RESPONSE_HEADERS, "Retry-After": String(ipRate.retryAfterSeconds) } },
       );
     }
-    const ipEmailRate = checkRateLimit({
+    const ipEmailRate = await checkSharedRateLimit({
       headers: request.headers,
       key: "auth:login:ip-email",
       identifier: `${clientIp}:${email}`,

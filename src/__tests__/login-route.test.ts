@@ -24,7 +24,7 @@ vi.mock("@/lib/auth-cookie", () => ({
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
-  checkRateLimit: vi.fn(() => ({ allowed: true })),
+  checkSharedRateLimit: vi.fn(() => ({ allowed: true })),
   resolveClientIp: vi.fn(() => "127.0.0.1"),
 }));
 

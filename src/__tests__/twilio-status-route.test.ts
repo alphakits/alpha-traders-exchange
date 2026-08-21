@@ -51,4 +51,15 @@ describe("Twilio status callback", () => {
     vi.mocked(mapTwilioStatus).mockReturnValueOnce(null);
     expect((await POST(callbackRequest({ MessageSid: "SM123", MessageStatus: "unknown" }))).status).toBe(400);
   });
+
+  it("rejects malformed callback bodies before signature processing", async () => {
+    const request = new NextRequest("https://alphatraders.co.il/api/twilio/status", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    });
+
+    expect((await POST(request)).status).toBe(400);
+    expect(validateTwilioSignature).not.toHaveBeenCalled();
+  });
 });

@@ -34,6 +34,7 @@ import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
 import { redactPhoneNumbers } from "@/lib/privacy-redaction";
 import { getSmsTemplate, normalizeE164, resolveSmsDeliveryStatusTransition, sendTwilioMessageWithRetry, twilioStatusCallbackUrl } from "@/lib/notification-platform";
 import { normalizeSellerLevel } from "@/types/alpha-exchange";
+import { validateUploadContent } from "@/lib/file-content-validation";
 import {
   MAX_LISTING_PAYMENT_METHODS,
   isBankTransferPaymentMethod,
@@ -120,6 +121,7 @@ import type {
   OwnerSettings,
 } from "@/types/alpha-exchange";
 import { getWalletAddressValidationError, normalizeWalletAddress } from "@/lib/wallet-address";
+import { sellerApplicationReviewDestination, sellerApplicationStatusDestination, sellerListingWorkspaceDestination } from "@/lib/action-destinations";
 
 const SELLER_EVIDENCE_TRACE_PATH = path.join(process.cwd(), "tmp", "seller-evidence-server.log");
 
@@ -3295,51 +3297,28 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
   }
 
   const buyerConfirmationTimeoutMs = BUYER_CONFIRMATION_TIMEOUT_MINUTES * 60 * 1000;
+  const buyerConfirmationTimeoutRequestIds: string[] = [];
   for (const request of db.purchaseRequests) {
     if (request.status !== "usdt_sent") continue;
-    if (request.buyerConfirmationArchivedAt || request.completedAt) continue;
+    if (request.completedAt) continue;
     if (!request.usdtSentAt) continue;
     const usdtSentMs = new Date(request.usdtSentAt).getTime();
     if (!usdtSentMs || Number.isNaN(usdtSentMs) || usdtSentMs + buyerConfirmationTimeoutMs > nowMs) continue;
+    buyerConfirmationTimeoutRequestIds.push(request.id);
+  }
 
-    const now = nowIso();
-    changed = true;
-    request.buyerConfirmationArchivedAt = now;
-    request.updatedAt = now;
-    appendTradeTimelineEntry(request, {
-      type: "buyer_confirmation_overdue",
+  for (const requestId of buyerConfirmationTimeoutRequestIds) {
+    await updatePurchaseRequestStatus({
+      requestId,
       actorUserId: SYSTEM_ACTOR_USER_ID,
       actorRole: "admin",
-      message: "Buyer confirmation reminder sent — trade archived awaiting buyer confirmation.",
-      createdAt: now,
+      nextStatus: "completed",
     });
-    await appendAuditLog(db, {
-      action: "trade_timed_out",
-      actorUserId: SYSTEM_ACTOR_USER_ID,
-      targetUserId: request.buyerId,
-      listingId: request.listingId,
-      purchaseRequestId: request.id,
-      details: `Trade ${request.tradeId ?? request.id} awaiting buyer confirmation beyond the ${BUYER_CONFIRMATION_TIMEOUT_MINUTES}-minute window.`,
-      oldValue: { status: "usdt_sent" },
-      newValue: { status: "usdt_sent", buyerConfirmationArchivedAt: now },
-      reason: "Buyer confirmation overdue.",
-    });
-    pushNotification(db, {
-      userId: request.buyerId,
-      category: "trade",
-      title: "Action Required — Confirm USDT Receipt",
-      message: `Please confirm that you received your USDT from trade ${request.tradeId ?? request.id} to complete your purchase.`,
-      relatedTradeId: request.tradeId ?? request.id,
-      relatedListingId: request.listingId,
-      relatedHref: requestDetailsHref(request.id),
-      priority: "high",
-      actionLabel: "Confirm Receipt",
-      actionHref: requestDetailsHref(request.id),
-    });
-    publishRealtimeEvent({
-      type: "trade.status_changed",
-      payload: { request: enrichRequestWithEvidence(db, request) },
-    });
+  }
+  if (buyerConfirmationTimeoutRequestIds.length > 0) {
+    const refreshed = await readDb({ bypassCache: true });
+    Object.assign(db, refreshed);
+    changed = true;
   }
 
   for (const listing of db.marketplaceListings) {
@@ -3400,6 +3379,7 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
 }
 
 function resolveActorRole(db: AlphaExchangeDb, actorUserId: string): UserRole {
+  if (actorUserId === SYSTEM_ACTOR_USER_ID) return "admin";
   return db.users.find((user) => user.id === actorUserId)?.role ?? "buyer";
 }
 
@@ -4834,7 +4814,7 @@ export async function createSellerApplication(input: {
       title: "New Approved Seller Application",
       message: `${next.fullName} has applied to become an Approved Seller.`,
       actionLabel: "Review Application",
-      relatedHref: `/admin/alpha-exchange?section=seller-applications&sellerApplication=${encodeURIComponent(next.id)}`,
+      relatedHref: sellerApplicationReviewDestination(next.id),
     });
     queueSmsDelivery(db, { eventType: "seller_application_submitted", eventKey: `seller-application:${next.id}:owner:${owner.id}`, recipientUserId: owner.id, destinationPath: "/admin/alpha-exchange?section=seller-applications" });
   }
@@ -4901,7 +4881,7 @@ export async function approveSellerApplicationByAdmin(applicationId: string, adm
     category: "application",
     title: "Seller application approved",
     message: "Your seller account is approved and now active.",
-    relatedHref: "/usdt-exchange",
+    relatedHref: sellerApplicationStatusDestination(),
   });
   pushActivityLog(db, {
     userId: application.userId,
@@ -4951,7 +4931,7 @@ export async function rejectSellerApplicationByAdmin(applicationId: string, admi
     category: "application",
     title: "Seller application rejected",
     message: "Your seller application was rejected.",
-    relatedHref: "/usdt-exchange",
+    relatedHref: sellerApplicationStatusDestination(),
   });
   pushActivityLog(db, {
     userId: application.userId,
@@ -6241,7 +6221,7 @@ export async function createMarketplaceListing(input: {
       title: "New Listing Pending Review",
       message: `${input.sellerDisplayName} submitted listing ${listing.id} for admin approval.`,
       relatedListingId: listing.id,
-      relatedHref: "/admin/alpha-exchange?tab=listings&status=draft",
+      relatedHref: `/admin/alpha-exchange?section=marketplace-listings&listing=${encodeURIComponent(listing.id)}`,
     });
   }
   pushNotification(db, {
@@ -6250,7 +6230,7 @@ export async function createMarketplaceListing(input: {
     title: "Listing submitted",
     message: `Listing ${listing.id} was submitted for admin review.`,
     relatedListingId: listing.id,
-    relatedHref: "/usdt-exchange",
+    relatedHref: sellerListingWorkspaceDestination(listing),
   });
   logProfile("pushNotification");
   pushActivityLog(db, {
@@ -6704,7 +6684,7 @@ export async function adminOverrideMarketplaceListing(input: {
       title: "Listing renewed",
       message: `An admin renewed listing ${listing.id}.`,
       relatedListingId: listing.id,
-      relatedHref: "/usdt-exchange",
+      relatedHref: sellerApplicationStatusDestination(),
     });
   }
   if (input.action === "extend") {
@@ -6714,7 +6694,7 @@ export async function adminOverrideMarketplaceListing(input: {
       title: "Listing expiration extended",
       message: `An admin extended the expiration for listing ${listing.id}.`,
       relatedListingId: listing.id,
-      relatedHref: "/usdt-exchange",
+      relatedHref: sellerApplicationStatusDestination(),
     });
   }
   if (input.action === "close" || input.action === "force_close") {
@@ -6798,7 +6778,7 @@ export async function reviewMarketplaceListingByOwner(input: {
           ? `Your listing was rejected.\nReason: ${trimmedReason}`
           : `Your listing needs updates before approval.\nReason: ${trimmedReason}`,
     relatedListingId: current.id,
-    relatedHref: "/usdt-exchange",
+    relatedHref: sellerListingWorkspaceDestination(current),
   });
   if (input.decision === "approve") {
     const listing = db.marketplaceListings[index];
@@ -7652,6 +7632,9 @@ export async function closePurchaseRequestManually(input: {
   if (request.status === "cancelled" && request.closedAt) {
     return enrichRequestWithEvidence(db, request);
   }
+  if (!isAdmin && request.status !== "pending") {
+    throw new Error("Trades cannot be closed manually after seller acceptance.");
+  }
 
   const closeReason = String(input.reason ?? "").trim();
   const closeExplanation = String(input.explanation ?? "").trim();
@@ -8061,6 +8044,9 @@ export async function uploadTradeEvidence(input: {
   if (request.status === "pending" || request.status === "declined" || request.status === "cancelled") {
     throw new Error("Evidence can be uploaded only after trade acceptance.");
   }
+  if (input.side === "seller" && request.status !== "usdt_release_pending") {
+    throw new Error("Seller USDT evidence can be uploaded only during the USDT release stage.");
+  }
 
   const mimeType = String(input.mimeType ?? "").toLowerCase().trim();
   if (!supportedEvidenceMimeTypes.has(mimeType)) {
@@ -8074,6 +8060,9 @@ export async function uploadTradeEvidence(input: {
   const raw = Buffer.from(String(input.contentBase64 ?? ""), "base64");
   if (!raw.length || raw.length > maxBytes) {
     throw new Error("Invalid evidence file payload.");
+  }
+  if (!validateUploadContent(raw, mimeType as "image/jpeg" | "image/png" | "image/webp" | "application/pdf")) {
+    throw new Error("Evidence content does not match its declared file type.");
   }
   const validationMs = Date.now() - validationStartedAt;
 
@@ -8108,6 +8097,7 @@ export async function uploadTradeEvidence(input: {
   const isAtmTrade = isCardlessAtmPaymentMethod(requestPaymentMethod);
   const isBankTransferTrade = isBankTransferPaymentMethod(requestPaymentMethod);
   const shouldAutoSubmitPayment = input.side === "buyer" && request.status === "accepted";
+  const shouldAutoConfirmUsdtSent = input.side === "seller" && request.status === "usdt_release_pending";
 
   const nextRequest: PurchaseRequest = {
     ...request,
@@ -8166,6 +8156,38 @@ export async function uploadTradeEvidence(input: {
       relatedHref: requestDetailsHref(request.id),
     });
   }
+  if (shouldAutoConfirmUsdtSent) {
+    nextRequest.status = "usdt_sent";
+    nextRequest.usdtSentAt = updatedAt;
+    appendTradeTimelineEntry(nextRequest, {
+      type: "usdt_sent",
+      actorUserId: input.actorUserId,
+      actorRole,
+      message: "Seller marked USDT sent",
+      createdAt: updatedAt,
+    });
+    appendSystemTradeMessage(db, nextRequest, {
+      senderUserId: input.actorUserId,
+      senderRole: actorRole,
+      message: "Seller marked USDT as sent. Buyer should now confirm receipt.",
+      createdAt: updatedAt,
+    });
+    pushNotification(db, {
+      userId: request.buyerId,
+      category: "trade",
+      title: "Seller marked USDT sent",
+      message: "Seller marked USDT as sent. Please confirm receipt to complete the trade.",
+      relatedTradeId: nextRequest.tradeId,
+      relatedListingId: request.listingId,
+      relatedHref: requestDetailsHref(request.id),
+    });
+    queueSmsDelivery(db, {
+      eventType: "usdt_sent",
+      eventKey: `trade:${request.id}:usdt-sent:buyer:${request.buyerId}`,
+      recipientUserId: request.buyerId,
+      destinationPath: requestDetailsHref(request.id),
+    });
+  }
   db.purchaseRequests[requestIndex] = nextRequest;
 
   await appendAuditLog(db, {
@@ -8186,7 +8208,7 @@ export async function uploadTradeEvidence(input: {
   const dbWriteStartedAt = Date.now();
   await writeDb(db, {
     evidenceOverrides: new Map([[evidenceId, raw]]),
-    selectedTables: shouldAutoSubmitPayment ? TRADE_EVIDENCE_PAYMENT_TABLES : TRADE_EVIDENCE_BASE_TABLES,
+    selectedTables: shouldAutoSubmitPayment || shouldAutoConfirmUsdtSent ? TRADE_EVIDENCE_PAYMENT_TABLES : TRADE_EVIDENCE_BASE_TABLES,
   });
   const dbWriteMs = Date.now() - dbWriteStartedAt;
   const storageMs = Date.now() - storageStartedAt;
@@ -8213,6 +8235,7 @@ export async function uploadTradeEvidence(input: {
       dbWriteMs,
       routeMs: Date.now() - startedAt,
       autoAdvancedToPaymentSent: shouldAutoSubmitPayment,
+      autoAdvancedToUsdtSent: shouldAutoConfirmUsdtSent,
     },
   };
 }
@@ -8668,7 +8691,7 @@ export async function updatePurchaseRequestStatus(input: {
   const isBankTransferTrade = isBankTransferPaymentMethod(requestPaymentMethod);
   const allowedByStatus: Record<PurchaseRequestStatus, PurchaseRequestStatus[]> = {
     pending: ["accepted", "declined", "cancelled"],
-    accepted: ["payment_sent", "cancelled"],
+    accepted: ["payment_sent"],
     payment_sent: ["funds_received"],
     funds_received: ["usdt_release_pending"],
     usdt_release_pending: ["usdt_sent"],

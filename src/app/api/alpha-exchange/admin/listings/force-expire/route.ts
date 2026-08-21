@@ -1,10 +1,13 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { requireApiOwner } from "@/lib/api-auth";
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
+import { checkSharedRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   const { user, unauthorized } = await requireApiOwner();
   if (!user) return unauthorized;
+  const rate = await checkSharedRateLimit({ headers: request.headers, key: "admin:force-expire-listings", identifier: user.id, maxRequests: 6, windowMs: 60 * 60_000 });
+  if (!rate.allowed) return createRateLimitResponse(rate.retryAfterSeconds);
 
   try {
     const repository = await getAlphaExchangeRepository();

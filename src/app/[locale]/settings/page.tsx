@@ -19,14 +19,25 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   });
 }
 
-export default async function SettingsPage({ params }: { params: Promise<{ locale: string }> }) {
+export default async function SettingsPage({ params, searchParams }: { params: Promise<{ locale: string }>; searchParams: Promise<{ tab?: string }> }) {
   const { locale } = await params;
+  const query = await searchParams;
   const user = await getCurrentSessionUser();
   if (!user) redirect(`/${locale}/login?redirectTo=/${locale}/settings`);
   return (
     <AccountSettingsPanel
       locale={locale === "ar" ? "ar" : "en"}
       phoneVerificationEnabled={isMarketplacePhoneVerificationEnabled()}
+      initialTab={query.tab === "profile"
+        ? "profile"
+        : query.tab === "account"
+        || user.sellerStatus === "approved_seller"
+        || user.role === "approved_seller"
+        || user.role === "admin"
+        || user.role === "owner"
+          ? "account"
+          : undefined}
+      initialSellerBankAccess={user.sellerStatus === "approved_seller" || user.role === "approved_seller" || user.role === "admin" || user.role === "owner"}
     />
   );
 }
