@@ -20,6 +20,7 @@ import {
 } from "@/components/sections/usdt-exchange/discord-share-action";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { hasRole } from "@/lib/roles";
+import { getSellerApplicationEligibility } from "@/lib/seller-application-eligibility";
 import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
 import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, isCardlessAtmPaymentMethod, isBankTransferPaymentMethod, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import { CLIENT_COMMISSION_WALLETS, COMMISSION_NETWORKS, type CommissionNetworkId } from "@/lib/commission-config";
@@ -864,7 +865,10 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(initialSessionUser ?? null);
   const [buyerProfileSummary, setBuyerProfileSummary] = useState<BuyerRankSummary | null>(null);
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
-  const [isSessionResolving, setIsSessionResolving] = useState(() => !initialSessionUser);
+  // The server-backed session is authoritative for seller-application eligibility.
+  // The initial value is only a bootstrap snapshot and can have stale roles.
+  const [isSessionResolving, setIsSessionResolving] = useState(true);
+  const [sessionResolutionError, setSessionResolutionError] = useState(false);
   const [isLoadingListings, setIsLoadingListings] = useState(true);
   const [isWorkspaceWidgetsLoading, setIsWorkspaceWidgetsLoading] = useState(true);
   const [isSellerApplicationLoading, setIsSellerApplicationLoading] = useState(true);
@@ -1421,19 +1425,15 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       const workspaceInitStartedAt = Date.now();
       try {
         const listingsPromise = tracedFetch("Dashboard data loading: listings", "/api/alpha-exchange/listings", { cache: "no-store", signal: controller.signal });
-        let resolvedUser = initialSessionUser ?? null;
-        const needsAuthoritativeSession = !initialSessionUser;
-        if (needsAuthoritativeSession) {
-          const meRes = await tracedFetch("/api/auth/me", "/api/auth/me", { cache: "no-store", signal: controller.signal });
-          if (cancelled) return;
-          if (meRes.ok) {
-            const meJson = (await meRes.json()) as { user: SessionUser | null };
-            if (cancelled) return;
-            resolvedUser = meJson.user;
-          }
-        }
+        const meRes = await tracedFetch("/api/auth/me", "/api/auth/me", { cache: "no-store", signal: controller.signal });
+        if (cancelled) return;
+        if (!meRes.ok) throw new Error("Unable to refresh your account status.");
+        const meJson = (await meRes.json()) as { user: SessionUser | null };
+        if (cancelled) return;
+        const resolvedUser = meJson.user;
 
         setSessionUser(resolvedUser);
+        setSessionResolutionError(false);
         setIsSessionResolving(false);
         const shellReadyAt = Date.now();
         appendLoginJourneyStep("Dashboard shell ready", workspaceInitStartedAt, shellReadyAt);
@@ -1442,7 +1442,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
 
         if (resolvedUser) {
           const user = resolvedUser;
-          if (!initialSessionUser && !sellerFormTouchedRef.current) {
+        if (!sellerFormTouchedRef.current) {
             setSellerForm((prev) => ({
               ...prev,
               firstName: user.fullName?.split(" ")[0] ?? prev.firstName,
@@ -1464,6 +1464,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") return;
         setIsSessionResolving(false);
+        setSessionResolutionError(true);
         setIsLoadingListings(false);
         setIsWorkspaceWidgetsLoading(false);
         setIsSellerApplicationLoading(false);
@@ -2159,6 +2160,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
 
   const isApprovedSeller = isApprovedSellerSession;
   const hasBuyerRole = Boolean(sessionUser && hasRole(sessionUser, "buyer"));
+  const sellerApplicationEligibility = getSellerApplicationEligibility({ isCanonicalUserLoading: isSessionResolving, canonicalUserError: sessionResolutionError, canonicalUser: sessionUser, application: sellerApplication, applicationSubmitted });
   const canAccessListingCreation = isApprovedSeller || isAdminSession;
   const isOwnerViewer = sessionUser?.role === "admin" && isAlphaExchangeOwnerEmail(sessionUser.email);
   const archivedConfirmationTrade = !isApprovedSeller
@@ -4854,7 +4856,17 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
               </div>
             ) : (
             /* ── State 1: buyer role required ── */
-            sessionUser && !hasBuyerRole ? (
+            sellerApplicationEligibility === "loading" ? (
+              <div className="space-y-3" aria-label="Loading account status">
+                <div className="h-4 w-44 animate-pulse rounded bg-white/10" />
+                <div className="h-20 w-full animate-pulse rounded-2xl bg-white/10" />
+              </div>
+            ) : sellerApplicationEligibility === "retry" ? (
+              <div className="rounded-2xl border border-amber-500/35 bg-amber-500/10 p-5">
+                <p className="font-semibold text-white">{isAr ? "تعذر تحديث حالة الحساب" : "Unable to refresh account status"}</p>
+                <Button type="button" className="mt-4" onClick={() => window.location.reload()}>{isAr ? "إعادة المحاولة" : "Retry"}</Button>
+              </div>
+            ) : sellerApplicationEligibility === "buyer_setup_required" ? (
               <div className="rounded-2xl border border-amber-500/35 bg-amber-500/10 p-5">
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
@@ -4875,7 +4887,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                   </div>
                 </div>
               </div>
-            ) : (sellerApplication?.status === "pending" || applicationSubmitted) ? (
+            ) : sellerApplicationEligibility === "application_pending" ? (
               /* ── State 2: Application pending ── */
               <div className="space-y-4">
                 <div className="rounded-2xl border border-[#C9A227]/35 bg-[#C9A227]/10 p-5">
