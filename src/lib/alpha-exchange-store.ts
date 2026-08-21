@@ -1796,6 +1796,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
   const legacyPendingApplicantIds = new Set((db.sellerApplications ?? [])
     .filter((application) => application.status === "pending")
     .map((application) => application.userId));
+  const sellerApplicationUserIds = new Set((db.sellerApplications ?? []).map((application) => application.userId));
   const normalized: AlphaExchangeDb = {
     ...defaultDb,
     ...db,
@@ -1803,17 +1804,32 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       const email = normalizeEmail(typeof user.email === "string" ? user.email : "");
       const fallbackRole = isUserRole(String(user.role ?? "")) ? (user.role as UserRole) : "guest";
       const sellerStatus = isValidSellerStatus((user as { sellerStatus?: string }).sellerStatus ?? "") ? (user as { sellerStatus: SellerStatus }).sellerStatus : inferSellerStatus(fallbackRole);
-      const storedRoles = Array.isArray((user as { roles?: unknown[] }).roles)
-        ? (user as { roles: unknown[] }).roles.map((item) => String(item)).filter(isUserRole)
+      const persistedRoles = Array.isArray((user as { roles?: unknown[] }).roles)
+        ? (user as { roles: unknown[] }).roles
         : [];
-      if (sellerStatus === "pending_seller_approval" && legacyPendingApplicantIds.has(user.id) && !storedRoles?.includes("buyer")) {
-        storedRoles.push("buyer");
+      const storedRoles = persistedRoles.map((item) => String(item)).filter(isUserRole);
+      const isStrictLegacySellerApplicantOrphan =
+        sellerStatus === "pending_seller_approval"
+        && fallbackRole === "pending_seller_approval"
+        && persistedRoles.length === 1
+        && persistedRoles[0] === "pending_seller_approval"
+        && (user as { onboardingSelection?: unknown }).onboardingSelection === "seller_applicant"
+        && typeof (user as { onboardingCompletedAt?: unknown }).onboardingCompletedAt === "string"
+        && (user as { onboardingCompletedAt: string }).onboardingCompletedAt.trim().length > 0
+        && !sellerApplicationUserIds.has(user.id)
+        && !isAlphaExchangeOwnerEmail(email)
+        && (user as { disabled?: unknown }).disabled !== true;
+      const effectiveSellerStatus: SellerStatus = isStrictLegacySellerApplicantOrphan ? "buyer" : sellerStatus;
+      const effectiveRole: UserRole = isStrictLegacySellerApplicantOrphan ? "buyer" : fallbackRole;
+      const effectiveStoredRoles: UserRole[] = isStrictLegacySellerApplicantOrphan ? ["buyer"] : storedRoles;
+      if (effectiveSellerStatus === "pending_seller_approval" && legacyPendingApplicantIds.has(user.id) && !effectiveStoredRoles.includes("buyer")) {
+        effectiveStoredRoles.push("buyer");
       }
       const normalizedRoles = normalizeRolesForUser({
         email,
-        role: fallbackRole,
-        roles: storedRoles,
-        sellerStatus,
+        role: effectiveRole,
+        roles: effectiveStoredRoles,
+        sellerStatus: effectiveSellerStatus,
       });
       const normalizedRole = resolvePrimaryRole(normalizedRoles);
       const onboardingSelectionRaw = typeof (user as { onboardingSelection?: string }).onboardingSelection === "string"
@@ -1856,7 +1872,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         email,
         roles: normalizedRoles,
         role: normalizedRole,
-        sellerStatus,
+        sellerStatus: effectiveSellerStatus,
         preferredNetworks: Array.isArray((user as { preferredNetworks?: string[] }).preferredNetworks)
           ? ((user as { preferredNetworks: string[] }).preferredNetworks.filter((network) => isSupportedNetwork(network)) as SupportedNetwork[])
           : [],

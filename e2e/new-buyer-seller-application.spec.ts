@@ -18,6 +18,12 @@ const REJECTED_BUYER = {
   password: "RejectedBuyer!SellerApplication2026",
   phone: "+972500000078",
 };
+const ORPHANED_APPLICANT = {
+  id: "e2e-orphaned-seller-applicant",
+  email: "e2e-orphaned-seller-applicant@example.test",
+  password: "OrphanedSellerApplicant2026",
+  phone: "+972500000079",
+};
 const ADMIN = {
   email: "e2e-global-admin@example.test",
   password: "E2eAdmin!Launch2026",
@@ -93,10 +99,20 @@ test.beforeAll(async () => {
   const db = await readState(api);
   originalSnapshot = JSON.parse(JSON.stringify(db)) as AlphaExchangeDb;
   const now = new Date().toISOString();
-  db.users = db.users.filter((user) => ![BUYER.id, REJECTED_BUYER.id].includes(user.id) && ![BUYER.email, REJECTED_BUYER.email].includes(user.email));
-  db.sellerApplications = db.sellerApplications.filter((application) => ![BUYER.id, REJECTED_BUYER.id].includes(application.userId));
+  db.users = db.users.filter((user) => ![BUYER.id, REJECTED_BUYER.id, ORPHANED_APPLICANT.id].includes(user.id) && ![BUYER.email, REJECTED_BUYER.email, ORPHANED_APPLICANT.email].includes(user.email));
+  db.sellerApplications = db.sellerApplications.filter((application) => ![BUYER.id, REJECTED_BUYER.id, ORPHANED_APPLICANT.id].includes(application.userId));
   await addBuyer(db, BUYER, now);
   await addBuyer(db, REJECTED_BUYER, now);
+  await addBuyer(db, ORPHANED_APPLICANT, now);
+  const orphanIndex = db.users.findIndex((user) => user.id === ORPHANED_APPLICANT.id);
+  db.users[orphanIndex] = {
+    ...db.users[orphanIndex],
+    role: "pending_seller_approval",
+    roles: ["pending_seller_approval"],
+    sellerStatus: "pending_seller_approval",
+    onboardingSelection: "seller_applicant",
+    onboardingCompletedAt: now,
+  };
   await writeState(api, db);
   await login(api);
   await api.dispose();
@@ -107,6 +123,27 @@ test.afterAll(async () => {
   const api = await request.newContext({ baseURL: E2E_BASE_URL });
   await writeState(api, originalSnapshot);
   await api.dispose();
+});
+
+test("a strict orphaned legacy seller applicant can reapply without gaining seller privileges", async ({ page }) => {
+  await login(page.request, ORPHANED_APPLICANT);
+  await page.goto("/en/usdt-exchange");
+  await expect(page.getByText("Become an Approved Seller")).toBeVisible({ timeout: 30_000 });
+  const openApplication = page.locator("#seller-application button").filter({ hasText: "Open Seller Application" });
+  if (await openApplication.isVisible().catch(() => false)) await openApplication.click();
+  await expect(page.locator("#seller-first-name")).toBeVisible({ timeout: 30_000 });
+  await page.locator("#seller-first-name").fill("Orphaned");
+  await page.locator("#seller-last-name").fill("Applicant");
+  await page.locator("#seller-whatsapp").fill(ORPHANED_APPLICANT.phone);
+  await page.getByText("Apply for Approval", { exact: true }).click();
+  await expect(page.getByText("Application Pending Review")).toBeVisible({ timeout: 30_000 });
+
+  const authState = await page.request.get("/api/auth/me");
+  expect(authState.ok()).toBeTruthy();
+  const payload = await authState.json() as { user?: { sellerStatus?: string; roles?: string[] } };
+  expect(payload.user?.sellerStatus).toBe("pending_seller_approval");
+  expect(payload.user?.roles).toEqual(expect.arrayContaining(["buyer", "pending_seller_approval"]));
+  expect(payload.user?.roles).not.toContain("approved_seller");
 });
 
 test("buyer without phone verification can submit and retain a pending seller application", async ({ page }) => {
