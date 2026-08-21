@@ -28,13 +28,15 @@ export default async function SettingsPage({ params, searchParams }: { params: P
     <AccountSettingsPanel
       locale={locale === "ar" ? "ar" : "en"}
       phoneVerificationEnabled={isMarketplacePhoneVerificationEnabled()}
-      initialTab={query.tab === "account"
+      initialTab={query.tab === "profile"
+        ? "profile"
+        : query.tab === "account"
         || user.sellerStatus === "approved_seller"
         || user.role === "approved_seller"
         || user.role === "admin"
         || user.role === "owner"
-        ? "account"
-        : undefined}
+          ? "account"
+          : undefined}
       initialSellerBankAccess={user.sellerStatus === "approved_seller" || user.role === "approved_seller" || user.role === "admin" || user.role === "owner"}
     />
   );

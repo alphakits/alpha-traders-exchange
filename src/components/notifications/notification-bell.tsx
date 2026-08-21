@@ -66,7 +66,7 @@ function extractTradeRoomHrefFromRelatedHref(relatedHref?: string) {
   return null;
 }
 
-function extractRequestIdFromTradeRoomHref(href: string | null) {
+function extractRequestIdFromTradeRoomHref(href: string | null | undefined) {
   if (!href) return null;
   try {
     const parsed = new URL(href, "https://www.alphatraders.co.il");
@@ -132,6 +132,7 @@ function inferTradeActionFromNotificationText(notification: AlphaExchangeNotific
 function buildTradeDestinationFromNotification(notification: AlphaExchangeNotification) {
   const requestId = notification.relatedRequestId?.trim()
     || (notification.tradeSnapshot as TradeSnapshotPayload | undefined)?.requestId?.trim()
+    || extractRequestIdFromTradeRoomHref(notification.relatedHref ?? notification.actionHref)
     || null;
   if (!requestId) return null;
 

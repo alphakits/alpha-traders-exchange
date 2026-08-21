@@ -12,6 +12,16 @@ const BUYER = {
   password: "NewBuyer!SellerApplication2026",
   phone: "+972500000077",
 };
+const REJECTED_BUYER = {
+  id: "e2e-rejected-buyer-seller-application",
+  email: "e2e-rejected-buyer-seller-application@example.test",
+  password: "RejectedBuyer!SellerApplication2026",
+  phone: "+972500000078",
+};
+const ADMIN = {
+  email: "e2e-global-admin@example.test",
+  password: "E2eAdmin!Launch2026",
+};
 
 let originalSnapshot: AlphaExchangeDb | null = null;
 
@@ -32,29 +42,21 @@ async function writeState(api: APIRequestContext, db: AlphaExchangeDb) {
   expect(response.ok()).toBeTruthy();
 }
 
-async function login(api: APIRequestContext) {
+async function login(api: APIRequestContext, account = BUYER) {
   const response = await api.post("/api/auth/login", {
     headers: { "x-forwarded-for": "198.51.100.77" },
-    data: { email: BUYER.email, password: BUYER.password, rememberMe: true },
+    data: { email: account.email, password: account.password, rememberMe: true },
   });
   expect(response.ok(), await response.text()).toBeTruthy();
 }
 
-test.describe.configure({ mode: "serial" });
-
-test.beforeAll(async () => {
-  const api = await request.newContext({ baseURL: E2E_BASE_URL });
-  const db = await readState(api);
-  originalSnapshot = JSON.parse(JSON.stringify(db)) as AlphaExchangeDb;
-  const now = new Date().toISOString();
-  db.users = db.users.filter((user) => user.id !== BUYER.id && user.email !== BUYER.email);
-  db.sellerApplications = db.sellerApplications.filter((application) => application.userId !== BUYER.id);
+async function addBuyer(db: AlphaExchangeDb, account: typeof BUYER, now: string) {
   db.users.push({
-    id: BUYER.id,
+    id: account.id,
     fullName: "New Buyer Seller Applicant",
-    email: BUYER.email,
-    passwordHash: await hashPassword(BUYER.password),
-    whatsappNumber: BUYER.phone,
+    email: account.email,
+    passwordHash: await hashPassword(account.password),
+    whatsappNumber: account.phone,
     role: "buyer",
     roles: ["buyer"],
     sellerStatus: "buyer",
@@ -71,9 +73,7 @@ test.beforeAll(async () => {
     notificationPreferences: { inApp: true, email: false, sms: false },
     emailVerified: true,
     emailVerifiedAt: now,
-    verifiedPhone: BUYER.phone,
-    phoneVerifiedAt: now,
-    buyerVerificationStatus: "verified",
+    buyerVerificationStatus: "not_started",
     buyerFirstName: "New",
     buyerLastName: "Buyer",
     buyerDisplayName: "New Buyer Seller Applicant",
@@ -84,6 +84,19 @@ test.beforeAll(async () => {
     createdAt: now,
     updatedAt: now,
   } as AlphaExchangeDb["users"][number]);
+}
+
+test.describe.configure({ mode: "serial" });
+
+test.beforeAll(async () => {
+  const api = await request.newContext({ baseURL: E2E_BASE_URL });
+  const db = await readState(api);
+  originalSnapshot = JSON.parse(JSON.stringify(db)) as AlphaExchangeDb;
+  const now = new Date().toISOString();
+  db.users = db.users.filter((user) => ![BUYER.id, REJECTED_BUYER.id].includes(user.id) && ![BUYER.email, REJECTED_BUYER.email].includes(user.email));
+  db.sellerApplications = db.sellerApplications.filter((application) => ![BUYER.id, REJECTED_BUYER.id].includes(application.userId));
+  await addBuyer(db, BUYER, now);
+  await addBuyer(db, REJECTED_BUYER, now);
   await writeState(api, db);
   await login(api);
   await api.dispose();
@@ -96,7 +109,7 @@ test.afterAll(async () => {
   await api.dispose();
 });
 
-test("new buyer can open, submit, and retain pending seller application", async ({ page }) => {
+test("buyer without phone verification can submit and retain a pending seller application", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await login(page.request);
   await page.goto("/en/usdt-exchange");
@@ -122,10 +135,90 @@ test("new buyer can open, submit, and retain pending seller application", async 
   expect(payload.user?.roles).toContain("buyer");
   expect(payload.user?.roles).toContain("pending_seller_approval");
 
+  const duplicate = await page.request.post("/api/alpha-exchange/seller-application", {
+    data: {
+      fullName: "New Buyer",
+      whatsappNumber: BUYER.phone,
+      preferredNetworks: ["Bank Transfer"],
+    },
+  });
+  expect(duplicate.status()).toBe(400);
+  await expect(duplicate.json()).resolves.toMatchObject({ error: "Your seller application is already pending review." });
+
   await page.reload();
   await expect(page.getByText("Application Pending Review")).toBeVisible({ timeout: 30_000 });
   await page.request.post("/api/auth/logout");
   await login(page.request);
   await page.goto("/en/usdt-exchange");
   await expect(page.getByText("Application Pending Review")).toBeVisible({ timeout: 30_000 });
+});
+
+test("manual admin approval is required before the applicant becomes a seller", async () => {
+  const buyerApi = await request.newContext({ baseURL: E2E_BASE_URL });
+  const state = await readState(buyerApi);
+  const application = state.sellerApplications.find((item) => item.userId === BUYER.id);
+  expect(application?.status).toBe("pending");
+  await buyerApi.dispose();
+
+  const adminApi = await request.newContext({ baseURL: E2E_BASE_URL });
+  await login(adminApi, ADMIN);
+  const approval = await adminApi.post(`/api/alpha-exchange/admin/seller-applications/${encodeURIComponent(application!.id)}/approve`, {
+    data: { reason: "E2E manual approval" },
+  });
+  expect(approval.ok(), await approval.text()).toBeTruthy();
+  await adminApi.dispose();
+
+  const verifyApi = await request.newContext({ baseURL: E2E_BASE_URL });
+  const approvedState = await readState(verifyApi);
+  const approvedUser = approvedState.users.find((user) => user.id === BUYER.id);
+  const approvedApplication = approvedState.sellerApplications.find((item) => item.userId === BUYER.id);
+  expect(approvedApplication?.status).toBe("approved");
+  expect(approvedUser?.sellerStatus).toBe("approved_seller");
+  expect(approvedUser?.roles).toEqual(expect.arrayContaining(["buyer", "approved_seller"]));
+  expect(approvedUser?.roles).not.toContain("pending_seller_approval");
+  await verifyApi.dispose();
+});
+
+test("manual rejection leaves the applicant a buyer and permits a later resubmission", async () => {
+  const applicantApi = await request.newContext({ baseURL: E2E_BASE_URL });
+  await login(applicantApi, REJECTED_BUYER);
+  const applicationResponse = await applicantApi.post("/api/alpha-exchange/seller-application", {
+    data: {
+      fullName: "Rejected Buyer",
+      whatsappNumber: REJECTED_BUYER.phone,
+      preferredNetworks: ["Bank Transfer"],
+    },
+  });
+  expect(applicationResponse.ok(), await applicationResponse.text()).toBeTruthy();
+  const { application } = await applicationResponse.json() as { application: { id: string } };
+  await applicantApi.dispose();
+
+  const adminApi = await request.newContext({ baseURL: E2E_BASE_URL });
+  await login(adminApi, ADMIN);
+  const rejection = await adminApi.post(`/api/alpha-exchange/admin/seller-applications/${encodeURIComponent(application.id)}/reject`, {
+    data: { reason: "E2E manual rejection" },
+  });
+  expect(rejection.ok(), await rejection.text()).toBeTruthy();
+  await adminApi.dispose();
+
+  const verifyApi = await request.newContext({ baseURL: E2E_BASE_URL });
+  const rejectedState = await readState(verifyApi);
+  const rejectedUser = rejectedState.users.find((user) => user.id === REJECTED_BUYER.id);
+  const rejectedApplication = rejectedState.sellerApplications.find((item) => item.userId === REJECTED_BUYER.id);
+  expect(rejectedApplication?.status).toBe("rejected");
+  expect(rejectedUser?.sellerStatus).toBe("rejected");
+  expect(rejectedUser?.roles).toEqual(["buyer"]);
+  await verifyApi.dispose();
+
+  const resubmissionApi = await request.newContext({ baseURL: E2E_BASE_URL });
+  await login(resubmissionApi, REJECTED_BUYER);
+  const resubmission = await resubmissionApi.post("/api/alpha-exchange/seller-application", {
+    data: {
+      fullName: "Rejected Buyer",
+      whatsappNumber: REJECTED_BUYER.phone,
+      preferredNetworks: ["Bank Transfer"],
+    },
+  });
+  expect(resubmission.status(), await resubmission.text()).toBe(201);
+  await resubmissionApi.dispose();
 });

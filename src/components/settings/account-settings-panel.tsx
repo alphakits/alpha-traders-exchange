@@ -183,13 +183,8 @@ export function AccountSettingsPanel({
       setUserRole(
         data.profile?.roles?.find((role) => role === "approved_seller" || role === "admin" || role === "owner") ?? "buyer",
       );
-      if (
-        initialTab === "profile"
-        || window.location.hash === "#seller-bank-accounts"
-        || data.profile?.sellerStatus === "approved_seller"
-        || data.profile?.roles?.some((role) => role === "approved_seller" || role === "admin" || role === "owner")
-      ) {
-        setActiveTab("account");
+      if (window.location.hash === "#seller-bank-accounts") {
+        setActiveTab("profile");
       }
       if (data.profile) {
         setPrivacyPrefs({
