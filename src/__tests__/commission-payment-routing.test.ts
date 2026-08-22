@@ -365,6 +365,25 @@ describe("commission wallet payment routing", () => {
       createdAt: now,
       updatedAt: now,
     });
+    db.commissionRecords.push({
+      ...db.commissionRecords[0],
+      id: "commission-foreign",
+      sellerId: "another-seller",
+      purchaseRequestId: "request-foreign",
+      commissionAmount: 99,
+      dueAt: "2026-08-19T00:00:00.000Z",
+      createdAt: now,
+      updatedAt: now,
+    });
+    db.commissionRecords.push({
+      ...db.commissionRecords[0],
+      id: "commission-settled",
+      paymentStatus: "paid",
+      purchaseRequestId: "request-settled",
+      commissionAmount: 7,
+      createdAt: now,
+      updatedAt: now,
+    });
 
     const selected = await getSellerCommissionStatus(SELLER_ID, db, { commissionId: "commission-2" });
 
@@ -375,6 +394,10 @@ describe("commission wallet payment routing", () => {
       amountDue: 8,
       pendingCount: 2,
     });
+    expect(selected.payableRecords).toEqual([
+      expect.objectContaining({ commissionId: COMMISSION_ID, amountDue: 5 }),
+      expect.objectContaining({ commissionId: "commission-2", amountDue: 3 }),
+    ]);
 
     const invalid = await getSellerCommissionStatus(SELLER_ID, db, { commissionId: "not-owned-or-settled" });
     expect(invalid.commissionId).toBeUndefined();

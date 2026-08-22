@@ -4,7 +4,6 @@ import { getCurrentSessionUser } from "@/lib/auth";
 import { hasRole } from "@/lib/roles";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
 import { toClientSessionUser } from "@/lib/client-session-user";
-import { getFirstActiveTradeForUser } from "@/lib/alpha-exchange-store";
 
 export const dynamic = "force-dynamic";
 
@@ -30,14 +29,9 @@ export default async function DashboardPage({ params }: { params: Promise<{ loca
     redirect(`/${locale}/admin/alpha-exchange`);
   }
 
-  const activeTrade = await getFirstActiveTradeForUser(user.id, user.role);
-  if (activeTrade) {
-    redirect(`/${locale}/trade-room/${activeTrade.id}`);
-  }
-
   if (hasRole(user, "approved_seller")) {
     redirect(`/${locale}/dashboard/seller`);
   }
 
-  return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={toClientSessionUser(user)} />;
+  return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={toClientSessionUser(user)} workspaceMode="buyer" />;
 }

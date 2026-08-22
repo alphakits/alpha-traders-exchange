@@ -127,6 +127,26 @@ async function restoreBuyerPhoneFixture(request: APIRequestContext) {
   await writeRuntimeDb(request, db);
 }
 
+function containsModalFixtureReference(value: unknown, identifiers: Set<string>): boolean {
+  if (typeof value === "string") return identifiers.has(value);
+  if (Array.isArray(value)) return value.some((entry) => containsModalFixtureReference(entry, identifiers));
+  if (value && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>)
+      .some((entry) => containsModalFixtureReference(entry, identifiers));
+  }
+  return false;
+}
+
+async function cleanupModalFixtureState(request: APIRequestContext) {
+  const db = await readRuntimeDb(request);
+  const identifiers = new Set([sellerId, listingId]);
+  for (const [key, value] of Object.entries(db)) {
+    if (!Array.isArray(value)) continue;
+    db[key] = value.filter((entry) => !containsModalFixtureReference(entry, identifiers));
+  }
+  await writeRuntimeDb(request, db);
+}
+
 async function login(page: Page, email: string, password: string) {
   const response = await page.request.post("/api/auth/login", { headers: { "x-forwarded-for": "198.51.100.11" }, data: { email, password, rememberMe: true } });
   expect(response.ok()).toBeTruthy();
@@ -141,17 +161,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   const context = await request.newContext({ baseURL: E2E_BASE_URL });
-  const db = await readRuntimeDb(context);
-  for (const key of ["users", "marketplaceListings"]) {
-    const rows = db[key];
-    if (Array.isArray(rows)) {
-      db[key] = rows.filter((row) => {
-        const record = row as Record<string, unknown>;
-        return record.id !== sellerId && record.id !== listingId;
-      });
-    }
-  }
-  await writeRuntimeDb(context, db);
+  await cleanupModalFixtureState(context);
   await restoreBuyerPhoneFixture(context);
   await context.dispose();
   await cleanupBuyerFixture(buyerFixture);

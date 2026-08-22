@@ -34,17 +34,28 @@ test.afterAll(async () => {
 });
 
 test.describe("Navigation hardening", () => {
-  test("buyer My Trade Requests stays on exchange and opens trade history section", async ({ page }) => {
+  test("buyer Workspace Summary replaces Quick Actions and routes cards to canonical destinations", async ({ page }) => {
     test.skip(!buyerFixture, "Buyer fixture not available");
 
     await login(page.request, buyerFixture!.email, buyerFixture!.password);
-    await page.goto("/en/usdt-exchange");
+    await page.goto("/en/dashboard");
 
-    await page.getByRole("button", { name: /^My Trade Requests$/ }).first().click();
+    const main = page.getByRole("main");
+    await expect(main.getByText("Workspace Summary").first()).toBeVisible();
+    await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
+    await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(0);
 
-    await expect(page).toHaveURL(/\/en\/usdt-exchange(#my-trade-requests-section)?$/);
-    await expect(page).not.toHaveURL(/\/en\/trade-room(\/|$)/);
-    await expect(page.locator("#my-trade-requests-section")).toBeVisible();
+    const tradeRequests = main.getByRole("button", { name: /^My Trade Requests:/ });
+    await expect(tradeRequests).toHaveCount(1);
+    await tradeRequests.focus();
+    await page.keyboard.press("Enter");
+
+    await expect(page).toHaveURL(/\/en\/dashboard$/);
+    await expect(main.locator("#my-trade-requests-section")).toBeVisible();
+    await expect(main.locator("#my-trade-requests-section")).toBeFocused();
+
+    await main.getByRole("button", { name: /^Browse Marketplace:/ }).click();
+    await expect(page).toHaveURL(/\/en\/usdt-exchange#marketplace$/);
   });
 
   test("buyer direct /trade-room navigation resolves to a stable non-dashboard destination", async ({ page }) => {
@@ -60,15 +71,15 @@ test.describe("Navigation hardening", () => {
     );
   });
 
-  test("buyer refresh on My Trade Requests section keeps stable route", async ({ page }) => {
+  test("buyer dashboard refresh keeps the canonical workspace route", async ({ page }) => {
     test.skip(!buyerFixture, "Buyer fixture not available");
 
     await login(page.request, buyerFixture!.email, buyerFixture!.password);
-    await page.goto("/en/usdt-exchange#my-trade-requests-section");
+    await page.goto("/en/dashboard");
     await page.reload({ waitUntil: "commit" });
 
-    await expect(page).not.toHaveURL(/\/en\/dashboard$/);
-    await expect(page).toHaveURL(/\/en\/usdt-exchange(#my-trade-requests-section)?$/);
+    await expect(page).toHaveURL(/\/en\/dashboard$/);
+    await expect(page.getByRole("main").getByText("Workspace Summary").first()).toBeVisible();
   });
 
   test("seller refresh keeps the approved workspace stable", async ({ page }) => {
@@ -76,13 +87,27 @@ test.describe("Navigation hardening", () => {
 
     await login(page.request, SELLER_EMAIL, SELLER_PASSWORD);
     await page.goto("/en/dashboard/seller");
-    await expect(page.getByText(/seller status/i).first()).toBeVisible();
+    const main = page.getByRole("main");
+    await expect(main.getByText(/seller status/i).first()).toBeVisible();
+    await expect(main.getByText("Workspace Summary").first()).toBeVisible();
+    await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
+    await expect(main.getByRole("button", { name: /Seller Dashboard/i })).toHaveCount(0);
+
+    const purchaseRequests = main.getByRole("button", { name: /^Purchase Requests:/ });
+    await expect(purchaseRequests).toHaveCount(1);
+    await purchaseRequests.focus();
+    await page.keyboard.press("Enter");
+    await expect(main.locator("#purchase-requests-section")).toBeFocused();
 
     await page.reload({ waitUntil: "commit" });
 
     await expect(page).toHaveURL(/\/en\/dashboard\/seller$/);
-    await expect(page.getByText(/seller status/i).first()).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Manage Listings$/ }).first()).toBeVisible();
+    await expect(main.getByText(/seller status/i).first()).toBeVisible();
+    const manageListings = main.getByRole("button", { name: /^My Listings:/ });
+    await expect(manageListings).toHaveCount(1);
+    await manageListings.focus();
+    await page.keyboard.press("Enter");
+    await expect(main.locator("#my-listings-section")).toBeFocused();
   });
 
   test("guest protected trade-room route redirects to login with redirectTo", async ({ page }) => {

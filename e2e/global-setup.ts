@@ -1,6 +1,7 @@
 import { randomBytes, scrypt as scryptCallback } from "node:crypto";
 import { promisify } from "node:util";
 import type { FullConfig } from "@playwright/test";
+import alphaExchangeSeed from "../data/alpha-exchange-db.json";
 import { resolveBuyerFixture } from "./support/buyer-fixture";
 
 const scrypt = promisify(scryptCallback);
@@ -73,6 +74,25 @@ async function writeRuntimeDb(baseUrl: string, db: RuntimeDb) {
     headers: TEST_SUPPORT_HEADERS,
     body: JSON.stringify(db),
   });
+}
+
+function freshRuntimeDb(): RuntimeDb {
+  // The production-mode test server deliberately persists its in-memory
+  // fallback snapshot between processes. Start every Playwright invocation
+  // from the committed fixture so an interrupted earlier run cannot leak an
+  // active trade, session, or notification into this run.
+  return JSON.parse(JSON.stringify(alphaExchangeSeed)) as RuntimeDb;
+}
+
+async function resetRuntimeDb(baseUrl: string) {
+  const current = await readRuntimeDb(baseUrl);
+  const snapshot = freshRuntimeDb();
+  // `saveSnapshot` correctly protects normal concurrent writes by merging
+  // stale versions. The local test-support route uses that same repository,
+  // so retain the current version when deliberately replacing the entire
+  // isolated test fixture; otherwise a stale snapshot is merged back in.
+  snapshot.__runtimeVersion = current.__runtimeVersion;
+  await writeRuntimeDb(baseUrl, snapshot);
 }
 
 function ensureArray<T = unknown>(value: unknown): T[] {
@@ -229,5 +249,6 @@ export default async function globalSetup(_config: FullConfig) {
     ? requestedPort
     : 3000;
   const baseUrl = `http://localhost:${port}`;
+  await resetRuntimeDb(baseUrl);
   await provisionRoleFixtures(baseUrl);
 }
