@@ -14,6 +14,8 @@ import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display"
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
+import { getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
+import { getExplicitNonTradeRoomNotificationDestination } from "@/lib/notification-action-destination";
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 
@@ -355,10 +357,11 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
   }
 
   function resolveNotificationActionLabel(notification: AlphaExchangeNotification) {
+    if (getCommissionPaymentNotificationDestination(notification)) return "Pay Commission";
+    if (isTradeNotification(notification)) return "Continue Trade";
     if (notification.actionLabel?.trim()) return notification.actionLabel.trim();
     if (notification.category === "application") return "Review Application";
     if (notification.category === "listing") return "Manage Listing";
-    if (isTradeNotification(notification)) return "Open Trade Room";
     return "Open";
   }
 
@@ -401,8 +404,12 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
   }
 
   async function resolveNotificationDestination(notification: AlphaExchangeNotification) {
+    const commissionDestination = getCommissionPaymentNotificationDestination(notification);
+    if (commissionDestination) return commissionDestination;
     const conversationDestination = getTradeRoomConversationDestination(notification);
     if (conversationDestination) return conversationDestination;
+    const explicitInternalDestination = getExplicitNonTradeRoomNotificationDestination(notification);
+    if (explicitInternalDestination) return explicitInternalDestination;
     if (isTradeNotification(notification)) {
       const relatedRequestId = notification.relatedRequestId?.trim() || null;
       const snapshotAction = buildTradeRoomActionForSnapshot(notification.tradeSnapshot as TradeSnapshotPayload, notification.userId);
@@ -718,10 +725,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                                 size="sm"
                                 variant="secondary"
                                 className="h-10 px-3 text-xs md:h-8"
-                                onClick={() => {
-                                  const fallbackHref = notification.actionHref ?? notification.relatedHref;
-                                  if (fallbackHref) router.push(fallbackHref);
-                                }}
+                                onClick={() => void openNotificationDestination(notification)}
                               >
                                 Open related page
                               </Button>

@@ -643,6 +643,51 @@ test("bank-transfer listing requires selected seller bank account and preserves 
   await seller.context.close();
 });
 
+test("owner listing notification destination survives login, refresh, and history navigation", async ({ browser }) => {
+  test.setTimeout(240_000);
+  const hasFixtures = await resetLifecycleFixtures();
+  test.skip(!hasFixtures, "Set E2E owner/seller credentials and seed matching runtime accounts to run lifecycle tests.");
+
+  const seller = await createSession(browser, SELLER_EMAIL, SELLER_PASSWORD);
+  const created = await createListing(seller.page.request, { availableAmount: "750", price: "3.21" });
+  const listingId = created.listing.id;
+  const destination = `/en/admin/alpha-exchange?section=marketplace-listings&listing=${encodeURIComponent(listingId)}`;
+
+  const ownerContext = await browser.newContext();
+  const ownerPage = await ownerContext.newPage();
+  await ownerPage.goto(destination);
+  await expect(ownerPage).toHaveURL(/\/en\/login(?:\?|$)/, { timeout: 30_000 });
+  const loginUrl = new URL(ownerPage.url());
+  expect(loginUrl.searchParams.get("redirectTo")).toBe(destination);
+
+  await ownerPage.getByLabel("Email").fill(OWNER_EMAIL);
+  await ownerPage.getByLabel("Password").fill(OWNER_PASSWORD);
+  await Promise.all([
+    ownerPage.waitForURL(destination, { timeout: 30_000 }),
+    ownerPage.getByRole("button", { name: "Login", exact: true }).click(),
+  ]);
+
+  const listingRow = ownerPage.locator(`#marketplace-listing-${listingId}`);
+  await expect(listingRow).toBeVisible({ timeout: 30_000 });
+  await expect(listingRow).toBeFocused({ timeout: 30_000 });
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1366, height: 900 }]) {
+    await ownerPage.setViewportSize(viewport);
+    await expect(listingRow).toBeVisible();
+    await expect(listingRow).toHaveClass(/outline/);
+    const overflow = await ownerPage.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, `horizontal overflow at ${viewport.width}px`).toBeLessThanOrEqual(1);
+  }
+
+  await ownerPage.goto("/en/admin/alpha-exchange?section=overview");
+  await ownerPage.goBack();
+  await expect(ownerPage).toHaveURL(destination);
+  await expect(listingRow).toBeFocused({ timeout: 30_000 });
+  await ownerPage.goForward();
+  await expect(ownerPage).toHaveURL(/section=overview/);
+
+  await Promise.all([seller.context.close(), ownerContext.close()]);
+});
+
 test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   test.setTimeout(600_000);
   const hasFixtures = await resetLifecycleFixtures();

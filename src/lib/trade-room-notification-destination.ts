@@ -5,10 +5,6 @@ const TRADE_ROOM_CONVERSATION_REASONS = new Set([
   "trade_room_poke",
 ]);
 
-export function isTradeRoomConversationNotification(notification: Pick<AlphaExchangeNotification, "reason">) {
-  return TRADE_ROOM_CONVERSATION_REASONS.has(String(notification.reason ?? "").trim());
-}
-
 function extractRequestIdFromTradeRoomHref(href: string | null | undefined) {
   if (!href) return null;
   try {
@@ -23,6 +19,29 @@ function extractRequestIdFromTradeRoomHref(href: string | null | undefined) {
     const queryMatch = href.match(/[?&]requestId=([^&#]+)/i);
     return queryMatch?.[1] ? decodeURIComponent(queryMatch[1]) : null;
   }
+}
+
+function isExplicitTradeRoomChatHref(href: string | null | undefined) {
+  if (!href) return false;
+  try {
+    const parsed = new URL(href, "https://www.alphatraders.co.il");
+    return /\/trade-room\/[^/?#]+$/i.test(parsed.pathname) && parsed.hash === "#chat";
+  } catch {
+    return /\/trade-room\/[^/?#]+(?:\?[^#]*)?#chat$/i.test(href);
+  }
+}
+
+export function isTradeRoomConversationNotification(
+  notification: Pick<AlphaExchangeNotification, "reason" | "actionHref" | "relatedHref">,
+) {
+  const reason = String(notification.reason ?? "").trim();
+  if (reason) return TRADE_ROOM_CONVERSATION_REASONS.has(reason);
+  // Older/stale client snapshots can lack the server's conversation reason
+  // while retaining its exact internal `#chat` action. Only use that marker
+  // when no explicit lifecycle reason is present; ordinary trade links stay
+  // on their normal action path.
+  return isExplicitTradeRoomChatHref(notification.actionHref)
+    || isExplicitTradeRoomChatHref(notification.relatedHref);
 }
 
 /**

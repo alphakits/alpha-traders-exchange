@@ -28,6 +28,20 @@ describe("Trade Room conversation notification destinations", () => {
     }))).toBe("/trade-room/purchase-123?action=open-trade#chat");
   });
 
+  it("keeps a server-generated chat link on the exact conversation when a stale client item lacks its reason", () => {
+    expect(getTradeRoomConversationDestination(notification({
+      reason: undefined,
+      actionHref: "/trade-room/purchase-123#chat",
+    }))).toBe("/trade-room/purchase-123?action=open-trade#chat");
+  });
+
+  it("does not reinterpret an ordinary Trade Room lifecycle link without a reason as a conversation", () => {
+    expect(getTradeRoomConversationDestination(notification({
+      reason: undefined,
+      actionHref: "/trade-room/purchase-123",
+    }))).toBeNull();
+  });
+
   it("derives the canonical request id from an internal Trade Room href when needed", () => {
     expect(getTradeRoomConversationDestination(notification({
       reason: "trade_room_message",

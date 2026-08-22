@@ -13,6 +13,8 @@ import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display"
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
+import { getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
+import { getExplicitNonTradeRoomNotificationDestination } from "@/lib/notification-action-destination";
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 
@@ -186,14 +188,6 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   useEffect(() => {
     if (!isOpen) return;
 
-    const previousOverflow = document.body.style.overflow;
-    const previousPaddingRight = document.body.style.paddingRight;
-    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
-    document.body.style.overflow = "hidden";
-    if (scrollbarWidth > 0) {
-      document.body.style.paddingRight = `${scrollbarWidth}px`;
-    }
-
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setIsOpen(false);
     };
@@ -206,8 +200,6 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
     document.addEventListener("keydown", closeOnEscape);
     document.addEventListener("pointerdown", closeOutside);
     return () => {
-      document.body.style.overflow = previousOverflow;
-      document.body.style.paddingRight = previousPaddingRight;
       document.removeEventListener("keydown", closeOnEscape);
       document.removeEventListener("pointerdown", closeOutside);
     };
@@ -338,6 +330,12 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   }
 
   function resolveNotificationDestination(notification: AlphaExchangeNotification) {
+    const commissionDestination = getCommissionPaymentNotificationDestination(notification);
+    if (commissionDestination) return commissionDestination;
+    // A category is not an authorization boundary. Explicit internal actions
+    // for an admin/nonparticipant must not be rewritten to a Trade Room.
+    const explicitInternalDestination = getExplicitNonTradeRoomNotificationDestination(notification);
+    if (explicitInternalDestination) return explicitInternalDestination;
     if (isTradeNotification(notification)) {
       const fallbackHref = resolveTradeRoomHref(notification);
       return buildTradeDestinationFromNotification(notification) ?? fallbackHref;
@@ -383,9 +381,8 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   }
 
   function resolveNotificationActionLabel(notification: AlphaExchangeNotification) {
-    if (isTradeNotification(notification)) {
-      return "Continue Trade";
-    }
+    if (getCommissionPaymentNotificationDestination(notification)) return "Pay Commission";
+    if (isTradeNotification(notification)) return "Continue Trade";
     if (notification.actionLabel?.trim()) return notification.actionLabel.trim();
     if (notification.category === "application") return "Review Application";
     if (notification.category === "listing") return "Manage Listing";
@@ -457,6 +454,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                 return (
                   <div
                     key={notification.id}
+                    data-notification-id={notification.id}
                     className={`rounded-xl border p-3 text-xs ${
                       notification.isRead
                         ? "border-white/10 bg-black/20 text-[#9CA3AF]"
@@ -549,10 +547,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                               {notification.relatedHref ? (
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    router.push(notification.relatedHref!);
-                                    setIsOpen(false);
-                                  }}
+                                  onClick={() => void handleOpenNotification(notification)}
                                   className={buttonVariants({ variant: "secondary", size: "sm" })}
                                 >
                                   <ExternalLink className="h-3 w-3" />

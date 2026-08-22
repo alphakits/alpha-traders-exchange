@@ -1845,6 +1845,13 @@ export class AlphaExchangeRepository {
        * against the canonical snapshot that will actually be committed.
        */
       validateBeforeCommit?: (snapshot: AlphaExchangeDb) => void;
+      /**
+       * For a narrowly scoped security-sensitive mutation, rebuilds the
+       * candidate from the latest canonical snapshot while the advisory lock
+       * is held. This avoids stale whole-table replacement when two instances
+       * mutate different records concurrently.
+       */
+      rebaseOnLatest?: (persistedSnapshot: AlphaExchangeDb) => AlphaExchangeDb | Promise<AlphaExchangeDb>;
     },
   ) {
     if (options?.traceTag && allowsRuntimeDiagnostics()) {
@@ -1864,8 +1871,12 @@ export class AlphaExchangeRepository {
         });
         const latestSnapshot = cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion);
         latestSnapshot.authSessions = cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion).authSessions;
-        const nextSnapshot = pruneOrphanAuthSessions(cloneSnapshot(db));
-        const mergedSnapshot = mergeSnapshotWithLatest(latestSnapshot, nextSnapshot);
+        const nextSnapshot = options?.rebaseOnLatest
+          ? pruneOrphanAuthSessions(await options.rebaseOnLatest(cloneSnapshot(latestSnapshot)))
+          : pruneOrphanAuthSessions(cloneSnapshot(db));
+        const mergedSnapshot = options?.rebaseOnLatest
+          ? nextSnapshot
+          : mergeSnapshotWithLatest(latestSnapshot, nextSnapshot);
         options?.validateBeforeCommit?.(mergedSnapshot);
         const next = attachVersion(mergedSnapshot, previousVersion + 1);
         const previousEvidence = globalThis.__alphaExchangeMemoryEvidenceContent as Map<string, Buffer | null>;
@@ -1986,7 +1997,12 @@ export class AlphaExchangeRepository {
               currentResults.push({ tableName: tables[i]!.name as SnapshotTableName, rows: parallelResults[i]!.rows });
             }
             const latestSnapshot = attachVersion(snapshotFromTableRows(currentResults), currentVersion);
-            const mergedSnapshot = mergeSnapshotWithLatest(latestSnapshot, pruneOrphanAuthSessions(db));
+            const incomingSnapshot = options?.rebaseOnLatest
+              ? pruneOrphanAuthSessions(await options.rebaseOnLatest(cloneSnapshot(latestSnapshot)))
+              : pruneOrphanAuthSessions(db);
+            const mergedSnapshot = options?.rebaseOnLatest
+              ? incomingSnapshot
+              : mergeSnapshotWithLatest(latestSnapshot, incomingSnapshot);
             const mergedVersion = getVersion(mergedSnapshot);
             const nextVersion = currentVersion + 1;
             const evidenceContentById = new Map<string, Buffer | null>();

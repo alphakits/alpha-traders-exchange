@@ -127,7 +127,17 @@ import type {
   OwnerSettings,
 } from "@/types/alpha-exchange";
 import { getWalletAddressValidationError, normalizeWalletAddress } from "@/lib/wallet-address";
-import { sellerApplicationReviewDestination, sellerApplicationStatusDestination, sellerListingWorkspaceDestination } from "@/lib/action-destinations";
+import {
+  adminCommissionDestination,
+  adminMarketplaceEnforcementDestination,
+  adminMarketplaceListingsDestination,
+  adminPurchaseRequestsDestination,
+  listingDestination,
+  sellerApplicationReviewDestination,
+  sellerApplicationStatusDestination,
+  sellerListingWorkspaceDestination,
+} from "@/lib/action-destinations";
+import { COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON, commissionPaymentDestination } from "@/lib/commission-payment-destination";
 
 const SELLER_EVIDENCE_TRACE_PATH = path.join(process.cwd(), "tmp", "seller-evidence-server.log");
 
@@ -518,10 +528,23 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     ? notification.priorityRank
     : resolveNotificationPriority({ ...notification, centerCategory }).rank;
   const isTradeNotification = notification.category === "trade";
-  const relatedHref = isTradeNotification && request
-    ? requestDetailsHref(request.id)
-    : sanitizeInternalNotificationHref(notification.relatedHref);
-  const actionHref = sanitizeInternalNotificationHref(notification.actionHref) || relatedHref;
+  const recipientIsTradeParticipant = Boolean(request && (request.buyerId === notification.userId || request.sellerId === notification.userId));
+  const matchingSellerCommission = request && request.sellerId === notification.userId
+    ? getUnpaidSellerCommissionRecords(db, notification.userId).find((record) => record.purchaseRequestId === request.id)
+    : undefined;
+  const commissionDueText = `${notification.title} ${notification.message}`.toLowerCase();
+  const isCommissionPaymentDue = Boolean(matchingSellerCommission) && (
+    notification.reason === COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON
+    || /\bcommission\s+(?:due|overdue)\b/.test(commissionDueText)
+  );
+  const commissionPaymentHref = isCommissionPaymentDue && matchingSellerCommission
+    ? commissionPaymentDestination(matchingSellerCommission.id)
+    : undefined;
+  const relatedHref = commissionPaymentHref
+    ?? (isTradeNotification && request && recipientIsTradeParticipant
+      ? requestDetailsHref(request.id)
+      : sanitizeInternalNotificationHref(notification.relatedHref));
+  const actionHref = commissionPaymentHref ?? (sanitizeInternalNotificationHref(notification.actionHref) || relatedHref);
   const listing = request ? db.marketplaceListings.find((item) => item.id === request.listingId) : undefined;
   // Reuse a pre-built lookup when available (batch calls) to avoid O(n) per notification.
   const displayLookup = cachedLookup ?? createExchangeDisplayLookup({
@@ -556,8 +579,9 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     relatedListingDisplayNumber: listing?.displayNumber,
     relatedHref,
     actionHref,
-    actionLabel: notification.actionLabel?.trim() || resolveNotificationActionLabel(notification, request),
-    tradeSnapshot: isTradeNotification
+    actionLabel: commissionPaymentHref ? "Pay Commission" : notification.actionLabel?.trim() || resolveNotificationActionLabel(notification, request),
+    reason: commissionPaymentHref ? COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON : notification.reason,
+    tradeSnapshot: isTradeNotification && recipientIsTradeParticipant
       ? sanitizeNotificationTradeSnapshot(notification.tradeSnapshot ?? buildTradeSnapshotForNotification(db, notification.userId, request))
       : undefined,
     updatedAt: notification.updatedAt ?? notification.createdAt,
@@ -801,6 +825,22 @@ function normalizeCommissionPaymentStatus(value: string | undefined, dueAt?: str
   return "pending" as const;
 }
 
+function getUnpaidSellerCommissionRecords(db: AlphaExchangeDb, sellerId: string) {
+  return db.commissionRecords
+    .filter((record) => record.sellerId === sellerId)
+    .map((record) => ({
+      ...record,
+      paymentStatus: normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt),
+    }))
+    .filter((record) => record.paymentStatus !== "paid")
+    .sort((left, right) => {
+      const leftDue = left.dueAt ? new Date(left.dueAt).getTime() : Number.POSITIVE_INFINITY;
+      const rightDue = right.dueAt ? new Date(right.dueAt).getTime() : Number.POSITIVE_INFINITY;
+      if (leftDue !== rightDue) return leftDue - rightDue;
+      return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
+    });
+}
+
 function isListingCountedAgainstCreateLimit(status: ListingStatus) {
   return status === "draft" || status === "active" || status === "matched" || status === "in_trade";
 }
@@ -840,7 +880,7 @@ function getSellerOpenTradeCount(db: AlphaExchangeDb, sellerId: string) {
 }
 
 function getSellerPendingCommissionCount(db: AlphaExchangeDb, sellerId: string) {
-  return db.commissionRecords.filter((record) => record.sellerId === sellerId && normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid").length;
+  return getUnpaidSellerCommissionRecords(db, sellerId).length;
 }
 
 function hasBuyerReviewSubmitted(db: AlphaExchangeDb, request: PurchaseRequest) {
@@ -2768,6 +2808,7 @@ async function writeDb(
     traceTag?: string;
     selectedTables?: readonly SnapshotTableName[];
     validateBeforeCommit?: (snapshot: AlphaExchangeDb) => void;
+    rebaseOnLatest?: (snapshot: AlphaExchangeDb) => AlphaExchangeDb | Promise<AlphaExchangeDb>;
   },
 ) {
   const normalized = normalizeDb(db);
@@ -2785,6 +2826,13 @@ async function writeDb(
       traceTag: options?.traceTag,
       selectedTables: options?.selectedTables,
       validateBeforeCommit: options?.validateBeforeCommit,
+      rebaseOnLatest: options?.rebaseOnLatest
+        ? async (persistedSnapshot) => {
+          const rebased = normalizeDb(await options.rebaseOnLatest!(structuredClone(persistedSnapshot)));
+          Object.assign(normalized, rebased);
+          return normalized;
+        }
+        : undefined,
     });
   });
   dbWriteInFlight = writeTask.catch(() => undefined);
@@ -3024,14 +3072,17 @@ async function sendSellerEnforcementEmail(
 ) {
   const seller = db.users.find((user) => user.id === sellerId);
   if (!seller || seller.notificationPreferences?.email !== true) return true;
+  const paymentRequired = input.event === "marketplace_enforcement_fee_issued";
   const result = await sendMarketplaceEmail({
     event: input.event,
     to: seller.email,
     recipientName: seller.fullName,
     title: input.title,
     message: input.message,
-    actionLabel: "Open Account",
-    actionUrl: `${getSiteUrl()}/en/dashboard`,
+    actionLabel: paymentRequired ? "Open Compliance Payment" : "Open Account",
+    actionUrl: paymentRequired
+      ? `${getSiteUrl()}/en/dashboard/seller/compliance-payment`
+      : `${getSiteUrl()}/en/dashboard`,
     referenceLabel: input.referenceLabel,
     idempotencyKey: input.idempotencyKey,
   });
@@ -3322,7 +3373,9 @@ async function expireListing(db: AlphaExchangeDb, listing: MarketplaceListing, a
       title: "Listing expired",
       message: `${listing.sellerDisplayName}'s listing ${listing.id} expired.`,
       relatedListingId: listing.id,
-      relatedHref: "/admin/alpha-exchange",
+      relatedHref: adminMarketplaceListingsDestination(listing.id),
+      actionHref: adminMarketplaceListingsDestination(listing.id),
+      actionLabel: "Review Listing",
     });
   }
 }
@@ -3372,9 +3425,13 @@ async function markCommissionOverdue(db: AlphaExchangeDb, record: CommissionReco
     category: "trade",
     title: "Commission overdue",
     message: `Commission for trade ${record.purchaseRequestId} is overdue and requires payment.`,
+    relatedRequestId: record.purchaseRequestId,
     relatedTradeId: record.purchaseRequestId,
     relatedListingId: record.listingId,
-    relatedHref: "/usdt-exchange",
+    relatedHref: commissionPaymentDestination(record.id),
+    actionHref: commissionPaymentDestination(record.id),
+    actionLabel: "Pay Commission",
+    reason: COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
   });
   const owner = getOwnerUser(db);
   if (owner) {
@@ -3383,9 +3440,12 @@ async function markCommissionOverdue(db: AlphaExchangeDb, record: CommissionReco
       category: "trade",
       title: "Commission overdue",
       message: `Commission for trade ${record.purchaseRequestId} is now overdue.`,
+      relatedRequestId: record.purchaseRequestId,
       relatedTradeId: record.purchaseRequestId,
       relatedListingId: record.listingId,
-      relatedHref: "/admin/alpha-exchange",
+      relatedHref: adminCommissionDestination(record.id),
+      actionHref: adminCommissionDestination(record.id),
+      actionLabel: "Review Commission",
     });
   }
 }
@@ -3540,7 +3600,9 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
         message: `Trade ${request.tradeId ?? request.id} exceeded the 45-minute USDT release SLA.`,
         relatedTradeId: request.tradeId ?? request.id,
         relatedListingId: request.listingId,
-        relatedHref: "/admin/alpha-exchange",
+        relatedHref: adminPurchaseRequestsDestination(request.id),
+        actionHref: adminPurchaseRequestsDestination(request.id),
+        actionLabel: "Review Trade",
       });
     }
     publishRealtimeEvent({
@@ -5092,7 +5154,12 @@ export async function createSellerApplication(input: {
       actionLabel: "Review Application",
       relatedHref: sellerApplicationReviewDestination(next.id),
     });
-    queueSmsDelivery(db, { eventType: "seller_application_submitted", eventKey: `seller-application:${next.id}:owner:${owner.id}`, recipientUserId: owner.id, destinationPath: "/admin/alpha-exchange?section=seller-applications" });
+    queueSmsDelivery(db, {
+      eventType: "seller_application_submitted",
+      eventKey: `seller-application:${next.id}:owner:${owner.id}`,
+      recipientUserId: owner.id,
+      destinationPath: sellerApplicationReviewDestination(next.id),
+    });
   }
   pushActivityLog(db, {
     userId: input.userId,
@@ -5506,7 +5573,9 @@ export async function submitMarketplaceEnforcementPaymentBySeller(input: {
       priority: "high",
       title: "Compliance payment awaiting verification",
       message: `Seller ${input.sellerId} submitted payment proof for enforcement ${activeRecord.id}.`,
-      relatedHref: "/admin/alpha-exchange?section=marketplace-enforcement",
+      relatedHref: adminMarketplaceEnforcementDestination(),
+      actionHref: adminMarketplaceEnforcementDestination(),
+      actionLabel: "Review Marketplace Compliance",
     });
   }
 
@@ -5552,7 +5621,9 @@ export async function submitMarketplaceEnforcementAppealBySeller(input: {
       priority: "high",
       title: "Compliance appeal submitted",
       message: `Seller ${input.sellerId} submitted a compliance appeal.`,
-      relatedHref: "/admin/alpha-exchange?section=marketplace-enforcement",
+      relatedHref: adminMarketplaceEnforcementDestination(),
+      actionHref: adminMarketplaceEnforcementDestination(),
+      actionLabel: "Review Marketplace Compliance",
     });
   }
 
@@ -6505,7 +6576,9 @@ export async function createMarketplaceListing(input: {
       title: "New Listing Pending Review",
       message: `${input.sellerDisplayName} submitted listing ${listing.id} for admin approval.`,
       relatedListingId: listing.id,
-      relatedHref: `/admin/alpha-exchange?section=marketplace-listings&listing=${encodeURIComponent(listing.id)}`,
+      relatedHref: adminMarketplaceListingsDestination(listing.id),
+      actionHref: adminMarketplaceListingsDestination(listing.id),
+      actionLabel: "Review Listing",
     });
   }
   pushNotification(db, {
@@ -6728,7 +6801,9 @@ export async function updateMarketplaceListingForSeller(input: {
         title: "New Listing Pending Review",
         message: `${next.sellerDisplayName} resubmitted listing ${next.id} for admin approval.`,
         relatedListingId: next.id,
-        relatedHref: "/admin/alpha-exchange?tab=listings&status=draft",
+        relatedHref: adminMarketplaceListingsDestination(next.id),
+        actionHref: adminMarketplaceListingsDestination(next.id),
+        actionLabel: "Review Listing",
       });
     }
     pushActivityLog(db, {
@@ -6938,7 +7013,7 @@ export async function adminOverrideMarketplaceListing(input: {
         message: `Trade ${activeRequest.tradeId ?? activeRequest.id} was cancelled by an admin listing action.`,
         relatedTradeId: activeRequest.tradeId ?? activeRequest.id,
         relatedListingId: listing.id,
-        relatedHref: "/usdt-exchange",
+        relatedHref: requestDetailsHref(activeRequest.id),
       });
       pushNotification(db, {
         userId: activeRequest.sellerId,
@@ -6947,7 +7022,7 @@ export async function adminOverrideMarketplaceListing(input: {
         message: `Trade ${activeRequest.tradeId ?? activeRequest.id} was cancelled by an admin listing action.`,
         relatedTradeId: activeRequest.tradeId ?? activeRequest.id,
         relatedListingId: listing.id,
-        relatedHref: "/usdt-exchange",
+        relatedHref: requestDetailsHref(activeRequest.id),
       });
     }
   }
@@ -6975,7 +7050,7 @@ export async function adminOverrideMarketplaceListing(input: {
       title: "Listing renewed",
       message: `An admin renewed listing ${listing.id}.`,
       relatedListingId: listing.id,
-      relatedHref: sellerApplicationStatusDestination(),
+      relatedHref: sellerListingWorkspaceDestination(listing),
     });
   }
   if (input.action === "extend") {
@@ -6985,7 +7060,7 @@ export async function adminOverrideMarketplaceListing(input: {
       title: "Listing expiration extended",
       message: `An admin extended the expiration for listing ${listing.id}.`,
       relatedListingId: listing.id,
-      relatedHref: sellerApplicationStatusDestination(),
+      relatedHref: sellerListingWorkspaceDestination(listing),
     });
   }
   if (input.action === "close" || input.action === "force_close") {
@@ -6995,7 +7070,7 @@ export async function adminOverrideMarketplaceListing(input: {
       title: input.action === "force_close" ? "Listing force closed" : "Listing closed",
       message: `An admin ${input.action === "force_close" ? "force-closed" : "closed"} listing ${listing.id}.`,
       relatedListingId: listing.id,
-      relatedHref: "/usdt-exchange",
+      relatedHref: sellerListingWorkspaceDestination(listing),
     });
   }
   if (input.action === "force_close") {
@@ -7005,7 +7080,9 @@ export async function adminOverrideMarketplaceListing(input: {
       title: "Listing force closed",
       message: `Listing ${listing.id} was force-closed successfully.`,
       relatedListingId: listing.id,
-      relatedHref: "/admin/alpha-exchange",
+      relatedHref: adminMarketplaceListingsDestination(listing.id),
+      actionHref: adminMarketplaceListingsDestination(listing.id),
+      actionLabel: "Review Listing",
     });
   }
   await writeDb(db, { selectedTables: ADMIN_LISTING_OVERRIDE_TABLES });
@@ -7081,7 +7158,7 @@ export async function reviewMarketplaceListingByOwner(input: {
         title: "🟢 New USDT Listing Available",
         message: `${listing.sellerDisplayName} published ${listingSummary}.`,
         relatedListingId: listing.id,
-        relatedHref: "/usdt-exchange",
+        relatedHref: listingDestination(listing),
       });
     }
   }
@@ -7181,22 +7258,22 @@ export async function getSellerDashboardAccessState(userId: string) {
   };
 }
 
-export async function getSellerCommissionStatus(sellerId: string, dbInput?: AlphaExchangeDb) {
+export async function getSellerCommissionStatus(
+  sellerId: string,
+  dbInput?: AlphaExchangeDb,
+  options?: { commissionId?: string },
+) {
   const db = dbInput ?? await readDb();
-  const pendingRecords = db.commissionRecords
-    .filter((record) => record.sellerId === sellerId)
-    .map((record) => ({
-      ...record,
-      paymentStatus: normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt),
-    }))
-    .filter((record) => record.paymentStatus !== "paid")
-    .sort((left, right) => {
-      const leftDue = left.dueAt ? new Date(left.dueAt).getTime() : Number.POSITIVE_INFINITY;
-      const rightDue = right.dueAt ? new Date(right.dueAt).getTime() : Number.POSITIVE_INFINITY;
-      return leftDue - rightDue;
-    });
-  const primaryRecord = pendingRecords[0];
-  const amountDue = pendingRecords.reduce((sum, record) => sum + getCommissionAmountDueUsdt(db, record), 0);
+  const pendingRecords = getUnpaidSellerCommissionRecords(db, sellerId);
+  const requestedCommissionId = options?.commissionId?.trim() || undefined;
+  // A deep link may name only a payable commission owned by this seller. Do
+  // not silently fall back to a different record when the requested one is
+  // missing, settled, or belongs to another seller.
+  const primaryRecord = requestedCommissionId
+    ? pendingRecords.find((record) => record.id === requestedCommissionId)
+    : pendingRecords[0];
+  const totalAmountDue = pendingRecords.reduce((sum, record) => sum + getCommissionAmountDueUsdt(db, record), 0);
+  const payableAmountDue = primaryRecord ? getCommissionAmountDueUsdt(db, primaryRecord) : 0;
   const hasOverdue = pendingRecords.some((record) => record.paymentStatus === "overdue");
   const primaryRequest = primaryRecord
     ? db.purchaseRequests.find((request) => request.id === primaryRecord.purchaseRequestId)
@@ -7205,9 +7282,14 @@ export async function getSellerCommissionStatus(sellerId: string, dbInput?: Alph
   return {
     status: pendingRecords.length === 0 ? "clear" as const : hasOverdue ? "overdue" as const : "pending" as const,
     pendingCount: pendingRecords.length,
-    amountDue,
+    // Keep amountDue stable for existing dashboard consumers. New payment UI
+    // must use payableAmountDue, which is the exact selected record amount.
+    amountDue: totalAmountDue,
+    totalAmountDue,
+    payableAmountDue,
     dueAt: primaryRecord?.dueAt,
     commissionId: primaryRecord?.id,
+    selectionError: requestedCommissionId && !primaryRecord ? "The requested commission is not available for payment." : undefined,
     relatedRequestId: primaryRecord?.purchaseRequestId,
     relatedTradeId: primaryRequest?.tradeId,
     relatedTradeDisplayNumber: primaryRequest?.displayNumber,
@@ -7831,6 +7913,8 @@ export interface TradeRoomData {
   isOverdue: boolean;
   sellerCommissionDueAmount: number;
   sellerCommissionDueCount: number;
+  sellerPayableCommissionId?: string;
+  sellerPayableCommissionAmount?: number;
 }
 
 export async function getTradeRoomData(input: {
@@ -7917,7 +8001,12 @@ export async function getTradeRoomData(input: {
   const releaseDeadlineOverdue = Boolean(releaseDeadlineActive && timeRemainingSeconds !== null && timeRemainingSeconds <= 0);
   const isBuyerActor = request.buyerId === input.actorUserId;
   const isOverdue = releaseDeadlineOverdue || request.timeoutReason === "USDT release SLA expired.";
-  const sellerPendingCommissions = db.commissionRecords.filter((record) => record.sellerId === request.sellerId && normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid");
+  const sellerPendingCommissions = getUnpaidSellerCommissionRecords(db, request.sellerId);
+  // Prefer the commission created by this Trade Room. An active Trade Room
+  // without its own commission can still surface the seller's next payable
+  // record, but never a cross-seller or aggregate payment target.
+  const payableSellerCommission = sellerPendingCommissions.find((record) => record.purchaseRequestId === request.id)
+    ?? sellerPendingCommissions[0];
   const canViewPrivateContent = input.actorRole === "admin" || input.actorRole === "owner";
 
   return {
@@ -7938,6 +8027,10 @@ export async function getTradeRoomData(input: {
     canOpenDispute: isBuyerActor && (request.status === "payment_sent" || request.status === "funds_received" || request.status === "usdt_release_pending" || request.status === "usdt_sent"),
     sellerCommissionDueAmount: Number(sellerPendingCommissions.reduce((sum, record) => sum + getCommissionAmountDueUsdt(db, record), 0).toFixed(2)),
     sellerCommissionDueCount: sellerPendingCommissions.length,
+    sellerPayableCommissionId: payableSellerCommission?.id,
+    sellerPayableCommissionAmount: payableSellerCommission
+      ? Number(getCommissionAmountDueUsdt(db, payableSellerCommission).toFixed(2))
+      : undefined,
   };
 }
 
@@ -9672,14 +9765,14 @@ export async function updatePurchaseRequestStatus(input: {
         listingId: request.listingId,
       });
     }
-    const hasCommission = db.commissionRecords.some((record) => record.purchaseRequestId === request.id);
-    if (!hasCommission) {
+    let commission = db.commissionRecords.find((record) => record.purchaseRequestId === request.id);
+    if (!commission) {
       const normalizedGross = toNumber(next.fiatAmount);
       const normalizedUsdt = toNumber(next.usdtAmount);
       const commissionAmount = isQaCommissionModeEnabled()
         ? 1
         : roundUsdt(normalizedUsdt * COMMISSION_RATE);
-      const commission: CommissionRecord = {
+      commission = {
         id: `commission-${randomUUID()}`,
         purchaseRequestId: request.id,
         tradeId: next.tradeId,
@@ -9751,8 +9844,12 @@ export async function updatePurchaseRequestStatus(input: {
       title: "Trade completed",
       message: `Buyer confirmed receipt. The trade is complete. Check your commission due.`,
       relatedTradeId: next.tradeId,
+      relatedRequestId: request.id,
       relatedListingId: request.listingId,
-      relatedHref: requestDetailsHref(request.id),
+      relatedHref: commission ? commissionPaymentDestination(commission.id) : requestDetailsHref(request.id),
+      actionHref: commission ? commissionPaymentDestination(commission.id) : requestDetailsHref(request.id),
+      actionLabel: commission ? "Pay Commission" : undefined,
+      reason: commission ? COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON : undefined,
     });
     queueSmsDelivery(db, { eventType: "trade_completed", eventKey: `trade:${request.id}:completed:seller:${request.sellerId}`, recipientUserId: request.sellerId, destinationPath: requestDetailsHref(request.id) });
     const owner = getOwnerUser(db);
@@ -9766,7 +9863,9 @@ export async function updatePurchaseRequestStatus(input: {
         message: `Trade ${next.tradeId ?? request.id} completed at ${next.currency} ${next.fiatAmount} (threshold ${largeTradeThreshold}).`,
         relatedTradeId: next.tradeId,
         relatedListingId: request.listingId,
-        relatedHref: "/admin/alpha-exchange",
+        relatedHref: adminPurchaseRequestsDestination(request.id),
+        actionHref: adminPurchaseRequestsDestination(request.id),
+        actionLabel: "Review Trade",
       });
     }
     pushActivityLog(db, {
@@ -10468,6 +10567,16 @@ async function verifySolanaUsdtPayment(input: {
   return { verified: true, reference: input.txHash, notes: `Verified: ${received.toFixed(2)} USDT received on Solana.` };
 }
 
+/**
+ * A transaction's EVM checksum casing is display-only. Use a stable key for
+ * duplicate settlement detection while preserving the submitted signature for
+ * display and chain verification. Solana/base58 signatures remain case-sensitive.
+ */
+function getCommissionPaymentSignatureKey(raw: string) {
+  const normalized = normalizeTransactionHash(raw);
+  return /^0x[a-fA-F0-9]{64}$/.test(normalized) ? normalized.toLowerCase() : normalized;
+}
+
 async function verifyCommissionWalletPayment(input: {
   amountDue: number;
   network: string;
@@ -10477,6 +10586,7 @@ async function verifyCommissionWalletPayment(input: {
   existingSignatures?: string[];
 }): Promise<CommissionWalletVerificationResult> {
   const txHash = normalizeTransactionHash(input.paymentSignature);
+  const transactionSignatureKey = getCommissionPaymentSignatureKey(txHash);
   const logCtx = { txHash, network: input.network, amountDue: input.amountDue, payerWallet: input.payerWalletAddress };
   logLocalMarketplaceDiagnostic("info", "[commission-verify] verification-started", logCtx);
 
@@ -10495,7 +10605,7 @@ async function verifyCommissionWalletPayment(input: {
   }
 
   // 2. Duplicate hash check — prevent re-use of a previously accepted transaction
-  if (input.existingSignatures?.includes(txHash)) {
+  if (input.existingSignatures?.includes(transactionSignatureKey)) {
     logLocalMarketplaceDiagnostic("info", "[commission-verify] rejected:duplicate-hash", logCtx);
     return { verified: false, reference: txHash, notes: "This transaction hash has already been used for a previous commission payment." };
   }
@@ -10577,7 +10687,7 @@ export async function submitSellerCommissionWalletPayment(input: {
   // Collect all previously accepted tx hashes to prevent re-use
   const existingSignatures = db.commissionRecords
     .filter((r) => r.paymentVerificationStatus === "verified" && r.paymentSignature)
-    .map((r) => r.paymentSignature as string);
+    .map((r) => getCommissionPaymentSignatureKey(r.paymentSignature as string));
 
   const amountDueUsdt = getCommissionAmountDueUsdt(db, current);
   const verification = await verifyCommissionWalletPayment({
@@ -10590,80 +10700,126 @@ export async function submitSellerCommissionWalletPayment(input: {
   });
   const verificationMs = Date.now() - verificationStartedAt;
   const businessStartedAt = Date.now();
-  const now = nowIso();
+  const normalizedPaymentSignature = getCommissionPaymentSignatureKey(input.paymentSignature);
+  const applyCommissionPaymentToCanonicalSnapshot = async (snapshot: AlphaExchangeDb) => {
+    const canonicalIndex = snapshot.commissionRecords.findIndex((record) => record.id === input.commissionId);
+    if (canonicalIndex === -1) throw new Error("Commission record not found.");
+    const canonicalRecord = snapshot.commissionRecords[canonicalIndex];
+    if (canonicalRecord.sellerId !== input.sellerUserId) {
+      throw new Error("You can only settle your own commission.");
+    }
+    if (normalizeCommissionPaymentStatus(canonicalRecord.paymentStatus, canonicalRecord.dueAt) === "paid") {
+      throw new Error("This commission is already settled.");
+    }
 
-  const nextRecord: CommissionRecord = {
-    ...current,
-    paymentProvider: "crypto_wallet",
-    paymentNetwork: chosenNetwork,
-    payerWalletAddress: input.payerWalletAddress.trim() || undefined,
-    recipientWalletAddress,
-    paymentSignature: input.paymentSignature.trim(),
-    paymentSubmittedAt: now,
-    paymentVerificationStatus: verification.verified ? "verified" : "failed",
-    paymentVerificationNotes: verification.notes,
-    paymentStatus: verification.verified ? "paid" : current.paymentStatus,
-    paidAt: verification.verified ? now : current.paidAt,
-    updatedAt: now,
-  };
-  db.commissionRecords[index] = nextRecord;
+    const canonicalAmountDueUsdt = getCommissionAmountDueUsdt(snapshot, canonicalRecord);
+    if (Math.abs(canonicalAmountDueUsdt - amountDueUsdt) > 0.000001) {
+      throw new Error("The commission amount changed. Please refresh and try again.");
+    }
+    if (verification.verified && snapshot.commissionRecords.some((record) => (
+      record.id !== canonicalRecord.id
+      && record.paymentVerificationStatus === "verified"
+      && getCommissionPaymentSignatureKey(record.paymentSignature ?? "") === normalizedPaymentSignature
+    ))) {
+      throw new Error("This transaction hash has already been used for a previous commission payment.");
+    }
 
-  await appendAuditLog(db, {
-    action: verification.verified ? "commission_paid" : "commission_recorded",
-    actorUserId: input.sellerUserId,
-    targetUserId: current.sellerId,
-    listingId: current.listingId,
-    purchaseRequestId: current.purchaseRequestId,
-    details: verification.verified
-      ? `Commission ${current.id} verified via ${chosenNetwork}. Amount: ${amountDueUsdt.toFixed(2)} USDT. Tx: ${input.paymentSignature.trim()}.`
-      : `Commission ${current.id} payment rejected via ${chosenNetwork}. Tx: ${input.paymentSignature.trim()}. Reason: ${verification.notes}`,
-  });
+    const now = nowIso();
+    const nextRecord: CommissionRecord = {
+      ...canonicalRecord,
+      paymentProvider: "crypto_wallet",
+      paymentNetwork: chosenNetwork,
+      payerWalletAddress: input.payerWalletAddress.trim() || undefined,
+      recipientWalletAddress,
+      paymentSignature: input.paymentSignature.trim(),
+      paymentSubmittedAt: now,
+      paymentVerificationStatus: verification.verified ? "verified" : "failed",
+      paymentVerificationNotes: verification.notes,
+      paymentStatus: verification.verified ? "paid" : canonicalRecord.paymentStatus,
+      paidAt: verification.verified ? now : canonicalRecord.paidAt,
+      updatedAt: now,
+    };
+    snapshot.commissionRecords[canonicalIndex] = nextRecord;
 
-  if (verification.verified) {
-    const request = db.purchaseRequests.find((item) => item.id === current.purchaseRequestId);
-    if (request) {
+    await appendAuditLog(snapshot, {
+      action: verification.verified ? "commission_paid" : "commission_recorded",
+      actorUserId: input.sellerUserId,
+      targetUserId: canonicalRecord.sellerId,
+      listingId: canonicalRecord.listingId,
+      purchaseRequestId: canonicalRecord.purchaseRequestId,
+      details: verification.verified
+        ? `Commission ${canonicalRecord.id} verified via ${chosenNetwork}. Amount: ${canonicalAmountDueUsdt.toFixed(2)} USDT. Tx: ${input.paymentSignature.trim()}.`
+        : `Commission ${canonicalRecord.id} payment rejected via ${chosenNetwork}. Tx: ${input.paymentSignature.trim()}. Reason: ${verification.notes}`,
+    });
+
+    const notificationPublications: DeferredNotificationPublication[] = [];
+    const request = snapshot.purchaseRequests.find((item) => item.id === canonicalRecord.purchaseRequestId);
+    if (verification.verified && request) {
       appendTradeTimelineEntry(request, {
         type: "commission_paid",
         actorUserId: input.sellerUserId,
-        actorRole: resolveActorRole(db, input.sellerUserId),
-        message: `Commission paid on-chain (${amountDueUsdt.toFixed(2)} USDT).`,
+        actorRole: resolveActorRole(snapshot, input.sellerUserId),
+        message: `Commission paid on-chain (${canonicalAmountDueUsdt.toFixed(2)} USDT).`,
         createdAt: now,
       });
-      publishRealtimeEvent({
-        type: "trade.status_changed",
-        payload: { request: enrichRequestWithEvidence(db, request) },
-      });
     }
-    pushNotification(db, {
-      userId: current.sellerId,
-      category: "trade",
-      title: "Commission payment verified",
-      message: `Your commission payment for trade ${current.purchaseRequestId} was verified. Your account is now fully unlocked.`,
-      relatedTradeId: current.purchaseRequestId,
-      relatedListingId: current.listingId,
-      relatedHref: "/usdt-exchange",
-    });
-    // Notify owner
-    const ownerUser = db.users.find((u) => isAlphaExchangeOwnerEmail(u.email));
-    if (ownerUser) {
-      pushNotification(db, {
-        userId: ownerUser.id,
-        category: "system",
-        title: "Commission payment received",
-        message: `Commission ${current.id} paid via ${chosenNetwork}. Amount: ${amountDueUsdt.toFixed(2)} USDT. Tx: ${input.paymentSignature.trim()}`,
-        relatedTradeId: current.purchaseRequestId,
-        relatedListingId: current.listingId,
-        relatedHref: "/admin/commissions",
+    if (verification.verified) {
+      const sellerPublication = pushNotification(snapshot, {
+        userId: canonicalRecord.sellerId,
+        category: "trade",
+        title: "Commission payment verified",
+        message: `Your commission payment for trade ${canonicalRecord.purchaseRequestId} was verified. Your account is now fully unlocked.`,
+        relatedTradeId: canonicalRecord.purchaseRequestId,
+        relatedListingId: canonicalRecord.listingId,
+        relatedHref: "/usdt-exchange",
+        deferRealtime: true,
       });
+      if (sellerPublication) notificationPublications.push(sellerPublication);
+
+      const ownerUser = snapshot.users.find((user) => isAlphaExchangeOwnerEmail(user.email));
+      if (ownerUser) {
+        const ownerPublication = pushNotification(snapshot, {
+          userId: ownerUser.id,
+          category: "system",
+          title: "Commission payment received",
+          message: `Commission ${canonicalRecord.id} paid via ${chosenNetwork}. Amount: ${canonicalAmountDueUsdt.toFixed(2)} USDT. Tx: ${input.paymentSignature.trim()}`,
+          relatedTradeId: canonicalRecord.purchaseRequestId,
+          relatedListingId: canonicalRecord.listingId,
+          relatedHref: adminCommissionDestination(canonicalRecord.id),
+          actionHref: adminCommissionDestination(canonicalRecord.id),
+          actionLabel: "Review Commission",
+          deferRealtime: true,
+        });
+        if (ownerPublication) notificationPublications.push(ownerPublication);
+      }
     }
-  }
+
+    return { commission: nextRecord, request, notificationPublications };
+  };
+
+  let committed = await applyCommissionPaymentToCanonicalSnapshot(db);
   const businessMs = Date.now() - businessStartedAt;
 
   const writeStartedAt = Date.now();
-  await writeDb(db, { selectedTables: COMMISSION_PAYMENT_TABLES });
+  await writeDb(db, {
+    selectedTables: COMMISSION_PAYMENT_TABLES,
+    rebaseOnLatest: async (persistedSnapshot) => {
+      committed = await applyCommissionPaymentToCanonicalSnapshot(persistedSnapshot);
+      return persistedSnapshot;
+    },
+  });
   const writeMs = Date.now() - writeStartedAt;
+  if (verification.verified && committed.request) {
+    publishRealtimeEvent({
+      type: "trade.status_changed",
+      payload: { request: enrichRequestWithEvidence(db, committed.request) },
+    });
+  }
+  for (const publication of committed.notificationPublications) {
+    publishNotificationPublication(publication);
+  }
   return {
-    commission: nextRecord,
+    commission: committed.commission,
     verification,
     metrics: {
       totalMs: Date.now() - startedAt,
@@ -11948,9 +12104,16 @@ export async function openTradeDispute(input: {
       title: "Dispute opened",
       message: `Dispute opened for trade ${dispute.tradeId}.`,
       relatedTradeId: dispute.tradeId,
-      relatedHref: "/admin/alpha-exchange",
+      relatedHref: adminPurchaseRequestsDestination(request.id),
+      actionHref: adminPurchaseRequestsDestination(request.id),
+      actionLabel: "Review Trade",
     });
-    queueSmsDelivery(db, { eventType: "trade_requires_admin_review", eventKey: `trade:${request.id}:admin-review:${adminUser.id}`, recipientUserId: adminUser.id, destinationPath: "/admin/alpha-exchange?section=purchase-requests" });
+    queueSmsDelivery(db, {
+      eventType: "trade_requires_admin_review",
+      eventKey: `trade:${request.id}:admin-review:${adminUser.id}`,
+      recipientUserId: adminUser.id,
+      destinationPath: adminPurchaseRequestsDestination(request.id),
+    });
   }
   pushNotification(db, {
     userId: request.buyerId,
@@ -12298,7 +12461,7 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
   }
   const existingSignatures = db.commissionRecords
     .filter((r) => r.id !== input.commissionId && r.paymentVerificationStatus === "verified")
-    .map((r) => r.paymentSignature)
+    .map((r) => r.paymentSignature ? getCommissionPaymentSignatureKey(r.paymentSignature) : undefined)
     .filter((s): s is string => Boolean(s));
   const result = await verifyCommissionWalletPayment({
     amountDue: record.commissionAmount,

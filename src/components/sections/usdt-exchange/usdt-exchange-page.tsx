@@ -33,6 +33,8 @@ import { formatBuyerId, formatListingId, formatSellerId, formatTradeId } from "@
 import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
 import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
+import { getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
+import { getExplicitNonTradeRoomNotificationDestination } from "@/lib/notification-action-destination";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 import { getWalletAddressValidationError, normalizeWalletAddress } from "@/lib/wallet-address";
 import { deriveListingCountdown, deriveSellerPresence } from "@/lib/seller-presence";
@@ -900,13 +902,20 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     pendingCommissionCount: number;
     canCreateListing: boolean;
     blockedReason: string | null;
+    enforcement?: {
+      restricted: boolean;
+      blockReason: string | null;
+    };
   } | null>(null);
   const [sellerCommissionStatus, setSellerCommissionStatus] = useState<{
     status: "clear" | "pending" | "overdue";
     pendingCount: number;
     amountDue: number;
+    totalAmountDue?: number;
+    payableAmountDue?: number;
     dueAt?: string;
     commissionId?: string;
+    selectionError?: string;
     relatedRequestId?: string;
     relatedTradeId?: string;
     relatedTradeDisplayNumber?: number;
@@ -928,6 +937,11 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   const selectedCommissionWalletAvailable = Boolean(selectedCommissionWalletConfiguration?.available && selectedCommissionWallet);
   const selectedCommissionWalletError = selectedCommissionWalletConfiguration?.error
     ?? `Commission wallet configuration is unavailable for ${commissionNetwork}. Please contact Alpha Traders support.`;
+  const commissionTotalAmountDue = sellerCommissionStatus?.totalAmountDue ?? sellerCommissionStatus?.amountDue ?? 0;
+  // Do not infer a payable amount from an aggregate outstanding balance. The
+  // server returns this only for the exact commissionId that it authorized.
+  const commissionPayableAmountDue = sellerCommissionStatus?.payableAmountDue
+    ?? (sellerCommissionStatus?.pendingCount === 1 ? sellerCommissionStatus.amountDue : 0);
   const [requestActionKey, setRequestActionKey] = useState<string | null>(null);
   const qaCommissionResetAttemptedRef = useRef(false);
   const [listingCreateForm, setListingCreateForm] = useState({
@@ -1157,13 +1171,29 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     discordSharePollTimersRef.current = [];
   }, []);
 
-  const refreshSellerWorkspace = useCallback(async () => {
+  const refreshSellerWorkspace = useCallback(async (options?: { commissionId?: string }) => {
     try {
+      const commissionQuery = options?.commissionId?.trim()
+        ? `?commissionId=${encodeURIComponent(options.commissionId.trim())}`
+        : "";
       const [requestsRes, myListingsRes, discordSharingRes] = await Promise.all([
         tracedFetch("Workspace data loading: purchase requests", "/api/alpha-exchange/purchase-requests", { cache: "no-store" }),
-        tracedFetch("Workspace data loading: my listings", "/api/alpha-exchange/my-listings", { cache: "no-store" }),
+        tracedFetch("Workspace data loading: my listings", `/api/alpha-exchange/my-listings${commissionQuery}`, { cache: "no-store" }),
         tracedFetch("Workspace data loading: Discord sharing", "/api/alpha-exchange/discord-sharing", { cache: "no-store" }),
       ]);
+      let refreshedCommissionStatus: {
+        status: "clear" | "pending" | "overdue";
+        pendingCount: number;
+        amountDue: number;
+        totalAmountDue?: number;
+        payableAmountDue?: number;
+        dueAt?: string;
+        commissionId?: string;
+        selectionError?: string;
+        relatedRequestId?: string;
+        relatedTradeId?: string;
+        relatedTradeDisplayNumber?: number;
+      } | null = null;
       if (requestsRes.ok) {
         const requestsJson = (await requestsRes.json()) as { requests: PurchaseRequest[] };
         setMyRequests(requestsJson.requests ?? []);
@@ -1178,13 +1208,20 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
             pendingCommissionCount: number;
             canCreateListing: boolean;
             blockedReason: string | null;
+            enforcement?: {
+              restricted: boolean;
+              blockReason: string | null;
+            };
           };
           commissionStatus?: {
             status: "clear" | "pending" | "overdue";
             pendingCount: number;
             amountDue: number;
+            totalAmountDue?: number;
+            payableAmountDue?: number;
             dueAt?: string;
             commissionId?: string;
+            selectionError?: string;
             relatedRequestId?: string;
             relatedTradeId?: string;
             relatedTradeDisplayNumber?: number;
@@ -1196,6 +1233,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         setMyListings((myListingsJson.listings ?? []).filter((listing) => listing.status !== "closed" && listing.status !== "cancelled"));
         setSellerWorkspaceSummary(myListingsJson.summary ?? null);
         setSellerCommissionStatus(myListingsJson.commissionStatus ?? null);
+        refreshedCommissionStatus = myListingsJson.commissionStatus ?? null;
         setCommissionWalletConfiguration(myListingsJson.commissionWalletConfiguration ?? null);
         setQaCommissionModeEnabled(Boolean(myListingsJson.qaCommissionModeEnabled));
         setQaCommissionResetEnabled(Boolean(myListingsJson.qaCommissionResetEnabled));
@@ -1213,8 +1251,10 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         });
       }
       setWorkspaceError(null);
+      return refreshedCommissionStatus;
     } catch {
       setWorkspaceError(safeErrorMessage("workspace"));
+      return null;
     }
   }, [tracedFetch]);
 
@@ -1264,10 +1304,15 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     setCommissionAdvancedOpen(false);
   }, []);
 
+  const openMarketplaceCompliancePayment = useCallback(() => {
+    router.push("/dashboard/seller/compliance-payment");
+  }, [router]);
+
   const clearCommissionPayDeepLink = useCallback(() => {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
     url.searchParams.delete("commission");
+    url.searchParams.delete("commissionId");
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
   }, []);
 
@@ -1279,32 +1324,63 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     // canonical seller workspace response has supplied the payable record.
     if (isSessionResolving || isWorkspaceWidgetsLoading) return;
 
-    commissionPayDeepLinkHandledRef.current = true;
-    clearCommissionPayDeepLink();
-
     if (!sessionUser || !isApprovedSellerSession) {
+      commissionPayDeepLinkHandledRef.current = true;
+      clearCommissionPayDeepLink();
       setSellerWorkspaceMessage("A seller workspace is required to pay a commission.");
       return;
     }
-    if (!sellerCommissionStatus) {
-      setSellerWorkspaceMessage("Unable to load commission status. Please retry.");
+    const requestedCommissionId = new URLSearchParams(window.location.search).get("commissionId")?.trim() || undefined;
+    commissionPayDeepLinkHandledRef.current = true;
+    // Historical generic `commission=pay` links do not identify a record. Do
+    // not turn them into permission to pay whichever commission happens to be
+    // first in the seller workspace; the seller must reopen an exact current
+    // payment notification instead.
+    if (!requestedCommissionId) {
+      clearCommissionPayDeepLink();
+      setSellerWorkspaceMessage("This payment link is missing its commission record. Please open a current commission reminder.");
       return;
     }
-    if (sellerCommissionStatus.status === "clear" || !sellerCommissionStatus.commissionId) {
-      setSellerWorkspaceMessage("No payable commission record was found.");
-      return;
-    }
+    let cancelled = false;
+    void (async () => {
+      // The normal workspace response selects the oldest due record. A
+      // commission deep link must instead revalidate its exact record on the
+      // server and must never silently pay a different one.
+      const commissionStatus = await refreshSellerWorkspace({ commissionId: requestedCommissionId });
+      if (cancelled) return;
+      clearCommissionPayDeepLink();
+      if (!commissionStatus) {
+        setSellerWorkspaceMessage("Unable to load commission status. Please retry.");
+        return;
+      }
+      if (commissionStatus.selectionError) {
+        setSellerWorkspaceMessage(commissionStatus.selectionError);
+        // Restore the ordinary seller workspace selection after rejecting an
+        // untrusted/stale deep link; it must not leave the page aimed at an
+        // empty payment record.
+        void refreshSellerWorkspace();
+        return;
+      }
+      if (commissionStatus.status === "clear" || !commissionStatus.commissionId) {
+        setSellerWorkspaceMessage("No payable commission record was found.");
+        return;
+      }
 
-    openCommissionPayment();
-    window.requestAnimationFrame(() => {
-      document.getElementById("commission-payment")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
+      openCommissionPayment();
+      window.requestAnimationFrame(() => {
+        document.getElementById("commission-payment")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [
     clearCommissionPayDeepLink,
     isApprovedSellerSession,
     isSessionResolving,
     isWorkspaceWidgetsLoading,
     openCommissionPayment,
+    refreshSellerWorkspace,
     sellerCommissionStatus,
     sessionUser,
   ]);
@@ -2242,12 +2318,14 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   const listingCreateCurrencyValue = Number.isFinite(listingCreateTotalIls) ? Math.round(listingCreateTotalIls) : 0;
   const listingCreationBlocked = Boolean(sellerWorkspaceSummary && !sellerWorkspaceSummary.canCreateListing);
   const listingCreationBlockedReason = sellerWorkspaceSummary?.blockedReason ?? "Listing creation is currently blocked.";
-  const listingBlockedByCommission = (sellerWorkspaceSummary?.pendingCommissionCount ?? 0) > 0;
+  const listingBlockedByMarketplaceEnforcement = Boolean(sellerWorkspaceSummary?.enforcement?.restricted);
+  const listingBlockedByCommission = !listingBlockedByMarketplaceEnforcement && (sellerWorkspaceSummary?.pendingCommissionCount ?? 0) > 0;
   const listingBlockedByActiveLimit = Boolean(
     sellerWorkspaceSummary &&
     !sellerWorkspaceSummary.canCreateListing &&
     sellerWorkspaceSummary.openListingCount >= sellerWorkspaceSummary.activeListingLimit &&
-    !listingBlockedByCommission,
+    !listingBlockedByCommission &&
+    !listingBlockedByMarketplaceEnforcement,
   );
   const isListingCreateSubmitDisabled = listingCreateMissingRequired || listingCreatePriceInvalid || listingCreateTradeRangeInvalid || listingCreationBlocked;
   const listingCreateGuardCardTone = listingCreatePriceInvalid
@@ -2586,7 +2664,8 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     sellerActiveTradeRedirectedRef.current = tradeId;
     handleOpenTradeRoom(tradeId);
   }, [handleOpenTradeRoom, isApprovedSeller, latestSellerInProgressTrade?.id, sessionUser]);
-  const complianceCaseActive = (sellerCommissionStatus?.status ?? "clear") !== "clear";
+  const standardCommissionDueActive = (sellerCommissionStatus?.status ?? "clear") !== "clear";
+  const marketplaceComplianceActive = Boolean(sellerWorkspaceSummary?.enforcement?.restricted);
   const workspaceIdentityName = isAr ? `السيد/السيدة ${workspacePrimaryName}` : `Mr./Mrs. ${workspacePrimaryName}`;
   type AttentionItem = {
     title: string;
@@ -2603,6 +2682,14 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     : null;
   const needsAttentionItems: AttentionItem[] = isApprovedSeller
     ? [
+        marketplaceComplianceActive
+          ? {
+              title: "Marketplace Compliance",
+              body: sellerWorkspaceSummary?.enforcement?.blockReason ?? "Open your compliance payment case to restore listing access.",
+              action: "Open payment",
+              onClick: openMarketplaceCompliancePayment,
+            }
+          : null,
         sellerCommissionStatus && sellerCommissionStatus.status !== "clear"
           ? {
               title: sellerCommissionStatus.status === "overdue" ? "Commission overdue" : "Commission due",
@@ -2820,13 +2907,24 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         tone: "amber",
       },
     ];
-  if (complianceCaseActive) {
+  if (standardCommissionDueActive) {
     workspaceCards.push({
-      key: "compliance",
-      title: "Compliance",
-      subtitle: "Compliance Case",
+      key: "commission",
+      title: "Commission",
+      subtitle: "Commission Payment",
       stat: "Action",
       onClick: () => openCommissionPayment(),
+      icon: ShieldCheck,
+      tone: "amber",
+    });
+  }
+  if (marketplaceComplianceActive) {
+    workspaceCards.push({
+      key: "marketplace-compliance",
+      title: "Marketplace Compliance",
+      subtitle: "Recovery Payment",
+      stat: "Action",
+      onClick: openMarketplaceCompliancePayment,
       icon: ShieldCheck,
       tone: "amber",
     });
@@ -3080,6 +3178,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   }, [buildTradeRoomDestinationFromRequest, myRequests]);
 
   const isTradeIntentNotification = useCallback((notification: AlphaExchangeNotification) => {
+    if (getCommissionPaymentNotificationDestination(notification)) return false;
     const combinedText = `${notification.title} ${notification.message}`;
     const actionLabel = String(notification.actionLabel ?? "").toLowerCase();
     const centerCategory = String(notification.centerCategory ?? "").toLowerCase();
@@ -3113,8 +3212,15 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   }, []);
 
   const resolveNotificationHref = useCallback((notification: AlphaExchangeNotification) => {
+    const commissionDestination = getCommissionPaymentNotificationDestination(notification);
+    if (commissionDestination) return commissionDestination;
     const conversationDestination = getTradeRoomConversationDestination(notification);
     if (conversationDestination) return conversationDestination;
+    // An explicit internal destination for an owner/admin is not a Trade Room
+    // authorization grant. Keep it ahead of category-based trade inference so
+    // a nonparticipant cannot be sent to a participant workflow.
+    const explicitInternalDestination = getExplicitNonTradeRoomNotificationDestination(notification);
+    if (explicitInternalDestination) return explicitInternalDestination;
     if (isTradeIntentNotification(notification)) {
       const relatedRequestId = notification.relatedRequestId?.trim()
         || notification.tradeSnapshot?.requestId
@@ -3164,6 +3270,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   }, [handleNotificationReadState, isTradeIntentNotification, resolveNotificationHref, router]);
 
   const resolveNotificationLabel = useCallback((notification: AlphaExchangeNotification) => {
+    if (getCommissionPaymentNotificationDestination(notification)) return "Pay Commission";
     if (isTradeIntentNotification(notification)) return "Continue Trade";
     if (notification.actionLabel?.trim()) return notification.actionLabel.trim();
     if (notification.relatedTradeId || notification.relatedRequestId) return "Open Trade Room";
@@ -3580,6 +3687,10 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   async function handleCommissionPayNow() {
     if (!sellerCommissionStatus?.commissionId) {
       setCommissionPayMessage("No payable commission record was found.");
+      return;
+    }
+    if (!(commissionPayableAmountDue > 0)) {
+      setCommissionPayMessage("The exact commission amount is unavailable. Please reopen the payment request.");
       return;
     }
     if (!commissionTxSignature.trim()) {
@@ -5303,7 +5414,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                       <div className="space-y-1 text-xs">
                         <div className="flex justify-between">
                           <span className="text-red-300">Amount outstanding</span>
-                          <span className="font-bold text-white text-sm">{formatUsdt(sellerCommissionStatus.amountDue)}</span>
+                          <span className="font-bold text-white text-sm">{formatUsdt(commissionTotalAmountDue)}</span>
                         </div>
                         {sellerCommissionStatus.relatedTradeDisplayNumber ? (
                           <div className="flex justify-between">
@@ -5358,8 +5469,8 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                 {/* Amount badge */}
                 <div className="flex items-center gap-3 rounded-xl border border-[#C9A227]/20 bg-[#C9A227]/5 px-4 py-3 mt-1">
                   <div className="flex-1">
-                    <p className="text-xs text-[#9CA3AF]">Amount Due</p>
-                    <p className="text-2xl font-bold text-white">{formatUsdt(sellerCommissionStatus?.amountDue ?? 0)}</p>
+                    <p className="text-xs text-[#9CA3AF]">Pay this commission</p>
+                    <p className="text-2xl font-bold text-white">{formatUsdt(commissionPayableAmountDue)}</p>
                   </div>
                   {sellerCommissionStatus?.relatedTradeDisplayNumber ? (
                     <div className="text-right">
@@ -5368,6 +5479,11 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                     </div>
                   ) : null}
                 </div>
+                {sellerCommissionStatus && sellerCommissionStatus.pendingCount > 1 ? (
+                  <p className="text-xs text-[#D1D5DB]">
+                    Total outstanding: {formatUsdt(commissionTotalAmountDue)} across {sellerCommissionStatus.pendingCount} commissions. This payment settles only the selected trade above.
+                  </p>
+                ) : null}
               </CardHeader>
               <CardContent className="space-y-5">
 
@@ -5508,7 +5624,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                             `Select the ${COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.sublabel ?? commissionNetwork} network.`,
                             "Select USDT as the token.",
                             "Paste the Alpha Traders commission address above.",
-                            `Enter the exact amount: ${formatUsdt(sellerCommissionStatus?.amountDue ?? 0)}.`,
+                            `Enter the exact amount: ${formatUsdt(commissionPayableAmountDue)}.`,
                             "Confirm and send. Wait for the transaction to be confirmed.",
                           ].map((step, i) => (
                             <li key={i} className="flex items-start gap-2.5 text-xs text-[#D1D5DB]">
@@ -5533,7 +5649,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                           {[
                             `Go to your exchange's Withdraw or Send page and select USDT on ${COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.sublabel ?? commissionNetwork}.`,
                             "Paste the Alpha Traders commission address as the recipient.",
-                            `Enter the exact amount: ${formatUsdt(sellerCommissionStatus?.amountDue ?? 0)}.`,
+                            `Enter the exact amount: ${formatUsdt(commissionPayableAmountDue)}.`,
                             "Confirm the withdrawal and wait for blockchain confirmation.",
                             "Copy the withdrawal transaction hash from your exchange history.",
                             "Paste it below and click Verify.",
@@ -5699,6 +5815,11 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                     {listingBlockedByCommission ? (
                       <Button type="button" size="sm" variant="secondary" onClick={openCommissionPayment}>
                         Pay Now
+                      </Button>
+                    ) : null}
+                    {listingBlockedByMarketplaceEnforcement ? (
+                      <Button type="button" size="sm" variant="secondary" onClick={openMarketplaceCompliancePayment}>
+                        Open Marketplace Compliance
                       </Button>
                     ) : null}
                   </div>
