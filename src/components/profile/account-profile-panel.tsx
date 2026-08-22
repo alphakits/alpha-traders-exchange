@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 
 type AccountProfilePayload = {
   profile: {
@@ -223,6 +224,7 @@ function profileTheme(variant: RoleBadgeVariant) {
 
 export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { locale: "ar" | "en"; initialSessionRoles?: string[] }) {
   const isAr = locale === "ar";
+  const canonicalUser = useOptionalCanonicalSession()?.user;
   const [payload, setPayload] = useState<AccountProfilePayload | null>(null);
   const [sessionRoles, setSessionRoles] = useState<string[]>(initialSessionRoles);
   const [loading, setLoading] = useState(true);
@@ -286,29 +288,17 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
   }, [applyProfilePayload]);
 
   useEffect(() => {
+    if (!canonicalUser) return;
+    setSessionRoles(normalizeRoleValues([...(canonicalUser.roles ?? []), canonicalUser.role]));
+  }, [canonicalUser]);
+
+  useEffect(() => {
     const controller = new AbortController();
     let mounted = true;
 
     void (async () => {
       setLoading(true);
       setMessage(null);
-
-      // Fire both requests in parallel — /api/auth/me is fast (session cookie only)
-      // and gives us role data immediately; /api/auth/profile has the full payload.
-      const [meResponse] = await Promise.allSettled([
-        fetch("/api/auth/me", { cache: "no-store", signal: controller.signal }),
-      ]);
-      if (meResponse.status === "fulfilled" && meResponse.value.ok) {
-        try {
-          const mePayload = (await meResponse.value.json()) as { user?: { role?: string; roles?: string[] } | null };
-          const user = mePayload.user;
-          if (user) {
-            setSessionRoles(normalizeRoleValues([...(user.roles ?? []), user.role]));
-          }
-        } catch {
-          // Best-effort only; profile API remains source of truth for page content.
-        }
-      }
 
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {

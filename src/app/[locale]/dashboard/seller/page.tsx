@@ -4,6 +4,7 @@ import { getCurrentSessionUser } from "@/lib/auth";
 import { getSellerDashboardAccessState } from "@/lib/alpha-exchange-store";
 import { hasRole } from "@/lib/roles";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
+import { toClientSessionUser } from "@/lib/client-session-user";
 import { SellerEnforcementRestrictionScreen } from "@/components/sections/seller/seller-enforcement-restriction-screen";
 
 export const dynamic = "force-dynamic";
@@ -46,5 +47,5 @@ export default async function SellerDashboardPage({ params }: { params: Promise<
     );
   }
 
-  return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={user} />;
+  return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={toClientSessionUser(user)} />;
 }

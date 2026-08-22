@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getFirstActionableTradeForUser, getFirstActiveTradeForUser, getTradeRoomRequestForUserById, resolveTradeRoomRequestForNotification } from "@/lib/alpha-exchange-store";
 import { requireApiUser } from "@/lib/api-auth";
 import { buildTradeRoomDestination } from "@/lib/trade-room-destination";
+import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 
 export async function GET(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
     });
     const resolvedRequestId = resolved.request?.id ?? null;
     const destination = resolved.request ? buildTradeRoomDestination(resolved.request, user.id) : null;
-    if (process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") console.log("[trade-room-open] notification resolution", {
+    if (allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") console.log("[trade-room-open] notification resolution", {
       userId: user.id,
       role: user.role,
       notificationId: sourceNotificationId,
@@ -69,7 +70,7 @@ export async function GET(request: NextRequest) {
   const activeTrade = includePending
     ? await getFirstActionableTradeForUser(user.id, user.role)
     : await getFirstActiveTradeForUser(user.id, user.role);
-  if (process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") console.log("[trade-room-open] active trade lookup", {
+  if (allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") console.log("[trade-room-open] active trade lookup", {
     userId: user.id,
     role: user.role,
     includePending,

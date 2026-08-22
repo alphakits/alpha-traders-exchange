@@ -193,7 +193,7 @@ async function ensureSellerBankAccounts(request: APIRequestContext, count: 1 | 2
 }
 
 async function chooseCreatePayoutBankAccountByLast4(page: Page, last4: string) {
-  const selects = page.locator("#create-listing form select");
+  const selects = page.getByRole("main").locator("#create-listing form select");
   const count = await selects.count();
   for (let index = 0; index < count; index += 1) {
     const select = selects.nth(index);
@@ -402,11 +402,12 @@ async function createListing(request: APIRequestContext, input: { availableAmoun
 
 async function submitListingFromSellerWorkspace(page: Page, expectedListing: { availableAmount: string; price: string }) {
   const submitButton = page.getByRole("button", { name: "Submit Listing" });
-  await expect(page.locator("#create-listing")).toBeVisible({ timeout: 60_000 });
-  await page.locator("#create-available").fill(expectedListing.availableAmount);
-  await page.locator("#create-price").fill(expectedListing.price);
-  await page.locator("#create-min-trade").fill("50");
-  await page.locator("#create-max-trade").fill(expectedListing.availableAmount);
+  const main = page.getByRole("main");
+  await expect(main.locator("#create-listing")).toBeVisible({ timeout: 60_000 });
+  await main.locator("#create-available").fill(expectedListing.availableAmount);
+  await main.locator("#create-price").fill(expectedListing.price);
+  await main.locator("#create-min-trade").fill("50");
+  await main.locator("#create-max-trade").fill(expectedListing.availableAmount);
   await page.getByRole("button", { name: /Bank Hapoalim/i }).click();
   const commissionCheckbox = page.getByRole("checkbox", { name: /1% commission policy/i });
   if (!(await commissionCheckbox.isChecked())) {
@@ -531,12 +532,13 @@ test("bank-transfer listing requires selected seller bank account and preserves 
 
   const seller = await createSession(browser, SELLER_EMAIL, SELLER_PASSWORD);
   await seller.page.goto("/en/usdt-exchange");
-  await expect(seller.page.locator("#create-listing")).toBeVisible({ timeout: 60_000 });
+  const sellerMain = seller.page.getByRole("main");
+  await expect(sellerMain.locator("#create-listing")).toBeVisible({ timeout: 60_000 });
 
-  await seller.page.locator("#create-available").fill("1000");
-  await seller.page.locator("#create-price").fill("3.20");
-  await seller.page.locator("#create-min-trade").fill("50");
-  await seller.page.locator("#create-max-trade").fill("1000");
+  await sellerMain.locator("#create-available").fill("1000");
+  await sellerMain.locator("#create-price").fill("3.20");
+  await sellerMain.locator("#create-min-trade").fill("50");
+  await sellerMain.locator("#create-max-trade").fill("1000");
   await seller.page.getByRole("button", { name: /Bank Hapoalim/i }).click();
   const commissionCheckbox = seller.page.getByRole("checkbox", { name: /1% commission policy/i });
   if (!(await commissionCheckbox.isChecked())) {
@@ -545,21 +547,21 @@ test("bank-transfer listing requires selected seller bank account and preserves 
 
   await expect(seller.page.getByText(/No saved bank accounts found/i)).toBeVisible({ timeout: 20_000 });
   await expect(seller.page.getByRole("button", { name: "Submit Listing" })).toBeDisabled();
-  await seller.page.locator("#create-listing").getByRole("link", { name: "Settings" }).click();
+  await sellerMain.locator("#create-listing").getByRole("link", { name: "Settings" }).click();
   await expect(seller.page).toHaveURL(/\/en\/settings/);
   await seller.page.getByRole("button", { name: "Profile", exact: true }).click();
   await expect(seller.page.locator("#seller-bank-accounts")).toBeVisible({ timeout: 20_000 });
   await seller.page.goBack();
-  await expect(seller.page.locator("#create-listing")).toBeVisible({ timeout: 60_000 });
+  await expect(sellerMain.locator("#create-listing")).toBeVisible({ timeout: 60_000 });
 
   const oneBank = await ensureSellerBankAccounts(seller.page.request, 1);
   expect(oneBank).toHaveLength(1);
   await seller.page.reload();
-  await expect(seller.page.locator("#create-listing")).toBeVisible({ timeout: 60_000 });
-  await seller.page.locator("#create-available").fill("1000");
-  await seller.page.locator("#create-price").fill("3.20");
-  await seller.page.locator("#create-min-trade").fill("50");
-  await seller.page.locator("#create-max-trade").fill("1000");
+  await expect(sellerMain.locator("#create-listing")).toBeVisible({ timeout: 60_000 });
+  await sellerMain.locator("#create-available").fill("1000");
+  await sellerMain.locator("#create-price").fill("3.20");
+  await sellerMain.locator("#create-min-trade").fill("50");
+  await sellerMain.locator("#create-max-trade").fill("1000");
   await seller.page.getByRole("button", { name: /Bank Hapoalim/i }).click();
   if (!(await commissionCheckbox.isChecked())) {
     await commissionCheckbox.check();
@@ -588,11 +590,11 @@ test("bank-transfer listing requires selected seller bank account and preserves 
   expect(secondBank).toBeDefined();
 
   await seller.page.reload();
-  await expect(seller.page.locator("#create-listing")).toBeVisible({ timeout: 60_000 });
-  await seller.page.locator("#create-available").fill("500");
-  await seller.page.locator("#create-price").fill("3.18");
-  await seller.page.locator("#create-min-trade").fill("50");
-  await seller.page.locator("#create-max-trade").fill("500");
+  await expect(sellerMain.locator("#create-listing")).toBeVisible({ timeout: 60_000 });
+  await sellerMain.locator("#create-available").fill("500");
+  await sellerMain.locator("#create-price").fill("3.18");
+  await sellerMain.locator("#create-min-trade").fill("50");
+  await sellerMain.locator("#create-max-trade").fill("500");
   await seller.page.getByRole("button", { name: /Bank Hapoalim/i }).click();
   await seller.page.getByRole("button", { name: /Bank Leumi/i }).click();
   if (!(await commissionCheckbox.isChecked())) {
@@ -643,6 +645,7 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   const seller = await createSession(browser, SELLER_EMAIL, SELLER_PASSWORD);
   await ensureSellerBankAccounts(seller.page.request, 1);
   await seller.page.goto("/en/usdt-exchange");
+  const sellerMain = seller.page.getByRole("main");
   await expect(seller.page.getByRole("button", { name: "Submit Listing" })).toBeVisible({ timeout: 60_000 });
   const firstListingCreate = await submitListingFromSellerWorkspace(seller.page, { availableAmount: "1000", price: "3.20" });
   expect(firstListingCreate.listing?.id).toBeTruthy();
@@ -651,10 +654,10 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   expect(secondListingCreate.listing?.id).toBeTruthy();
   await expect(seller.page.getByText("You already have 2 active listings. Close one before creating another.").first()).toBeVisible({ timeout: 30_000 });
 
-  await seller.page.locator("#create-available").fill("250");
-  await seller.page.locator("#create-price").fill("3.10");
-  await seller.page.locator("#create-min-trade").fill("25");
-  await seller.page.locator("#create-max-trade").fill("250");
+  await sellerMain.locator("#create-available").fill("250");
+  await sellerMain.locator("#create-price").fill("3.10");
+  await sellerMain.locator("#create-min-trade").fill("25");
+  await sellerMain.locator("#create-max-trade").fill("250");
   await expect(seller.page.getByRole("button", { name: "Submit Listing" })).toBeDisabled();
   await expect(seller.page.getByText("You already have 2 active listings. Close one before creating another.").first()).toBeVisible({ timeout: 10_000 });
 

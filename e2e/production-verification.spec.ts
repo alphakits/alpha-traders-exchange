@@ -277,13 +277,14 @@ test.describe("Forms required treatment", () => {
     await login(page.request, formsEmail, formsPassword);
     await page.setViewportSize({ width: 1280, height: 1000 });
     await page.goto("/en/usdt-exchange");
-    const amount = page.locator("#create-available");
+    const main = page.getByRole("main");
+    const amount = main.locator("#create-available");
+    await expect(amount).toBeVisible({ timeout: 30000 });
     await amount.scrollIntoViewIfNeeded();
-    await amount.waitFor({ state: "visible", timeout: 30000 });
     await expect(amount).toHaveClass(/F04438/);
     await amount.fill("5000");
     await expect(amount).toHaveClass(/emerald/);
-    await expect(page.locator('label[for="create-available"]')).toContainText("*");
+    await expect(main.locator('label[for="create-available"]')).toContainText("*");
   });
 });
 

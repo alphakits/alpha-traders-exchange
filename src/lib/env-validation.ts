@@ -2,6 +2,7 @@
  * Environment variable validation.
  * Called once at module load time in production to fail fast on missing config.
  */
+import { isProductionSecurityRuntime } from "@/lib/runtime-safety";
 
 type EnvVar = {
   key: string;
@@ -28,6 +29,9 @@ const ENV_VARS: EnvVar[] = [
   { key: "DISCORD_GUILD_ID", required: false, description: "Discord guild identifier verified during gateway startup" },
   { key: "DISCORD_WORKER_BASE_URL", required: false, description: "Fixed HTTPS Railway worker origin used by server-side admin diagnostics" },
   { key: "DISCORD_WORKER_HEALTH_SECRET", required: false, description: "Dedicated secret used to authenticate worker readiness probes" },
+  { key: "DISCORD_MARKETPLACE_API_KEY", required: false, description: "Internal credential authorizing marketplace Discord event relay requests" },
+  { key: "DISCORD_MARKETPLACE_WEBHOOK_URL", required: false, description: "Discord webhook URL for marketplace event delivery" },
+  { key: "DISCORD_MARKETPLACE_WEBHOOK_SECRET", required: false, description: "HMAC secret protecting marketplace event relay requests" },
   { key: "ALPHA_EXCHANGE_LARGE_TRADE_THRESHOLD", required: false, description: "Min USDT amount considered a large trade" },
   { key: "ALPHA_EXCHANGE_EVIDENCE_MAX_SIZE_MB", required: false, description: "Max evidence upload size in MB" },
   { key: "ALPHA_EXCHANGE_STALE_TRADE_TIMEOUT_MINUTES", required: false, description: "Auto-cancel threshold for stale trades in minutes" },
@@ -81,7 +85,27 @@ export function validateDiscordEnv(
 
 const PRODUCTION_FORBIDDEN: string[] = [
   "ALPHA_EXCHANGE_EXPOSE_RESET_TOKEN",
+  "ALPHA_ENABLE_TEST_SUPPORT",
+  "ALPHA_E2E_TEST_SUPPORT",
+  "ALPHA_E2E_LOOPBACK_ONLY",
+  "ALPHA_EXCHANGE_FORCE_INMEMORY_REPOSITORY",
+  "ALPHA_EXCHANGE_QA_MODE",
+  "ALPHA_EXCHANGE_QA_COMMISSION_MODE",
+  "ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION",
+  "PHOTO_VERIFICATION_BYPASS_EMAILS",
+  "ALPHA_AUTH_DEBUG",
+  "ALPHA_EXCHANGE_DEBUG_TRADE_ROOM",
+  "NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM",
+  "ALPHA_EXCHANGE_REPO_TRACE",
+  "ALPHA_EXCHANGE_PERF",
+  "ALPHA_EXCHANGE_PROFILE_LISTING_CREATE",
 ];
+
+const DISCORD_MARKETPLACE_RELAY_ENV_VARS = [
+  "DISCORD_MARKETPLACE_API_KEY",
+  "DISCORD_MARKETPLACE_WEBHOOK_URL",
+  "DISCORD_MARKETPLACE_WEBHOOK_SECRET",
+] as const;
 
 /**
  * Validate environment variables and return a list of warnings/errors.
@@ -121,12 +145,28 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
       );
     }
 
+    if (process.env.AUTH_COOKIE_SECURE === "false") {
+      errors.push(
+        "SECURITY: AUTH_COOKIE_SECURE=false is forbidden in production because authentication cookies must remain Secure.",
+      );
+    }
+
     for (const forbidden of PRODUCTION_FORBIDDEN) {
-      if (process.env[forbidden]) {
+      if (isProductionSecurityRuntime() && process.env[forbidden]) {
         errors.push(
           `SECURITY: Environment variable ${forbidden} must NOT be set in production. Remove it immediately.`,
         );
       }
+    }
+
+    const configuredMarketplaceRelayVars = DISCORD_MARKETPLACE_RELAY_ENV_VARS
+      .filter((key) => Boolean(process.env[key]?.trim()));
+    if (configuredMarketplaceRelayVars.length > 0 && configuredMarketplaceRelayVars.length !== DISCORD_MARKETPLACE_RELAY_ENV_VARS.length) {
+      const missing = DISCORD_MARKETPLACE_RELAY_ENV_VARS
+        .filter((key) => !process.env[key]?.trim());
+      errors.push(
+        `Missing required marketplace Discord relay environment variable(s): ${missing.join(", ")}.`,
+      );
     }
   }
 
@@ -135,9 +175,9 @@ export function validateEnv(): { warnings: string[]; errors: string[] } {
 
 /**
  * Validates environment variables and logs results.
- * Throws in production runtime if required vars are missing.
- * Does NOT throw during `next build` (NEXT_PHASE=phase-production-build) so local
- * builds can proceed without a full set of production credentials.
+ * Throws in a deployed production runtime if required variables are missing or
+ * a prohibited test/debug flag is configured. Local builds retain the existing
+ * relaxed behavior when they are not a deployed production runtime.
  */
 export function runEnvValidation(): void {
   const { warnings, errors } = validateEnv();
@@ -146,16 +186,14 @@ export function runEnvValidation(): void {
     console.warn("[env-validation]", warning);
   }
 
-  // Skip throwing during the Next.js build phase — env vars may not be present
-  // locally. On Vercel the build environment has all vars set, so this guard
-  // only relaxes local development builds.
-  const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
-
   if (errors.length > 0) {
     for (const error of errors) {
       console.error("[env-validation] FATAL:", error);
     }
-    if (process.env.NODE_ENV === "production" && !isBuildPhase) {
+    const isLocalBuild = process.env.NEXT_PHASE === "phase-production-build"
+      && !process.env.VERCEL
+      && !process.env.VERCEL_ENV;
+    if (isProductionSecurityRuntime() && !isLocalBuild) {
       throw new Error(
         `Environment validation failed with ${errors.length} error(s). See logs above.`,
       );

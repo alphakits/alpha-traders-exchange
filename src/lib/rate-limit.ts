@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
+import { isProductionSecurityRuntime } from "@/lib/runtime-safety";
 
 type RateLimitWindow = {
   count: number;
@@ -72,10 +73,16 @@ function resolveRateLimitConfig(input: { key: string; maxRequests: number; windo
   const windowEnv = process.env[envKeyForRateLimit(input.key, "WINDOW_MS")];
   const maxRequests = Number(maxEnv ?? input.maxRequests);
   const windowMs = Number(windowEnv ?? input.windowMs);
-  return {
-    maxRequests: Number.isFinite(maxRequests) && maxRequests > 0 ? maxRequests : input.maxRequests,
-    windowMs: Number.isFinite(windowMs) && windowMs > 0 ? windowMs : input.windowMs,
-  };
+  const configuredMax = Number.isFinite(maxRequests) && maxRequests > 0 ? maxRequests : input.maxRequests;
+  const configuredWindow = Number.isFinite(windowMs) && windowMs > 0 ? windowMs : input.windowMs;
+  // In production, environment overrides may tighten a limit but cannot make
+  // a protected route easier to abuse.
+  return isProductionSecurityRuntime()
+    ? {
+      maxRequests: Math.min(configuredMax, input.maxRequests),
+      windowMs: Math.max(configuredWindow, input.windowMs),
+    }
+    : { maxRequests: configuredMax, windowMs: configuredWindow };
 }
 
 export function checkRateLimit(input: {
@@ -141,8 +148,19 @@ export async function checkSharedRateLimit(input: {
   const ip = resolveClientIp(input.headers);
   const identifier = input.identifier?.trim() || ip;
   const bucketKey = `${input.key}:${identifier}`;
-  const pool = getRuntimePostgresPool();
+  let pool: ReturnType<typeof getRuntimePostgresPool>;
+  try {
+    pool = getRuntimePostgresPool();
+  } catch {
+    if (isProductionSecurityRuntime()) {
+      return { allowed: false, retryAfterSeconds: 30, reason: "limiter_unavailable" as string };
+    }
+    return checkRateLimit({ ...input, maxRequests: config.maxRequests, windowMs: config.windowMs });
+  }
   if (!pool) {
+    if (isProductionSecurityRuntime()) {
+      return { allowed: false, retryAfterSeconds: 30, reason: "limiter_unavailable" as string };
+    }
     return checkRateLimit({ ...input, maxRequests: config.maxRequests, windowMs: config.windowMs });
   }
 
@@ -175,7 +193,7 @@ export async function checkSharedRateLimit(input: {
   } catch {
     // The application requires PostgreSQL in production. Fail closed for
     // sensitive flows rather than silently falling back to a per-instance map.
-    if (process.env.NODE_ENV === "production") {
+    if (isProductionSecurityRuntime()) {
       return { allowed: false, retryAfterSeconds: 30, reason: "limiter_unavailable" as string };
     }
     return checkRateLimit({ ...input, maxRequests: config.maxRequests, windowMs: config.windowMs });

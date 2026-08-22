@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 
 import {
+  isMarketplaceEventTimestampFresh,
   sendMarketplaceEventToDiscord,
   verifyMarketplaceEventSignature,
   type DiscordMarketplaceEvent,
 } from "@/lib/discord/marketplace-events";
+import { isProductionSecurityRuntime } from "@/lib/runtime-safety";
+import { logEvent } from "@/lib/structured-logging";
 
 function unauthorized() {
   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -59,12 +62,19 @@ export async function POST(request: Request) {
 
   const timestamp = request.headers.get("x-alpha-signature-timestamp")?.trim();
   const signature = request.headers.get("x-alpha-signature")?.trim();
+  const signatureSupplied = Boolean(timestamp || signature);
+  const signatureRequired = isProductionSecurityRuntime();
 
-  if (timestamp && signature) {
-    const signatureValid = verifyMarketplaceEventSignature(body, timestamp, signature);
-    if (!signatureValid) {
-      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-    }
+  if (signatureRequired && (!timestamp || !signature)) {
+    return unauthorized();
+  }
+
+  if (signatureSupplied) {
+    const signatureValid = typeof timestamp === "string"
+      && typeof signature === "string"
+      && isMarketplaceEventTimestampFresh(timestamp)
+      && verifyMarketplaceEventSignature(body, timestamp, signature);
+    if (!signatureValid) return unauthorized();
   }
 
   let parsed: unknown;
@@ -83,7 +93,15 @@ export async function POST(request: Request) {
     const result = await sendMarketplaceEventToDiscord(event);
     return NextResponse.json({ ok: true, result });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Discord webhook dispatch failed";
-    return NextResponse.json({ error: message }, { status: 502 });
+    logEvent("error", {
+      event: "discord_marketplace_event_relay",
+      outcome: "failed",
+      reason: "webhook_dispatch_failed",
+      metadata: {
+        eventType: event.type,
+        errorType: error instanceof Error ? error.name : typeof error,
+      },
+    });
+    return NextResponse.json({ error: "Discord webhook dispatch failed" }, { status: 502 });
   }
 }

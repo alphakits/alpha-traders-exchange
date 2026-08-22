@@ -7,6 +7,8 @@ import { checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { createSupabaseAuthClient, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 import { isMarketplacePhoneVerificationDisabled } from "@/lib/phone-verification";
 import { isVerified } from "@/lib/verification-bypass";
+import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
+import { logEvent } from "@/lib/structured-logging";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 type LoginTimelineStep = {
@@ -93,7 +95,7 @@ function setPhoneVerificationCookie(
 export async function POST(request: NextRequest) {
   const routeStartedAt = Date.now();
   const timeline: LoginTimelineStep[] = [];
-  const authDebug = process.env.ALPHA_AUTH_DEBUG === "1";
+  const authDebug = allowsRuntimeDiagnostics() && process.env.ALPHA_AUTH_DEBUG === "1";
   const secureCookies = shouldUseSecureAuthCookie(request);
   const cookieStore = await cookies();
   const locale = inferLocaleFromRequest(request);
@@ -333,7 +335,12 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("[auth/login] unexpected error", error);
+    logEvent("error", {
+      event: "auth_login",
+      outcome: "failed",
+      reason: "unexpected_error",
+      metadata: { errorType: error instanceof Error ? error.name : typeof error },
+    });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Login failed." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
   }
 }

@@ -24,4 +24,13 @@ describe("marketplace phone verification flag", () => {
     expect(buyer).not.toHaveProperty("verifiedPhone");
     expect(buyer).not.toHaveProperty("phoneVerifiedAt");
   });
+
+  it("does not permit either phone-verification bypass in deployed production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION", "1");
+    vi.stubEnv("PHOTO_VERIFICATION_BYPASS_EMAILS", "buyer@example.com");
+
+    expect(requirePhoneVerificationForTrading(buyer)?.status).toBe(403);
+  });
 });

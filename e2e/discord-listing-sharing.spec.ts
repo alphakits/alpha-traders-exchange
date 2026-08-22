@@ -73,7 +73,7 @@ for (const width of [320, 390, 430, 1280]) {
     await mockCooldown(page);
     await page.goto("/en/usdt-exchange");
 
-    const workspace = page.locator("#my-listings-section");
+    const workspace = page.getByRole("main").locator("#my-listings-section");
     await expect(workspace).toBeVisible();
     await workspace.scrollIntoViewIfNeeded();
 

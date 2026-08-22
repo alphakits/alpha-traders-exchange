@@ -21,9 +21,11 @@ import {
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { hasRole } from "@/lib/roles";
 import { getSellerApplicationEligibility } from "@/lib/seller-application-eligibility";
+import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
+import type { ClientSessionUser } from "@/lib/client-session-user";
 import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
 import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, isCardlessAtmPaymentMethod, isBankTransferPaymentMethod, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
-import { CLIENT_COMMISSION_WALLETS, COMMISSION_NETWORKS, type CommissionNetworkId } from "@/lib/commission-config";
+import { CLIENT_COMMISSION_WALLETS, COMMISSION_NETWORKS, type CommissionNetworkId, type CommissionWalletConfiguration } from "@/lib/commission-config";
 import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, finalizeLoginJourneyRedirectEnd, incrementLoginJourneyApiCall, isLoginJourneyTraceEnabled } from "@/lib/login-journey-trace";
 import { formatBuyerId, formatListingId, formatSellerId, formatTradeId } from "@/lib/format-id";
 import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
@@ -41,7 +43,7 @@ import { SELLER_PRESTIGE_TIERS } from "@/lib/seller-prestige";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
 import { deriveBuyerRankSummary, type BuyerRankSummary } from "@/lib/buyer-rank";
 import { navigateAfterSuccess, navigateOrRevealResult } from "@/lib/client-success-navigation";
-import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, UserRole } from "@/types/alpha-exchange";
+import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SupportedNetwork } from "@/types/alpha-exchange";
 
 const WHATSAPP_URL = getOfficialOwnerWhatsAppUrl();
 const MAX_EVIDENCE_SIZE_BYTES = 8 * 1024 * 1024;
@@ -85,36 +87,7 @@ type SellerApplicationMethod = (typeof SELLER_APPLICATION_METHOD_OPTIONS)[number
 
 type Locale = "ar" | "en";
 
-export type SessionUser = {
-  id: string;
-  fullName: string;
-  email: string;
-  role: UserRole;
-  roles?: UserRole[];
-  sellerStatus: SellerStatus;
-  whatsappNumber: string;
-  preferredNetworks: SupportedNetwork[];
-  profilePhotoUrl: string;
-  coverBannerUrl?: string;
-  languages: string[];
-  bio: string;
-  tradingExperience?: string;
-  workingHours?: string;
-  preferredPaymentMethods?: string[];
-  country?: string;
-  city?: string;
-  onlineStatus: "online" | "offline";
-  lastActiveAt?: string;
-  isFeaturedSeller?: boolean;
-  isProfileHidden?: boolean;
-  isFoundingMember?: boolean;
-  isFoundingSeller?: boolean;
-  isPhotoVerified?: boolean;
-  verifiedPhone?: string;
-  phoneVerifiedAt?: string;
-  notificationPreferences?: { inApp: boolean; email: boolean; sms: boolean };
-  createdAt: string;
-};
+export type SessionUser = ClientSessionUser;
 
 type FeatureCard = {
   icon: typeof ShieldCheck;
@@ -855,6 +828,7 @@ function Portal({ children }: { children: React.ReactNode }) {
 export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Locale; initialSessionUser?: SessionUser | null }) {
   const isAr = locale === "ar";
   const router = useRouter();
+  const canonicalSession = useOptionalCanonicalSession();
   const [isMobileViewport, setIsMobileViewport] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.matchMedia(MOBILE_VIEWPORT_QUERY).matches;
@@ -867,7 +841,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
   // The server-backed session is authoritative for seller-application eligibility.
   // The initial value is only a bootstrap snapshot and can have stale roles.
-  const [isSessionResolving, setIsSessionResolving] = useState(true);
+  const [isSessionResolving, setIsSessionResolving] = useState(Boolean(canonicalSession));
   const [sessionResolutionError, setSessionResolutionError] = useState(false);
   const [isLoadingListings, setIsLoadingListings] = useState(true);
   const [isWorkspaceWidgetsLoading, setIsWorkspaceWidgetsLoading] = useState(true);
@@ -940,6 +914,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     relatedTradeId?: string;
     relatedTradeDisplayNumber?: number;
   } | null>(null);
+  const [commissionWalletConfiguration, setCommissionWalletConfiguration] = useState<CommissionWalletConfiguration | null>(null);
   const [qaCommissionModeEnabled, setQaCommissionModeEnabled] = useState(false);
   const [qaCommissionResetEnabled, setQaCommissionResetEnabled] = useState(false);
   const [commissionPayOpen, setCommissionPayOpen] = useState(false);
@@ -951,6 +926,11 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   const [commissionQrDataUrl, setCommissionQrDataUrl] = useState<string | null>(null);
   const [commissionPayerType, setCommissionPayerType] = useState<"personal" | "exchange" | null>(null);
   const [commissionAdvancedOpen, setCommissionAdvancedOpen] = useState(false);
+  const selectedCommissionWallet = CLIENT_COMMISSION_WALLETS[commissionNetwork];
+  const selectedCommissionWalletConfiguration = commissionWalletConfiguration?.[commissionNetwork];
+  const selectedCommissionWalletAvailable = Boolean(selectedCommissionWalletConfiguration?.available && selectedCommissionWallet);
+  const selectedCommissionWalletError = selectedCommissionWalletConfiguration?.error
+    ?? `Commission wallet configuration is unavailable for ${commissionNetwork}. Please contact Alpha Traders support.`;
   const [requestActionKey, setRequestActionKey] = useState<string | null>(null);
   const qaCommissionResetAttemptedRef = useRef(false);
   const [listingCreateForm, setListingCreateForm] = useState({
@@ -1088,6 +1068,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   const [mobileVisibleListingsCount, setMobileVisibleListingsCount] = useState(MOBILE_MARKETPLACE_BATCH_SIZE);
   const notificationsRequestIdRef = useRef(0);
   const deepLinkAppliedRef = useRef(false);
+  const commissionPayDeepLinkHandledRef = useRef(false);
   const sellerActiveTradeRedirectedRef = useRef<string | null>(null);
   const sellerDeferredPanelsSentinelRef = useRef<HTMLDivElement | null>(null);
   const bootstrapCompletedAtRef = useRef<number | null>(null);
@@ -1200,12 +1181,14 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
             relatedTradeId?: string;
             relatedTradeDisplayNumber?: number;
           };
+          commissionWalletConfiguration?: CommissionWalletConfiguration;
           qaCommissionModeEnabled?: boolean;
           qaCommissionResetEnabled?: boolean;
         };
         setMyListings((myListingsJson.listings ?? []).filter((listing) => listing.status !== "closed" && listing.status !== "cancelled"));
         setSellerWorkspaceSummary(myListingsJson.summary ?? null);
         setSellerCommissionStatus(myListingsJson.commissionStatus ?? null);
+        setCommissionWalletConfiguration(myListingsJson.commissionWalletConfiguration ?? null);
         setQaCommissionModeEnabled(Boolean(myListingsJson.qaCommissionModeEnabled));
         setQaCommissionResetEnabled(Boolean(myListingsJson.qaCommissionResetEnabled));
       }
@@ -1269,6 +1252,51 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     setCommissionPayerType(null);
     setCommissionAdvancedOpen(false);
   }, []);
+
+  const clearCommissionPayDeepLink = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("commission");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || commissionPayDeepLinkHandledRef.current) return;
+    if (new URLSearchParams(window.location.search).get("commission") !== "pay") return;
+
+    // Do not decide commission eligibility from a bootstrap role or before the
+    // canonical seller workspace response has supplied the payable record.
+    if (isSessionResolving || isWorkspaceWidgetsLoading) return;
+
+    commissionPayDeepLinkHandledRef.current = true;
+    clearCommissionPayDeepLink();
+
+    if (!sessionUser || !isApprovedSellerSession) {
+      setSellerWorkspaceMessage("A seller workspace is required to pay a commission.");
+      return;
+    }
+    if (!sellerCommissionStatus) {
+      setSellerWorkspaceMessage("Unable to load commission status. Please retry.");
+      return;
+    }
+    if (sellerCommissionStatus.status === "clear" || !sellerCommissionStatus.commissionId) {
+      setSellerWorkspaceMessage("No payable commission record was found.");
+      return;
+    }
+
+    openCommissionPayment();
+    window.requestAnimationFrame(() => {
+      document.getElementById("commission-payment")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [
+    clearCommissionPayDeepLink,
+    isApprovedSellerSession,
+    isSessionResolving,
+    isWorkspaceWidgetsLoading,
+    openCommissionPayment,
+    sellerCommissionStatus,
+    sessionUser,
+  ]);
 
   const refreshNotifications = useCallback(async (options?: { category?: "all" | NotificationCategory; query?: string; unreadOnly?: boolean }) => {
     if (!sessionUser) return;
@@ -1397,6 +1425,15 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   }
 
   useEffect(() => {
+    if (!canonicalSession) return;
+    setIsSessionResolving(canonicalSession.isResolving);
+    setSessionResolutionError(canonicalSession.error);
+    if (!canonicalSession.isResolving) {
+      setSessionUser(canonicalSession.user);
+    }
+  }, [canonicalSession]);
+
+  useEffect(() => {
     if (isLoginJourneyTraceEnabled()) {
       finalizeLoginJourneyRedirectEnd(Date.now());
     }
@@ -1425,46 +1462,16 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       const workspaceInitStartedAt = Date.now();
       try {
         const listingsPromise = tracedFetch("Dashboard data loading: listings", "/api/alpha-exchange/listings", { cache: "no-store", signal: controller.signal });
-        const meRes = await tracedFetch("/api/auth/me", "/api/auth/me", { cache: "no-store", signal: controller.signal });
-        if (cancelled) return;
-        if (!meRes.ok) throw new Error("Unable to refresh your account status.");
-        const meJson = (await meRes.json()) as { user: SessionUser | null };
-        if (cancelled) return;
-        const resolvedUser = meJson.user;
-
-        setSessionUser(resolvedUser);
-        setSessionResolutionError(false);
-        setIsSessionResolving(false);
         const shellReadyAt = Date.now();
         appendLoginJourneyStep("Dashboard shell ready", workspaceInitStartedAt, shellReadyAt);
         bootstrapCompletedAtRef.current = shellReadyAt;
         appendLoginJourneyStep("Workspace initialization", workspaceInitStartedAt, shellReadyAt);
-
-        if (resolvedUser) {
-          const user = resolvedUser;
-        if (!sellerFormTouchedRef.current) {
-            setSellerForm((prev) => ({
-              ...prev,
-              firstName: user.fullName?.split(" ")[0] ?? prev.firstName,
-              lastName: user.fullName?.split(" ").slice(1).join(" ") ?? prev.lastName,
-              email: user.email ?? prev.email,
-              whatsappNumber: user.whatsappNumber || prev.whatsappNumber,
-            }));
-          }
-          setBuyerInfo((prev) => ({
-            ...prev,
-            name: user.fullName,
-            whatsapp: user.whatsappNumber || prev.whatsapp,
-          }));
-        }
 
         // Listings are not required to make the dashboard shell interactive.
         // Start the fetch in parallel with session bootstrap and resolve it after shell-ready.
         void loadListings(shellReadyAt, listingsPromise);
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") return;
-        setIsSessionResolving(false);
-        setSessionResolutionError(true);
         setIsLoadingListings(false);
         setIsWorkspaceWidgetsLoading(false);
         setIsSellerApplicationLoading(false);
@@ -1476,7 +1483,25 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       cancelled = true;
       controller.abort();
     };
-  }, [initialSessionUser, tracedFetch]);
+  }, [tracedFetch]);
+
+  useEffect(() => {
+    if (!sessionUser) return;
+    if (!sellerFormTouchedRef.current) {
+      setSellerForm((prev) => ({
+        ...prev,
+        firstName: sessionUser.fullName?.split(" ")[0] ?? prev.firstName,
+        lastName: sessionUser.fullName?.split(" ").slice(1).join(" ") ?? prev.lastName,
+        email: sessionUser.email ?? prev.email,
+        whatsappNumber: sessionUser.whatsappNumber || prev.whatsappNumber,
+      }));
+    }
+    setBuyerInfo((prev) => ({
+      ...prev,
+      name: sessionUser.fullName,
+      whatsapp: sessionUser.whatsappNumber || prev.whatsapp,
+    }));
+  }, [sessionUser]);
 
   useEffect(() => {
     if (isSessionResolving) return;
@@ -1766,7 +1791,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   // Generate QR code when commission modal opens or network changes
   useEffect(() => {
     if (!commissionPayOpen) return;
-    const address = CLIENT_COMMISSION_WALLETS[commissionNetwork];
+    const address = selectedCommissionWalletAvailable ? selectedCommissionWallet : "";
     if (!address) { setCommissionQrDataUrl(null); return; }
     let cancelled = false;
     void import("qrcode").then((QRCode) => {
@@ -1775,7 +1800,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       });
     });
     return () => { cancelled = true; };
-  }, [commissionPayOpen, commissionNetwork]);
+  }, [commissionPayOpen, selectedCommissionWallet, selectedCommissionWalletAvailable]);
 
   const features = useMemo<FeatureCard[]>(() => [
     {
@@ -2041,6 +2066,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       if (data.application) {
         setSellerApplication(data.application);
         setApplicationSubmitted(true);
+        window.dispatchEvent(new Event("alpha-auth-changed"));
       }
     } catch (error) {
       const message = error instanceof Error && error.message.trim() ? error.message : fallbackMessage;
@@ -2529,6 +2555,14 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     if (!sessionUser || !isApprovedSeller) return;
     if (typeof window === "undefined") return;
     if (!window.location.pathname.endsWith("/usdt-exchange")) return;
+    // An explicit commission deep link must win over the convenience redirect
+    // to an unrelated active trade. The commission flow clears its query only
+    // after canonical seller status reaches a terminal state, then retains the
+    // handled ref for this page instance.
+    if (
+      new URLSearchParams(window.location.search).get("commission") === "pay"
+      || commissionPayDeepLinkHandledRef.current
+    ) return;
     const tradeId = latestSellerInProgressTrade?.id;
     if (!tradeId) {
       sellerActiveTradeRedirectedRef.current = null;
@@ -3506,9 +3540,8 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       setCommissionPayMessage("Please paste your transaction hash before confirming.");
       return;
     }
-    const walletAddress = CLIENT_COMMISSION_WALLETS[commissionNetwork];
-    if (!walletAddress) {
-      setCommissionPayMessage(`No wallet address configured for ${commissionNetwork}. Please contact support.`);
+    if (!selectedCommissionWalletAvailable) {
+      setCommissionPayMessage(selectedCommissionWalletError);
       return;
     }
     setCommissionPayBusy(true);
@@ -5264,7 +5297,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
             </CardContent>
           </Card>
           {commissionPayOpen ? (
-            <Card className="order-16 border-[#C9A227]/30 bg-[#0B0B0B]/98">
+            <Card id="commission-payment" className="order-16 border-[#C9A227]/30 bg-[#0B0B0B]/98">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="flex items-center gap-2 text-base">
@@ -5353,12 +5386,14 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                       <div className="grid gap-2">
                         {COMMISSION_NETWORKS.map((net) => {
                           const selected = commissionNetwork === net.id;
+                          const networkAvailable = Boolean(commissionWalletConfiguration?.[net.id]?.available && CLIENT_COMMISSION_WALLETS[net.id]);
                           return (
                             <button
                               key={net.id}
                               type="button"
+                              disabled={!networkAvailable}
                               onClick={() => setCommissionNetwork(net.id)}
-                              className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all ${selected ? "border-[#C9A227] bg-[#C9A227]/10 text-white" : "border-white/12 bg-black/20 text-[#9CA3AF] hover:border-white/25 hover:text-white"}`}
+                              className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all ${networkAvailable ? (selected ? "border-[#C9A227] bg-[#C9A227]/10 text-white" : "border-white/12 bg-black/20 text-[#9CA3AF] hover:border-white/25 hover:text-white") : "cursor-not-allowed border-red-500/30 bg-red-950/20 text-red-200 opacity-75"}`}
                             >
                               <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${selected ? "border-[#C9A227]" : "border-white/30"}`}>
                                 {selected ? <div className="h-2 w-2 rounded-full bg-[#C9A227]" /> : null}
@@ -5366,6 +5401,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                               <div className="flex-1 min-w-0">
                                 <span className="text-sm font-medium">{net.label}</span>
                                 {net.recommended ? <span className="ml-2 text-xs text-[#C9A227]">⭐ Recommended</span> : null}
+                                {!networkAvailable ? <span className="ml-2 text-xs text-red-200">Unavailable</span> : null}
                               </div>
                             </button>
                           );
@@ -5374,19 +5410,19 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                     </div>
 
                     {/* ── Recipient address + QR ── */}
-                    {CLIENT_COMMISSION_WALLETS[commissionNetwork] ? (
+                    {selectedCommissionWalletAvailable ? (
                       <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
                         <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">
                           Send To · {COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.sublabel ?? commissionNetwork}
                         </p>
                         <div className="flex items-center gap-2">
                           <code className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-xs font-mono text-white break-all select-all">
-                            {CLIENT_COMMISSION_WALLETS[commissionNetwork]}
+                            {selectedCommissionWallet}
                           </code>
                           <Button
                             type="button" size="sm" variant="secondary"
                             className="shrink-0 h-8 w-8 p-0"
-                            onClick={() => { void navigator.clipboard.writeText(CLIENT_COMMISSION_WALLETS[commissionNetwork]); setCommissionCopied(true); window.setTimeout(() => setCommissionCopied(false), 2000); }}
+                            onClick={() => { void navigator.clipboard.writeText(selectedCommissionWallet); setCommissionCopied(true); window.setTimeout(() => setCommissionCopied(false), 2000); }}
                           >
                             {commissionCopied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
                           </Button>
@@ -5408,7 +5444,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                       </div>
                     ) : (
                       <p className="rounded-xl border border-amber-500/30 bg-amber-950/30 p-3 text-xs text-amber-300">
-                        No wallet address configured for {commissionNetwork}. Please contact Alpha Traders support.
+                        {selectedCommissionWalletError}
                       </p>
                     )}
 
@@ -5571,7 +5607,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                     <div className="flex flex-wrap gap-2 pt-1">
                       <Button
                         type="button"
-                        disabled={commissionPayBusy || !commissionTxSignature.trim() || !CLIENT_COMMISSION_WALLETS[commissionNetwork]}
+                        disabled={commissionPayBusy || !commissionTxSignature.trim() || !selectedCommissionWalletAvailable}
                         onClick={() => void handleCommissionPayNow()}
                         className="bg-[#C9A227] hover:bg-[#B8911F] text-black font-semibold border-[#C9A227]"
                       >

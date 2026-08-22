@@ -1,4 +1,6 @@
 import { Pool } from "pg";
+import { isProductionSecurityRuntime } from "@/lib/runtime-safety";
+import { logEvent } from "@/lib/structured-logging";
 
 declare global {
   var __alphaTradersRuntimeDbPool: Pool | undefined;
@@ -45,22 +47,27 @@ function warnIfDirectSupabaseUrl(connectionString: string) {
     process.env.NODE_ENV === "production" &&
     /db\.[a-z0-9]+\.supabase\.co/.test(connectionString)
   ) {
-    console.error(
-      "[postgres-runtime] FATAL: SUPABASE_DB_URL points at the Supabase direct host " +
-        "(db.<ref>.supabase.co). This is not reachable from Vercel serverless functions. " +
-        "Replace it with the Supabase Transaction Mode connection pooler URL: " +
-        "postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres",
-    );
+    logEvent("error", {
+      event: "postgres_runtime_configuration",
+      outcome: "failed",
+      reason: "supabase_direct_host_configured",
+    });
   }
 }
 
 export function getRuntimePostgresPool() {
   if (process.env.ALPHA_EXCHANGE_FORCE_INMEMORY_REPOSITORY === "1") {
+    if (isProductionSecurityRuntime()) {
+      throw new Error("In-memory Alpha Exchange persistence is forbidden in production.");
+    }
     return null;
   }
 
   const configuredConnectionString = getRuntimePostgresConnectionString();
   if (!configuredConnectionString) {
+    if (isProductionSecurityRuntime()) {
+      throw new Error("PostgreSQL persistence is required in production.");
+    }
     return null;
   }
 
@@ -97,15 +104,18 @@ export function getRuntimePostgresPool() {
     // Surface misconfigured connection strings early in production logs.
     pool.on("error", (err) => {
       if (err.message.includes("ENOTFOUND") && /db\.[a-z0-9]+\.supabase\.co/.test(connectionString)) {
-        console.error(
-          "[postgres-runtime] FATAL: getaddrinfo ENOTFOUND — SUPABASE_DB_URL is using the " +
-            "Supabase DIRECT host (db.<ref>.supabase.co) which Vercel cannot resolve. " +
-            "Update SUPABASE_DB_URL to the Transaction Mode POOLER URL:\n" +
-            "  postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres\n" +
-            "Get this URL: Supabase Dashboard → Project Settings → Database → Connection Pooling tab.",
-        );
+        logEvent("error", {
+          event: "postgres_runtime_pool",
+          outcome: "failed",
+          reason: "supabase_direct_host_unreachable",
+        });
       } else {
-        console.error("[postgres-runtime] Pool error:", err.message);
+        logEvent("error", {
+          event: "postgres_runtime_pool",
+          outcome: "failed",
+          reason: "pool_error",
+          metadata: { errorType: err.name },
+        });
       }
     });
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { findUserByEmail, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 import { checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
+import { logEvent } from "@/lib/structured-logging";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -22,9 +23,16 @@ function registrationSuccessMessage(locale: "ar" | "en") {
     : "Your account has been created. Please verify your email before signing in.";
 }
 
-function logRegistrationRateLimit(reason: string, details: Record<string, string | number | boolean | null>) {
-  if (process.env.NODE_ENV === "test") return;
-  console.warn("[auth/register] rate-limited", { reason, ...details });
+function logRegistrationRateLimit(reason: string, details: Record<string, unknown>) {
+  const retryAfterSeconds = typeof details.retryAfterSeconds === "number"
+    ? details.retryAfterSeconds
+    : undefined;
+  logEvent("warn", {
+    event: "auth_registration_rate_limit",
+    outcome: "denied",
+    reason,
+    metadata: { retryAfterSeconds },
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -38,9 +46,7 @@ export async function POST(request: NextRequest) {
   });
   if (!ipRate.allowed) {
     logRegistrationRateLimit("ip_limit_reached", {
-      ip: clientIp,
       retryAfterSeconds: ipRate.retryAfterSeconds,
-      path: request.nextUrl.pathname,
     });
     return NextResponse.json(
       { error: registrationRateLimitMessage(locale) },

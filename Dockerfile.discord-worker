@@ -7,9 +7,11 @@ RUN npm ci
 COPY src/workers/discord-worker.ts /app/src/workers/discord-worker.ts
 COPY src/lib/discord /app/src/lib/discord
 COPY src/lib/env-validation.ts /app/src/lib/env-validation.ts
+COPY src/lib/runtime-safety.ts /app/src/lib/runtime-safety.ts
 COPY src/lib/official-contact.ts /app/src/lib/official-contact.ts
 COPY src/lib/marketplace-policy.ts /app/src/lib/marketplace-policy.ts
 COPY src/lib/postgres-runtime.ts /app/src/lib/postgres-runtime.ts
+COPY src/lib/privacy-redaction.ts /app/src/lib/privacy-redaction.ts
 COPY src/lib/public-profile-username.ts /app/src/lib/public-profile-username.ts
 COPY src/lib/seller-prestige.ts /app/src/lib/seller-prestige.ts
 COPY src/lib/seller-presence.ts /app/src/lib/seller-presence.ts

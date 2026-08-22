@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { getTradeRoomData } from "@/lib/alpha-exchange-store";
 import { requireApiUser } from "@/lib/api-auth";
 import { subscribeRealtimeEvents, type RealtimeEvent } from "@/lib/realtime";
+import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 
 type RouteContext = {
   params: Promise<{ requestId: string }>;
@@ -10,7 +11,7 @@ type RouteContext = {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const DEBUG = process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
+const DEBUG = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
 
 function isRelevantTradeRoomEvent(event: RealtimeEvent, requestId: string) {
   if (event.type === "trade.status_changed") {

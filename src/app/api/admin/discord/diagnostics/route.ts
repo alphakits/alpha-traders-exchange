@@ -7,7 +7,7 @@ import {
 } from "@/lib/discord/management";
 import { fetchDiscordWorkerDiagnostics } from "@/lib/discord/worker-health-client";
 import {
-  checkRateLimit,
+  checkSharedRateLimit,
   createRateLimitResponse,
 } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   const { user, unauthorized } = await requireApiAdmin();
   if (!user) return unauthorized;
-  const rate = checkRateLimit({
+  const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "admin:discord-diagnostics",
     identifier: user.id,

@@ -9,6 +9,7 @@ import {
   type MarketplaceEmailPayload,
 } from "@/lib/marketplace-email-delivery";
 import type { MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
+import { logEvent } from "@/lib/structured-logging";
 
 type EmailRecipient = {
   id: string;
@@ -41,12 +42,15 @@ async function deliver(input: Omit<MarketplaceEmailPayload, "recipientName"> & {
     recipientName: input.recipient.fullName,
   });
   if (!result.ok) {
-    console.error("[marketplace-email] delivery failed", {
-      event: input.event,
-      recipientUserId: input.recipient.id,
-      reason: result.reason,
-      providerStatus: "providerStatus" in result ? result.providerStatus : undefined,
-      providerMessage: "providerMessage" in result ? result.providerMessage : undefined,
+    logEvent("error", {
+      event: "marketplace_email_delivery",
+      targetUserId: input.recipient.id,
+      outcome: "failed",
+      reason: input.event,
+      metadata: {
+        deliveryReason: result.reason,
+        providerStatus: "providerStatus" in result ? result.providerStatus : undefined,
+      },
     });
   }
 }

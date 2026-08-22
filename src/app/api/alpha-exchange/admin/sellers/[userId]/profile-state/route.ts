@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireApiAdmin } from "@/lib/api-auth";
 import { updateSellerAvailabilityStatus, updateSellerProfileStateByAdmin } from "@/lib/alpha-exchange-store";
 import { logEvent } from "@/lib/structured-logging";
+import { toAdminSellerSummary } from "@/lib/client-session-user";
 
 type RouteContext = {
   params: Promise<{ userId: string }>;
@@ -49,7 +50,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       targetUserId: userId,
       outcome: "success",
     });
-    return NextResponse.json({ seller: availabilitySeller ?? seller });
+    const updatedSeller = availabilitySeller ?? seller;
+    if (!updatedSeller) {
+      return NextResponse.json({ error: "No seller profile state was updated." }, { status: 400 });
+    }
+    return NextResponse.json({ seller: toAdminSellerSummary(updatedSeller) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update seller profile state.";
     logEvent("error", {

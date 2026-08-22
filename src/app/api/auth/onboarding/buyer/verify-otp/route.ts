@@ -6,8 +6,15 @@ import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
 import { AUTH_PHONE_VERIFIED_COOKIE_NAME } from "@/lib/auth";
 import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
+import { isProductionSecurityRuntime } from "@/lib/runtime-safety";
 
-const OTP_EXPIRY_MINUTES = Number(process.env.BUYER_OTP_EXPIRY_MINUTES ?? "10");
+function getOtpExpiryMinutes() {
+  const configured = Number(process.env.BUYER_OTP_EXPIRY_MINUTES ?? "10");
+  const requested = Number.isFinite(configured) && configured > 0 ? configured : 10;
+  // A production configuration may shorten expiry, but cannot make an OTP
+  // valid longer than the reviewed ten-minute default.
+  return isProductionSecurityRuntime() ? Math.min(requested, 10) : requested;
+}
 
 export async function POST(request: NextRequest) {
   const requestId = crypto.randomUUID();
@@ -50,7 +57,7 @@ export async function POST(request: NextRequest) {
   }
 
   const requestedAt = new Date(currentUser.buyerOtpRequestedAt).getTime();
-  const expiryWindowMs = (Number.isFinite(OTP_EXPIRY_MINUTES) && OTP_EXPIRY_MINUTES > 0 ? OTP_EXPIRY_MINUTES : 10) * 60 * 1000;
+  const expiryWindowMs = getOtpExpiryMinutes() * 60 * 1000;
   if (Date.now() - requestedAt > expiryWindowMs) {
     logEvent("warn", {
       event: "buyer_verification_otp_verify",
@@ -71,8 +78,8 @@ export async function POST(request: NextRequest) {
       actorUserId: user.id,
       actorRole: user.role,
       outcome: "failed",
-      reason: error instanceof Error ? error.message : "OTP verify provider failure",
-      metadata: { requestId },
+      reason: "otp_provider_verification_failed",
+      metadata: { requestId, errorType: error instanceof Error ? error.name : typeof error },
     });
     return NextResponse.json(
       {
@@ -117,8 +124,8 @@ export async function POST(request: NextRequest) {
       actorUserId: user.id,
       actorRole: user.role,
       outcome: "failed",
-      reason: error instanceof Error ? error.message : "Unknown completion failure",
-      metadata: { requestId },
+      reason: "buyer_verification_completion_failed",
+      metadata: { requestId, errorType: error instanceof Error ? error.name : typeof error },
     });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to complete buyer verification." }, { status: 400 });
   }

@@ -27,6 +27,8 @@ export type DiscordMarketplaceEvent = {
   occurredAt?: string;
 };
 
+export const MARKETPLACE_EVENT_SIGNATURE_MAX_AGE_MS = 5 * 60 * 1000;
+
 function eventColor(event: DiscordMarketplaceEvent) {
   if (event.severity === "critical") return 0xdc2626;
   if (event.severity === "warning") return 0xf59e0b;
@@ -60,6 +62,19 @@ export function verifyMarketplaceEventSignature(body: string, timestamp: string,
   const right = Buffer.from(signature, "utf8");
   if (left.length !== right.length) return false;
   return timingSafeEqual(left, right);
+}
+
+/**
+ * Timestamp freshness limits replay of a captured internal relay request.
+ * This relay is outbound-only; it cannot mutate marketplace state.
+ */
+export function isMarketplaceEventTimestampFresh(
+  timestamp: string,
+  now = Date.now(),
+) {
+  const occurredAtMs = Date.parse(timestamp);
+  return Number.isFinite(occurredAtMs)
+    && Math.abs(now - occurredAtMs) <= MARKETPLACE_EVENT_SIGNATURE_MAX_AGE_MS;
 }
 
 export async function sendMarketplaceEventToDiscord(event: DiscordMarketplaceEvent) {

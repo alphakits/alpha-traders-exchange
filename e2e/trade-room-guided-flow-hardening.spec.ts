@@ -229,6 +229,85 @@ async function createTradeRequest(request: APIRequestContext, usdtAmount = "300"
   return requestId;
 }
 
+async function seedActiveTradeWithPendingCommission(api: APIRequestContext) {
+  const db = await readDb(api);
+  // Keep the commission due on a separate completed trade. The Trade Room
+  // deliberately redirects a seller away from a completed request; using a
+  // still-active request here exercises the Pay Now action without racing that
+  // established lifecycle redirect.
+  const completedRequestId = `commission-completed-trade-${randomUUID()}`;
+  const activeRequestId = `commission-active-trade-${randomUUID()}`;
+  const commissionId = `commission-${randomUUID()}`;
+  trackedIds.add(completedRequestId);
+  trackedIds.add(activeRequestId);
+  trackedIds.add(commissionId);
+  const now = iso();
+
+  db.purchaseRequests = [
+    ...(Array.isArray(db.purchaseRequests) ? db.purchaseRequests : []),
+    {
+      id: completedRequestId,
+      tradeId: `trade-${completedRequestId}`,
+      listingId: ids.listing,
+      sellerId: ids.seller,
+      buyerId: ids.buyer,
+      buyerName: "Guided Buyer",
+      buyerWhatsapp: "+972500000101",
+      buyerNotes: "Completed trade with a commission due",
+      usdtAmount: "300",
+      fiatAmount: "1080",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethod: "Face-to-Face (Meet in Person)",
+      timeline: [],
+      status: "review_open",
+      completedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: activeRequestId,
+      tradeId: `trade-${activeRequestId}`,
+      listingId: ids.listing,
+      sellerId: ids.seller,
+      buyerId: ids.buyer,
+      buyerName: "Guided Buyer",
+      buyerWhatsapp: "+972500000101",
+      buyerNotes: "Active trade with an existing commission due",
+      usdtAmount: "300",
+      fiatAmount: "1080",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethod: "Face-to-Face (Meet in Person)",
+      timeline: [],
+      status: "accepted",
+      acceptedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+  db.commissionRecords = [
+    ...(Array.isArray(db.commissionRecords) ? db.commissionRecords : []),
+    {
+      id: commissionId,
+      purchaseRequestId: completedRequestId,
+      tradeId: `trade-${completedRequestId}`,
+      listingId: ids.listing,
+      sellerId: ids.seller,
+      buyerId: ids.buyer,
+      rate: 0.01,
+      grossAmount: 300,
+      commissionAmount: 3,
+      paymentStatus: "pending",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+
+  await writeDb(api, db);
+  return activeRequestId;
+}
+
 async function getUserIdByEmail(api: APIRequestContext, email: string) {
   const db = await readDb(api);
   const users = Array.isArray(db.users) ? db.users : [];
@@ -537,6 +616,35 @@ test("mobile guided flow: notifications, payment/evidence, live updates, and sec
   await expect(page.getByRole("button", { name: /Submit Rating|إرسال التقييم/i }).first()).toBeVisible({ timeout: 20_000 });
 
   await api.dispose();
+});
+
+test("trade-room Pay Now opens the canonical commission flow without an external generic-wallet destination", async ({ page }) => {
+  test.setTimeout(120_000);
+  const api = await pwRequest.newContext({ baseURL: "http://localhost:3000" });
+  const requestId = await seedActiveTradeWithPendingCommission(api);
+  const popupUrls: string[] = [];
+  const onPopup = (popup: Page) => popupUrls.push(popup.url());
+  page.on("popup", onPopup);
+
+  try {
+    await logout(page.request);
+    await login(page.request, sellerEmail, sellerPassword);
+    await page.goto(`/en/trade-room/${requestId}`);
+    await expect(page.getByText(/Commission Due/i).first()).toBeVisible({ timeout: 20_000 });
+
+    await Promise.all([
+      page.waitForURL(/\/en\/usdt-exchange/, { timeout: 20_000 }),
+      page.getByRole("button", { name: "Pay Now" }).first().click(),
+    ]);
+
+    await expect(page).toHaveURL(/\/en\/usdt-exchange#commission-payment$/, { timeout: 20_000 });
+    await expect(page.getByText("Commission Payment").first()).toBeVisible({ timeout: 20_000 });
+    await page.waitForTimeout(100);
+    expect(popupUrls).toEqual([]);
+  } finally {
+    page.off("popup", onPopup);
+    await api.dispose();
+  }
 });
 
 test("action transition matrix: destination query/hash + focused section + CTA across required states", async ({ page }) => {

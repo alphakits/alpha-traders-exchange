@@ -3,14 +3,13 @@ import {
   clearMarketplaceEmailAttempts,
   listMarketplaceEmailAttempts,
 } from "@/lib/marketplace-email-delivery";
+import { allowsLocalTestSupportRequest } from "@/lib/runtime-safety";
 
 const TEST_SUPPORT_HEADER = "x-alpha-test-support";
 
 function isEnabled(request: NextRequest) {
   const headerEnabled = request.headers.get(TEST_SUPPORT_HEADER) === "enabled";
-  if (!headerEnabled) return false;
-  if (process.env.NODE_ENV !== "production") return true;
-  return process.env.ALPHA_ENABLE_TEST_SUPPORT === "1";
+  return headerEnabled && allowsLocalTestSupportRequest(request);
 }
 
 export async function GET(request: NextRequest) {

@@ -160,7 +160,6 @@ export function GlobalBlockchainBackground() {
   const rafRef = useRef<number | null>(null);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [lowPower, setLowPower] = useState(false);
-  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
 
   const showCryptoOverlay = useMemo(() => {
@@ -170,22 +169,17 @@ export function GlobalBlockchainBackground() {
   useEffect(() => {
     const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
     const desktopQuery = window.matchMedia("(min-width: 1024px)");
-    const mobileQuery = window.matchMedia("(max-width: 768px)");
     const updateMotion = () => setReduceMotion(mediaQuery.matches);
     const updateDesktop = () => setIsDesktop(desktopQuery.matches);
-    const updateMobile = () => setIsMobileViewport(mobileQuery.matches);
 
     updateMotion();
     updateDesktop();
-    updateMobile();
     mediaQuery.addEventListener("change", updateMotion);
     desktopQuery.addEventListener("change", updateDesktop);
-    mobileQuery.addEventListener("change", updateMobile);
 
     return () => {
       mediaQuery.removeEventListener("change", updateMotion);
       desktopQuery.removeEventListener("change", updateDesktop);
-      mobileQuery.removeEventListener("change", updateMobile);
     };
   }, []);
 
@@ -225,13 +219,14 @@ export function GlobalBlockchainBackground() {
     };
   }, []);
 
-  const useLiteBackground = isMobileViewport || reduceMotion || lowPower;
-  const visiblePulseLines = useLiteBackground ? pulseLines.slice(0, 2) : pulseLines;
-  const visibleParticles = useLiteBackground ? particleConfig.slice(0, 4) : particleConfig;
-  const shouldShowCryptoLayer = showCryptoOverlay && !useLiteBackground;
+  // Keep the decorative DOM stable across server render and hydration. Mobile
+  // reduction is handled by the CSS media query, which is available before
+  // first paint; runtime preference changes only affect behavior, not markup.
+  const shouldShowCryptoLayer = showCryptoOverlay;
+  const shouldEnableCryptoParallax = shouldShowCryptoLayer && isDesktop && !reduceMotion && !lowPower;
 
   useEffect(() => {
-    if (!shouldShowCryptoLayer || !isDesktop || !layerRef.current) return;
+    if (!shouldEnableCryptoParallax || !layerRef.current) return;
 
     const layer = layerRef.current;
     const onMouseMove = (event: MouseEvent) => {
@@ -249,38 +244,36 @@ export function GlobalBlockchainBackground() {
       window.removeEventListener("mousemove", onMouseMove);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [shouldShowCryptoLayer, isDesktop]);
+  }, [shouldEnableCryptoParallax]);
 
   return (
     <div className="global-chain-bg" aria-hidden="true">
       <div className="global-chain-bg__vignette" />
       <div className="global-chain-bg__mesh" />
-      {!useLiteBackground ? (
-        <svg className="global-chain-bg__network" viewBox="0 0 1920 1080" preserveAspectRatio="none">
-          <g className="global-chain-bg__network-lines">
-            <path d="M60 240 L380 180 L640 330 L920 250 L1260 380 L1580 280 L1860 360" />
-            <path d="M120 760 L360 680 L620 760 L900 660 L1170 760 L1470 650 L1820 740" />
-            <path d="M250 130 L470 320 L720 210 L980 420 L1230 320 L1490 520" />
-            <path d="M300 940 L540 740 L800 860 L1100 720 L1360 860 L1710 690" />
-            <path d="M520 90 L660 300 L860 140 L1090 290 L1300 150 L1550 260" />
-            <path d="M740 980 L860 760 L1080 900 L1260 700 L1490 860 L1760 640" />
-          </g>
-          <g className="global-chain-bg__network-nodes">
-            <circle cx="380" cy="180" r="4" />
-            <circle cx="920" cy="250" r="4" />
-            <circle cx="1260" cy="380" r="5" />
-            <circle cx="360" cy="680" r="4" />
-            <circle cx="900" cy="660" r="5" />
-            <circle cx="1470" cy="650" r="4" />
-            <circle cx="470" cy="320" r="4" />
-            <circle cx="980" cy="420" r="5" />
-            <circle cx="1490" cy="520" r="4" />
-            <circle cx="540" cy="740" r="4" />
-            <circle cx="1100" cy="720" r="5" />
-            <circle cx="1710" cy="690" r="4" />
-          </g>
-        </svg>
-      ) : null}
+      <svg className="global-chain-bg__network" viewBox="0 0 1920 1080" preserveAspectRatio="none">
+        <g className="global-chain-bg__network-lines">
+          <path d="M60 240 L380 180 L640 330 L920 250 L1260 380 L1580 280 L1860 360" />
+          <path d="M120 760 L360 680 L620 760 L900 660 L1170 760 L1470 650 L1820 740" />
+          <path d="M250 130 L470 320 L720 210 L980 420 L1230 320 L1490 520" />
+          <path d="M300 940 L540 740 L800 860 L1100 720 L1360 860 L1710 690" />
+          <path d="M520 90 L660 300 L860 140 L1090 290 L1300 150 L1550 260" />
+          <path d="M740 980 L860 760 L1080 900 L1260 700 L1490 860 L1760 640" />
+        </g>
+        <g className="global-chain-bg__network-nodes">
+          <circle cx="380" cy="180" r="4" />
+          <circle cx="920" cy="250" r="4" />
+          <circle cx="1260" cy="380" r="5" />
+          <circle cx="360" cy="680" r="4" />
+          <circle cx="900" cy="660" r="5" />
+          <circle cx="1470" cy="650" r="4" />
+          <circle cx="470" cy="320" r="4" />
+          <circle cx="980" cy="420" r="5" />
+          <circle cx="1490" cy="520" r="4" />
+          <circle cx="540" cy="740" r="4" />
+          <circle cx="1100" cy="720" r="5" />
+          <circle cx="1710" cy="690" r="4" />
+        </g>
+      </svg>
       <div className="global-chain-bg__hexband global-chain-bg__hexband--one" />
       <div className="global-chain-bg__hexband global-chain-bg__hexband--two" />
       {shouldShowCryptoLayer ? (
@@ -352,7 +345,7 @@ export function GlobalBlockchainBackground() {
           })}
         </div>
       ) : null}
-      {visiblePulseLines.map((line, index) => {
+      {pulseLines.map((line, index) => {
         const style = {
           left: line.left,
           top: line.top,
@@ -361,9 +354,9 @@ export function GlobalBlockchainBackground() {
           animationDelay: `${line.delay}s`,
           animationDuration: `${line.duration}s`,
         } satisfies CSSProperties;
-        return <div key={`pulse-line-${index}`} className="global-chain-bg__pulse-line" style={style} />;
+        return <div key={`pulse-line-${index}`} className={`global-chain-bg__pulse-line${index > 1 ? " global-chain-bg__pulse-line--desktop-detail" : ""}`} style={style} />;
       })}
-      {visibleParticles.map((particle, index) => {
+      {particleConfig.map((particle, index) => {
         const style = {
           left: particle.left,
           top: particle.top,
@@ -372,7 +365,7 @@ export function GlobalBlockchainBackground() {
           animationDuration: `${particle.duration}s`,
           animationDelay: `${particle.delay}s`,
         } satisfies CSSProperties;
-        return <span key={`particle-${index}`} className="global-chain-bg__particle" style={style} />;
+        return <span key={`particle-${index}`} className={`global-chain-bg__particle${index > 3 ? " global-chain-bg__particle--desktop-detail" : ""}`} style={style} />;
       })}
     </div>
   );

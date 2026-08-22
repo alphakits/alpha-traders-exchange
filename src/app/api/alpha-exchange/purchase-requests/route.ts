@@ -4,7 +4,6 @@ import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-au
 import { hasRole } from "@/lib/roles";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
-import { isVerified } from "@/lib/verification-bypass";
 import { prepareTradeEventEmails } from "@/lib/marketplace-email-events";
 import { tradeDestination } from "@/lib/action-destinations";
 
@@ -37,16 +36,6 @@ export async function POST(request: NextRequest) {
       reason: message,
       metadata: { requestId, code, ...metadata },
     });
-    if (status === 403) {
-      console.error({
-        reason: message,
-        code,
-        status: 403,
-        user: user.email,
-        requestId,
-        details: details ?? null,
-      });
-    }
     return NextResponse.json(
       {
         code,
@@ -68,16 +57,6 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ code: "PURCHASE_REQUEST_FAILED", message: error, details: null, requestId }, { status: 500, headers: withRequestIdHeaders() });
   };
-  console.info("[purchase-requests] incoming user", {
-    requestId,
-    email: user.email,
-    role: user.role,
-    isPhotoVerified: isVerified(user),
-    sellerStatus: user.sellerStatus,
-    hasBuyerRole: hasRole(user, "buyer"),
-    hasApprovedSellerRole: hasRole(user, "approved_seller"),
-    hasAdminRole: hasRole(user, "admin"),
-  });
   const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
   if (phoneVerificationRequired) {
     return denied(

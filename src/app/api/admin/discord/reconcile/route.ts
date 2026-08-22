@@ -3,7 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { requireApiAdmin } from "@/lib/api-auth";
 import { enqueueDiscordOperatorReconciliation } from "@/lib/discord/management";
 import {
-  checkRateLimit,
+  checkSharedRateLimit,
   createRateLimitResponse,
 } from "@/lib/rate-limit";
 import { hasTrustedSameOrigin } from "@/lib/request-origin";
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
       { status: 403 },
     );
   }
-  const rate = checkRateLimit({
+  const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "admin:discord-reconcile",
     identifier: user.id,

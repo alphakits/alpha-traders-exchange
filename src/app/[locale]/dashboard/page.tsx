@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { hasRole } from "@/lib/roles";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
+import { toClientSessionUser } from "@/lib/client-session-user";
 import { getFirstActiveTradeForUser } from "@/lib/alpha-exchange-store";
 
 export const dynamic = "force-dynamic";
@@ -38,5 +39,5 @@ export default async function DashboardPage({ params }: { params: Promise<{ loca
     redirect(`/${locale}/dashboard/seller`);
   }
 
-  return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={user} />;
+  return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={toClientSessionUser(user)} />;
 }

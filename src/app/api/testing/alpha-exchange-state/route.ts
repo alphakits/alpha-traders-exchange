@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 import { invalidateAlphaExchangeStoreCache, runAlphaExchangeMaintenance } from "@/lib/alpha-exchange-store";
+import { allowsLocalTestSupportRequest } from "@/lib/runtime-safety";
+import { logEvent } from "@/lib/structured-logging";
 import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
 const TEST_SUPPORT_HEADER = "x-alpha-test-support";
@@ -11,9 +13,7 @@ declare global {
 
 function isEnabled(request: NextRequest) {
   const headerEnabled = request.headers.get(TEST_SUPPORT_HEADER) === "enabled";
-  if (!headerEnabled) return false;
-  if (process.env.NODE_ENV !== "production") return true;
-  return process.env.ALPHA_ENABLE_TEST_SUPPORT === "1";
+  return headerEnabled && allowsLocalTestSupportRequest(request);
 }
 
 async function withTestingStateQueue<T>(operation: () => Promise<T>) {
@@ -76,7 +76,12 @@ export async function GET(request: NextRequest) {
       });
     });
   } catch (error) {
-    console.error("[testing/alpha-exchange-state] GET failed", error);
+    logEvent("error", {
+      event: "testing_alpha_exchange_state",
+      outcome: "failed",
+      reason: "snapshot_read_failed",
+      metadata: { errorType: error instanceof Error ? error.name : typeof error },
+    });
     return NextResponse.json({ error: "Failed to read runtime state." }, { status: 500 });
   }
 }
@@ -99,7 +104,12 @@ export async function PUT(request: NextRequest) {
       await runAlphaExchangeMaintenance();
     });
   } catch (error) {
-    console.error("[testing/alpha-exchange-state] PUT failed", error);
+    logEvent("error", {
+      event: "testing_alpha_exchange_state",
+      outcome: "failed",
+      reason: "snapshot_write_failed",
+      metadata: { errorType: error instanceof Error ? error.name : typeof error },
+    });
     return NextResponse.json({ error: "Failed to write runtime state." }, { status: 500 });
   }
 

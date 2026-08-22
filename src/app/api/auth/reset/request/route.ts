@@ -3,6 +3,7 @@ import { checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { getSiteUrl } from "@/lib/site-url";
 import { createSupabaseAdminClient, createSupabaseAuthClient, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 import { buildAuthEmail, sendAuthEmailViaResend } from "@/lib/auth-email-delivery";
+import { logEvent } from "@/lib/structured-logging";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -19,7 +20,16 @@ function resetGenericMessage(locale: "ar" | "en") {
 
 function logResetRequest(reason: string, details: Record<string, string | number | boolean | null>) {
   if (process.env.NODE_ENV === "test") return;
-  console.warn("[auth/reset/request]", { reason, ...details });
+  const { provider, retryAfterSeconds } = details;
+  logEvent("warn", {
+    event: "auth_reset_request",
+    outcome: reason.includes("limit") ? "denied" : "failed",
+    reason,
+    metadata: {
+      provider: typeof provider === "string" ? provider : undefined,
+      retryAfterSeconds: typeof retryAfterSeconds === "number" ? retryAfterSeconds : undefined,
+    },
+  });
 }
 
 export async function POST(request: NextRequest) {

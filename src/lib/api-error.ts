@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logEvent } from "@/lib/structured-logging";
 
 /**
  * Represents an expected, user-facing API error that is safe to forward to the client.
@@ -33,7 +34,12 @@ export function toErrorResponse(
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     // Unexpected error — log server-side, return generic message
-    console.error("[api-error]", error.message, error.stack);
+    logEvent("error", {
+      event: "api_unexpected_error",
+      outcome: "failed",
+      reason: "unhandled_error",
+      metadata: { errorType: error.name },
+    });
     return NextResponse.json({ error: fallback }, { status: 500 });
   }
   return NextResponse.json({ error: fallback }, { status: 500 });

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
+import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 import { TradeRoomPage } from "@/components/sections/trade-room/trade-room-page";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +23,7 @@ export default async function TradeRoomRoute({
 }) {
   const { locale, requestId } = await params;
   const user = await getCurrentSessionUser();
-  if (process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") console.log("[trade-room-open] route entry", {
+  if (allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") console.log("[trade-room-open] route entry", {
     locale,
     requestId,
     userId: user?.id ?? null,
@@ -31,7 +32,7 @@ export default async function TradeRoomRoute({
   });
 
   if (!user) {
-    if (process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") console.log("[trade-room-open] route redirect unauthenticated", {
+    if (allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") console.log("[trade-room-open] route redirect unauthenticated", {
       locale,
       requestId,
       destination: `/${locale}/login?redirectTo=/${locale}/trade-room/${requestId}`,

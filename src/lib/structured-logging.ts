@@ -15,13 +15,22 @@ type LogPayload = {
 
 const SECRET_FIELD_PATTERN = /token|password|secret|otp|code/i;
 const FINANCIAL_OR_PHONE_FIELD_PATTERN = /phone|whatsapp|bank|account(?:number)?|iban|swift/i;
+const PERSONAL_OR_SESSION_FIELD_PATTERN = /email|(?:^|[_-])ip(?:address)?(?:$|[_-])|(?:client|remote|source)ip(?:address)?|session|cookie|authorization|wallet|transaction|txhash|request(?:body|payload)/i;
+
+function redactFreeformText(value: string) {
+  return redactPhoneNumbers(value)
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[REDACTED_EMAIL]")
+    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, "[REDACTED_IP]")
+    .replace(/\bBearer\s+[^\s,;]+/gi, "Bearer [REDACTED]");
+}
 
 function redact(value: unknown, fieldName?: string): unknown {
   if (value == null) return value;
   if (fieldName && SECRET_FIELD_PATTERN.test(fieldName)) return "[REDACTED]";
   if (fieldName && FINANCIAL_OR_PHONE_FIELD_PATTERN.test(fieldName)) return "[REDACTED]";
+  if (fieldName && PERSONAL_OR_SESSION_FIELD_PATTERN.test(fieldName)) return "[REDACTED]";
   if (typeof value === "string") {
-    return redactPhoneNumbers(value);
+    return redactFreeformText(value);
   }
   if (Array.isArray(value)) return value.map((item) => redact(item));
   if (typeof value === "object") {

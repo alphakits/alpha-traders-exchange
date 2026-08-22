@@ -5,6 +5,8 @@ import { tmpdir } from "os";
 import { createHash } from "crypto";
 import alphaExchangeSeed from "../../data/alpha-exchange-db.json";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
+import { isProductionSecurityRuntime, allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
+import { logEvent } from "@/lib/structured-logging";
 import type {
   AlphaExchangeDb,
   MarketplaceEnforcementAuditEntry,
@@ -399,11 +401,11 @@ const SNAPSHOT_TABLE_NAMES = [
 export type SnapshotTableName = (typeof SNAPSHOT_TABLE_NAMES)[number];
 
 function shouldLogRepoVersionFlow() {
-  return process.env.ALPHA_EXCHANGE_REPO_TRACE === "1";
+  return allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_REPO_TRACE === "1";
 }
 
 function shouldPersistRepoVersionTrace() {
-  return process.env.ALPHA_EXCHANGE_REPO_TRACE === "1";
+  return allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_REPO_TRACE === "1";
 }
 
 function logRepoVersionFlow(event: string, payload: Record<string, unknown>) {
@@ -424,7 +426,7 @@ function logRepoVersionFlow(event: string, payload: Record<string, unknown>) {
 // Logs to console as:  [REPO-PERF] <op> <step> +<total>ms (delta <step>ms)
 // ---------------------------------------------------------------------------
 function isRepoPerfEnabled() {
-  return process.env.ALPHA_EXCHANGE_PERF === "1";
+  return allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_PERF === "1";
 }
 
 function createRepoPerf(op: string) {
@@ -1118,7 +1120,7 @@ async function replaceTableContents(tx: PoolClient, tableName: SnapshotTableName
 }
 
 function isListingCreateProfilingEnabled() {
-  return process.env.ALPHA_EXCHANGE_PROFILE_LISTING_CREATE === "1";
+  return allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_PROFILE_LISTING_CREATE === "1";
 }
 
 function createRepositoryProfileLogger(scope: string) {
@@ -1461,6 +1463,8 @@ function syncFallbackAuthSessions(update: (sessions: AuthSession[]) => AuthSessi
 }
 
 function loadPersistedFallbackSnapshot(): SnapshotWithVersion | null {
+  // Production must never read a prior mutable snapshot from local disk.
+  if (isProductionSecurityRuntime()) return null;
   try {
     if (!existsSync(FALLBACK_SNAPSHOT_PATH)) return null;
     const raw = readFileSync(FALLBACK_SNAPSHOT_PATH, "utf8").trim();
@@ -1469,10 +1473,12 @@ function loadPersistedFallbackSnapshot(): SnapshotWithVersion | null {
     const version = getVersion(parsed);
     return attachVersion(cloneSnapshot(parsed), version);
   } catch (error) {
-    console.warn(
-      "[alpha-exchange-repository] failed to load persisted fallback snapshot:",
-      error instanceof Error ? error.message : error,
-    );
+    logEvent("warn", {
+      event: "alpha_exchange_repository_fallback_snapshot",
+      outcome: "failed",
+      reason: "fallback_snapshot_read_failed",
+      metadata: { errorName: error instanceof Error ? error.name : typeof error },
+    });
     return null;
   }
 }
@@ -1489,16 +1495,21 @@ function syncMemoryFallbackSnapshot(snapshot: AlphaExchangeDb, version = getVers
   ensureMemorySeed();
   const next = attachVersion(pruneOrphanAuthSessions(cloneSnapshot(snapshot)), version);
   globalThis.__alphaExchangeMemorySnapshot = next;
+  // A successful production database read may update the in-process mirror for
+  // cache coherence, but must not persist user/session data to /tmp.
+  if (isProductionSecurityRuntime()) return;
   try {
     mkdirSync(FALLBACK_SNAPSHOT_DIR, { recursive: true });
     const tempPath = `${FALLBACK_SNAPSHOT_PATH}.tmp`;
     writeFileSync(tempPath, JSON.stringify(next), "utf8");
     renameSync(tempPath, FALLBACK_SNAPSHOT_PATH);
   } catch (error) {
-    console.warn(
-      "[alpha-exchange-repository] failed to persist fallback snapshot:",
-      error instanceof Error ? error.message : error,
-    );
+    logEvent("warn", {
+      event: "alpha_exchange_repository_fallback_snapshot",
+      outcome: "failed",
+      reason: "fallback_snapshot_write_failed",
+      metadata: { errorName: error instanceof Error ? error.name : typeof error },
+    });
   }
 }
 
@@ -1506,10 +1517,13 @@ async function queryWithLogging(client: PoolClient, queryText: string, values?: 
   try {
     return await client.query(queryText, values);
   } catch (error) {
-    console.error("[alpha-exchange-repository] query failed", {
-      queryText,
-      values,
-      error,
+    logEvent("error", {
+      event: "alpha_exchange_repository_query",
+      outcome: "failed",
+      reason: "database_query_failed",
+      metadata: {
+        errorName: error instanceof Error ? error.name : "unknown",
+      },
     });
     throw error;
   }
@@ -1521,6 +1535,9 @@ export class AlphaExchangeRepository {
   private initPromise: Promise<void> | null = null;
 
   constructor(pool: Pool | null) {
+    if (!pool && isProductionSecurityRuntime()) {
+      throw new Error("Durable Alpha Exchange persistence is unavailable in production.");
+    }
     this.pool = pool;
     this.usesMemoryFallback = pool === null;
   }
@@ -1530,6 +1547,9 @@ export class AlphaExchangeRepository {
       this.initPromise = (async () => {
         const pool = this.pool;
         if (this.usesMemoryFallback || !pool) {
+          if (isProductionSecurityRuntime()) {
+            throw new Error("Durable Alpha Exchange persistence is unavailable in production.");
+          }
           ensureMemorySeed();
           return;
         }
@@ -1541,7 +1561,21 @@ export class AlphaExchangeRepository {
             await this.saveSnapshot(DEFAULT_DB, { skipReadyCheck: true });
           }
         } catch (error) {
-          console.error("[alpha-exchange-repository] CRITICAL: Falling back to in-memory snapshot because the database is unavailable. All data created during this session will be lost on the next invocation. Ensure SUPABASE_DB_URL uses the Transaction Mode pooler URL (pooler.supabase.com:6543), NOT the direct host (db.<ref>.supabase.co). Error:", error instanceof Error ? error.message : error);
+          if (isProductionSecurityRuntime()) {
+            logEvent("error", {
+              event: "alpha_exchange_repository_initialize",
+              outcome: "failed",
+              reason: "durable_persistence_unavailable",
+              metadata: { errorName: error instanceof Error ? error.name : "unknown" },
+            });
+            throw new Error("Durable Alpha Exchange persistence is unavailable.");
+          }
+          logEvent("warn", {
+            event: "alpha_exchange_repository_initialize",
+            outcome: "failed",
+            reason: "local_memory_fallback_enabled",
+            metadata: { errorName: error instanceof Error ? error.name : typeof error },
+          });
           ensureMemorySeed();
           this.usesMemoryFallback = true;
         }
@@ -1567,7 +1601,7 @@ export class AlphaExchangeRepository {
     await this.ensureReady();
     const pool = this.pool;
     if (this.usesMemoryFallback || !pool) {
-      if (process.env.NODE_ENV === "production") {
+      if (isProductionSecurityRuntime()) {
         throw new Error("Durable announcement delivery is unavailable while the database is offline.");
       }
       const snapshot = getLatestAvailableFallbackSnapshot();
@@ -1632,7 +1666,7 @@ export class AlphaExchangeRepository {
     await this.ensureReady();
     const pool = this.pool;
     if (this.usesMemoryFallback || !pool) {
-      if (process.env.NODE_ENV === "production") {
+      if (isProductionSecurityRuntime()) {
         throw new Error("Durable announcement delivery is unavailable while the database is offline.");
       }
       const snapshot = getLatestAvailableFallbackSnapshot();
@@ -1709,7 +1743,21 @@ export class AlphaExchangeRepository {
       perf?.done();
       return withVersion;
     } catch (error) {
-      console.error("[alpha-exchange-repository] CRITICAL: Falling back to in-memory snapshot because loading the database snapshot failed. All data created during this session will be lost on the next invocation. Error:", error instanceof Error ? error.message : error);
+      if (isProductionSecurityRuntime()) {
+        logEvent("error", {
+          event: "alpha_exchange_repository_load",
+          outcome: "failed",
+          reason: "durable_persistence_unavailable",
+          metadata: { errorName: error instanceof Error ? error.name : "unknown" },
+        });
+        throw new Error("Durable Alpha Exchange persistence is unavailable.");
+      }
+      logEvent("warn", {
+        event: "alpha_exchange_repository_load",
+        outcome: "failed",
+        reason: "local_memory_fallback_enabled",
+        metadata: { errorName: error instanceof Error ? error.name : typeof error },
+      });
       const fallback = getLatestAvailableFallbackSnapshot();
       logRepoVersionFlow("load:fallback-memory", {
         version: getVersion(fallback),
@@ -1726,7 +1774,7 @@ export class AlphaExchangeRepository {
     db: AlphaExchangeDb,
     options?: { evidenceOverrides?: EvidenceWriteMap; skipReadyCheck?: boolean; traceTag?: string; selectedTables?: readonly SnapshotTableName[] },
   ) {
-    if (options?.traceTag) {
+    if (options?.traceTag && allowsRuntimeDiagnostics()) {
       console.log("[usdt-sent-trace] repository entry", { traceId: options.traceTag });
     }
     const pool = this.pool;
@@ -1967,11 +2015,21 @@ export class AlphaExchangeRepository {
           perf?.done();
           return;
         } catch (error) {
-          console.error("[alpha-exchange-repository] saveSnapshot transaction error", error);
+          logEvent("error", {
+            event: "alpha_exchange_repository_save",
+            outcome: "failed",
+            reason: "transaction_failed",
+            metadata: { errorName: error instanceof Error ? error.name : typeof error },
+          });
           try {
             await client.query("rollback");
           } catch (rollbackError) {
-            console.error("[alpha-exchange-repository] saveSnapshot rollback error", rollbackError);
+            logEvent("error", {
+              event: "alpha_exchange_repository_save",
+              outcome: "failed",
+              reason: "rollback_failed",
+              metadata: { errorName: rollbackError instanceof Error ? rollbackError.name : typeof rollbackError },
+            });
             // The transaction may already be aborted; dispose this client so the next request gets a fresh connection.
           }
           if ((isAbortedTransactionError(error) || (error instanceof Error && /statement timeout|canceling statement|advisory lock/i.test(error.message))) && attempt === 0) {
@@ -2132,7 +2190,12 @@ export class AlphaExchangeRepository {
       ]);
       return;
     } catch (error) {
-      console.error("[alpha-exchange-repository] upsertAuthSession error", error);
+      logEvent("error", {
+        event: "alpha_exchange_repository_session_write",
+        outcome: "failed",
+        reason: "durable_persistence_write_failed",
+        metadata: { errorName: error instanceof Error ? error.name : typeof error },
+      });
       throw error;
     }
   }
@@ -2152,7 +2215,21 @@ export class AlphaExchangeRepository {
       );
       return result.rows[0]?.payload ?? null;
     } catch (error) {
-      console.error("[alpha-exchange-repository] falling back to cached auth session after database read failure", error);
+      if (isProductionSecurityRuntime()) {
+        logEvent("error", {
+          event: "alpha_exchange_repository_session_read",
+          outcome: "failed",
+          reason: "durable_persistence_unavailable",
+          metadata: { errorName: error instanceof Error ? error.name : "unknown" },
+        });
+        throw new Error("Durable session storage is unavailable.");
+      }
+      logEvent("warn", {
+        event: "alpha_exchange_repository_session_read",
+        outcome: "failed",
+        reason: "local_cached_session_fallback",
+        metadata: { errorName: error instanceof Error ? error.name : typeof error },
+      });
       return getLatestAvailableFallbackSnapshot().authSessions.find((item) => item.token === tokenHash) ?? null;
     }
   }
@@ -2293,10 +2370,12 @@ export class AlphaExchangeRepository {
         sellerReviews: [],
       } as AlphaExchangeDb;
     } catch (error) {
-      console.warn(
-        "[alpha-exchange-repository] loadSnapshotForListingCreation falling back to full snapshot:",
-        error instanceof Error ? error.message : error,
-      );
+      logEvent("warn", {
+        event: "alpha_exchange_repository_listing_snapshot",
+        outcome: "failed",
+        reason: "targeted_snapshot_fallback",
+        metadata: { errorName: error instanceof Error ? error.name : typeof error },
+      });
       return this.loadSnapshot();
     }
   }
@@ -2479,12 +2558,17 @@ export class AlphaExchangeRepository {
     perf?.step("parallel_appends");
     results.forEach((result, i) => {
       if (result.status === "rejected") {
-        console.error(
-          `[alpha-exchange] append INSERT failed for ${appendLabels[i] ?? "unknown"} ` +
-          `after listing ${delta.newListing.id} committed. ` +
-          `Seller: ${delta.newListing.sellerId}. ` +
-          `Error: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`,
-        );
+        logEvent("error", {
+          event: "alpha_exchange_listing_append",
+          targetUserId: delta.newListing.sellerId,
+          resourceId: delta.newListing.id,
+          outcome: "failed",
+          reason: "post_commit_append_failed",
+          metadata: {
+            table: appendLabels[i] ?? "unknown",
+            errorName: result.reason instanceof Error ? result.reason.name : typeof result.reason,
+          },
+        });
       }
     });
 

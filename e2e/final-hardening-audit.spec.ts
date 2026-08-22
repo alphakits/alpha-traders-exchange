@@ -16,21 +16,20 @@ const OWNER_PASSWORD = process.env.E2E_OWNER_PASSWORD ?? "";
 const REFRESH_VIEWPORTS = [
   { width: 390, height: 844 },
   { width: 375, height: 667 },
-  { width: 1280, height: 720 },
-  { width: 1440, height: 900 },
+  { width: 1366, height: 768 },
+  { width: 1920, height: 1080 },
 ] as const;
 
 const MOBILE_VIEWPORTS = [
   { width: 320, height: 568 },
+  { width: 360, height: 800 },
   { width: 375, height: 667 },
   { width: 390, height: 844 },
-  { width: 412, height: 915 },
+  { width: 430, height: 932 },
 ] as const;
 
 const DESKTOP_VIEWPORTS = [
   { width: 1366, height: 768 },
-  { width: 1280, height: 720 },
-  { width: 1440, height: 900 },
   { width: 1920, height: 1080 },
 ] as const;
 
@@ -162,8 +161,14 @@ async function assertRefreshStability(input: {
   const diagnostics = collectDiagnostics(page);
   await installLayoutShiftTracker(page);
 
+  const initialCanonicalSession = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === "/api/auth/me",
+    { timeout: 30_000 },
+  );
   await page.goto(route);
   await expect(readyLocator).toBeVisible({ timeout: 30_000 });
+  await initialCanonicalSession;
+  expect(countPath(diagnostics.firstPartyApiRequests, "/api/auth/me"), `duplicate auth bootstrap on initial ${route}`).toBeLessThanOrEqual(1);
   const stableUrl = page.url();
 
   diagnostics.reset();
@@ -242,7 +247,7 @@ test.describe("Final hardening audit", () => {
       await assertRefreshStability({
         page,
         route: "/en/usdt-exchange#my-trade-requests-section",
-        readyLocator: page.locator("#my-trade-requests-section"),
+        readyLocator: page.getByRole("main").locator("#my-trade-requests-section"),
         viewport,
         disallowPathnames: ["/login", "/dashboard"],
         maxCls: 1.5,
@@ -259,8 +264,8 @@ test.describe("Final hardening audit", () => {
 
     for (const viewport of [
       { width: 390, height: 844 },
-      { width: 1280, height: 720 },
-      { width: 1440, height: 900 },
+      { width: 1366, height: 768 },
+      { width: 1920, height: 1080 },
     ]) {
       await page.setViewportSize(viewport);
       const diagnostics = collectDiagnostics(page);
@@ -342,14 +347,16 @@ test.describe("Final hardening audit", () => {
       await login(page.request, SELLER_EMAIL, SELLER_PASSWORD);
       await page.setViewportSize(viewport);
       await page.goto("/en/usdt-exchange");
-      await expect(page.locator("#market-overview")).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator("#my-listings-section")).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator("#create-listing")).toBeVisible({ timeout: 30_000 });
+      const main = page.getByRole("main");
+      await expect(main.locator("#market-overview")).toBeVisible({ timeout: 30_000 });
+      await expect(main.locator("#my-listings-section")).toBeVisible({ timeout: 30_000 });
+      await expect(main.locator("#create-listing")).toBeVisible({ timeout: 30_000 });
 
       const sectionOrder = await page.evaluate(() => {
-        const market = document.getElementById("market-overview");
-        const listings = document.getElementById("my-listings-section");
-        const create = document.getElementById("create-listing");
+        const main = document.querySelector("main");
+        const market = main?.querySelector("#market-overview");
+        const listings = main?.querySelector("#my-listings-section");
+        const create = main?.querySelector("#create-listing");
         return {
           marketTop: market?.getBoundingClientRect().top ?? -1,
           listingsTop: listings?.getBoundingClientRect().top ?? -1,
@@ -360,9 +367,9 @@ test.describe("Final hardening audit", () => {
       expect(sectionOrder.createTop).toBeGreaterThan(sectionOrder.listingsTop);
 
       await page.getByRole("button", { name: /^Manage Listings$/ }).first().click();
-      await expect(page.locator("#my-listings-section")).toBeInViewport();
+      await expect(main.locator("#my-listings-section")).toBeInViewport();
       await page.getByRole("button", { name: /^Create Listing$/ }).first().click();
-      await expect(page.locator("#create-listing")).toBeInViewport();
+      await expect(main.locator("#create-listing")).toBeInViewport();
     });
   }
 

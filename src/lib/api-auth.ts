@@ -38,7 +38,7 @@ export function hasPhoneVerification(user: { email?: string; verifiedPhone?: str
 /**
  * Returns null (bypass) when:
  *   - User is admin or owner (always bypass)
- *   - ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION=1 env var is set (pre-Twilio operation)
+ *   - the explicit local test runtime enables ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION=1
  *   - User has an already-verified phone number
  * Otherwise returns a 403 response requiring phone verification.
  */
@@ -46,7 +46,7 @@ export function requirePhoneVerificationForTrading(user: { id: string; role: str
   // Admin and owner always bypass phone verification.
   const isAdminOrOwner = user.role === "admin" || user.role === "owner" || (user.roles ?? []).includes("admin") || (user.roles ?? []).includes("owner");
   if (isAdminOrOwner) return null;
-  // Platform-level bypass for pre-Twilio operation (set ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION=1 in Vercel env).
+  // Local test-only bypass. Deployed production runtimes reject this setting.
   if (isMarketplacePhoneVerificationDisabled()) return null;
   if (hasPhoneVerification(user)) return null;
   logEvent("warn", {

@@ -3,6 +3,7 @@ import { getTradeEvidenceForRequest, uploadTradeEvidence } from "@/lib/alpha-exc
 import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { prepareTradeEventEmails } from "@/lib/marketplace-email-events";
+import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 
 type RouteContext = {
   params: Promise<{ requestId: string }>;
@@ -89,19 +90,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
       after(deliverTradeEmails);
     }
     const routeMs = Date.now() - routeStartedAt;
-    console.log("[trade-room-perf] evidence timings", {
-      requestId,
-      actorUserId: user.id,
-      side,
-      validationMs: uploaded.metrics.validationMs,
-      storageMs: uploaded.metrics.storageMs,
-      dbWriteMs: uploaded.metrics.dbWriteMs,
-      dbReadMs: uploaded.metrics.dbReadMs,
-      routeMs,
-      autoAdvancedToPaymentSent: uploaded.metrics.autoAdvancedToPaymentSent,
-      autoAdvancedToUsdtSent: uploaded.metrics.autoAdvancedToUsdtSent,
-      statusAfter: uploaded.request.status,
-    });
+    if (allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") {
+      console.log("[trade-room-perf] evidence timings", {
+        requestId,
+        actorUserId: user.id,
+        side,
+        validationMs: uploaded.metrics.validationMs,
+        storageMs: uploaded.metrics.storageMs,
+        dbWriteMs: uploaded.metrics.dbWriteMs,
+        routeMs,
+        autoAdvancedToPaymentSent: uploaded.metrics.autoAdvancedToPaymentSent,
+        autoAdvancedToUsdtSent: uploaded.metrics.autoAdvancedToUsdtSent,
+        statusAfter: uploaded.request.status,
+      });
+    }
     return NextResponse.json(
       { request: uploaded.request, metrics: uploaded.metrics },
       {

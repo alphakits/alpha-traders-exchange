@@ -38,4 +38,19 @@ describe("shouldUseSecureAuthCookie", () => {
     const req = makeRequest("https://example.com/", { "x-forwarded-proto": "https" });
     expect(shouldUseSecureAuthCookie(req)).toBe(false);
   });
+
+  it("does not allow AUTH_COOKIE_SECURE=false to disable Secure cookies in deployed production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("AUTH_COOKIE_SECURE", "false");
+    const req = makeRequest("https://example.com/", { "x-forwarded-proto": "https" });
+    expect(shouldUseSecureAuthCookie(req)).toBe(true);
+  });
+
+  it("uses a Secure cookie in deployed production even if a proxy reports http", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    const req = makeRequest("http://example.com/", { "x-forwarded-proto": "http" });
+    expect(shouldUseSecureAuthCookie(req)).toBe(true);
+  });
 });

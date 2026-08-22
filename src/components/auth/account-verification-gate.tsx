@@ -5,15 +5,7 @@ import { ShieldCheck, Smartphone, Mail, CheckCircle2 } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-
-type SessionUser = {
-  email?: string;
-  fullName?: string;
-  emailVerified?: boolean;
-  isPhotoVerified?: boolean;
-  verifiedPhone?: string;
-  phoneVerifiedAt?: string;
-};
+import { useCanonicalSession } from "@/components/auth/canonical-session-provider";
 
 type Props = {
   locale: "ar" | "en";
@@ -46,8 +38,7 @@ export function AccountVerificationGate({
   phoneVerificationEnabled,
 }: Props) {
   const isAr = locale === "ar";
-  const [user, setUser] = useState<SessionUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { user, isResolving: loading, error: sessionError, refresh } = useCanonicalSession();
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -65,33 +56,13 @@ export function AccountVerificationGate({
   const target = useMemo(() => normalizeRedirectPath(redirectTo, locale), [redirectTo, locale]);
   const emailVerified = user?.emailVerified === true;
   const phoneVerified = user?.isPhotoVerified === true;
+  const visibleError = error ?? (sessionError ? (isAr ? "تعذر تحميل حالة الحساب." : "Failed to load account state.") : null);
 
   useEffect(() => {
-    let active = true;
-    const readSession = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch("/api/auth/me", { cache: "no-store", credentials: "include" });
-        const payload = (await res.json()) as { user?: SessionUser | null; error?: string };
-        if (!res.ok) throw new Error(payload.error ?? "Failed to load account state.");
-        if (!active) return;
-        setUser(payload.user ?? null);
-        if (!payload.user) {
-          window.location.assign(`/${locale}/login?redirectTo=/${locale}/verify-account`);
-        }
-      } catch (err) {
-        if (!active) return;
-        setError(err instanceof Error ? err.message : "Failed to load account state.");
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
-    void readSession();
-    return () => {
-      active = false;
-    };
-  }, [locale]);
+    if (!loading && !sessionError && !user) {
+      window.location.assign(`/${locale}/login?redirectTo=/${locale}/verify-account`);
+    }
+  }, [loading, locale, sessionError, user]);
 
   useEffect(() => {
     if (!user?.fullName?.trim()) return;
@@ -103,21 +74,14 @@ export function AccountVerificationGate({
       firstName: prev.firstName || firstName,
       lastName: prev.lastName || lastName,
       displayName: prev.displayName || user.fullName || "",
-      phone: prev.phone || user.verifiedPhone || "",
     }));
   }, [user]);
 
   useEffect(() => {
-    if (!loading && emailVerified && (!phoneVerificationEnabled || phoneVerified)) {
+    if (!loading && !sessionError && emailVerified && (!phoneVerificationEnabled || phoneVerified)) {
       window.location.replace(`/${locale}${target === "/" ? "" : target}`);
     }
-  }, [loading, emailVerified, phoneVerified, locale, phoneVerificationEnabled, target]);
-
-  async function refreshUser() {
-    const res = await fetch("/api/auth/me", { cache: "no-store", credentials: "include" });
-    const payload = (await res.json()) as { user?: SessionUser | null };
-    setUser(payload.user ?? null);
-  }
+  }, [loading, sessionError, emailVerified, phoneVerified, locale, phoneVerificationEnabled, target]);
 
   async function sendOtp() {
     setSendingOtp(true);
@@ -164,7 +128,7 @@ export function AccountVerificationGate({
       const payload = (await res.json()) as ApiErrorPayload;
       if (!res.ok) throw new Error(withSupportDetails(payload, "Verification failed."));
       setStatus(isAr ? "تم تفعيل رقم الهاتف بنجاح." : "Phone verification completed.");
-      await refreshUser();
+      await refresh({ force: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Verification failed.");
     } finally {
@@ -279,7 +243,7 @@ export function AccountVerificationGate({
             </div>
             {phoneVerificationEnabled ? (
               phoneVerified ? (
-                <p className="mt-2 text-sm text-[#9CA3AF]">{user?.verifiedPhone}</p>
+                <p className="mt-2 text-sm text-[#9CA3AF]">{isAr ? "تم التحقق من رقم هاتفك." : "Your phone number is verified."}</p>
               ) : (
                 <div className="mt-3 grid gap-3">
                   <p className="text-xs text-[#9CA3AF]">
@@ -337,7 +301,7 @@ export function AccountVerificationGate({
           </div>
         </div>
 
-        {error ? <p className="mt-4 text-sm text-rose-300">{error}</p> : null}
+        {visibleError ? <p className="mt-4 text-sm text-rose-300">{visibleError}</p> : null}
         {status ? <p className="mt-4 text-sm text-emerald-300">{status}</p> : null}
 
         <div className="mt-6 flex flex-wrap items-center gap-3 text-sm text-[#9CA3AF]">

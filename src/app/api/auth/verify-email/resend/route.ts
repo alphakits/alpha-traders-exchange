@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
+import { logEvent } from "@/lib/structured-logging";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -37,7 +38,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "A valid email is required." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
     const locale = inferLocaleFromRequest(request);
-    const ip = resolveClientIp(request.headers);
     const supabase = createSupabaseAuthClient({ requestHeaders: request.headers });
     let resendError: { message?: string } | null = null;
     try {
@@ -55,7 +55,12 @@ export async function POST(request: NextRequest) {
 
     if (resendError) {
       if (process.env.NODE_ENV !== "test") {
-        console.warn("[auth/verify-email/resend]", { reason: "provider_resend_failed", email, ip, message: resendError.message });
+        logEvent("warn", {
+          event: "auth_verify_email_resend",
+          outcome: "failed",
+          reason: "provider_resend_failed",
+          metadata: { provider: "supabase" },
+        });
       }
       return NextResponse.json(
         { error: verificationDeliveryFailedMessage(locale) },

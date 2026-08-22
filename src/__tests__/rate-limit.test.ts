@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { checkRateLimit, checkSharedRateLimit, createRateLimitResponse, resolveClientIp } from "@/lib/rate-limit";
 
 function makeHeaders(ip = "1.2.3.4") {
@@ -6,6 +6,9 @@ function makeHeaders(ip = "1.2.3.4") {
 }
 
 describe("checkRateLimit", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
   it("allows the first request", () => {
     const result = checkRateLimit({
       headers: makeHeaders("10.0.0.1"),
@@ -83,5 +86,19 @@ describe("checkRateLimit", () => {
     const opts = { headers, key: "test-shared-fallback", maxRequests: 1, windowMs: 60_000 };
     expect((await checkSharedRateLimit(opts)).allowed).toBe(true);
     expect((await checkSharedRateLimit(opts)).allowed).toBe(false);
+  });
+
+  it("fails closed instead of using the in-memory limiter when production persistence is unavailable", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("SUPABASE_DB_URL", "");
+    vi.stubEnv("DATABASE_URL", "");
+    const result = await checkSharedRateLimit({
+      headers: makeHeaders("203.0.113.77"),
+      key: "production-no-pool",
+      maxRequests: 5,
+      windowMs: 60_000,
+    });
+    expect(result).toMatchObject({ allowed: false, reason: "limiter_unavailable" });
   });
 });

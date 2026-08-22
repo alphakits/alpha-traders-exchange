@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTradeRoomData } from "@/lib/alpha-exchange-store";
 import { requireApiUser } from "@/lib/api-auth";
+import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
+import { logEvent } from "@/lib/structured-logging";
 
 type RouteContext = {
   params: Promise<{ requestId: string }>;
@@ -12,12 +14,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 
   const { requestId } = await context.params;
   const startedAt = Date.now();
-  const debug = process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
-  console.log("[trade-consistency] GET request", {
-    requestId,
-    userId: user.id,
-    role: user.role,
-  });
+  const debug = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
   if (debug) console.log("[trade-room-open] api request", {
     requestId,
     userId: user.id,
@@ -41,7 +38,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       tradeId: room.request.tradeId ?? null,
     });
     const routeMs = Date.now() - startedAt;
-    console.log("[trade-consistency] GET status returned", {
+    if (debug) console.log("[trade-consistency] GET status returned", {
       requestId,
       userId: user.id,
       statusReturned: room.request.status,
@@ -68,12 +65,13 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       : status === 403
         ? "TRADE_FORBIDDEN"
         : "TRADE_ROOM_LOAD_FAILED";
-    console.log("[trade-room-open] api error", {
-      requestId,
-      userId: user.id,
-      status,
-      code,
-      error: message,
+    logEvent("warn", {
+      event: "trade_room_load",
+      actorUserId: user.id,
+      resourceId: requestId,
+      outcome: "denied",
+      reason: code,
+      metadata: { status, errorType: error instanceof Error ? error.name : typeof error },
     });
     return NextResponse.json(
       { error: message, code },

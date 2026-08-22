@@ -7,6 +7,7 @@ import { fetchUsdIlsMarketRate, getListingPriceValidationError } from "@/lib/lis
 import { MAX_LISTING_PAYMENT_METHODS, requiresIsraeliBankSelection, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import type { SupportedNetwork } from "@/types/alpha-exchange";
 import { sellerListingWorkspaceDestination } from "@/lib/action-destinations";
+import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 
 function toNumber(value: unknown) {
   return Number(String(value ?? "").replace(/[^\d.]/g, ""));
@@ -22,7 +23,7 @@ export async function GET() {
 }
 
 function isListingCreateProfilingEnabled() {
-  return process.env.ALPHA_EXCHANGE_PROFILE_LISTING_CREATE === "1";
+  return allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_PROFILE_LISTING_CREATE === "1";
 }
 function createProfileLogger() {
   const startedAt = Date.now();

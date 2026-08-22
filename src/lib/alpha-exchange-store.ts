@@ -35,6 +35,9 @@ import { redactPhoneNumbers } from "@/lib/privacy-redaction";
 import { getSmsTemplate, normalizeE164, resolveSmsDeliveryStatusTransition, sendTwilioMessageWithRetry, twilioStatusCallbackUrl } from "@/lib/notification-platform";
 import { normalizeSellerLevel } from "@/types/alpha-exchange";
 import { validateUploadContent } from "@/lib/file-content-validation";
+import { toAdminSellerSummary, toAdminUserSummary } from "@/lib/client-session-user";
+import { allowsRuntimeDiagnostics, allowsTestOnlyRuntime, isProductionSecurityRuntime } from "@/lib/runtime-safety";
+import { logEvent } from "@/lib/structured-logging";
 import {
   MAX_LISTING_PAYMENT_METHODS,
   isBankTransferPaymentMethod,
@@ -126,9 +129,36 @@ import { sellerApplicationReviewDestination, sellerApplicationStatusDestination,
 const SELLER_EVIDENCE_TRACE_PATH = path.join(process.cwd(), "tmp", "seller-evidence-server.log");
 
 function writeSellerEvidenceTrace(label: string, payload: unknown) {
-  if (process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM !== "1") return;
+  if (!allowsRuntimeDiagnostics() || process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM !== "1") return;
   mkdirSync(path.dirname(SELLER_EVIDENCE_TRACE_PATH), { recursive: true });
   appendFileSync(SELLER_EVIDENCE_TRACE_PATH, `${JSON.stringify({ label, payload }, null, 2)}\n`, "utf8");
+}
+
+/**
+ * Detailed trade and payment diagnostics may contain identifiers, wallet data,
+ * or provider responses. They are available only to local development/E2E;
+ * production retains a redacted operational event for warnings and failures.
+ */
+function logLocalMarketplaceDiagnostic(
+  level: "info" | "warn" | "error",
+  event: string,
+  details: Record<string, unknown> = {},
+) {
+  if (allowsRuntimeDiagnostics()) {
+    console[level](event, details);
+    return;
+  }
+  if (level === "info") return;
+  const error = details.error;
+  logEvent(level, {
+    event: "alpha_exchange_runtime_diagnostic",
+    outcome: "failed",
+    reason: event,
+    metadata: {
+      errorType: error instanceof Error ? error.name : typeof error === "string" ? "error_string" : undefined,
+      diagnosticCategory: "marketplace",
+    },
+  });
 }
 
 function getSortableDisplayTimestamp<T extends { createdAt?: string; updatedAt?: string }>(item: T) {
@@ -541,8 +571,11 @@ function getLargeTradeThreshold() {
 
 function getMaxEvidenceSizeBytes() {
   const raw = Number(process.env.ALPHA_EXCHANGE_EVIDENCE_MAX_SIZE_MB ?? "8");
-  if (Number.isNaN(raw) || raw <= 0) return 8 * 1024 * 1024;
-  return Math.round(raw * 1024 * 1024);
+  const configuredMb = Number.isFinite(raw) && raw > 0 ? raw : 8;
+  // Production configuration can make uploads stricter but not create an
+  // unreviewed availability exposure through an oversized upload limit.
+  const maxMb = isProductionSecurityRuntime() ? Math.min(configuredMb, 8) : configuredMb;
+  return Math.round(maxMb * 1024 * 1024);
 }
 
 function getListingExpirationHours(value?: number | string) {
@@ -579,11 +612,11 @@ function roundUsdt(value: number) {
 }
 
 function isQaCommissionModeEnabled() {
-  return process.env.ALPHA_EXCHANGE_QA_COMMISSION_MODE === "1";
+  return allowsTestOnlyRuntime() && process.env.ALPHA_EXCHANGE_QA_COMMISSION_MODE === "1";
 }
 
 function isQaResetModeEnabled() {
-  return process.env.ALPHA_EXCHANGE_QA_MODE === "1";
+  return allowsTestOnlyRuntime() && process.env.ALPHA_EXCHANGE_QA_MODE === "1";
 }
 
 function getCommissionAmountDueUsdt(db: AlphaExchangeDb, record: CommissionRecord) {
@@ -2575,9 +2608,9 @@ async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<
   const normalized = normalizeDb(db);
   ensureDisplayNumbers(normalized);
   const tables = options?.selectedTables ?? ["(all)"];
-  const storeWriteStart = process.env.ALPHA_EXCHANGE_PERF === "1" ? Date.now() : 0;
+  const storeWriteStart = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_PERF === "1" ? Date.now() : 0;
   const writeTask = dbWriteInFlight.then(async () => {
-    if (process.env.ALPHA_EXCHANGE_PERF === "1") {
+    if (storeWriteStart) {
       const waitedMs = Date.now() - storeWriteStart;
       console.log(`[STORE-PERF] writeDb[${tables.join(",")}] waited_for_prev_write ${waitedMs}ms`);
     }
@@ -2591,7 +2624,7 @@ async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<
   dbWriteInFlight = writeTask.catch(() => undefined);
   try {
     await writeTask;
-    if (process.env.ALPHA_EXCHANGE_PERF === "1") {
+    if (storeWriteStart) {
       console.log(`[STORE-PERF] writeDb[${tables.join(",")}] total ${Date.now() - storeWriteStart}ms`);
     }
     dbCache = { value: normalized, updatedAt: Date.now() };
@@ -2757,13 +2790,16 @@ async function sendListingOwnerLifecycleEmail(
     idempotencyKey: input.idempotencyKey,
   });
   if (!result.ok) {
-    console.error("[marketplace-email] listing lifecycle delivery failed", {
-      event: input.event,
-      recipientUserId: seller.id,
-      listingId: listing.id,
-      reason: result.reason,
-      providerStatus: "providerStatus" in result ? result.providerStatus : undefined,
-      providerMessage: "providerMessage" in result ? result.providerMessage : undefined,
+    logEvent("error", {
+      event: "marketplace_email_delivery",
+      targetUserId: seller.id,
+      resourceId: listing.id,
+      outcome: "failed",
+      reason: input.event,
+      metadata: {
+        providerStatus: "providerStatus" in result ? result.providerStatus : undefined,
+        deliveryReason: result.reason,
+      },
     });
   }
   return result.ok;
@@ -2787,10 +2823,13 @@ async function sendSellerPrestigePromotionEmail(input: {
     idempotencyKey: `seller-prestige-${input.promotionId}`,
   });
   if (!result.ok) {
-    console.error("[marketplace-email] seller prestige delivery failed", {
-      event: "seller_prestige_promoted",
-      recipientUserId: input.seller.id,
-      reason: result.reason,
+    logEvent("error", {
+      event: "marketplace_email_delivery",
+      targetUserId: input.seller.id,
+      resourceId: input.promotionId,
+      outcome: "failed",
+      reason: "seller_prestige_promoted",
+      metadata: { deliveryReason: result.reason },
     });
   }
   return result.ok;
@@ -2831,12 +2870,16 @@ async function sendSellerEnforcementEmail(
     idempotencyKey: input.idempotencyKey,
   });
   if (!result.ok) {
-    console.error("[marketplace-email] seller enforcement delivery failed", {
-      event: input.event,
-      recipientUserId: seller.id,
-      reason: result.reason,
-      providerStatus: "providerStatus" in result ? result.providerStatus : undefined,
-      providerMessage: "providerMessage" in result ? result.providerMessage : undefined,
+    logEvent("error", {
+      event: "marketplace_email_delivery",
+      targetUserId: seller.id,
+      resourceId: input.referenceLabel,
+      outcome: "failed",
+      reason: input.event,
+      metadata: {
+        providerStatus: "providerStatus" in result ? result.providerStatus : undefined,
+        deliveryReason: result.reason,
+      },
     });
   }
   return result.ok;
@@ -3004,9 +3047,14 @@ async function dispatchCommittedSms(db: AlphaExchangeDb, previousCount: number) 
     try {
       await dispatchSmsDelivery(deliveryIds);
     } catch (error) {
-      console.error("[sms] delivery dispatch failed after primary commit", {
-        deliveryIds,
-        message: error instanceof Error ? error.message : "unknown",
+      logEvent("error", {
+        event: "sms_delivery_dispatch",
+        outcome: "failed",
+        reason: "post_commit_dispatch_failed",
+        metadata: {
+          deliveryCount: deliveryIds.length,
+          errorType: error instanceof Error ? error.name : typeof error,
+        },
       });
     }
   };
@@ -5615,7 +5663,9 @@ export async function getMarketplaceEnforcementDashboardData(dbInput?: AlphaExch
 
 export async function getApprovedSellersForAdmin(dbInput?: AlphaExchangeDb) {
   const db = dbInput ?? await readDb();
-  return db.users.filter((user) => user.sellerStatus === "approved_seller" || user.sellerStatus === "suspended");
+  return db.users
+    .filter((user) => user.sellerStatus === "approved_seller" || user.sellerStatus === "suspended")
+    .map(toAdminSellerSummary);
 }
 
 export async function getHallOfFameEntries() {
@@ -6018,7 +6068,7 @@ export async function getMarketplaceListingById(id: string) {
 }
 
 function isListingCreateProfilingEnabled() {
-  return process.env.ALPHA_EXCHANGE_PROFILE_LISTING_CREATE === "1";
+  return allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_PROFILE_LISTING_CREATE === "1";
 }
 
 function isDevelopmentTesterSeedEnabled() {
@@ -7464,7 +7514,7 @@ export async function getTradeRoomData(input: {
   markMessagesRead?: boolean;
   strongConsistency?: boolean;
 }): Promise<TradeRoomData> {
-  const debug = process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
+  const debug = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
   const db = await readDb({ bypassCache: input.strongConsistency === true });
   const lookupCandidates = buildPurchaseRequestLookupCandidates(input.purchaseRequestId);
   const requestIndex = db.purchaseRequests.findIndex((item) => lookupCandidates.includes(item.id));
@@ -7475,16 +7525,12 @@ export async function getTradeRoomData(input: {
       reason: "request_not_found",
       totalRequests: db.purchaseRequests.length,
     });
-    // Always log this as an error so it surfaces in Vercel logs even without debug mode.
-    // If totalRequests is 0, the system is running on the in-memory fallback (Postgres not connected).
-    console.error("[trade-room-open] TRADE_NOT_FOUND", {
-      incomingRequestId: input.purchaseRequestId,
-      lookupCandidates,
-      totalRequestsInDb: db.purchaseRequests.length,
-      firstFiveRequestIds: db.purchaseRequests.slice(0, 5).map((r) => r.id),
-      note: db.purchaseRequests.length === 0
-        ? "DB is empty — system is using in-memory fallback (Postgres not connected or using wrong URL)"
-        : "DB has data but request ID not found — possible ID mismatch",
+    logEvent("warn", {
+      event: "trade_room_lookup",
+      actorUserId: input.actorUserId,
+      outcome: "denied",
+      reason: "trade_not_found",
+      metadata: { requestCount: db.purchaseRequests.length },
     });
     throw new Error("Trade not found.");
   }
@@ -8586,7 +8632,7 @@ export async function updatePurchaseRequestStatus(input: {
   traceId?: string;
 }) {
   const startedAt = Date.now();
-  const debugTradeRoom = process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
+  const debugTradeRoom = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
   const isUsdtSentTrace = input.nextStatus === "usdt_sent";
   if (debugTradeRoom && isUsdtSentTrace) {
     console.log("[usdt-sent-trace] service entry", {
@@ -8612,7 +8658,7 @@ export async function updatePurchaseRequestStatus(input: {
   }
   let request = db.purchaseRequests[requestIndex];
   let stateBefore = request.status;
-  console.log("[trade-consistency] mutation db-read", {
+  logLocalMarketplaceDiagnostic("info", "[trade-consistency] mutation db-read", {
     requestId: input.requestId,
     actorUserId: input.actorUserId,
     actorRole: input.actorRole,
@@ -8703,7 +8749,7 @@ export async function updatePurchaseRequestStatus(input: {
   // Acceptance strictly requires a live listing; all other transitions use it opportunistically.
   const listing = db.marketplaceListings.find((item) => item.id === request.listingId);
   if (!listing) {
-    console.warn("[trade-store] listing not found for in-progress transition", {
+    logLocalMarketplaceDiagnostic("warn", "[trade-store] listing not found for in-progress transition", {
       requestId: input.requestId,
       listingId: request.listingId,
       nextStatus: input.nextStatus,
@@ -8787,7 +8833,7 @@ export async function updatePurchaseRequestStatus(input: {
       (listing.activeTradeRequestId === request.id && isListingLocked(listing.status)) ||
       (listing.status === "expired" && !listing.activeTradeRequestId);
     if (!listingIsOpenForAccept) {
-      console.error("[trade-accept-guard] listing-not-open", {
+      logLocalMarketplaceDiagnostic("error", "[trade-accept-guard] listing-not-open", {
         requestId: input.requestId,
         listingId: listing.id,
         listingStatus: listing.status,
@@ -8813,7 +8859,7 @@ export async function updatePurchaseRequestStatus(input: {
     }
     const pendingCommissionCount = getSellerPendingCommissionCount(db, request.sellerId);
     if (pendingCommissionCount > 0) {
-      console.error("[trade-accept-guard] commission-locked", {
+      logLocalMarketplaceDiagnostic("error", "[trade-accept-guard] commission-locked", {
         requestId: input.requestId,
         sellerId: request.sellerId,
         pendingCommissionCount,
@@ -9077,7 +9123,7 @@ export async function updatePurchaseRequestStatus(input: {
         });
       }
     } else {
-      console.warn("[trade-store] listing not found during completion — skipping listing state update", {
+      logLocalMarketplaceDiagnostic("warn", "[trade-store] listing not found during completion — skipping listing state update", {
         requestId: input.requestId,
         listingId: request.listingId,
       });
@@ -9206,13 +9252,13 @@ export async function updatePurchaseRequestStatus(input: {
     next.inactivityWarningSentAt = undefined;
   }
   db.purchaseRequests[requestIndex] = next;
-  console.log("[trade-consistency] mutation status-after", {
+  logLocalMarketplaceDiagnostic("info", "[trade-consistency] mutation status-after", {
     requestId: input.requestId,
     actorUserId: input.actorUserId,
     nextStatus: input.nextStatus,
     statusAfter: next.status,
   });
-  if (input.nextStatus === "accepted" && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") {
+  if (input.nextStatus === "accepted" && allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") {
     console.log("[trade-room-open] state transition after accept", {
       requestId: next.id,
       tradeId: next.tradeId ?? null,
@@ -9238,7 +9284,7 @@ export async function updatePurchaseRequestStatus(input: {
     console.log("[usdt-sent-trace] before DB write", { traceId: input.traceId ?? null, requestId: input.requestId });
   }
   const beforeWriteMs = Date.now();
-  console.log("[trade-consistency] mutation db-write-start", {
+  logLocalMarketplaceDiagnostic("info", "[trade-consistency] mutation db-write-start", {
     requestId: input.requestId,
     actorUserId: input.actorUserId,
     nextStatus: input.nextStatus,
@@ -9252,7 +9298,7 @@ export async function updatePurchaseRequestStatus(input: {
   });
   const writeDbMs = Date.now() - beforeWriteMs;
   await dispatchCommittedSms(db, priorSmsCount);
-  console.log("[trade-consistency] mutation commit-complete", {
+  logLocalMarketplaceDiagnostic("info", "[trade-consistency] mutation commit-complete", {
     requestId: input.requestId,
     actorUserId: input.actorUserId,
     nextStatus: input.nextStatus,
@@ -9275,7 +9321,7 @@ export async function updatePurchaseRequestStatus(input: {
     },
   });
   const sseMs = Date.now() - sseStartedAt;
-  console.log("[trade-consistency] mutation sse-publish", {
+  logLocalMarketplaceDiagnostic("info", "[trade-consistency] mutation sse-publish", {
     requestId: input.requestId,
     actorUserId: input.actorUserId,
     nextStatus: input.nextStatus,
@@ -9416,7 +9462,7 @@ interface SolanaTokenBalance {
 function logEvmKeyDiagnostics(network: string, hasKey: boolean) {
   const rpcFallbackEnv = network === "ERC20" ? "ALPHA_EXCHANGE_ETH_RPC_URL" : "ALPHA_EXCHANGE_POLYGON_RPC_URL";
   const rpcOverride = process.env[rpcFallbackEnv];
-  console.log("[commission-verify] evm-key-diagnostics", {
+  logLocalMarketplaceDiagnostic("info", "[commission-verify] evm-key-diagnostics", {
     network,
     chainId: EVM_CHAIN_IDS[network],
     explorerApiKeyPresent: hasKey,
@@ -9455,7 +9501,7 @@ async function verifyEvmUsdtPaymentViaRpc(input: {
     return data.result;
   };
 
-  console.log("[commission-verify] rpc-fallback-start", { network: input.network, rpcUrl, txHash });
+  logLocalMarketplaceDiagnostic("info", "[commission-verify] rpc-fallback-start", { network: input.network, rpcUrl, txHash });
 
   const receipt = (await rpcPost("eth_getTransactionReceipt", [txHash])) as EvmTxReceipt | null;
   if (!receipt) {
@@ -9518,7 +9564,7 @@ async function verifyEvmUsdtPaymentViaRpc(input: {
 
   if (!transferLog?.data) {
     const supportedSymbols = Object.values(networkTokens).map((t) => t.symbol).join(", ");
-    console.log("[commission-verify] rpc-transfer-not-found", {
+    logLocalMarketplaceDiagnostic("info", "[commission-verify] rpc-transfer-not-found", {
       network: input.network, txHash, logsCount: receipt.logs?.length ?? 0,
       anyTokenToWallet: Boolean(anyTokenToWallet),
       anyTokenAddress: anyTokenToWallet?.address,
@@ -9546,7 +9592,7 @@ async function verifyEvmUsdtPaymentViaRpc(input: {
       notes: `Insufficient payment. Received ${amountReceived.toFixed(2)} ${tokenMeta.symbol} on ${networkLabel}, but ${input.amountDueUsdt.toFixed(2)} USD is required.`,
     };
   }
-  console.log("[commission-verify] rpc-verified", {
+  logLocalMarketplaceDiagnostic("info", "[commission-verify] rpc-verified", {
     network: input.network, txHash, rpcUrl,
     token: tokenMeta.symbol, amountReceived, confirmations,
   });
@@ -9566,11 +9612,14 @@ async function verifyEvmUsdtPayment(input: {
   }
   const apiKey = process.env[EVM_EXPLORER_API_KEY_ENV] ?? "";
   const networkLabel = input.network === "ERC20" ? "Ethereum" : "Polygon";
-  const minConfirmations = Math.max(1, Number(process.env.ALPHA_EXCHANGE_EVM_MIN_CONFIRMATIONS ?? "3"));
+  const configuredConfirmations = Number(process.env.ALPHA_EXCHANGE_EVM_MIN_CONFIRMATIONS ?? "3");
+  const minConfirmations = isProductionSecurityRuntime()
+    ? Math.max(3, Number.isFinite(configuredConfirmations) ? configuredConfirmations : 3)
+    : Math.max(1, Number.isFinite(configuredConfirmations) ? configuredConfirmations : 3);
 
   // Log key presence on every attempt so Vercel logs show configuration status.
   logEvmKeyDiagnostics(input.network, Boolean(apiKey));
-  console.log("[commission-verify] evm-lookup-start", {
+  logLocalMarketplaceDiagnostic("info", "[commission-verify] evm-lookup-start", {
     network: input.network,
     txHash: input.txHash,
     recipientWalletAddress: input.recipientWalletAddress,
@@ -9594,7 +9643,7 @@ async function verifyEvmUsdtPayment(input: {
     // Etherscan/Polygonscan return `result` as a plain string on API-level errors
     // (rate limits, invalid key, network issues). Throw so the fallback runs.
     if (typeof data.result === "string") {
-      console.error("[commission-verify] evm-api-error-will-fallback", {
+      logLocalMarketplaceDiagnostic("error", "[commission-verify] evm-api-error-will-fallback", {
         network: input.network,
         txHash: input.txHash,
         apiMessage: data.message,
@@ -9614,7 +9663,7 @@ async function verifyEvmUsdtPayment(input: {
       if (!txRes.ok) throw new Error(`Explorer API HTTP ${txRes.status}`);
       const txData = (await txRes.json()) as { result?: EvmTx | string | null };
       if (txData.result && typeof txData.result === "object") {
-        console.log("[commission-verify] evm-pending", { network: input.network, txHash: input.txHash });
+        logLocalMarketplaceDiagnostic("info", "[commission-verify] evm-pending", { network: input.network, txHash: input.txHash });
         return { verified: false, reference: input.txHash, notes: "Transaction is still pending confirmations on the selected network. Please wait and try again once it is confirmed." };
       }
       if (typeof txData.result === "string") throw new Error(`${networkLabel} explorer API error: ${txData.result}`);
@@ -9634,7 +9683,7 @@ async function verifyEvmUsdtPayment(input: {
           if (probeRes.ok) {
             const probeData = (await probeRes.json()) as { result?: EvmTx | string | null };
             if (probeData.result && typeof probeData.result === "object") {
-              console.log("[commission-verify] evm-wrong-network", { selected: input.network, actual: otherNetwork, txHash: input.txHash });
+              logLocalMarketplaceDiagnostic("info", "[commission-verify] evm-wrong-network", { selected: input.network, actual: otherNetwork, txHash: input.txHash });
               return {
                 verified: false,
                 reference: input.txHash,
@@ -9646,7 +9695,7 @@ async function verifyEvmUsdtPayment(input: {
           // cross-network probe failed — fall through to generic not-found
         }
       }
-      console.log("[commission-verify] evm-not-found", { network: input.network, txHash: input.txHash });
+      logLocalMarketplaceDiagnostic("info", "[commission-verify] evm-not-found", { network: input.network, txHash: input.txHash });
       return { verified: false, reference: input.txHash, notes: `Transaction was not found on the selected ${networkLabel} network. Please verify the hash and selected network.` };
     }
 
@@ -9656,7 +9705,7 @@ async function verifyEvmUsdtPayment(input: {
       ? Number.parseInt(rawStatus, 16)
       : (typeof rawStatus === "number" ? rawStatus : -1);
     if (statusInt !== 1) {
-      console.log("[commission-verify] evm-tx-failed", { network: input.network, txHash: input.txHash, rawStatus });
+      logLocalMarketplaceDiagnostic("info", "[commission-verify] evm-tx-failed", { network: input.network, txHash: input.txHash, rawStatus });
       return { verified: false, reference: input.txHash, notes: `Transaction was reverted on-chain (status: ${rawStatus ?? "unknown"}) and cannot be used as commission payment. Please check your wallet for a failed transaction and try a new one.` };
     }
 
@@ -9675,7 +9724,7 @@ async function verifyEvmUsdtPayment(input: {
     const receiptBlock = Number.parseInt(receipt.blockNumber ?? "0x0", 16);
     const confirmations = currentBlock > 0 && receiptBlock > 0 ? (currentBlock - receiptBlock + 1) : 0;
     if (confirmations < minConfirmations) {
-      console.log("[commission-verify] evm-insufficient-confirmations", { network: input.network, txHash: input.txHash, confirmations, minConfirmations });
+      logLocalMarketplaceDiagnostic("info", "[commission-verify] evm-insufficient-confirmations", { network: input.network, txHash: input.txHash, confirmations, minConfirmations });
       return { verified: false, reference: input.txHash, notes: `Transaction is confirmed but still waiting for finality (${confirmations}/${minConfirmations} confirmations). Please try again shortly.` };
     }
 
@@ -9713,7 +9762,7 @@ async function verifyEvmUsdtPayment(input: {
 
     if (!transferLog?.data) {
       const supportedSymbols = Object.values(networkTokens).map((t) => t.symbol).join(", ");
-      console.log("[commission-verify] evm-transfer-not-found", {
+      logLocalMarketplaceDiagnostic("info", "[commission-verify] evm-transfer-not-found", {
         network: input.network, txHash: input.txHash,
         recipientWalletAddress: input.recipientWalletAddress,
         logsCount: receipt.logs?.length ?? 0,
@@ -9738,14 +9787,14 @@ async function verifyEvmUsdtPayment(input: {
     const tokenMeta = networkTokens[transferLog.address?.toLowerCase() ?? ""] ?? { symbol: "USDT", decimals: 6 };
     const amountReceived = Number(BigInt(transferLog.data)) / Math.pow(10, tokenMeta.decimals);
     if (amountReceived + 0.000001 < input.amountDueUsdt) {
-      console.log("[commission-verify] evm-insufficient-amount", { network: input.network, txHash: input.txHash, token: tokenMeta.symbol, amountReceived, amountDueUsdt: input.amountDueUsdt });
+      logLocalMarketplaceDiagnostic("info", "[commission-verify] evm-insufficient-amount", { network: input.network, txHash: input.txHash, token: tokenMeta.symbol, amountReceived, amountDueUsdt: input.amountDueUsdt });
       return { verified: false, reference: input.txHash, notes: `Insufficient payment. Received ${amountReceived.toFixed(2)} ${tokenMeta.symbol} on ${networkLabel}, but ${input.amountDueUsdt.toFixed(2)} USD is required.` };
     }
-    console.log("[commission-verify] evm-verified", { network: input.network, txHash: input.txHash, token: tokenMeta.symbol, amountReceived, confirmations, via: "explorer" });
+    logLocalMarketplaceDiagnostic("info", "[commission-verify] evm-verified", { network: input.network, txHash: input.txHash, token: tokenMeta.symbol, amountReceived, confirmations, via: "explorer" });
     return { verified: true, reference: input.txHash, notes: `Verified: ${amountReceived.toFixed(2)} ${tokenMeta.symbol} received on ${networkLabel}.` };
   } catch (explorerError) {
     primaryError = explorerError instanceof Error ? explorerError.message : String(explorerError);
-    console.warn("[commission-verify] evm-explorer-failed-trying-rpc", { network: input.network, txHash: input.txHash, error: primaryError });
+    logLocalMarketplaceDiagnostic("warn", "[commission-verify] evm-explorer-failed-trying-rpc", { network: input.network, txHash: input.txHash, error: primaryError });
   }
 
   // ── Fallback: direct JSON-RPC endpoint (no API key needed) ─────────────────
@@ -9764,7 +9813,7 @@ async function verifyEvmUsdtPayment(input: {
     });
   } catch (rpcError) {
     const rpcMsg = rpcError instanceof Error ? rpcError.message : String(rpcError);
-    console.error("[commission-verify] evm-both-verifiers-failed", {
+    logLocalMarketplaceDiagnostic("error", "[commission-verify] evm-both-verifiers-failed", {
       network: input.network, txHash: input.txHash,
       explorerError: primaryError, rpcError: rpcMsg, rpcUrl,
     });
@@ -9868,7 +9917,10 @@ async function verifySolanaUsdtPayment(input: {
     };
   }
 
-  console.log(`[commission-verify] Solana USDT received: ${received.toFixed(6)} → ${input.recipientWalletAddress}`);
+  logLocalMarketplaceDiagnostic("info", "[commission-verify] solana-usdt-received", {
+    amountReceived: received,
+    recipientWalletAddress: input.recipientWalletAddress,
+  });
   return { verified: true, reference: input.txHash, notes: `Verified: ${received.toFixed(2)} USDT received on Solana.` };
 }
 
@@ -9882,31 +9934,31 @@ async function verifyCommissionWalletPayment(input: {
 }): Promise<CommissionWalletVerificationResult> {
   const txHash = normalizeTransactionHash(input.paymentSignature);
   const logCtx = { txHash, network: input.network, amountDue: input.amountDue, payerWallet: input.payerWalletAddress };
-  console.log("[commission-verify] verification-started", logCtx);
+  logLocalMarketplaceDiagnostic("info", "[commission-verify] verification-started", logCtx);
 
   // 1. Format check
   if (txHash.length < 24) {
-    console.log("[commission-verify] rejected:hash-too-short", logCtx);
+    logLocalMarketplaceDiagnostic("info", "[commission-verify] rejected:hash-too-short", logCtx);
     return { verified: false, reference: txHash, notes: "Transaction hash is too short to be valid." };
   }
   if ((input.network === "ERC20" || input.network === "POLYGON") && !/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
-    console.log("[commission-verify] rejected:invalid-evm-hash-format", logCtx);
+    logLocalMarketplaceDiagnostic("info", "[commission-verify] rejected:invalid-evm-hash-format", logCtx);
     return { verified: false, reference: txHash, notes: "Invalid transaction hash for the selected EVM network. Please paste the full 0x transaction hash." };
   }
   if (input.network === "SOL" && !/^[1-9A-HJ-NP-Za-km-z]{43,88}$/.test(txHash)) {
-    console.log("[commission-verify] rejected:invalid-solana-sig-format", logCtx);
+    logLocalMarketplaceDiagnostic("info", "[commission-verify] rejected:invalid-solana-sig-format", logCtx);
     return { verified: false, reference: txHash, notes: "Invalid Solana transaction signature. Please paste the full transaction signature from your wallet or explorer." };
   }
 
   // 2. Duplicate hash check — prevent re-use of a previously accepted transaction
   if (input.existingSignatures?.includes(txHash)) {
-    console.log("[commission-verify] rejected:duplicate-hash", logCtx);
+    logLocalMarketplaceDiagnostic("info", "[commission-verify] rejected:duplicate-hash", logCtx);
     return { verified: false, reference: txHash, notes: "This transaction hash has already been used for a previous commission payment." };
   }
 
   // 3. Recipient must be configured
   if (!input.recipientWalletAddress || input.recipientWalletAddress === "AT-COMMISSION-WALLET") {
-    console.error("[commission-verify] rejected:recipient-not-configured", logCtx);
+    logLocalMarketplaceDiagnostic("error", "[commission-verify] rejected:recipient-not-configured", logCtx);
     return { verified: false, reference: txHash, notes: "Commission wallet address is not configured for this network. Please contact support." };
   }
 
@@ -9927,15 +9979,15 @@ async function verifyCommissionWalletPayment(input: {
         amountDueUsdt: input.amountDue,
       });
     } else {
-      console.log("[commission-verify] rejected:unsupported-network", logCtx);
+      logLocalMarketplaceDiagnostic("info", "[commission-verify] rejected:unsupported-network", logCtx);
       result = { verified: false, reference: txHash, notes: `Network '${input.network}' is not supported. Accepted: ERC20, POLYGON, SOL.` };
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error("[commission-verify] blockchain-service-error", { ...logCtx, error: msg });
+    logLocalMarketplaceDiagnostic("error", "[commission-verify] blockchain-service-error", { ...logCtx, error: msg });
     return { verified: false, reference: txHash, notes: "Blockchain verification service temporarily unavailable. Please try again in a few minutes." };
   }
-  console.log("[commission-verify] verification-complete", {
+  logLocalMarketplaceDiagnostic("info", "[commission-verify] verification-complete", {
     ...logCtx,
     verified: result.verified,
     notes: result.notes,
@@ -9948,7 +10000,7 @@ export async function submitSellerCommissionWalletPayment(input: {
   commissionId: string;
   payerWalletAddress: string;
   paymentSignature: string;
-  network?: string;
+  network: string;
 }) {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
@@ -9966,14 +10018,17 @@ export async function submitSellerCommissionWalletPayment(input: {
   }
   const validationMs = Date.now() - validationStartedAt;
 
+  const { resolveCommissionWalletForNetwork } = await import("@/lib/commission-config");
+  const commissionWallet = resolveCommissionWalletForNetwork(input.network);
+  if (!commissionWallet.available) {
+    // Configuration failures must not create a payment attempt record pointing
+    // at an unrelated generic wallet or a placeholder recipient.
+    throw new Error(commissionWallet.error);
+  }
+
   const verificationStartedAt = Date.now();
-  const chosenNetwork = (input.network ?? "ERC20").trim();
-  const { getCommissionWalletForNetwork } = await import("@/lib/commission-config");
-  const recipientWalletAddress =
-    getCommissionWalletForNetwork(chosenNetwork) ??
-    process.env.ALPHA_EXCHANGE_COMMISSION_WALLET_ADDRESS ??
-    process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_ADDRESS ??
-    "AT-COMMISSION-WALLET";
+  const chosenNetwork = commissionWallet.network;
+  const recipientWalletAddress = commissionWallet.walletAddress;
 
   // Collect all previously accepted tx hashes to prevent re-use
   const existingSignatures = db.commissionRecords
@@ -11762,8 +11817,7 @@ export async function getAdminPrepDashboardData() {
   ]);
   const notifications = [...db.notifications].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250);
   const activityLog = [...db.activityLog].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const users = db.users.map(({ passwordHash: _ph, ...rest }) => rest);
+  const users = db.users.map((user) => toAdminUserSummary(user));
   const sellerReviews = db.sellerReviews ?? [];
   const complianceSettings = {
     recoveryWallet: getOwnerComplianceRecoveryWalletConfig(db),

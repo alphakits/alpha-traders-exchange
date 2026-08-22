@@ -1,5 +1,6 @@
 import { buildPageMetadata } from "@/lib/seo";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
+import { toClientSessionUser } from "@/lib/client-session-user";
 import { getCurrentSessionUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -20,5 +21,5 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 export default async function UsdtExchangeRoute({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const user = await getCurrentSessionUser();
-  return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={user} />;
+  return <UsdtExchangePage locale={locale as "ar" | "en"} initialSessionUser={toClientSessionUser(user)} />;
 }

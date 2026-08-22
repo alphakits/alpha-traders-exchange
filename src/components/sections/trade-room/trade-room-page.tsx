@@ -88,8 +88,6 @@ const MAX_EVIDENCE_SIZE_BYTES = 8 * 1024 * 1024;
 const TRADE_ROOM_DEBUG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
 const COMPLETED_TRADE_STATUSES = new Set<PurchaseRequest["status"]>(["review_open", "completed", "locked"]);
 const PERF_LOG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
-const DEFAULT_COMMISSION_WALLET_ADDRESS = "TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8";
-const COMMISSION_PAY_NOW_DESTINATION = `https://tronscan.org/#/address/${process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_ADDRESS || DEFAULT_COMMISSION_WALLET_ADDRESS}`;
 
 const STEP_ORDER: Array<{ id: StepId; icon: string; label: { en: string; ar: string } }> = [
   { id: "request", icon: "📝", label: { en: "Request Submitted", ar: "تم إرسال الطلب" } },
@@ -710,9 +708,17 @@ export function TradeRoomPage({
 }) {
   const isAr = locale === "ar";
   const router = useRouter();
+  const commissionPaymentNavigationRequestedRef = useRef(false);
   const openCommissionPayNow = useCallback(() => {
-    window.open(COMMISSION_PAY_NOW_DESTINATION, "_blank", "noopener,noreferrer");
-  }, []);
+    // Commission payment is intentionally handled by the single canonical
+    // marketplace flow, which displays and verifies the selected rail's exact
+    // network-specific destination. Do not retain an external generic-wallet
+    // fallback here.
+    // Preserve an explicit seller action if the completed-trade convenience
+    // redirect is also eligible in the same render cycle.
+    commissionPaymentNavigationRequestedRef.current = true;
+    router.push("/usdt-exchange?commission=pay#commission-payment");
+  }, [router]);
   const searchParams = useSearchParams();
   const [room, setRoom] = useState<TradeRoomData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -877,7 +883,7 @@ export function TradeRoomPage({
   useEffect(() => {
     const currentRequest = room?.request;
     if (!currentRequest || currentRequest.sellerId !== actor.id || !COMPLETED_TRADE_STATUSES.has(currentRequest.status)) return;
-    if (sellerCompletionRedirectedRef.current) return;
+    if (commissionPaymentNavigationRequestedRef.current || sellerCompletionRedirectedRef.current) return;
     sellerCompletionRedirectedRef.current = true;
     router.replace(tradeDestination(currentRequest, actor.id));
   }, [actor.id, room?.request, router]);

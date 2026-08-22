@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { AppLocale } from "@/i18n/routing";
 import type { HeaderNavItem } from "@/components/layout/header-nav";
 import { Link } from "@/i18n/navigation";
-import type { AlphaExchangeUser } from "@/types/alpha-exchange";
+import type { ClientSessionUser } from "@/lib/client-session-user";
 import { hasRole } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
@@ -13,8 +13,9 @@ import { LogoutButton } from "@/components/auth/logout-button";
 import { CreateListingQuickLink } from "@/components/layout/create-listing-quick-link";
 import { MobileNavigationMenu } from "@/components/layout/mobile-navigation-menu";
 import { LocaleSwitcher } from "@/components/layout/locale-switcher";
+import { useCanonicalSession } from "@/components/auth/canonical-session-provider";
 
-type SessionUserSummary = Pick<AlphaExchangeUser, "id" | "fullName" | "role" | "roles" | "sellerStatus">;
+type SessionUserSummary = Pick<ClientSessionUser, "id" | "fullName" | "role" | "roles" | "sellerStatus">;
 
 type HeaderAuthLabels = {
   signIn: string;
@@ -45,41 +46,10 @@ export function HeaderAuthArea({
   labels: HeaderAuthLabels;
   initialSessionUser: SessionUserSummary | null;
 }) {
-  const [sessionUser, setSessionUser] = useState<SessionUserSummary | null>(initialSessionUser);
+  const { user: canonicalUser, isResolving } = useCanonicalSession();
+  const sessionUser = (isResolving ? initialSessionUser : canonicalUser) as SessionUserSummary | null;
   const dashboardHref = sessionUser ? "/profile" : "/login";
   const dashboardLabel = sessionUser ? labels.profile : labels.signIn;
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function refreshSession() {
-      try {
-        const response = await fetch("/api/auth/me", { cache: "no-store", credentials: "include" });
-        const payload = (await response.json().catch(() => null)) as { user?: SessionUserSummary | null } | null;
-        if (!cancelled) {
-          if (payload && "user" in payload) {
-            setSessionUser(payload.user ?? null);
-          }
-        }
-      } catch {
-        // Keep the current session snapshot on transient failures to avoid
-        // unmounting authenticated UI controls during active interactions.
-      }
-    }
-
-    if (!initialSessionUser) {
-      void refreshSession();
-    }
-    const handleAuthChange = () => {
-      void refreshSession();
-    };
-
-    window.addEventListener("alpha-auth-changed", handleAuthChange);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("alpha-auth-changed", handleAuthChange);
-    };
-  }, [initialSessionUser]);
 
   const sellerWorkspaceAccess = useMemo(() => canAccessSellerWorkspace(sessionUser), [sessionUser]);
   const adminDashboardAccess = useMemo(() => canAccessAdminDashboard(sessionUser), [sessionUser]);

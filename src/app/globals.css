@@ -1850,6 +1850,13 @@ textarea {
 }
 
 @media (max-width: 768px) {
+  .global-chain-bg__network,
+  .global-chain-bg__crypto-layer,
+  .global-chain-bg__pulse-line--desktop-detail,
+  .global-chain-bg__particle--desktop-detail {
+    display: none;
+  }
+
   .global-chain-bg__crypto-coin {
     animation-duration: 110s !important;
     opacity: calc(var(--coin-opacity, 0.2) - 0.03);

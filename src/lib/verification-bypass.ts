@@ -1,3 +1,5 @@
+import { allowsTestOnlyRuntime } from "@/lib/runtime-safety";
+
 function parseBypassEmails(raw: string | undefined) {
   if (!raw) return new Set<string>();
   return new Set(
@@ -9,6 +11,7 @@ function parseBypassEmails(raw: string | undefined) {
 }
 
 export function isPhotoVerificationBypassed(email: string | null | undefined) {
+  if (!allowsTestOnlyRuntime()) return false;
   if (!email) return false;
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail) return false;

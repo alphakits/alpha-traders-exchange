@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { AUTH_PHONE_VERIFIED_COOKIE_NAME, clearUserSession, expireAuthCookies, getCurrentSessionToken, getCurrentSessionUser } from "@/lib/auth";
 import { isMarketplacePhoneVerificationDisabled } from "@/lib/phone-verification";
-import { isPhotoVerificationBypassed, isVerified } from "@/lib/verification-bypass";
+import { isVerified } from "@/lib/verification-bypass";
+import { toClientSessionUser } from "@/lib/client-session-user";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -38,10 +39,7 @@ export async function GET() {
   }
 
   const cookieStore = await cookies();
-  const verificationBypassed = isPhotoVerificationBypassed(user.email);
   const verified = isMarketplacePhoneVerificationDisabled() || isVerified(user);
-  const effectiveVerifiedPhone = verificationBypassed ? user.verifiedPhone || "bypassed" : user.verifiedPhone ?? "";
-  const effectivePhoneVerifiedAt = verificationBypassed ? user.phoneVerifiedAt || new Date(0).toISOString() : user.phoneVerifiedAt ?? "";
   if (verified) {
     cookieStore.set(AUTH_PHONE_VERIFIED_COOKIE_NAME, "1", {
       httpOnly: true,
@@ -52,44 +50,7 @@ export async function GET() {
   }
   const routeMs = Date.now() - routeStartedAt;
   return NextResponse.json({
-    user: {
-      id: user.id,
-      fullName: user.fullName,
-      email: user.email,
-      role: user.role,
-      roles: user.roles ?? [user.role],
-      sellerStatus: user.sellerStatus,
-      whatsappNumber: user.whatsappNumber,
-      preferredNetworks: user.preferredNetworks,
-      profilePhotoUrl: user.profilePhotoUrl,
-      coverBannerUrl: user.coverBannerUrl ?? "",
-      languages: user.languages,
-      bio: user.bio,
-      tradingExperience: user.tradingExperience ?? "",
-      workingHours: user.workingHours ?? "",
-      preferredPaymentMethods: user.preferredPaymentMethods ?? [],
-      country: user.country ?? "",
-      city: user.city ?? "",
-      onlineStatus: user.onlineStatus,
-      availabilityStatus: user.availabilityStatus,
-      lastActiveAt: user.lastActiveAt ?? user.updatedAt,
-      isFeaturedSeller: user.isFeaturedSeller === true,
-      isProfileHidden: user.isProfileHidden === true,
-      isFoundingMember: user.isFoundingMember === true,
-      isFoundingSeller: user.isFoundingSeller === true,
-      emailVerified: user.emailVerified === true,
-      isPhotoVerified: verified,
-      verifiedPhone: effectiveVerifiedPhone,
-      phoneVerifiedAt: effectivePhoneVerifiedAt,
-      onboardingSelection: user.onboardingSelection,
-      onboardingCompletedAt: user.onboardingCompletedAt,
-      lifetimeCompletedVolumeUsdt: user.lifetimeCompletedVolumeUsdt ?? 0,
-      sellerPrestigeRank: user.sellerPrestigeRank ?? "bronze",
-      sellerRankOverride: user.sellerRankOverride,
-      sellerPromotionHistory: user.sellerPromotionHistory ?? [],
-      notificationPreferences: user.notificationPreferences ?? { inApp: true, email: false, sms: false },
-      createdAt: user.createdAt,
-    },
+    user: toClientSessionUser(user, { isPhotoVerified: verified }),
   }, {
     headers: {
       ...AUTH_RESPONSE_HEADERS,

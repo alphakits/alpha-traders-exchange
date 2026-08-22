@@ -6,6 +6,9 @@ import { Inter, IBM_Plex_Sans_Arabic } from "next/font/google";
 import { routing, type AppLocale } from "@/i18n/routing";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
+import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
+import { getCurrentSessionUser } from "@/lib/auth";
+import { toClientSessionUser } from "@/lib/client-session-user";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -42,6 +45,7 @@ export default async function LocaleLayout({
 
   const messages = await getMessages();
   const appLocale = locale as AppLocale;
+  const sessionUser = await getCurrentSessionUser();
 
   return (
     <NextIntlClientProvider messages={messages}>
@@ -50,9 +54,11 @@ export default async function LocaleLayout({
           appLocale === "ar" ? "font-[var(--font-plex-arabic)]" : "font-[var(--font-inter)]"
         }`}
       >
-        <SiteHeader locale={appLocale} />
-        <main className="min-h-[calc(100vh-9rem)]">{children}</main>
-        <SiteFooter locale={appLocale} />
+        <CanonicalSessionProvider initialSessionUser={toClientSessionUser(sessionUser)}>
+          <SiteHeader locale={appLocale} />
+          <main className="min-h-[calc(100vh-9rem)]">{children}</main>
+          <SiteFooter locale={appLocale} />
+        </CanonicalSessionProvider>
       </div>
     </NextIntlClientProvider>
   );

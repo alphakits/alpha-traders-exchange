@@ -61,11 +61,13 @@ export async function POST(request: NextRequest) {
     if (body && typeof body === "object" && !Array.isArray(body)) {
       payload = body as Record<string, unknown>;
     }
-  } catch (error) {
-    console.error("[alpha-exchange][seller-application][POST][invalid-json]", {
-      userId: user.id,
-      userEmail: user.email,
-      error,
+  } catch {
+    logEvent("warn", {
+      event: "seller_application_submit",
+      actorUserId: user.id,
+      actorRole: user.role,
+      outcome: "denied",
+      reason: "invalid_request_body",
     });
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
@@ -121,13 +123,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown seller-application failure";
-    console.error("[alpha-exchange][seller-application][POST]", {
-      userId: user.id,
-      userEmail: user.email,
-      message,
-      stack: error instanceof Error ? error.stack : undefined,
-      error,
-    });
     logEvent("error", {
       event: "seller_application_submit",
       actorUserId: user.id,

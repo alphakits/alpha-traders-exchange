@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getNotificationsForUser, markAllNotificationsRead } from "@/lib/alpha-exchange-store";
 import { requireApiUser } from "@/lib/api-auth";
-import { checkRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
+import { checkSharedRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
 import type { NotificationCategory, NotificationState } from "@/types/alpha-exchange";
 
 function isNotificationCategory(value: string): value is NotificationCategory {
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
-  const rate = checkRateLimit({ headers: request.headers, key: "exchange:notifications-mark-all-read", maxRequests: 12, windowMs: 60_000 });
+  const rate = await checkSharedRateLimit({ headers: request.headers, key: "exchange:notifications-mark-all-read", maxRequests: 12, windowMs: 60_000 });
   if (!rate.allowed) return createRateLimitResponse(rate.retryAfterSeconds);
 
   try {

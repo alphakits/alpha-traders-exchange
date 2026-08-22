@@ -15,14 +15,18 @@ export default defineConfig({
     headless: true,
   },
   webServer: {
-    command: `npm run clean && npm run build && npm run start -- -p ${E2E_PORT}`,
+    command: `npm run clean && npm run build && npm run start -- -H 127.0.0.1 -p ${E2E_PORT}`,
     url: E2E_BASE_URL,
     reuseExistingServer: false,
     timeout: 600_000,
     env: {
       ...process.env,
       NODE_ENV: "production",
-      ALPHA_ENABLE_TEST_SUPPORT: "1",
+      // Explicit local-only marker for production-mode E2E. Runtime guards
+      // reject all test support in deployed Vercel environments. The server
+      // also binds to loopback so test-only routes cannot be reached remotely.
+      ALPHA_E2E_TEST_SUPPORT: "1",
+      ALPHA_E2E_LOOPBACK_ONLY: "1",
       ALPHA_EXCHANGE_FORCE_INMEMORY_REPOSITORY: "1",
     },
   },

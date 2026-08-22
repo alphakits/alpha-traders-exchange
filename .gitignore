@@ -55,6 +55,7 @@ next-env.d.ts
 /public/files/
 
 # Debug / QA artifacts
+recovery-codes.txt
 cookies.txt
 build.log
 build-output.txt

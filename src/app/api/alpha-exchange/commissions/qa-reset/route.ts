@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireApiSellerWorkspaceActor } from "@/lib/api-auth";
 import { clearSellerQaCommissionDues, getCommissionQaResetStatus } from "@/lib/alpha-exchange-store";
+import { isProductionSecurityRuntime } from "@/lib/runtime-safety";
 
 export async function POST() {
-  if (!getCommissionQaResetStatus()) {
-    return NextResponse.json({ error: "QA commission reset is disabled." }, { status: 403 });
+  if (isProductionSecurityRuntime() || !getCommissionQaResetStatus()) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
 
   const { user, unauthorized } = await requireApiSellerWorkspaceActor();

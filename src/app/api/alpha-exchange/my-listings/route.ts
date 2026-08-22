@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCommissionQaModeStatus, getCommissionQaResetStatus, getMyMarketplaceListings, getSellerCommissionStatus, getSellerListingWorkspaceSummary } from "@/lib/alpha-exchange-store";
 import { requireApiSellerWorkspaceActor } from "@/lib/api-auth";
+import { getCommissionWalletConfiguration } from "@/lib/commission-config";
 
 export async function GET(request: NextRequest) {
   const { user, unauthorized } = await requireApiSellerWorkspaceActor();
@@ -17,6 +18,7 @@ export async function GET(request: NextRequest) {
     listings,
     summary,
     commissionStatus,
+    commissionWalletConfiguration: getCommissionWalletConfiguration(),
     qaCommissionModeEnabled: getCommissionQaModeStatus(),
     qaCommissionResetEnabled: getCommissionQaResetStatus(),
   });

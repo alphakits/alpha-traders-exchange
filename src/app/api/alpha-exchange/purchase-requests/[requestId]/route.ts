@@ -5,6 +5,8 @@ import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-au
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { prepareTradeEventEmails, tradeEmailEventForStatus } from "@/lib/marketplace-email-events";
 import { tradeDestination } from "@/lib/action-destinations";
+import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
+import { logEvent } from "@/lib/structured-logging";
 
 type RouteContext = {
   params: Promise<{ requestId: string }>;
@@ -15,7 +17,7 @@ function isValidRequestStatus(value: string): value is "pending" | "accepted" | 
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
-  const routeDebug = process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
+  const routeDebug = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
   const diagId = `patch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   if (routeDebug) {
     console.log("[patch-diag] stage=entry", { diagId, method: request.method, url: request.url });
@@ -116,11 +118,16 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         try {
           await deferredTrustWrite();
         } catch (err: unknown) {
-          console.error("[trade-trust-deferred] write failed", {
-            requestId,
+          logEvent("error", {
+            event: "trade_trust_deferred_write",
             actorUserId: user.id,
-            nextStatus: status,
-            error: err instanceof Error ? err.message : String(err),
+            resourceId: requestId,
+            outcome: "failed",
+            reason: "post_response_write_failed",
+            metadata: {
+              nextStatus: status,
+              errorType: err instanceof Error ? err.name : typeof err,
+            },
           });
         }
       });
@@ -183,7 +190,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       },
     });
   } catch (error) {
-    const debug = process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
+    const debug = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
     const { requestId } = await context.params;
     const tradeError = error instanceof TradeBlockedError ? error : null;
     const message = error instanceof Error ? error.message : "Failed to update request.";
@@ -195,24 +202,17 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       stage: "store-threw",
     };
     const responseStatus = tradeError ? 409 : 400;
-    console.error("[patch-diag] stage=store-threw", {
-      requestId,
+    logEvent("error", {
+      event: "trade_room_status_mutation",
       actorUserId: user.id,
       actorRole: user.role,
-      isTradeBlockedError: Boolean(tradeError),
-      code: tradeError?.code,
-      message,
-      details: tradeError?.details,
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-    console.error("[trade-room-action] mutation failed", {
-      requestId,
-      actorUserId: user.id,
-      actorRole: user.role,
-      message,
-      code: tradeError?.code,
-      details: tradeError?.details,
-      stack: error instanceof Error ? error.stack : undefined,
+      resourceId: requestId,
+      outcome: "failed",
+      reason: tradeError?.code ?? "status_update_failed",
+      metadata: {
+        blocked: Boolean(tradeError),
+        errorType: error instanceof Error ? error.name : typeof error,
+      },
     });
     if (debug) {
       console.log("[trade-room-action] response", {

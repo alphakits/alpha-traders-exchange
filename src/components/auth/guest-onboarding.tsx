@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { GraduationCap, ShieldCheck, Store, UserCircle2, Sparkles, Clock3, CheckCircle2, Send, Smartphone, KeyRound } from "lucide-react";
 import { useRouter } from "@/i18n/navigation";
 import { navigateAfterSuccess } from "@/lib/client-success-navigation";
+import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -87,6 +88,7 @@ export function GuestOnboarding({
   phoneVerificationEnabled,
 }: Props) {
   const router = useRouter();
+  const canonicalSession = useOptionalCanonicalSession();
   const isAr = locale === "ar";
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -122,6 +124,14 @@ export function GuestOnboarding({
     }));
   }
 
+  async function refreshCanonicalSession() {
+    if (canonicalSession) {
+      await canonicalSession.refresh({ force: true });
+      return;
+    }
+    window.dispatchEvent(new Event("alpha-auth-changed"));
+  }
+
   async function becomeStudent() {
     setLoading("student");
     setError(null);
@@ -130,6 +140,7 @@ export function GuestOnboarding({
       const res = await fetch("/api/auth/onboarding/student", { method: "POST" });
       const payload = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(payload.error ?? "Failed to enable student role.");
+      await refreshCanonicalSession();
       router.replace((consumePostOnboardingRedirect() ?? "/academy") as "/academy");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to enable student role.");
@@ -170,6 +181,7 @@ export function GuestOnboarding({
       });
       const payload = (await res.json()) as ApiErrorPayload;
       if (!res.ok) throw new Error(withSupportDetails(payload, "Verification failed."));
+      await refreshCanonicalSession();
       router.replace((consumePostOnboardingRedirect() ?? "/usdt-exchange") as "/usdt-exchange");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Verification failed.");
@@ -194,6 +206,7 @@ export function GuestOnboarding({
       });
       const payload = (await res.json()) as ApiErrorPayload;
       if (!res.ok) throw new Error(withSupportDetails(payload, "Failed to continue as buyer."));
+      await refreshCanonicalSession();
       router.replace((consumePostOnboardingRedirect() ?? "/usdt-exchange") as "/usdt-exchange");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to continue as buyer.");
@@ -210,6 +223,7 @@ export function GuestOnboarding({
       const res = await fetch("/api/auth/onboarding/guest", { method: "POST" });
       const payload = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(payload.error ?? "Failed to continue as guest.");
+      await refreshCanonicalSession();
       router.replace((consumePostOnboardingRedirect() ?? "/usdt-exchange") as "/usdt-exchange");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to continue as guest.");
@@ -261,6 +275,7 @@ export function GuestOnboarding({
       const payload = (await res.json()) as { error?: string; destination?: string };
       if (!res.ok) throw new Error(payload.error ?? "Failed to submit seller application.");
       setSellerStep("applied");
+      await refreshCanonicalSession();
       if (!navigateAfterSuccess(router, payload.destination)) consumePostOnboardingRedirect();
     } catch (err) {
       setSellerError(err instanceof Error ? err.message : "Failed to submit seller application.");

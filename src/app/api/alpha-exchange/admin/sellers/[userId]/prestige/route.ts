@@ -3,6 +3,7 @@ import { requireApiAdmin } from "@/lib/api-auth";
 import { overrideSellerPrestigeByAdmin } from "@/lib/alpha-exchange-store";
 import { logEvent } from "@/lib/structured-logging";
 import { normalizeSellerLevel, type SellerLevel } from "@/types/alpha-exchange";
+import { toAdminSellerSummary } from "@/lib/client-session-user";
 
 type RouteContext = {
   params: Promise<{ userId: string }>;
@@ -38,7 +39,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       targetUserId: userId,
       outcome: "success",
     });
-    return NextResponse.json({ seller });
+    return NextResponse.json({ seller: toAdminSellerSummary(seller) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update seller prestige.";
     logEvent("error", {
