@@ -97,4 +97,9 @@ describe("LoginForm", () => {
     render(<LoginForm locale="en" passwordResetSuccess />);
     expect(screen.getByText("Your password has been updated successfully. Please sign in.")).toBeTruthy();
   });
+
+  it("explains a confirmed session expiry before sign-in", () => {
+    render(<LoginForm locale="en" sessionExpired />);
+    expect(screen.getByText("Your session expired. Please sign in again.")).toBeTruthy();
+  });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bell, BellDot, CircleDot, ExternalLink, Megaphone, Scale, ShieldCheck, Star, Tags, UserRound, XCircle } from "lucide-react";
 import type { AppLocale } from "@/i18n/routing";
 import { Link, useRouter } from "@/i18n/navigation";
@@ -13,6 +13,8 @@ import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display"
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
+import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
+import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -148,6 +150,7 @@ function buildTradeDestinationFromNotification(notification: AlphaExchangeNotifi
 }
 
 export function NotificationBell({ locale }: { locale: AppLocale }) {
+  const canonicalSession = useOptionalCanonicalSession();
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
@@ -160,6 +163,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   const isOpenRef = useRef(false);
   const notificationsCountRef = useRef(0);
   const router = useRouter();
+  const canLoadNotifications = !canonicalSession || (!canonicalSession.isResolving && Boolean(canonicalSession.user));
 
   useEffect(() => {
     isOpenRef.current = isOpen;
@@ -209,7 +213,8 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
     };
   }, [isOpen]);
 
-  async function loadNotifications(limit: number, options?: { preserveOpenList?: boolean }) {
+  const loadNotifications = useCallback(async (limit: number, options?: { preserveOpenList?: boolean }) => {
+    if (!canLoadNotifications) return;
     const startedAt = Date.now();
     const shouldPreserveList = options?.preserveOpenList && isOpenRef.current && notificationsCountRef.current > 0;
     if (!shouldPreserveList) {
@@ -219,7 +224,10 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
     try {
       incrementLoginJourneyApiCall("/api/alpha-exchange/notifications");
       const response = await fetch(`/api/alpha-exchange/notifications?limit=${limit}&includeActivity=0`, { cache: "no-store" });
-      if (!response.ok) throw new Error("Failed to load notifications.");
+      if (!response.ok) {
+        if (response.status === 401) void canonicalSession?.refresh({ force: true });
+        throw new Error("Failed to load notifications.");
+      }
       const payload = (await response.json()) as NotificationsPayload;
       const keepVisibleList = isOpenRef.current && notificationsCountRef.current > 0;
       if (!shouldPreserveList && !keepVisibleList) {
@@ -235,41 +243,26 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
         setIsLoading(false);
       }
     }
-  }
+  }, [canLoadNotifications, canonicalSession]);
 
   useEffect(() => {
+    if (!canLoadNotifications) return;
     void loadNotifications(20);
-  }, []);
+  }, [canLoadNotifications, loadNotifications]);
 
-  useEffect(() => {
-    const stream = new EventSource("/api/alpha-exchange/notifications/stream");
-    const onNotifications = (event: Event) => {
-      const messageEvent = event as MessageEvent<string>;
-      try {
-        const payload = JSON.parse(messageEvent.data) as NotificationsStreamPayload;
-        if (!isOpenRef.current) {
-          setNotifications(sortNotificationsNewestFirst(Array.isArray(payload.notifications) ? payload.notifications : []));
-        }
-        setUnreadCount(typeof payload.unreadCount === "number" ? payload.unreadCount : 0);
-      } catch {
-        // Ignore malformed stream payloads and keep current state.
+  const handleNotificationStream = useCallback((event: Event) => {
+    const messageEvent = event as MessageEvent<string>;
+    try {
+      const payload = JSON.parse(messageEvent.data) as NotificationsStreamPayload;
+      if (!isOpenRef.current) {
+        setNotifications(sortNotificationsNewestFirst(Array.isArray(payload.notifications) ? payload.notifications : []));
       }
-    };
-    const onError = () => {
-      // Keep the stream best-effort; periodic snapshots on reconnect will self-heal state.
-    };
-    stream.addEventListener("notifications", onNotifications);
-    stream.addEventListener("error", onError as EventListener);
-    // Close the stream explicitly before page unload (e.g. logout via window.location.replace).
-    // Without this, hard navigations terminate the connection abruptly and the browser logs
-    // "The connection has terminated unexpectedly" in the DevTools console.
-    const handleBeforeUnload = () => stream.close();
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-      stream.close();
-    };
+      setUnreadCount(typeof payload.unreadCount === "number" ? payload.unreadCount : 0);
+    } catch {
+      // Ignore malformed stream payloads and keep current state.
+    }
   }, []);
+  useAuthenticatedNotificationStream({ enabled: canLoadNotifications, onNotifications: handleNotificationStream });
 
   async function handleToggleOpen() {
     const nextOpen = !isOpen;

@@ -14,6 +14,8 @@ import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display"
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
+import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
+import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -187,6 +189,7 @@ function formatNotificationMessage(notification: AlphaExchangeNotification) {
 }
 
 export function NotificationsPage({ locale }: { locale: AppLocale }) {
+  const canonicalSession = useOptionalCanonicalSession();
   const [notifications, setNotifications] = useState<AlphaExchangeNotification[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -200,6 +203,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
   const [itemLoading, setItemLoading] = useState<Record<string, boolean>>({});
   const [isMobileViewport, setIsMobileViewport] = useState<boolean | null>(null);
   const router = useRouter();
+  const canLoadNotifications = !canonicalSession || (!canonicalSession.isResolving && Boolean(canonicalSession.user));
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 768px)");
@@ -220,6 +224,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
     append?: boolean;
     force?: boolean;
   } = {}) => {
+    if (!canLoadNotifications) return;
     if (append) {
       setIsLoadingMore(true);
     } else {
@@ -245,7 +250,10 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
       });
       if (filter === "history") params.set("state", "archived");
       const response = await fetch(`/api/alpha-exchange/notifications?${params.toString()}`, { cache: "no-store" });
-      if (!response.ok) throw new Error("Failed to load notifications.");
+      if (!response.ok) {
+        if (response.status === 401) void canonicalSession?.refresh({ force: true });
+        throw new Error("Failed to load notifications.");
+      }
       const payload = (await response.json()) as NotificationsPayload;
       const incoming = sortNotificationsNewestFirst(payload.notifications ?? []);
       setNotifications((prev) => {
@@ -277,35 +285,25 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
         setLoading(false);
       }
     }
-  }, [fetchLimit, filter]);
+  }, [canLoadNotifications, canonicalSession, fetchLimit, filter]);
 
   useEffect(() => {
-    if (isMobileViewport === null) return;
+    if (isMobileViewport === null || !canLoadNotifications) return;
     void loadNotifications({ offset: 0, append: false });
-  }, [isMobileViewport, loadNotifications]);
+  }, [canLoadNotifications, isMobileViewport, loadNotifications]);
 
-  useEffect(() => {
-    if (filter === "history") return;
-    const stream = new EventSource("/api/alpha-exchange/notifications/stream");
-    const onNotifications = (event: Event) => {
-      const messageEvent = event as MessageEvent<string>;
-      try {
-        const payload = JSON.parse(messageEvent.data) as NotificationsStreamPayload;
-        if (!Array.isArray(payload.notifications)) return;
-        setNotifications(sortNotificationsNewestFirst(payload.notifications));
-        setUnreadCount(typeof payload.unreadCount === "number" ? payload.unreadCount : 0);
-      } catch {
-        // Ignore malformed stream payloads.
-      }
-    };
-    stream.addEventListener("notifications", onNotifications);
-    const handleBeforeUnload = () => stream.close();
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-      stream.close();
-    };
-  }, [filter]);
+  const handleNotificationStream = useCallback((event: Event) => {
+    const messageEvent = event as MessageEvent<string>;
+    try {
+      const payload = JSON.parse(messageEvent.data) as NotificationsStreamPayload;
+      if (!Array.isArray(payload.notifications)) return;
+      setNotifications(sortNotificationsNewestFirst(payload.notifications));
+      setUnreadCount(typeof payload.unreadCount === "number" ? payload.unreadCount : 0);
+    } catch {
+      // Ignore malformed stream payloads.
+    }
+  }, []);
+  useAuthenticatedNotificationStream({ enabled: canLoadNotifications && filter !== "history", onNotifications: handleNotificationStream });
 
   useEffect(() => {
     setPage(1);

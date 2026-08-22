@@ -427,11 +427,17 @@ async function submitListingFromSellerWorkspace(page: Page, expectedListing: { a
 
   expect([200, 201]).toContain(createResponse.status());
 
-  const payload = (await createResponse.json()) as { listing?: { id: string; status: string; availableAmount?: string; price?: string } };
+  const payload = (await createResponse.json()) as { listing?: { id: string; status: string; approvalStatus?: string; availableAmount?: string; price?: string }; destination?: string };
   if (!payload.listing?.id) {
     throw new Error("Listing create response did not include a listing id.");
   }
   await expect(page.getByText("My Listings")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator("#listing-publish-result")).toContainText("awaiting Alpha Traders admin approval", { timeout: 30_000 });
+  await expect(page).toHaveURL(/#listing-publish-result$/);
+  await expect(page.locator(`[id="seller-listing-${payload.listing.id}"]`)).toContainText("not visible to buyers yet");
+  await expect(page.locator(`[id="listing-${payload.listing.id}"]`)).toHaveCount(0);
+  expect(payload.listing).toMatchObject({ status: "draft", approvalStatus: "pending" });
+  expect(payload.destination).toBe(`/usdt-exchange#seller-listing-${payload.listing.id}`);
   return { listing: payload.listing };
 }
 
@@ -650,16 +656,35 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   const firstListingCreate = await submitListingFromSellerWorkspace(seller.page, { availableAmount: "1000", price: "3.20" });
   expect(firstListingCreate.listing?.id).toBeTruthy();
 
+  const firstListingResult = seller.page.locator("#listing-publish-result");
+  const firstSellerListing = seller.page.locator(`[id="seller-listing-${firstListingCreate.listing!.id}"]`);
+  for (const width of [320, 360, 375, 390, 430]) {
+    await seller.page.setViewportSize({ width, height: 844 });
+    await firstListingResult.scrollIntoViewIfNeeded();
+    await expect(firstListingResult).toBeVisible();
+    await expect(firstSellerListing).toBeVisible();
+    const overflow = await seller.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, `horizontal overflow at ${width}px`).toBeLessThanOrEqual(1);
+  }
+  for (const width of [1366, 1920]) {
+    await seller.page.setViewportSize({ width, height: 900 });
+    await firstListingResult.scrollIntoViewIfNeeded();
+    await expect(firstListingResult).toBeVisible();
+    await expect(firstSellerListing).toBeVisible();
+    const overflow = await seller.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, `horizontal overflow at ${width}px`).toBeLessThanOrEqual(1);
+  }
+
   const secondListingCreate = await submitListingFromSellerWorkspace(seller.page, { availableAmount: "500", price: "3.18" });
   expect(secondListingCreate.listing?.id).toBeTruthy();
-  await expect(seller.page.getByText("You already have 2 active listings. Close one before creating another.").first()).toBeVisible({ timeout: 30_000 });
+  await expect(seller.page.getByText("You already have 2 open listings, including listings awaiting review. Close one before creating another.").first()).toBeVisible({ timeout: 30_000 });
 
   await sellerMain.locator("#create-available").fill("250");
   await sellerMain.locator("#create-price").fill("3.10");
   await sellerMain.locator("#create-min-trade").fill("25");
   await sellerMain.locator("#create-max-trade").fill("250");
   await expect(seller.page.getByRole("button", { name: "Submit Listing" })).toBeDisabled();
-  await expect(seller.page.getByText("You already have 2 active listings. Close one before creating another.").first()).toBeVisible({ timeout: 10_000 });
+  await expect(seller.page.getByText("You already have 2 open listings, including listings awaiting review. Close one before creating another.").first()).toBeVisible({ timeout: 10_000 });
 
   const sellerListingsResponse = await seller.page.request.get("/api/alpha-exchange/my-listings");
   const sellerListingsPayload = (await sellerListingsResponse.json()) as {

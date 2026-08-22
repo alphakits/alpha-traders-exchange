@@ -43,23 +43,31 @@ export async function GET(request: NextRequest, context: RouteContext) {
       let closed = false;
       let snapshotInFlight = false;
       let snapshotQueued = false;
+      let unsubscribe: (() => void) | null = null;
+      let keepAlive: ReturnType<typeof setInterval> | null = null;
+      const cleanup = () => {
+        if (closed) return;
+        closed = true;
+        if (keepAlive) {
+          clearInterval(keepAlive);
+          keepAlive = null;
+        }
+        unsubscribe?.();
+        unsubscribe = null;
+        try {
+          controller.close();
+        } catch {
+          // Stream can already be closed by the runtime when abort races with send.
+        }
+      };
       const enqueueSafe = (payload: string) => {
         if (closed) return false;
         try {
           controller.enqueue(encoder.encode(payload));
           return true;
         } catch {
-          closed = true;
+          cleanup();
           return false;
-        }
-      };
-      const closeSafe = () => {
-        if (closed) return;
-        closed = true;
-        try {
-          controller.close();
-        } catch {
-          // Stream can already be closed by the runtime when abort races with send.
         }
       };
       const sendSnapshot = async (trigger: "init" | "event" | "keepalive", publishedAtEpochMs?: number) => {
@@ -115,30 +123,26 @@ export async function GET(request: NextRequest, context: RouteContext) {
       };
 
       void sendSnapshot("init");
-      const unsubscribe = subscribeRealtimeEvents((event) => {
+      unsubscribe = subscribeRealtimeEvents((event) => {
         if (closed) return;
         if (!isRelevantTradeRoomEvent(event, requestId)) return;
         const publishedAt = event.type === "trade.status_changed" ? event.payload.publishedAtEpochMs : undefined;
         void sendSnapshot("event", publishedAt);
       });
 
-      const keepAlive = setInterval(() => {
+      keepAlive = setInterval(() => {
         if (!enqueueSafe(": keepalive\n\n")) return;
         void sendSnapshot("keepalive");
       }, CROSS_INSTANCE_RECONCILIATION_MS);
 
       const signal = request.signal;
       if (signal.aborted) {
-        clearInterval(keepAlive);
-        unsubscribe();
-        closeSafe();
+        cleanup();
         return;
       }
 
       signal.addEventListener("abort", () => {
-        clearInterval(keepAlive);
-        unsubscribe();
-        closeSafe();
+        cleanup();
       }, { once: true });
     },
   });

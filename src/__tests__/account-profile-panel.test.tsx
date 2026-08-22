@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
 import { AccountProfilePanel } from "@/components/profile/account-profile-panel";
 import { UsdtExchangePage } from "@/components/sections/usdt-exchange/usdt-exchange-page";
 
@@ -210,6 +211,61 @@ describe("AccountProfilePanel", () => {
 
     await waitFor(() => expect(screen.getByText("Failed to load identity.")).toBeTruthy());
     expect(screen.queryByText("Preparing trading identity...")).toBeNull();
+  });
+
+  it("clears cached private profile data when the canonical session becomes anonymous", async () => {
+    const replaceSpy = vi.fn();
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        ...originalLocation,
+        pathname: "/en/profile",
+        search: "",
+        hash: "",
+        replace: replaceSpy,
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          user: {
+            id: "user-1",
+            fullName: "Test User",
+            email: "test@example.com",
+            role: "buyer",
+            roles: ["buyer"],
+            sellerStatus: "buyer",
+            whatsappNumber: "",
+            preferredNetworks: [],
+            profilePhotoUrl: "",
+            languages: [],
+            bio: "",
+            onlineStatus: "offline",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => makePayload("buyer") })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ user: null }) }));
+
+    try {
+      render(
+        <CanonicalSessionProvider initialSessionUser={null}>
+          <AccountProfilePanel locale="en" />
+        </CanonicalSessionProvider>,
+      );
+
+      await waitFor(() => expect(screen.getByText("Test User")).toBeTruthy());
+      window.dispatchEvent(new Event("alpha-auth-changed"));
+
+      await waitFor(() => expect(screen.getByText("Your session has expired. Please sign in again.")).toBeTruthy());
+      expect(screen.queryByText("Test User")).toBeNull();
+      expect(replaceSpy).toHaveBeenCalledWith("/en/login?sessionExpired=1&redirectTo=%2Fen%2Fprofile");
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+    }
   });
 
   it("refreshes live profile stats when a notifications stream event arrives", async () => {

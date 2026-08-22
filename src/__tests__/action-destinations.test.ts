@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { completedTradeDestination, listingDestination, sellerApplicationReviewDestination, sellerApplicationStatusDestination, sellerListingWorkspaceDestination, tradeDestination } from "@/lib/action-destinations";
+import { completedTradeDestination, listingDestination, sellerApplicationReviewDestination, sellerApplicationStatusDestination, sellerListingWorkspaceAnchor, sellerListingWorkspaceDestination, tradeDestination } from "@/lib/action-destinations";
 import type { MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
 
 const listing = { id: "listing-123" } as MarketplaceListing;
@@ -28,7 +28,8 @@ function request(status: PurchaseRequest["status"]): PurchaseRequest {
 describe("canonical action destinations", () => {
   it("builds exact listing and application destinations", () => {
     expect(listingDestination(listing)).toBe("/usdt-exchange#listing-listing-123");
-    expect(sellerListingWorkspaceDestination(listing)).toBe("/usdt-exchange#my-listings-section");
+    expect(sellerListingWorkspaceAnchor(listing)).toBe("seller-listing-listing-123");
+    expect(sellerListingWorkspaceDestination(listing)).toBe("/usdt-exchange#seller-listing-listing-123");
     expect(sellerApplicationStatusDestination()).toBe("/usdt-exchange#seller-application");
     expect(sellerApplicationReviewDestination("application-123")).toBe("/admin/alpha-exchange?section=seller-applications&sellerApplication=application-123");
   });

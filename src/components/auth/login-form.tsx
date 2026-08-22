@@ -10,15 +10,19 @@ export function LoginForm({
   locale,
   redirectTo,
   passwordResetSuccess = false,
+  sessionExpired = false,
 }: {
   locale: "ar" | "en";
   redirectTo?: string;
   passwordResetSuccess?: boolean;
+  sessionExpired?: boolean;
 }) {
   const isAr = locale === "ar";
   const [form, setForm] = useState({ email: "", password: "", rememberMe: true });
   const [statusMessage, setStatusMessage] = useState<string | null>(
-    passwordResetSuccess
+    sessionExpired
+      ? (isAr ? "انتهت جلستك. يُرجى تسجيل الدخول مرة أخرى." : "Your session expired. Please sign in again.")
+      : passwordResetSuccess
       ? (isAr
         ? "تم تحديث كلمة المرور بنجاح. يُرجى تسجيل الدخول."
         : "Your password has been updated successfully. Please sign in.")

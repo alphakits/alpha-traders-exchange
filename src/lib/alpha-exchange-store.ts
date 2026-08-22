@@ -951,7 +951,7 @@ function getSellerListingBlockReason(db: AlphaExchangeDb, sellerId: string) {
   }
   const openListingCount = getSellerOpenListingCount(db, sellerId);
   if (openListingCount >= MAX_ACTIVE_LISTINGS_PER_SELLER) {
-    return "You already have 2 active listings. Close one before creating another.";
+    return "You already have 2 open listings, including listings awaiting review. Close one before creating another.";
   }
   return null;
 }
@@ -2951,7 +2951,7 @@ async function sendListingOwnerLifecycleEmail(
     title: input.title,
     message: input.message,
     actionLabel: "Open Seller Listings",
-    actionUrl: `${getSiteUrl()}/en/usdt-exchange#my-listings-section`,
+    actionUrl: `${getSiteUrl()}/en${sellerListingWorkspaceDestination(listing)}`,
     referenceLabel: listing.id,
     idempotencyKey: input.idempotencyKey,
   });
@@ -3311,7 +3311,7 @@ async function expireListing(db: AlphaExchangeDb, listing: MarketplaceListing, a
     title: "Listing expired",
     message: `Listing ${listing.id} expired and is no longer visible to buyers. Open My Listings to renew it when you are ready.`,
     relatedListingId: listing.id,
-    relatedHref: "/usdt-exchange#my-listings-section",
+    relatedHref: sellerListingWorkspaceDestination(listing),
     actionLabel: "Manage Listing",
   });
   const owner = getOwnerUser(db);
@@ -6814,7 +6814,7 @@ export async function renewMarketplaceListing(input: {
     title: "Listing renewed",
     message: `Listing ${listing.id} has been renewed and is live again.`,
     relatedListingId: listing.id,
-    relatedHref: "/usdt-exchange#my-listings-section",
+    relatedHref: sellerListingWorkspaceDestination(listing),
     actionLabel: "Manage Listing",
   });
   await writeDb(db, { selectedTables: LISTING_WRITE_TABLES });

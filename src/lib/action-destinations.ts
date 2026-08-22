@@ -5,9 +5,12 @@ export function listingDestination(listing: Pick<MarketplaceListing, "id">) {
   return `/usdt-exchange#listing-${encodeURIComponent(listing.id)}`;
 }
 
+export function sellerListingWorkspaceAnchor(listing: Pick<MarketplaceListing, "id">) {
+  return `seller-listing-${encodeURIComponent(listing.id)}`;
+}
+
 export function sellerListingWorkspaceDestination(listing: Pick<MarketplaceListing, "id">) {
-  void listing;
-  return "/usdt-exchange#my-listings-section";
+  return `/usdt-exchange#${sellerListingWorkspaceAnchor(listing)}`;
 }
 
 export function sellerApplicationStatusDestination() {
