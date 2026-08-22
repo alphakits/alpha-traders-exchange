@@ -21,6 +21,7 @@ import { runEnvValidation } from "@/lib/env-validation";
 import { getAlphaExchangeRepository, type SnapshotTableName } from "@/lib/alpha-exchange-repository";
 import { addRole, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
 import { publishRealtimeEvent } from "@/lib/realtime";
+import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { sendMarketplaceEmail, type MarketplaceEmailEvent } from "@/lib/marketplace-email-delivery";
 import {
   isRetryableAnnouncementDeliveryFailure,
@@ -103,6 +104,7 @@ import type {
   TradeEvidenceFile,
   TradeEvidenceSide,
   TradeChatMessage,
+  TradeRoomPokeState,
   TradeTimelineEventType,
   AlphaExchangeTradeReminder,
   OwnerPrivateBetaDashboardData,
@@ -255,6 +257,7 @@ const EMAIL_VERIFICATION_EXPIRY_HOURS = 24;
 const SYSTEM_ACTOR_USER_ID = "system:marketplace";
 const MAX_SELLER_BANK_ACCOUNTS = 2;
 const TRADE_INACTIVITY_WARNING_MINUTES = 15;
+export const TRADE_ROOM_POKE_COOLDOWN_MS = 5 * 60_000;
 let dbCache: { value: AlphaExchangeDb; updatedAt: number } | null = null;
 let dbReadInFlight: Promise<AlphaExchangeDb> | null = null;
 let dbWriteInFlight: Promise<void> = Promise.resolve();
@@ -576,6 +579,28 @@ function getMaxEvidenceSizeBytes() {
   // unreviewed availability exposure through an oversized upload limit.
   const maxMb = isProductionSecurityRuntime() ? Math.min(configuredMb, 8) : configuredMb;
   return Math.round(maxMb * 1024 * 1024);
+}
+
+export class TradeRoomPokeError extends Error {
+  readonly code: string;
+  readonly status: number;
+  readonly retryAfterSeconds: number | null;
+  readonly cooldownUntil: string | null;
+
+  constructor(input: {
+    code: string;
+    message: string;
+    status: number;
+    retryAfterSeconds?: number | null;
+    cooldownUntil?: string | null;
+  }) {
+    super(input.message);
+    this.name = "TradeRoomPokeError";
+    this.code = input.code;
+    this.status = input.status;
+    this.retryAfterSeconds = input.retryAfterSeconds ?? null;
+    this.cooldownUntil = input.cooldownUntil ?? null;
+  }
 }
 
 function getListingExpirationHours(value?: number | string) {
@@ -2114,6 +2139,16 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         typeof (request as { inactivityWarningSentAt?: string }).inactivityWarningSentAt === "string"
           ? (request as { inactivityWarningSentAt: string }).inactivityWarningSentAt
           : undefined,
+      pokeState: (() => {
+        const value = (request as { pokeState?: unknown }).pokeState;
+        if (!value || typeof value !== "object") return undefined;
+        const raw = value as { buyerToSellerAt?: unknown; sellerToBuyerAt?: unknown };
+        const buyerToSellerAt = typeof raw.buyerToSellerAt === "string" ? raw.buyerToSellerAt : undefined;
+        const sellerToBuyerAt = typeof raw.sellerToBuyerAt === "string" ? raw.sellerToBuyerAt : undefined;
+        return buyerToSellerAt || sellerToBuyerAt
+          ? { buyerToSellerAt, sellerToBuyerAt } satisfies TradeRoomPokeState
+          : undefined;
+      })(),
       lockedAt: typeof (request as { lockedAt?: string }).lockedAt === "string" ? (request as { lockedAt: string }).lockedAt : undefined,
       reviewUnlockedAt:
         typeof (request as { reviewUnlockedAt?: string }).reviewUnlockedAt === "string" ? (request as { reviewUnlockedAt: string }).reviewUnlockedAt : undefined,
@@ -2593,6 +2628,7 @@ const PURCHASE_REQUEST_ONLY_TABLES = ["purchase_requests"] as const satisfies re
 const TRADE_BANK_DETAILS_AUDIT_TABLES = ["purchase_requests", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const COMMISSION_RESET_TABLES = ["purchase_requests", "commissions", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const COMMISSION_STATUS_TABLES = ["purchase_requests", "commissions", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
+const TRADE_ROOM_INTERACTION_TABLES = ["purchase_requests", "notifications"] as const satisfies readonly SnapshotTableName[];
 const AUDIT_LOG_ONLY_TABLES = ["audit_logs"] as const satisfies readonly SnapshotTableName[];
 const NOTIFICATION_ONLY_TABLES = ["notifications"] as const satisfies readonly SnapshotTableName[];
 const NOTIFICATION_PREFERENCES_TABLES = [...USER_PROFILE_TABLES, "activity_logs"] as const satisfies readonly SnapshotTableName[];
@@ -2604,7 +2640,15 @@ const ADMIN_ANNOUNCEMENT_TABLES = ["admin_announcement_runs", "audit_logs"] as c
 const ADMIN_LISTING_OVERRIDE_TABLES = ["listings", "purchase_requests", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const ENFORCEMENT_MUTATION_TABLES = [...USER_PROFILE_TABLES, "listings", "notifications", "audit_logs", ...MARKETPLACE_ENFORCEMENT_TABLES] as const satisfies readonly SnapshotTableName[];
 
-async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<string, Buffer>; traceTag?: string; selectedTables?: readonly SnapshotTableName[] }) {
+async function writeDb(
+  db: AlphaExchangeDb,
+  options?: {
+    evidenceOverrides?: Map<string, Buffer>;
+    traceTag?: string;
+    selectedTables?: readonly SnapshotTableName[];
+    validateBeforeCommit?: (snapshot: AlphaExchangeDb) => void;
+  },
+) {
   const normalized = normalizeDb(db);
   ensureDisplayNumbers(normalized);
   const tables = options?.selectedTables ?? ["(all)"];
@@ -2619,6 +2663,7 @@ async function writeDb(db: AlphaExchangeDb, options?: { evidenceOverrides?: Map<
       evidenceOverrides: options?.evidenceOverrides,
       traceTag: options?.traceTag,
       selectedTables: options?.selectedTables,
+      validateBeforeCommit: options?.validateBeforeCommit,
     });
   });
   dbWriteInFlight = writeTask.catch(() => undefined);
@@ -2885,6 +2930,19 @@ async function sendSellerEnforcementEmail(
   return result.ok;
 }
 
+type DeferredNotificationPublication = {
+  type: "notification.created" | "notification.updated";
+  notification: AlphaExchangeNotification;
+};
+
+function publishNotificationPublication(publication: DeferredNotificationPublication | null | undefined) {
+  if (!publication) return;
+  publishRealtimeEvent({
+    type: publication.type,
+    payload: { notification: publication.notification },
+  });
+}
+
 function pushNotification(
   db: AlphaExchangeDb,
   input: {
@@ -2901,12 +2959,16 @@ function pushNotification(
     reason?: string;
     priority?: NotificationPriorityLevel;
     state?: NotificationState;
+    /** Transactional trade communication may not be silently hidden by a stale UI preference. */
+    forceInApp?: boolean;
+    /** Persist first, then emit the notification event from the caller. */
+    deferRealtime?: boolean;
   },
-) {
+): DeferredNotificationPublication | null {
   ensureDisplayNumbers(db);
   const user = db.users.find((item) => item.id === input.userId);
-  if (!user) return;
-  if (user.notificationPreferences?.inApp === false) return;
+  if (!user) return null;
+  if (user.notificationPreferences?.inApp === false && input.forceInApp !== true) return null;
   const inferredRequest = resolveTradeContextForNotification(db, {
     userId: input.userId,
     relatedRequestId: input.relatedRequestId,
@@ -2960,11 +3022,9 @@ function pushNotification(
         updatedAt: createdAt,
       });
       db.notifications[duplicateIndex] = updated;
-      publishRealtimeEvent({
-        type: "notification.updated",
-        payload: { notification: updated },
-      });
-      return;
+      const publication = { type: "notification.updated" as const, notification: updated };
+      if (input.deferRealtime !== true) publishNotificationPublication(publication);
+      return publication;
     }
   }
 
@@ -2992,10 +3052,9 @@ function pushNotification(
   });
   db.notifications.unshift(notification);
   pruneNotificationBacklog(db);
-  publishRealtimeEvent({
-    type: "notification.created",
-    payload: { notification },
-  });
+  const publication = { type: "notification.created" as const, notification };
+  if (input.deferRealtime !== true) publishNotificationPublication(publication);
+  return publication;
 }
 
 export function hasVerifiedPhoneForSms(user: Pick<AlphaExchangeUser, "verifiedPhone" | "phoneVerifiedAt">) {
@@ -7297,6 +7356,74 @@ function isActionableTradeStatus(status: PurchaseRequestStatus) {
   return ACTIONABLE_TRADE_STATUSES.includes(status);
 }
 
+type TradeRoomParticipantSide = "buyer" | "seller";
+
+function getTradeRoomParticipantSide(request: PurchaseRequest, userId: string): TradeRoomParticipantSide | null {
+  if (request.buyerId === userId) return "buyer";
+  if (request.sellerId === userId) return "seller";
+  return null;
+}
+
+function assertTradeRoomParticipant(request: PurchaseRequest, userId: string) {
+  const side = getTradeRoomParticipantSide(request, userId);
+  if (!side) {
+    throw new Error("You are not allowed to send Trade Room messages.");
+  }
+  return side;
+}
+
+function isTradeRoomPokeActive(request: PurchaseRequest) {
+  // An open dispute remains participant-actionable only while the canonical
+  // lifecycle itself is still actionable. Terminal, cancelled, declined, and
+  // explicitly timed-out/manual-closed trades cannot be nudged.
+  return isActionableTradeStatus(request.status)
+    && !request.timedOutAt
+    && !request.closedAt;
+}
+
+function pokeStateFieldForSender(side: TradeRoomParticipantSide): keyof TradeRoomPokeState {
+  return side === "buyer" ? "buyerToSellerAt" : "sellerToBuyerAt";
+}
+
+function getPokeCooldownUntil(request: PurchaseRequest, side: TradeRoomParticipantSide) {
+  const lastPokedAt = request.pokeState?.[pokeStateFieldForSender(side)];
+  if (!lastPokedAt) return null;
+  const lastPokedAtMs = new Date(lastPokedAt).getTime();
+  if (!Number.isFinite(lastPokedAtMs)) return null;
+  return new Date(lastPokedAtMs + TRADE_ROOM_POKE_COOLDOWN_MS);
+}
+
+export type TradeRoomPokeAvailability = {
+  available: boolean;
+  canPoke: boolean;
+  cooldownUntil: string | null;
+  cooldownRemainingSeconds: number;
+  counterpartRole: TradeRoomParticipantSide | null;
+};
+
+function getTradeRoomPokeAvailability(request: PurchaseRequest, actorUserId: string): TradeRoomPokeAvailability {
+  const participantSide = getTradeRoomParticipantSide(request, actorUserId);
+  if (!participantSide || !isTradeRoomPokeActive(request)) {
+    return {
+      available: false,
+      canPoke: false,
+      cooldownUntil: null,
+      cooldownRemainingSeconds: 0,
+      counterpartRole: null,
+    };
+  }
+  const cooldownUntil = getPokeCooldownUntil(request, participantSide);
+  const remainingMs = cooldownUntil ? cooldownUntil.getTime() - Date.now() : 0;
+  const cooldownRemainingSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+  return {
+    available: true,
+    canPoke: cooldownRemainingSeconds === 0,
+    cooldownUntil: cooldownRemainingSeconds > 0 ? cooldownUntil?.toISOString() ?? null : null,
+    cooldownRemainingSeconds,
+    counterpartRole: participantSide === "buyer" ? "seller" : "buyer",
+  };
+}
+
 function sortTradesByUpdatedAtDesc(left: PurchaseRequest, right: PurchaseRequest) {
   return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
 }
@@ -7496,6 +7623,7 @@ export interface TradeRoomData {
   listing: MarketplaceListing | null;
   counterpart: { buyerName: string; sellerName: string };
   messages: TradeChatMessage[];
+  poke: TradeRoomPokeAvailability;
   deadlineAt: string | null;
   timeRemainingSeconds: number | null;
   releaseDeadlineActive: boolean;
@@ -7601,6 +7729,7 @@ export async function getTradeRoomData(input: {
       sellerName: seller?.fullName ?? listing?.sellerDisplayName ?? request.sellerId,
     },
     messages,
+    poke: getTradeRoomPokeAvailability(request, input.actorUserId),
     deadlineAt,
     timeRemainingSeconds,
     releaseDeadlineActive,
@@ -7801,7 +7930,6 @@ export async function closePurchaseRequestManually(input: {
 export async function postTradeRoomMessage(input: {
   purchaseRequestId: string;
   actorUserId: string;
-  actorRole: UserRole;
   message: string;
   imageUrl?: string;
   imageName?: string;
@@ -7809,13 +7937,13 @@ export async function postTradeRoomMessage(input: {
 }) {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
-  const db = await readDb();
+  const db = await readDb({ bypassCache: true });
   const dbReadMs = Date.now() - dbReadStartedAt;
   const validationStartedAt = Date.now();
   const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.purchaseRequestId);
   if (requestIndex === -1) throw new Error("Trade not found.");
   const request = db.purchaseRequests[requestIndex];
-  assertTradeParticipantOrAdmin(request, input.actorUserId, input.actorRole);
+  const participantSide = assertTradeRoomParticipant(request, input.actorUserId);
 
   const message = input.message.trim();
   if (!message) throw new Error("Message is required.");
@@ -7823,7 +7951,7 @@ export async function postTradeRoomMessage(input: {
   const validationMs = Date.now() - validationStartedAt;
 
   const businessStartedAt = Date.now();
-  const senderRole = resolveActorRole(db, input.actorUserId);
+  const senderRole: UserRole = participantSide === "buyer" ? "buyer" : "approved_seller";
   const nextMessage: TradeChatMessage = {
     id: `trade-msg-${randomUUID()}`,
     purchaseRequestId: request.id,
@@ -7847,9 +7975,25 @@ export async function postTradeRoomMessage(input: {
   }
   db.purchaseRequests[requestIndex] = request;
   db.tradeMessages = [nextMessage, ...(db.tradeMessages ?? [])];
+  const recipientUserId = participantSide === "buyer" ? request.sellerId : request.buyerId;
+  const notificationPublication = pushNotification(db, {
+    userId: recipientUserId,
+    category: "trade",
+    title: "New Trade Room message",
+    message: "You have a new message in your active Alpha Exchange trade.",
+    relatedRequestId: request.id,
+    relatedTradeId: request.tradeId,
+    relatedListingId: request.listingId,
+    relatedHref: `${requestDetailsHref(request.id)}#chat`,
+    actionLabel: "Open Trade Room",
+    actionHref: `${requestDetailsHref(request.id)}#chat`,
+    reason: "trade_room_message",
+    forceInApp: true,
+    deferRealtime: true,
+  });
   const businessMs = Date.now() - businessStartedAt;
   const writeStartedAt = Date.now();
-  await writeDb(db, { selectedTables: PURCHASE_REQUEST_ONLY_TABLES });
+  await writeDb(db, { selectedTables: TRADE_ROOM_INTERACTION_TABLES });
   const writeMs = Date.now() - writeStartedAt;
   const sseStartedAt = Date.now();
   publishRealtimeEvent({
@@ -7859,20 +8003,17 @@ export async function postTradeRoomMessage(input: {
       messageId: nextMessage.id,
     },
   });
-  const otherParticipantId = request.buyerId === input.actorUserId ? request.sellerId : request.buyerId;
-  pushNotification(db, {
-    userId: otherParticipantId,
-    category: "trade",
-    title: "New trade message",
-    message: input.message.trim() ? input.message.trim().slice(0, 120) : "You received a new image in the trade room.",
-    relatedRequestId: request.id,
-    relatedTradeId: request.tradeId,
-    relatedListingId: request.listingId,
-    relatedHref: requestDetailsHref(request.id),
-  });
+  publishNotificationPublication(notificationPublication);
   const sseMs = Date.now() - sseStartedAt;
   return {
     message: nextMessage,
+    notificationRecipientUserId: recipientUserId,
+    notificationRecipientRole: participantSide === "buyer" ? "seller" as const : "buyer" as const,
+    senderParticipantRole: participantSide,
+    trade: {
+      id: request.id,
+      tradeId: request.tradeId,
+    },
     metrics: {
       totalMs: Date.now() - startedAt,
       readDbMs: dbReadMs,
@@ -7880,6 +8021,181 @@ export async function postTradeRoomMessage(input: {
       businessMs,
       writeDbMs: writeMs,
       sseMs,
+    },
+  };
+}
+
+export async function postTradeRoomPoke(input: {
+  purchaseRequestId: string;
+  actorUserId: string;
+  requestHeaders: Headers;
+}) {
+  const db = await readDb({ bypassCache: true });
+  const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.purchaseRequestId);
+  if (requestIndex === -1) {
+    throw new TradeRoomPokeError({
+      code: "TRADE_NOT_FOUND",
+      message: "Trade not found.",
+      status: 404,
+    });
+  }
+
+  const request = db.purchaseRequests[requestIndex];
+  let participantSide: TradeRoomParticipantSide;
+  try {
+    participantSide = assertTradeRoomParticipant(request, input.actorUserId);
+  } catch {
+    throw new TradeRoomPokeError({
+      code: "TRADE_PARTICIPANT_REQUIRED",
+      message: "Only the Buyer or Seller in this Trade Room can send a reminder.",
+      status: 403,
+    });
+  }
+  if (!isTradeRoomPokeActive(request)) {
+    throw new TradeRoomPokeError({
+      code: "TRADE_NOT_ACTIVE",
+      message: "Reminders are available only while this trade is active.",
+      status: 409,
+    });
+  }
+
+  const persistedAvailability = getTradeRoomPokeAvailability(request, input.actorUserId);
+  if (!persistedAvailability.canPoke) {
+    throw new TradeRoomPokeError({
+      code: "POKE_COOLDOWN_ACTIVE",
+      message: "Please wait before sending another reminder for this trade.",
+      status: 429,
+      retryAfterSeconds: persistedAvailability.cooldownRemainingSeconds,
+      cooldownUntil: persistedAvailability.cooldownUntil,
+    });
+  }
+
+  const recipientUserId = participantSide === "buyer" ? request.sellerId : request.buyerId;
+  // PostgreSQL-backed, per-trade/per-direction claim. In production the shared
+  // limiter fails closed when its database backing is unavailable, so a refresh,
+  // another device, or concurrent POST cannot manufacture an extra Poke.
+  const cooldownClaim = await checkSharedRateLimit({
+    headers: input.requestHeaders,
+    key: "exchange:trade-room-poke",
+    identifier: `${request.id}:${input.actorUserId}:${recipientUserId}`,
+    maxRequests: 1,
+    windowMs: TRADE_ROOM_POKE_COOLDOWN_MS,
+  });
+  if (!cooldownClaim.allowed) {
+    const retryAfterSeconds = Math.max(1, cooldownClaim.retryAfterSeconds);
+    throw new TradeRoomPokeError({
+      code: cooldownClaim.reason === "limiter_unavailable" ? "POKE_COOLDOWN_UNAVAILABLE" : "POKE_COOLDOWN_ACTIVE",
+      message: cooldownClaim.reason === "limiter_unavailable"
+        ? "Reminders are temporarily unavailable. Please try again shortly."
+        : "Please wait before sending another reminder for this trade.",
+      status: cooldownClaim.reason === "limiter_unavailable" ? 503 : 429,
+      retryAfterSeconds,
+      cooldownUntil: cooldownClaim.reason === "limiter_unavailable"
+        ? null
+        : new Date(Date.now() + retryAfterSeconds * 1000).toISOString(),
+    });
+  }
+
+  const createdAt = nowIso();
+  const senderRole: UserRole = participantSide === "buyer" ? "buyer" : "approved_seller";
+  const nextPokeState: TradeRoomPokeState = {
+    ...(request.pokeState ?? {}),
+    [pokeStateFieldForSender(participantSide)]: createdAt,
+  };
+  request.pokeState = nextPokeState;
+  appendSystemTradeMessage(db, request, {
+    senderUserId: input.actorUserId,
+    senderRole,
+    message: participantSide === "buyer"
+      ? "Buyer sent a reminder to continue this Trade Room."
+      : "Seller sent a reminder to continue this Trade Room.",
+    createdAt,
+  });
+  const newestMessage = request.messages?.[0];
+  if (!newestMessage) {
+    throw new TradeRoomPokeError({
+      code: "POKE_PERSISTENCE_FAILED",
+      message: "The reminder could not be saved. Please try again.",
+      status: 500,
+    });
+  }
+  request.updatedAt = createdAt;
+  db.purchaseRequests[requestIndex] = request;
+  const notificationPublication = pushNotification(db, {
+    userId: recipientUserId,
+    category: "trade",
+    title: "Trade Room reminder",
+    message: participantSide === "buyer"
+      ? "Your Buyer is waiting for you in an active trade."
+      : "Your Seller is waiting for you in an active trade.",
+    relatedRequestId: request.id,
+    relatedTradeId: request.tradeId,
+    relatedListingId: request.listingId,
+    relatedHref: `${requestDetailsHref(request.id)}#chat`,
+    actionLabel: "Open Trade Room",
+    actionHref: `${requestDetailsHref(request.id)}#chat`,
+    reason: "trade_room_poke",
+    forceInApp: true,
+    deferRealtime: true,
+  });
+
+  await writeDb(db, {
+    selectedTables: TRADE_ROOM_INTERACTION_TABLES,
+    // The initial read is intentionally not the final authority. Snapshot
+    // writes serialize through the repository advisory transaction lock; check
+    // the merged canonical request while that lock is held so a cancellation,
+    // completion, timeout, or another Poke cannot race this delivery.
+    validateBeforeCommit: (canonicalSnapshot) => {
+      const canonicalRequest = canonicalSnapshot.purchaseRequests.find((item) => item.id === request.id);
+      if (!canonicalRequest) {
+        throw new TradeRoomPokeError({
+          code: "TRADE_NOT_FOUND",
+          message: "Trade not found.",
+          status: 404,
+        });
+      }
+      const canonicalSide = getTradeRoomParticipantSide(canonicalRequest, input.actorUserId);
+      if (canonicalSide !== participantSide) {
+        throw new TradeRoomPokeError({
+          code: "TRADE_PARTICIPANT_REQUIRED",
+          message: "Only the Buyer or Seller in this Trade Room can send a reminder.",
+          status: 403,
+        });
+      }
+      if (!isTradeRoomPokeActive(canonicalRequest)) {
+        throw new TradeRoomPokeError({
+          code: "TRADE_NOT_ACTIVE",
+          message: "Reminders are available only while this trade is active.",
+          status: 409,
+        });
+      }
+      const committedPokeAt = canonicalRequest.pokeState?.[pokeStateFieldForSender(participantSide)];
+      if (committedPokeAt !== createdAt) {
+        throw new TradeRoomPokeError({
+          code: "POKE_COOLDOWN_ACTIVE",
+          message: "Please wait before sending another reminder for this trade.",
+          status: 429,
+          retryAfterSeconds: Math.max(1, Math.ceil(TRADE_ROOM_POKE_COOLDOWN_MS / 1000)),
+          cooldownUntil: getPokeCooldownUntil(canonicalRequest, participantSide)?.toISOString() ?? null,
+        });
+      }
+    },
+  });
+  publishRealtimeEvent({
+    type: "trade.message_created",
+    payload: { requestId: request.id, messageId: newestMessage.id },
+  });
+  publishNotificationPublication(notificationPublication);
+
+  return {
+    message: newestMessage,
+    poke: getTradeRoomPokeAvailability(request, input.actorUserId),
+    notificationRecipientUserId: recipientUserId,
+    notificationRecipientRole: participantSide === "buyer" ? "seller" as const : "buyer" as const,
+    senderParticipantRole: participantSide,
+    trade: {
+      id: request.id,
+      tradeId: request.tradeId,
     },
   };
 }
@@ -11141,8 +11457,10 @@ export async function getNotificationsForUser(input: {
   limit?: number;
   offset?: number;
   includeActivity?: boolean;
+  /** Used by SSE reconciliation when another server instance may have written. */
+  strongConsistency?: boolean;
 }) {
-  const db = await readDb();
+  const db = await readDb({ bypassCache: input.strongConsistency === true });
 
   // Build the display-number lookup ONCE for the entire function so that every
   // enrichNotification call below shares it rather than rebuilding it per call.

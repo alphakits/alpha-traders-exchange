@@ -30,6 +30,7 @@ import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, finalizeLogin
 import { formatBuyerId, formatListingId, formatSellerId, formatTradeId } from "@/lib/format-id";
 import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
+import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 import { getWalletAddressValidationError, normalizeWalletAddress } from "@/lib/wallet-address";
 import { deriveListingCountdown, deriveSellerPresence } from "@/lib/seller-presence";
@@ -3099,6 +3100,8 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   }, []);
 
   const resolveNotificationHref = useCallback((notification: AlphaExchangeNotification) => {
+    const conversationDestination = getTradeRoomConversationDestination(notification);
+    if (conversationDestination) return conversationDestination;
     if (isTradeIntentNotification(notification)) {
       const relatedRequestId = notification.relatedRequestId?.trim()
         || notification.tradeSnapshot?.requestId

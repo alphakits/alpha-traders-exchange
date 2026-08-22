@@ -10,6 +10,8 @@ export type MarketplaceEmailEvent =
   | "seller_usdt_released"
   | "trade_completed"
   | "trade_cancelled"
+  | "trade_room_message"
+  | "trade_room_poke"
   | "listing_approved"
   | "listing_rejected"
   | "listing_submitted"

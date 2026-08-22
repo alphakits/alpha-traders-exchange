@@ -12,6 +12,11 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const DEBUG = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
+// The in-process event bus supplies the same-instance hot path. This existing
+// SSE snapshot stream also reconciles the durable canonical state often enough
+// for a participant connected through another server instance to see a chat
+// message or Poke promptly, without adding another client realtime system.
+const CROSS_INSTANCE_RECONCILIATION_MS = 5_000;
 
 function isRelevantTradeRoomEvent(event: RealtimeEvent, requestId: string) {
   if (event.type === "trade.status_changed") {
@@ -69,7 +74,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
             actorUserId: user.id,
             actorRole: user.role,
             markMessagesRead: false,
-            strongConsistency: false,
+            // Local realtime events already update the writer's cache. The
+            // periodic SSE reconciliation must bypass that per-instance cache
+            // so another server instance observes the durable message/Poke.
+            strongConsistency: trigger !== "event",
           });
           const snapshotMs = Date.now() - snapshotStartMs;
           const sentAtEpochMs = Date.now();
@@ -115,7 +123,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       const keepAlive = setInterval(() => {
         if (!enqueueSafe(": keepalive\n\n")) return;
         void sendSnapshot("keepalive");
-      }, 15_000);
+      }, CROSS_INSTANCE_RECONCILIATION_MS);
 
       const signal = request.signal;
       if (signal.aborted) {

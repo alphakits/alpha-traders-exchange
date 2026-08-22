@@ -17,6 +17,27 @@ type EmailRecipient = {
   email: string;
 };
 
+type LifecycleTradeEmailEvent = Extract<
+  MarketplaceEmailEvent,
+  | "new_buy_request"
+  | "trade_accepted"
+  | "trade_rejected"
+  | "buyer_payment_sent"
+  | "seller_usdt_released"
+  | "trade_completed"
+  | "trade_cancelled"
+>;
+
+type TradeRoomConversationEmailEvent = Extract<
+  MarketplaceEmailEvent,
+  "trade_room_message" | "trade_room_poke"
+>;
+
+// First chat email is delivered immediately. Additional messages for the same
+// recipient in the same Trade Room are suppressed by the PostgreSQL-backed
+// shared limiter for this short server-owned burst window.
+export const TRADE_ROOM_MESSAGE_EMAIL_BURST_WINDOW_MS = 2 * 60_000;
+
 function tradeUrl(requestId: string) {
   return `${getSiteUrl()}/en/trade-room/${encodeURIComponent(requestId)}`;
 }
@@ -35,18 +56,20 @@ export function tradeEmailEventForStatus(status: PurchaseRequest["status"]) {
   return null;
 }
 
-async function deliver(input: Omit<MarketplaceEmailPayload, "recipientName"> & { recipient: EmailRecipient }) {
+async function deliver(input: Omit<MarketplaceEmailPayload, "recipientName"> & { recipient: EmailRecipient; idempotencyKey?: string }) {
+  const { recipient, idempotencyKey, ...payload } = input;
   const result = await sendMarketplaceEmail({
-    ...input,
-    to: input.recipient.email,
-    recipientName: input.recipient.fullName,
+    ...payload,
+    to: recipient.email,
+    recipientName: recipient.fullName,
+    idempotencyKey,
   });
   if (!result.ok) {
     logEvent("error", {
       event: "marketplace_email_delivery",
-      targetUserId: input.recipient.id,
+      targetUserId: recipient.id,
       outcome: "failed",
-      reason: input.event,
+      reason: payload.event,
       metadata: {
         deliveryReason: result.reason,
         providerStatus: "providerStatus" in result ? result.providerStatus : undefined,
@@ -56,7 +79,7 @@ async function deliver(input: Omit<MarketplaceEmailPayload, "recipientName"> & {
 }
 
 function tradeEmailContent(
-  event: Exclude<MarketplaceEmailEvent, "listing_approved" | "listing_rejected" | "listing_submitted" | "listing_expired" | "listing_renewed" | "new_listing_published" | "seller_prestige_promoted">,
+  event: LifecycleTradeEmailEvent,
   request: PurchaseRequest,
 ) {
   const referenceLabel = request.tradeId ?? request.id;
@@ -84,7 +107,7 @@ function tradeEmailContent(
 }
 
 export async function prepareTradeEventEmails(input: {
-  event: Exclude<MarketplaceEmailEvent, "listing_approved" | "listing_rejected" | "listing_submitted" | "listing_expired" | "listing_renewed" | "new_listing_published" | "seller_prestige_promoted">;
+  event: LifecycleTradeEmailEvent;
   request: PurchaseRequest;
 }) {
   // Trade lifecycle messages are transactional safety notices and are sent
@@ -103,6 +126,50 @@ export async function prepareTradeEventEmails(input: {
   );
   const content = tradeEmailContent(input.event, input.request);
   return () => Promise.all(recipients.map((recipient) => deliver({ ...content, recipient })));
+}
+
+export async function prepareTradeRoomConversationEmail(input: {
+  event: TradeRoomConversationEmailEvent;
+  request: Pick<PurchaseRequest, "id" | "tradeId">;
+  recipientUserId: string;
+  senderUserId: string;
+  senderRole: "buyer" | "seller";
+  idempotencyKey: string;
+}) {
+  // All recipient identity and routing are resolved server-side. The caller
+  // cannot supply an email address, message preview, or external destination.
+  if (!input.recipientUserId || input.recipientUserId === input.senderUserId) {
+    return async () => {};
+  }
+  const recipient = await findUserById(input.recipientUserId);
+  if (!recipient) return async () => {};
+
+  const actionUrl = `${tradeUrl(input.request.id)}#chat`;
+  const referenceLabel = input.request.tradeId ?? input.request.id;
+  const content = input.event === "trade_room_message"
+    ? {
+        event: input.event,
+        title: "New Trade Room message",
+        message: "You have a new message in your active Alpha Exchange trade.",
+      }
+    : {
+        event: input.event,
+        title: "Trade Room reminder",
+        message: input.senderRole === "buyer"
+          ? "Your Buyer is waiting for you in an active trade."
+          : "Your Seller is waiting for you in an active trade.",
+      };
+
+  return async () => {
+    await deliver({
+      ...content,
+      recipient,
+      actionLabel: "Open Trade Room",
+      actionUrl,
+      referenceLabel,
+      idempotencyKey: input.idempotencyKey,
+    });
+  };
 }
 
 export async function prepareListingReviewEmails(input: {

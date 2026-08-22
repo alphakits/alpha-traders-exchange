@@ -12,6 +12,7 @@ import { formatListingId, formatTradeId } from "@/lib/format-id";
 import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
+import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -130,6 +131,8 @@ function inferTradeActionFromNotificationText(notification: AlphaExchangeNotific
 }
 
 function buildTradeDestinationFromNotification(notification: AlphaExchangeNotification) {
+  const conversationDestination = getTradeRoomConversationDestination(notification);
+  if (conversationDestination) return conversationDestination;
   const requestId = notification.relatedRequestId?.trim()
     || (notification.tradeSnapshot as TradeSnapshotPayload | undefined)?.requestId?.trim()
     || extractRequestIdFromTradeRoomHref(notification.relatedHref ?? notification.actionHref)
