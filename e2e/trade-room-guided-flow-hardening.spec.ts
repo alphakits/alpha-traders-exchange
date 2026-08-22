@@ -786,3 +786,136 @@ test("mobile targeted notification open keeps correct section and CTA without ov
 
   await api.dispose();
 });
+
+test("Trade Room Poke is recipient-only, cooldown-protected, reconnect-safe, and mobile-visible", async ({ browser }) => {
+  test.setTimeout(180_000);
+  const api = await pwRequest.newContext({ baseURL: "http://localhost:3000" });
+  const buyerContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const sellerContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const buyerPage = await buyerContext.newPage();
+  const sellerPage = await sellerContext.newPage();
+
+  try {
+    await login(buyerPage.request, buyerEmail, buyerPassword);
+    const requestId = await createTradeRequest(buyerPage.request, "310");
+
+    await login(sellerPage.request, sellerEmail, sellerPassword);
+    await sellerPage.goto(`/en/trade-room/${requestId}`);
+    await sellerPage.getByRole("button", { name: /Accept Trade/i }).first().click();
+    await expect(sellerPage.getByText(/Trade status updated|Trade Accepted/i).first()).toBeVisible({ timeout: 20_000 });
+
+    await buyerPage.goto(`/en/trade-room/${requestId}`);
+    const buyerPoke = buyerPage.getByRole("button", { name: /Poke Seller/i });
+    await expect(buyerPoke).toBeVisible({ timeout: 20_000 });
+    await buyerPoke.scrollIntoViewIfNeeded();
+    await expect(buyerPoke).toBeInViewport();
+    await buyerPoke.click();
+
+    await expect(buyerPage.getByRole("button", { name: /Poke again in/i })).toBeDisabled({ timeout: 20_000 });
+    await expect(sellerPage.getByText("Buyer sent a reminder to continue this Trade Room.").first()).toBeVisible({ timeout: 20_000 });
+
+    const dbAfterBuyerPoke = await readDb(api);
+    const requestAfterBuyerPoke = (dbAfterBuyerPoke.purchaseRequests as Array<Record<string, unknown>>)
+      .find((item) => item.id === requestId);
+    expect(requestAfterBuyerPoke?.pokeState).toMatchObject({ buyerToSellerAt: expect.any(String) });
+    const chatPokes = (requestAfterBuyerPoke?.messages as Array<Record<string, unknown>>)
+      .filter((message) => message.kind === "system" && message.message === "Buyer sent a reminder to continue this Trade Room.");
+    expect(chatPokes).toHaveLength(1);
+    const notificationsAfterBuyerPoke = dbAfterBuyerPoke.notifications as Array<Record<string, unknown>>;
+    const sellerPokeNotifications = notificationsAfterBuyerPoke.filter((notification) =>
+      notification.userId === ids.seller
+      && notification.relatedRequestId === requestId
+      && notification.reason === "trade_room_poke",
+    );
+    const buyerPokeNotifications = notificationsAfterBuyerPoke.filter((notification) =>
+      notification.userId === ids.buyer
+      && notification.relatedRequestId === requestId
+      && notification.reason === "trade_room_poke",
+    );
+    expect(sellerPokeNotifications).toHaveLength(1);
+    expect(buyerPokeNotifications).toHaveLength(0);
+    expect(sellerPokeNotifications[0]).toMatchObject({
+      title: "Trade Room reminder",
+      message: "Your Buyer is waiting for you in an active trade.",
+      actionHref: `/trade-room/${requestId}#chat`,
+    });
+
+    const replay = await buyerPage.request.post(`/api/alpha-exchange/purchase-requests/${requestId}/poke`);
+    expect(replay.status()).toBe(429);
+
+    // A separately authenticated browser for the same Buyer cannot sidestep the
+    // durable per-trade/per-direction server cooldown.
+    const buyerSecondContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    try {
+      const buyerSecondPage = await buyerSecondContext.newPage();
+      await login(buyerSecondPage.request, buyerEmail, buyerPassword);
+      const secondBrowserReplay = await buyerSecondPage.request.post(`/api/alpha-exchange/purchase-requests/${requestId}/poke`);
+      expect(secondBrowserReplay.status()).toBe(429);
+    } finally {
+      await buyerSecondContext.close();
+    }
+
+    // The live recipient has the single canonical reminder, and the server's
+    // persisted Poke state survives direct replay attempts. The focused store
+    // regression covers a fresh canonical read after cache invalidation.
+    await expect(sellerPage.getByText("Buyer sent a reminder to continue this Trade Room.")).toHaveCount(1);
+
+    // Use the actual bell action—not a synthetic href—to prove conversation
+    // notifications retain their precise chat destination after the panel closes.
+    await sellerPage.goto("/en/usdt-exchange", { waitUntil: "domcontentloaded", timeout: 20_000 });
+    await sellerPage.locator('button[aria-label="Notifications"]').first().click();
+    const notificationPanel = sellerPage.getByTestId("notification-panel");
+    const reminderTitle = notificationPanel.getByText("Trade Room reminder", { exact: true }).first();
+    await expect(reminderTitle).toBeVisible({ timeout: 20_000 });
+    const reminderCard = reminderTitle.locator("xpath=ancestor::div[contains(@class,'rounded-xl')][1]");
+    await Promise.all([
+      sellerPage.waitForURL((url) => (
+        url.pathname === `/en/trade-room/${requestId}`
+        && url.searchParams.get("action") === "open-trade"
+        && url.hash === "#chat"
+      ), { timeout: 20_000 }),
+      reminderCard.getByRole("button", { name: "Continue Trade" }).click(),
+    ]);
+    await expect(sellerPage.locator("#chat")).toBeVisible({ timeout: 20_000 });
+    await expect(sellerPage.getByText("Buyer sent a reminder to continue this Trade Room.")).toHaveCount(1);
+
+    const sellerPoke = sellerPage.getByRole("button", { name: /Poke Buyer/i });
+    await expect(sellerPoke).toBeVisible({ timeout: 20_000 });
+    await sellerPoke.click();
+    await waitForNotification(api, buyerEmail, /trade room reminder/i, requestId);
+    await expect(buyerPage.getByText("Seller sent a reminder to continue this Trade Room.").first()).toBeVisible({ timeout: 20_000 });
+
+    const dbAfterSellerPoke = await readDb(api);
+    const requestAfterSellerPoke = (dbAfterSellerPoke.purchaseRequests as Array<Record<string, unknown>>)
+      .find((item) => item.id === requestId);
+    expect(requestAfterSellerPoke?.pokeState).toMatchObject({
+      buyerToSellerAt: expect.any(String),
+      sellerToBuyerAt: expect.any(String),
+    });
+    const buyerReminderNotifications = (dbAfterSellerPoke.notifications as Array<Record<string, unknown>>).filter((notification) =>
+      notification.userId === ids.buyer
+      && notification.relatedRequestId === requestId
+      && notification.reason === "trade_room_poke",
+    );
+    expect(buyerReminderNotifications).toHaveLength(1);
+
+    for (const width of [320, 360, 375, 390, 430]) {
+      await buyerPage.setViewportSize({ width, height: 844 });
+      await expect(buyerPage.getByRole("button", { name: /Poke again in/i })).toBeVisible({ timeout: 20_000 });
+      await expect(buyerPage.locator('form[method="post"], form').filter({ has: buyerPage.getByRole("button", { name: /Send Message/i }) }).first()).toBeVisible();
+      const overflow = await buyerPage.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `horizontal overflow at ${width}px`).toBeLessThanOrEqual(1);
+    }
+
+    for (const width of [1366, 1920]) {
+      await sellerPage.setViewportSize({ width, height: 900 });
+      await expect(sellerPage.getByRole("button", { name: /Poke again in/i })).toBeVisible({ timeout: 20_000 });
+      const overflow = await sellerPage.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `horizontal overflow at ${width}px`).toBeLessThanOrEqual(1);
+    }
+  } finally {
+    await buyerContext.close();
+    await sellerContext.close();
+    await api.dispose();
+  }
+});

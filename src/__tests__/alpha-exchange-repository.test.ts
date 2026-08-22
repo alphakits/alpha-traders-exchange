@@ -424,6 +424,56 @@ describe("AlphaExchangeRepository", () => {
     expect(savedSnapshot.purchaseRequests).toEqual(expect.arrayContaining([expect.objectContaining({ id: "request-1" }), expect.objectContaining({ id: "request-2" })]));
   });
 
+  it("runs a security validation against the canonical merged snapshot before a stale write can commit", async () => {
+    const repository = new AlphaExchangeRepository(null);
+    const baseline = await repository.loadSnapshot();
+    const activeRequest: Record<string, unknown> = {
+      id: "request-1",
+      status: "accepted",
+      listingId: "listing-1",
+      sellerId: "seller-1",
+      buyerId: "buyer-1",
+      createdAt: "2026-08-22T10:00:00.000Z",
+      updatedAt: "2026-08-22T10:00:00.000Z",
+      messages: [],
+    };
+    const terminalSnapshot = {
+      ...baseline,
+      purchaseRequests: [{
+        ...activeRequest,
+        status: "completed",
+        completedAt: "2026-08-22T10:01:00.000Z",
+        updatedAt: "2026-08-22T10:01:00.000Z",
+      }],
+      notifications: [],
+      __runtimeVersion: 2,
+    } as unknown as AlphaExchangeDb & { __runtimeVersion: number };
+    globalThis.__alphaExchangeMemorySnapshot = terminalSnapshot as never;
+
+    const stalePokeCandidate = {
+      ...baseline,
+      purchaseRequests: [{
+        ...activeRequest,
+        messages: [{ id: "poke-message", kind: "system", message: "Buyer sent a reminder", createdAt: "2026-08-22T10:00:30.000Z" }],
+        pokeState: { buyerToSellerAt: "2026-08-22T10:00:30.000Z" },
+      }],
+      notifications: [{ id: "poke-notification", userId: "seller-1" }],
+      __runtimeVersion: 1,
+    } as unknown as AlphaExchangeDb & { __runtimeVersion: number };
+
+    await expect(repository.saveSnapshot(stalePokeCandidate, {
+      selectedTables: ["purchase_requests", "notifications"],
+      validateBeforeCommit: (canonicalSnapshot) => {
+        expect(canonicalSnapshot.purchaseRequests[0]).toMatchObject({ status: "completed" });
+        throw new Error("terminal trade cannot receive a Poke");
+      },
+    })).rejects.toThrow("terminal trade cannot receive a Poke");
+
+    const persisted = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    expect(persisted.purchaseRequests[0]).toMatchObject({ status: "completed", messages: [] });
+    expect(persisted.notifications).toHaveLength(0);
+  });
+
   it("clears the in-flight store state after a failed save so the next write can proceed", async () => {
     const repository = {
       loadSnapshot: vi.fn().mockResolvedValue(createEmptyDb()),

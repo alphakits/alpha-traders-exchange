@@ -1,7 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { getTradeRoomData, postTradeRoomMessage } from "@/lib/alpha-exchange-store";
 import { requireApiUser } from "@/lib/api-auth";
+import { prepareTradeRoomConversationEmail, TRADE_ROOM_MESSAGE_EMAIL_BURST_WINDOW_MS } from "@/lib/marketplace-email-events";
+import { logEvent } from "@/lib/structured-logging";
 
 type RouteContext = {
   params: Promise<{ requestId: string }>;
@@ -58,12 +60,52 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const posted = await postTradeRoomMessage({
       purchaseRequestId: requestId,
       actorUserId: user.id,
-      actorRole: user.role,
       message: String(body.message ?? ""),
       imageUrl: body.imageUrl,
       imageName: body.imageName,
       imageMimeType: body.imageMimeType,
     });
+    // One immediate transactional email per recipient/trade burst. The shared
+    // limiter is PostgreSQL-backed in production and cannot be bypassed with a
+    // refresh, another device, or another Vercel instance. Chat and bell/SSE
+    // delivery have already committed and never depend on this provider work.
+    try {
+      const emailBurst = await checkSharedRateLimit({
+        headers: request.headers,
+        key: "exchange:trade-room-message-email",
+        identifier: `${posted.trade.id}:${posted.notificationRecipientUserId}`,
+        maxRequests: 1,
+        windowMs: TRADE_ROOM_MESSAGE_EMAIL_BURST_WINDOW_MS,
+      });
+      if (emailBurst.allowed) {
+        const deliverEmail = await prepareTradeRoomConversationEmail({
+          event: "trade_room_message",
+          request: posted.trade,
+          recipientUserId: posted.notificationRecipientUserId,
+          senderUserId: user.id,
+          senderRole: posted.senderParticipantRole,
+          idempotencyKey: `trade-room-message:${posted.message.id}:${posted.notificationRecipientUserId}`,
+        });
+        after(deliverEmail);
+      } else if (emailBurst.reason === "limiter_unavailable") {
+        logEvent("warn", {
+          event: "trade_room_email_schedule",
+          actorUserId: user.id,
+          resourceId: posted.trade.id,
+          outcome: "failed",
+          reason: "burst_limiter_unavailable",
+        });
+      }
+    } catch (emailScheduleError) {
+      logEvent("error", {
+        event: "trade_room_email_schedule",
+        actorUserId: user.id,
+        resourceId: posted.trade.id,
+        outcome: "failed",
+        reason: "post_commit_schedule_failed",
+        metadata: { errorType: emailScheduleError instanceof Error ? emailScheduleError.name : typeof emailScheduleError },
+      });
+    }
     const routeMs = Date.now() - routeStartedAt;
     const queueMs = Math.max(0, routeMs - posted.metrics.totalMs);
     return NextResponse.json(
@@ -84,9 +126,15 @@ export async function POST(request: NextRequest, context: RouteContext) {
       },
     );
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to send message.";
+    const status = message === "Trade not found."
+      ? 404
+      : message.includes("not allowed")
+        ? 403
+        : 400;
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to send message." },
-      { status: 400 },
+      { error: message },
+      { status },
     );
   }
 }

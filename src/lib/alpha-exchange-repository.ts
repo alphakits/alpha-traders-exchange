@@ -26,6 +26,8 @@ import type {
   PurchaseRequest,
   SellerApplication,
   SellerReport,
+  TradeChatMessage,
+  TradeRoomPokeState,
   TradeDisputeCase,
   TradeEvidenceFile,
   TrustScoreChangeLog,
@@ -1292,6 +1294,73 @@ function getPurchaseRequestStatusRank(status: PurchaseRequest["status"]) {
   return rank[status] ?? 0;
 }
 
+function newerIsoValue(left: string | undefined, right: string | undefined) {
+  if (!left) return right;
+  if (!right) return left;
+  return new Date(right).getTime() > new Date(left).getTime() ? right : left;
+}
+
+function mergeTradeMessages(
+  latest: TradeChatMessage[] | undefined,
+  incoming: TradeChatMessage[] | undefined,
+) {
+  if (!latest?.length && !incoming?.length) return undefined;
+  const messagesById = new Map<string, TradeChatMessage>();
+  for (const message of [...(latest ?? []), ...(incoming ?? [])]) {
+    const current = messagesById.get(message.id);
+    if (!current) {
+      messagesById.set(message.id, message);
+      continue;
+    }
+    const currentCreatedAt = new Date(current.createdAt).getTime();
+    const incomingCreatedAt = new Date(message.createdAt).getTime();
+    const preferred = incomingCreatedAt >= currentCreatedAt ? message : current;
+    messagesById.set(message.id, {
+      ...preferred,
+      readByUserIds: Array.from(new Set([...(current.readByUserIds ?? []), ...(message.readByUserIds ?? [])])),
+      sentAt: newerIsoValue(current.sentAt, message.sentAt),
+      deliveredAt: newerIsoValue(current.deliveredAt, message.deliveredAt),
+      seenAt: newerIsoValue(current.seenAt, message.seenAt),
+      deletedAt: newerIsoValue(current.deletedAt, message.deletedAt),
+    });
+  }
+  return [...messagesById.values()].sort((left, right) => {
+    const rightCreatedAt = new Date(right.createdAt).getTime();
+    const leftCreatedAt = new Date(left.createdAt).getTime();
+    if (rightCreatedAt !== leftCreatedAt) return rightCreatedAt - leftCreatedAt;
+    return right.id.localeCompare(left.id);
+  });
+}
+
+function mergeTradeRoomPokeState(
+  latest: TradeRoomPokeState | undefined,
+  incoming: TradeRoomPokeState | undefined,
+) {
+  const buyerToSellerAt = newerIsoValue(latest?.buyerToSellerAt, incoming?.buyerToSellerAt);
+  const sellerToBuyerAt = newerIsoValue(latest?.sellerToBuyerAt, incoming?.sellerToBuyerAt);
+  return buyerToSellerAt || sellerToBuyerAt
+    ? { buyerToSellerAt, sellerToBuyerAt } satisfies TradeRoomPokeState
+    : undefined;
+}
+
+function mergeMatchingPurchaseRequest(latest: PurchaseRequest, incoming: PurchaseRequest) {
+  const latestUpdatedAt = new Date(latest.updatedAt ?? latest.createdAt ?? 0).getTime();
+  const incomingUpdatedAt = new Date(incoming.updatedAt ?? incoming.createdAt ?? 0).getTime();
+  const incomingRank = getPurchaseRequestStatusRank(incoming.status);
+  const latestRank = getPurchaseRequestStatusRank(latest.status);
+  const preferred = incomingRank !== latestRank
+    ? (incomingRank > latestRank ? incoming : latest)
+    : (incomingUpdatedAt > latestUpdatedAt ? incoming : latest);
+  return {
+    ...preferred,
+    // Trade Room communication must be additive even when two Vercel instances
+    // write from different snapshot versions. Lifecycle status still follows the
+    // existing monotonic winner above; messages and directional Poke state merge.
+    messages: mergeTradeMessages(latest.messages, incoming.messages),
+    pokeState: mergeTradeRoomPokeState(latest.pokeState, incoming.pokeState),
+  };
+}
+
 function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchangeDb): AlphaExchangeDb {
   const latestById = new Map<string, unknown>();
   for (const item of latest.purchaseRequests) {
@@ -1310,17 +1379,9 @@ function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchang
   for (const request of incoming.purchaseRequests) {
     const latestRequest = latestById.get(request.id) as PurchaseRequest | undefined;
     if (!latestRequest) continue;
-    const latestUpdatedAt = new Date(latestRequest.updatedAt ?? latestRequest.createdAt ?? 0).getTime();
-    const incomingUpdatedAt = new Date(request.updatedAt ?? request.createdAt ?? 0).getTime();
     const index = mergedPurchaseRequests.findIndex((item) => item.id === request.id);
     if (index < 0) continue;
-    const incomingRank = getPurchaseRequestStatusRank(request.status);
-    const latestRank = getPurchaseRequestStatusRank(latestRequest.status);
-    if (incomingRank !== latestRank) {
-      mergedPurchaseRequests[index] = incomingRank > latestRank ? request : latestRequest;
-      continue;
-    }
-    mergedPurchaseRequests[index] = incomingUpdatedAt > latestUpdatedAt ? request : latestRequest;
+    mergedPurchaseRequests[index] = mergeMatchingPurchaseRequest(latestRequest, request);
   }
   const mergedNotificationsById = new Map<string, AlphaExchangeNotification>();
   for (const notification of latest.notifications) {
@@ -1772,7 +1833,19 @@ export class AlphaExchangeRepository {
 
   async saveSnapshot(
     db: AlphaExchangeDb,
-    options?: { evidenceOverrides?: EvidenceWriteMap; skipReadyCheck?: boolean; traceTag?: string; selectedTables?: readonly SnapshotTableName[] },
+    options?: {
+      evidenceOverrides?: EvidenceWriteMap;
+      skipReadyCheck?: boolean;
+      traceTag?: string;
+      selectedTables?: readonly SnapshotTableName[];
+      /**
+       * Runs while the repository's advisory transaction lock is held, after
+       * any stale snapshot merge and before any selected table is replaced.
+       * Security-sensitive callers use this to revalidate a state transition
+       * against the canonical snapshot that will actually be committed.
+       */
+      validateBeforeCommit?: (snapshot: AlphaExchangeDb) => void;
+    },
   ) {
     if (options?.traceTag && allowsRuntimeDiagnostics()) {
       console.log("[usdt-sent-trace] repository entry", { traceId: options.traceTag });
@@ -1793,6 +1866,7 @@ export class AlphaExchangeRepository {
         latestSnapshot.authSessions = cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion).authSessions;
         const nextSnapshot = pruneOrphanAuthSessions(cloneSnapshot(db));
         const mergedSnapshot = mergeSnapshotWithLatest(latestSnapshot, nextSnapshot);
+        options?.validateBeforeCommit?.(mergedSnapshot);
         const next = attachVersion(mergedSnapshot, previousVersion + 1);
         const previousEvidence = globalThis.__alphaExchangeMemoryEvidenceContent as Map<string, Buffer | null>;
         const nextEvidence = new Map<string, Buffer | null>();
@@ -1814,6 +1888,7 @@ export class AlphaExchangeRepository {
       }
       const nextSnapshot = cloneSnapshot(db);
       nextSnapshot.authSessions = cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion).authSessions;
+      options?.validateBeforeCommit?.(nextSnapshot);
       const next = attachVersion(nextSnapshot, previousVersion + 1);
       const previousEvidence = globalThis.__alphaExchangeMemoryEvidenceContent as Map<string, Buffer | null>;
       const nextEvidence = new Map<string, Buffer | null>();
@@ -1931,6 +2006,7 @@ export class AlphaExchangeRepository {
               ? pruneOrphanAuthSessions({ ...mergedSnapshot, authSessions: latestSnapshot.authSessions })
               : pruneOrphanAuthSessions(mergedSnapshot);
             const persistedSnapshot = attachVersion(snapshotForMergeWrite, nextVersion);
+            options?.validateBeforeCommit?.(persistedSnapshot);
             for (const tableName of selectedTables) {
               await replaceTableContents(client, tableName, persistedSnapshot, {
                 evidenceContentById,
@@ -1983,6 +2059,7 @@ export class AlphaExchangeRepository {
               authSessions: fromPayloadRows(currentSessionRows),
             });
           }
+          options?.validateBeforeCommit?.(persistedSnapshot);
           for (const tableName of selectedTables) {
             await replaceTableContents(client, tableName, persistedSnapshot, {
               evidenceContentById,

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, CheckCircle2, Clock3, Copy, LoaderCircle, MessageCircle, ShieldCheck, WalletCards } from "lucide-react";
+import { AlertTriangle, BellRing, CheckCircle2, Clock3, Copy, LoaderCircle, MessageCircle, ShieldCheck, WalletCards } from "lucide-react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { Link, useRouter } from "@/i18n/navigation";
@@ -25,6 +25,13 @@ type TradeRoomData = {
   listing: MarketplaceListing | null;
   counterpart: { buyerName: string; sellerName: string };
   messages: TradeChatMessage[];
+  poke: {
+    available: boolean;
+    canPoke: boolean;
+    cooldownUntil: string | null;
+    cooldownRemainingSeconds: number;
+    counterpartRole: "buyer" | "seller" | null;
+  };
   deadlineAt: string | null;
   timeRemainingSeconds: number | null;
   releaseDeadlineActive: boolean;
@@ -576,6 +583,11 @@ function tradeRoomSnapshotSignature(room: TradeRoomData) {
     room.sellerCommissionDueCount,
     room.hasOpenDispute,
     room.canOpenDispute,
+    room.poke?.available ?? false,
+    room.poke?.canPoke ?? false,
+    room.poke?.cooldownUntil ?? "",
+    room.poke?.cooldownRemainingSeconds ?? 0,
+    room.poke?.counterpartRole ?? "",
   ].join("|");
 }
 
@@ -730,6 +742,7 @@ export function TradeRoomPage({
   const [completedActionLabel, setCompletedActionLabel] = useState<string | null>(null);
   const [stepPulse, setStepPulse] = useState(false);
   const [chatBusy, setChatBusy] = useState(false);
+  const [pokeBusy, setPokeBusy] = useState(false);
   const [chatDraft, setChatDraft] = useState("");
   const [chatImage, setChatImage] = useState<File | null>(null);
   const [chatTypingUserId, setChatTypingUserId] = useState<string | null>(null);
@@ -1031,11 +1044,11 @@ export function TradeRoomPage({
   }, [markOutstandingBuyerReminderCompleted, router]);
 
   useEffect(() => {
-    if (!room?.releaseDeadlineActive) return;
+    if (!room?.releaseDeadlineActive && !room?.poke?.cooldownUntil) return;
     setClockTick(Date.now());
     const id = window.setInterval(() => setClockTick(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, [room?.releaseDeadlineActive]);
+  }, [room?.poke?.cooldownUntil, room?.releaseDeadlineActive]);
 
   useEffect(() => {
     const stream = new EventSource(`/api/alpha-exchange/trade-room/${requestId}/stream`);
@@ -1119,6 +1132,22 @@ export function TradeRoomPage({
     }, 8000);
     return () => window.clearInterval(id);
   }, [fetchRoom, streamConnected]);
+
+  useEffect(() => {
+    const refreshAfterResume = () => {
+      if (document.visibilityState !== "visible") return;
+      // EventSource reconnects independently; this one canonical no-store read
+      // promptly reconciles a backgrounded tab without creating another live
+      // update channel or replaying a client-side mutation.
+      void fetchRoom(true);
+    };
+    document.addEventListener("visibilitychange", refreshAfterResume);
+    window.addEventListener("focus", refreshAfterResume);
+    return () => {
+      document.removeEventListener("visibilitychange", refreshAfterResume);
+      window.removeEventListener("focus", refreshAfterResume);
+    };
+  }, [fetchRoom]);
 
   const isSeller = room ? room.request.sellerId === actor.id : actor.role === "approved_seller";
   const request = room?.request ?? null;
@@ -1247,6 +1276,17 @@ export function TradeRoomPage({
     if (!room?.deadlineAt) return null;
     return Math.max(0, Math.floor((new Date(room.deadlineAt).getTime() - clockTick) / 1000));
   }, [clockTick, room?.deadlineAt]);
+
+  const pokeCooldownRemainingSeconds = useMemo(() => {
+    const cooldownUntil = room?.poke?.cooldownUntil;
+    if (!cooldownUntil) return 0;
+    return Math.max(0, Math.ceil((new Date(cooldownUntil).getTime() - clockTick) / 1000));
+  }, [clockTick, room?.poke?.cooldownUntil]);
+  const pokeAvailable = room?.poke?.available === true;
+  const canSendPoke = pokeAvailable && pokeCooldownRemainingSeconds === 0 && !pokeBusy;
+  const pokeCounterpartLabel = room?.poke?.counterpartRole === "seller"
+    ? (isAr ? "البائع" : "Seller")
+    : (isAr ? "المشتري" : "Buyer");
 
   const deadlineCritical = Boolean(room?.releaseDeadlineActive && timeRemainingSeconds !== null && timeRemainingSeconds <= 5 * 60);
   const deadlineWarning = Boolean(room?.releaseDeadlineActive && timeRemainingSeconds !== null && timeRemainingSeconds <= 10 * 60 && timeRemainingSeconds > 5 * 60);
@@ -1473,6 +1513,49 @@ export function TradeRoomPage({
       setChatBusy(false);
     }
   }, [actor.id, actor.role, chatDraft, chatImage, isAr, request]);
+
+  const handlePoke = useCallback(async () => {
+    if (!request || !room?.poke?.available || pokeBusy) return;
+    setPokeBusy(true);
+    try {
+      const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}/poke`, {
+        method: "POST",
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        cooldownUntil?: string | null;
+        poke?: TradeRoomData["poke"];
+      };
+      if (!response.ok) {
+        if (payload.cooldownUntil) {
+          setRoom((current) => current
+            ? {
+                ...current,
+                poke: {
+                  ...current.poke,
+                  canPoke: false,
+                  cooldownUntil: payload.cooldownUntil ?? null,
+                },
+              }
+            : current);
+        }
+        throw new Error(readApiErrorFallback(payload, isAr ? "تعذر إرسال التذكير." : "Could not send the reminder."));
+      }
+      if (payload.poke) {
+        setRoom((current) => current ? { ...current, poke: payload.poke! } : current);
+      }
+      setStatusMessage(
+        isAr
+          ? `تم تنبيه ${pokeCounterpartLabel}. تتم مزامنة غرفة الصفقة الآن.`
+          : `${pokeCounterpartLabel} notified. The Trade Room is updating now.`,
+      );
+      void fetchRoom(true);
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : (isAr ? "تعذر إرسال التذكير." : "Could not send the reminder."));
+    } finally {
+      setPokeBusy(false);
+    }
+  }, [fetchRoom, isAr, pokeBusy, pokeCounterpartLabel, request, room?.poke?.available]);
 
   const handleUploadEvidence = useCallback(async (side: "buyer" | "seller") => {
     if (!request || !room) return;
@@ -2609,8 +2692,34 @@ export function TradeRoomPage({
 
           <div className="space-y-4 xl:sticky xl:top-28">
             <Card id="chat" ref={chatSectionRef} className="border-white/10 bg-[#0B0B0B]/90">
-              <CardHeader>
+              <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <CardTitle className="flex items-center gap-2 text-lg"><MessageCircle className="h-4 w-4 text-[#C9A227]" />{isAr ? "الدردشة المباشرة" : "Live Chat"}</CardTitle>
+                {pokeAvailable ? (
+                  <div className="w-full sm:w-auto">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="h-10 w-full whitespace-normal sm:w-auto"
+                      disabled={!canSendPoke}
+                      onClick={() => void handlePoke()}
+                    >
+                      {pokeBusy ? (
+                        <span className="inline-flex items-center gap-2"><LoaderCircle className="h-4 w-4 animate-spin" />{isAr ? "جارٍ التنبيه..." : "Notifying..."}</span>
+                      ) : canSendPoke ? (
+                        <span className="inline-flex items-center gap-2"><BellRing className="h-4 w-4" />{isAr ? `تنبيه ${pokeCounterpartLabel}` : `Poke ${pokeCounterpartLabel}`}</span>
+                      ) : (
+                        isAr
+                          ? `يمكنك التنبيه مجددًا خلال ${formatDuration(pokeCooldownRemainingSeconds)}`
+                          : `Poke again in ${formatDuration(pokeCooldownRemainingSeconds)}`
+                      )}
+                    </Button>
+                    {!canSendPoke && !pokeBusy ? (
+                      <p className="mt-1 text-center text-[11px] text-[#9CA3AF] sm:text-right">
+                        {isAr ? "يتم فرض فترة الانتظار على الخادم." : "The server enforces this cooldown."}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="mb-3 rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-[#D1D5DB]">
@@ -2651,7 +2760,9 @@ export function TradeRoomPage({
                         >
                           <div className="flex items-start gap-2">
                             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/30 text-xs font-semibold">
-                              {ownMessage ? actor.fullName.slice(0, 1) : chatCounterpartName.slice(0, 1)}
+                              {message.kind === "system"
+                                ? <BellRing className="h-4 w-4 text-[#93C5FD]" aria-hidden="true" />
+                                : (ownMessage ? actor.fullName.slice(0, 1) : chatCounterpartName.slice(0, 1))}
                             </div>
                             <div className="min-w-0 flex-1">
                               <p className="whitespace-pre-wrap break-words">{message.message || (isAr ? "صورة مرفقة" : "Image attachment")}</p>

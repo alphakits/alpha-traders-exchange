@@ -6,6 +6,11 @@ import { subscribeRealtimeEvents, type RealtimeEvent } from "@/lib/realtime";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+// Trade Room conversation alerts are recipient-critical. Keep the existing
+// notification SSE reconciliation responsive across separate server instances
+// while the in-process subscription continues to handle the local hot path.
+const CROSS_INSTANCE_RECONCILIATION_MS = 5_000;
+
 function isNotificationEventForUser(event: RealtimeEvent, userId: string) {
   if (event.type === "notification.created" || event.type === "notification.updated") {
     return event.payload.notification.userId === userId;
@@ -28,19 +33,44 @@ export async function GET(request: NextRequest) {
     start(controller) {
       let lastSignature = "";
       let closed = false;
+      let snapshotInFlight = false;
+      let snapshotQueued = false;
+      let unsubscribe: () => void = () => {};
+      let poll: ReturnType<typeof setInterval> | null = null;
+      let keepAlive: ReturnType<typeof setInterval> | null = null;
+      let cleanedUp = false;
+
+      const cleanup = () => {
+        if (cleanedUp) return;
+        cleanedUp = true;
+        closed = true;
+        if (poll) {
+          clearInterval(poll);
+          poll = null;
+        }
+        if (keepAlive) {
+          clearInterval(keepAlive);
+          keepAlive = null;
+        }
+        unsubscribe();
+      };
 
       const safeEnqueue = (chunk: string) => {
-        if (closed) return;
+        if (closed) return false;
         try {
           controller.enqueue(encoder.encode(chunk));
+          return true;
         } catch {
-          closed = true;
+          // A runtime may close the stream before its AbortSignal is delivered.
+          // Tear down this connection immediately so its reconciliation timers
+          // cannot outlive the client.
+          cleanup();
+          return false;
         }
       };
 
       const closeStream = () => {
-        if (closed) return;
-        closed = true;
+        cleanup();
         try {
           controller.close();
         } catch {
@@ -50,11 +80,17 @@ export async function GET(request: NextRequest) {
 
       const sendSnapshot = async () => {
         if (closed) return;
+        if (snapshotInFlight) {
+          snapshotQueued = true;
+          return;
+        }
+        snapshotInFlight = true;
         try {
           const snapshot = await getNotificationsForUser({
             userId: user.id,
             limit: 20,
             includeActivity: false,
+            strongConsistency: true,
           });
           if (closed) return;
           const top = snapshot.notifications[0];
@@ -66,37 +102,36 @@ export async function GET(request: NextRequest) {
           if (closed) return;
           const message = error instanceof Error ? error.message : "notification_stream_failed";
           safeEnqueue(`event: error\ndata: ${JSON.stringify({ message })}\n\n`);
+        } finally {
+          snapshotInFlight = false;
+          if (snapshotQueued && !closed) {
+            snapshotQueued = false;
+            void sendSnapshot();
+          }
         }
       };
 
       void sendSnapshot();
-      const unsubscribe = subscribeRealtimeEvents((event) => {
+      unsubscribe = subscribeRealtimeEvents((event) => {
         if (!isNotificationEventForUser(event, user.id)) return;
         void sendSnapshot();
       });
-      // Keep a low-frequency poll as a resilience fallback for cases where the
-      // realtime event bus misses an event (e.g. hot reload, SSE reconnect).
-      // The realtime subscriber above handles the hot path; 30 s is sufficient.
-      const poll = setInterval(() => {
+      // Keep the established SSE snapshot reconciliation path for cases where
+      // the local event bus cannot span a server instance or a client reconnects.
+      poll = setInterval(() => {
         void sendSnapshot();
-      }, 30_000);
-      const keepAlive = setInterval(() => {
+      }, CROSS_INSTANCE_RECONCILIATION_MS);
+      keepAlive = setInterval(() => {
         safeEnqueue(": keepalive\n\n");
       }, 15000);
 
       const signal = request.signal;
       if (signal.aborted) {
-        clearInterval(poll);
-        clearInterval(keepAlive);
-        unsubscribe();
         closeStream();
         return;
       }
 
       signal.addEventListener("abort", () => {
-        clearInterval(poll);
-        clearInterval(keepAlive);
-        unsubscribe();
         closeStream();
       }, { once: true });
     },

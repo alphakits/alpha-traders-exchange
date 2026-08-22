@@ -533,6 +533,17 @@ export interface TradeChatMessage {
   deletedAt?: string;
 }
 
+/**
+ * Server-owned reminder timestamps for an active Trade Room. These fields are
+ * deliberately scoped to the exact sender-to-recipient direction so a Buyer
+ * reminder never blocks the Seller from sending their own reminder, or either
+ * participant from interacting with another trade.
+ */
+export interface TradeRoomPokeState {
+  buyerToSellerAt?: string;
+  sellerToBuyerAt?: string;
+}
+
 export type NotificationCategory = "trade" | "listing" | "account" | "trust" | "application" | "dispute" | "report" | "system" | "review";
 
 export interface AlphaExchangeNotification {
@@ -761,6 +772,7 @@ export interface PurchaseRequest {
   closeReason?: string;
   closeExplanation?: string;
   messages?: TradeChatMessage[];
+  pokeState?: TradeRoomPokeState;
   status: PurchaseRequestStatus;
   createdAt: string;
   updatedAt: string;
