@@ -240,16 +240,16 @@ test.describe("Final hardening audit", () => {
   }
 
   for (const viewport of REFRESH_VIEWPORTS) {
-    test(`buyer refresh stability @ ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    test(`buyer dashboard refresh stability @ ${viewport.width}x${viewport.height}`, async ({ page }) => {
       test.skip(!buyerFixture, "Buyer fixture not available");
       await login(page.request, buyerFixture!.email, buyerFixture!.password);
 
       await assertRefreshStability({
         page,
-        route: "/en/usdt-exchange#my-trade-requests-section",
-        readyLocator: page.getByRole("main").locator("#my-trade-requests-section"),
+        route: "/en/dashboard",
+        readyLocator: page.getByRole("main").getByText("Workspace Summary").first(),
         viewport,
-        disallowPathnames: ["/login", "/dashboard"],
+        disallowPathnames: ["/login"],
         maxCls: 1.5,
       });
     });
@@ -341,7 +341,7 @@ test.describe("Final hardening audit", () => {
 
     await page.goto("/en/dashboard/seller");
     await expect(page.getByText(/seller status/i).first()).toBeVisible();
-    await page.getByRole("button", { name: /^Manage Listings$/ }).first().click();
+    await page.getByRole("button", { name: /^My Listings:/ }).first().click();
     await expect(page.locator("#my-listings-section")).toBeVisible();
 
     await page.goto("/en/profile");
@@ -377,7 +377,7 @@ test.describe("Final hardening audit", () => {
       expect(sectionOrder.listingsTop).toBeGreaterThan(sectionOrder.marketTop);
       expect(sectionOrder.createTop).toBeGreaterThan(sectionOrder.listingsTop);
 
-      await page.getByRole("button", { name: /^Manage Listings$/ }).first().click();
+      await page.getByRole("button", { name: /^My Listings:/ }).first().click();
       await expect(main.locator("#my-listings-section")).toBeInViewport();
       await page.getByRole("button", { name: /^Create Listing$/ }).first().click();
       await expect(main.locator("#create-listing")).toBeInViewport();
@@ -422,6 +422,39 @@ test.describe("Final hardening audit", () => {
 
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow, `horizontal overflow on mobile ${viewport.width}x${viewport.height}`).toBeLessThanOrEqual(1);
+    });
+  }
+
+  for (const viewport of [...MOBILE_VIEWPORTS, ...DESKTOP_VIEWPORTS]) {
+    test(`buyer dashboard workspace integrity @ ${viewport.width}x${viewport.height}`, async ({ page }) => {
+      test.skip(!buyerFixture, "Buyer fixture not available");
+      await login(page.request, buyerFixture!.email, buyerFixture!.password);
+      await page.setViewportSize(viewport);
+      await page.goto("/en/dashboard");
+
+      const main = page.getByRole("main");
+      await expect(main.getByText("Workspace Summary").first()).toBeVisible({ timeout: 30_000 });
+      await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
+      await expect(main.getByRole("button", { name: /^My Trade Requests:/ })).toHaveCount(1);
+      await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(0);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `horizontal overflow on buyer dashboard ${viewport.width}x${viewport.height}`).toBeLessThanOrEqual(1);
+    });
+
+    test(`seller dashboard workspace integrity @ ${viewport.width}x${viewport.height}`, async ({ page }) => {
+      test.skip(!SELLER_EMAIL || !SELLER_PASSWORD, "Set E2E_SELLER_EMAIL and E2E_SELLER_PASSWORD to run seller dashboard checks.");
+      await login(page.request, SELLER_EMAIL, SELLER_PASSWORD);
+      await page.setViewportSize(viewport);
+      await page.goto("/en/dashboard/seller");
+
+      const main = page.getByRole("main");
+      await expect(main.getByText("Workspace Summary").first()).toBeVisible({ timeout: 30_000 });
+      await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
+      await expect(main.getByRole("button", { name: /^Create Listing:/ })).toHaveCount(1);
+      await expect(main.getByRole("button", { name: /^My Listings:/ })).toHaveCount(1);
+      await expect(main.getByRole("button", { name: /^Purchase Requests:/ })).toHaveCount(1);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `horizontal overflow on seller dashboard ${viewport.width}x${viewport.height}`).toBeLessThanOrEqual(1);
     });
   }
 

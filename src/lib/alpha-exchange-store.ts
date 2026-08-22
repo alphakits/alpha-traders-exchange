@@ -7278,6 +7278,21 @@ export async function getSellerCommissionStatus(
   const primaryRequest = primaryRecord
     ? db.purchaseRequests.find((request) => request.id === primaryRecord.purchaseRequestId)
     : undefined;
+  // This list is deliberately limited to the authenticated seller's own
+  // unpaid records. It gives the workspace an exact-record selector when
+  // more than one commission is payable; it must never become an aggregate
+  // payment target.
+  const payableRecords = pendingRecords.map((record) => {
+    const request = db.purchaseRequests.find((item) => item.id === record.purchaseRequestId);
+    return {
+      commissionId: record.id,
+      amountDue: getCommissionAmountDueUsdt(db, record),
+      dueAt: record.dueAt,
+      relatedRequestId: record.purchaseRequestId,
+      relatedTradeId: request?.tradeId,
+      relatedTradeDisplayNumber: request?.displayNumber,
+    };
+  });
 
   return {
     status: pendingRecords.length === 0 ? "clear" as const : hasOverdue ? "overdue" as const : "pending" as const,
@@ -7293,6 +7308,7 @@ export async function getSellerCommissionStatus(
     relatedRequestId: primaryRecord?.purchaseRequestId,
     relatedTradeId: primaryRequest?.tradeId,
     relatedTradeDisplayNumber: primaryRequest?.displayNumber,
+    payableRecords,
   };
 }
 

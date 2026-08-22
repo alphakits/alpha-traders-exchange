@@ -431,7 +431,7 @@ async function submitListingFromSellerWorkspace(page: Page, expectedListing: { a
   if (!payload.listing?.id) {
     throw new Error("Listing create response did not include a listing id.");
   }
-  await expect(page.getByText("My Listings")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("heading", { name: "My Listings" })).toBeVisible({ timeout: 30_000 });
   await expect(page.locator("#listing-publish-result")).toContainText("awaiting Alpha Traders admin approval", { timeout: 30_000 });
   await expect(page).toHaveURL(/#listing-publish-result$/);
   await expect(page.locator(`[id="seller-listing-${payload.listing.id}"]`)).toContainText("not visible to buyers yet");
@@ -640,6 +640,169 @@ test("bank-transfer listing requires selected seller bank account and preserves 
   expect(privacyTarget).not.toHaveProperty("bankAccountId");
 
   await owner.context.close();
+  await seller.context.close();
+});
+
+test("seller dashboard consolidates recent work, exact commission actions, and listing management", async ({ browser }) => {
+  test.setTimeout(180_000);
+  const hasFixtures = await resetLifecycleFixtures();
+  test.skip(!hasFixtures, "Set E2E owner/seller credentials and seed matching runtime accounts to run lifecycle tests.");
+
+  const seller = await createSession(browser, SELLER_EMAIL, SELLER_PASSWORD);
+  const suffix = Date.now().toString(36);
+  const listingId = `dashboard-listing-${suffix}`;
+  const latestRequestId = `dashboard-request-latest-${suffix}`;
+  const middleRequestId = `dashboard-request-middle-${suffix}`;
+  const oldestRequestId = `dashboard-request-oldest-${suffix}`;
+
+  await updateRuntimeDb(seller.page.request, (db) => {
+    const users = toRecords(db.users);
+    const sellerUser = users.find((user) => String(user.email ?? "").toLowerCase() === SELLER_EMAIL);
+    const buyerUser = users.find((user) => String(user.email ?? "").toLowerCase() === BUYER_EMAIL);
+    if (!sellerUser?.id || !buyerUser?.id) throw new Error("Dashboard test users were not found in the seeded runtime.");
+
+    const sellerId = String(sellerUser.id);
+    const buyerId = String(buyerUser.id);
+    const createdAt = "2030-01-01T00:00:00.000Z";
+    const addRequest = (id: string, displayNumber: number, updatedAt: string, status: "pending" | "accepted" | "declined") => {
+      db.purchaseRequests.push({
+        id,
+        tradeId: `trade-${id}`,
+        displayNumber,
+        listingId,
+        sellerId,
+        buyerId,
+        buyerName: "Dashboard Buyer",
+        usdtAmount: "100",
+        fiatAmount: "320",
+        currency: "ILS",
+        network: "TRC20",
+        paymentMethod: "Bank Transfer",
+        timeline: [],
+        status,
+        createdAt,
+        updatedAt,
+      });
+    };
+
+    db.marketplaceListings.push({
+      id: listingId,
+      displayNumber: 9301,
+      sellerId,
+      sellerDisplayName: "Dashboard Seller",
+      photos: [],
+      originalAmount: "500",
+      availableAmount: "500",
+      price: "3.2",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethod: "Bank Transfer",
+      paymentMethods: ["Bank Transfer"],
+      minimumTrade: "50",
+      maximumTrade: "500",
+      expiresAt: "2031-01-01T00:00:00.000Z",
+      sellerDescription: "Dashboard regression listing",
+      responseTime: "5 min",
+      status: "draft",
+      approvalStatus: "pending",
+      createdAt,
+      updatedAt: createdAt,
+    });
+    addRequest(oldestRequestId, 9201, "2030-01-02T00:00:00.000Z", "declined");
+    addRequest(middleRequestId, 9202, "2030-01-03T00:00:00.000Z", "accepted");
+    addRequest(latestRequestId, 9203, "2030-01-04T00:00:00.000Z", "pending");
+    db.commissionRecords.push(
+      {
+        id: `dashboard-commission-a-${suffix}`,
+        purchaseRequestId: oldestRequestId,
+        listingId,
+        sellerId,
+        buyerId,
+        rate: 0.01,
+        grossAmount: 200,
+        commissionAmount: 2,
+        paymentStatus: "pending",
+        dueAt: "2030-02-01T00:00:00.000Z",
+        createdAt,
+        updatedAt: createdAt,
+      },
+      {
+        id: `dashboard-commission-b-${suffix}`,
+        purchaseRequestId: middleRequestId,
+        listingId,
+        sellerId,
+        buyerId,
+        rate: 0.01,
+        grossAmount: 300,
+        commissionAmount: 3,
+        paymentStatus: "pending",
+        dueAt: "2030-02-02T00:00:00.000Z",
+        createdAt,
+        updatedAt: createdAt,
+      },
+    );
+    db.notifications.push({
+      id: `dashboard-notification-${suffix}`,
+      userId: sellerId,
+      category: "listing",
+      title: "Dashboard notification",
+      message: "Unread dashboard notification",
+      isRead: false,
+      state: "unread",
+      createdAt,
+      updatedAt: createdAt,
+    });
+  });
+
+  await seller.page.goto("/en/dashboard/seller");
+  const main = seller.page.getByRole("main");
+  await expect(main.getByText("Workspace Summary").first()).toBeVisible({ timeout: 60_000 });
+  await expect(main.getByText("Quick Actions", { exact: true })).toHaveCount(0);
+  await expect(main.getByRole("button", { name: /^My Listings:/ })).toContainText("1");
+  await expect(main.getByRole("button", { name: /^Purchase Requests:/ })).toContainText("3");
+  await expect(main.getByRole("button", { name: /^Notifications:/ })).toContainText("1");
+
+  const latestToggle = main.locator(`#trade-${latestRequestId} > button`);
+  const middleToggle = main.locator(`#trade-${middleRequestId} > button`);
+  await expect(latestToggle).toBeVisible();
+  await expect(latestToggle).toHaveAttribute("aria-expanded", "true");
+  await expect(middleToggle).toHaveAttribute("aria-expanded", "false");
+  await middleToggle.click();
+  await expect(latestToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(middleToggle).toHaveAttribute("aria-expanded", "true");
+  await expect(main.getByRole("button", { name: /^View All/ })).toBeVisible();
+  await main.getByRole("button", { name: /^View All/ }).click();
+  await expect(main.locator(`#trade-${oldestRequestId}`)).toBeVisible();
+
+  const sectionOrder = await seller.page.evaluate(() => {
+    const requests = document.getElementById("purchase-requests-section");
+    const listings = document.getElementById("my-listings-section");
+    return {
+      requestsTop: requests?.getBoundingClientRect().top ?? Number.NaN,
+      listingsTop: listings?.getBoundingClientRect().top ?? Number.NaN,
+    };
+  });
+  expect(sectionOrder.requestsTop).toBeLessThan(sectionOrder.listingsTop);
+
+  const commissionStatus = main.locator("#commission-status");
+  await expect(commissionStatus).toContainText("Choose one unpaid commission to pay.");
+  await expect(commissionStatus.getByRole("button", { name: /Trade #9201/ })).toHaveCount(1);
+  await expect(commissionStatus.getByRole("button", { name: /Trade #9202/ })).toHaveCount(1);
+  await expect(main.getByRole("button", { name: /^Commission Due:/ })).toContainText("2");
+
+  await updateRuntimeDb(seller.page.request, (db) => {
+    for (const record of db.commissionRecords) {
+      if (record.id.startsWith("dashboard-commission-")) {
+        record.paymentStatus = "paid";
+        record.paidAt = "2030-02-03T00:00:00.000Z";
+        record.updatedAt = record.paidAt;
+      }
+    }
+  });
+  await seller.page.reload({ waitUntil: "domcontentloaded" });
+  await expect(main.getByRole("button", { name: /^Commission Due:/ })).toHaveCount(0);
+  await expect(main.locator("#commission-status")).toContainText("No commission due");
+
   await seller.context.close();
 });
 
