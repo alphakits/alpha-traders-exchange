@@ -8,6 +8,7 @@ import { useSearchParams } from "next/navigation";
 import { Link, useRouter } from "@/i18n/navigation";
 import { navigateOrRevealResult } from "@/lib/client-success-navigation";
 import { tradeDestination } from "@/lib/action-destinations";
+import { commissionPaymentDestination } from "@/lib/commission-payment-destination";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -42,6 +43,8 @@ type TradeRoomData = {
   canOpenDispute: boolean;
   sellerCommissionDueAmount: number;
   sellerCommissionDueCount: number;
+  sellerPayableCommissionId?: string;
+  sellerPayableCommissionAmount?: number;
   _timing?: {
     trigger?: string;
     publishedAtEpochMs?: number | null;
@@ -564,10 +567,23 @@ function applyRequestToRoom(room: TradeRoomData, nextRequest: PurchaseRequest): 
   };
 }
 
-function tradeRoomSnapshotSignature(room: TradeRoomData) {
+export function tradeRoomSnapshotSignature(room: TradeRoomData) {
   const messages = room.messages ?? [];
-  const newestMessage = messages[0];
-  const oldestMessage = messages[messages.length - 1];
+  const messageSignature = messages
+    .map((message) => [
+      message.id,
+      message.createdAt,
+      message.sentAt ?? "",
+      message.deliveredAt ?? "",
+      message.seenAt ?? "",
+      message.deletedAt ?? "",
+      message.imageUrl ?? "",
+      message.readByUserIds.join(","),
+    ].join("~"))
+    .join("^");
+  const timelineSignature = (room.request.timeline ?? [])
+    .map((entry) => [entry.id, entry.type, entry.createdAt, entry.message].join("~"))
+    .join("^");
   return [
     room.request.id,
     room.request.status,
@@ -575,13 +591,13 @@ function tradeRoomSnapshotSignature(room: TradeRoomData) {
     room.request.completedAt ?? "",
     room.request.buyerEvidence?.id ?? "",
     room.request.sellerEvidence?.id ?? "",
-    messages.length,
-    newestMessage?.id ?? "",
-    newestMessage?.createdAt ?? "",
-    oldestMessage?.id ?? "",
+    messageSignature,
+    timelineSignature,
     room.deadlineAt ?? "",
     room.sellerCommissionDueAmount,
     room.sellerCommissionDueCount,
+    room.sellerPayableCommissionId ?? "",
+    room.sellerPayableCommissionAmount ?? 0,
     room.hasOpenDispute,
     room.canOpenDispute,
     room.poke?.available ?? false,
@@ -684,30 +700,125 @@ function resolveDeepLinkTarget(actionParam: string | null, hash: string | null):
   return "status-banner";
 }
 
-function shouldIgnoreRegressiveSnapshot(currentRoom: TradeRoomData, incomingRoom: TradeRoomData, completionLocked: boolean) {
+function timestampOrNull(value: string | null | undefined) {
+  if (!value) return null;
+  const timestamp = new Date(value).getTime();
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+function latestTradeRoomActivityAt(room: TradeRoomData) {
+  const timestamps = [
+    timestampOrNull(room.request.updatedAt),
+    timestampOrNull(room.request.completedAt),
+    timestampOrNull(room.request.buyerEvidence?.uploadedAt),
+    timestampOrNull(room.request.sellerEvidence?.uploadedAt),
+    ...room.messages
+      .filter((message) => !message.id.startsWith("optimistic-"))
+      .map((message) => timestampOrNull(message.createdAt)),
+    ...(room.request.timeline ?? [])
+      .filter((entry) => !entry.id.startsWith("optimistic-"))
+      .map((entry) => timestampOrNull(entry.createdAt)),
+  ].filter((timestamp): timestamp is number => timestamp !== null);
+  return timestamps.length ? Math.max(...timestamps) : null;
+}
+
+export function shouldIgnoreRegressiveSnapshot(currentRoom: TradeRoomData, incomingRoom: TradeRoomData, completionLocked: boolean) {
   const currentStatus = currentRoom.request.status;
   const incomingStatus = incomingRoom.request.status;
   const currentIsCompleted = COMPLETED_TRADE_STATUSES.has(currentStatus);
   const incomingIsCompleted = COMPLETED_TRADE_STATUSES.has(incomingStatus);
+  const currentActivityAt = latestTradeRoomActivityAt(currentRoom);
+  const incomingActivityAt = latestTradeRoomActivityAt(incomingRoom);
+
+  if (currentActivityAt !== null && incomingActivityAt !== null && incomingActivityAt < currentActivityAt) {
+    return true;
+  }
 
   if (completionLocked && currentIsCompleted && !incomingIsCompleted) {
     return true;
   }
 
   if (currentIsCompleted && !incomingIsCompleted) {
-    const currentCompletedAtMs = currentRoom.request.completedAt ? new Date(currentRoom.request.completedAt).getTime() : NaN;
-    const incomingCompletedAtMs = incomingRoom.request.completedAt ? new Date(incomingRoom.request.completedAt).getTime() : NaN;
-    if (!Number.isNaN(currentCompletedAtMs) && (Number.isNaN(incomingCompletedAtMs) || incomingCompletedAtMs < currentCompletedAtMs)) {
+    const currentCompletedAtMs = timestampOrNull(currentRoom.request.completedAt);
+    const incomingCompletedAtMs = timestampOrNull(incomingRoom.request.completedAt);
+    if (currentCompletedAtMs !== null && (incomingCompletedAtMs === null || incomingCompletedAtMs < currentCompletedAtMs)) {
       return true;
     }
-    const currentUpdatedAtMs = new Date(currentRoom.request.updatedAt).getTime();
-    const incomingUpdatedAtMs = new Date(incomingRoom.request.updatedAt).getTime();
-    if (!Number.isNaN(currentUpdatedAtMs) && !Number.isNaN(incomingUpdatedAtMs) && incomingUpdatedAtMs < currentUpdatedAtMs) {
+    const currentUpdatedAtMs = timestampOrNull(currentRoom.request.updatedAt);
+    const incomingUpdatedAtMs = timestampOrNull(incomingRoom.request.updatedAt);
+    if (currentUpdatedAtMs !== null && incomingUpdatedAtMs !== null && incomingUpdatedAtMs < currentUpdatedAtMs) {
       return true;
     }
   }
 
   return false;
+}
+
+export function mergeTradeRoomMessages(
+  messages: TradeChatMessage[],
+  incomingMessage: TradeChatMessage,
+  optimisticMessageId?: string,
+) {
+  const byId = new Map<string, TradeChatMessage>();
+  for (const message of messages) {
+    if (message.id !== optimisticMessageId) byId.set(message.id, message);
+  }
+  byId.set(incomingMessage.id, incomingMessage);
+  return [...byId.values()].sort((left, right) => {
+    const leftTimestamp = timestampOrNull(left.createdAt) ?? 0;
+    const rightTimestamp = timestampOrNull(right.createdAt) ?? 0;
+    return leftTimestamp - rightTimestamp || left.id.localeCompare(right.id);
+  });
+}
+
+/**
+ * Server snapshots remain authoritative for trade lifecycle, Poke, and
+ * counterparty activity even while the local user has one optimistic chat
+ * message awaiting its POST response. Preserve only that temporary bubble;
+ * never retain a stale request/timeline/poke snapshot wholesale.
+ */
+export function mergeTradeRoomSnapshotPreservingOptimisticMessages(
+  currentRoom: TradeRoomData,
+  incomingRoom: TradeRoomData,
+) {
+  const optimisticMessages = (currentRoom.messages ?? []).filter((message) => message.id.startsWith("optimistic-"));
+  if (!optimisticMessages.length) return incomingRoom;
+
+  let messages = [...(incomingRoom.messages ?? [])];
+  for (const optimisticMessage of optimisticMessages) {
+    if (!messages.some((message) => message.id === optimisticMessage.id)) {
+      messages = mergeTradeRoomMessages(messages, optimisticMessage);
+    }
+  }
+  return { ...incomingRoom, messages };
+}
+
+export function shouldRestartTradeRoomStreamAfterPageShow(event: Pick<PageTransitionEvent, "persisted">) {
+  return event.persisted;
+}
+
+export function revealTradeRoomDeepLinkTarget(target: HTMLElement) {
+  const header = document.querySelector<HTMLElement>("header");
+  const headerHeight = header?.getBoundingClientRect().height ?? 0;
+  const absoluteTop = window.scrollY + target.getBoundingClientRect().top;
+  window.scrollTo({ top: Math.max(0, absoluteTop - headerHeight - 16), behavior: "auto" });
+  target.focus({ preventScroll: true });
+}
+
+export function isTradeRoomChatNearBottom(scrollHeight: number, scrollTop: number, clientHeight: number) {
+  return scrollHeight - scrollTop - clientHeight <= 80;
+}
+
+export function shouldAutoScrollTradeRoomChat(wasNearBottom: boolean, forceScroll: boolean) {
+  return wasNearBottom || forceScroll;
+}
+
+export function shouldShowTradeRoomNewMessageIndicator(input: {
+  initialized: boolean;
+  wasNearBottom: boolean;
+  hasNewCounterpartyMessage: boolean;
+}) {
+  return input.initialized && !input.wasNearBottom && input.hasNewCounterpartyMessage;
 }
 
 export function TradeRoomPage({
@@ -728,15 +839,17 @@ export function TradeRoomPage({
   const refreshCanonicalSession = canonicalSession?.refresh;
   const canonicalSessionReady = !hasCanonicalSession || (!canonicalSessionResolving && canonicalSessionUserId === actor.id);
   const commissionPaymentNavigationRequestedRef = useRef(false);
-  const openCommissionPayNow = useCallback(() => {
+  const openCommissionPayNow = useCallback((commissionId?: string) => {
     // Commission payment is intentionally handled by the single canonical
     // marketplace flow, which displays and verifies the selected rail's exact
     // network-specific destination. Do not retain an external generic-wallet
     // fallback here.
     // Preserve an explicit seller action if the completed-trade convenience
     // redirect is also eligible in the same render cycle.
+    const payableCommissionId = commissionId?.trim();
+    if (!payableCommissionId) return;
     commissionPaymentNavigationRequestedRef.current = true;
-    router.push("/usdt-exchange?commission=pay#commission-payment");
+    router.push(commissionPaymentDestination(payableCommissionId));
   }, [router]);
   const searchParams = useSearchParams();
   const [room, setRoom] = useState<TradeRoomData | null>(null);
@@ -752,7 +865,7 @@ export function TradeRoomPage({
   const [pokeBusy, setPokeBusy] = useState(false);
   const [chatDraft, setChatDraft] = useState("");
   const [chatImage, setChatImage] = useState<File | null>(null);
-  const [chatTypingUserId, setChatTypingUserId] = useState<string | null>(null);
+  const [hasUnreadChatMessages, setHasUnreadChatMessages] = useState(false);
   const [disputeReason, setDisputeReason] = useState("");
   const [showDisputeComposer, setShowDisputeComposer] = useState(false);
   const [disputeBusy, setDisputeBusy] = useState(false);
@@ -785,6 +898,7 @@ export function TradeRoomPage({
   const streamReconnectAttemptsRef = useRef(0);
   const actionNoticeTimeoutRef = useRef<number | null>(null);
   const actionInFlightRef = useRef<string | null>(null);
+  const chatMessageInFlightRef = useRef(false);
   const completedActionTimeoutRef = useRef<number | null>(null);
   const buyerRedirectTimeoutRef = useRef<number | null>(null);
   const buyerRedirectFadeTimeoutRef = useRef<number | null>(null);
@@ -792,8 +906,10 @@ export function TradeRoomPage({
   const sellerEvidenceInputRef = useRef<HTMLInputElement | null>(null);
   const reviewCommentInputRef = useRef<HTMLTextAreaElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
-  const chatEndRef = useRef<HTMLDivElement | null>(null);
-  const typingTimeoutRef = useRef<number | null>(null);
+  const chatWasNearBottomRef = useRef(true);
+  const forceChatScrollRef = useRef(false);
+  const knownChatMessageIdsRef = useRef<Set<string>>(new Set());
+  const chatMessagesInitializedRef = useRef(false);
   const statusBannerRef = useRef<HTMLDivElement | null>(null);
   const actionRequiredRef = useRef<HTMLDivElement | null>(null);
   const evidenceSectionRef = useRef<HTMLDivElement | null>(null);
@@ -847,10 +963,13 @@ export function TradeRoomPage({
         console.log("[trade-room-load] fetch", { requestId, apiLatencyMs, routeMs, dbMs, stateAfter: payload.request.status });
       }
       const currentRoom = roomRef.current;
+      const reconciledPayload = chatMessageInFlightRef.current && currentRoom
+        ? mergeTradeRoomSnapshotPreservingOptimisticMessages(currentRoom, payload)
+        : payload;
       const shouldIgnore = currentRoom
-        ? shouldIgnoreRegressiveSnapshot(currentRoom, payload, buyerCompletionLockRef.current)
+        ? shouldIgnoreRegressiveSnapshot(currentRoom, reconciledPayload, buyerCompletionLockRef.current)
         : false;
-      const nextRoom = shouldIgnore ? currentRoom : payload;
+      const nextRoom = shouldIgnore ? currentRoom : reconciledPayload;
       if (!nextRoom) {
         return null;
       }
@@ -934,7 +1053,7 @@ export function TradeRoomPage({
     setStepPulse(false);
   }, [room?.request]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const currentRequest = room?.request;
     if (!currentRequest) return;
     const action = searchParams.get("action")?.trim() || null;
@@ -958,19 +1077,7 @@ export function TradeRoomPage({
     if (!resolvedRef) return;
     lastDeepLinkHandledRef.current = marker;
 
-    const alignTopWithHeaderOffset = () => {
-      const absoluteTop = window.scrollY + resolvedRef.getBoundingClientRect().top;
-      const targetTop = Math.max(0, absoluteTop - 120);
-      window.scrollTo({ top: targetTop, behavior: "auto" });
-    };
-
-    alignTopWithHeaderOffset();
-    window.requestAnimationFrame(() => {
-      alignTopWithHeaderOffset();
-      window.requestAnimationFrame(() => {
-        alignTopWithHeaderOffset();
-      });
-    });
+    revealTradeRoomDeepLinkTarget(resolvedRef);
   }, [room?.request, searchParams]);
 
   // Measure T4→T5: SSE received → UI rendered (useLayoutEffect fires synchronously after DOM paint).
@@ -1077,9 +1184,10 @@ export function TradeRoomPage({
       const messageEvent = event as MessageEvent<string>;
       try {
         const payload = JSON.parse(messageEvent.data) as TradeRoomData;
-        // Don't overwrite optimistic state while a mutation is in-flight.
-        // The confirmed state arrives from the HTTP response; the SSE snapshot
-        // here may be stale (e.g. a keepalive fired before the DB write).
+        // Lifecycle mutations wait for their HTTP confirmation because their
+        // SSE snapshot can be stale. A chat POST is different: retain only its
+        // temporary message while still applying authoritative counterparty
+        // status/Poke/timeline updates below.
         if (actionInFlightRef.current) return;
         if (PERF_LOG) {
           const sseReceivedTs = performance.now();
@@ -1099,13 +1207,16 @@ export function TradeRoomPage({
           });
         }
         const currentRoom = roomRef.current;
+        const reconciledPayload = chatMessageInFlightRef.current && currentRoom
+          ? mergeTradeRoomSnapshotPreservingOptimisticMessages(currentRoom, payload)
+          : payload;
         const shouldIgnore = currentRoom
-          ? shouldIgnoreRegressiveSnapshot(currentRoom, payload, buyerCompletionLockRef.current)
+          ? shouldIgnoreRegressiveSnapshot(currentRoom, reconciledPayload, buyerCompletionLockRef.current)
           : false;
-        if (!shouldIgnore && (!currentRoom || tradeRoomSnapshotSignature(currentRoom) !== tradeRoomSnapshotSignature(payload))) {
-          roomRef.current = payload;
-          writeTradeRoomCache(requestId, payload);
-          setRoom(payload);
+        if (!shouldIgnore && (!currentRoom || tradeRoomSnapshotSignature(currentRoom) !== tradeRoomSnapshotSignature(reconciledPayload))) {
+          roomRef.current = reconciledPayload;
+          writeTradeRoomCache(requestId, reconciledPayload);
+          setRoom(reconciledPayload);
           setIsLoading(false);
         }
         setStreamConnected(true);
@@ -1139,8 +1250,18 @@ export function TradeRoomPage({
     stream.addEventListener("open", onOpen as EventListener);
     stream.addEventListener("error", onError as EventListener);
 
-    const handleBeforeUnload = () => stream.close();
-    window.addEventListener("beforeunload", handleBeforeUnload);
+    const handlePageExit = () => {
+      closed = true;
+      stream.close();
+    };
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (shouldRestartTradeRoomStreamAfterPageShow(event)) {
+        setStreamCycle((value) => value + 1);
+      }
+    };
+    window.addEventListener("pagehide", handlePageExit);
+    window.addEventListener("beforeunload", handlePageExit);
+    window.addEventListener("pageshow", handlePageShow);
 
     return () => {
       closed = true;
@@ -1149,7 +1270,9 @@ export function TradeRoomPage({
         window.clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
-      window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("pagehide", handlePageExit);
+      window.removeEventListener("beforeunload", handlePageExit);
+      window.removeEventListener("pageshow", handlePageShow);
     };
   }, [canonicalSessionReady, refreshCanonicalSession, requestId, streamCycle]);
 
@@ -1495,13 +1618,14 @@ export function TradeRoomPage({
 
   const handleSendMessage = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!request) return;
+    const currentRoom = roomRef.current ?? room;
+    if (!currentRoom) return;
     const message = chatDraft.trim();
     if (!message && !chatImage) return;
     // Optimistically append the message so it appears instantly for the sender.
-    const optimisticMsg: import("@/types/alpha-exchange").TradeChatMessage = {
+    const optimisticMsg: TradeChatMessage = {
       id: `optimistic-msg-${Date.now()}`,
-      purchaseRequestId: request.id,
+      purchaseRequestId: currentRoom.request.id,
       kind: "user",
       senderUserId: actor.id,
       senderRole: actor.role,
@@ -1512,11 +1636,19 @@ export function TradeRoomPage({
       imageName: chatImage?.name,
       imageMimeType: chatImage?.type,
     };
-    setRoom((prev) => prev ? { ...prev, messages: [optimisticMsg, ...prev.messages] } : prev);
+    const optimisticRoom = {
+      ...currentRoom,
+      messages: mergeTradeRoomMessages(currentRoom.messages, optimisticMsg),
+    };
+    forceChatScrollRef.current = true;
+    chatMessageInFlightRef.current = true;
+    roomRef.current = optimisticRoom;
+    writeTradeRoomCache(requestId, optimisticRoom);
+    setRoom(optimisticRoom);
     setChatDraft("");
     setChatBusy(true);
     try {
-      const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}/messages`, {
+      const response = await fetch(`/api/alpha-exchange/purchase-requests/${currentRoom.request.id}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1526,21 +1658,42 @@ export function TradeRoomPage({
           imageMimeType: chatImage?.type,
         }),
       });
-      const payload = (await response.json()) as { error?: string; message?: string };
+      const payload = (await response.json()) as { error?: string; message?: TradeChatMessage };
       if (!response.ok) {
         // Revert the optimistic message on failure.
-        setRoom((prev) => prev ? { ...prev, messages: prev.messages.filter((m) => m.id !== optimisticMsg.id) } : prev);
+        const failedRoom = roomRef.current;
+        if (failedRoom) {
+          const revertedRoom = {
+            ...failedRoom,
+            messages: failedRoom.messages.filter((candidate) => candidate.id !== optimisticMsg.id),
+          };
+          roomRef.current = revertedRoom;
+          writeTradeRoomCache(requestId, revertedRoom);
+          setRoom(revertedRoom);
+        }
         setChatDraft(message);
         throw new Error(readApiErrorFallback(payload, isAr ? "تعذر إرسال الرسالة." : "Failed to send message."));
       }
       setChatImage(null);
-      // The SSE stream will deliver the authoritative snapshot with the confirmed message.
+      if (payload.message) {
+        const confirmedRoom = roomRef.current;
+        if (confirmedRoom) {
+          const nextRoom = {
+            ...confirmedRoom,
+            messages: mergeTradeRoomMessages(confirmedRoom.messages, payload.message, optimisticMsg.id),
+          };
+          roomRef.current = nextRoom;
+          writeTradeRoomCache(requestId, nextRoom);
+          setRoom(nextRoom);
+        }
+      }
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : (isAr ? "تعذر إرسال الرسالة." : "Failed to send message."));
     } finally {
+      chatMessageInFlightRef.current = false;
       setChatBusy(false);
     }
-  }, [actor.id, actor.role, chatDraft, chatImage, isAr, request]);
+  }, [actor.id, actor.role, chatDraft, chatImage, isAr, requestId, room]);
 
   const handlePoke = useCallback(async () => {
     if (!request || !room?.poke?.available || pokeBusy) return;
@@ -1892,18 +2045,61 @@ export function TradeRoomPage({
     void handleSubmitBuyerReview();
   }, [handleSubmitBuyerReview, logReviewDiagnostic]);
 
-  useEffect(() => () => {
-    if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
-  }, []);
+  const chatMessageSignature = useMemo(() => (room?.messages ?? [])
+    .map((message) => [message.id, message.createdAt, message.deliveredAt ?? "", message.seenAt ?? "", message.deletedAt ?? ""].join("~"))
+    .join("^"), [room?.messages]);
 
-  useEffect(() => {
+  const handleChatScroll = useCallback(() => {
     const chatContainer = chatScrollRef.current;
     if (!chatContainer) return;
-    const distanceFromBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight;
-    if (distanceFromBottom <= 80) {
-      chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: "smooth" });
+    const isNearBottom = isTradeRoomChatNearBottom(
+      chatContainer.scrollHeight,
+      chatContainer.scrollTop,
+      chatContainer.clientHeight,
+    );
+    chatWasNearBottomRef.current = isNearBottom;
+    if (isNearBottom) setHasUnreadChatMessages(false);
+  }, []);
+
+  useLayoutEffect(() => {
+    const chatContainer = chatScrollRef.current;
+    const messages = room?.messages ?? [];
+    const knownMessageIds = knownChatMessageIdsRef.current;
+    const hasNewCounterpartyMessage = messages.some((message) => (
+      !knownMessageIds.has(message.id)
+      && !message.id.startsWith("optimistic-")
+      && (message.kind === "system" || message.senderUserId !== actor.id)
+    ));
+    const initialized = chatMessagesInitializedRef.current;
+    knownChatMessageIdsRef.current = new Set(messages.map((message) => message.id));
+    chatMessagesInitializedRef.current = true;
+
+    if (!chatContainer) return;
+    const shouldFollow = shouldAutoScrollTradeRoomChat(chatWasNearBottomRef.current, forceChatScrollRef.current);
+    if (shouldFollow) {
+      chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: "auto" });
+      chatWasNearBottomRef.current = true;
+      forceChatScrollRef.current = false;
+      setHasUnreadChatMessages(false);
+      return;
     }
-  }, [room?.messages.length, chatTypingUserId]);
+    if (shouldShowTradeRoomNewMessageIndicator({
+      initialized,
+      wasNearBottom: chatWasNearBottomRef.current,
+      hasNewCounterpartyMessage,
+    })) {
+      setHasUnreadChatMessages(true);
+    }
+  }, [actor.id, chatMessageSignature, room?.messages]);
+
+  const handleRevealNewChatMessages = useCallback(() => {
+    const chatContainer = chatScrollRef.current;
+    if (chatContainer) {
+      chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: "smooth" });
+      chatWasNearBottomRef.current = true;
+    }
+    setHasUnreadChatMessages(false);
+  }, []);
 
   const isActorBuyer = request?.buyerId === actor.id;
   const actorSide: "buyer" | "seller" = isActorBuyer ? "buyer" : "seller";
@@ -1911,15 +2107,7 @@ export function TradeRoomPage({
 
   const handleChatDraftChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
     setChatDraft(event.target.value);
-    if (!request) return;
-    const otherPartyId = actorSide === "buyer" ? request.sellerId : request.buyerId;
-    setChatTypingUserId(otherPartyId);
-    if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
-    typingTimeoutRef.current = window.setTimeout(() => {
-      setChatTypingUserId(null);
-      typingTimeoutRef.current = null;
-    }, 3500);
-  }, [actorSide, request]);
+  }, []);
 
   if (isLoading) {
     return (
@@ -2084,6 +2272,7 @@ export function TradeRoomPage({
           <Card
             id="status-banner"
             ref={statusBannerRef}
+            tabIndex={-1}
             className={`${turn?.isYourTurn ? "border-[#C9A227]/40 bg-[#C9A227]/10" : "border-[#6CAEFF]/35 bg-[#6CAEFF]/10"} ${stepPulse ? "ring-2 ring-[#C9A227]/30" : ""}`}
           >
             <CardHeader className="pb-2">
@@ -2193,9 +2382,10 @@ export function TradeRoomPage({
               {room.sellerCommissionDueCount > 0 && isSeller ? (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
                   <p className="font-medium">{isAr ? "عمولة مستحقة" : "Commission Due"}</p>
-                  <p>{isAr ? `الإجمالي: ${room.sellerCommissionDueAmount.toFixed(2)} USDT` : `Amount: ${room.sellerCommissionDueAmount.toFixed(2)} USDT`}</p>
+                  <p>{isAr ? `ادفع الآن: ${(room.sellerPayableCommissionAmount ?? 0).toFixed(2)} USDT` : `Pay now: ${(room.sellerPayableCommissionAmount ?? 0).toFixed(2)} USDT`}</p>
+                  {room.sellerCommissionDueCount > 1 ? <p className="text-xs">{isAr ? `إجمالي المستحق: ${room.sellerCommissionDueAmount.toFixed(2)} USDT` : `Total outstanding: ${room.sellerCommissionDueAmount.toFixed(2)} USDT`}</p> : null}
                   <p className="text-xs">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
-                  <Button type="button" size="sm" className="mt-2" onClick={openCommissionPayNow}>
+                  <Button type="button" size="sm" className="mt-2" disabled={!room.sellerPayableCommissionId} onClick={() => openCommissionPayNow(room.sellerPayableCommissionId)}>
                     Pay Now
                   </Button>
                 </div>
@@ -2309,7 +2499,7 @@ export function TradeRoomPage({
 
         {!showSuccessScreen ? <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_380px] xl:items-start">
           <div className="space-y-4">
-            <Card id="action-required" ref={actionRequiredRef} className="scroll-mt-28 border-white/10 bg-[#0B0B0B]/90">
+            <Card id="action-required" ref={actionRequiredRef} tabIndex={-1} className="scroll-mt-28 border-white/10 bg-[#0B0B0B]/90">
               <CardHeader>
                 <CardTitle className="text-lg">{isAr ? "بطاقة الحالة الحالية" : "Current Status"}</CardTitle>
               </CardHeader>
@@ -2588,7 +2778,7 @@ export function TradeRoomPage({
             </div>
 
             <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-            <Card id="evidence" ref={evidenceSectionRef} className="border-white/10 bg-[#0B0B0B]/90">
+            <Card id="evidence" ref={evidenceSectionRef} tabIndex={-1} className="border-white/10 bg-[#0B0B0B]/90">
               <CardHeader>
                 <CardTitle className="text-lg">{isAr ? "قسم الإثبات" : "Evidence"}</CardTitle>
               </CardHeader>
@@ -2719,7 +2909,7 @@ export function TradeRoomPage({
           </div>
 
           <div className="space-y-4 xl:sticky xl:top-28">
-            <Card id="chat" ref={chatSectionRef} className="border-white/10 bg-[#0B0B0B]/90">
+            <Card id="chat" ref={chatSectionRef} tabIndex={-1} className="border-white/10 bg-[#0B0B0B]/90">
               <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <CardTitle className="flex items-center gap-2 text-lg"><MessageCircle className="h-4 w-4 text-[#C9A227]" />{isAr ? "الدردشة المباشرة" : "Live Chat"}</CardTitle>
                 {pokeAvailable ? (
@@ -2760,7 +2950,7 @@ export function TradeRoomPage({
                     <p><span className="text-[#9CA3AF]">{isAr ? "الإجراء" : "Action"}:</span> {turn?.detail}</p>
                   </div>
                 </div>
-                <div ref={chatScrollRef} className="max-h-[420px] space-y-3 overflow-y-auto rounded-2xl border border-white/10 bg-black/30 p-3">
+                <div ref={chatScrollRef} onScroll={handleChatScroll} className="max-h-[420px] space-y-3 overflow-y-auto rounded-2xl border border-white/10 bg-black/30 p-3">
                   {room.messages.length ? (
                     room.messages.map((message) => {
                       const ownMessage = message.senderUserId === actor.id;
@@ -2811,11 +3001,18 @@ export function TradeRoomPage({
                   ) : (
                     <p className="text-sm text-[#9CA3AF]">{isAr ? "لا توجد رسائل بعد." : "No messages yet."}</p>
                   )}
-                  {chatTypingUserId ? (
-                    <p className="text-xs text-[#C9A227]">{chatTypingUserId === request.buyerId ? (isAr ? "المشتري يكتب..." : "Buyer is typing...") : (isAr ? "البائع يكتب..." : "Seller is typing...")}</p>
-                  ) : null}
-                  <div ref={chatEndRef} />
                 </div>
+                {hasUnreadChatMessages ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="w-full"
+                    onClick={handleRevealNewChatMessages}
+                  >
+                    {isAr ? "رسائل جديدة — عرض" : "New messages — show"}
+                  </Button>
+                ) : null}
                 <form className="sticky bottom-2 z-10 space-y-2 rounded-2xl border border-white/10 bg-[#101010]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-xl backdrop-blur-md" onSubmit={handleSendMessage}>
                   <Textarea value={chatDraft} onChange={handleChatDraftChange} placeholder={isAr ? "اكتب رسالة..." : "Type a message..."} className="min-h-[56px] resize-none sm:min-h-[96px]" />
                   <Input type="file" accept="image/png,image/jpeg,image/webp" capture="environment" onChange={(event) => setChatImage(event.target.files?.[0] ?? null)} />
@@ -2850,8 +3047,9 @@ export function TradeRoomPage({
                 <CardContent className="text-sm text-[#FDE68A]">
                   <p>{isAr ? `عدد العمولات غير المدفوعة: ${room.sellerCommissionDueCount}` : `Pending commissions: ${room.sellerCommissionDueCount}`}</p>
                   <p className="mt-1">{isAr ? `المبلغ الإجمالي: ${room.sellerCommissionDueAmount.toFixed(2)} USDT` : `Total due: ${room.sellerCommissionDueAmount.toFixed(2)} USDT`}</p>
+                  <p className="mt-1">{isAr ? `الدفع الحالي: ${(room.sellerPayableCommissionAmount ?? 0).toFixed(2)} USDT` : `Current payment: ${(room.sellerPayableCommissionAmount ?? 0).toFixed(2)} USDT`}</p>
                   <p className="mt-1 text-xs text-amber-100">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
-                  <Button type="button" size="sm" className="mt-2" onClick={openCommissionPayNow}>
+                  <Button type="button" size="sm" className="mt-2" disabled={!room.sellerPayableCommissionId} onClick={() => openCommissionPayNow(room.sellerPayableCommissionId)}>
                     Pay Now
                   </Button>
                 </CardContent>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Megaphone, MessageSquareText, Search, Settings, ShieldCheck, Star, Store, TrendingUp, Trophy, Users, Users2, WalletCards, X, Zap } from "lucide-react";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { createExchangeDisplayLookup, replaceExchangeEntityIds } from "@/lib/alpha-exchange-display";
+import { parseAdminDashboardDestination, type AdminDashboardSection } from "@/lib/action-destinations";
 import { formatCommissionId, formatListingId, formatRequestId, formatTradeId } from "@/lib/format-id";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { SELLER_LEVELS, normalizeSellerLevel, type AlphaExchangeActivityLogEntry, type AlphaExchangeNotification, type AuditLogEntry, type BetaAnnouncement, type BetaAnnouncementType, type BetaFeedbackCategory, type CommissionRecord, type MarketplaceEnforcementRecord, type MarketplaceListing, type OwnerBusinessDashboardMetrics, type OwnerPrivateBetaDashboardData, type PurchaseRequest, type SellerApplication, type SellerAvailabilityStatus, type SellerLevel, type SellerReviewRecord, type SmsDeliveryRecord, type SupportedNetwork } from "@/types/alpha-exchange";
@@ -140,25 +141,7 @@ type AdminSmsDelivery = Omit<SmsDeliveryRecord, "recipientPhone" | "body"> & {
   recipientPhoneMasked: string;
 };
 
-type SectionKey =
-  | "overview"
-  | "seller-applications"
-  | "approved-sellers"
-  | "seller-rank"
-  | "marketplace-listings"
-  | "listing-reliability"
-  | "purchase-requests"
-  | "commissions"
-  | "audit-logs"
-  | "sms-deliveries"
-  | "marketplace-enforcement"
-  | "announcements"
-  | "private-beta"
-  | "settings"
-  | "users"
-  | "reviews"
-  | "analytics"
-  | "emergency";
+type SectionKey = AdminDashboardSection;
 
 const pageSize = 8;
 
@@ -319,7 +302,17 @@ export function AlphaExchangeAdminDashboard() {
   const [announcementTitle, setAnnouncementTitle] = useState("");
   const [announcementMessage, setAnnouncementMessage] = useState("");
   const toastTimeoutRef = useRef<number | null>(null);
-  const deepLinkAppliedRef = useRef(false);
+  const lastFocusedDeepLinkRef = useRef<string | null>(null);
+  const [deepLinkTargetElement, setDeepLinkTargetElement] = useState<HTMLTableRowElement | null>(null);
+  const setSellerApplicationRow = useCallback((element: HTMLTableRowElement | null) => setDeepLinkTargetElement(element), []);
+  const setMarketplaceListingRow = useCallback((element: HTMLTableRowElement | null) => setDeepLinkTargetElement(element), []);
+  const setPurchaseRequestRow = useCallback((element: HTMLTableRowElement | null) => setDeepLinkTargetElement(element), []);
+  const setCommissionRow = useCallback((element: HTMLTableRowElement | null) => setDeepLinkTargetElement(element), []);
+  const searchParamsKey = searchParams.toString();
+  const adminDestination = useMemo(
+    () => parseAdminDashboardDestination(new URLSearchParams(searchParamsKey)),
+    [searchParamsKey],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -406,20 +399,29 @@ export function AlphaExchangeAdminDashboard() {
   }, [data?.complianceSettings?.recoveryWallet]);
 
   useEffect(() => {
-    if (deepLinkAppliedRef.current) return;
-    const section = searchParams.get("section");
-    const sellerApplicationId = searchParams.get("sellerApplication");
-    if (section === "seller-applications") {
-      setActiveSection("seller-applications");
-    }
-    if (sellerApplicationId?.trim()) {
-      setApplicationsQuery(sellerApplicationId.trim());
+    setActiveSection(adminDestination.section);
+
+    if (adminDestination.section === "seller-applications") {
+      setApplicationsQuery(adminDestination.sellerApplicationId ?? "");
       setApplicationsStatus("all");
+      setApplicationsPage(1);
     }
-    if (section || sellerApplicationId) {
-      deepLinkAppliedRef.current = true;
+    if (adminDestination.section === "marketplace-listings") {
+      setListingsQuery(adminDestination.listingId ?? "");
+      setListingsStatus(adminDestination.listingStatus ?? "all");
+      setListingsNetwork("all");
+      setListingsPage(1);
     }
-  }, [searchParams]);
+    if (adminDestination.section === "purchase-requests") {
+      setRequestsQuery(adminDestination.purchaseRequestId ?? "");
+      setRequestsStatus("all");
+      setRequestsPage(1);
+    }
+    if (adminDestination.section === "commissions") {
+      setCommissionsQuery(adminDestination.commissionId ?? "");
+      setCommissionsPage(1);
+    }
+  }, [adminDestination]);
 
   function pushToast(message: string) {
     if (toastTimeoutRef.current !== null) {
@@ -483,7 +485,7 @@ export function AlphaExchangeAdminDashboard() {
       if (applicationsStatus !== "all" && application.status !== applicationsStatus) return false;
       const query = applicationsQuery.trim().toLowerCase();
       if (!query) return true;
-      const haystack = `${application.fullName} ${application.email} ${application.whatsappNumber} ${application.preferredNetworks.join(" ")}`.toLowerCase();
+      const haystack = `${application.id} ${application.fullName} ${application.email} ${application.whatsappNumber} ${application.preferredNetworks.join(" ")}`.toLowerCase();
       return haystack.includes(query);
     });
     const sorted = [...items].sort((a, b) => {
@@ -516,7 +518,7 @@ export function AlphaExchangeAdminDashboard() {
       if (listingsNetwork !== "all" && listing.network !== listingsNetwork) return false;
       const query = listingsQuery.trim().toLowerCase();
       if (!query) return true;
-      const haystack = `${listing.sellerDisplayName} ${listing.availableAmount} ${listing.price} ${listing.network}`.toLowerCase();
+      const haystack = `${listing.id} ${listing.sellerDisplayName} ${listing.availableAmount} ${listing.price} ${listing.network}`.toLowerCase();
       return haystack.includes(query);
     });
     const sorted = [...items].sort((a, b) => {
@@ -535,7 +537,7 @@ export function AlphaExchangeAdminDashboard() {
       if (!query) return true;
       const listing = listingById.get(request.listingId);
       const seller = sellersById.get(request.sellerId);
-      const haystack = `${request.tradeId ?? request.id} ${displayTradeId(request)} ${request.buyerName} ${request.buyerWhatsapp} ${seller?.fullName ?? request.sellerId} ${listing?.id ?? request.listingId} ${displayListingId(listing, request.listingId)}`.toLowerCase();
+      const haystack = `${request.id} ${request.tradeId ?? request.id} ${displayTradeId(request)} ${request.buyerName} ${request.buyerWhatsapp} ${seller?.fullName ?? request.sellerId} ${listing?.id ?? request.listingId} ${displayListingId(listing, request.listingId)}`.toLowerCase();
       return haystack.includes(query);
     });
     const sorted = [...items].sort((a, b) => {
@@ -562,6 +564,75 @@ export function AlphaExchangeAdminDashboard() {
     });
     return paginate(sorted, commissionsPage);
   }, [commissionsPage, commissionsQuery, commissionsSort, data?.commissionRecords, requestsById, sellersById]);
+
+  const deepLinkTarget = useMemo(() => {
+    if (adminDestination.sellerApplicationId) return { kind: "sellerApplication" as const, id: adminDestination.sellerApplicationId };
+    if (adminDestination.listingId) return { kind: "listing" as const, id: adminDestination.listingId };
+    if (adminDestination.purchaseRequestId) return { kind: "purchaseRequest" as const, id: adminDestination.purchaseRequestId };
+    if (adminDestination.commissionId) return { kind: "commission" as const, id: adminDestination.commissionId };
+    return null;
+  }, [adminDestination]);
+
+  const requestedTargetIsUnavailable = useMemo(() => {
+    if (!data || !deepLinkTarget) return false;
+    if (deepLinkTarget.kind === "sellerApplication") return !data.applications.some((application) => application.id === deepLinkTarget.id);
+    if (deepLinkTarget.kind === "listing") return !data.listings.some((listing) => listing.id === deepLinkTarget.id);
+    if (deepLinkTarget.kind === "purchaseRequest") return !data.purchaseRequests.some((request) => request.id === deepLinkTarget.id);
+    return !data.commissionRecords.some((record) => record.id === deepLinkTarget.id);
+  }, [data, deepLinkTarget]);
+
+  const unavailableDeepLinkMessage = useMemo(() => {
+    if (!requestedTargetIsUnavailable || !deepLinkTarget) return null;
+    const label = deepLinkTarget.kind === "sellerApplication"
+      ? "seller application"
+      : deepLinkTarget.kind === "listing"
+        ? "marketplace listing"
+        : deepLinkTarget.kind === "purchaseRequest"
+          ? "purchase request"
+          : "commission record";
+    return `The requested ${label} is no longer available.`;
+  }, [deepLinkTarget, requestedTargetIsUnavailable]);
+
+  useEffect(() => {
+    if (!deepLinkTarget) {
+      lastFocusedDeepLinkRef.current = null;
+    }
+  }, [deepLinkTarget]);
+
+  useLayoutEffect(() => {
+    // Data can resolve one render before the loading shell is removed. Wait
+    // for the stable row layout so a deep link never consumes its one focus
+    // attempt while the target is still absent from the DOM.
+    if (loading || !data || !deepLinkTarget || requestedTargetIsUnavailable) return;
+    const target = deepLinkTargetElement;
+    const targetPrefix = deepLinkTarget.kind === "sellerApplication"
+      ? "seller-application-"
+      : deepLinkTarget.kind === "listing"
+        ? "marketplace-listing-"
+        : deepLinkTarget.kind === "purchaseRequest"
+          ? "purchase-request-"
+          : "commission-";
+    if (!target || target.id !== `${targetPrefix}${deepLinkTarget.id}`) return;
+
+    const marker = `${searchParamsKey}:${deepLinkTarget.kind}:${deepLinkTarget.id}`;
+    if (lastFocusedDeepLinkRef.current === marker) return;
+
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: "center", behavior: "auto" });
+    lastFocusedDeepLinkRef.current = marker;
+  }, [
+    activeSection,
+    applicationsRows.rows,
+    commissionsRows.rows,
+    data,
+    deepLinkTarget,
+    deepLinkTargetElement,
+    listingsRows.rows,
+    loading,
+    requestedTargetIsUnavailable,
+    requestsRows.rows,
+    searchParamsKey,
+  ]);
 
   const auditRows = useMemo(() => {
     const items = (data?.auditLogs ?? []).filter((entry) => {
@@ -1355,6 +1426,12 @@ export function AlphaExchangeAdminDashboard() {
                           </select>
                         </div>
 
+                        {adminDestination.sellerApplicationId && unavailableDeepLinkMessage ? (
+                          <p role="status" className="mt-4 rounded-xl border border-amber-400/25 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+                            {unavailableDeepLinkMessage}
+                          </p>
+                        ) : null}
+
                         <div className="mt-5 overflow-x-auto rounded-xl border border-white/10">
                           <table className="w-full min-w-[900px] text-sm">
                             <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
@@ -1369,7 +1446,13 @@ export function AlphaExchangeAdminDashboard() {
                             </thead>
                             <tbody>
                               {applicationsRows.rows.map((application) => (
-                                <tr key={application.id} className="border-t border-white/10">
+                                <tr
+                                  key={application.id}
+                                  id={`seller-application-${application.id}`}
+                                  ref={adminDestination.sellerApplicationId === application.id ? setSellerApplicationRow : undefined}
+                                  tabIndex={-1}
+                                  className={`border-t border-white/10 ${adminDestination.sellerApplicationId === application.id ? "bg-[#C9A227]/10 outline outline-1 outline-[#C9A227]/45" : ""}`}
+                                >
                                   <td className="px-4 py-3">
                                     <p className="font-medium text-white">{application.fullName}</p>
                                     <p className="text-xs text-[#9CA3AF]">{application.email}</p>
@@ -1903,6 +1986,12 @@ export function AlphaExchangeAdminDashboard() {
                           </select>
                         </div>
 
+                        {adminDestination.listingId && unavailableDeepLinkMessage ? (
+                          <p role="status" className="mt-4 rounded-xl border border-amber-400/25 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+                            {unavailableDeepLinkMessage}
+                          </p>
+                        ) : null}
+
                         <div className="mt-5 overflow-x-auto rounded-xl border border-white/10">
                           <table className="w-full min-w-[1240px] text-sm">
                             <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
@@ -1920,7 +2009,13 @@ export function AlphaExchangeAdminDashboard() {
                             </thead>
                             <tbody>
                               {listingsRows.rows.map((listing) => (
-                                <tr key={listing.id} className="border-t border-white/10">
+                                <tr
+                                  key={listing.id}
+                                  id={`marketplace-listing-${listing.id}`}
+                                  ref={adminDestination.listingId === listing.id ? setMarketplaceListingRow : undefined}
+                                  tabIndex={-1}
+                                  className={`border-t border-white/10 ${adminDestination.listingId === listing.id ? "bg-[#C9A227]/10 outline outline-1 outline-[#C9A227]/45" : ""}`}
+                                >
                                   <td className="px-4 py-3 text-white">{listing.sellerDisplayName}</td>
                                   <td className="px-4 py-3 text-[#D1D5DB]">{listing.availableAmount}</td>
                                   <td className="px-4 py-3 text-[#D1D5DB]">{listing.price}</td>
@@ -2213,6 +2308,12 @@ export function AlphaExchangeAdminDashboard() {
                           </select>
                         </div>
 
+                        {adminDestination.purchaseRequestId && unavailableDeepLinkMessage ? (
+                          <p role="status" className="mt-4 rounded-xl border border-amber-400/25 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+                            {unavailableDeepLinkMessage}
+                          </p>
+                        ) : null}
+
                         <div className="mt-5 overflow-x-auto rounded-xl border border-white/10">
                           <table className="w-full min-w-[980px] text-sm">
                             <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
@@ -2233,7 +2334,13 @@ export function AlphaExchangeAdminDashboard() {
                                 const listing = listingById.get(request.listingId);
                                 const seller = sellersById.get(request.sellerId);
                                 return (
-                                  <tr key={request.id} className="border-t border-white/10">
+                                  <tr
+                                    key={request.id}
+                                    id={`purchase-request-${request.id}`}
+                                    ref={adminDestination.purchaseRequestId === request.id ? setPurchaseRequestRow : undefined}
+                                    tabIndex={-1}
+                                    className={`border-t border-white/10 ${adminDestination.purchaseRequestId === request.id ? "bg-[#C9A227]/10 outline outline-1 outline-[#C9A227]/45" : ""}`}
+                                  >
                                     <td className="w-[11rem] px-4 py-3 text-center font-mono font-medium whitespace-nowrap text-[#D1D5DB]">{displayTradeId(request)}</td>
                                     <td className="px-4 py-3 text-white">{request.buyerName}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{seller?.fullName ?? request.sellerId}</td>
@@ -2300,6 +2407,12 @@ export function AlphaExchangeAdminDashboard() {
                           </select>
                         </div>
 
+                        {adminDestination.commissionId && unavailableDeepLinkMessage ? (
+                          <p role="status" className="mt-4 rounded-xl border border-amber-400/25 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+                            {unavailableDeepLinkMessage}
+                          </p>
+                        ) : null}
+
                         <div className="mt-5 overflow-x-auto rounded-xl border border-white/10">
                           <table className="w-full min-w-[980px] text-sm">
                             <thead className="bg-white/[0.03] text-left text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
@@ -2319,7 +2432,13 @@ export function AlphaExchangeAdminDashboard() {
                                 const request = (data.purchaseRequests ?? []).find((item) => item.id === record.purchaseRequestId);
                                 const seller = sellersById.get(record.sellerId);
                                 return (
-                                  <tr key={record.id} className="border-t border-white/10">
+                                  <tr
+                                    key={record.id}
+                                    id={`commission-${record.id}`}
+                                    ref={adminDestination.commissionId === record.id ? setCommissionRow : undefined}
+                                    tabIndex={-1}
+                                    className={`border-t border-white/10 ${adminDestination.commissionId === record.id ? "bg-[#C9A227]/10 outline outline-1 outline-[#C9A227]/45" : ""}`}
+                                  >
                                     <td className="w-[11rem] px-4 py-3 text-center font-mono font-medium whitespace-nowrap text-[#D1D5DB]">{displayTradeId(request, record.tradeId ?? record.purchaseRequestId)}</td>
                                     <td className="px-4 py-3 text-white">{request?.buyerName ?? record.buyerId}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{seller?.fullName ?? record.sellerId}</td>

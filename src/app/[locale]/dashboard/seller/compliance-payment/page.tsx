@@ -28,7 +28,10 @@ export default async function SellerCompliancePaymentRoute({ params }: { params:
     redirect(`/${locale}/admin/alpha-exchange?section=marketplace-enforcement`);
   }
 
-  if (!hasRole(user, "approved_seller")) {
+  // Enforcement can remain active while the seller is suspended. Keep the
+  // recovery payment page aligned with the authenticated seller-workspace API
+  // so a restricted seller is not trapped behind a dashboard redirect.
+  if (!hasRole(user, "approved_seller") && user.sellerStatus !== "suspended") {
     redirect(`/${locale}/dashboard`);
   }
 

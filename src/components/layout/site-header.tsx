@@ -1,20 +1,27 @@
 import Image from "next/image";
-import { cookies } from "next/headers";
 import { getTranslations } from "next-intl/server";
 import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
-import { AUTH_COOKIE_NAME, getCurrentSessionUser } from "@/lib/auth";
 import { getFirstActiveTradeForUser, getTradeReminderForUser } from "@/lib/alpha-exchange-store";
 import { hasRole } from "@/lib/roles";
 import { HeaderNav } from "@/components/layout/header-nav";
 import { HeaderAuthArea } from "@/components/layout/header-auth-area";
+import type { AlphaExchangeUser } from "@/types/alpha-exchange";
 
-export async function SiteHeader({ locale }: { locale: AppLocale }) {
+export async function SiteHeader({
+  locale,
+  sessionUser,
+}: {
+  locale: AppLocale;
+  /**
+   * The locale layout already resolved the authoritative server session for
+   * this render. Reusing that snapshot avoids two independent auth reads
+   * producing a header/UI mismatch during navigation or session expiry.
+   */
+  sessionUser: AlphaExchangeUser | null;
+}) {
   const t = await getTranslations({ locale, namespace: "nav" });
   const brand = (await getTranslations({ locale }))("brand");
-  const cookieStore = await cookies();
-  const sessionToken = cookieStore.get(AUTH_COOKIE_NAME)?.value ?? null;
-  const sessionUser = sessionToken ? await getCurrentSessionUser() : null;
   const activeTrade = sessionUser ? await getFirstActiveTradeForUser(sessionUser.id, sessionUser.role) : null;
   const tradeReminder = sessionUser ? await getTradeReminderForUser(sessionUser.id, sessionUser.role) : null;
   const activeTradeCounterparty = activeTrade

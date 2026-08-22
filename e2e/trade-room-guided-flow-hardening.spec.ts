@@ -385,6 +385,7 @@ async function openNotificationAndNavigate(input: {
     await page.goto("/en/usdt-exchange");
     const bellToggle = page.locator('button[aria-label="Notifications"]').first();
     const panel = page.getByTestId("notification-panel");
+    const bodyOverflowBeforeOpen = await page.evaluate(() => getComputedStyle(document.body).overflow);
 
     const ensurePanelOpen = async () => {
       if (await panel.isVisible()) return;
@@ -404,7 +405,9 @@ async function openNotificationAndNavigate(input: {
         listOverflowY: list ? getComputedStyle(list).overflowY : "",
       };
     });
-    expect(panelGeometry.bodyOverflow).toBe("hidden");
+    // The bell is a bounded, scrollable panel rather than a modal. It must not
+    // mutate the document scroll state, which would shift the sticky header.
+    expect(panelGeometry.bodyOverflow).toBe(bodyOverflowBeforeOpen);
     expect(panelGeometry.top).toBeGreaterThanOrEqual(0);
     expect(panelGeometry.bottom).toBeLessThanOrEqual(panelGeometry.viewportHeight);
     expect(panelGeometry.listOverflowY).toBe("auto");
@@ -839,6 +842,23 @@ test("Trade Room Poke is recipient-only, cooldown-protected, reconnect-safe, and
       message: "Your Buyer is waiting for you in an active trade.",
       actionHref: `/trade-room/${requestId}#chat`,
     });
+    const sellerPokeNotificationId = String(sellerPokeNotifications[0]?.id ?? "");
+    expect(sellerPokeNotificationId).toBeTruthy();
+
+    // The recipient's delivered API DTO—not only the persisted row—must keep
+    // the Poke-specific conversation metadata used by the bell destination.
+    const deliveredNotificationsResponse = await sellerPage.request.get("/api/alpha-exchange/notifications?limit=20&includeActivity=0");
+    expect(deliveredNotificationsResponse.ok()).toBeTruthy();
+    const deliveredNotifications = await deliveredNotificationsResponse.json() as {
+      notifications?: Array<Record<string, unknown>>;
+    };
+    expect(deliveredNotifications.notifications?.find((notification) => notification.id === sellerPokeNotificationId)).toMatchObject({
+      id: sellerPokeNotificationId,
+      category: "trade",
+      reason: "trade_room_poke",
+      relatedRequestId: requestId,
+      actionHref: `/trade-room/${requestId}#chat`,
+    });
 
     const replay = await buyerPage.request.post(`/api/alpha-exchange/purchase-requests/${requestId}/poke`);
     expect(replay.status()).toBe(429);
@@ -865,9 +885,8 @@ test("Trade Room Poke is recipient-only, cooldown-protected, reconnect-safe, and
     await sellerPage.goto("/en/usdt-exchange", { waitUntil: "domcontentloaded", timeout: 20_000 });
     await sellerPage.locator('button[aria-label="Notifications"]').first().click();
     const notificationPanel = sellerPage.getByTestId("notification-panel");
-    const reminderTitle = notificationPanel.getByText("Trade Room reminder", { exact: true }).first();
-    await expect(reminderTitle).toBeVisible({ timeout: 20_000 });
-    const reminderCard = reminderTitle.locator("xpath=ancestor::div[contains(@class,'rounded-xl')][1]");
+    const reminderCard = notificationPanel.locator(`[data-notification-id="${sellerPokeNotificationId}"]`);
+    await expect(reminderCard.getByText("Trade Room reminder", { exact: true })).toBeVisible({ timeout: 20_000 });
     await Promise.all([
       sellerPage.waitForURL((url) => (
         url.pathname === `/en/trade-room/${requestId}`

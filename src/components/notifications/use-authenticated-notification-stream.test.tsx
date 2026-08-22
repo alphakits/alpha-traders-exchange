@@ -92,15 +92,72 @@ describe("useAuthenticatedNotificationStream", () => {
 
       await act(async () => {
         MockEventSource.instances[0]?.emit("error");
+        MockEventSource.instances[0]?.emit("error");
         await Promise.resolve();
       });
 
       await waitFor(() => expect(MockEventSource.instances[0]?.close).toHaveBeenCalled());
       await waitFor(() => expect(replaceSpy).toHaveBeenCalledTimes(1));
       expect(MockEventSource.instances).toHaveLength(1);
+      expect(fetch).toHaveBeenCalledTimes(2);
       expect(replaceSpy).toHaveBeenCalledWith("/en/login?sessionExpired=1&redirectTo=%2Fen%2Fusdt-exchange");
     } finally {
       Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+    }
+  });
+
+  it("does not refresh canonical auth when an outgoing document emits a late stream error", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ user: seller }) });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
+
+    render(<CanonicalSessionProvider initialSessionUser={seller}><StreamProbe /></CanonicalSessionProvider>);
+    await waitFor(() => expect(MockEventSource.instances).toHaveLength(1));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("pagehide"));
+      // Mirror the browser race: an EventSource error can arrive after the
+      // page-exit event but before component cleanup has run.
+      MockEventSource.instances[0]?.emit("error");
+      await Promise.resolve();
+    });
+
+    expect(MockEventSource.instances[0]?.close).toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the stream while hidden and opens one fresh stream when the tab is visible again", async () => {
+    let visibility = "visible";
+    const originalVisibilityDescriptor = Object.getOwnPropertyDescriptor(document, "visibilityState");
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => visibility,
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ user: seller }) }));
+    vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
+
+    try {
+      render(<CanonicalSessionProvider initialSessionUser={seller}><StreamProbe /></CanonicalSessionProvider>);
+      await waitFor(() => expect(MockEventSource.instances).toHaveLength(1));
+
+      await act(async () => {
+        visibility = "hidden";
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await waitFor(() => expect(MockEventSource.instances[0]?.close).toHaveBeenCalledTimes(1));
+
+      await act(async () => {
+        visibility = "visible";
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await waitFor(() => expect(MockEventSource.instances).toHaveLength(2));
+    } finally {
+      if (originalVisibilityDescriptor) {
+        Object.defineProperty(document, "visibilityState", originalVisibilityDescriptor);
+      } else {
+        delete (document as { visibilityState?: string }).visibilityState;
+      }
     }
   });
 });

@@ -23,6 +23,7 @@ import {
   invalidateAlphaExchangeStoreCache,
   reviewMarketplaceListingByOwner,
 } from "@/lib/alpha-exchange-store";
+import { adminMarketplaceListingsDestination, listingDestination } from "@/lib/action-destinations";
 import { prepareListingReviewEmails } from "@/lib/marketplace-email-events";
 
 const OWNER_ID = "owner-1";
@@ -166,6 +167,16 @@ describe("marketplace listing publication broadcasts", () => {
       actorUserId: LISTING_CREATOR_ID,
     });
 
+    const ownerNotifications = await getNotificationsForUser({ userId: OWNER_ID });
+    const ownerReview = ownerNotifications.notifications.find(
+      (notification) => notification.title === "New Listing Pending Review" && notification.relatedListingId === listing.id,
+    );
+    expect(ownerReview).toMatchObject({
+      relatedHref: adminMarketplaceListingsDestination(listing.id),
+      actionHref: adminMarketplaceListingsDestination(listing.id),
+      actionLabel: "Review Listing",
+    });
+
     await reviewMarketplaceListingByOwner({
       listingId: listing.id,
       ownerUserId: OWNER_ID,
@@ -192,6 +203,8 @@ describe("marketplace listing publication broadcasts", () => {
     expect(suspendedHits).toHaveLength(0);
     expect(disabledHits).toHaveLength(0);
     expect(creatorHits).toHaveLength(0);
+    expect(buyerHits[0]).toMatchObject({ relatedHref: listingDestination(listing) });
+    expect(dualRoleHits[0]).toMatchObject({ relatedHref: listingDestination(listing) });
   });
 
   it("uses the same eligible buyers for email fan-out and does not depend on generic email opt-in", async () => {

@@ -6,6 +6,30 @@ import { AlphaExchangeAdminDashboard } from "@/components/admin/alpha-exchange-a
 
 export const dynamic = "force-dynamic";
 
+const ADMIN_DESTINATION_QUERY_KEYS = [
+  "section",
+  "sellerApplication",
+  "listing",
+  "status",
+  "requestId",
+  "request",
+  "commissionId",
+  "commission",
+  "tab",
+] as const;
+
+function buildAdminDestination(locale: string, searchParams: Record<string, string | string[] | undefined>) {
+  const query = new URLSearchParams();
+  for (const key of ADMIN_DESTINATION_QUERY_KEYS) {
+    const value = searchParams[key];
+    if (typeof value === "string" && value.trim()) {
+      query.set(key, value.trim());
+    }
+  }
+  const search = query.toString();
+  return `/${locale}/admin/alpha-exchange${search ? `?${search}` : ""}`;
+}
+
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   return buildPageMetadata({
@@ -16,12 +40,18 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   });
 }
 
-export default async function AlphaExchangeAdminPage({ params }: { params: Promise<{ locale: string }> }) {
-  const { locale } = await params;
+export default async function AlphaExchangeAdminPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ locale: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const [{ locale }, query] = await Promise.all([params, searchParams]);
   const user = await getCurrentSessionUser();
 
   if (!user) {
-    redirect(`/${locale}/login?redirectTo=/${locale}/admin/alpha-exchange`);
+    redirect(`/${locale}/login?redirectTo=${encodeURIComponent(buildAdminDestination(locale, query))}`);
   }
   if (!hasRole(user, "admin")) {
     redirect(`/${locale}/usdt-exchange`);

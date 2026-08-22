@@ -9,10 +9,11 @@ export async function GET(request: NextRequest) {
   const VALID_STATUSES = new Set(["all", "draft", "active", "paused", "matched", "in_trade", "expired", "completed", "cancelled", "closed"]);
   const statusParam = request.nextUrl.searchParams.get("status") ?? "all";
   const status = VALID_STATUSES.has(statusParam) ? statusParam : "all";
+  const commissionId = request.nextUrl.searchParams.get("commissionId")?.trim() || undefined;
   const [listings, summary, commissionStatus] = await Promise.all([
     getMyMarketplaceListings(user.id, status),
     getSellerListingWorkspaceSummary(user.id),
-    getSellerCommissionStatus(user.id),
+    getSellerCommissionStatus(user.id, undefined, { commissionId }),
   ]);
   return NextResponse.json({
     listings,

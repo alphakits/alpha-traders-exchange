@@ -55,7 +55,7 @@ export default async function LocaleLayout({
         }`}
       >
         <CanonicalSessionProvider initialSessionUser={toClientSessionUser(sessionUser)}>
-          <SiteHeader locale={appLocale} />
+          <SiteHeader locale={appLocale} sessionUser={sessionUser} />
           <main className="min-h-[calc(100vh-9rem)]">{children}</main>
           <SiteFooter locale={appLocale} />
         </CanonicalSessionProvider>
