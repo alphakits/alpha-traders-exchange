@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
+import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 
 type AccountProfilePayload = {
   profile: {
@@ -224,7 +225,12 @@ function profileTheme(variant: RoleBadgeVariant) {
 
 export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { locale: "ar" | "en"; initialSessionRoles?: string[] }) {
   const isAr = locale === "ar";
-  const canonicalUser = useOptionalCanonicalSession()?.user;
+  const canonicalSession = useOptionalCanonicalSession();
+  const canonicalUser = canonicalSession?.user;
+  const hasCanonicalSession = Boolean(canonicalSession);
+  const canonicalSessionResolving = canonicalSession?.isResolving ?? false;
+  const canonicalSessionError = canonicalSession?.error ?? false;
+  const refreshCanonicalSession = canonicalSession?.refresh;
   const [payload, setPayload] = useState<AccountProfilePayload | null>(null);
   const [sessionRoles, setSessionRoles] = useState<string[]>(initialSessionRoles);
   const [loading, setLoading] = useState(true);
@@ -281,11 +287,14 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
 
   const refreshProfile = useCallback(async (signal?: AbortSignal) => {
     const response = await fetch("/api/auth/profile", { cache: "no-store", signal });
-    if (!response.ok) throw new Error("PROFILE_FETCH_FAILED");
+    if (!response.ok) {
+      if (response.status === 401) void refreshCanonicalSession?.({ force: true });
+      throw new Error("PROFILE_FETCH_FAILED");
+    }
     const data = (await response.json()) as AccountProfilePayload;
     applyProfilePayload(data);
     return data;
-  }, [applyProfilePayload]);
+  }, [applyProfilePayload, refreshCanonicalSession]);
 
   useEffect(() => {
     if (!canonicalUser) return;
@@ -293,6 +302,36 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
   }, [canonicalUser]);
 
   useEffect(() => {
+    if (canonicalSessionResolving) {
+      setLoading(true);
+      return;
+    }
+    if (hasCanonicalSession && !canonicalUser) {
+      // The profile payload can contain private account data. Never retain it
+      // after the canonical server session has become anonymous.
+      setPayload(null);
+      setSessionRoles([]);
+      setAvatarUrl("");
+      setCoverUrl("");
+      setForm({
+        fullName: "",
+        bio: "",
+        country: "",
+        language: "",
+        whatsappNumber: "",
+        showTradeStats: true,
+        showLastActive: true,
+        allowDirectMessages: true,
+        allowProfileSearch: true,
+        showPhonePublic: false,
+        showEmailPublic: false,
+      });
+      setMessage(canonicalSessionError
+        ? (isAr ? "تعذر تأكيد جلستك. يرجى المحاولة مرة أخرى." : "We could not confirm your session. Please try again.")
+        : (isAr ? "انتهت جلستك. يرجى تسجيل الدخول مرة أخرى." : "Your session has expired. Please sign in again."));
+      setLoading(false);
+      return;
+    }
     const controller = new AbortController();
     let mounted = true;
 
@@ -319,10 +358,22 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
       mounted = false;
       controller.abort();
     };
-  }, [isAr, refreshProfile]);
+  }, [canonicalSessionError, canonicalSessionResolving, canonicalUser, hasCanonicalSession, isAr, refreshProfile]);
+
+  const scheduleProfileRefreshFromNotification = useCallback(() => {
+    if (profileRefreshTimeoutRef.current) clearTimeout(profileRefreshTimeoutRef.current);
+    profileRefreshTimeoutRef.current = setTimeout(() => {
+      void refreshProfile().catch(() => undefined);
+    }, 150);
+  }, [refreshProfile]);
+
+  useAuthenticatedNotificationStream({
+    enabled: Boolean(payload),
+    onNotifications: scheduleProfileRefreshFromNotification,
+  });
 
   useEffect(() => {
-    if (!payload || typeof EventSource === "undefined") return;
+    if (!payload) return;
 
     const controller = new AbortController();
     let active = true;
@@ -334,15 +385,11 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
         void refreshProfile(controller.signal).catch(() => undefined);
       }, 150);
     };
-
-    const stream = new EventSource("/api/alpha-exchange/notifications/stream");
-    const onNotifications = () => scheduleRefresh();
     const onFocus = () => scheduleRefresh();
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") scheduleRefresh();
     };
 
-    stream.addEventListener("notifications", onNotifications);
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibilityChange);
 
@@ -353,8 +400,6 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
         clearTimeout(profileRefreshTimeoutRef.current);
         profileRefreshTimeoutRef.current = null;
       }
-      stream.removeEventListener("notifications", onNotifications);
-      stream.close();
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
@@ -516,7 +561,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
   if (loading) {
     const { isOwner: sessionIsOwner, hasAdminDashboardAccess: sessionHasAdminDashboardAccess } = resolveAdminProfileAccess({
       payload,
-      sessionRoles,
+      sessionRoles: canonicalSessionResolving ? [] : sessionRoles,
     });
     return (
       <section className="section-container page-shell">

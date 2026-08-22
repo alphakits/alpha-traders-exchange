@@ -22,6 +22,8 @@ import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { hasRole } from "@/lib/roles";
 import { getSellerApplicationEligibility } from "@/lib/seller-application-eligibility";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
+import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
+import { sellerListingWorkspaceAnchor } from "@/lib/action-destinations";
 import type { ClientSessionUser } from "@/lib/client-session-user";
 import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
 import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, isCardlessAtmPaymentMethod, isBankTransferPaymentMethod, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
@@ -823,6 +825,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   const isAr = locale === "ar";
   const router = useRouter();
   const canonicalSession = useOptionalCanonicalSession();
+  const refreshCanonicalSession = canonicalSession?.refresh;
   const [isMobileViewport, setIsMobileViewport] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.matchMedia(MOBILE_VIEWPORT_QUERY).matches;
@@ -945,6 +948,11 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   const [selectedPurchasePaymentMethod, setSelectedPurchasePaymentMethod] = useState<string>("Bank Transfer");
 
   useEffect(() => {
+    if (isSessionResolving) {
+      setSellerBankAccounts([]);
+      setSellerBankAccountsLoading(false);
+      return;
+    }
     const canLoadBankAccounts = Boolean(sessionUser && (sessionUser.sellerStatus === "approved_seller" || sessionUser.role === "admin"));
     if (!canLoadBankAccounts) {
       setSellerBankAccounts([]);
@@ -954,7 +962,10 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     setSellerBankAccountsLoading(true);
     void fetch("/api/alpha-exchange/seller-settings", { cache: "no-store" })
       .then(async (response) => {
-        if (!response.ok) return [] as SellerBankAccount[];
+        if (!response.ok) {
+          if (response.status === 401) void refreshCanonicalSession?.({ force: true });
+          return [] as SellerBankAccount[];
+        }
         const payload = await response.json() as { bankAccounts?: SellerBankAccount[] };
         return Array.isArray(payload.bankAccounts) ? payload.bankAccounts : [];
       })
@@ -971,7 +982,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     return () => {
       cancelled = true;
     };
-  }, [sessionUser]);
+  }, [isSessionResolving, refreshCanonicalSession, sessionUser]);
 
   useEffect(() => {
     if (!sellerBankAccounts.length) return;
@@ -1107,8 +1118,11 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     if (input.startsWith("/api/auth/profile")) {
       appendLoginJourneyServerTimeline(response.headers.get("X-Auth-Profile-Timeline"));
     }
+    if (response.status === 401) {
+      void refreshCanonicalSession?.({ force: true });
+    }
     return response;
-  }, []);
+  }, [refreshCanonicalSession]);
 
   const refreshBuyerProfileSummary = useCallback(async () => {
     if (!sessionUser || isApprovedSellerSession) {
@@ -1207,12 +1221,15 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
   const syncListingState = useCallback((listing: MarketplaceListing | null, options?: { remove?: boolean }) => {
     if (!listing) return;
     const shouldRemove = options?.remove === true || listing.status === "closed" || listing.status === "cancelled";
+    const isPubliclyVisible = listing.status === "active" && listing.approvalStatus !== "pending" && listing.approvalStatus !== "rejected";
     setMyListings((prev) => {
       const next = shouldRemove ? prev.filter((item) => item.id !== listing.id) : [listing, ...prev.filter((item) => item.id !== listing.id)];
       return next.filter((item) => item.status !== "closed" && item.status !== "cancelled");
     });
     setListings((prev) => {
-      const next = shouldRemove ? prev.filter((item) => item.id !== listing.id) : [listing, ...prev.filter((item) => item.id !== listing.id)];
+      const next = shouldRemove || !isPubliclyVisible
+        ? prev.filter((item) => item.id !== listing.id)
+        : [listing, ...prev.filter((item) => item.id !== listing.id)];
       return next.filter((item) => item.status !== "closed" && item.status !== "cancelled");
     });
   }, []);
@@ -1575,28 +1592,17 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     void refreshNotifications();
   }, [sessionUser, notificationsInitialized, notificationCategory, notificationQuery, notificationUnreadOnly, refreshNotifications]);
 
-  useEffect(() => {
-    if (!sessionUser || !notificationsInitialized) return;
-    const stream = new EventSource("/api/alpha-exchange/notifications/stream");
-    const onNotifications = (event: Event) => {
-      const messageEvent = event as MessageEvent<string>;
-      try {
-        const payload = JSON.parse(messageEvent.data) as { notifications?: AlphaExchangeNotification[] };
-        if (!Array.isArray(payload.notifications)) return;
-        setNotifications(keepLatestItems(sortNotificationsNewestFirst(payload.notifications), MAX_NOTIFICATION_ITEMS));
-      } catch {
-        // Keep stream updates best-effort and preserve current UI state on malformed payloads.
-      }
-    };
-    stream.addEventListener("notifications", onNotifications);
-    const onBeforeUnload = () => stream.close();
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => {
-      window.removeEventListener("beforeunload", onBeforeUnload);
-      stream.removeEventListener("notifications", onNotifications);
-      stream.close();
-    };
-  }, [notificationsInitialized, sessionUser]);
+  const handleNotificationStream = useCallback((event: Event) => {
+    const messageEvent = event as MessageEvent<string>;
+    try {
+      const payload = JSON.parse(messageEvent.data) as { notifications?: AlphaExchangeNotification[] };
+      if (!Array.isArray(payload.notifications)) return;
+      setNotifications(keepLatestItems(sortNotificationsNewestFirst(payload.notifications), MAX_NOTIFICATION_ITEMS));
+    } catch {
+      // Keep stream updates best-effort and preserve current UI state on malformed payloads.
+    }
+  }, []);
+  useAuthenticatedNotificationStream({ enabled: Boolean(sessionUser && notificationsInitialized), onNotifications: handleNotificationStream });
 
   useEffect(() => {
     if (isSessionResolving) return;
@@ -1700,6 +1706,28 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     frame = window.requestAnimationFrame(tryScroll);
     return () => window.cancelAnimationFrame(frame);
   }, [isApprovedSellerSession, isLoadingListings, scrollToCreateListingSection]);
+
+  // Notification actions target one seller-owned listing. Retry only while the
+  // deferred seller workspace finishes mounting, then focus the exact status.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const anchor = window.location.hash.replace("#", "").trim();
+    if (!anchor.startsWith("seller-listing-")) return;
+    let frame = 0;
+    let attempts = 0;
+    const reveal = () => {
+      const target = document.getElementById(anchor);
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        target.focus({ preventScroll: true });
+        return;
+      }
+      attempts += 1;
+      if (attempts < 24) frame = window.requestAnimationFrame(reveal);
+    };
+    reveal();
+    return () => window.cancelAnimationFrame(frame);
+  }, [isWorkspaceWidgetsLoading, myListings]);
 
   useEffect(() => {
     if (isLoadingListings || selectedListing || !sessionUser) return;
@@ -3164,6 +3192,11 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         body: JSON.stringify({ status: nextStatus }),
       });
       if (!response.ok) {
+        if (response.status === 401) {
+          void refreshCanonicalSession?.({ force: true });
+          setSellerWorkspaceMessage("Your session has expired. Please sign in again.");
+          return;
+        }
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
@@ -3234,6 +3267,11 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         body: JSON.stringify({ changeReason: reasonResult.reason, changeExplanation: reasonResult.explanation }),
       });
       if (!response.ok) {
+        if (response.status === 401) {
+          void refreshCanonicalSession?.({ force: true });
+          setSellerWorkspaceMessage("Your session has expired. Please sign in again.");
+          return;
+        }
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
@@ -3269,6 +3307,11 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         }),
       });
       if (!response.ok) {
+        if (response.status === 401) {
+          void refreshCanonicalSession?.({ force: true });
+          setSellerWorkspaceMessage("Your session has expired. Please sign in again.");
+          return;
+        }
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
@@ -3294,6 +3337,11 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         body: JSON.stringify({ action: "renew" }),
       });
       if (!response.ok) {
+        if (response.status === 401) {
+          void refreshCanonicalSession?.({ force: true });
+          setSellerWorkspaceMessage("Your session has expired. Please sign in again.");
+          return;
+        }
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
@@ -3335,6 +3383,11 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         }),
       });
       if (!response.ok) {
+        if (response.status === 401) {
+          void refreshCanonicalSession?.({ force: true });
+          setSellerWorkspaceMessage("Your session has expired. Please sign in again.");
+          return;
+        }
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
@@ -3354,8 +3407,8 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       }));
       setListingCreateCurrencyManualOverride(false);
       setListingCommissionAgreement(false);
-      setSellerWorkspaceMessage("✅ Listing published successfully. Buyers can now see your listing in the marketplace.");
-      navigateOrRevealResult(router, payload.destination, "listing-publish-result");
+      setSellerWorkspaceMessage("✅ Listing submitted. It is awaiting Alpha Traders admin approval and is not visible to buyers yet.");
+      navigateOrRevealResult(router, "/usdt-exchange#listing-publish-result", "listing-publish-result");
       backgroundRefreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing"));
@@ -3403,6 +3456,11 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         }),
       });
       if (!response.ok) {
+        if (response.status === 401) {
+          void refreshCanonicalSession?.({ force: true });
+          setSellerWorkspaceMessage("Your session has expired. Please sign in again.");
+          return;
+        }
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
         return;
       }
@@ -4367,8 +4425,13 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                 const requestsCount = sellerRequests.filter((request) => request.listingId === listing.id).length;
                 const listingBusy = isListingActionBusy(listing.id);
                 return (
-                  <div id={`listing-${listing.id}`} key={listing.id} className="rounded-2xl border border-white/10 bg-black/20 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#C9A227]/35 hover:shadow-[0_14px_30px_rgba(2,6,23,0.45)]">
+                  <div id={sellerListingWorkspaceAnchor(listing)} key={listing.id} tabIndex={-1} className="scroll-mt-24 rounded-2xl border border-white/10 bg-black/20 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#C9A227]/35 hover:shadow-[0_14px_30px_rgba(2,6,23,0.45)]">
                     <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-[#93C5FD]">Listing {shortListingRef(listing)}</p>
+                    {listing.status === "draft" && listing.approvalStatus === "pending" ? (
+                      <p className="mb-3 rounded-lg border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-100">
+                        Awaiting Alpha Traders admin approval — this listing is not visible to buyers yet.
+                      </p>
+                    ) : null}
                     <div className="grid gap-2 text-sm md:grid-cols-4">
                       <p>Status: <span className="text-white">{safeText(listing.status)}</span></p>
                       <p>Available Amount: <span className="text-white">{toNumber(listing.availableAmount).toLocaleString("en-IL")} USDT</span></p>
@@ -4434,10 +4497,12 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                           {listingActionKey === `${listing.id}:pause` ? "Pausing..." : "Pause"}
                         </Button>
                       ) : null}
-                      <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingRenew(listing)}>
-                        <Clock3 className="h-4 w-4" />
-                        {listingActionKey === `${listing.id}:renew` ? "Renewing..." : "Renew"}
-                      </Button>
+                      {listing.status !== "draft" ? (
+                        <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingRenew(listing)}>
+                          <Clock3 className="h-4 w-4" />
+                          {listingActionKey === `${listing.id}:renew` ? "Renewing..." : "Renew"}
+                        </Button>
+                      ) : null}
                       <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingDelete(listing)}>
                         <Trash2 className="h-4 w-4" />
                         {listingActionKey === `${listing.id}:delete` ? "Deleting..." : "Delete"}

@@ -17,6 +17,7 @@ import { formatTradeId } from "@/lib/format-id";
 import { canBuyerCancelTrade, canSellerDeclineTrade } from "@/lib/trade-room-actions";
 import { readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
 import { isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 
 type Locale = "ar" | "en";
 
@@ -720,6 +721,12 @@ export function TradeRoomPage({
 }) {
   const isAr = locale === "ar";
   const router = useRouter();
+  const canonicalSession = useOptionalCanonicalSession();
+  const hasCanonicalSession = Boolean(canonicalSession);
+  const canonicalSessionResolving = canonicalSession?.isResolving ?? false;
+  const canonicalSessionUserId = canonicalSession?.user?.id ?? null;
+  const refreshCanonicalSession = canonicalSession?.refresh;
+  const canonicalSessionReady = !hasCanonicalSession || (!canonicalSessionResolving && canonicalSessionUserId === actor.id);
   const commissionPaymentNavigationRequestedRef = useRef(false);
   const openCommissionPayNow = useCallback(() => {
     // Commission payment is intentionally handled by the single canonical
@@ -775,6 +782,7 @@ export function TradeRoomPage({
   const [manualCloseExplanation, setManualCloseExplanation] = useState("");
   const [manualCloseBusy, setManualCloseBusy] = useState(false);
   const reconnectTimeoutRef = useRef<number | null>(null);
+  const streamReconnectAttemptsRef = useRef(0);
   const actionNoticeTimeoutRef = useRef<number | null>(null);
   const actionInFlightRef = useRef<string | null>(null);
   const completedActionTimeoutRef = useRef<number | null>(null);
@@ -819,6 +827,7 @@ export function TradeRoomPage({
   }, [requestId]);
 
   const fetchRoom = useCallback(async (silent = false) => {
+    if (!canonicalSessionReady) return null;
     if (!silent) {
       setIsLoading(true);
       setErrorMessage(null);
@@ -828,6 +837,7 @@ export function TradeRoomPage({
       const response = await fetch(`/api/alpha-exchange/trade-room/${requestId}`, { cache: "no-store" });
       const payload = (await response.json()) as TradeRoomData & { error?: string; message?: string };
       if (!response.ok) {
+        if (response.status === 401) void refreshCanonicalSession?.({ force: true });
         throw new Error(readApiErrorFallback(payload, isAr ? "تعذر تحميل غرفة الصفقة." : "Failed to load trade room."));
       }
       const apiLatencyMs = Math.round(performance.now() - startedAt);
@@ -858,9 +868,16 @@ export function TradeRoomPage({
     } finally {
       if (!silent) setIsLoading(false);
     }
-  }, [isAr, requestId]);
+  }, [canonicalSessionReady, isAr, refreshCanonicalSession, requestId]);
 
   useEffect(() => {
+    if (!canonicalSessionReady) {
+      roomRef.current = null;
+      setRoom(null);
+      setStreamConnected(false);
+      setIsLoading(canonicalSessionResolving);
+      return;
+    }
     const cached = readTradeRoomCache<TradeRoomData>(requestId);
     if (cached) {
       roomRef.current = cached;
@@ -870,7 +887,7 @@ export function TradeRoomPage({
     // Cached data is only a fast first paint; the canonical server snapshot
     // must win after a refresh, second tab update, or return to the room.
     void fetchRoom(Boolean(cached));
-  }, [fetchRoom, requestId]);
+  }, [canonicalSessionReady, canonicalSessionResolving, fetchRoom, requestId]);
 
   useEffect(() => {
     roomRef.current = room;
@@ -1051,6 +1068,7 @@ export function TradeRoomPage({
   }, [room?.poke?.cooldownUntil, room?.releaseDeadlineActive]);
 
   useEffect(() => {
+    if (!canonicalSessionReady || streamReconnectAttemptsRef.current > 3) return;
     const stream = new EventSource(`/api/alpha-exchange/trade-room/${requestId}/stream`);
     let closed = false;
     setStreamConnected(false);
@@ -1097,14 +1115,24 @@ export function TradeRoomPage({
       }
     };
 
-    const onOpen = () => setStreamConnected(true);
+    const onOpen = () => {
+      streamReconnectAttemptsRef.current = 0;
+      setStreamConnected(true);
+    };
     const onError = () => {
       if (closed) return;
       setStreamConnected(false);
       stream.close();
-      reconnectTimeoutRef.current = window.setTimeout(() => {
-        setStreamCycle((value) => value + 1);
-      }, 2000);
+      streamReconnectAttemptsRef.current += 1;
+      if (refreshCanonicalSession) {
+        void refreshCanonicalSession({ force: true });
+        return;
+      }
+      if (streamReconnectAttemptsRef.current <= 3) {
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          setStreamCycle((value) => value + 1);
+        }, 2000);
+      }
     };
 
     stream.addEventListener("trade-room", onTradeRoom);
@@ -1123,15 +1151,15 @@ export function TradeRoomPage({
       }
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [requestId, streamCycle]);
+  }, [canonicalSessionReady, refreshCanonicalSession, requestId, streamCycle]);
 
   useEffect(() => {
-    if (streamConnected) return;
+    if (!canonicalSessionReady || streamConnected) return;
     const id = window.setInterval(() => {
       void fetchRoom(true);
     }, 8000);
     return () => window.clearInterval(id);
-  }, [fetchRoom, streamConnected]);
+  }, [canonicalSessionReady, fetchRoom, streamConnected]);
 
   useEffect(() => {
     const refreshAfterResume = () => {

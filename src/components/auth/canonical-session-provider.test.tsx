@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
-import { CanonicalSessionProvider, useCanonicalSession } from "@/components/auth/canonical-session-provider";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CanonicalSessionProvider, getSessionExpiryLoginDestination, useCanonicalSession } from "@/components/auth/canonical-session-provider";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -13,7 +13,17 @@ function Probe() {
   return <output>{isResolving ? "resolving" : user?.id ?? "anonymous"}</output>;
 }
 
+function ErrorProbe() {
+  const { error, user } = useCanonicalSession();
+  return <output>{`${user?.id ?? "anonymous"}:${error ? "error" : "ok"}`}</output>;
+}
+
 describe("CanonicalSessionProvider", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it("invalidates an in-flight canonical response after an auth-state change", async () => {
     const initial = deferred<Response>();
     const afterAuthChange = deferred<Response>();
@@ -23,10 +33,7 @@ describe("CanonicalSessionProvider", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(
-      <CanonicalSessionProvider initialSessionUser={{
-        id: "bootstrap-user", fullName: "Bootstrap", email: "bootstrap@example.test", role: "buyer", sellerStatus: "buyer",
-        whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: [], bio: "", onlineStatus: "offline", createdAt: "2026-01-01",
-      }}>
+      <CanonicalSessionProvider initialSessionUser={null}>
         <Probe />
       </CanonicalSessionProvider>,
     );
@@ -72,5 +79,72 @@ describe("CanonicalSessionProvider", () => {
       response.resolve({ ok: true, json: async () => ({ user: null }) } as Response);
       await Promise.resolve();
     });
+  });
+
+  it("clears a stale bootstrap user and safely routes to sign-in when the canonical session is anonymous", async () => {
+    const replaceSpy = vi.fn();
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        ...originalLocation,
+        pathname: "/en/usdt-exchange",
+        search: "?tab=sell",
+        hash: "#create-listing",
+        replace: replaceSpy,
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ user: null }) }));
+
+    try {
+      render(
+        <CanonicalSessionProvider initialSessionUser={{
+          id: "stale-seller", fullName: "Stale Seller", email: "seller@example.test", role: "approved_seller", sellerStatus: "approved_seller",
+          whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: [], bio: "", onlineStatus: "offline", createdAt: "2026-01-01",
+        }}>
+          <Probe />
+        </CanonicalSessionProvider>,
+      );
+
+      await waitFor(() => expect(screen.getByText("anonymous")).toBeTruthy());
+      expect(replaceSpy).toHaveBeenCalledWith("/en/login?sessionExpired=1&redirectTo=%2Fen%2Fusdt-exchange%3Ftab%3Dsell%23create-listing");
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+    }
+  });
+
+  it("fails closed on an unavailable canonical response without falsely calling it a confirmed logout", async () => {
+    const replaceSpy = vi.fn();
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...originalLocation, replace: replaceSpy },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503, json: async () => ({ error: "unavailable" }) }));
+
+    try {
+      render(
+        <CanonicalSessionProvider initialSessionUser={{
+          id: "bootstrap-seller", fullName: "Seller", email: "seller@example.test", role: "approved_seller", sellerStatus: "approved_seller",
+          whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: [], bio: "", onlineStatus: "offline", createdAt: "2026-01-01",
+        }}>
+          <ErrorProbe />
+        </CanonicalSessionProvider>,
+      );
+
+      await waitFor(() => expect(screen.getByText("anonymous:error")).toBeTruthy());
+      expect(replaceSpy).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+    }
+  });
+
+  it("builds a same-origin expiry redirect from the current location only", () => {
+    expect(getSessionExpiryLoginDestination({
+      pathname: "/ar/trade-room/trade-1",
+      search: "?action=upload-payment-receipt",
+      hash: "#evidence",
+    })).toBe("/ar/login?sessionExpired=1&redirectTo=%2Far%2Ftrade-room%2Ftrade-1%3Faction%3Dupload-payment-receipt%23evidence");
+    expect(getSessionExpiryLoginDestination({ pathname: "/en/login", search: "", hash: "" })).toBeNull();
   });
 });
