@@ -12,7 +12,7 @@ vi.mock("@/i18n/navigation", () => ({
 const unverifiedUser = {
   id: "buyer-1", fullName: "Buyer User", email: "buyer@example.test", role: "buyer" as const, sellerStatus: "buyer" as const,
   whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: [], bio: "", onlineStatus: "offline" as const,
-  emailVerified: true, isPhotoVerified: false, createdAt: "2026-01-01",
+  emailVerified: false, isPhotoVerified: false, createdAt: "2026-01-01",
 };
 
 describe("AccountVerificationGate canonical session ownership", () => {

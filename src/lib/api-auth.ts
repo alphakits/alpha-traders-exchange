@@ -36,6 +36,32 @@ export function hasPhoneVerification(user: { email?: string; verifiedPhone?: str
 }
 
 /**
+ * Buyer-facing marketplace actions require a verified email address. Phone
+ * verification is deliberately not part of this rule: it remains an optional
+ * account feature and any seller-only phone policy is enforced separately.
+ *
+ * This gate uses the server-resolved session user only. It has no cookie,
+ * client-state, or environment-flag bypass.
+ */
+export function requireEmailVerificationForTrading(user: { id: string; role: string; emailVerified?: boolean }) {
+  if (user.emailVerified === true) return null;
+  logEvent("warn", {
+    event: "permission_denied",
+    actorUserId: user.id,
+    actorRole: user.role,
+    outcome: "denied",
+    reason: "Email verification required for marketplace action",
+  });
+  return NextResponse.json(
+    {
+      error: "Email verification is required before marketplace actions.",
+      code: "EMAIL_VERIFICATION_REQUIRED",
+    },
+    { status: 403 },
+  );
+}
+
+/**
  * Returns null (bypass) when:
  *   - User is admin or owner (always bypass)
  *   - the explicit local test runtime enables ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION=1

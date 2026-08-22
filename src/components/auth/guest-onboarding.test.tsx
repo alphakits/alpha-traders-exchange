@@ -31,7 +31,7 @@ describe("GuestOnboarding canonical session refresh", () => {
       json: async () => ({}),
     }));
 
-    render(<GuestOnboarding locale="en" phoneVerificationEnabled={false} />);
+    render(<GuestOnboarding locale="en" phoneVerificationEnabled />);
     const buyerCard = screen.getByRole("heading", { name: "Become a Buyer" }).closest("article");
     expect(buyerCard).not.toBeNull();
     const buyer = within(buyerCard!);

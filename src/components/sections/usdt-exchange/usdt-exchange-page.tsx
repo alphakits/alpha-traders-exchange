@@ -501,13 +501,6 @@ function paymentMethodTradeInstruction(method: string, actor: "buyer" | "seller"
   return "Follow the trade timeline and complete each verification step before moving forward.";
 }
 
-function shouldRevealFaceToFaceContact(request: PurchaseRequest) {
-  const method = normalizeMarketplacePaymentMethod(request.paymentMethod);
-  if (method !== "Face-to-Face (Meet in Person)") return true;
-  if (request.status === "pending") return false;
-  return Boolean(request.buyerSafetyAcknowledged && request.sellerSafetyAcknowledged);
-}
-
 // Memoized listing card — only re-renders when listing data or market price changes.
 type ListingCardProps = {
   listing: MarketplaceListing;
@@ -1087,7 +1080,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     return () => media.removeEventListener("change", update);
   }, []);
 
-  const [buyerInfo, setBuyerInfo] = useState({ name: "", whatsapp: "", notes: "", usdtAmount: "", receivingWalletAddress: "" });
+  const [buyerInfo, setBuyerInfo] = useState({ usdtAmount: "", receivingWalletAddress: "" });
   const [sellerForm, setSellerForm] = useState(() => ({
     firstName: initialSessionUser?.fullName?.split(" ")[0] ?? "",
     lastName: initialSessionUser?.fullName?.split(" ").slice(1).join(" ") ?? "",
@@ -1497,11 +1490,6 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         whatsappNumber: sessionUser.whatsappNumber || prev.whatsappNumber,
       }));
     }
-    setBuyerInfo((prev) => ({
-      ...prev,
-      name: sessionUser.fullName,
-      whatsapp: sessionUser.whatsappNumber || prev.whatsapp,
-    }));
   }, [sessionUser]);
 
   useEffect(() => {
@@ -2075,7 +2063,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     }
   }
 
-  async function submitPurchaseRequest(notesOverride?: string) {
+  async function submitPurchaseRequest() {
     if (!selectedListing) return;
     if (isSubmittingPurchase) return;
     if (listingRequiresFaceToFaceSafetyNotice(selectedListingPaymentMethod) && !faceToFaceSafetyAcknowledged) {
@@ -2108,9 +2096,6 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
         body: JSON.stringify({
           listingId: selectedListing.id,
           usdtAmount: tradeAmount,
-          buyerName: buyerInfo.name,
-          buyerWhatsapp: buyerInfo.whatsapp,
-          buyerNotes: notesOverride ?? buyerInfo.notes,
           buyerReceivingWalletAddress: normalizeWalletAddress(buyerInfo.receivingWalletAddress),
           paymentMethod: selectedListingPaymentMethod ?? undefined,
           safetyAcknowledged: faceToFaceSafetyAcknowledged,
@@ -2135,10 +2120,10 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
           if (fallbackText && !/^<!doctype html>/i.test(fallbackText)) errorMessage = fallbackText;
         }
         const requiresVerification = response.status === 403
-          && sessionUser?.isPhotoVerified !== true
+          && sessionUser?.emailVerified !== true
           && (
-            errorCode === "PHONE_VERIFICATION_REQUIRED"
-            || /phone verification is required/i.test(errorMessage)
+            errorCode === "EMAIL_VERIFICATION_REQUIRED"
+            || /email verification is required/i.test(errorMessage)
           );
         setShowVerificationCta(requiresVerification);
         const blockingId = typeof errorDetails.purchaseRequestId === "string" ? errorDetails.purchaseRequestId : null;
@@ -2321,7 +2306,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
       if (sellerTradeStatus !== "all" && request.status !== sellerTradeStatus) return false;
       const query = sellerTradeQuery.trim().toLowerCase();
       if (!query) return true;
-      const haystack = `${request.tradeId ?? request.id} ${request.buyerName} ${request.buyerWhatsapp} ${request.listingId}`.toLowerCase();
+      const haystack = `${request.tradeId ?? request.id} ${request.buyerName} ${request.listingId}`.toLowerCase();
       return haystack.includes(query);
     });
   }, [sellerRequests, sellerTradeQuery, sellerTradeStatus]);
@@ -3638,12 +3623,6 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
     await refreshSellerWorkspace();
   }
 
-  function handleMessageBuyer(request: PurchaseRequest) {
-    const number = request.buyerWhatsapp.replace(/[^\d]/g, "");
-    if (!number) return;
-    window.open(`https://wa.me/${number}`, "_blank", "noopener,noreferrer");
-  }
-
   const unreadNotificationsCount = notifications.filter((item) => !item.isRead).length;
 
   function renderNotificationCenterCard(sectionId: string, className?: string) {
@@ -4228,7 +4207,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
             },
             {
               title: isAr ? "الدعم" : "Support",
-              body: isAr ? "دعم مباشر عبر واتساب أثناء عملية التداول." : "Direct WhatsApp support during the trading process.",
+              body: isAr ? "دعم مباشر داخل غرفة التداول أثناء عملية التداول." : "Direct support inside the Trade Room during the trading process.",
               icon: MessageCircle,
             },
           ].map((item) => {
@@ -6011,7 +5990,6 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                     <div className="grid gap-2 text-sm md:grid-cols-3">
                       <p>Trade Ref: <span className="text-white">{shortTradeRef(request)}</span></p>
                       <p>Buyer Name: <span className="text-white">{request.buyerName}</span></p>
-                      <p>WhatsApp: <span className="text-white">{shouldRevealFaceToFaceContact(request) ? request.buyerWhatsapp : "Hidden until safety acknowledgment is completed."}</span></p>
                       <p>USDT Amount: <span className="text-white">{toNumber(request.usdtAmount).toLocaleString("en-IL")}</span></p>
                       <p>Fiat Amount: <span className="text-white">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</span></p>
                       <p>Network: <span className="text-white">{request.network}</span></p>
@@ -6091,10 +6069,6 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                       </Button>
                       <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_release_pending" || !request.sellerEvidence || requestActionKey === `${request.id}:usdt_sent`} onClick={() => handleSellerRequestAction(request.id, "usdt_sent")}>
                         {requestActionKey === `${request.id}:usdt_sent` ? "Processing..." : "Mark USDT Sent"}
-                      </Button>
-                      <Button type="button" size="sm" variant="secondary" onClick={() => handleMessageBuyer(request)}>
-                        <MessageCircle className="h-4 w-4" />
-                        Message Buyer
                       </Button>
                     </div>
                     <div className="mt-3 grid gap-2 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB] md:grid-cols-2">
@@ -7103,9 +7077,6 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                           {buyerTradeAmountInvalid ? "⚠ " : ""}Trade limits: {selectedMinTrade.toLocaleString("en-IL")} - {selectedMaxTrade.toLocaleString("en-IL")} USDT
                         </p>
                       </div>
-                      <Input aria-label={isAr ? "الاسم" : "Name"} placeholder={isAr ? "الاسم" : "Name"} value={buyerInfo.name} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, name: event.target.value }))} />
-                      <Input aria-label={isAr ? "واتساب" : "WhatsApp"} placeholder={isAr ? "واتساب" : "WhatsApp"} value={buyerInfo.whatsapp} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, whatsapp: event.target.value }))} />
-                      <Textarea aria-label={isAr ? "ملاحظات" : "Buyer notes"} placeholder={isAr ? "ملاحظات (اختياري)" : "Notes (optional)"} value={buyerInfo.notes} onChange={(event) => setBuyerInfo((prev) => ({ ...prev, notes: event.target.value }))} />
                       <div className="space-y-2 md:col-span-3">
                         <label htmlFor="buyer-receiving-wallet" className="text-sm font-medium text-white">
                           Receiving Wallet Address <span className="text-red-300">*</span>
@@ -7211,7 +7182,7 @@ export function UsdtExchangePage({ locale, initialSessionUser }: { locale: Local
                       variant="secondary"
                       className="w-full"
                       disabled={isSubmittingPurchase || buyerTradeAmountInvalid || buyerWalletInvalid || (selectedListingRequiresSafetyNotice && !faceToFaceSafetyAcknowledged)}
-                      onClick={() => void submitPurchaseRequest("Please proceed with this trade.")}
+                      onClick={() => void submitPurchaseRequest()}
                     >
                       {isSubmittingPurchase ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                       {isSubmittingPurchase ? "Submitting..." : "Quick Buy"}

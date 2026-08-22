@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTradeRoomData } from "@/lib/alpha-exchange-store";
-import { requireApiUser } from "@/lib/api-auth";
+import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
 import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 import { logEvent } from "@/lib/structured-logging";
 
@@ -11,6 +11,8 @@ type RouteContext = {
 export async function GET(_request: NextRequest, context: RouteContext) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  if (emailVerificationRequired) return emailVerificationRequired;
 
   const { requestId } = await context.params;
   const startedAt = Date.now();

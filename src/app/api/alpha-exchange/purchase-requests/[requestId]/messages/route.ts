@@ -1,7 +1,7 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { getTradeRoomData, postTradeRoomMessage } from "@/lib/alpha-exchange-store";
-import { requireApiUser } from "@/lib/api-auth";
+import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
 import { prepareTradeRoomConversationEmail, TRADE_ROOM_MESSAGE_EMAIL_BURST_WINDOW_MS } from "@/lib/marketplace-email-events";
 import { logEvent } from "@/lib/structured-logging";
 
@@ -12,6 +12,8 @@ type RouteContext = {
 export async function GET(_request: NextRequest, context: RouteContext) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  if (emailVerificationRequired) return emailVerificationRequired;
 
   try {
     const { requestId } = await context.params;
@@ -40,6 +42,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const routeStartedAt = Date.now();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  if (emailVerificationRequired) return emailVerificationRequired;
 
   const rate = await checkSharedRateLimit({
     headers: request.headers,

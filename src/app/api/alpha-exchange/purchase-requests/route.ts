@@ -1,6 +1,6 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { createPurchaseRequest, getMyPurchaseRequests } from "@/lib/alpha-exchange-store";
-import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
+import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
 import { hasRole } from "@/lib/roles";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
@@ -10,6 +10,8 @@ import { tradeDestination } from "@/lib/action-destinations";
 export async function GET() {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  if (emailVerificationRequired) return emailVerificationRequired;
   const requests = await getMyPurchaseRequests(user.id, user.role);
   return NextResponse.json({ requests }, { status: 200 });
 }
@@ -57,15 +59,15 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ code: "PURCHASE_REQUEST_FAILED", message: error, details: null, requestId }, { status: 500, headers: withRequestIdHeaders() });
   };
-  const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
-  if (phoneVerificationRequired) {
+  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  if (emailVerificationRequired) {
     return denied(
-      "Phone verification is required before marketplace actions.",
+      "Email verification is required before marketplace actions.",
       403,
-      "PHONE_VERIFICATION_REQUIRED",
+      "EMAIL_VERIFICATION_REQUIRED",
       undefined,
       undefined,
-      { gate: "requirePhoneVerificationForTrading" },
+      { gate: "requireEmailVerificationForTrading" },
     );
   }
   if (!hasRole(user, "buyer") && !hasRole(user, "approved_seller") && !hasRole(user, "admin")) {
@@ -100,16 +102,12 @@ export async function POST(request: NextRequest) {
       return denied("Listing ID is required.", 400, "LISTING_ID_REQUIRED");
     }
 
-    const buyerName = String(body.buyerName ?? user.fullName).trim();
-    const buyerWhatsapp = String(body.buyerWhatsapp ?? user.whatsappNumber).trim();
+    // Trade identity is server-derived. Direct contact fields are neither
+    // accepted nor persisted for Buyer ↔ Seller requests.
+    const buyerName = user.fullName.trim();
     if (!buyerName) {
       return denied("Buyer name is required.", 400, "BUYER_NAME_REQUIRED");
     }
-    if (!buyerWhatsapp) {
-      return denied("Buyer WhatsApp is required.", 400, "BUYER_WHATSAPP_REQUIRED");
-    }
-
-    const buyerNotes = String(body.buyerNotes ?? "").slice(0, 2000);
     const buyerReceivingWalletAddress = String(body.buyerReceivingWalletAddress ?? "").trim();
     if (!buyerReceivingWalletAddress) {
       return denied("Receiving wallet address is required.", 400, "RECEIVING_WALLET_REQUIRED");
@@ -130,8 +128,6 @@ export async function POST(request: NextRequest) {
       listingId,
       usdtAmount,
       buyerName,
-      buyerWhatsapp,
-      buyerNotes,
       buyerReceivingWalletAddress,
       paymentMethod: paymentMethod || undefined,
       bankName: bankName || undefined,

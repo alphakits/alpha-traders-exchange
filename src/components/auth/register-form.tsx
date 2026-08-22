@@ -89,7 +89,7 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
           <Input aria-label={isAr ? "البريد الإلكتروني" : "Email"} placeholder={isAr ? "البريد الإلكتروني" : "Email"} type="email" autoComplete="email" maxLength={254} required value={form.email} onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))} />
           <Input aria-label={isAr ? "كلمة المرور" : "Password"} placeholder={isAr ? "كلمة المرور" : "Password"} type="password" autoComplete="new-password" minLength={8} required value={form.password} onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))} />
           <Input aria-label={isAr ? "تأكيد كلمة المرور" : "Confirm Password"} placeholder={isAr ? "تأكيد كلمة المرور" : "Confirm Password"} type="password" autoComplete="new-password" minLength={8} required value={form.confirmPassword} onChange={(event) => setForm((prev) => ({ ...prev, confirmPassword: event.target.value }))} />
-          <Input aria-label={isAr ? "رقم الواتساب" : "WhatsApp Number"} placeholder={isAr ? "رقم الواتساب" : "WhatsApp Number"} autoComplete="tel" maxLength={30} required value={form.whatsappNumber} onChange={(event) => setForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} />
+          <Input aria-label={isAr ? "رقم واتساب اختياري" : "WhatsApp Number (optional)"} placeholder={isAr ? "رقم واتساب اختياري" : "WhatsApp Number (optional)"} autoComplete="tel" maxLength={30} value={form.whatsappNumber} onChange={(event) => setForm((prev) => ({ ...prev, whatsappNumber: event.target.value }))} />
           <label className={`inline-flex items-start gap-2 text-sm text-[#D1D5DB] ${isAr ? "flex-row-reverse" : ""}`}>
             <input
               type="checkbox"

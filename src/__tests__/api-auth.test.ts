@@ -11,17 +11,18 @@ vi.mock("@/lib/auth", () => ({
   AUTH_PHONE_VERIFIED_COOKIE_NAME: "alpha_exchange_phone_verified",
 }));
 
-import { requireApiUser, requireApiAdmin, requirePhoneVerificationForTrading } from "@/lib/api-auth";
+import { requireApiUser, requireApiAdmin, requireEmailVerificationForTrading, requirePhoneVerificationForTrading } from "@/lib/api-auth";
 import { getCurrentSessionUser } from "@/lib/auth";
 
 const mockGetCurrentSessionUser = vi.mocked(getCurrentSessionUser);
 const originalBypassEnv = process.env.PHOTO_VERIFICATION_BYPASS_EMAILS;
 
-function makeUser(overrides: Partial<{ role: string; email: string }> = {}) {
+function makeUser(overrides: Partial<{ role: string; email: string; emailVerified: boolean }> = {}) {
   return {
     id: "user-1",
     email: "user@example.com",
     role: "buyer",
+    emailVerified: true,
     ...overrides,
   };
 }
@@ -29,6 +30,36 @@ function makeUser(overrides: Partial<{ role: string; email: string }> = {}) {
 beforeEach(() => {
   mockGetCurrentSessionUser.mockReset();
   process.env.PHOTO_VERIFICATION_BYPASS_EMAILS = originalBypassEnv;
+});
+
+describe("requireEmailVerificationForTrading", () => {
+  it("allows a verified-email Buyer even without a verified phone", () => {
+    expect(requireEmailVerificationForTrading({
+      id: "buyer-1",
+      role: "buyer",
+      emailVerified: true,
+    })).toBeNull();
+  });
+
+  it("denies an explicitly unverified email without any flag bypass", async () => {
+    process.env.PHOTO_VERIFICATION_BYPASS_EMAILS = "user@example.com";
+    const denied = requireEmailVerificationForTrading({
+      id: "buyer-1",
+      role: "buyer",
+      emailVerified: false,
+    });
+    expect(denied?.status).toBe(403);
+    expect(await denied?.json()).toMatchObject({ code: "EMAIL_VERIFICATION_REQUIRED" });
+  });
+
+  it("fails closed when a legacy session user has no email-verification marker", async () => {
+    const denied = requireEmailVerificationForTrading({
+      id: "buyer-legacy",
+      role: "buyer",
+    });
+    expect(denied?.status).toBe(403);
+    expect(await denied?.json()).toMatchObject({ code: "EMAIL_VERIFICATION_REQUIRED" });
+  });
 });
 
 afterEach(() => {

@@ -3,14 +3,14 @@ import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   requireApiUser: vi.fn(),
-  requirePhoneVerificationForTrading: vi.fn(),
+  requireEmailVerificationForTrading: vi.fn(),
   checkRateLimit: vi.fn(),
   closePurchaseRequestManually: vi.fn(),
 }));
 
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
-  requirePhoneVerificationForTrading: mocks.requirePhoneVerificationForTrading,
+  requireEmailVerificationForTrading: mocks.requireEmailVerificationForTrading,
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
@@ -26,15 +26,15 @@ import { PATCH } from "@/app/api/alpha-exchange/trade-room/[requestId]/close/rou
 describe("trade room manual close route", () => {
   beforeEach(() => {
     mocks.requireApiUser.mockReset();
-    mocks.requirePhoneVerificationForTrading.mockReset();
+    mocks.requireEmailVerificationForTrading.mockReset();
     mocks.checkRateLimit.mockReset();
     mocks.closePurchaseRequestManually.mockReset();
 
     mocks.requireApiUser.mockResolvedValue({
-      user: { id: "buyer-1", role: "buyer" },
+      user: { id: "buyer-1", role: "buyer", emailVerified: true },
       unauthorized: null,
     });
-    mocks.requirePhoneVerificationForTrading.mockReturnValue(null);
+    mocks.requireEmailVerificationForTrading.mockReturnValue(null);
     mocks.checkRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
     mocks.closePurchaseRequestManually.mockResolvedValue({ id: "req-1", status: "cancelled", closeReason: "Buyer requested close" });
   });
@@ -74,5 +74,18 @@ describe("trade room manual close route", () => {
 
     expect(response.status).toBe(429);
     expect(payload.error).toMatch(/Too many close requests/i);
+  });
+
+  it("denies an unverified email before closing the trade", async () => {
+    mocks.requireEmailVerificationForTrading.mockReturnValueOnce(new Response(null, { status: 403 }));
+    const request = new NextRequest("http://localhost/api/alpha-exchange/trade-room/req-1/close", {
+      method: "PATCH",
+      body: JSON.stringify({ reason: "Busy" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const response = await PATCH(request, { params: Promise.resolve({ requestId: "req-1" }) });
+    expect(response.status).toBe(403);
+    expect(mocks.closePurchaseRequestManually).not.toHaveBeenCalled();
   });
 });

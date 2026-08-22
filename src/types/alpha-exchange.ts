@@ -737,8 +737,10 @@ export interface PurchaseRequest {
   listingId: string;
   sellerId: string;
   buyerName: string;
-  buyerWhatsapp: string;
-  buyerNotes: string;
+  // Legacy admin-audit fields. They are intentionally never included in
+  // Buyer/Seller trade DTOs and new requests do not persist them.
+  buyerWhatsapp?: string;
+  buyerNotes?: string;
   usdtAmount: string;
   fiatAmount: string;
   currency: string;
