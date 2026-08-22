@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getTradeRoomData } from "@/lib/alpha-exchange-store";
-import { requireApiUser } from "@/lib/api-auth";
+import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
 import { subscribeRealtimeEvents, type RealtimeEvent } from "@/lib/realtime";
 import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 
@@ -33,6 +33,8 @@ function isRelevantTradeRoomEvent(event: RealtimeEvent, requestId: string) {
 export async function GET(request: NextRequest, context: RouteContext) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  if (emailVerificationRequired) return emailVerificationRequired;
   const { requestId } = await context.params;
 
   const encoder = new TextEncoder();

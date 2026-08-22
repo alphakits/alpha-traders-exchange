@@ -8,6 +8,7 @@ vi.mock("@/lib/postgres-runtime", () => ({
 import {
   createMarketplaceListing,
   createPurchaseRequest,
+  downloadTradeEvidenceContent,
   getAccountProfileData,
   getCommissionRecordsForAdmin,
   getNotificationsForUser,
@@ -1071,5 +1072,109 @@ describe("partial listing preservation", () => {
     // Seller should NOT be redirected — pending request is unaccepted, seller can still browse
     const sellerTrade = await getFirstActiveTradeForUser(SELLER_ID, "approved_seller");
     expect(sellerTrade).toBeNull();
+  });
+
+  it("redacts a legacy buyer contact name in the seller's active-trade header projection", async () => {
+    const listing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "500",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "500",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+    await approveListing(listing.id);
+    const created = await createPurchaseRequest({
+      buyerId: BUYER_ONE_ID,
+      listingId: listing.id,
+      usdtAmount: "100",
+      buyerName: "Buyer One",
+      buyerWhatsapp: "+972500000001",
+      buyerNotes: "Legacy projection privacy test",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      actorUserId: BUYER_ONE_ID,
+    });
+    await updatePurchaseRequestStatus({
+      requestId: created.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "accepted",
+    });
+    const stored = (globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb)
+      .purchaseRequests.find((item) => item.id === created.request.id);
+    if (!stored) throw new Error("trade fixture missing");
+    stored.buyerName = "Buyer 050-123-4567";
+    invalidateAlphaExchangeStoreCache();
+
+    const sellerTrade = await getFirstActiveTradeForUser(SELLER_ID, "approved_seller");
+    expect(JSON.stringify(sellerTrade)).not.toContain("050-123-4567");
+  });
+
+  it("stores and projects neutral evidence filenames instead of counterparty-supplied upload names", async () => {
+    const listing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "500",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "500",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+    await approveListing(listing.id);
+    const created = await createPurchaseRequest({
+      buyerId: BUYER_ONE_ID,
+      listingId: listing.id,
+      usdtAmount: "100",
+      buyerName: "Buyer One",
+      buyerWhatsapp: "+972500000001",
+      buyerNotes: "Evidence filename privacy test",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      actorUserId: BUYER_ONE_ID,
+    });
+    await updatePurchaseRequestStatus({
+      requestId: created.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "accepted",
+    });
+
+    const uploaded = await uploadTradeEvidence({
+      purchaseRequestId: created.request.id,
+      actorUserId: BUYER_ONE_ID,
+      actorRole: "buyer",
+      side: "buyer",
+      fileName: "buyer-050-123-4567@example.test.png",
+      mimeType: "image/png",
+      sizeBytes: 68,
+      contentBase64: PNG_BASE64,
+    });
+    const evidence = uploaded.request.buyerEvidence;
+    expect(evidence?.fileName).toBe("buyer-payment-evidence.png");
+
+    const sellerWorkspace = await getMyPurchaseRequests(SELLER_ID, "approved_seller");
+    const workspaceJson = JSON.stringify(sellerWorkspace);
+    expect(workspaceJson).not.toContain("050-123-4567");
+    expect(workspaceJson).not.toContain("example.test");
+    expect(sellerWorkspace[0]?.buyerEvidence?.fileName).toBe("buyer-payment-evidence.png");
+
+    const downloaded = await downloadTradeEvidenceContent({
+      evidenceId: evidence!.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+    });
+    expect(downloaded.evidence.fileName).toBe("buyer-payment-evidence.png");
   });
 });

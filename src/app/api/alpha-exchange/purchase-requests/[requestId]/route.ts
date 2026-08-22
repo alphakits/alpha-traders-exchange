@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import { NextRequest, NextResponse } from "next/server";
 import { sanitizePurchaseRequestForActor, TradeBlockedError, updatePurchaseRequestStatus } from "@/lib/alpha-exchange-store";
-import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
+import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { prepareTradeEventEmails, tradeEmailEventForStatus } from "@/lib/marketplace-email-events";
 import { tradeDestination } from "@/lib/action-destinations";
@@ -29,11 +29,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   }
   if (!user) return unauthorized;
 
-  const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
+  const emailVerificationRequired = requireEmailVerificationForTrading(user);
   if (routeDebug) {
-    console.log("[patch-diag] stage=phone-verification", { diagId, phoneBlocked: Boolean(phoneVerificationRequired) });
+    console.log("[patch-diag] stage=email-verification", { diagId, emailBlocked: Boolean(emailVerificationRequired) });
   }
-  if (phoneVerificationRequired) return phoneVerificationRequired;
+  if (emailVerificationRequired) return emailVerificationRequired;
 
   const rate = await checkSharedRateLimit({
     headers: request.headers,

@@ -9,11 +9,12 @@ const intlMiddleware = createMiddleware(routing);
 export default function middleware(request: Parameters<typeof intlMiddleware>[0]) {
   const { pathname } = request.nextUrl;
   const isProtectedRoute = /^\/(ar|en)\/(?:academy|lessons|usdt-exchange|trade-room|dashboard|profile|settings|admin)(?:\/|$)/.test(pathname);
-  const isExchangeRoute = /^\/(ar|en)\/(?:dashboard\/seller|trade-room)(?:\/|$)/.test(pathname);
+  const isSellerWorkspaceRoute = /^\/(ar|en)\/dashboard\/seller(?:\/|$)/.test(pathname);
+  const isTradeRoomRoute = /^\/(ar|en)\/trade-room(?:\/|$)/.test(pathname);
   const hasSession = Boolean(request.cookies.get(AUTH_COOKIE_NAME)?.value);
   const hasVerifiedEmail = request.cookies.get(AUTH_VERIFIED_COOKIE_NAME)?.value === "1";
-  // When ALPHA_EXCHANGE_SKIP_PHONE_VERIFICATION=1 is set (pre-Twilio operation),
-  // bypass the phone cookie check entirely so the Trade Room remains accessible.
+  // The local test-only setting may bypass the seller-workspace phone cookie
+  // check. Trade Room access is email-gated independently below.
   const skipPhoneVerification = isMarketplacePhoneVerificationDisabled();
   const hasVerifiedPhone = skipPhoneVerification || request.cookies.get(AUTH_PHONE_VERIFIED_COOKIE_NAME)?.value === "1";
 
@@ -23,7 +24,13 @@ export default function middleware(request: Parameters<typeof intlMiddleware>[0]
     loginUrl.searchParams.set("redirectTo", `${pathname}${request.nextUrl.search}`);
     return NextResponse.redirect(loginUrl);
   }
-  if (isExchangeRoute && hasSession && (!hasVerifiedEmail || !hasVerifiedPhone)) {
+  if (isSellerWorkspaceRoute && hasSession && (!hasVerifiedEmail || !hasVerifiedPhone)) {
+    const locale = pathname.startsWith("/ar/") ? "ar" : "en";
+    const verifyAccountUrl = new URL(`/${locale}/verify-account`, request.url);
+    verifyAccountUrl.searchParams.set("redirectTo", `${pathname}${request.nextUrl.search}`);
+    return NextResponse.redirect(verifyAccountUrl);
+  }
+  if (isTradeRoomRoute && hasSession && !hasVerifiedEmail) {
     const locale = pathname.startsWith("/ar/") ? "ar" : "en";
     const verifyAccountUrl = new URL(`/${locale}/verify-account`, request.url);
     verifyAccountUrl.searchParams.set("redirectTo", `${pathname}${request.nextUrl.search}`);

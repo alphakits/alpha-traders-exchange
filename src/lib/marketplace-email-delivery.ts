@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { redactPhoneNumbers } from "@/lib/privacy-redaction";
+import { redactPrivateContactDetails } from "@/lib/privacy-redaction";
 
 export type MarketplaceEmailEvent =
   | "new_buy_request"
@@ -124,25 +124,26 @@ function escapeHtml(value: string) {
 }
 
 export function buildMarketplaceEmail(input: MarketplaceEmailPayload) {
-  const recipientName = escapeHtml(redactPhoneNumbers(input.recipientName || "Trader"));
-  const title = escapeHtml(redactPhoneNumbers(input.title));
-  const message = escapeHtml(redactPhoneNumbers(input.message));
+  const recipientName = escapeHtml(redactPrivateContactDetails(input.recipientName || "Trader"));
+  const title = escapeHtml(redactPrivateContactDetails(input.title));
+  const message = escapeHtml(redactPrivateContactDetails(input.message));
   const actionLabel = escapeHtml(input.actionLabel);
-  const actionUrl = escapeHtml(input.actionUrl);
-  const safeReferenceLabel = input.referenceLabel ? redactPhoneNumbers(input.referenceLabel) : "";
+  const safeActionUrl = redactPrivateContactDetails(input.actionUrl);
+  const actionUrl = escapeHtml(safeActionUrl);
+  const safeReferenceLabel = input.referenceLabel ? redactPrivateContactDetails(input.referenceLabel) : "";
   const referenceLabel = safeReferenceLabel ? escapeHtml(safeReferenceLabel) : "";
-  const subject = `${redactPhoneNumbers(input.title)} | Alpha Exchange`;
+  const subject = `${redactPrivateContactDetails(input.title)} | Alpha Exchange`;
 
   return {
     subject,
     text: [
-      `Hello ${redactPhoneNumbers(input.recipientName || "Trader")},`,
+      `Hello ${redactPrivateContactDetails(input.recipientName || "Trader")},`,
       "",
-      redactPhoneNumbers(input.title),
-      redactPhoneNumbers(input.message),
+      redactPrivateContactDetails(input.title),
+      redactPrivateContactDetails(input.message),
       safeReferenceLabel ? `Reference: ${safeReferenceLabel}` : "",
       "",
-      `${input.actionLabel}: ${input.actionUrl}`,
+      `${input.actionLabel}: ${safeActionUrl}`,
       "",
       "This transactional email complements the notification in your Alpha Exchange account.",
     ].filter(Boolean).join("\n"),

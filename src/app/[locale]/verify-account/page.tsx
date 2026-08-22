@@ -9,17 +9,12 @@ export const dynamic = "force-dynamic";
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const isAr = locale === "ar";
-  const phoneVerificationEnabled = isMarketplacePhoneVerificationEnabled();
   return buildPageMetadata({
     locale: locale as "ar" | "en",
     title: isAr ? "تأكيد الحساب" : "Verify your account",
     description: isAr
-      ? (phoneVerificationEnabled
-        ? "أكمل التحقق من رقم الهاتف والبريد الإلكتروني للوصول إلى Alpha Exchange."
-        : "أكمل التحقق من البريد الإلكتروني للوصول إلى Alpha Exchange بينما تفعيل التحقق عبر الهاتف قيد الإعداد.")
-      : (phoneVerificationEnabled
-        ? "Complete phone and email verification to access Alpha Exchange."
-        : "Complete email verification to access Alpha Exchange while phone verification is temporarily unavailable."),
+      ? "أكمل التحقق من البريد الإلكتروني للوصول إلى Alpha Exchange. التحقق من الهاتف اختياري."
+      : "Complete email verification to access Alpha Exchange. Phone verification is optional.",
     path: "/verify-account",
   });
 }

@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFirstActionableTradeForUser, getFirstActiveTradeForUser, getTradeRoomRequestForUserById, resolveTradeRoomRequestForNotification } from "@/lib/alpha-exchange-store";
-import { requireApiUser } from "@/lib/api-auth";
+import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
 import { buildTradeRoomDestination } from "@/lib/trade-room-destination";
 import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 
 export async function GET(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  if (emailVerificationRequired) return emailVerificationRequired;
 
   const { searchParams } = new URL(request.url);
   const includePending = searchParams.get("includePending") === "1" || searchParams.get("includePending") === "true";

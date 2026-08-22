@@ -11,6 +11,7 @@ import {
   createMarketplaceListing,
   deleteSellerBankAccount,
   getMarketplaceListings,
+  getTradeRoomData,
   getTradeRoomBankDetails,
   invalidateAlphaExchangeStoreCache,
   runAlphaExchangeMaintenance,
@@ -226,6 +227,77 @@ describe("seller bank accounts and trade guardrails", () => {
     ).rejects.toThrow("not allowed");
   });
 
+  it("scrubs legacy seller profile contact data from both Trade Room participant responses", async () => {
+    const now = new Date().toISOString();
+    const snapshot = currentSnapshot();
+    snapshot.marketplaceListings.push({
+      id: "listing-contact-legacy",
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      photos: [],
+      originalAmount: "1000",
+      availableAmount: "750",
+      price: "3.10",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethod: "Bank Transfer",
+      paymentMethods: ["Bank Transfer"],
+      minimumTrade: "100",
+      maximumTrade: "1000",
+      sellerDescription: "Legacy listing",
+      responseTime: "5 min",
+      status: "matched",
+      sellerProfile: {
+        sellerId: SELLER_ID,
+        sellerName: "Seller One",
+        profilePhotoUrl: "",
+        memberSince: now,
+        languages: ["English"],
+        preferredNetworks: ["TRC20"],
+        bio: "",
+        onlineStatus: "online",
+        availabilityStatus: "available",
+        contact: { email: "seller-private@example.test", phone: "+972501234567" },
+      },
+      createdAt: now,
+      updatedAt: now,
+    } as never);
+    snapshot.purchaseRequests.push({
+      id: "request-contact-legacy",
+      listingId: "listing-contact-legacy",
+      buyerId: BUYER_ID,
+      sellerId: SELLER_ID,
+      buyerName: "Buyer",
+      buyerWhatsapp: "+972509999999",
+      buyerNotes: "buyer-private@example.test",
+      usdtAmount: "250",
+      fiatAmount: "775",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethod: "Bank Transfer",
+      status: "accepted",
+      timeline: [],
+      createdAt: now,
+      updatedAt: now,
+    } as never);
+
+    for (const actor of [
+      [BUYER_ID, "buyer"],
+      [SELLER_ID, "approved_seller"],
+    ] as const) {
+      const room = await getTradeRoomData({
+        purchaseRequestId: "request-contact-legacy",
+        actorUserId: actor[0],
+        actorRole: actor[1],
+      });
+      const serialized = JSON.stringify(room);
+      expect(serialized).not.toContain("seller-private@example.test");
+      expect(serialized).not.toContain("+972501234567");
+      expect(serialized).not.toContain("buyer-private@example.test");
+      expect(serialized).not.toContain("+972509999999");
+    }
+  });
+
   it("sends inactivity warning without auto-close, dedupes warning, and clears warning once status changes", async () => {
     const snapshot = currentSnapshot();
     const staleTime = new Date(Date.now() - 16 * 60 * 1000).toISOString();
@@ -333,6 +405,8 @@ describe("seller bank accounts and trade guardrails", () => {
 
     expect(closed.status).toBe("cancelled");
     expect(closed.closeReason).toBe("Counterparty unavailable");
+    expect(closed).not.toHaveProperty("buyerWhatsapp");
+    expect(closed).not.toHaveProperty("buyerNotes");
 
     await expect(
       closePurchaseRequestManually({

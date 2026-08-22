@@ -300,7 +300,7 @@ test.describe("Final hardening audit", () => {
     await expect(page.getByRole("button", { name: /My Trade Requests/i }).first()).toBeVisible();
     await page.getByRole("button", { name: /My Trade Requests/i }).first().click();
     await expect(page).toHaveURL(/\/en\/usdt-exchange(#my-trade-requests-section)?$/);
-    await expect(page.locator("#my-trade-requests-section")).toBeVisible();
+    await expect(page.getByRole("main").locator("#my-trade-requests-section")).toBeVisible();
 
     await page.getByRole("button", { name: /Buy USDT from/i }).first().click();
     await expect(page.getByRole("heading", { name: /^Buy USDT$/ })).toBeVisible();
@@ -313,15 +313,26 @@ test.describe("Final hardening audit", () => {
     await expect(page).not.toHaveURL(/\/en\/login/);
     await page.goto("/en/notifications");
     await expect(page).not.toHaveURL(/\/en\/login/);
-
-    await page.goBack();
-    await expect(page).toHaveURL(/\/en\/settings/);
-    await page.goForward();
-    await expect(page).toHaveURL(/\/en\/notifications/);
+    // Active trades intentionally take precedence over the notification index so
+    // the participant lands in the canonical Trade Room. Without an active
+    // trade, preserve the normal settings <-> notifications history behavior.
+    const redirectedToActiveTrade = await expect(page)
+      .toHaveURL(/\/en\/trade-room\/[^/?#]+/, { timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (redirectedToActiveTrade) {
+      await expect(page).toHaveURL(/\/en\/trade-room\/[^/?#]+/);
+    } else {
+      await expect(page).toHaveURL(/\/en\/notifications/);
+      await page.goBack();
+      await expect(page).toHaveURL(/\/en\/settings/);
+      await page.goForward();
+      await expect(page).toHaveURL(/\/en\/notifications/);
+    }
 
     await page.goto("/ar/usdt-exchange#my-trade-requests-section");
     await expect(page).toHaveURL(/\/ar\/usdt-exchange(#my-trade-requests-section)?$/);
-    await expect(page.locator("#my-trade-requests-section")).toBeVisible();
+    await expect(page.getByRole("main").locator("#my-trade-requests-section")).toBeVisible();
   });
 
   test("seller navigation audit: dashboard, listings, profile/settings/notifications", async ({ page }) => {

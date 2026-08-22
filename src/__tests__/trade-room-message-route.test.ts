@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   postTradeRoomMessage: vi.fn(),
   prepareTradeRoomConversationEmail: vi.fn(),
   requireApiUser: vi.fn(),
+  requireEmailVerificationForTrading: vi.fn(),
 }));
 
 vi.mock("next/server", async (importOriginal) => {
@@ -17,6 +18,7 @@ vi.mock("next/server", async (importOriginal) => {
 
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
+  requireEmailVerificationForTrading: mocks.requireEmailVerificationForTrading,
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
@@ -58,7 +60,7 @@ describe("Trade Room message email scheduling", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.requireApiUser.mockResolvedValue({
-      user: { id: "buyer-1", role: "buyer" },
+      user: { id: "buyer-1", role: "buyer", emailVerified: true },
       unauthorized: null,
     });
     mocks.postTradeRoomMessage.mockResolvedValue({
@@ -70,6 +72,7 @@ describe("Trade Room message email scheduling", () => {
     });
     mocks.prepareTradeRoomConversationEmail.mockResolvedValue(deliverEmail);
     mocks.after.mockImplementation(() => undefined);
+    mocks.requireEmailVerificationForTrading.mockReturnValue(null);
   });
 
   it("schedules only the first recipient/trade message email in the server-owned two-minute burst", async () => {
@@ -121,10 +124,10 @@ describe("Trade Room message email scheduling", () => {
 
   it("isolates the email burst by canonical trade and recipient", async () => {
     mocks.requireApiUser
-      .mockResolvedValueOnce({ user: { id: "buyer-1", role: "buyer" }, unauthorized: null })
-      .mockResolvedValueOnce({ user: { id: "buyer-1", role: "buyer" }, unauthorized: null })
-      .mockResolvedValueOnce({ user: { id: "buyer-1", role: "buyer" }, unauthorized: null })
-      .mockResolvedValueOnce({ user: { id: "seller-1", role: "approved_seller" }, unauthorized: null });
+      .mockResolvedValueOnce({ user: { id: "buyer-1", role: "buyer", emailVerified: true }, unauthorized: null })
+      .mockResolvedValueOnce({ user: { id: "buyer-1", role: "buyer", emailVerified: true }, unauthorized: null })
+      .mockResolvedValueOnce({ user: { id: "buyer-1", role: "buyer", emailVerified: true }, unauthorized: null })
+      .mockResolvedValueOnce({ user: { id: "seller-1", role: "approved_seller", emailVerified: true }, unauthorized: null });
     mocks.postTradeRoomMessage
       .mockReset()
       .mockResolvedValueOnce({
@@ -170,5 +173,12 @@ describe("Trade Room message email scheduling", () => {
       "trade-b:seller-1",
       "trade-a:buyer-1",
     ]);
+  });
+
+  it("denies an unverified email before reading or sending a Trade Room message", async () => {
+    mocks.requireEmailVerificationForTrading.mockReturnValueOnce(new Response(null, { status: 403 }));
+    const response = await POST(createMessageRequest(), routeContext());
+    expect(response.status).toBe(403);
+    expect(mocks.postTradeRoomMessage).not.toHaveBeenCalled();
   });
 });

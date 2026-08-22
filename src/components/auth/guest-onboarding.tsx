@@ -2,7 +2,7 @@
 
 import { useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { GraduationCap, ShieldCheck, Store, UserCircle2, Sparkles, Clock3, CheckCircle2, Send, Smartphone, KeyRound } from "lucide-react";
+import { GraduationCap, ShieldCheck, Store, UserCircle2, Sparkles, Clock3, CheckCircle2 } from "lucide-react";
 import { useRouter } from "@/i18n/navigation";
 import { navigateAfterSuccess } from "@/lib/client-success-navigation";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
@@ -92,8 +92,8 @@ export function GuestOnboarding({
   const isAr = locale === "ar";
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState<null | "student" | "sendOtp" | "verifyOtp" | "skip" | "seller_sendOtp" | "seller_verify" | "seller_apply">(null);
-  const [buyer, setBuyer] = useState({ firstName: "", lastName: "", displayName: "", phone: "", token: "" });
+  const [loading, setLoading] = useState<null | "student" | "buyer_activate" | "skip" | "seller_sendOtp" | "seller_verify" | "seller_apply">(null);
+  const [buyer, setBuyer] = useState({ firstName: "", lastName: "", displayName: "" });
   const [seller, setSeller] = useState({ firstName: "", lastName: "", displayName: "", phone: "", token: "", preferredNetworks: [] as SellerMethod[], expectedVolume: "", notes: "" });
   const [sellerStep, setSellerStep] = useState<"idle" | "otp_sent" | "applied">("idle");
   const [sellerError, setSellerError] = useState<string | null>(null);
@@ -149,49 +149,8 @@ export function GuestOnboarding({
     }
   }
 
-  async function sendOtp() {
-    setLoading("sendOtp");
-    setError(null);
-    setStatus(null);
-    try {
-      const res = await fetch("/api/auth/onboarding/buyer/send-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buyer),
-      });
-      const payload = (await res.json()) as ApiErrorPayload;
-      if (!res.ok) throw new Error(withSupportDetails(payload, "Failed to send verification code."));
-      setStatus(payload.message ?? "Verification code sent.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send verification code.");
-    } finally {
-      setLoading(null);
-    }
-  }
-
-  async function verifyOtp() {
-    setLoading("verifyOtp");
-    setError(null);
-    setStatus(null);
-    try {
-      const res = await fetch("/api/auth/onboarding/buyer/verify-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: buyer.phone, token: buyer.token }),
-      });
-      const payload = (await res.json()) as ApiErrorPayload;
-      if (!res.ok) throw new Error(withSupportDetails(payload, "Verification failed."));
-      await refreshCanonicalSession();
-      router.replace((consumePostOnboardingRedirect() ?? "/usdt-exchange") as "/usdt-exchange");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Verification failed.");
-    } finally {
-      setLoading(null);
-    }
-  }
-
   async function activateBuyerWithoutPhone() {
-    setLoading("verifyOtp");
+    setLoading("buyer_activate");
     setError(null);
     setStatus(null);
     try {
@@ -362,12 +321,8 @@ export function GuestOnboarding({
           <PremiumCard
             title={isAr ? "Become a Buyer" : "Become a Buyer"}
             subtitle={isAr
-              ? (phoneVerificationEnabled
-                ? "تحقق سريع عبر OTP ثم الوصول الكامل إلى السوق."
-                : "الوصول إلى السوق متاح الآن بدون تحقق هاتف مؤقتًا حتى يكتمل تفعيل الخدمة.")
-              : (phoneVerificationEnabled
-                ? "Quick OTP verification to unlock marketplace access."
-                : "Marketplace access is temporarily open without phone verification while service activation is completed.")}
+              ? "تحقق من بريدك الإلكتروني ثم فعّل وصول المشتري إلى السوق."
+              : "Verify your email, then activate Buyer access to the marketplace."}
             icon={ShieldCheck}
             accent="gold"
           >
@@ -390,70 +345,23 @@ export function GuestOnboarding({
                 value={buyer.displayName}
                 onChange={(event) => setBuyer((prev) => ({ ...prev, displayName: event.target.value }))}
               />
-              {phoneVerificationEnabled ? (
-                <div className="grid gap-2 lg:grid-cols-[minmax(0,1.25fr)_auto_minmax(0,1fr)_auto] lg:items-center">
-                  <div className="relative">
-                    <Smartphone className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#C9A227]" />
-                    <Input
-                      aria-label={isAr ? "رقم الهاتف الإسرائيلي" : "Israeli mobile number"}
-                      placeholder={isAr ? "رقم الهاتف الإسرائيلي (+972 / 05...)" : "Israeli mobile (+972 / 05...)"}
-                      value={buyer.phone}
-                      onChange={(event) => setBuyer((prev) => ({ ...prev, phone: event.target.value }))}
-                      className="pl-10"
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    className="h-11 w-full whitespace-nowrap px-5 sm:min-w-[230px] lg:w-auto"
-                    loading={loading === "sendOtp"}
-                    loadingLabel={isAr ? "جارٍ الإرسال..." : "Sending..."}
-                    onClick={() => void sendOtp()}
-                    disabled={isLoading}
-                  >
-                    <Send className="h-4 w-4" />
-                    {isAr ? "إرسال رمز التحقق" : "Send verification code"}
-                  </Button>
-                  <div className="relative">
-                    <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#C9A227]" />
-                    <Input
-                      aria-label={isAr ? "رمز مكون من 6 أرقام" : "6-digit code"}
-                      placeholder={isAr ? "رمز مكون من 6 أرقام" : "6-digit code"}
-                      value={buyer.token}
-                      onChange={(event) => setBuyer((prev) => ({ ...prev, token: event.target.value }))}
-                      className="pl-10"
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="h-11 w-full whitespace-nowrap px-5 sm:min-w-[180px] lg:w-auto"
-                    loading={loading === "verifyOtp"}
-                    loadingLabel={isAr ? "جارٍ التحقق..." : "Verifying..."}
-                    onClick={() => void verifyOtp()}
-                    disabled={isLoading || buyer.token.length !== 6}
-                  >
-                    {isAr ? "تأكيد التحقق" : "Verify"}
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="rounded-xl border border-sky-400/25 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">
-                    {isAr
-                      ? "التحقق عبر الهاتف غير متاح مؤقتًا. يمكنك متابعة إعداد حساب المشتري الآن وسنفعّل التحقق لاحقًا."
-                      : "Phone verification is temporarily unavailable. You can continue setting up your buyer access now, and verify later once service activation is complete."}
-                  </div>
-                  <Button
-                    type="button"
-                    className="h-11 w-full"
-                    loading={loading === "verifyOtp"}
-                    loadingLabel={isAr ? "جارٍ المتابعة..." : "Continuing..."}
-                    onClick={() => void activateBuyerWithoutPhone()}
-                    disabled={isLoading || !buyer.firstName.trim() || !buyer.lastName.trim()}
-                  >
-                    {isAr ? "المتابعة كمشتري" : "Continue as Buyer"}
-                  </Button>
-                </div>
-              )}
+              <div className="space-y-3">
+                <p className="rounded-xl border border-sky-400/25 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">
+                  {isAr
+                    ? "رقم الهاتف اختياري ولا يمنع تداول المشتري."
+                    : "Phone verification is optional and does not block Buyer trading."}
+                </p>
+                <Button
+                  type="button"
+                  className="h-11 w-full"
+                  loading={loading === "buyer_activate"}
+                  loadingLabel={isAr ? "جارٍ المتابعة..." : "Continuing..."}
+                  onClick={() => void activateBuyerWithoutPhone()}
+                  disabled={isLoading || !buyer.firstName.trim() || !buyer.lastName.trim()}
+                >
+                  {isAr ? "المتابعة كمشتري" : "Continue as Buyer"}
+                </Button>
+              </div>
             </div>
             {error ? <p className="mt-2 text-xs text-rose-300">{error}</p> : null}
             {status ? <p className="mt-2 text-xs text-emerald-300">{status}</p> : null}

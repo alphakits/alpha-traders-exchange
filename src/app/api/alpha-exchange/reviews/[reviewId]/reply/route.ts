@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { submitSellerReviewResponse } from "@/lib/alpha-exchange-store";
-import { requireApiUser } from "@/lib/api-auth";
+import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
 
 type RouteContext = { params: Promise<{ reviewId: string }> };
 
@@ -8,6 +8,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const routeStartedAt = Date.now();
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  if (emailVerificationRequired) return emailVerificationRequired;
   try {
     const { reviewId } = await context.params;
     const validationStartedAt = Date.now();

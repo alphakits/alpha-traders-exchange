@@ -78,10 +78,10 @@ export function AccountVerificationGate({
   }, [user]);
 
   useEffect(() => {
-    if (!loading && !sessionError && emailVerified && (!phoneVerificationEnabled || phoneVerified)) {
+    if (!loading && !sessionError && emailVerified) {
       window.location.replace(`/${locale}${target === "/" ? "" : target}`);
     }
-  }, [loading, sessionError, emailVerified, phoneVerified, locale, phoneVerificationEnabled, target]);
+  }, [loading, sessionError, emailVerified, locale, target]);
 
   async function sendOtp() {
     setSendingOtp(true);
@@ -172,12 +172,8 @@ export function AccountVerificationGate({
               </h1>
               <p className="mt-2 text-sm text-[#D1D5DB]">
                 {isAr
-                  ? (phoneVerificationEnabled
-                    ? "نطلب التحقق من البريد ورقم الهاتف لحماية التداولات، تقليل الاحتيال، وضمان تجربة آمنة للجميع."
-                    : "التحقق عبر الهاتف غير متاح مؤقتًا بينما نكمل تفعيل الخدمة. يمكنك المتابعة بعد تأكيد بريدك الإلكتروني.")
-                  : (phoneVerificationEnabled
-                    ? "We require email and phone verification to protect trades, reduce fraud, and keep Alpha Exchange secure for all users."
-                    : "Phone verification is temporarily unavailable while we complete service activation. You can continue after confirming your email.")}
+                  ? "التحقق من البريد الإلكتروني مطلوب للوصول إلى Alpha Exchange. التحقق من الهاتف اختياري ولا يمنع تداول المشتري."
+                  : "Email verification is required to access Alpha Exchange. Phone verification is optional and does not block Buyer trading."}
               </p>
             </div>
           </div>
@@ -232,7 +228,7 @@ export function AccountVerificationGate({
                   </span>
                 ) : (
                   <span className="rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-300">
-                    {isAr ? "مطلوب" : "Required"}
+                    {isAr ? "اختياري" : "Optional"}
                   </span>
                 )
               ) : (
@@ -247,7 +243,7 @@ export function AccountVerificationGate({
               ) : (
                 <div className="mt-3 grid gap-3">
                   <p className="text-xs text-[#9CA3AF]">
-                    {isAr ? "أدخل رقم الهاتف ثم رمز OTP لإكمال التحقق." : "Enter your phone number and OTP code to complete verification."}
+                    {isAr ? "التحقق من الهاتف اختياري ويمكنك إكماله من هنا إذا رغبت." : "Phone verification is optional; you may complete it here if you choose."}
                   </p>
                   <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                     <Input
@@ -287,15 +283,15 @@ export function AccountVerificationGate({
                     </Button>
                   </div>
                   <p className="text-[11px] text-[#6CAEFF]">
-                    {isAr ? "يتم استخدام رقمك المحقق للتواصل عبر WhatsApp حول الطلبات." : "Your verified number is used for WhatsApp contact during application review."}
+                    {isAr ? "لن يُشارك رقمك مع طرف التداول الآخر." : "Your number is not shared with the other trade participant."}
                   </p>
                 </div>
               )
             ) : (
               <p className="mt-3 text-sm text-[#9CA3AF]">
                 {isAr
-                  ? "التحقق عبر الهاتف غير متاح مؤقتًا بينما نكمل تفعيل الخدمة. سنعيد تفعيله بمجرد الموافقة."
-                  : "Phone verification is temporarily unavailable while we complete service activation. We’ll re-enable it as soon as service approval is complete."}
+                  ? "التحقق عبر الهاتف غير متاح حاليًا، وليس مطلوبًا لتداول المشتري."
+                  : "Phone verification is currently unavailable and is not required for Buyer trading."}
               </p>
             )}
           </div>

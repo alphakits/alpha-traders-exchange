@@ -57,7 +57,7 @@ describe("auth register route", () => {
     mocks.upsertUserProfileForAuth.mockResolvedValue({});
   });
 
-  function makeRequest(email: string, locale = "en") {
+  function makeRequest(email: string, locale = "en", overrides: Record<string, unknown> = {}) {
     return new NextRequest("http://localhost/api/auth/register", {
       method: "POST",
       headers: {
@@ -71,6 +71,7 @@ describe("auth register route", () => {
         confirmPassword: "password123",
         whatsappNumber: "+972500000000",
         agreedToTerms: true,
+        ...overrides,
       }),
     });
   }
@@ -95,6 +96,21 @@ describe("auth register route", () => {
       options: expect.objectContaining({
         emailRedirectTo: "https://www.alphatraders.co.il/en/login",
       }),
+    }));
+  });
+
+  it("allows registration without a phone number and keeps the optional value out of auth metadata", async () => {
+    const response = await POST(makeRequest("no-phone@example.com", "en", { whatsappNumber: "" }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.signUp).toHaveBeenCalledWith(expect.objectContaining({
+      email: "no-phone@example.com",
+      options: expect.objectContaining({
+        data: { full_name: "Test User" },
+      }),
+    }));
+    expect(mocks.upsertUserProfileForAuth).toHaveBeenCalledWith(expect.objectContaining({
+      whatsappNumber: "",
     }));
   });
 

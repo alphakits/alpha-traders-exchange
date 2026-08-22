@@ -9,14 +9,6 @@ import { validateUploadContent } from "@/lib/file-content-validation";
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5 MB
 const ALLOWED_MIME = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"]);
 
-function slugify(name: string) {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 40);
-}
-
 export async function POST(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
@@ -56,7 +48,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Image content does not match its declared format." }, { status: 400 });
   }
   const ext = file.type === "image/gif" ? ".gif" : file.type === "image/webp" ? ".webp" : file.type === "image/png" ? ".png" : ".jpg";
-  const safeName = `${slugify(file.name.replace(/\.[^.]+$/, "") || "photo")}-${Date.now()}-${randomUUID().slice(0, 8)}${ext}`;
+  // A public media URL must never carry a user-provided filename: filenames
+  // are otherwise an easy way to publish direct contact details.
+  const safeName = `${kind}-${Date.now()}-${randomUUID().slice(0, 8)}${ext}`;
   const storageKey = `profiles/${kind}/${user.id}/${safeName}`;
 
   const client = createSupabaseAdminClient();

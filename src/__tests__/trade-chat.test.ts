@@ -19,15 +19,18 @@ vi.mock("@/lib/realtime", () => ({
 }));
 
 import {
+  getTradeRoomData,
   invalidateAlphaExchangeStoreCache,
   postTradeRoomMessage,
   postTradeRoomPoke,
 } from "@/lib/alpha-exchange-store";
+import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
 
 const BUYER_ID = "buyer-1";
 const SELLER_ID = "seller-1";
 const OUTSIDER_ID = "outsider-1";
 const ADMIN_ID = "admin-1";
+const TINY_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9Wl8cAAAAASUVORK5CYII=";
 
 function user(id: string, role: UserRole): AlphaExchangeUser {
   const now = new Date().toISOString();
@@ -181,6 +184,103 @@ describe("Trade Room participant communication", () => {
     await expect(postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: ADMIN_ID, message: "spoof" }))
       .rejects.toThrow("not allowed");
     expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(0);
+  });
+
+  it("rejects direct contact sharing in Trade Room chat before it persists or notifies a counterparty", async () => {
+    const blockedMessages = [
+      "Call me on 050-123-4567",
+      "Email buyer@example.test",
+      "WhatsApp https://wa.me/972501234567",
+      "Telegram: @buyer_private",
+    ];
+
+    for (const message of blockedMessages) {
+      await expect(postTradeRoomMessage({
+        purchaseRequestId: "trade-1",
+        actorUserId: BUYER_ID,
+        message,
+      })).rejects.toThrow(DIRECT_CONTACT_CONTENT_ERROR);
+    }
+
+    expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(0);
+    expect(snapshot().notifications).toHaveLength(0);
+    expect(mocks.publishRealtimeEvent).not.toHaveBeenCalled();
+  });
+
+  it("keeps normal payment references, wallets, and transaction hashes usable in Trade Room chat", async () => {
+    const posted = await postTradeRoomMessage({
+      purchaseRequestId: "trade-1",
+      actorUserId: BUYER_ID,
+      message: "Sent 250 USDT to 0x52908400098527886E0F7030069857D2E4169EE7; tx 5d41402abc4b2a76b9719d911017c592.",
+    });
+
+    expect(posted.message.message).toContain("250 USDT");
+    expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(1);
+  });
+
+  it("replaces user-supplied Trade Room attachment names and refuses external contact URLs", async () => {
+    const posted = await postTradeRoomMessage({
+      purchaseRequestId: "trade-1",
+      actorUserId: BUYER_ID,
+      message: "Payment receipt attached.",
+      imageUrl: `data:image/png;base64,${TINY_PNG_BASE64}`,
+      imageName: "seller-050-123-4567.png",
+      imageMimeType: "image/png",
+    });
+
+    expect(posted.message.imageName).toMatch(/^trade-room-attachment-[a-f0-9]{8}\.png$/);
+    expect(posted.message.imageName).not.toContain("050-123-4567");
+
+    const room = await getTradeRoomData({
+      purchaseRequestId: "trade-1",
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      markMessagesRead: false,
+    });
+    expect(room.messages[0]).toMatchObject({ imageName: "trade-room-attachment.png", imageMimeType: "image/png" });
+    expect(room.messages[0]?.imageName).not.toContain("050-123-4567");
+
+    await expect(postTradeRoomMessage({
+      purchaseRequestId: "trade-1",
+      actorUserId: BUYER_ID,
+      message: "See attachment",
+      imageUrl: "https://wa.me/972501234567",
+      imageMimeType: "image/png",
+    })).rejects.toThrow(DIRECT_CONTACT_CONTENT_ERROR);
+    expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(1);
+  });
+
+  it("redacts legacy counterparty chat text and suppresses unsafe legacy attachment metadata", async () => {
+    const saved = snapshot();
+    saved.purchaseRequests[0]!.messages = [{
+      id: "legacy-contact-message",
+      purchaseRequestId: "trade-1",
+      kind: "user",
+      senderUserId: BUYER_ID,
+      senderRole: "buyer",
+      message: "Email buyer@example.test or Telegram: @buyer_private",
+      createdAt: new Date().toISOString(),
+      sentAt: new Date().toISOString(),
+      readByUserIds: [BUYER_ID],
+      imageUrl: "https://wa.me/972501234567",
+      imageName: "buyer-050-123-4567.png",
+      imageMimeType: "image/png",
+    }];
+    invalidateAlphaExchangeStoreCache();
+
+    const room = await getTradeRoomData({
+      purchaseRequestId: "trade-1",
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      markMessagesRead: false,
+    });
+    const serialized = JSON.stringify(room);
+
+    expect(serialized).not.toContain("buyer@example.test");
+    expect(serialized).not.toContain("@buyer_private");
+    expect(serialized).not.toContain("wa.me");
+    expect(serialized).not.toContain("050-123-4567");
+    expect(room.messages[0]).toMatchObject({ imageUrl: undefined, imageName: undefined, imageMimeType: undefined });
   });
 
   it("sends a Buyer Poke to the Seller with durable state, a generic alert, and exact cooldown data", async () => {

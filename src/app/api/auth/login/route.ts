@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
+import { createEmailVerificationTokenForUser, upsertUserProfileForAuth } from "@/lib/alpha-exchange-store";
 import { AUTH_COOKIE_NAME, AUTH_PHONE_VERIFIED_COOKIE_NAME, AUTH_VERIFIED_COOKIE_NAME, authenticateLocalUser, createUserSession } from "@/lib/auth";
 import { shouldUseSecureAuthCookie } from "@/lib/auth-cookie";
 import { checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
@@ -9,6 +9,8 @@ import { isMarketplacePhoneVerificationDisabled } from "@/lib/phone-verification
 import { isVerified } from "@/lib/verification-bypass";
 import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
 import { logEvent } from "@/lib/structured-logging";
+import { getSiteUrl } from "@/lib/site-url";
+import { buildAuthEmail, sendAuthEmailViaResend } from "@/lib/auth-email-delivery";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 type LoginTimelineStep = {
@@ -172,6 +174,59 @@ export async function POST(request: NextRequest) {
     const localAuthMs = localAuthEndedAt - localAuthStartedAt;
     pushTimelineStep(timeline, "Password hashing / verification", localAuthStartedAt, localAuthEndedAt, { provider: "local" });
     if (localUser) {
+      // Local-password records are subject to the same verified-email
+      // requirement as Supabase users. Never let a successful password check
+      // promote an unverified (or legacy-unmarked) account to verified.
+      if (localUser.emailVerified !== true) {
+        // Pre-Supabase local accounts still have a legitimate, server-owned
+        // recovery path. A successful password check proves the account
+        // identity, but never its mailbox ownership: issue a one-time local
+        // verification link only when this dedicated limiter allows it.
+        const localVerificationRate = await checkSharedRateLimit({
+          headers: request.headers,
+          key: "auth:login:local-email-verification",
+          identifier: `${clientIp}:${localUser.id}`,
+          maxRequests: 3,
+          windowMs: 60 * 60_000,
+        });
+        if (localVerificationRate.allowed) {
+          try {
+            const verification = await createEmailVerificationTokenForUser(localUser.id);
+            const verificationUrl = new URL(`${getSiteUrl()}/${locale}/verify-email`);
+            verificationUrl.searchParams.set("token", verification.token);
+            const mail = buildAuthEmail("verification", locale, verificationUrl.toString());
+            const delivery = await sendAuthEmailViaResend({
+              to: localUser.email,
+              subject: mail.subject,
+              html: mail.html,
+              text: mail.text,
+            });
+            logEvent(delivery.ok ? "info" : "warn", {
+              event: "auth_local_email_verification_delivery",
+              actorUserId: localUser.id,
+              outcome: delivery.ok ? "success" : "failed",
+              reason: delivery.ok ? "local_verification_link_sent" : delivery.reason,
+              metadata: { provider: "resend" },
+            });
+          } catch {
+            logEvent("warn", {
+              event: "auth_local_email_verification_delivery",
+              actorUserId: localUser.id,
+              outcome: "failed",
+              reason: "local_verification_link_issue_failed",
+              metadata: { provider: "resend" },
+            });
+          }
+        }
+        clearAuthCookies(cookieStore, secureCookies);
+        return NextResponse.json(
+          {
+            error: "Please verify your email before signing in. Check your inbox or request a new verification email.",
+            requiresEmailVerification: true,
+          },
+          { status: 403, headers: AUTH_RESPONSE_HEADERS },
+        );
+      }
       const upsertStartedAt = Date.now();
       const user = await upsertUserProfileForAuth({
         fullName: localUser.fullName,

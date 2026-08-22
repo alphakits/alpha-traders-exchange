@@ -97,9 +97,8 @@ export async function getCurrentSessionUser() {
   if (!user) {
     return null;
   }
-  // emailVerified is enforced at login time (Supabase requires email_confirmed_at;
-  // local auth sets emailVerified: true explicitly in upsertUserProfileForAuth).
-  // Silently deleting sessions here causes a race: if the DB write during upsert
-  // fails or the field is stale, the user is kicked out mid-session with no feedback.
+  // Email verification is enforced at login and at every buyer-facing trading
+  // route. Silently deleting sessions here causes a race: if a DB write is
+  // stale, the user is kicked out mid-session with no feedback.
   return user;
 }

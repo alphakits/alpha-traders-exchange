@@ -3,11 +3,13 @@ import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   requireApiUser: vi.fn(),
+  requireEmailVerificationForTrading: vi.fn(),
   getTradeRoomBankDetails: vi.fn(),
 }));
 
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
+  requireEmailVerificationForTrading: mocks.requireEmailVerificationForTrading,
 }));
 
 vi.mock("@/lib/alpha-exchange-store", () => ({
@@ -21,9 +23,10 @@ describe("trade room bank details route", () => {
     mocks.requireApiUser.mockReset();
     mocks.getTradeRoomBankDetails.mockReset();
     mocks.requireApiUser.mockResolvedValue({
-      user: { id: "buyer-1", role: "buyer" },
+      user: { id: "buyer-1", role: "buyer", emailVerified: true },
       unauthorized: null,
     });
+    mocks.requireEmailVerificationForTrading.mockReturnValue(null);
   });
 
   it("returns bank details for an authorized participant", async () => {
@@ -69,5 +72,13 @@ describe("trade room bank details route", () => {
     const response = await GET(request, { params: Promise.resolve({ requestId: "missing" }) });
 
     expect(response.status).toBe(404);
+  });
+
+  it("denies an unverified email before loading bank details", async () => {
+    mocks.requireEmailVerificationForTrading.mockReturnValueOnce(new Response(null, { status: 403 }));
+    const request = new NextRequest("http://localhost/api/alpha-exchange/trade-room/req-1/bank-details");
+    const response = await GET(request, { params: Promise.resolve({ requestId: "req-1" }) });
+    expect(response.status).toBe(403);
+    expect(mocks.getTradeRoomBankDetails).not.toHaveBeenCalled();
   });
 });

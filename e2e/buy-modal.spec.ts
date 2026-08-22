@@ -6,8 +6,10 @@ import { E2E_BASE_URL } from "./support/base-url";
 const TEST_SUPPORT_HEADERS = { "x-alpha-test-support": "enabled" };
 
 let buyerFixture: BuyerFixture | undefined;
+let originalBuyerRecord: Record<string, unknown> | null = null;
 const sellerId = `seller-e2e-${randomUUID()}`;
 const listingId = `listing-e2e-${randomUUID()}`;
+const sellerPrivateEmail = "e2e-modal-seller-private@example.test";
 
 async function readRuntimeDb(request: APIRequestContext) {
   const response = await request.get("/api/testing/alpha-exchange-state", { headers: TEST_SUPPORT_HEADERS });
@@ -30,7 +32,7 @@ async function seedSellerAndListing(request: APIRequestContext) {
     {
       id: sellerId,
       fullName: "E2E Modal Seller",
-      email: `e2e-seller-${randomUUID()}@example.test`,
+      email: sellerPrivateEmail,
       passwordHash: "unused",
       role: "approved_seller",
       roles: ["approved_seller"],
@@ -83,6 +85,48 @@ async function seedSellerAndListing(request: APIRequestContext) {
   await writeRuntimeDb(request, db);
 }
 
+async function makeBuyerEmailVerifiedWithoutPhone(request: APIRequestContext) {
+  const db = await readRuntimeDb(request);
+  const users = Array.isArray(db.users) ? db.users : [];
+  const buyerIndex = users.findIndex((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    return String((entry as Record<string, unknown>).email ?? "").toLowerCase() === buyerFixture?.email.toLowerCase();
+  });
+  if (buyerIndex === -1) throw new Error("Buyer fixture missing from the seeded runtime.");
+  const buyer = users[buyerIndex] as Record<string, unknown>;
+  if (!originalBuyerRecord) originalBuyerRecord = { ...buyer };
+  const {
+    verifiedPhone: _verifiedPhone,
+    phoneVerifiedAt: _phoneVerifiedAt,
+    ...emailOnlyBuyer
+  } = buyer;
+  users[buyerIndex] = {
+    ...emailOnlyBuyer,
+    // Match the persisted registration shape for a user who chooses not to
+    // provide a phone number: the field is an empty string, not absent.
+    whatsappNumber: "",
+    emailVerified: true,
+    emailVerifiedAt: String(buyer.emailVerifiedAt ?? new Date().toISOString()),
+    buyerVerificationStatus: "not_started",
+  };
+  db.users = users;
+  await writeRuntimeDb(request, db);
+}
+
+async function restoreBuyerPhoneFixture(request: APIRequestContext) {
+  if (!buyerFixture || !originalBuyerRecord) return;
+  const db = await readRuntimeDb(request);
+  const users = Array.isArray(db.users) ? db.users : [];
+  db.users = users.map((entry) => {
+    if (!entry || typeof entry !== "object") return entry;
+    const record = entry as Record<string, unknown>;
+    return String(record.email ?? "").toLowerCase() === buyerFixture!.email.toLowerCase()
+      ? originalBuyerRecord
+      : entry;
+  });
+  await writeRuntimeDb(request, db);
+}
+
 async function login(page: Page, email: string, password: string) {
   const response = await page.request.post("/api/auth/login", { headers: { "x-forwarded-for": "198.51.100.11" }, data: { email, password, rememberMe: true } });
   expect(response.ok()).toBeTruthy();
@@ -108,6 +152,7 @@ test.afterAll(async () => {
     }
   }
   await writeRuntimeDb(context, db);
+  await restoreBuyerPhoneFixture(context);
   await context.dispose();
   await cleanupBuyerFixture(buyerFixture);
 });
@@ -115,6 +160,7 @@ test.afterAll(async () => {
 test.describe("Direct Buy USDT modal", () => {
   test.beforeEach(async ({ page }) => {
     await seedSellerAndListing(page.request);
+    await makeBuyerEmailVerifiedWithoutPhone(page.request);
     await login(page, buyerFixture!.email, buyerFixture!.password);
   });
 
@@ -130,6 +176,8 @@ test.describe("Direct Buy USDT modal", () => {
     await expect(page.getByRole("heading", { name: /^Buy USDT$/ })).toBeVisible();
     // The amount field is available immediately — no profile-first scrolling.
     await expect(page.getByLabel(/USDT Amount/i)).toBeVisible();
+    await expect(page.getByLabel(/WhatsApp/i)).toHaveCount(0);
+    await expect(page.getByLabel(/Buyer notes/i)).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Start Trade/i })).toBeVisible();
   });
 
@@ -143,8 +191,28 @@ test.describe("Direct Buy USDT modal", () => {
 
     await expect(page.getByRole("heading", { name: /^Buy USDT$/ })).toBeVisible();
     await expect(page.getByLabel(/USDT Amount/i)).toBeVisible();
+    await expect(page.getByLabel(/WhatsApp/i)).toHaveCount(0);
 
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);
+  });
+
+  test("lets a verified-email Buyer without a verified phone create a trade without contact fields", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/en/usdt-exchange");
+    const listingsResponse = await page.request.get("/api/alpha-exchange/listings");
+    expect(listingsResponse.ok()).toBeTruthy();
+    const listingsPayload = JSON.stringify(await listingsResponse.json());
+    expect(listingsPayload).not.toContain("+972500000055");
+    expect(listingsPayload).not.toContain(sellerPrivateEmail);
+
+    const buyButton = page.getByRole("button", { name: /Buy USDT/i }).first();
+    await buyButton.scrollIntoViewIfNeeded();
+    await buyButton.click();
+    await page.getByLabel(/Receiving Wallet Address/i).fill("TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE");
+    await Promise.all([
+      page.waitForURL(new RegExp(`/en/trade-room/`)),
+      page.getByRole("button", { name: /^Start Trade$/i }).click(),
+    ]);
   });
 });

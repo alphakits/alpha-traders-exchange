@@ -3,6 +3,7 @@ import { findUserByEmail, upsertUserProfileForAuth } from "@/lib/alpha-exchange-
 import { checkSharedRateLimit, resolveClientIp } from "@/lib/rate-limit";
 import { createSupabaseAuthClient, getSupabaseEmailRedirectUrl, inferLocaleFromRequest } from "@/lib/supabase-auth-provider";
 import { logEvent } from "@/lib/structured-logging";
+import { assertNoDirectContactContent } from "@/lib/privacy-redaction";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
 
@@ -62,8 +63,8 @@ export async function POST(request: NextRequest) {
     const whatsappNumber = String(body.whatsappNumber ?? "").trim();
     const agreedToTerms = Boolean(body.agreedToTerms);
 
-    if (!fullName || !email || !password || !confirmPassword || !whatsappNumber) {
-      return NextResponse.json({ error: "All fields are required." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    if (!fullName || !email || !password || !confirmPassword) {
+      return NextResponse.json({ error: "Full name, email, and password are required." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
     if (fullName.length > 100 || whatsappNumber.length > 30 || email.length > 254) {
       return NextResponse.json({ error: "One or more fields exceed allowed length." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
@@ -71,6 +72,7 @@ export async function POST(request: NextRequest) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json({ error: "Invalid email format." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
+    assertNoDirectContactContent(fullName);
 
     const existingUser = await findUserByEmail(email);
     if (existingUser) {
@@ -119,7 +121,7 @@ export async function POST(request: NextRequest) {
         emailRedirectTo: getSupabaseEmailRedirectUrl(locale),
         data: {
           full_name: fullName,
-          whatsapp_number: whatsappNumber,
+          ...(whatsappNumber ? { whatsapp_number: whatsappNumber } : {}),
         },
       },
     });

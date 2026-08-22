@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSellerReviews, moderateSellerReview, submitBuyerTradeReview } from "@/lib/alpha-exchange-store";
-import { requireApiUser } from "@/lib/api-auth";
+import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
 
 export async function GET(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
@@ -15,6 +15,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const { user, unauthorized } = await requireApiUser();
   if (!user) return unauthorized;
+  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  if (emailVerificationRequired) return emailVerificationRequired;
   try {
     const body = await request.json();
     const requestId = String(body.requestId ?? "").trim();

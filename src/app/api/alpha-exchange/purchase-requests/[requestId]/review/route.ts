@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { submitBuyerTradeReview, submitSellerReviewResponse } from "@/lib/alpha-exchange-store";
-import { requireApiUser, requirePhoneVerificationForTrading } from "@/lib/api-auth";
+import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/structured-logging";
 
@@ -20,16 +20,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
     });
     return unauthorized;
   }
-  const phoneVerificationRequired = requirePhoneVerificationForTrading(user);
-  if (phoneVerificationRequired) {
+  const emailVerificationRequired = requireEmailVerificationForTrading(user);
+  if (emailVerificationRequired) {
     logEvent("warn", {
       event: "trade_review_submission",
       actorUserId: user.id,
       actorRole: user.role,
       outcome: "denied",
-      reason: "phone_verification_required",
+      reason: "email_verification_required",
     });
-    return phoneVerificationRequired;
+    return emailVerificationRequired;
   }
   const rate = await checkSharedRateLimit({
     headers: request.headers,

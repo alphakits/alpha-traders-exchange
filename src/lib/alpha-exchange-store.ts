@@ -32,7 +32,7 @@ import {
 } from "@/lib/admin-announcement-email";
 import { getSiteUrl } from "@/lib/site-url";
 import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
-import { redactPhoneNumbers } from "@/lib/privacy-redaction";
+import { assertNoDirectContactContent, containsDirectContactContent, redactPrivateContactDetails } from "@/lib/privacy-redaction";
 import { getSmsTemplate, normalizeE164, resolveSmsDeliveryStatusTransition, sendTwilioMessageWithRetry, twilioStatusCallbackUrl } from "@/lib/notification-platform";
 import { normalizeSellerLevel } from "@/types/alpha-exchange";
 import { validateUploadContent } from "@/lib/file-content-validation";
@@ -104,6 +104,7 @@ import type {
   TradeEvidenceFile,
   TradeEvidenceSide,
   TradeChatMessage,
+  TradeTimelineEntry,
   TradeRoomPokeState,
   TradeTimelineEventType,
   AlphaExchangeTradeReminder,
@@ -474,14 +475,29 @@ function buildTradeSnapshotForNotification(db: AlphaExchangeDb, userId: string, 
     listingDisplayNumber: listing?.displayNumber,
     sellerId: request.sellerId,
     buyerId: request.buyerId,
-    counterpartyName: counterparty?.fullName?.trim() || (recipientIsSeller ? "Buyer" : "Seller"),
-    counterpartyAvatarUrl: counterparty?.profilePhotoUrl?.trim() || undefined,
+    counterpartyName: redactExchangeUserContent(counterparty?.fullName?.trim() || (recipientIsSeller ? "Buyer" : "Seller")),
+    counterpartyAvatarUrl: sanitizeCounterpartyMediaUrl(counterparty?.profilePhotoUrl),
     usdtAmount: request.usdtAmount,
     fiatAmount: request.fiatAmount,
     currency: request.currency,
     currentStage: request.status,
     requiredAction: resolveTradeRequiredAction(request, recipientIsSeller),
   };
+}
+
+function sanitizeNotificationTradeSnapshot(snapshot: NotificationTradeSnapshot | undefined) {
+  if (!snapshot) return undefined;
+  return {
+    ...snapshot,
+    counterpartyName: redactExchangeUserContent(snapshot.counterpartyName),
+    counterpartyAvatarUrl: sanitizeCounterpartyMediaUrl(snapshot.counterpartyAvatarUrl) || undefined,
+  };
+}
+
+function sanitizeInternalNotificationHref(value?: string) {
+  const href = value?.trim();
+  if (!href || !href.startsWith("/") || href.startsWith("//")) return undefined;
+  return href;
 }
 
 function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNotification, cachedLookup?: Record<string, string>): AlphaExchangeNotification {
@@ -504,8 +520,8 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
   const isTradeNotification = notification.category === "trade";
   const relatedHref = isTradeNotification && request
     ? requestDetailsHref(request.id)
-    : notification.relatedHref;
-  const actionHref = notification.actionHref?.trim() || relatedHref;
+    : sanitizeInternalNotificationHref(notification.relatedHref);
+  const actionHref = sanitizeInternalNotificationHref(notification.actionHref) || relatedHref;
   const listing = request ? db.marketplaceListings.find((item) => item.id === request.listingId) : undefined;
   // Reuse a pre-built lookup when available (batch calls) to avoid O(n) per notification.
   const displayLookup = cachedLookup ?? createExchangeDisplayLookup({
@@ -522,8 +538,8 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
       : notification.category === "application"
         ? "Application update"
         : "Alpha Exchange update";
-  const title = redactPhoneNumbers(notification.title?.trim() || fallbackTitle);
-  const message = redactPhoneNumbers(notification.message?.trim() || "Open notifications for the latest account update.");
+  const title = redactPrivateContactDetails(notification.title?.trim() || fallbackTitle);
+  const message = redactPrivateContactDetails(notification.message?.trim() || "Open notifications for the latest account update.");
   return {
     ...notification,
     title: replaceExchangeEntityIds(title, displayLookup),
@@ -542,7 +558,7 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     actionHref,
     actionLabel: notification.actionLabel?.trim() || resolveNotificationActionLabel(notification, request),
     tradeSnapshot: isTradeNotification
-      ? (notification.tradeSnapshot ?? buildTradeSnapshotForNotification(db, notification.userId, request))
+      ? sanitizeNotificationTradeSnapshot(notification.tradeSnapshot ?? buildTradeSnapshotForNotification(db, notification.userId, request))
       : undefined,
     updatedAt: notification.updatedAt ?? notification.createdAt,
   };
@@ -626,6 +642,93 @@ function extensionForEvidenceMimeType(mimeType: string) {
   if (mimeType === "image/jpeg") return "jpg";
   if (mimeType === "image/webp") return "webp";
   return "pdf";
+}
+
+const TRADE_ROOM_CHAT_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+const TRADE_ROOM_IMAGE_DATA_URL_PATTERN = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+={0,2})$/i;
+
+function assertNoExchangeDirectContact(...values: Array<string | undefined>) {
+  for (const value of values) {
+    if (value !== undefined) assertNoDirectContactContent(value);
+  }
+}
+
+function redactExchangeUserContent(value: string | undefined) {
+  return redactPrivateContactDetails(String(value ?? ""));
+}
+
+function sanitizeCounterpartyMediaUrl(value: string | undefined) {
+  const url = String(value ?? "").trim();
+  return url && !containsDirectContactContent(url) ? url : "";
+}
+
+function evidenceDisplayFileName(side: TradeEvidenceSide, mimeType: string) {
+  const label = side === "buyer" ? "buyer-payment-evidence" : "seller-release-evidence";
+  return `${label}.${extensionForEvidenceMimeType(mimeType)}`;
+}
+
+function sanitizeTradeEvidenceForCounterparty(evidence: TradeEvidenceFile | undefined) {
+  if (!evidence) return undefined;
+  return {
+    ...evidence,
+    // The original upload name is neither needed to retrieve the blob nor safe
+    // to show another participant. Storage already uses a server UUID.
+    fileName: evidenceDisplayFileName(evidence.side, evidence.mimeType),
+  };
+}
+
+function isSafeStoredTradeRoomImageUrl(value: string | undefined) {
+  const match = TRADE_ROOM_IMAGE_DATA_URL_PATTERN.exec(String(value ?? "").trim());
+  if (!match) return false;
+  const mimeType = match[1]!.toLowerCase();
+  if (!TRADE_ROOM_CHAT_IMAGE_MIME_TYPES.has(mimeType)) return false;
+  const raw = Buffer.from(match[2]!, "base64");
+  return raw.length > 0
+    && raw.length <= getMaxEvidenceSizeBytes()
+    && validateUploadContent(raw, mimeType as "image/jpeg" | "image/png" | "image/webp");
+}
+
+function sanitizeTradeRoomMessageForCounterparty(message: TradeChatMessage, canViewPrivateContent: boolean) {
+  const imageMimeType = TRADE_ROOM_CHAT_IMAGE_MIME_TYPES.has(String(message.imageMimeType ?? "").toLowerCase())
+    ? String(message.imageMimeType).toLowerCase()
+    : undefined;
+  const hasSafeImage = Boolean(imageMimeType && isSafeStoredTradeRoomImageUrl(message.imageUrl));
+  return {
+    ...message,
+    message: canViewPrivateContent ? message.message : redactExchangeUserContent(message.message),
+    imageUrl: hasSafeImage ? message.imageUrl : undefined,
+    imageMimeType: hasSafeImage ? imageMimeType : undefined,
+    imageName: hasSafeImage ? `trade-room-attachment.${extensionForEvidenceMimeType(imageMimeType!)}` : undefined,
+  };
+}
+
+function sanitizeTradeTimelineForCounterparty(entry: TradeTimelineEntry, canViewPrivateContent: boolean) {
+  return {
+    ...entry,
+    message: canViewPrivateContent ? entry.message : redactExchangeUserContent(entry.message),
+  };
+}
+
+function parseTradeRoomImageDataUrl(value: string | undefined, declaredMimeType: string | undefined) {
+  const rawValue = String(value ?? "").trim();
+  if (!rawValue) return null;
+  const match = TRADE_ROOM_IMAGE_DATA_URL_PATTERN.exec(rawValue);
+  if (!match) {
+    throw new Error("Trade Room attachments must be PNG, JPEG, or WebP images.");
+  }
+  const mimeType = match[1]!.toLowerCase();
+  const declared = String(declaredMimeType ?? "").trim().toLowerCase();
+  if (!TRADE_ROOM_CHAT_IMAGE_MIME_TYPES.has(mimeType) || (declared && declared !== mimeType)) {
+    throw new Error("Trade Room attachment type is invalid.");
+  }
+  const raw = Buffer.from(match[2]!, "base64");
+  if (!raw.length || raw.length > getMaxEvidenceSizeBytes()) {
+    throw new Error(`Trade Room attachment exceeds limit (${Math.round(getMaxEvidenceSizeBytes() / (1024 * 1024))}MB).`);
+  }
+  if (!validateUploadContent(raw, mimeType as "image/jpeg" | "image/png" | "image/webp")) {
+    throw new Error("Trade Room attachment content does not match its declared file type.");
+  }
+  return { dataUrl: rawValue, mimeType };
 }
 
 function toNumber(value: string | number | null | undefined) {
@@ -991,19 +1094,19 @@ function buildPrestigeFieldsForSnapshot(input: { volumeUsdt: number; rank: Selle
 function buildSellerPublicProfile(user: AlphaExchangeUser): SellerPublicProfile {
   return {
     sellerId: user.id,
-    sellerName: user.fullName,
-    fullName: user.fullName,
-    profilePhotoUrl: user.profilePhotoUrl,
+    sellerName: redactExchangeUserContent(user.fullName),
+    fullName: redactExchangeUserContent(user.fullName),
+    profilePhotoUrl: sanitizeCounterpartyMediaUrl(user.profilePhotoUrl),
     memberSince: user.createdAt,
-    languages: user.languages,
+    languages: (user.languages ?? []).map((language) => redactExchangeUserContent(language)),
     preferredNetworks: user.preferredNetworks,
-    bio: user.bio,
-    tradingExperience: user.tradingExperience,
-    workingHours: user.workingHours,
-    preferredPaymentMethods: user.preferredPaymentMethods,
-    country: user.country,
-    city: user.city,
-    coverBannerUrl: user.coverBannerUrl,
+    bio: redactExchangeUserContent(user.bio),
+    tradingExperience: redactExchangeUserContent(user.tradingExperience),
+    workingHours: redactExchangeUserContent(user.workingHours),
+    preferredPaymentMethods: (user.preferredPaymentMethods ?? []).map((method) => redactExchangeUserContent(method)),
+    country: redactExchangeUserContent(user.country),
+    city: redactExchangeUserContent(user.city),
+    coverBannerUrl: sanitizeCounterpartyMediaUrl(user.coverBannerUrl),
     isFoundingSeller: user.isFoundingSeller === true,
     isFoundingMember: user.isFoundingMember === true,
     isFeaturedSeller: user.isFeaturedSeller === true,
@@ -1013,10 +1116,6 @@ function buildSellerPublicProfile(user: AlphaExchangeUser): SellerPublicProfile 
     roles: user.roles ?? [user.role],
     sellerStatus: user.sellerStatus,
     allowDirectMessages: user.allowDirectMessages !== false,
-    contact: {
-      email: user.showEmailPublic === true ? user.email : "",
-      phone: user.showPhonePublic === true ? user.whatsappNumber : "",
-    },
     onlineStatus: user.onlineStatus,
     availabilityStatus: user.availabilityStatus,
     lastActiveAt: user.lastActiveAt,
@@ -1053,12 +1152,16 @@ function buildPublicUserProfileDataForUser(input: {
   const showLastActive = user.showLastActive !== false || canBypassVisibility;
   const canViewSensitiveProfileDetails = canBypassVisibility;
   const explicitPublicTradingName = user.buyerDisplayName?.trim() || "";
-  const publicTradingName = explicitPublicTradingName || (isTrustEligibleSeller(user) ? "Verified Seller" : "Verified Member");
+  const fallbackPublicTradingName = isTrustEligibleSeller(user) ? "Verified Seller" : "Verified Member";
+  const publicTradingName = canBypassVisibility || !containsDirectContactContent(explicitPublicTradingName)
+    ? (explicitPublicTradingName || fallbackPublicTradingName)
+    : fallbackPublicTradingName;
+  const visibleText = (value: string | undefined) => canBypassVisibility ? String(value ?? "") : redactExchangeUserContent(value);
 
   return {
     profile: {
       id: user.id,
-      username: canViewSensitiveProfileDetails ? username : "",
+      username: canViewSensitiveProfileDetails ? username : derivePublicProfileUsername({ id: user.id, publicTradingName }),
       fullName: canViewSensitiveProfileDetails ? user.fullName : "",
       publicTradingName,
       role: user.role,
@@ -1066,12 +1169,12 @@ function buildPublicUserProfileDataForUser(input: {
       sellerStatus: user.sellerStatus,
       memberSince: user.createdAt,
       lastActiveAt: showLastActive ? user.lastActiveAt ?? user.updatedAt : null,
-      country: user.country ?? "",
+      country: visibleText(user.country),
       city: canViewSensitiveProfileDetails ? user.city ?? "" : "",
-      languages: user.languages ?? [],
-      bio: user.bio ?? "",
-      profilePhotoUrl: user.profilePhotoUrl ?? "",
-      coverBannerUrl: user.coverBannerUrl ?? "",
+      languages: (user.languages ?? []).map((language) => visibleText(language)),
+      bio: visibleText(user.bio),
+      profilePhotoUrl: canBypassVisibility ? user.profilePhotoUrl ?? "" : sanitizeCounterpartyMediaUrl(user.profilePhotoUrl),
+      coverBannerUrl: canBypassVisibility ? user.coverBannerUrl ?? "" : sanitizeCounterpartyMediaUrl(user.coverBannerUrl),
       isFeaturedSeller: user.isFeaturedSeller === true,
       isFoundingMember: user.isFoundingMember === true,
       isFoundingSeller: user.isFoundingSeller === true,
@@ -1466,12 +1569,23 @@ function enrichListingsWithSellerData(
   const usersById = new Map(db.users.map((user) => [user.id, user]));
   return listings.map((listing) => {
     const seller = usersById.get(listing.sellerId);
-    const publicListing: MarketplaceListing = { ...listing };
+    const publicListing: MarketplaceListing = {
+      ...listing,
+      sellerDisplayName: redactExchangeUserContent(listing.sellerDisplayName),
+      notes: redactExchangeUserContent(listing.notes),
+      sellerDescription: redactExchangeUserContent(listing.sellerDescription),
+      photos: (listing.photos ?? []).map((photo) => sanitizeCounterpartyMediaUrl(photo)).filter(Boolean),
+    };
     delete publicListing.bankAccountId;
+    if (publicListing.sellerProfile) {
+      const sellerProfile = { ...publicListing.sellerProfile };
+      delete sellerProfile.contact;
+      publicListing.sellerProfile = sellerProfile;
+    }
     if (!seller) return publicListing;
     return {
       ...publicListing,
-      sellerDisplayName: seller.fullName,
+      sellerDisplayName: redactExchangeUserContent(seller.fullName),
       sellerProfile: buildSellerPublicProfile(seller),
       sellerReputation: snapshots.get(seller.id) ?? computeSellerReputationSnapshot(db, seller.id),
     };
@@ -1571,6 +1685,7 @@ export async function getPremiumSellerProfile(input: {
   if (!publicAccount) return null;
   const viewerIsOwner = input.viewerRole === "owner" || (input.viewerRole === "admin" && isAlphaExchangeOwnerEmail(input.viewerEmail ?? ""));
   const viewerIsSellerOwner = input.viewerUserId === seller.id;
+  const viewerCanViewPrivateContent = input.viewerRole === "admin" || input.viewerRole === "owner";
   const canSeeExactSellerStats = viewerIsOwner || viewerIsSellerOwner;
 
   const sellerRequests = db.purchaseRequests.filter((request) => request.sellerId === seller.id);
@@ -1582,12 +1697,16 @@ export async function getPremiumSellerProfile(input: {
       id: `review-${request.id}`,
       tradeId: request.tradeId ?? request.id,
       rating: request.buyerReview!.rating,
-      comment: request.buyerReview!.comment,
+      comment: viewerCanViewPrivateContent ? request.buyerReview!.comment : redactExchangeUserContent(request.buyerReview!.comment),
       createdAt: request.buyerReview!.createdAt,
       buyerId: request.buyerId,
-      buyerName: usersById.get(request.buyerId)?.fullName ?? request.buyerName ?? "Buyer",
+      buyerName: viewerCanViewPrivateContent
+        ? usersById.get(request.buyerId)?.fullName ?? request.buyerName ?? "Buyer"
+        : redactExchangeUserContent(usersById.get(request.buyerId)?.fullName ?? request.buyerName ?? "Buyer"),
       verifiedPurchase: true,
-      sellerResponse: request.sellerResponse,
+      sellerResponse: request.sellerResponse && !viewerCanViewPrivateContent
+        ? { ...request.sellerResponse, message: redactExchangeUserContent(request.sellerResponse.message) }
+        : request.sellerResponse,
     }))
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
 
@@ -1667,7 +1786,6 @@ export async function getPremiumSellerProfile(input: {
     sellerStatus: publicAccount.profile.sellerStatus,
     allowDirectMessages: publicAccount.profile.allowDirectMessages,
     isEmailVerified: publicAccount.profile.isEmailVerified,
-    contact: publicAccount.profile.contact,
     lastActiveAt: publicAccount.profile.lastActiveAt ?? undefined,
   };
   const lifetimeCompletedVolumeUsdt = Math.max(0, Number(seller.lifetimeCompletedVolumeUsdt ?? trustSnapshot.totalUsdtVolume));
@@ -1957,7 +2075,10 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         showPhonePublic: (user as { showPhonePublic?: boolean }).showPhonePublic === true,
         showEmailPublic: (user as { showEmailPublic?: boolean }).showEmailPublic === true,
         notificationPreferences: normalizeNotificationPreferences((user as { notificationPreferences?: NotificationPreferences }).notificationPreferences),
-        emailVerified: (user as { emailVerified?: boolean }).emailVerified !== false,
+        // Email verification is a security boundary for marketplace actions.
+        // Legacy records without an explicit marker must fail closed rather
+        // than acquiring verified-email trading access during normalization.
+        emailVerified: (user as { emailVerified?: boolean }).emailVerified === true,
         emailVerifiedAt:
           typeof (user as { emailVerifiedAt?: string }).emailVerifiedAt === "string"
             ? (user as { emailVerifiedAt: string }).emailVerifiedAt
@@ -2988,7 +3109,7 @@ function pushNotification(
     centerCategory,
   } as AlphaExchangeNotification);
   const createdAt = nowIso();
-  const relatedHref = input.relatedHref?.trim() || (relatedRequestId ? requestDetailsHref(relatedRequestId) : undefined);
+  const relatedHref = sanitizeInternalNotificationHref(input.relatedHref) || (relatedRequestId ? requestDetailsHref(relatedRequestId) : undefined);
   const nextState = input.state ?? "unread";
 
   const duplicate = db.notifications.find((item) => {
@@ -3016,7 +3137,7 @@ function pushNotification(
         priority: input.priority ?? inferredPriority.priority,
         priorityRank: inferredPriority.rank,
         actionLabel: input.actionLabel ?? duplicate.actionLabel,
-        actionHref: input.actionHref ?? duplicate.actionHref ?? relatedHref,
+        actionHref: sanitizeInternalNotificationHref(input.actionHref) ?? sanitizeInternalNotificationHref(duplicate.actionHref) ?? relatedHref,
         reason: input.reason ?? duplicate.reason,
         archivedAt: nextState === "archived" ? createdAt : undefined,
         updatedAt: createdAt,
@@ -3039,7 +3160,7 @@ function pushNotification(
     priority: input.priority ?? inferredPriority.priority,
     priorityRank: inferredPriority.rank,
     actionLabel: input.actionLabel,
-    actionHref: input.actionHref ?? relatedHref,
+    actionHref: sanitizeInternalNotificationHref(input.actionHref) ?? relatedHref,
     reason: input.reason,
     relatedTradeId: input.relatedTradeId,
     relatedRequestId,
@@ -3814,6 +3935,7 @@ export async function createUser(input: {
   passwordHash: string;
   whatsappNumber: string;
 }) {
+  assertNoExchangeDirectContact(input.fullName);
   const db = await readDb();
   const email = normalizeEmail(input.email);
   if (db.users.some((user) => normalizeEmail(user.email) === email)) {
@@ -3899,6 +4021,10 @@ export async function upsertUserProfileForAuth(input: {
       sellerStatus: existing.sellerStatus,
     });
     const nextFullName = input.fullName.trim() || existing.fullName;
+    // Preserve a legacy display value during auth synchronization so a user is
+    // not locked out before the privacy projection can redact it. Any actual
+    // new display-name change remains subject to the content policy.
+    if (nextFullName !== existing.fullName) assertNoExchangeDirectContact(nextFullName);
     const nextWhatsappNumber = input.whatsappNumber.trim() || existing.whatsappNumber;
     const nextPasswordHash = input.passwordHash ?? existing.passwordHash;
     const nextRole = resolvePrimaryRole(normalizedRoles);
@@ -3940,6 +4066,7 @@ export async function upsertUserProfileForAuth(input: {
     roles: isAdminEmail(email) ? ["owner", "admin"] : ["guest"],
     sellerStatus: "buyer",
   });
+  assertNoExchangeDirectContact(input.fullName);
   const role = resolvePrimaryRole(roles);
   const user: AlphaExchangeUser = {
     id: `user-${randomUUID()}`,
@@ -4103,6 +4230,7 @@ export async function activateBuyerOnboardingWithoutPhone(input: {
   if (!firstName || !lastName) {
     throw new Error("First name and last name are required.");
   }
+  assertNoExchangeDirectContact(firstName, lastName, input.displayName);
 
   const roles = addRole(removeRole(user.roles ?? [user.role], "guest"), "buyer");
   db.users[index] = {
@@ -4127,6 +4255,7 @@ export async function beginBuyerVerification(input: {
   displayName?: string;
   phone: string;
 }) {
+  assertNoExchangeDirectContact(input.firstName, input.lastName, input.displayName);
   const db = await readDb();
   const index = db.users.findIndex((user) => user.id === input.userId);
   if (index === -1) throw new Error("User not found.");
@@ -4551,6 +4680,21 @@ export async function updateUserSellerSettings(input: {
   showPhonePublic?: boolean;
   showEmailPublic?: boolean;
 }) {
+  // Own private WhatsApp/phone fields intentionally remain outside this
+  // counterparty-content policy. Every field below can be projected to a
+  // buyer, seller, or public profile and must stay on-platform.
+  assertNoExchangeDirectContact(
+    input.fullName,
+    input.profilePhotoUrl,
+    input.coverBannerUrl,
+    input.bio,
+    input.tradingExperience,
+    input.workingHours,
+    input.country,
+    input.city,
+    ...(input.languages ?? []),
+    ...(input.preferredPaymentMethods ?? []),
+  );
   const db = await readDb();
   const index = db.users.findIndex((user) => user.id === input.userId);
   if (index === -1) throw new Error("User not found.");
@@ -6269,6 +6413,12 @@ export async function createMarketplaceListing(input: {
   acceptedCommissionPolicy?: boolean;
   actorUserId: string;
 }) {
+  assertNoExchangeDirectContact(
+    input.sellerDisplayName,
+    input.notes,
+    input.sellerDescription,
+    ...(input.photos ?? []),
+  );
   const logProfile = createStoreProfileLogger("createMarketplaceListing");
   const { db, fromCache } = await readDbForListingCreation();
   logProfile("readDb");
@@ -6427,6 +6577,13 @@ export async function updateMarketplaceListingForSeller(input: {
   changeReason?: string;
   changeExplanation?: string;
 }) {
+  assertNoExchangeDirectContact(
+    input.notes,
+    input.sellerDescription,
+    input.changeReason,
+    input.changeExplanation,
+    ...(input.photos ?? []),
+  );
   const db = await readDb();
   const index = db.marketplaceListings.findIndex((listing) => listing.id === input.listingId);
   if (index === -1) throw new Error("Listing not found.");
@@ -6953,6 +7110,7 @@ export async function deleteMarketplaceListingForSeller(input: {
   changeReason?: string;
   changeExplanation?: string;
 }) {
+  assertNoExchangeDirectContact(input.changeReason, input.changeExplanation);
   const db = await readDb();
   const listing = db.marketplaceListings.find((item) => item.id === input.listingId);
   if (!listing) throw new Error("Listing not found.");
@@ -7101,8 +7259,10 @@ export async function createPurchaseRequest(input: {
   listingId: string;
   usdtAmount: string;
   buyerName: string;
-  buyerWhatsapp: string;
-  buyerNotes: string;
+  // Accepted only for backwards-compatible internal callers. New Buyer API
+  // requests deliberately ignore these fields and do not persist contact data.
+  buyerWhatsapp?: string;
+  buyerNotes?: string;
   buyerReceivingWalletAddress: string;
   paymentMethod?: string;
   bankName?: string;
@@ -7213,8 +7373,6 @@ export async function createPurchaseRequest(input: {
     sellerId,
     tradeId,
     buyerName: input.buyerName.trim(),
-    buyerWhatsapp: input.buyerWhatsapp.trim(),
-    buyerNotes: input.buyerNotes.trim(),
     usdtAmount,
     fiatAmount,
     currency: listing.currency,
@@ -7318,16 +7476,34 @@ const SELLER_WALLET_VISIBLE_STATUSES = new Set<PurchaseRequestStatus>([
 ]);
 
 export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorUserId: string, actorRole: UserRole) {
-  const canViewBuyerContact = actorRole === "admin"
-    || actorRole === "owner"
-    || request.buyerId === actorUserId;
-  const canViewWallet = actorRole === "admin"
-    || actorRole === "owner"
+  const canViewPrivateContent = actorRole === "admin" || actorRole === "owner";
+  const canViewBuyerContact = canViewPrivateContent;
+  const canViewWallet = canViewPrivateContent
     || request.buyerId === actorUserId
     || (request.sellerId === actorUserId && SELLER_WALLET_VISIBLE_STATUSES.has(request.status));
-  const redacted = { ...request };
+  const redacted: PurchaseRequest = {
+    ...request,
+    buyerName: canViewPrivateContent ? request.buyerName : redactExchangeUserContent(request.buyerName),
+    timeline: (request.timeline ?? []).map((entry) => sanitizeTradeTimelineForCounterparty(entry, canViewPrivateContent)),
+    messages: (request.messages ?? []).map((message) => sanitizeTradeRoomMessageForCounterparty(message, canViewPrivateContent)),
+    buyerEvidence: canViewPrivateContent ? request.buyerEvidence : sanitizeTradeEvidenceForCounterparty(request.buyerEvidence),
+    sellerEvidence: canViewPrivateContent ? request.sellerEvidence : sanitizeTradeEvidenceForCounterparty(request.sellerEvidence),
+    closeReason: canViewPrivateContent ? request.closeReason : redactExchangeUserContent(request.closeReason),
+    closeExplanation: canViewPrivateContent ? request.closeExplanation : redactExchangeUserContent(request.closeExplanation),
+    buyerReview: request.buyerReview && !canViewPrivateContent
+      ? {
+          ...request.buyerReview,
+          comment: redactExchangeUserContent(request.buyerReview.comment),
+          hiddenReason: redactExchangeUserContent(request.buyerReview.hiddenReason),
+        }
+      : request.buyerReview,
+    sellerResponse: request.sellerResponse && !canViewPrivateContent
+      ? { ...request.sellerResponse, message: redactExchangeUserContent(request.sellerResponse.message) }
+      : request.sellerResponse,
+  };
   if (!canViewBuyerContact) {
     delete (redacted as { buyerWhatsapp?: string }).buyerWhatsapp;
+    delete (redacted as { buyerNotes?: string }).buyerNotes;
   }
   if (!canViewWallet) {
     delete redacted.buyerReceivingWalletAddress;
@@ -7354,6 +7530,24 @@ function isActiveTradeStatus(status: PurchaseRequestStatus) {
 
 function isActionableTradeStatus(status: PurchaseRequestStatus) {
   return ACTIONABLE_TRADE_STATUSES.includes(status);
+}
+
+function sanitizeTradeRoomListing(listing: MarketplaceListing | null) {
+  if (!listing) return null;
+  const redacted = {
+    ...listing,
+    sellerDisplayName: redactExchangeUserContent(listing.sellerDisplayName),
+    notes: redactExchangeUserContent(listing.notes),
+    sellerDescription: redactExchangeUserContent(listing.sellerDescription),
+    photos: (listing.photos ?? []).map((photo) => sanitizeCounterpartyMediaUrl(photo)).filter(Boolean),
+  };
+  delete redacted.bankAccountId;
+  if (redacted.sellerProfile) {
+    const sellerProfile = { ...redacted.sellerProfile };
+    delete sellerProfile.contact;
+    redacted.sellerProfile = sellerProfile;
+  }
+  return redacted;
 }
 
 type TradeRoomParticipantSide = "buyer" | "seller";
@@ -7446,6 +7640,10 @@ function filterTradesForUser(db: AlphaExchangeDb, userId: string, role: UserRole
   });
 }
 
+function projectPurchaseRequestForActor(db: AlphaExchangeDb, request: PurchaseRequest, userId: string, role: UserRole) {
+  return sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request), userId, role);
+}
+
 export async function getFirstActiveTradeForUser(userId: string, role: UserRole) {
   const db = await readDb();
   // Include "pending" only when the user is the buyer waiting for seller acceptance —
@@ -7456,7 +7654,7 @@ export async function getFirstActiveTradeForUser(userId: string, role: UserRole)
       (request.status === "pending" && request.buyerId === userId),
     )
     .sort(sortTradesByUpdatedAtDesc);
-  return activeTrades[0] ? enrichRequestWithEvidence(db, activeTrades[0]) : null;
+  return activeTrades[0] ? projectPurchaseRequestForActor(db, activeTrades[0], userId, role) : null;
 }
 
 export async function getTradeReminderForUser(userId: string, role: UserRole): Promise<AlphaExchangeTradeReminder | null> {
@@ -7531,7 +7729,7 @@ export async function getFirstActionableTradeForUser(userId: string, role: UserR
   const actionableTrades = filterTradesForUser(db, userId, role)
     .filter((request) => isActionableTradeStatus(request.status))
     .sort(sortTradesByUpdatedAtDesc);
-  return actionableTrades[0] ? enrichRequestWithEvidence(db, actionableTrades[0]) : null;
+  return actionableTrades[0] ? projectPurchaseRequestForActor(db, actionableTrades[0], userId, role) : null;
 }
 
 export async function getTradeRoomRequestForUserById(input: {
@@ -7547,7 +7745,7 @@ export async function getTradeRoomRequestForUserById(input: {
   const visibleTrades = filterTradesForUser(db, input.userId, input.role);
   const allowed = visibleTrades.some((item) => item.id === request.id);
   if (!allowed) return null;
-  return enrichRequestWithEvidence(db, request);
+  return projectPurchaseRequestForActor(db, request, input.userId, input.role);
 }
 
 export async function resolveTradeRoomRequestForNotification(input: {
@@ -7577,7 +7775,7 @@ export async function resolveTradeRoomRequestForNotification(input: {
   });
   if (relatedRequest) {
     return {
-      request: enrichRequestWithEvidence(db, relatedRequest),
+      request: projectPurchaseRequestForActor(db, relatedRequest, input.userId, input.role),
       reason: "notification_related_request" as const,
       notification: enrichedNotification,
       consideredStatuses: input.includePendingFallback ? ACTIONABLE_TRADE_STATUSES : ACTIVE_TRADE_STATUSES,
@@ -7590,7 +7788,7 @@ export async function resolveTradeRoomRequestForNotification(input: {
     const snapshotRequest = db.purchaseRequests.find((request) => request.id === snapshotRequestId);
     if (snapshotRequest) {
       return {
-        request: enrichRequestWithEvidence(db, snapshotRequest),
+        request: projectPurchaseRequestForActor(db, snapshotRequest, input.userId, input.role),
         reason: "trade_snapshot_request" as const,
         notification: enrichedNotification,
         consideredStatuses: input.includePendingFallback ? ACTIONABLE_TRADE_STATUSES : ACTIVE_TRADE_STATUSES,
@@ -7606,7 +7804,7 @@ export async function resolveTradeRoomRequestForNotification(input: {
     [0];
 
   return {
-    request: fallbackTrade ? enrichRequestWithEvidence(db, fallbackTrade) : null,
+    request: fallbackTrade ? projectPurchaseRequestForActor(db, fallbackTrade, input.userId, input.role) : null,
     reason: fallbackTrade ? "fallback_user_trade" as const : "no_trade_match" as const,
     notification: enrichedNotification,
     consideredStatuses: input.includePendingFallback ? ACTIONABLE_TRADE_STATUSES : ACTIVE_TRADE_STATUSES,
@@ -7720,15 +7918,16 @@ export async function getTradeRoomData(input: {
   const isBuyerActor = request.buyerId === input.actorUserId;
   const isOverdue = releaseDeadlineOverdue || request.timeoutReason === "USDT release SLA expired.";
   const sellerPendingCommissions = db.commissionRecords.filter((record) => record.sellerId === request.sellerId && normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid");
+  const canViewPrivateContent = input.actorRole === "admin" || input.actorRole === "owner";
 
   return {
     request: sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request), input.actorUserId, input.actorRole),
-    listing,
+    listing: sanitizeTradeRoomListing(listing),
     counterpart: {
-      buyerName: buyer?.fullName ?? request.buyerName,
-      sellerName: seller?.fullName ?? listing?.sellerDisplayName ?? request.sellerId,
+      buyerName: canViewPrivateContent ? buyer?.fullName ?? request.buyerName : redactExchangeUserContent(buyer?.fullName ?? request.buyerName),
+      sellerName: canViewPrivateContent ? seller?.fullName ?? listing?.sellerDisplayName ?? request.sellerId : redactExchangeUserContent(seller?.fullName ?? listing?.sellerDisplayName ?? request.sellerId),
     },
-    messages,
+    messages: messages.map((message) => sanitizeTradeRoomMessageForCounterparty(message, canViewPrivateContent)),
     poke: getTradeRoomPokeAvailability(request, input.actorUserId),
     deadlineAt,
     timeRemainingSeconds,
@@ -7830,7 +8029,10 @@ export async function closePurchaseRequestManually(input: {
     throw new Error("Declined trades cannot be closed again.");
   }
   if (request.status === "cancelled" && request.closedAt) {
-    return enrichRequestWithEvidence(db, request);
+    // A retry can read legacy payload fields. Apply the same participant DTO
+    // projection as the normal path so a repeated close cannot expose old
+    // Buyer contact metadata or user-authored direct-contact content.
+    return sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request), input.actorUserId, input.actorRole);
   }
   if (!isAdmin && request.status !== "pending") {
     throw new Error("Trades cannot be closed manually after seller acceptance.");
@@ -7841,6 +8043,7 @@ export async function closePurchaseRequestManually(input: {
   if (!closeReason) throw new Error("A close reason is required.");
   if (closeReason.length > 120) throw new Error("Close reason is too long.");
   if (closeExplanation.length > 1000) throw new Error("Close explanation is too long.");
+  assertNoExchangeDirectContact(closeReason, closeExplanation);
 
   const now = nowIso();
   const actorRole = resolveActorRole(db, input.actorUserId);
@@ -7924,7 +8127,7 @@ export async function closePurchaseRequestManually(input: {
       publishedAtEpochMs: Date.now(),
     },
   });
-  return enriched;
+  return sanitizePurchaseRequestForActor(enriched, input.actorUserId, input.actorRole);
 }
 
 export async function postTradeRoomMessage(input: {
@@ -7948,6 +8151,8 @@ export async function postTradeRoomMessage(input: {
   const message = input.message.trim();
   if (!message) throw new Error("Message is required.");
   if (message.length > 1200) throw new Error("Message is too long.");
+  assertNoExchangeDirectContact(message, input.imageUrl);
+  const image = parseTradeRoomImageDataUrl(input.imageUrl, input.imageMimeType);
   const validationMs = Date.now() - validationStartedAt;
 
   const businessStartedAt = Date.now();
@@ -7962,9 +8167,11 @@ export async function postTradeRoomMessage(input: {
     createdAt: nowIso(),
     sentAt: nowIso(),
     readByUserIds: [input.actorUserId],
-    imageUrl: input.imageUrl?.trim() || undefined,
-    imageName: input.imageName?.trim() || undefined,
-    imageMimeType: input.imageMimeType?.trim() || undefined,
+    imageUrl: image?.dataUrl,
+    // Do not retain client filename metadata: an attachment can be identified
+    // safely by its server-generated message id and verified MIME type.
+    imageName: image ? `trade-room-attachment-${randomUUID().slice(0, 8)}.${extensionForEvidenceMimeType(image.mimeType)}` : undefined,
+    imageMimeType: image?.mimeType,
   };
   // Store messages in request.messages (persisted inside purchase_requests.payload JSON).
   // Also keep db.tradeMessages in sync for backward compatibility.
@@ -8455,9 +8662,9 @@ export async function uploadTradeEvidence(input: {
 
   const extension = extensionForEvidenceMimeType(mimeType);
   const evidenceId = `evidence-${randomUUID()}`;
-  const baseName = path
-    .basename(String(input.fileName ?? "").trim() || `${input.side}-evidence.${extension}`)
-    .replace(/[^a-zA-Z0-9._-]/g, "-");
+  // Never expose user-supplied filenames to the counterparty. The content and
+  // storage path remain intact; only display/download metadata is neutral.
+  const baseName = evidenceDisplayFileName(input.side, mimeType);
   const storageFileName = `${input.side}-${evidenceId}.${extension}`;
   const storagePath = `db://alpha-exchange-evidence/${request.id}/${storageFileName}`;
 
@@ -8675,7 +8882,14 @@ export async function downloadTradeEvidenceContent(input: {
   if (!buffer?.length) {
     throw new Error("Evidence content not found.");
   }
-  return { evidence, request, buffer };
+  return {
+    evidence: {
+      ...evidence,
+      fileName: evidenceDisplayFileName(evidence.side, evidence.mimeType),
+    },
+    request,
+    buffer,
+  };
 }
 
 export async function downloadMarketplaceComplianceEvidenceById(input: {
@@ -8746,6 +8960,16 @@ function buildSellerReviewRecordFromRequest(request: PurchaseRequest): SellerRev
   };
 }
 
+function sanitizeSellerReviewForCounterparty(review: SellerReviewRecord, canViewPrivateContent: boolean) {
+  if (canViewPrivateContent) return review;
+  return {
+    ...review,
+    comment: redactExchangeUserContent(review.comment),
+    sellerReply: review.sellerReply ? redactExchangeUserContent(review.sellerReply) : undefined,
+    hiddenReason: review.hiddenReason ? redactExchangeUserContent(review.hiddenReason) : undefined,
+  };
+}
+
 export async function submitBuyerTradeReview(input: {
   requestId: string;
   buyerUserId: string;
@@ -8766,6 +8990,7 @@ export async function submitBuyerTradeReview(input: {
   const comment = String(input.comment ?? "").trim();
   if (!comment) throw new Error("Review comment is required.");
   if (comment.length > 500) throw new Error("Review comment is too long.");
+  assertNoExchangeDirectContact(comment);
 
   const review = buildSellerReviewFromTrade(request, { buyerUserId: input.buyerUserId, rating, comment });
   db.purchaseRequests[requestIndex] = {
@@ -8848,6 +9073,7 @@ export async function submitSellerReviewResponse(input: {
   const message = String(input.message ?? "").trim();
   if (!message) throw new Error("Response message is required.");
   if (message.length > 500) throw new Error("Response message is too long.");
+  assertNoExchangeDirectContact(message);
 
   db.purchaseRequests[requestIndex] = {
     ...request,
@@ -8901,7 +9127,9 @@ export async function getSellerReviews(input: {
     .filter((review): review is SellerReviewRecord => Boolean(review))
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
   const canViewHidden = input.actorRole === "admin" || input.actorRole === "owner" || input.actorUserId === input.sellerId;
-  return canViewHidden ? reviews : reviews.filter((review) => !review.hidden);
+  const canViewPrivateContent = input.actorRole === "admin" || input.actorRole === "owner";
+  return (canViewHidden ? reviews : reviews.filter((review) => !review.hidden))
+    .map((review) => sanitizeSellerReviewForCounterparty(review, canViewPrivateContent));
 }
 
 export async function moderateSellerReview(input: {
@@ -11688,6 +11916,7 @@ export async function openTradeDispute(input: {
   const reason = String(input.reason ?? "").trim();
   if (!reason) throw new Error("Dispute reason is required.");
   if (reason.length > 500) throw new Error("Dispute reason is too long.");
+  assertNoExchangeDirectContact(reason);
 
   const dispute: TradeDisputeCase = {
     id: `dispute-${randomUUID()}`,
@@ -11769,6 +11998,7 @@ export async function reportSeller(input: {
   const reason = String(input.reason ?? "").trim();
   if (!reason) throw new Error("Report reason is required.");
   if (reason.length > 500) throw new Error("Report reason is too long.");
+  assertNoExchangeDirectContact(reason);
 
   if (input.purchaseRequestId) {
     const request = db.purchaseRequests.find((item) => item.id === input.purchaseRequestId);

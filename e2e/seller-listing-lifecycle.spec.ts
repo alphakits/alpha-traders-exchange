@@ -708,7 +708,7 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   expect(paymentSentTrade?.status).toBe("payment_sent");
   firstTrade = paymentSentTrade as PurchasePayload;
   expect(firstTrade.status).toBe("payment_sent");
-  expect(firstTrade.buyerEvidence?.fileName).toBe("buyer-proof.png");
+  expect(firstTrade.buyerEvidence?.fileName).toBe("buyer-payment-evidence.png");
 
   response = await seller.page.request.patch(`/api/alpha-exchange/purchase-requests/${firstRequest.purchase.id}`, { data: { status: "funds_received" } });
   expect(response.ok()).toBeTruthy();
@@ -729,7 +729,7 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   const sellerEvidenceResponse = await uploadEvidence(seller.page, firstRequest.purchase.id, "seller");
   firstTrade = sellerEvidenceResponse.request as PurchasePayload;
   expect(firstTrade.status).toBe("usdt_sent");
-  expect(firstTrade.sellerEvidence?.fileName).toBe("seller-proof.png");
+  expect(firstTrade.sellerEvidence?.fileName).toBe("seller-release-evidence.png");
 
   response = await buyer.page.request.patch(`/api/alpha-exchange/purchase-requests/${firstRequest.purchase.id}`, { data: { status: "completed" } });
   expect(response.ok()).toBeTruthy();
@@ -744,8 +744,8 @@ test("seller listing lifecycle is enforced end-to-end", async ({ browser }) => {
   let adminPrep = await getAdminPrep(owner.page.request);
   let firstTradeAdmin = adminPrep.purchaseRequests.find((request) => request.id === firstRequest.purchase.id);
   expect(firstTradeAdmin?.status).toBe("review_open");
-  expect(firstTradeAdmin?.buyerEvidence?.fileName).toBe("buyer-proof.png");
-  expect(firstTradeAdmin?.sellerEvidence?.fileName).toBe("seller-proof.png");
+  expect(firstTradeAdmin?.buyerEvidence?.fileName).toBe("buyer-payment-evidence.png");
+  expect(firstTradeAdmin?.sellerEvidence?.fileName).toBe("seller-release-evidence.png");
   expect(Boolean(firstTradeAdmin?.fundsReceivedAt)).toBeTruthy();
   expect(Boolean(firstTradeAdmin?.usdtReleaseStartedAt)).toBeTruthy();
   expect(Boolean(firstTradeAdmin?.usdtReleaseDeadlineAt)).toBeTruthy();
