@@ -4475,7 +4475,7 @@ export function UsdtExchangePage({
           <Card
             id="my-listings-section"
             tabIndex={-1}
-            className={cn("scroll-mt-24 border-white/10 bg-[#0B0B0B]/90", !isSellerDashboardWorkspace && "mt-4")}
+            className="scroll-mt-24 border-white/10 bg-[#0B0B0B]/90"
           >
             <CardHeader>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -4483,7 +4483,7 @@ export function UsdtExchangePage({
                   <CardTitle>{isAr ? "قائمتي" : "My Listings"}</CardTitle>
                   <CardDescription>{isAr ? "إدارة جميع عروضك كبائع معتمد." : "Manage all of your approved seller listings."}</CardDescription>
                 </div>
-                {isSellerDashboardWorkspace && sortedDashboardListings.length ? (
+                {sortedDashboardListings.length ? (
                   <Button
                     type="button"
                     size="sm"
@@ -4524,11 +4524,9 @@ export function UsdtExchangePage({
                   </Button>
                 </div>
               ) : null}
-              {(isSellerDashboardWorkspace
-                ? (sellerListingsExpanded
-                    ? sortedDashboardListings
-                    : sortedDashboardListings.slice(0, isMobileViewport ? 1 : 2))
-                : myListings
+              {(sellerListingsExpanded
+                ? sortedDashboardListings
+                : sortedDashboardListings.slice(0, isMobileViewport ? 1 : 2)
               ).map((listing) => {
                 const requestsCount = sellerRequests.filter((request) => request.listingId === listing.id).length;
                 const listingBusy = isListingActionBusy(listing.id);
@@ -4563,41 +4561,32 @@ export function UsdtExchangePage({
                     id={sellerListingWorkspaceAnchor(listing)}
                     key={listing.id}
                     tabIndex={-1}
-                    data-dashboard-compact-listing={isSellerDashboardWorkspace ? "true" : undefined}
+                    data-seller-compact-listing="true"
                     data-listing-id={listing.id}
-                    className={cn(
-                      "scroll-mt-24 overflow-hidden rounded-2xl border border-white/10 bg-black/20 transition-all duration-200",
-                      isSellerDashboardWorkspace
-                        ? "hover:border-[#C9A227]/30"
-                        : "p-4 hover:-translate-y-0.5 hover:border-[#C9A227]/35 hover:shadow-[0_14px_30px_rgba(2,6,23,0.45)]",
-                    )}
+                    className="scroll-mt-24 overflow-hidden rounded-2xl border border-white/10 bg-black/20 transition-all duration-200 hover:border-[#C9A227]/30"
                   >
-                    {isSellerDashboardWorkspace ? (
-                      <button
-                        type="button"
-                        className="grid w-full gap-2 px-3 py-3 text-left transition hover:bg-white/[0.03] sm:grid-cols-[1.15fr_0.8fr_0.7fr_1fr_1fr_auto] sm:items-center"
-                        aria-expanded={isDashboardListingExpanded}
-                        aria-controls={`seller-listing-details-${listing.id}`}
-                        onClick={() => setSellerExpandedListingId((current) => current === listing.id ? null : listing.id)}
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-white">Listing {shortListingRef(listing)}</p>
-                          <p className="mt-0.5 text-xs text-[#9CA3AF]">{listingAttention}</p>
-                        </div>
-                        <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">Amount </span>{toNumber(listing.availableAmount).toLocaleString("en-IL")} USDT</p>
-                        <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">Price </span>{formatIls(toNumber(listing.price))}</p>
-                        <p className="min-w-0 truncate text-xs text-[#D1D5DB]" title={listingPaymentMethods}><span className="text-[#9CA3AF]">Payment </span>{listingPaymentMethods}</p>
-                        <p className={cn("text-xs font-medium", isAwaitingApproval || isLockedForActiveTrade ? "text-amber-200" : "text-[#BFDBFE]")}>{listingRequiredAction}</p>
-                        <ChevronDown className={cn("h-4 w-4 text-[#9CA3AF] transition-transform", isDashboardListingExpanded && "rotate-180")} />
-                      </button>
-                    ) : (
-                      <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-[#93C5FD]">Listing {shortListingRef(listing)}</p>
-                    )}
+                    <button
+                      type="button"
+                      className="grid w-full gap-2 px-3 py-3 text-left transition hover:bg-white/[0.03] sm:grid-cols-[1.15fr_0.8fr_0.7fr_1fr_1fr_auto] sm:items-center"
+                      aria-expanded={isDashboardListingExpanded}
+                      aria-controls={`seller-listing-details-${listing.id}`}
+                      onClick={() => setSellerExpandedListingId((current) => current === listing.id ? null : listing.id)}
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-white">Listing {shortListingRef(listing)}</p>
+                        <p className="mt-0.5 text-xs text-[#9CA3AF]">{listingAttention}</p>
+                      </div>
+                      <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">Amount </span>{toNumber(listing.availableAmount).toLocaleString("en-IL")} USDT</p>
+                      <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">Price </span>{formatIls(toNumber(listing.price))}</p>
+                      <p className="min-w-0 truncate text-xs text-[#D1D5DB]" title={listingPaymentMethods}><span className="text-[#9CA3AF]">Payment </span>{listingPaymentMethods}</p>
+                      <p className={cn("text-xs font-medium", isAwaitingApproval || isLockedForActiveTrade ? "text-amber-200" : "text-[#BFDBFE]")}>{listingRequiredAction}</p>
+                      <ChevronDown className={cn("h-4 w-4 text-[#9CA3AF] transition-transform", isDashboardListingExpanded && "rotate-180")} />
+                    </button>
                     <div
                       id={`seller-listing-details-${listing.id}`}
                       className={cn(
-                        isSellerDashboardWorkspace && "border-t border-white/10 px-3 pb-3 pt-3",
-                        isSellerDashboardWorkspace && !isDashboardListingExpanded && "hidden",
+                        "border-t border-white/10 px-3 pb-3 pt-3",
+                        !isDashboardListingExpanded && "hidden",
                       )}
                     >
                     {listing.status === "draft" && listing.approvalStatus === "pending" ? (
@@ -4605,25 +4594,12 @@ export function UsdtExchangePage({
                         Awaiting Alpha Traders admin approval — this listing is not visible to buyers yet.
                       </p>
                     ) : null}
-                    {isSellerDashboardWorkspace ? (
-                      <div className="grid gap-2 rounded-xl border border-white/10 bg-black/20 p-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
-                        <p>Status: <span className="text-white">{safeText(listing.status)}</span></p>
-                        <p>Required action: <span className="text-white">{listingRequiredAction}</span></p>
-                        <p>Purchase requests: <span className="text-white">{requestsCount}</span></p>
-                        <p>Last activity: <span className="text-white">{new Date(listing.updatedAt || listing.createdAt).toLocaleString("en-IL")}</span></p>
-                      </div>
-                    ) : (
-                    <div className="grid gap-2 text-sm md:grid-cols-4">
+                    <div className="grid gap-2 rounded-xl border border-white/10 bg-black/20 p-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
                       <p>Status: <span className="text-white">{safeText(listing.status)}</span></p>
-                      <p>Available Amount: <span className="text-white">{toNumber(listing.availableAmount).toLocaleString("en-IL")} USDT</span></p>
-                      <p>Price: <span className="text-white">{formatIls(toNumber(listing.price))}</span></p>
-                      <p>Network: <span className="text-white">{safeText(listing.network)}</span></p>
-                      <p>Payment Methods: <span className="text-white">{listingPaymentMethods}</span></p>
-                      <p>Banks: <span className="text-white">{parseIsraeliBankSelection(listing.bankName).join(", ") || "Not set"}</span></p>
-                      <p>Purchase Requests: <span className="text-white">{requestsCount}</span></p>
-                      <p>Created Date: <span className="text-white">{new Date(listing.createdAt).toLocaleDateString("en-IL")}</span></p>
+                      <p>Required action: <span className="text-white">{listingRequiredAction}</span></p>
+                      <p>Purchase requests: <span className="text-white">{requestsCount}</span></p>
+                      <p>Last activity: <span className="text-white">{new Date(listing.updatedAt || listing.createdAt).toLocaleString("en-IL")}</span></p>
                     </div>
-                    )}
                     <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-start">
                       <DiscordShareAction
                         listing={listing}
@@ -4886,7 +4862,7 @@ export function UsdtExchangePage({
                   </div>
                 );
               })}
-              {isSellerDashboardWorkspace && sortedDashboardListings.length > (isMobileViewport ? 1 : 2) ? (
+              {sortedDashboardListings.length > (isMobileViewport ? 1 : 2) ? (
                 <div className="flex justify-start">
                   <Button
                     type="button"
@@ -4903,7 +4879,6 @@ export function UsdtExchangePage({
             </CardContent>
           </Card>
           );
-          if (!isSellerDashboardWorkspace) return sellerListingsWorkspace;
           return sellerDashboardListingsTarget ? createPortal(sellerListingsWorkspace, sellerDashboardListingsTarget) : null;
         })() : null}
 
@@ -6501,7 +6476,7 @@ export function UsdtExchangePage({
               ) : null}
             </CardContent>
           </Card>
-          {isSellerDashboardWorkspace ? <div ref={setSellerDashboardListingsTarget} className="order-5" /> : null}
+          <div ref={setSellerDashboardListingsTarget} className="order-5" />
 
           <div className="order-6">
             {renderNotificationCenterCard("notification-center-section")}

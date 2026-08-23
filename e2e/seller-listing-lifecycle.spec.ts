@@ -643,7 +643,7 @@ test("bank-transfer listing requires selected seller bank account and preserves 
   await seller.context.close();
 });
 
-test("seller dashboard consolidates recent work, exact commission actions, and listing management", async ({ browser }) => {
+test("seller dashboard and exchange route consolidate recent work, exact commission actions, and listing management", async ({ browser }) => {
   test.setTimeout(180_000);
   const hasFixtures = await resetLifecycleFixtures();
   test.skip(!hasFixtures, "Set E2E owner/seller credentials and seed matching runtime accounts to run lifecycle tests.");
@@ -716,7 +716,7 @@ test("seller dashboard consolidates recent work, exact commission actions, and l
     addListing(listingId, 9303, "2030-01-07T00:00:00.000Z");
     addListing(middleListingId, 9302, "2030-01-06T00:00:00.000Z");
     addRequest(oldestRequestId, 9201, "2030-01-02T00:00:00.000Z", "declined");
-    addRequest(middleRequestId, 9202, "2030-01-03T00:00:00.000Z", "accepted");
+    addRequest(middleRequestId, 9202, "2030-01-03T00:00:00.000Z", "declined");
     addRequest(latestRequestId, 9203, "2030-01-04T00:00:00.000Z", "pending");
     db.commissionRecords.push(
       {
@@ -785,7 +785,7 @@ test("seller dashboard consolidates recent work, exact commission actions, and l
   const listingsSection = main.locator("#my-listings-section");
   await expect(listingsSection.getByRole("heading", { name: "My Listings" })).toBeVisible();
   await expect(listingsSection.getByRole("button", { name: "Manage Listings" })).toBeVisible();
-  const compactListings = listingsSection.locator('[data-dashboard-compact-listing="true"]');
+  const compactListings = listingsSection.locator('[data-seller-compact-listing="true"]');
   await expect(compactListings).toHaveCount(2);
   await expect(compactListings.first()).toHaveAttribute("data-listing-id", listingId);
   await expect(compactListings.nth(1)).toHaveAttribute("data-listing-id", middleListingId);
@@ -809,6 +809,29 @@ test("seller dashboard consolidates recent work, exact commission actions, and l
     };
   });
   expect(sectionOrder.requestsTop).toBeLessThan(sectionOrder.listingsTop);
+
+  await seller.page.goto("/en/usdt-exchange");
+  const exchangeRequestsSection = main.locator("#purchase-requests-section");
+  const exchangeListingsSection = main.locator("#my-listings-section");
+  await expect(exchangeRequestsSection).toBeVisible({ timeout: 60_000 });
+  await expect(exchangeListingsSection).toBeVisible();
+  await expect(exchangeListingsSection.getByRole("button", { name: "Manage Listings" })).toBeVisible();
+  const exchangeCompactListings = exchangeListingsSection.locator('[data-seller-compact-listing="true"]');
+  await expect(exchangeCompactListings).toHaveCount(2);
+  await expect(exchangeCompactListings.first()).toHaveAttribute("data-listing-id", listingId);
+  await expect(exchangeCompactListings.nth(1)).toHaveAttribute("data-listing-id", middleListingId);
+  await expect(exchangeCompactListings.first().locator("> button")).toHaveAttribute("aria-expanded", "true");
+  await expect(exchangeCompactListings.nth(1).locator("> button")).toHaveAttribute("aria-expanded", "false");
+  await expect(exchangeCompactListings.nth(1).getByRole("button", { name: "Edit" })).toHaveCount(0);
+  const exchangeSectionOrder = await seller.page.evaluate(() => {
+    const requests = document.getElementById("purchase-requests-section");
+    const listings = document.getElementById("my-listings-section");
+    return {
+      requestsTop: requests?.getBoundingClientRect().top ?? Number.NaN,
+      listingsTop: listings?.getBoundingClientRect().top ?? Number.NaN,
+    };
+  });
+  expect(exchangeSectionOrder.requestsTop).toBeLessThan(exchangeSectionOrder.listingsTop);
 
   const commissionStatus = main.locator("#commission-status");
   await expect(commissionStatus).toContainText("Choose one unpaid commission to pay.");
