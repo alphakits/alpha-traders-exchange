@@ -30,6 +30,20 @@ describe("dashboard workspace helpers", () => {
     expect(activities.map((activity) => activity.id)).toEqual(["trade-a", "trade-b"]);
   });
 
+  it("orders dashboard listings by updatedAt with createdAt as the fallback", () => {
+    const listings = sortDashboardActivityNewestFirst([
+      { id: "listing-created-fallback", createdAt: "2026-08-23T10:00:00.000Z" },
+      { id: "listing-latest-update", createdAt: "2026-08-20T10:00:00.000Z", updatedAt: "2026-08-23T11:00:00.000Z" },
+      { id: "listing-older-update", createdAt: "2026-08-23T12:00:00.000Z", updatedAt: "2026-08-22T10:00:00.000Z" },
+    ]);
+
+    expect(listings.map((listing) => listing.id)).toEqual([
+      "listing-latest-update",
+      "listing-created-fallback",
+      "listing-older-update",
+    ]);
+  });
+
   it("uses a single exact commission record only when one payable record exists", () => {
     expect(getCommissionWorkspaceAction({
       status: "pending",

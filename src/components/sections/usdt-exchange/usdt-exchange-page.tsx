@@ -1086,10 +1086,12 @@ export function UsdtExchangePage({
   const [sellerTradeStatus, setSellerTradeStatus] = useState<"all" | PurchaseRequest["status"]>("all");
   const [buyerExpandedTradeId, setBuyerExpandedTradeId] = useState<string | null>(null);
   const [sellerExpandedTradeId, setSellerExpandedTradeId] = useState<string | null>(null);
+  const [sellerExpandedListingId, setSellerExpandedListingId] = useState<string | null>(null);
   const [sellerDashboardListingsTarget, setSellerDashboardListingsTarget] = useState<HTMLDivElement | null>(null);
   const [isSellerApplicationExpanded, setIsSellerApplicationExpanded] = useState(false);
   const [buyerTradeVisibleCount, setBuyerTradeVisibleCount] = useState(2);
   const [sellerPrimaryRequestsExpanded, setSellerPrimaryRequestsExpanded] = useState(false);
+  const [sellerListingsExpanded, setSellerListingsExpanded] = useState(false);
   const [notificationCenterExpanded, setNotificationCenterExpanded] = useState(false);
   const [tradeReviewDrafts, setTradeReviewDrafts] = useState<Record<string, string>>({});
   const [sellerResponseDrafts, setSellerResponseDrafts] = useState<Record<string, string>>({});
@@ -1750,8 +1752,13 @@ export function UsdtExchangePage({
     if (typeof document === "undefined") return false;
     const target = document.getElementById("my-listings-section");
     if (!target) return false;
+    target.focus({ preventScroll: true });
     target.scrollIntoView({ behavior: "smooth", block: "start" });
-    window.requestAnimationFrame(() => target.focus({ preventScroll: true }));
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        document.getElementById("my-listings-section")?.focus({ preventScroll: true });
+      });
+    });
     return true;
   }, []);
 
@@ -2475,6 +2482,10 @@ export function UsdtExchangePage({
     () => sortDashboardActivityNewestFirst(filteredBuyerRequests),
     [filteredBuyerRequests],
   );
+  const sortedDashboardListings = useMemo(
+    () => sortDashboardActivityNewestFirst(myListings),
+    [myListings],
+  );
   const recentSellerRequests = useMemo(() => sortDashboardActivityNewestFirst(sellerRequests), [sellerRequests]);
   const recentBuyerRequests = useMemo(() => sortDashboardActivityNewestFirst(buyerRequests), [buyerRequests]);
 
@@ -2491,6 +2502,13 @@ export function UsdtExchangePage({
       return sortedSellerRequests[0]?.id ?? null;
     });
   }, [sortedSellerRequests]);
+
+  useEffect(() => {
+    setSellerExpandedListingId((current) => {
+      if (current && sortedDashboardListings.some((listing) => listing.id === current)) return current;
+      return sortedDashboardListings[0]?.id ?? null;
+    });
+  }, [sortedDashboardListings]);
   const handlePrefetchTradeRoom = useCallback((requestId: string) => {
     prefetchTradeRoom(router, requestId);
   }, [router]);
@@ -2866,7 +2884,7 @@ export function UsdtExchangePage({
       {
         key: "listings",
         title: "My Listings",
-        subtitle: "Manage Listings",
+        subtitle: "Open listing workspace",
         stat: `${myListings.length.toLocaleString("en-IL")}`,
         onClick: () => {
           if (!scrollToMyListingsSection()) {
@@ -4454,10 +4472,37 @@ export function UsdtExchangePage({
 
         {isApprovedSeller && showSellerWorkspace ? (() => {
           const sellerListingsWorkspace = (
-          <Card id="my-listings-section" tabIndex={-1} className="mt-4 scroll-mt-24 border-white/10 bg-[#0B0B0B]/90">
+          <Card
+            id="my-listings-section"
+            tabIndex={-1}
+            className="scroll-mt-24 border-white/10 bg-[#0B0B0B]/90"
+          >
             <CardHeader>
-              <CardTitle>{isAr ? "قائمتي" : "My Listings"}</CardTitle>
-              <CardDescription>{isAr ? "إدارة جميع عروضك كبائع معتمد." : "Manage all of your approved seller listings."}</CardDescription>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <CardTitle>{isAr ? "قائمتي" : "My Listings"}</CardTitle>
+                  <CardDescription>{isAr ? "إدارة جميع عروضك كبائع معتمد." : "Manage all of your approved seller listings."}</CardDescription>
+                </div>
+                {sortedDashboardListings.length ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="h-9 w-full sm:w-auto"
+                    onClick={() => {
+                      const newestListing = sortedDashboardListings[0];
+                      setSellerListingsExpanded(true);
+                      setSellerExpandedListingId(newestListing?.id ?? null);
+                      window.requestAnimationFrame(() => {
+                        if (!newestListing) return;
+                        document.getElementById(sellerListingWorkspaceAnchor(newestListing))?.focus({ preventScroll: true });
+                      });
+                    }}
+                  >
+                    Manage Listings
+                  </Button>
+                ) : null}
+              </div>
             </CardHeader>
             <CardContent className="space-y-3">
               {isWorkspaceWidgetsLoading ? (
@@ -4479,26 +4524,81 @@ export function UsdtExchangePage({
                   </Button>
                 </div>
               ) : null}
-              {myListings.map((listing) => {
+              {(sellerListingsExpanded
+                ? sortedDashboardListings
+                : sortedDashboardListings.slice(0, isMobileViewport ? 1 : 2)
+              ).map((listing) => {
                 const requestsCount = sellerRequests.filter((request) => request.listingId === listing.id).length;
                 const listingBusy = isListingActionBusy(listing.id);
+                const isDashboardListingExpanded = sellerExpandedListingId === listing.id;
+                const isAwaitingApproval = listing.status === "draft" && listing.approvalStatus === "pending";
+                const isLockedForActiveTrade = Boolean(listing.activeTradeRequestId)
+                  || listing.status === "matched"
+                  || listing.status === "in_trade";
+                const listingPaymentMethods = normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod)
+                  .map(paymentMethodLabel)
+                  .join(", ") || "Not set";
+                const listingAttention = isAwaitingApproval
+                  ? "Awaiting admin approval"
+                  : isLockedForActiveTrade
+                    ? "Active trade lock"
+                    : listing.status === "paused"
+                      ? "Paused"
+                      : listing.status === "active"
+                        ? "Live"
+                        : safeText(listing.status);
+                const listingRequiredAction = isAwaitingApproval
+                  ? "Wait for Alpha Traders approval"
+                  : isLockedForActiveTrade
+                    ? "Complete the active trade"
+                    : listing.status === "paused"
+                      ? "Resume when ready"
+                      : listing.status === "active"
+                        ? "Monitor purchase requests"
+                        : "Review listing status";
                 return (
-                  <div id={sellerListingWorkspaceAnchor(listing)} key={listing.id} tabIndex={-1} className="scroll-mt-24 rounded-2xl border border-white/10 bg-black/20 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#C9A227]/35 hover:shadow-[0_14px_30px_rgba(2,6,23,0.45)]">
-                    <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-[#93C5FD]">Listing {shortListingRef(listing)}</p>
+                  <div
+                    id={sellerListingWorkspaceAnchor(listing)}
+                    key={listing.id}
+                    tabIndex={-1}
+                    data-seller-compact-listing="true"
+                    data-listing-id={listing.id}
+                    className="scroll-mt-24 overflow-hidden rounded-2xl border border-white/10 bg-black/20 transition-all duration-200 hover:border-[#C9A227]/30"
+                  >
+                    <button
+                      type="button"
+                      className="grid w-full gap-2 px-3 py-3 text-left transition hover:bg-white/[0.03] sm:grid-cols-[1.15fr_0.8fr_0.7fr_1fr_1fr_auto] sm:items-center"
+                      aria-expanded={isDashboardListingExpanded}
+                      aria-controls={`seller-listing-details-${listing.id}`}
+                      onClick={() => setSellerExpandedListingId((current) => current === listing.id ? null : listing.id)}
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-white">Listing {shortListingRef(listing)}</p>
+                        <p className="mt-0.5 text-xs text-[#9CA3AF]">{listingAttention}</p>
+                      </div>
+                      <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">Amount </span>{toNumber(listing.availableAmount).toLocaleString("en-IL")} USDT</p>
+                      <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">Price </span>{formatIls(toNumber(listing.price))}</p>
+                      <p className="min-w-0 truncate text-xs text-[#D1D5DB]" title={listingPaymentMethods}><span className="text-[#9CA3AF]">Payment </span>{listingPaymentMethods}</p>
+                      <p className={cn("text-xs font-medium", isAwaitingApproval || isLockedForActiveTrade ? "text-amber-200" : "text-[#BFDBFE]")}>{listingRequiredAction}</p>
+                      <ChevronDown className={cn("h-4 w-4 text-[#9CA3AF] transition-transform", isDashboardListingExpanded && "rotate-180")} />
+                    </button>
+                    <div
+                      id={`seller-listing-details-${listing.id}`}
+                      className={cn(
+                        "border-t border-white/10 px-3 pb-3 pt-3",
+                        !isDashboardListingExpanded && "hidden",
+                      )}
+                    >
                     {listing.status === "draft" && listing.approvalStatus === "pending" ? (
                       <p className="mb-3 rounded-lg border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-100">
                         Awaiting Alpha Traders admin approval — this listing is not visible to buyers yet.
                       </p>
                     ) : null}
-                    <div className="grid gap-2 text-sm md:grid-cols-4">
+                    <div className="grid gap-2 rounded-xl border border-white/10 bg-black/20 p-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
                       <p>Status: <span className="text-white">{safeText(listing.status)}</span></p>
-                      <p>Available Amount: <span className="text-white">{toNumber(listing.availableAmount).toLocaleString("en-IL")} USDT</span></p>
-                      <p>Price: <span className="text-white">{formatIls(toNumber(listing.price))}</span></p>
-                      <p>Network: <span className="text-white">{safeText(listing.network)}</span></p>
-                      <p>Payment Methods: <span className="text-white">{normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod).map(paymentMethodLabel).join(", ") || "Not set"}</span></p>
-                      <p>Banks: <span className="text-white">{parseIsraeliBankSelection(listing.bankName).join(", ") || "Not set"}</span></p>
-                      <p>Purchase Requests: <span className="text-white">{requestsCount}</span></p>
-                      <p>Created Date: <span className="text-white">{new Date(listing.createdAt).toLocaleDateString("en-IL")}</span></p>
+                      <p>Required action: <span className="text-white">{listingRequiredAction}</span></p>
+                      <p>Purchase requests: <span className="text-white">{requestsCount}</span></p>
+                      <p>Last activity: <span className="text-white">{new Date(listing.updatedAt || listing.createdAt).toLocaleString("en-IL")}</span></p>
                     </div>
                     <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-start">
                       <DiscordShareAction
@@ -4758,13 +4858,27 @@ export function UsdtExchangePage({
                         </div>
                       </form>
                     ) : null}
+                    </div>
                   </div>
                 );
               })}
+              {sortedDashboardListings.length > (isMobileViewport ? 1 : 2) ? (
+                <div className="flex justify-start">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setSellerListingsExpanded((current) => !current)}
+                  >
+                    {sellerListingsExpanded
+                      ? "Show fewer listings"
+                      : `View All Listings (${sortedDashboardListings.length - (isMobileViewport ? 1 : 2)})`}
+                  </Button>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
           );
-          if (!isSellerDashboardWorkspace) return sellerListingsWorkspace;
           return sellerDashboardListingsTarget ? createPortal(sellerListingsWorkspace, sellerDashboardListingsTarget) : null;
         })() : null}
 
@@ -6362,7 +6476,7 @@ export function UsdtExchangePage({
               ) : null}
             </CardContent>
           </Card>
-          {isSellerDashboardWorkspace ? <div ref={setSellerDashboardListingsTarget} className="order-5" /> : null}
+          <div ref={setSellerDashboardListingsTarget} className="order-5" />
 
           <div className="order-6">
             {renderNotificationCenterCard("notification-center-section")}
