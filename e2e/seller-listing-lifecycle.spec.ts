@@ -531,6 +531,57 @@ async function readPurchaseFromPatchResponse(response: Awaited<ReturnType<APIReq
 
 test.describe.configure({ mode: "serial" });
 
+test("listing publish failures stay visible beside the mobile submit action", async ({ browser }) => {
+  test.setTimeout(240_000);
+  const hasFixtures = await resetLifecycleFixtures();
+  test.skip(!hasFixtures, "Set E2E owner/seller credentials and seed matching runtime accounts to run lifecycle tests.");
+
+  const seller = await createSession(browser, SELLER_EMAIL, SELLER_PASSWORD);
+  const [payoutAccount] = await ensureSellerBankAccounts(seller.page.request, 1);
+  if (!payoutAccount) throw new Error("Seller bank account provisioning failed for listing failure feedback test.");
+
+  await seller.page.goto("/en/usdt-exchange");
+  const createListing = seller.page.getByRole("main").locator("#create-listing");
+  await expect(createListing).toBeVisible({ timeout: 60_000 });
+  await createListing.locator("#create-available").fill("1000");
+  await createListing.locator("#create-price").fill("3.20");
+  await createListing.locator("#create-min-trade").fill("50");
+  await createListing.locator("#create-max-trade").fill("1000");
+  await chooseCreatePayoutBankAccountByLast4(seller.page, payoutAccount.accountLast4);
+
+  const payoutBankButton = createListing.getByRole("button", { name: new RegExp(payoutAccount.bankName, "i") });
+  await expect(payoutBankButton).toContainText("Selected");
+  const commissionCheckbox = createListing.getByRole("checkbox", { name: /1% commission policy/i });
+  if (!(await commissionCheckbox.isChecked())) await commissionCheckbox.check();
+
+  const submitButton = createListing.getByRole("button", { name: "Submit Listing" });
+  await expect(submitButton).toBeEnabled({ timeout: 30_000 });
+  await seller.page.route("**/api/alpha-exchange/listings", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Selected payout bank could not be verified. Please choose it again." }),
+    });
+  });
+
+  await submitButton.click();
+
+  const result = createListing.locator("#listing-publish-result");
+  await expect(result).toBeVisible({ timeout: 30_000 });
+  await expect(result).toHaveAttribute("role", "alert");
+  await expect(result).toContainText("Selected payout bank could not be verified. Please choose it again.");
+  await expect(result).toBeFocused({ timeout: 30_000 });
+  await expect(createListing.locator("#create-available")).toHaveValue("1000");
+  await expect(submitButton).toBeEnabled();
+
+  await seller.page.unroute("**/api/alpha-exchange/listings");
+  await seller.context.close();
+});
+
 test("bank-transfer listing requires selected seller bank account and preserves privacy in public listings", async ({ browser }) => {
   test.setTimeout(240_000);
   const hasFixtures = await resetLifecycleFixtures();

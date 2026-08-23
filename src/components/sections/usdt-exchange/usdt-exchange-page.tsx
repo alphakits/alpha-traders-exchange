@@ -49,6 +49,7 @@ import { SELLER_PRESTIGE_TIERS } from "@/lib/seller-prestige";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
 import { deriveBuyerRankSummary, type BuyerRankSummary } from "@/lib/buyer-rank";
 import { navigateAfterSuccess, navigateOrRevealResult } from "@/lib/client-success-navigation";
+import { ensurePayoutBankIsSupported, isPayoutBankSupported } from "@/lib/seller-listing-bank-selection";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SupportedNetwork } from "@/types/alpha-exchange";
 
 const WHATSAPP_URL = getOfficialOwnerWhatsAppUrl();
@@ -94,6 +95,11 @@ type SellerApplicationMethod = (typeof SELLER_APPLICATION_METHOD_OPTIONS)[number
 type Locale = "ar" | "en";
 
 type WorkspaceMode = "buyer" | "seller";
+
+type ListingCreateResult = {
+  tone: "success" | "error";
+  message: string;
+};
 
 type SellerCommissionStatus = {
   status: "clear" | "pending" | "overdue";
@@ -901,6 +907,8 @@ export function UsdtExchangePage({
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [editingListingId, setEditingListingId] = useState<string | null>(null);
   const [listingActionKey, setListingActionKey] = useState<string | null>(null);
+  const listingCreateRequestInFlightRef = useRef(false);
+  const [listingCreateResult, setListingCreateResult] = useState<ListingCreateResult | null>(null);
   const [listingEditForm, setListingEditForm] = useState({
     availableAmount: "",
     price: "",
@@ -1019,9 +1027,20 @@ export function UsdtExchangePage({
 
   useEffect(() => {
     if (!sellerBankAccounts.length) return;
-    const preferredBankAccountId = sellerBankAccounts.find((account) => account.isDefault)?.id ?? sellerBankAccounts[0]?.id;
-    if (!preferredBankAccountId) return;
-    setListingCreateForm((prev) => (prev.bankAccountId ? prev : { ...prev, bankAccountId: preferredBankAccountId }));
+    const preferredBankAccount = sellerBankAccounts.find((account) => account.isDefault) ?? sellerBankAccounts[0];
+    if (!preferredBankAccount) return;
+    setListingCreateForm((prev) => {
+      const selectedAccount = sellerBankAccounts.find((account) => account.id === prev.bankAccountId) ?? preferredBankAccount;
+      const nextBanks = ensurePayoutBankIsSupported(
+        parseIsraeliBankSelection(prev.bankName),
+        selectedAccount.bankName,
+        MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS,
+      );
+      const nextBankName = serializeIsraeliBankSelection(nextBanks);
+      if (prev.bankAccountId === selectedAccount.id && prev.bankName === nextBankName) return prev;
+      return { ...prev, bankAccountId: selectedAccount.id, bankName: nextBankName };
+    });
+    const preferredBankAccountId = preferredBankAccount.id;
     setListingEditForm((prev) => (prev.bankAccountId ? prev : { ...prev, bankAccountId: preferredBankAccountId }));
   }, [sellerBankAccounts]);
 
@@ -2365,11 +2384,18 @@ export function UsdtExchangePage({
   const listingCreateSelectedBanks = parseIsraeliBankSelection(listingCreateForm.bankName);
   const listingCreateRequiresBank = requiresBankSelection(listingCreateSelectedMethods);
   const listingCreateRequiresBankAccount = listingCreateRequiresBank;
+  const listingCreateSelectedBankAccount = sellerBankAccounts.find((account) => account.id === listingCreateForm.bankAccountId);
+  const listingCreateBankAccountMismatch = Boolean(
+    listingCreateRequiresBankAccount
+    && listingCreateForm.bankAccountId
+    && (!listingCreateSelectedBankAccount || !isPayoutBankSupported(listingCreateSelectedBanks, listingCreateSelectedBankAccount.bankName)),
+  );
   const listingCreateMissingRequired = !listingCreateAmount
     || !listingCreatePrice
     || !listingCreateSelectedMethods.length
     || (listingCreateRequiresBank && !listingCreateSelectedBanks.length)
     || (listingCreateRequiresBankAccount && !listingCreateForm.bankAccountId)
+    || listingCreateBankAccountMismatch
     || !listingCommissionAgreement;
   const listingCreateTotalIls = listingCreateAmount * listingCreatePrice;
   const listingCreateCurrencyValue = Number.isFinite(listingCreateTotalIls) ? Math.round(listingCreateTotalIls) : 0;
@@ -3478,10 +3504,15 @@ export function UsdtExchangePage({
 
   async function handleSellerListingCreateSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (listingCreateRequestInFlightRef.current) return;
     if (listingCreationBlocked) {
-      setSellerWorkspaceMessage(listingCreationBlockedReason);
+      setListingCreateResult({ tone: "error", message: listingCreationBlockedReason });
+      navigateOrRevealResult(router, "/usdt-exchange#listing-publish-result", "listing-publish-result");
       return;
     }
+    listingCreateRequestInFlightRef.current = true;
+    setListingCreateResult(null);
+    setSellerWorkspaceMessage(null);
     setListingActionKey("create:new");
     try {
       const response = await fetch("/api/alpha-exchange/listings", {
@@ -3503,12 +3534,15 @@ export function UsdtExchangePage({
         }),
       });
       if (!response.ok) {
+        let failureMessage: string;
         if (response.status === 401) {
           void refreshCanonicalSession?.({ force: true });
-          setSellerWorkspaceMessage("Your session has expired. Please sign in again.");
-          return;
+          failureMessage = "Your session has expired. Please sign in again.";
+        } else {
+          failureMessage = await readApiErrorMessage(response, safeErrorMessage("listing"));
         }
-        setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing")));
+        setListingCreateResult({ tone: "error", message: failureMessage });
+        navigateOrRevealResult(router, "/usdt-exchange#listing-publish-result", "listing-publish-result");
         return;
       }
       const payload = await response.json() as { listing?: MarketplaceListing; destination?: string };
@@ -3527,12 +3561,17 @@ export function UsdtExchangePage({
       }));
       setListingCreateCurrencyManualOverride(false);
       setListingCommissionAgreement(false);
-      setSellerWorkspaceMessage("✅ Listing submitted. It is awaiting Alpha Traders admin approval and is not visible to buyers yet.");
+      setListingCreateResult({
+        tone: "success",
+        message: "Listing submitted. It is awaiting Alpha Traders admin approval and is not visible to buyers yet.",
+      });
       navigateOrRevealResult(router, "/usdt-exchange#listing-publish-result", "listing-publish-result");
       backgroundRefreshSellerWorkspace();
     } catch {
-      setSellerWorkspaceMessage(safeErrorMessage("listing"));
+      setListingCreateResult({ tone: "error", message: safeErrorMessage("listing") });
+      navigateOrRevealResult(router, "/usdt-exchange#listing-publish-result", "listing-publish-result");
     } finally {
+      listingCreateRequestInFlightRef.current = false;
       setListingActionKey(null);
     }
   }
@@ -6114,7 +6153,20 @@ export function UsdtExchangePage({
                       <select
                         className="mt-2 flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white"
                         value={listingCreateForm.bankAccountId}
-                        onChange={(event) => setListingCreateForm((prev) => ({ ...prev, bankAccountId: event.target.value }))}
+                        onChange={(event) => setListingCreateForm((prev) => {
+                          const bankAccountId = event.target.value;
+                          const selectedAccount = sellerBankAccounts.find((account) => account.id === bankAccountId);
+                          const nextBanks = ensurePayoutBankIsSupported(
+                            parseIsraeliBankSelection(prev.bankName),
+                            selectedAccount?.bankName,
+                            MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS,
+                          );
+                          return {
+                            ...prev,
+                            bankAccountId,
+                            bankName: serializeIsraeliBankSelection(nextBanks),
+                          };
+                        })}
                       >
                         <option value="">{isAr ? "اختر الحساب البنكي" : "Select bank account"}</option>
                         {sellerBankAccounts.map((account) => (
@@ -6159,11 +6211,52 @@ export function UsdtExchangePage({
                       {listingCreateTradeRangeInvalid ? <p className="text-amber-200">Maximum trade must be greater than minimum trade and less than or equal to available USDT.</p> : null}
                       {listingCreateRequiresBank && !listingCreateSelectedBanks.length ? <p className="text-amber-200">Select one or two supported banks before submitting.</p> : null}
                       {listingCreateRequiresBankAccount && !listingCreateForm.bankAccountId ? <p className="text-amber-200">Select one payout bank account before submitting.</p> : null}
+                      {listingCreateBankAccountMismatch ? (
+                        <p className="text-red-200">
+                          {listingCreateSelectedBankAccount
+                            ? `Supported banks must include your payout bank (${listingCreateSelectedBankAccount.bankName}).`
+                            : "Your selected payout bank account is no longer available. Choose a saved bank account again."}
+                        </p>
+                      ) : null}
                       {!listingCommissionAgreement ? <p className="text-amber-200">You must accept the 1% commission policy before publishing.</p> : null}
                       {listingCreateAmount > 0 ? <p>{listingCreateAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingCreateAmount * marketPricePerUsdt)}</p> : null}
                     </div>
                   </div>
                 </div>
+                {listingCreateResult ? (
+                  <div
+                    id="listing-publish-result"
+                    tabIndex={-1}
+                    role={listingCreateResult.tone === "error" ? "alert" : "status"}
+                    aria-live={listingCreateResult.tone === "error" ? "assertive" : "polite"}
+                    className={cn(
+                      "md:col-span-2 flex items-start justify-between gap-3 rounded-xl border p-4 text-sm shadow-[0_0_0_1px_rgba(255,255,255,0.03)] animate-in fade-in-0 slide-in-from-top-1 duration-300",
+                      listingCreateResult.tone === "error"
+                        ? "border-red-500/45 bg-red-950/35 text-red-100"
+                        : "border-emerald-500/30 bg-emerald-500/10 text-emerald-100",
+                    )}
+                  >
+                    <span className="flex items-start gap-2">
+                      {listingCreateResult.tone === "error" ? (
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-300" />
+                      ) : (
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
+                      )}
+                      <span>{listingCreateResult.message}</span>
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="Dismiss listing result"
+                      onClick={() => setListingCreateResult(null)}
+                      className={cn(
+                        "shrink-0 rounded-full p-0.5 transition hover:text-white",
+                        listingCreateResult.tone === "error" ? "text-red-300" : "text-emerald-300",
+                      )}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : null}
                 <div className="md:col-span-2">
                   <Button type="submit" className="h-11 w-full sm:w-auto" disabled={isListingCreateSubmitDisabled || listingActionKey === "create:new"}>
                     {listingActionKey === "create:new" ? "Publishing..." : "Submit Listing"}
