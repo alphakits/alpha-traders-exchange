@@ -76,24 +76,38 @@ for (const width of [320, 390, 430, 1280]) {
     const workspace = page.getByRole("main").locator("#my-listings-section");
     await expect(workspace).toBeVisible();
     await workspace.scrollIntoViewIfNeeded();
+    await workspace.getByRole("button", { name: "Manage Listings" }).click();
 
-    const shareButtons = workspace.getByRole("button", {
-      name: /Share to Discord|Shared|Next Share/,
-    });
-    await expect(workspace.getByRole("timer").first()).toContainText(/Next Share (11h 59m|12h 0m)/, { timeout: 20_000 });
-    await expect(shareButtons).toHaveCount(2, { timeout: 20_000 });
-    for (const button of await shareButtons.all()) {
-      await expect(button).toBeDisabled();
-      const box = await button.boundingBox();
+    const compactListings = workspace.locator('[data-seller-compact-listing="true"]');
+    await expect(compactListings).toHaveCount(2, { timeout: 20_000 });
+
+    let validatedShareControls = 0;
+    for (let index = 0; index < 2; index += 1) {
+      const listing = compactListings.nth(index);
+      const toggle = listing.locator(":scope > button");
+      if (await toggle.getAttribute("aria-expanded") !== "true") {
+        await toggle.click();
+      }
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
+      await expect(compactListings.nth(1 - index).locator(":scope > button")).toHaveAttribute("aria-expanded", "false");
+
+      const shareButton = listing.getByRole("button", {
+        name: /Share to Discord|Shared|Next Share/,
+      });
+      await expect(listing.getByRole("timer")).toContainText(/Next Share (11h 59m|12h 0m)/, { timeout: 20_000 });
+      await expect(shareButton).toHaveCount(1);
+      await expect(shareButton).toBeDisabled();
+      const box = await shareButton.boundingBox();
       expect(box?.height).toBeGreaterThanOrEqual(44);
       expect(box?.width).toBeLessThanOrEqual(width);
-    }
+      validatedShareControls += 1;
 
-    await expect(workspace.getByRole("timer").first()).toContainText(/Next Share (11h 59m|12h 0m)/);
-    await expect(workspace.getByRole("button", { name: "Edit" })).toHaveCount(2);
-    await expect(workspace.getByRole("button", { name: "Pause" })).toHaveCount(2);
-    await expect(workspace.getByRole("button", { name: "Renew" })).toHaveCount(2);
-    await expect(workspace.getByRole("button", { name: "Delete" })).toHaveCount(2);
+      await expect(listing.getByRole("button", { name: "Edit" })).toHaveCount(1);
+      await expect(listing.getByRole("button", { name: "Pause" })).toHaveCount(1);
+      await expect(listing.getByRole("button", { name: "Renew" })).toHaveCount(1);
+      await expect(listing.getByRole("button", { name: "Delete" })).toHaveCount(1);
+    }
+    expect(validatedShareControls).toBe(2);
 
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
