@@ -136,6 +136,7 @@ import {
   sellerApplicationReviewDestination,
   sellerApplicationStatusDestination,
   sellerListingWorkspaceDestination,
+  sellerProfileDestination,
 } from "@/lib/action-destinations";
 import { COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON, commissionPaymentDestination } from "@/lib/commission-payment-destination";
 
@@ -510,6 +511,55 @@ function sanitizeInternalNotificationHref(value?: string) {
   return href;
 }
 
+type NotificationSellerContext = {
+  displayName: string;
+  username: string;
+  profileHref: string;
+  user?: AlphaExchangeUser;
+};
+
+function buildNotificationSellerContext(user: AlphaExchangeUser): NotificationSellerContext {
+  const displayName = redactPrivateContactDetails(user.fullName?.trim() || user.buyerDisplayName?.trim() || "Seller");
+  const username = derivePublicProfileUsername({
+    id: user.id,
+    fullName: user.fullName,
+    email: user.email,
+    publicTradingName: user.buyerDisplayName,
+  });
+  return {
+    displayName,
+    username,
+    profileHref: sellerProfileDestination(username),
+    user,
+  };
+}
+
+function resolveNotificationSellerContext(db: AlphaExchangeDb, notification: AlphaExchangeNotification): NotificationSellerContext | null {
+  const recipient = db.users.find((user) => user.id === notification.userId);
+  if (!recipient || (!hasRole(recipient, "owner") && !hasRole(recipient, "admin"))) return null;
+
+  const relatedUsername = normalizePublicProfileUsername(notification.relatedSellerUsername);
+  const byUsername = notification.relatedSellerUsername
+    ? db.users.find((user) => matchesPublicProfileUsername({
+        id: user.id,
+        fullName: user.fullName,
+        email: user.email,
+        publicTradingName: user.buyerDisplayName,
+      }, relatedUsername))
+    : undefined;
+  const notificationText = `${notification.title ?? ""} ${notification.message ?? ""}`;
+  const legacySeller = byUsername ?? db.users.find((user) => isTrustEligibleSeller(user) && notificationText.includes(user.id));
+  if (legacySeller) return buildNotificationSellerContext(legacySeller);
+
+  const displayName = redactPrivateContactDetails(notification.relatedSellerName?.trim() || "");
+  if (!displayName || !notification.relatedSellerUsername) return null;
+  return {
+    displayName,
+    username: relatedUsername,
+    profileHref: sellerProfileDestination(relatedUsername),
+  };
+}
+
 function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNotification, cachedLookup?: Record<string, string>): AlphaExchangeNotification {
   const request = resolveTradeContextForNotification(db, {
     userId: notification.userId,
@@ -540,10 +590,12 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
   const commissionPaymentHref = isCommissionPaymentDue && matchingSellerCommission
     ? commissionPaymentDestination(matchingSellerCommission.id)
     : undefined;
+  const sellerContext = resolveNotificationSellerContext(db, notification);
+  const sellerProfileHref = notification.category === "trust" ? sellerContext?.profileHref : undefined;
   const relatedHref = commissionPaymentHref
     ?? (isTradeNotification && request && recipientIsTradeParticipant
       ? requestDetailsHref(request.id)
-      : sanitizeInternalNotificationHref(notification.relatedHref));
+      : sanitizeInternalNotificationHref(notification.relatedHref) ?? sellerProfileHref);
   const actionHref = commissionPaymentHref ?? (sanitizeInternalNotificationHref(notification.actionHref) || relatedHref);
   const listing = request ? db.marketplaceListings.find((item) => item.id === request.listingId) : undefined;
   // Reuse a pre-built lookup when available (batch calls) to avoid O(n) per notification.
@@ -561,8 +613,19 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
       : notification.category === "application"
         ? "Application update"
         : "Alpha Exchange update";
-  const title = redactPrivateContactDetails(notification.title?.trim() || fallbackTitle);
-  const message = redactPrivateContactDetails(notification.message?.trim() || "Open notifications for the latest account update.");
+  let title = redactPrivateContactDetails(notification.title?.trim() || fallbackTitle);
+  let message = redactPrivateContactDetails(notification.message?.trim() || "Open notifications for the latest account update.");
+  if (sellerContext?.user) {
+    title = title.split(sellerContext.user.id).join(sellerContext.displayName);
+    message = message.split(sellerContext.user.id).join(sellerContext.displayName);
+  }
+  if (sellerContext && notification.category === "trust" && title.toLowerCase().includes("flagged seller")) {
+    const trustScore = db.trustSnapshots.find((entry) => entry.sellerId === sellerContext.user?.id)?.snapshot.trustScore;
+    title = `Flagged seller: ${sellerContext.displayName}`;
+    message = `${sellerContext.displayName} triggered trust/risk signals.${typeof trustScore === "number" ? ` Trust score: ${trustScore.toFixed(1)}/100.` : ""}`;
+  } else if (sellerContext && notification.category === "trust" && title.toLowerCase().includes("trust score drop")) {
+    title = `Trust score drop: ${sellerContext.displayName}`;
+  }
   return {
     ...notification,
     title: replaceExchangeEntityIds(title, displayLookup),
@@ -577,9 +640,13 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     relatedTradeId,
     relatedTradeDisplayNumber: request?.displayNumber,
     relatedListingDisplayNumber: listing?.displayNumber,
+    relatedSellerName: sellerContext?.displayName ?? notification.relatedSellerName,
+    relatedSellerUsername: sellerContext?.username ?? notification.relatedSellerUsername,
     relatedHref,
     actionHref,
-    actionLabel: commissionPaymentHref ? "Pay Commission" : notification.actionLabel?.trim() || resolveNotificationActionLabel(notification, request),
+    actionLabel: commissionPaymentHref
+      ? "Pay Commission"
+      : notification.actionLabel?.trim() || (sellerProfileHref ? "Review Seller" : resolveNotificationActionLabel(notification, request)),
     reason: commissionPaymentHref ? COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON : notification.reason,
     tradeSnapshot: isTradeNotification && recipientIsTradeParticipant
       ? sanitizeNotificationTradeSnapshot(notification.tradeSnapshot ?? buildTradeSnapshotForNotification(db, notification.userId, request))
@@ -3248,6 +3315,8 @@ function pushNotification(
     relatedTradeId?: string;
     relatedRequestId?: string;
     relatedListingId?: string;
+    relatedSellerName?: string;
+    relatedSellerUsername?: string;
     relatedHref?: string;
     actionLabel?: string;
     actionHref?: string;
@@ -3306,6 +3375,8 @@ function pushNotification(
         relatedTradeId: input.relatedTradeId ?? duplicate.relatedTradeId,
         relatedRequestId: relatedRequestId ?? duplicate.relatedRequestId,
         relatedListingId: input.relatedListingId ?? duplicate.relatedListingId,
+        relatedSellerName: input.relatedSellerName ?? duplicate.relatedSellerName,
+        relatedSellerUsername: input.relatedSellerUsername ?? duplicate.relatedSellerUsername,
         relatedHref: relatedHref ?? duplicate.relatedHref,
         centerCategory,
         priority: input.priority ?? inferredPriority.priority,
@@ -3339,6 +3410,8 @@ function pushNotification(
     relatedTradeId: input.relatedTradeId,
     relatedRequestId,
     relatedListingId: input.relatedListingId,
+    relatedSellerName: input.relatedSellerName,
+    relatedSellerUsername: input.relatedSellerUsername,
     relatedHref,
     tradeSnapshot: buildTradeSnapshotForNotification(db, input.userId, inferredRequest),
     archivedAt: nextState === "archived" ? createdAt : undefined,
@@ -3943,6 +4016,7 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
   for (const snapshot of computed) {
     const sellerIndex = sellerIndexById.get(snapshot.sellerId) ?? -1;
     const seller = sellerIndex !== -1 ? db.users[sellerIndex] : sellerById.get(snapshot.sellerId);
+    const sellerNotificationContext = seller ? buildNotificationSellerContext(seller) : null;
     const previousRank = seller?.sellerPrestigeRank ?? previous.get(snapshot.sellerId)?.level ?? resolveSellerPrestigeRank(snapshot.totalUsdtVolume);
     const hasOverride = Boolean(seller?.sellerRankOverride);
     if (seller && sellerIndex !== -1) {
@@ -4059,29 +4133,43 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
       await sendSellerPrestigePromotionEmail({ seller: db.users[sellerIndex], rank: snapshot.level, promotionId: entry.id });
     }
 
-    if (owner && sharpDrop) {
+    if (owner && sharpDrop && sellerNotificationContext) {
       pushNotification(db, {
         userId: owner.id,
         category: "trust",
-        title: "Sharp trust score drop",
-        message: `Seller ${snapshot.sellerId} dropped from ${oldScore.toFixed(1)} to ${newScore.toFixed(1)}.`,
+        priority: "high",
+        title: `Trust score drop: ${sellerNotificationContext.displayName}`,
+        message: `${sellerNotificationContext.displayName} dropped from ${oldScore.toFixed(1)} to ${newScore.toFixed(1)}.`,
+        relatedSellerName: sellerNotificationContext.displayName,
+        relatedSellerUsername: sellerNotificationContext.username,
+        relatedHref: sellerNotificationContext.profileHref,
+        actionHref: sellerNotificationContext.profileHref,
+        actionLabel: "Review Seller",
+        forceInApp: true,
       });
     }
 
-    if (owner && flagged) {
+    if (owner && flagged && sellerNotificationContext) {
       const alreadyNotifiedRecently = db.notifications.some(
         (notification) =>
           notification.userId === owner.id &&
           notification.category === "trust" &&
-          notification.message.includes(snapshot.sellerId) &&
+          (notification.relatedSellerUsername === sellerNotificationContext.username || notification.message.includes(snapshot.sellerId)) &&
           now.slice(0, 10) === notification.createdAt.slice(0, 10),
       );
       if (!alreadyNotifiedRecently) {
         pushNotification(db, {
           userId: owner.id,
           category: "trust",
-          title: "Flagged seller detected",
-          message: `Seller ${snapshot.sellerId} is flagged for trust/risk signals.`,
+          priority: "high",
+          title: `Flagged seller: ${sellerNotificationContext.displayName}`,
+          message: `${sellerNotificationContext.displayName} triggered trust/risk signals. Trust score: ${newScore.toFixed(1)}/100.`,
+          relatedSellerName: sellerNotificationContext.displayName,
+          relatedSellerUsername: sellerNotificationContext.username,
+          relatedHref: sellerNotificationContext.profileHref,
+          actionHref: sellerNotificationContext.profileHref,
+          actionLabel: "Review Seller",
+          forceInApp: true,
         });
       }
     }
@@ -5716,16 +5804,21 @@ export async function submitMarketplaceEnforcementPaymentBySeller(input: {
   });
 
   const owner = db.users.find((user) => hasRole(user, "owner"));
-  if (owner) {
+  const seller = db.users.find((user) => user.id === input.sellerId);
+  const sellerContext = seller ? buildNotificationSellerContext(seller) : null;
+  if (owner && sellerContext) {
     pushNotification(db, {
       userId: owner.id,
       category: "system",
       priority: "high",
-      title: "Compliance payment awaiting verification",
-      message: `Seller ${input.sellerId} submitted payment proof for enforcement ${activeRecord.id}.`,
+      title: `Compliance payment: ${sellerContext.displayName}`,
+      message: `${sellerContext.displayName} submitted payment proof for enforcement ${activeRecord.id}.`,
+      relatedSellerName: sellerContext.displayName,
+      relatedSellerUsername: sellerContext.username,
       relatedHref: adminMarketplaceEnforcementDestination(),
       actionHref: adminMarketplaceEnforcementDestination(),
       actionLabel: "Review Marketplace Compliance",
+      forceInApp: true,
     });
   }
 
@@ -5764,16 +5857,21 @@ export async function submitMarketplaceEnforcementAppealBySeller(input: {
   });
 
   const owner = db.users.find((user) => hasRole(user, "owner"));
-  if (owner) {
+  const seller = db.users.find((user) => user.id === input.sellerId);
+  const sellerContext = seller ? buildNotificationSellerContext(seller) : null;
+  if (owner && sellerContext) {
     pushNotification(db, {
       userId: owner.id,
       category: "system",
       priority: "high",
-      title: "Compliance appeal submitted",
-      message: `Seller ${input.sellerId} submitted a compliance appeal.`,
+      title: `Compliance appeal: ${sellerContext.displayName}`,
+      message: `${sellerContext.displayName} submitted a compliance appeal.`,
+      relatedSellerName: sellerContext.displayName,
+      relatedSellerUsername: sellerContext.username,
       relatedHref: adminMarketplaceEnforcementDestination(),
       actionHref: adminMarketplaceEnforcementDestination(),
       actionLabel: "Review Marketplace Compliance",
+      forceInApp: true,
     });
   }
 
@@ -12080,7 +12178,7 @@ export async function getNotificationsForUser(input: {
       if (!input.state && notification.state === "archived") return false;
       if (input.unreadOnly && notification.state !== "unread") return false;
       if (!query) return true;
-      const haystack = `${notification.title} ${notification.message} ${notification.relatedTradeId ?? ""} ${notification.relatedRequestId ?? ""} ${notification.relatedListingId ?? ""} ${notification.tradeSnapshot?.counterpartyName ?? ""}`.toLowerCase();
+      const haystack = `${notification.title} ${notification.message} ${notification.relatedSellerName ?? ""} ${notification.relatedSellerUsername ?? ""} ${notification.relatedTradeId ?? ""} ${notification.relatedRequestId ?? ""} ${notification.relatedListingId ?? ""} ${notification.tradeSnapshot?.counterpartyName ?? ""}`.toLowerCase();
       return haystack.includes(query);
     });
   const sortedNotifications = [...notifications].sort((left, right) => {

@@ -1,5 +1,6 @@
 import type { MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
 import { buildTradeRoomDestination } from "@/lib/trade-room-destination";
+import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
 
 export const ADMIN_DASHBOARD_SECTIONS = [
   "overview",
@@ -132,6 +133,10 @@ export function sellerListingWorkspaceDestination(listing: Pick<MarketplaceListi
 
 export function sellerApplicationStatusDestination() {
   return "/usdt-exchange#seller-application";
+}
+
+export function sellerProfileDestination(username: string) {
+  return `/exchange/seller/${encodeURIComponent(normalizePublicProfileUsername(username))}`;
 }
 
 export function sellerApplicationReviewDestination(applicationId: string) {
