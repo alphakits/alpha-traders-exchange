@@ -559,6 +559,10 @@ export interface AlphaExchangeNotification {
   relatedRequestDisplayNumber?: number;
   relatedTradeDisplayNumber?: number;
   relatedListingDisplayNumber?: number;
+  /** Human-readable seller context for owner/admin notifications. */
+  relatedSellerName?: string;
+  /** Safe public handle; never an internal user id. */
+  relatedSellerUsername?: string;
   relatedHref?: string;
   actionHref?: string;
   actionLabel?: string;

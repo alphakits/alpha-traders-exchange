@@ -11,6 +11,7 @@ import {
   sellerApplicationStatusDestination,
   sellerListingWorkspaceAnchor,
   sellerListingWorkspaceDestination,
+  sellerProfileDestination,
   tradeDestination,
 } from "@/lib/action-destinations";
 import type { MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
@@ -44,6 +45,7 @@ describe("canonical action destinations", () => {
     expect(sellerListingWorkspaceAnchor(listing)).toBe("seller-listing-listing-123");
     expect(sellerListingWorkspaceDestination(listing)).toBe("/usdt-exchange#seller-listing-listing-123");
     expect(sellerApplicationStatusDestination()).toBe("/usdt-exchange#seller-application");
+    expect(sellerProfileDestination("Rod Molla")).toBe("/exchange/seller/rod-molla");
     expect(sellerApplicationReviewDestination("application-123")).toBe("/admin/alpha-exchange?section=seller-applications&sellerApplication=application-123");
     expect(adminMarketplaceListingsDestination("listing-123")).toBe("/admin/alpha-exchange?section=marketplace-listings&listing=listing-123");
     expect(adminMarketplaceEnforcementDestination()).toBe("/admin/alpha-exchange?section=marketplace-enforcement");

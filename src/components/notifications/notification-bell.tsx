@@ -485,6 +485,11 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                           {notification.relatedListingId || notification.relatedListingDisplayNumber
                             ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Listing {formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}</span>
                             : null}
+                          {notification.relatedSellerName ? (
+                            <span className="inline-flex max-w-full items-center rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5 text-[10px] text-[#FDE68A]">
+                              <span className="truncate">Seller: {notification.relatedSellerName}{notification.relatedSellerUsername ? ` • @${notification.relatedSellerUsername}` : ""}</span>
+                            </span>
+                          ) : null}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {isTradeNotification(notification) ? (
