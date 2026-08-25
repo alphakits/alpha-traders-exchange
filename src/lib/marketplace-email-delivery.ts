@@ -18,6 +18,8 @@ export type MarketplaceEmailEvent =
   | "listing_expired"
   | "listing_renewed"
   | "new_listing_published"
+  | "owner_listing_review_required"
+  | "owner_seller_application_review_required"
   | "seller_prestige_promoted"
   | "marketplace_enforcement_fee_issued"
   | "marketplace_enforcement_fee_paid"

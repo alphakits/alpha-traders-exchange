@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bell, BellDot, CircleDot, ExternalLink, Megaphone, Scale, ShieldCheck, Star, Tags, UserRound, XCircle } from "lucide-react";
+import { Bell, BellDot, CircleDot, Megaphone, Scale, ShieldCheck, Star, Tags, UserRound, XCircle } from "lucide-react";
 import type { AppLocale } from "@/i18n/routing";
 import { Link, useRouter } from "@/i18n/navigation";
 import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { appendLoginJourneyStep, incrementLoginJourneyApiCall } from "@/lib/login-journey-trace";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
 import { formatListingId, formatTradeId } from "@/lib/format-id";
@@ -15,6 +15,7 @@ import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
 import { getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
 import { getExplicitNonTradeRoomNotificationDestination } from "@/lib/notification-action-destination";
+import { isNotificationActionRequired } from "@/lib/notification-action-required";
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 
@@ -53,11 +54,6 @@ function notificationIcon(notification: AlphaExchangeNotification) {
   if (notification.category === "trust") return Star;
   if (notification.title.toLowerCase().includes("announcement")) return Megaphone;
   return BellDot;
-}
-
-function isActionRequiredNotification(notification: AlphaExchangeNotification) {
-  const text = `${notification.title} ${notification.message}`.toLowerCase();
-  return text.includes("action required") || text.includes("feedback required") || text.includes("confirm usdt receipt");
 }
 
 function extractTradeRoomHrefFromRelatedHref(relatedHref?: string) {
@@ -370,9 +366,9 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
         body: JSON.stringify({ reason }),
       });
       if (response.ok) {
-        if (!notification.isRead) {
-          await handleMarkOneRead(notification.id);
-        }
+        // The server archives every matching admin action notification after a
+        // decision. Reload instead of marking this item read, which would
+        // otherwise turn an archived action back into a visible read item.
         await loadNotifications(20);
       }
     } finally {
@@ -395,7 +391,10 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   }
 
   const hasUnread = unreadCount > 0;
-  const hasActionRequired = notifications.some(isActionRequiredNotification);
+  const actionRequiredCount = notifications.filter(
+    (notification) => isNotificationActionRequired(notification),
+  ).length;
+  const hasActionRequired = actionRequiredCount > 0;
   const renderedNotifications = isOpen ? (openNotificationsSnapshot ?? notifications) : notifications;
   const wrapperDirection = useMemo(() => (locale === "ar" ? "rtl" : "ltr"), [locale]);
 
@@ -433,6 +432,11 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                 {unreadCount} unread
               </span>
             ) : null}
+            {hasActionRequired ? (
+              <span className="badge-chip border-amber-400/40 bg-amber-400/10 font-normal text-amber-200">
+                {actionRequiredCount} need action
+              </span>
+            ) : null}
           </div>
           <button
             type="button"
@@ -451,12 +455,15 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
           {renderedNotifications.map((notification) => {
                 const Icon = notificationIcon(notification);
                 const destination = isTradeNotification(notification) ? resolveNotificationDestination(notification) : null;
+                const actionRequired = isNotificationActionRequired(notification);
                 return (
                   <div
                     key={notification.id}
                     data-notification-id={notification.id}
                     className={`rounded-xl border p-3 text-xs ${
-                      notification.isRead
+                      actionRequired
+                        ? "border-amber-400/55 bg-amber-500/10 text-amber-50"
+                        : notification.isRead
                         ? "border-white/10 bg-black/20 text-[#9CA3AF]"
                         : "border-[#C9A227]/35 bg-[#C9A227]/10 text-[#F3F4F6]"
                     }`}
@@ -471,6 +478,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                         <p className="mt-1 line-clamp-2">{formatNotificationMessage(notification)}</p>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           {!notification.isRead ? <span className="inline-flex items-center rounded-full bg-[#C9A227]/20 px-2 py-0.5 text-[10px] text-[#C9A227]">Unread</span> : null}
+                          {actionRequired ? <span className="inline-flex items-center rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200">Action required</span> : null}
                           {isTradeNotification(notification) && (notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber)
                             ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Trade {formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId)}</span>
                             : null}
@@ -495,6 +503,17 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                                 const requestId = extractRequestIdFromTradeRoomHref(destination);
                                 if (requestId) prefetchTradeRoom(router, requestId);
                               }}
+                              onClick={() => void handleOpenNotification(notification)}
+                            >
+                              {resolveNotificationActionLabel(notification)}
+                            </Button>
+                          ) : null}
+                          {!isTradeNotification(notification) && (notification.actionHref || notification.relatedHref) ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              className="h-7 px-2.5 text-[11px]"
                               onClick={() => void handleOpenNotification(notification)}
                             >
                               {resolveNotificationActionLabel(notification)}
@@ -543,16 +562,6 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                                 <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleMarkOneRead(notification.id)}>
                                   Mark read
                                 </Button>
-                              ) : null}
-                              {notification.relatedHref ? (
-                                <button
-                                  type="button"
-                                  onClick={() => void handleOpenNotification(notification)}
-                                  className={buttonVariants({ variant: "secondary", size: "sm" })}
-                                >
-                                  <ExternalLink className="h-3 w-3" />
-                                  Related
-                                </button>
                               ) : null}
                             </>
                           )}

@@ -2960,6 +2960,129 @@ function getAdminNotificationRecipients(db: AlphaExchangeDb) {
   return db.users.filter((user) => hasRole(user, "owner") || hasRole(user, "admin"));
 }
 
+function archiveAdminActionNotifications(
+  db: AlphaExchangeDb,
+  matchesAction: (notification: AlphaExchangeNotification) => boolean,
+) {
+  const now = nowIso();
+  const adminUserIds = new Set(getAdminNotificationRecipients(db).map((user) => user.id));
+  const archived: AlphaExchangeNotification[] = [];
+  db.notifications = db.notifications.map((notification) => {
+    if (
+      !adminUserIds.has(notification.userId)
+      || notification.state === "archived"
+      || !matchesAction(notification)
+    ) {
+      return notification;
+    }
+    const next = enrichNotification(db, {
+      ...notification,
+      state: "archived",
+      isRead: true,
+      archivedAt: now,
+      updatedAt: now,
+    });
+    archived.push(next);
+    return next;
+  });
+  return archived;
+}
+
+function publishArchivedNotifications(notifications: AlphaExchangeNotification[]) {
+  for (const notification of notifications) {
+    publishRealtimeEvent({ type: "notification.updated", payload: { notification } });
+  }
+}
+
+function pushAdminTradeActivityNotifications(
+  db: AlphaExchangeDb,
+  input: {
+    title: string;
+    message: string;
+    request: Pick<PurchaseRequest, "id" | "tradeId" | "listingId">;
+    actionLabel?: string;
+    actorUserId?: string;
+  },
+) {
+  const destination = adminPurchaseRequestsDestination(input.request.id);
+  for (const adminUser of getAdminNotificationRecipients(db)) {
+    if (adminUser.id === input.actorUserId) continue;
+    pushNotification(db, {
+      userId: adminUser.id,
+      category: "trade",
+      title: input.title,
+      message: input.message,
+      relatedRequestId: input.request.id,
+      relatedTradeId: input.request.tradeId ?? input.request.id,
+      relatedListingId: input.request.listingId,
+      relatedHref: destination,
+      actionHref: destination,
+      actionLabel: input.actionLabel ?? "View Trade",
+      forceInApp: true,
+    });
+  }
+}
+
+type OwnerActionEmailEvent = Extract<
+  MarketplaceEmailEvent,
+  "owner_listing_review_required" | "owner_seller_application_review_required"
+>;
+
+async function dispatchOwnerActionRequiredEmails(
+  db: AlphaExchangeDb,
+  input: {
+    event: OwnerActionEmailEvent;
+    title: string;
+    message: string;
+    actionLabel: string;
+    actionHref: string;
+    referenceLabel: string;
+    idempotencyKey?: string;
+  },
+) {
+  const recipients = getAdminNotificationRecipients(db);
+  if (!recipients.length) return;
+
+  // Approval alerts are transactional owner-safety messages. They are sent even
+  // when optional marketplace-marketing email is disabled so phone-only owners
+  // cannot miss a seller or listing waiting for approval.
+  const task = async () => {
+    await Promise.all(recipients.map(async (recipient) => {
+      const result = await sendMarketplaceEmail({
+        event: input.event,
+        to: recipient.email,
+        recipientName: recipient.fullName,
+        title: input.title,
+        message: input.message,
+        actionLabel: input.actionLabel,
+        actionUrl: `${getSiteUrl()}/en${input.actionHref}`,
+        referenceLabel: input.referenceLabel,
+        idempotencyKey: `${input.idempotencyKey ?? `${input.event}:${input.referenceLabel}`}:${recipient.id}`,
+      });
+      if (!result.ok) {
+        logEvent("error", {
+          event: "owner_action_email_delivery",
+          targetUserId: recipient.id,
+          resourceId: input.referenceLabel,
+          outcome: "failed",
+          reason: input.event,
+          metadata: {
+            providerStatus: "providerStatus" in result ? result.providerStatus : undefined,
+            deliveryReason: result.reason,
+          },
+        });
+      }
+    }));
+  };
+
+  try {
+    after(task);
+  } catch {
+    // Store-level tests and scripts run outside a Next.js request context.
+    await task();
+  }
+}
+
 export function isEligibleBuyerForListingBroadcast(
   user: Pick<AlphaExchangeUser, "id" | "role" | "roles" | "sellerStatus" | "disabled">,
   creatorUserId: string,
@@ -3603,6 +3726,8 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
         relatedHref: adminPurchaseRequestsDestination(request.id),
         actionHref: adminPurchaseRequestsDestination(request.id),
         actionLabel: "Review Trade",
+        priority: "critical",
+        forceInApp: true,
       });
     }
     publishRealtimeEvent({
@@ -5144,21 +5269,24 @@ export async function createSellerApplication(input: {
     };
   }
 
-  const owner = getOwnerUser(db);
-  if (owner) {
+  const reviewDestination = sellerApplicationReviewDestination(next.id);
+  for (const adminUser of getAdminNotificationRecipients(db)) {
     pushNotification(db, {
-      userId: owner.id,
+      userId: adminUser.id,
       category: "application",
       title: "New Approved Seller Application",
       message: `${next.fullName} has applied to become an Approved Seller.`,
       actionLabel: "Review Application",
-      relatedHref: sellerApplicationReviewDestination(next.id),
+      relatedHref: reviewDestination,
+      actionHref: reviewDestination,
+      priority: "critical",
+      forceInApp: true,
     });
     queueSmsDelivery(db, {
       eventType: "seller_application_submitted",
-      eventKey: `seller-application:${next.id}:owner:${owner.id}`,
-      recipientUserId: owner.id,
-      destinationPath: sellerApplicationReviewDestination(next.id),
+      eventKey: `seller-application:${next.id}:admin:${adminUser.id}`,
+      recipientUserId: adminUser.id,
+      destinationPath: reviewDestination,
     });
   }
   pushActivityLog(db, {
@@ -5170,6 +5298,14 @@ export async function createSellerApplication(input: {
 
   await writeDb(db, { selectedTables: SELLER_APPLICATION_REVIEW_TABLES });
   await dispatchCommittedSms(db, priorSmsCount);
+  await dispatchOwnerActionRequiredEmails(db, {
+    event: "owner_seller_application_review_required",
+    title: "Seller Application Needs Review",
+    message: `${next.fullName} applied to become an Approved Seller. Review the application from your phone.`,
+    actionLabel: "Review Application",
+    actionHref: reviewDestination,
+    referenceLabel: next.id,
+  });
   return next;
 }
 
@@ -5232,9 +5368,16 @@ export async function approveSellerApplicationByAdmin(applicationId: string, adm
     title: "Application approved",
     details: "You can now create listings as an approved seller.",
   });
+  const archivedAdminNotifications = archiveAdminActionNotifications(
+    db,
+    (notification) => notification.category === "application"
+      && (notification.actionHref === sellerApplicationReviewDestination(application.id)
+        || notification.relatedHref === sellerApplicationReviewDestination(application.id)),
+  );
   await recalculateTrustEngine(db, { reason: "Seller approved", triggeredBy: adminUserId });
 
   await writeDb(db, { selectedTables: SELLER_APPLICATION_REVIEW_TABLES });
+  publishArchivedNotifications(archivedAdminNotifications);
   return db.sellerApplications[applicationIndex];
 }
 
@@ -5282,9 +5425,16 @@ export async function rejectSellerApplicationByAdmin(applicationId: string, admi
     title: "Application rejected",
     details: "You can update details and apply again.",
   });
+  const archivedAdminNotifications = archiveAdminActionNotifications(
+    db,
+    (notification) => notification.category === "application"
+      && (notification.actionHref === sellerApplicationReviewDestination(application.id)
+        || notification.relatedHref === sellerApplicationReviewDestination(application.id)),
+  );
   await recalculateTrustEngine(db, { reason: "Seller application rejected", triggeredBy: adminUserId });
 
   await writeDb(db, { selectedTables: SELLER_APPLICATION_REVIEW_TABLES });
+  publishArchivedNotifications(archivedAdminNotifications);
   return db.sellerApplications[applicationIndex];
 }
 
@@ -6568,17 +6718,19 @@ export async function createMarketplaceListing(input: {
     details: `Created listing ${listing.id} with ${listing.availableAmount} USDT available.`,
   });
   logProfile("appendAuditLog");
-  const owner = getOwnerUser(db);
-  if (owner) {
+  const reviewDestination = adminMarketplaceListingsDestination(listing.id);
+  for (const adminUser of getAdminNotificationRecipients(db)) {
     pushNotification(db, {
-      userId: owner.id,
+      userId: adminUser.id,
       category: "listing",
       title: "New Listing Pending Review",
       message: `${input.sellerDisplayName} submitted listing ${listing.id} for admin approval.`,
       relatedListingId: listing.id,
-      relatedHref: adminMarketplaceListingsDestination(listing.id),
-      actionHref: adminMarketplaceListingsDestination(listing.id),
+      relatedHref: reviewDestination,
+      actionHref: reviewDestination,
       actionLabel: "Review Listing",
+      priority: "critical",
+      forceInApp: true,
     });
   }
   pushNotification(db, {
@@ -6614,6 +6766,14 @@ export async function createMarketplaceListing(input: {
     newTrustHistoryEntries,
     updatedTrustSnapshots: db.trustSnapshots,
   }, fromCache);
+  await dispatchOwnerActionRequiredEmails(db, {
+    event: "owner_listing_review_required",
+    title: "Listing Approval Required",
+    message: `${input.sellerDisplayName} submitted ${listing.availableAmount} USDT on ${listing.network}. Review the listing before it can go live.`,
+    actionLabel: "Review Listing",
+    actionHref: reviewDestination,
+    referenceLabel: listing.id,
+  });
   await sendListingOwnerLifecycleEmail(db, listing, {
     event: "listing_submitted",
     title: "Listing Submitted",
@@ -6792,18 +6952,20 @@ export async function updateMarketplaceListingForSeller(input: {
             ? `Edited listing ${next.id}: ${input.changeExplanation}`
             : `Edited listing ${next.id}`,
   });
-  if (shouldResubmitForApproval) {
-    const owner = getOwnerUser(db);
-    if (owner) {
+  const reviewDestination = shouldResubmitForApproval ? adminMarketplaceListingsDestination(next.id) : null;
+  if (shouldResubmitForApproval && reviewDestination) {
+    for (const adminUser of getAdminNotificationRecipients(db)) {
       pushNotification(db, {
-        userId: owner.id,
+        userId: adminUser.id,
         category: "listing",
         title: "New Listing Pending Review",
         message: `${next.sellerDisplayName} resubmitted listing ${next.id} for admin approval.`,
         relatedListingId: next.id,
-        relatedHref: adminMarketplaceListingsDestination(next.id),
-        actionHref: adminMarketplaceListingsDestination(next.id),
+        relatedHref: reviewDestination,
+        actionHref: reviewDestination,
         actionLabel: "Review Listing",
+        priority: "critical",
+        forceInApp: true,
       });
     }
     pushActivityLog(db, {
@@ -6815,6 +6977,17 @@ export async function updateMarketplaceListingForSeller(input: {
   }
   await recalculateTrustEngine(db, { reason: "Seller listing updated", triggeredBy: input.actorUserId });
   await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
+  if (reviewDestination) {
+    await dispatchOwnerActionRequiredEmails(db, {
+      event: "owner_listing_review_required",
+      title: "Listing Changes Need Review",
+      message: `${next.sellerDisplayName} changed listing ${next.id}. Review it before the listing can return live.`,
+      actionLabel: "Review Listing",
+      actionHref: reviewDestination,
+      referenceLabel: next.id,
+      idempotencyKey: `owner-listing-resubmission:${next.id}:${next.updatedAt}`,
+    });
+  }
   if (current.availableAmount !== next.availableAmount) {
     publishRealtimeEvent({ type: "listing.quantity_changed", payload: { listingId: next.id, availableAmount: next.availableAmount } });
   }
@@ -7171,12 +7344,17 @@ export async function reviewMarketplaceListingByOwner(input: {
       ? `Listing ${current.id} approved and now live.`
       : `Reason: ${trimmedReason}`,
   });
+  const archivedAdminNotifications = archiveAdminActionNotifications(
+    db,
+    (notification) => notification.category === "listing" && notification.relatedListingId === current.id,
+  );
   await recalculateTrustEngine(db, {
     reason:
       input.decision === "approve" ? "Listing approved" : input.decision === "reject" ? "Listing rejected" : "Listing changes requested",
     triggeredBy: input.ownerUserId,
   });
   await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
+  publishArchivedNotifications(archivedAdminNotifications);
   return db.marketplaceListings[index];
 }
 
@@ -7523,6 +7701,13 @@ export async function createPurchaseRequest(input: {
     relatedTradeId: request.tradeId,
     relatedListingId: request.listingId,
     relatedHref: requestDetailsHref(request.id),
+  });
+  pushAdminTradeActivityNotifications(db, {
+    title: "New Trade Request Submitted",
+    message: `${request.buyerName} requested ${request.usdtAmount} USDT from ${seller.fullName}.`,
+    request,
+    actionLabel: "Monitor Request",
+    actorUserId: input.actorUserId,
   });
   queueSmsDelivery(db, { eventType: "purchase_request_created", eventKey: `purchase-request:${request.id}:seller:${sellerId}`, recipientUserId: sellerId, destinationPath: requestDetailsHref(request.id) });
   pushActivityLog(db, {
@@ -9587,6 +9772,13 @@ export async function updatePurchaseRequestStatus(input: {
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
+    });
+    pushAdminTradeActivityNotifications(db, {
+      title: "Trade Request Accepted",
+      message: `Seller accepted ${request.buyerName}'s ${request.usdtAmount} USDT request. The trade is now active.`,
+      request: next,
+      actionLabel: "Monitor Trade",
+      actorUserId: input.actorUserId,
     });
     queueSmsDelivery(db, { eventType: "trade_accepted", eventKey: `trade:${request.id}:accepted:buyer:${request.buyerId}`, recipientUserId: request.buyerId, destinationPath: requestDetailsHref(request.id) });
   } else if (input.nextStatus === "declined") {
@@ -12123,6 +12315,8 @@ export async function openTradeDispute(input: {
       relatedHref: adminPurchaseRequestsDestination(request.id),
       actionHref: adminPurchaseRequestsDestination(request.id),
       actionLabel: "Review Trade",
+      priority: "critical",
+      forceInApp: true,
     });
     queueSmsDelivery(db, {
       eventType: "trade_requires_admin_review",

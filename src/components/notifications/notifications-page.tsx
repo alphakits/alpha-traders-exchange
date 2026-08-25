@@ -16,6 +16,7 @@ import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
 import { getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
 import { getExplicitNonTradeRoomNotificationDestination } from "@/lib/notification-action-destination";
+import { isNotificationActionRequired } from "@/lib/notification-action-required";
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 
@@ -44,7 +45,7 @@ type TradeSnapshotPayload = {
   buyerId?: string;
 };
 
-type NotificationFilter = "all" | "unread" | "trades" | "listings" | "reviews" | "announcements" | "history";
+type NotificationFilter = "all" | "actions" | "unread" | "trades" | "listings" | "reviews" | "announcements" | "history";
 
 const PAGE_SIZE = 20;
 const MOBILE_FETCH_LIMIT = 40;
@@ -78,11 +79,6 @@ function isReview(notification: AlphaExchangeNotification) {
   return notification.category === "review" || `${notification.title} ${notification.message}`.toLowerCase().includes("review");
 }
 
-function isActionRequired(notification: AlphaExchangeNotification) {
-  const text = `${notification.title} ${notification.message}`.toLowerCase();
-  return text.includes("action required") || text.includes("feedback required") || text.includes("confirm usdt receipt");
-}
-
 function buildTradeRoomHashForAction(action: string) {
   if (action === "upload-payment-receipt" || action === "upload-seller-evidence") return "evidence";
   if (action === "review-trade" || action === "open-trade") return "status-banner";
@@ -114,6 +110,7 @@ function buildTradeRoomActionForSnapshot(snapshot: TradeSnapshotPayload, actorUs
 function matchesFilter(notification: AlphaExchangeNotification, filter: NotificationFilter) {
   if (filter === "history") return notification.state === "archived";
   if (filter === "all") return true;
+  if (filter === "actions") return isNotificationActionRequired(notification);
   if (filter === "unread") return !notification.isRead;
   if (filter === "trades") return notification.category === "trade";
   if (filter === "listings") return notification.category === "listing";
@@ -322,7 +319,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
   }, [filter, notifications, search]);
 
   const highlightedReminder = useMemo(
-    () => notifications.find((notification) => isActionRequired(notification) && !notification.isRead) ?? notifications.find(isActionRequired) ?? null,
+    () => notifications.find((notification) => isNotificationActionRequired(notification) && !notification.isRead) ?? notifications.find(isNotificationActionRequired) ?? null,
     [notifications],
   );
 
@@ -489,11 +486,9 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
         setError("Failed to update seller application.");
         return;
       }
-      if (!notification.isRead) {
-        await handleMarkOneRead(notification.id);
-      } else {
-        await loadNotifications();
-      }
+      // A completed decision archives the matching owner/admin action alert on
+      // the server. Reload it instead of marking it read and resurrecting it.
+      await loadNotifications();
     } finally {
       setItemLoading((prev) => ({ ...prev, [actionKey]: false }));
     }
@@ -596,7 +591,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {(["all", "unread", "trades", "listings", "reviews", "announcements", "history"] as NotificationFilter[]).map((item) => (
+            {(["all", "actions", "unread", "trades", "listings", "reviews", "announcements", "history"] as NotificationFilter[]).map((item) => (
               <button
                 key={item}
                 type="button"
@@ -607,7 +602,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                     : "border-white/15 bg-black/20 text-[#D1D5DB] hover:border-white/25 hover:text-white"
                 }`}
               >
-                {item === "all" ? "All" : item === "unread" ? "Unread" : item === "trades" ? "Trades" : item === "listings" ? "Listings" : item === "reviews" ? "Reviews" : item === "announcements" ? "Announcements" : "History"}
+                {item === "all" ? "All" : item === "actions" ? "Needs action" : item === "unread" ? "Unread" : item === "trades" ? "Trades" : item === "listings" ? "Listings" : item === "reviews" ? "Reviews" : item === "announcements" ? "Announcements" : "History"}
               </button>
             ))}
           </div>
@@ -628,10 +623,11 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                 <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#9CA3AF]">{group.label}</p>
                 {group.items.map((notification) => {
                   const Icon = notificationIcon(notification);
+                  const actionRequired = isNotificationActionRequired(notification);
                   return (
                     <div
                       key={notification.id}
-                      className={`rounded-xl border p-3 md:p-4 ${notification.isRead ? "border-white/10 bg-black/20" : "border-[#C9A227]/35 bg-[#C9A227]/10"}`}
+                      className={`rounded-xl border p-3 md:p-4 ${actionRequired ? "border-amber-400/55 bg-amber-500/10" : notification.isRead ? "border-white/10 bg-black/20" : "border-[#C9A227]/35 bg-[#C9A227]/10"}`}
                     >
                       <div className="flex items-start gap-3">
                         <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[#C9A227]" />
@@ -643,6 +639,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                           <p className="mt-1 text-sm text-[#D1D5DB]">{formatNotificationMessage(notification)}</p>
                           <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-[#C9A227]">
                             {!notification.isRead ? <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5">Unread</span> : <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#9CA3AF]">Read</span>}
+                            {actionRequired ? <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 font-semibold text-amber-200">Action required</span> : null}
                             {isTradeNotification(notification) && (notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber) ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">Trade {formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId)}</span> : null}
                             {notification.relatedListingId || notification.relatedListingDisplayNumber ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">Listing {formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}</span> : null}
                             {notification.tradeSnapshot?.usdtAmount ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">{notification.tradeSnapshot.usdtAmount} USDT</span> : null}
@@ -717,17 +714,6 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                                 onClick={() => void handleMarkOneRead(notification.id)}
                               >
                                 Mark as read
-                              </Button>
-                            ) : null}
-                            {(notification.actionHref || notification.relatedHref) ? (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="secondary"
-                                className="h-10 px-3 text-xs md:h-8"
-                                onClick={() => void openNotificationDestination(notification)}
-                              >
-                                Open related page
                               </Button>
                             ) : null}
                           </>
