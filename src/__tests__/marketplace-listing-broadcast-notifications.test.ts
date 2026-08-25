@@ -18,12 +18,16 @@ vi.mock("@/lib/marketplace-email-delivery", async () => {
 });
 
 import {
+  approveSellerApplicationByAdmin,
   createMarketplaceListing,
+  createPurchaseRequest,
+  createSellerApplication,
   getNotificationsForUser,
   invalidateAlphaExchangeStoreCache,
   reviewMarketplaceListingByOwner,
+  updatePurchaseRequestStatus,
 } from "@/lib/alpha-exchange-store";
-import { adminMarketplaceListingsDestination, listingDestination } from "@/lib/action-destinations";
+import { adminMarketplaceListingsDestination, listingDestination, sellerApplicationReviewDestination } from "@/lib/action-destinations";
 import { prepareListingReviewEmails } from "@/lib/marketplace-email-events";
 
 const OWNER_ID = "owner-1";
@@ -148,6 +152,172 @@ describe("marketplace listing publication broadcasts", () => {
     const notification = result.notifications.find((item) => item.id === "notification-blank-content");
     expect(result.unreadCount).toBe(1);
     expect(notification).toMatchObject({ title: "Trade update", message: "Open notifications for the latest account update." });
+  });
+
+  it("delivers seller-application approval alerts even when owner optional notifications are disabled", async () => {
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    const owner = snapshot.users.find((user) => user.id === OWNER_ID);
+    expect(owner).toBeDefined();
+    owner!.notificationPreferences = { inApp: false, email: false, sms: false };
+
+    const application = await createSellerApplication({
+      userId: BUYER_ID,
+      fullName: "Eligible Buyer",
+      email: "buyer.eligible@example.com",
+      whatsappNumber: "+972501234567",
+      preferredNetworks: ["USDT (TRC20 / Tron)"],
+      expectedMonthlyTradingVolume: "2500",
+      additionalNotes: "Ready to sell",
+    });
+
+    const ownerNotifications = await getNotificationsForUser({ userId: OWNER_ID });
+    expect(ownerNotifications.notifications).toContainEqual(expect.objectContaining({
+      category: "application",
+      title: "New Approved Seller Application",
+      priority: "critical",
+      state: "unread",
+      actionHref: sellerApplicationReviewDestination(application.id),
+      relatedHref: sellerApplicationReviewDestination(application.id),
+      actionLabel: "Review Application",
+    }));
+    expect(sendMarketplaceEmailMock).toHaveBeenCalledWith(expect.objectContaining({
+      event: "owner_seller_application_review_required",
+      to: "jozenmark834@yahoo.com",
+      actionUrl: expect.stringContaining(`/en${sellerApplicationReviewDestination(application.id)}`),
+    }));
+
+    await approveSellerApplicationByAdmin(application.id, OWNER_ID, "Verified from owner notification");
+
+    const activeNotifications = await getNotificationsForUser({ userId: OWNER_ID });
+    expect(activeNotifications.notifications.some((notification) => notification.actionHref === sellerApplicationReviewDestination(application.id))).toBe(false);
+    const archivedNotifications = await getNotificationsForUser({ userId: OWNER_ID, state: "archived" });
+    expect(archivedNotifications.notifications).toContainEqual(expect.objectContaining({
+      category: "application",
+      state: "archived",
+      isRead: true,
+      actionHref: sellerApplicationReviewDestination(application.id),
+    }));
+  });
+
+  it("keeps listing approvals visible, actionable, and backed up by email until resolved", async () => {
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    const owner = snapshot.users.find((user) => user.id === OWNER_ID);
+    expect(owner).toBeDefined();
+    owner!.notificationPreferences = { inApp: false, email: false, sms: false };
+
+    const listing = await createMarketplaceListing({
+      sellerId: LISTING_CREATOR_ID,
+      sellerDisplayName: "Listing Creator",
+      availableAmount: "700",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Face-to-Face (Meet in Person)"],
+      minimumTrade: "50",
+      maximumTrade: "700",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: LISTING_CREATOR_ID,
+    });
+
+    const reviewDestination = adminMarketplaceListingsDestination(listing.id);
+    const ownerNotifications = await getNotificationsForUser({ userId: OWNER_ID });
+    expect(ownerNotifications.notifications).toContainEqual(expect.objectContaining({
+      category: "listing",
+      title: "New Listing Pending Review",
+      priority: "critical",
+      state: "unread",
+      relatedListingId: listing.id,
+      actionHref: reviewDestination,
+      relatedHref: reviewDestination,
+      actionLabel: "Review Listing",
+    }));
+    expect(sendMarketplaceEmailMock).toHaveBeenCalledWith(expect.objectContaining({
+      event: "owner_listing_review_required",
+      to: "jozenmark834@yahoo.com",
+      actionUrl: expect.stringContaining(`/en${reviewDestination}`),
+    }));
+
+    await reviewMarketplaceListingByOwner({
+      listingId: listing.id,
+      ownerUserId: OWNER_ID,
+      decision: "approve",
+    });
+
+    const activeNotifications = await getNotificationsForUser({ userId: OWNER_ID });
+    expect(activeNotifications.notifications.some((notification) => notification.relatedListingId === listing.id)).toBe(false);
+    const archivedNotifications = await getNotificationsForUser({ userId: OWNER_ID, state: "archived" });
+    expect(archivedNotifications.notifications).toContainEqual(expect.objectContaining({
+      category: "listing",
+      state: "archived",
+      isRead: true,
+      relatedListingId: listing.id,
+    }));
+  });
+
+  it("shows owner mobile notifications when a trade request is submitted and accepted", async () => {
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    const owner = snapshot.users.find((user) => user.id === OWNER_ID);
+    expect(owner).toBeDefined();
+    owner!.notificationPreferences = { inApp: false, email: false, sms: false };
+
+    const listing = await createMarketplaceListing({
+      sellerId: LISTING_CREATOR_ID,
+      sellerDisplayName: "Listing Creator",
+      availableAmount: "500",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Face-to-Face (Meet in Person)"],
+      minimumTrade: "50",
+      maximumTrade: "500",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: LISTING_CREATOR_ID,
+    });
+    await reviewMarketplaceListingByOwner({
+      listingId: listing.id,
+      ownerUserId: OWNER_ID,
+      decision: "approve",
+    });
+
+    const created = await createPurchaseRequest({
+      buyerId: BUYER_ID,
+      listingId: listing.id,
+      usdtAmount: "100",
+      buyerName: "Eligible Buyer",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      paymentMethod: "Face-to-Face (Meet in Person)",
+      safetyAcknowledged: true,
+      actorUserId: BUYER_ID,
+    });
+
+    let ownerNotifications = await getNotificationsForUser({ userId: OWNER_ID });
+    expect(ownerNotifications.notifications).toContainEqual(expect.objectContaining({
+      category: "trade",
+      title: "New Trade Request Submitted",
+      relatedRequestId: created.request.id,
+      actionHref: expect.stringContaining(`requestId=${created.request.id}`),
+      actionLabel: "Monitor Request",
+    }));
+
+    await updatePurchaseRequestStatus({
+      requestId: created.request.id,
+      actorUserId: LISTING_CREATOR_ID,
+      actorRole: "approved_seller",
+      nextStatus: "accepted",
+      safetyAcknowledged: true,
+    });
+
+    ownerNotifications = await getNotificationsForUser({ userId: OWNER_ID });
+    expect(ownerNotifications.notifications).toContainEqual(expect.objectContaining({
+      category: "trade",
+      title: "Trade Request Accepted",
+      relatedRequestId: created.request.id,
+      relatedTradeId: created.request.tradeId,
+      actionHref: expect.stringContaining(`requestId=${created.request.id}`),
+      actionLabel: "Monitor Trade",
+    }));
   });
 
   it("sends exactly one in-app new-listing notification to each eligible buyer", async () => {
