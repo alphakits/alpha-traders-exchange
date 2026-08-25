@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   requireApiUser: vi.fn(),
-  requirePhoneVerificationForTrading: vi.fn(),
   canPublishListings: vi.fn(),
   createMarketplaceListing: vi.fn(),
   getMarketplaceListings: vi.fn(),
@@ -14,7 +13,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
-  requirePhoneVerificationForTrading: mocks.requirePhoneVerificationForTrading,
 }));
 
 vi.mock("@/lib/alpha-exchange-store", () => ({
@@ -53,7 +51,6 @@ function createRequest() {
 describe("listing create session boundary", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.requirePhoneVerificationForTrading.mockReturnValue(null);
     mocks.canPublishListings.mockReturnValue(true);
     mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0 });
     mocks.fetchUsdIlsMarketRate.mockResolvedValue("3.05");
@@ -76,9 +73,9 @@ describe("listing create session boundary", () => {
     expect(mocks.createMarketplaceListing).not.toHaveBeenCalled();
   });
 
-  it("allows an authenticated approved seller to submit a pending listing", async () => {
+  it("allows an authenticated approved seller without a verified phone to submit a pending listing", async () => {
     mocks.requireApiUser.mockResolvedValue({
-      user: { id: "seller-1", fullName: "Seller", role: "approved_seller", sellerStatus: "approved_seller" },
+      user: { id: "seller-1", fullName: "Seller", role: "approved_seller", sellerStatus: "approved_seller", emailVerified: true, verifiedPhone: "", phoneVerifiedAt: "" },
       unauthorized: null,
     });
 
