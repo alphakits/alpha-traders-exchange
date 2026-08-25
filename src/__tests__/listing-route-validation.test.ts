@@ -3,7 +3,6 @@ import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   requireApiUser: vi.fn(),
-  requirePhoneVerificationForTrading: vi.fn(),
   canPublishListings: vi.fn(),
   getMarketplaceListingById: vi.fn(),
   updateMarketplaceListingForSeller: vi.fn(),
@@ -16,7 +15,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/api-auth", () => ({
   requireApiUser: mocks.requireApiUser,
-  requirePhoneVerificationForTrading: mocks.requirePhoneVerificationForTrading,
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
@@ -41,7 +39,6 @@ import { PATCH } from "@/app/api/alpha-exchange/listings/[listingId]/route";
 describe("alpha-exchange listing route validation", () => {
   beforeEach(() => {
     mocks.requireApiUser.mockReset();
-    mocks.requirePhoneVerificationForTrading.mockReset();
     mocks.canPublishListings.mockReset();
     mocks.getMarketplaceListingById.mockReset();
     mocks.updateMarketplaceListingForSeller.mockReset();
@@ -52,10 +49,9 @@ describe("alpha-exchange listing route validation", () => {
     mocks.checkRateLimit.mockReset();
 
     mocks.requireApiUser.mockResolvedValue({
-      user: { id: "seller-1", role: "approved_seller", sellerStatus: "approved_seller" },
+      user: { id: "seller-1", role: "approved_seller", sellerStatus: "approved_seller", emailVerified: true, verifiedPhone: "", phoneVerifiedAt: "" },
       unauthorized: null,
     });
-    mocks.requirePhoneVerificationForTrading.mockReturnValue(null);
     mocks.canPublishListings.mockReturnValue(true);
     mocks.checkRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
     mocks.fetchUsdIlsMarketRate.mockResolvedValue("3.05");
