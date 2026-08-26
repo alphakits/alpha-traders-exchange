@@ -21,6 +21,7 @@ import { getTranslations } from "next-intl/server";
 import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
+import { BRAND_NAME } from "@/lib/brand";
 
 type FooterItem = {
   href: string;
@@ -193,7 +194,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
             <Link href="/" locale={locale} className="inline-flex items-center gap-3">
               <Image
                 src="/images/brand/alpha-traders-logo.webp"
-                alt="Alpha Traders Academy & Exchange logo"
+                alt={`${BRAND_NAME} logo`}
                 width={84}
                 height={84}
                 className="rounded-2xl border border-[#C9A227]/45 bg-black/35 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)]"
@@ -203,14 +204,14 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
                   {brand}
                 </p>
                 <p className="text-xs text-[#D4AF37]">
-                  {isAr ? "منصة تداول وتعليم احترافية" : "Premium Crypto Marketplace & Professional Trading Education"}
+                  Academy &amp; Exchange
                 </p>
               </div>
             </Link>
             <p className="mt-3 text-sm text-[#BFC6D2]">
               {isAr
-                ? "موثوق من مجتمعنا المتنامي من المتداولين."
-                : "Trusted by our growing community of traders."}
+                ? "أكاديمية تداول احترافية وسوق USDT موثوق. موثوق من مجتمعنا المتنامي من المتداولين."
+                : "Professional Trading Education • Trusted USDT Marketplace. Trusted by our growing community of traders."}
             </p>
             <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-[#D5DBE6]">
               {[
@@ -247,7 +248,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
             <Link href="/" locale={locale} className="inline-flex items-center gap-3">
               <Image
                 src="/images/brand/alpha-traders-logo.webp"
-                alt="Alpha Traders Academy & Exchange logo"
+                alt={`${BRAND_NAME} logo`}
                 width={84}
                 height={84}
                 className="rounded-2xl border border-[#C9A227]/45 bg-black/35 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)]"
@@ -257,14 +258,14 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
                   {brand}
                 </p>
                 <p className="text-xs text-[#D4AF37]">
-                  {isAr ? "تداول مشفّر وتعليم احترافي" : "Premium Crypto Marketplace"}
+                  Academy &amp; Exchange
                 </p>
               </div>
             </Link>
             <p className="mt-3 text-sm leading-relaxed text-[#BFC6D2]">
               {isAr
-                ? "منصة تعليم وتداول احترافية. موثوق من مجتمع متنامٍ من المتداولين."
-                : "Premium Crypto Marketplace & Professional Trading Education. Trusted by our growing community of traders."}
+                ? "أكاديمية تداول احترافية وسوق USDT موثوق. موثوق من مجتمعنا المتنامي من المتداولين."
+                : "Professional Trading Education • Trusted USDT Marketplace. Trusted by our growing community of traders."}
             </p>
             <div className="mt-4 space-y-2 text-sm text-[#D5DBE6]">
               {[

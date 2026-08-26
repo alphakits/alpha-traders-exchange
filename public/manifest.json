@@ -1,7 +1,7 @@
 {
-  "name": "Alpha Traders",
-  "short_name": "Alpha Traders",
-  "description": "Premium Arabic trading academy and USDT exchange marketplace.",
+  "name": "Alpha Traders Academy & Exchange",
+  "short_name": "Alpha Traders Academy & Exchange",
+  "description": "Alpha Traders Academy & Exchange — professional trading education and a trusted USDT marketplace.",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",

@@ -14,9 +14,13 @@ describe("current Alpha Traders brand assets", () => {
 
   it("ships every PWA icon referenced by the manifest", () => {
     const manifest = JSON.parse(readFileSync(join(process.cwd(), "public", "manifest.json"), "utf8")) as {
+      name: string;
+      short_name: string;
       icons: Array<{ src: string }>;
     };
 
+    expect(manifest.name).toBe("Alpha Traders Academy & Exchange");
+    expect(manifest.short_name).toBe("Alpha Traders Academy & Exchange");
     expect(manifest.icons.map((icon) => icon.src)).toEqual([
       "/images/brand/alpha-traders-logo-192.png",
       "/images/brand/alpha-traders-logo-512.png",

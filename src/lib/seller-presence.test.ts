@@ -6,7 +6,7 @@ import {
   deriveSellerPresence,
 } from "@/lib/seller-presence";
 
-const NOW = new Date("2026-02-15T12:00:00.000Z").getTime();
+const NOW = new Date(2026, 1, 15, 12, 0, 0).getTime();
 const iso = (msFromNow: number) => new Date(NOW + msFromNow).toISOString();
 
 describe("deriveSellerPresence", () => {
