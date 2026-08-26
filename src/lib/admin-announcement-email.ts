@@ -140,7 +140,7 @@ function toPlainText(content: string) {
 
 export function buildAdminAnnouncementEmail(input: AdminAnnouncementEmailContent) {
   const siteUrl = getSiteUrl();
-  const logoUrl = escapeHtml(new URL("/icon.png", siteUrl).toString());
+  const logoUrl = escapeHtml(new URL("/images/brand/alpha-traders-logo.png", siteUrl).toString());
   const title = escapeHtml(input.title);
   const ctaText = escapeHtml(input.ctaText);
   const ctaUrl = escapeHtml(input.ctaUrl);
@@ -167,7 +167,7 @@ export function buildAdminAnnouncementEmail(input: AdminAnnouncementEmailContent
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#101010;border:1px solid #332b12;border-radius:20px;overflow:hidden;">
             <tr>
               <td align="center" style="padding:28px 24px;background:#171308;border-bottom:1px solid #453914;">
-                <img src="${logoUrl}" width="56" height="56" alt="Alpha Exchange" style="display:block;width:56px;height:56px;margin:0 auto;border-radius:14px;" />
+                <img src="${logoUrl}" width="96" height="96" alt="Alpha Traders Academy &amp; Exchange" style="display:block;width:96px;height:96px;margin:0 auto;border-radius:20px;object-fit:cover;" />
                 <div style="margin-top:12px;font-size:12px;letter-spacing:2.4px;color:#d6b84c;text-transform:uppercase;">Alpha Exchange</div>
                 <h1 style="margin:12px auto 0;max-width:520px;color:#ffffff;font-size:28px;line-height:1.3;">${title}</h1>
               </td>

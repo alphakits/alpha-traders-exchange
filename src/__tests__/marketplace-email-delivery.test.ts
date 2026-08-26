@@ -27,6 +27,8 @@ describe("marketplace email delivery", () => {
     expect(email.subject).toBe("Trade Accepted | Alpha Exchange");
     expect(email.text).toContain("Open Trade Room");
     expect(email.html).toContain("Alpha Exchange");
+    expect(email.html).toContain("/images/brand/alpha-traders-logo.png");
+    expect(email.html).toContain("Alpha Traders Academy &amp; Exchange");
     expect(email.html).toContain("max-width:560px");
     expect(email.html).toContain("Mark &lt;Trader&gt;");
     expect(email.html).not.toContain("Mark <Trader>");

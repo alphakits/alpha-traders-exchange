@@ -366,7 +366,7 @@ export function AdminAnnouncementsPanel() {
             <p className="mb-2 text-sm font-medium text-[#D1D5DB]">Email preview</p>
             <div className="overflow-hidden rounded-2xl border border-[#4A3D16] bg-[#101010] shadow-2xl">
               <div className="border-b border-[#4A3D16] bg-[#171308] px-5 py-6 text-center">
-                <Image src="/icon.png" alt="Alpha Exchange" width={48} height={48} className="mx-auto rounded-xl" />
+                <Image src="/images/brand/alpha-traders-logo.webp" alt="Alpha Traders Academy & Exchange" width={88} height={88} className="mx-auto rounded-2xl object-cover" />
                 <div className="mt-3 text-xs font-semibold uppercase tracking-[0.2em] text-[#D6B84C]">Alpha Exchange</div>
                 <h2 className="mt-3 text-2xl font-bold leading-tight text-white">{title || "Announcement title"}</h2>
               </div>
