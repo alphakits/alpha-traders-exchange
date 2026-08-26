@@ -70,6 +70,8 @@ describe("admin announcement email", () => {
 
     expect(email.subject).toBe(content.subject);
     expect(email.html).toContain("Alpha Exchange");
+    expect(email.html).toContain("/images/brand/alpha-traders-logo.png");
+    expect(email.html).toContain("Alpha Traders Academy &amp; Exchange");
     expect(email.html).toContain("max-width:620px");
     expect(email.html).toContain("<strong");
     expect(email.html).toContain("<li");

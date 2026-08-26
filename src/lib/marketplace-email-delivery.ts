@@ -1,6 +1,7 @@
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { redactPrivateContactDetails } from "@/lib/privacy-redaction";
+import { getSiteUrl } from "@/lib/site-url";
 
 export type MarketplaceEmailEvent =
   | "new_buy_request"
@@ -126,6 +127,7 @@ function escapeHtml(value: string) {
 }
 
 export function buildMarketplaceEmail(input: MarketplaceEmailPayload) {
+  const logoUrl = escapeHtml(new URL("/images/brand/alpha-traders-logo.png", getSiteUrl()).toString());
   const recipientName = escapeHtml(redactPrivateContactDetails(input.recipientName || "Trader"));
   const title = escapeHtml(redactPrivateContactDetails(input.title));
   const message = escapeHtml(redactPrivateContactDetails(input.message));
@@ -157,8 +159,9 @@ export function buildMarketplaceEmail(input: MarketplaceEmailPayload) {
         <td align="center">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#111111;border:1px solid #2b2b2b;border-radius:18px;overflow:hidden;">
             <tr>
-              <td style="padding:24px;background:linear-gradient(135deg,#1c1708,#111111);border-bottom:1px solid #3f3513;">
-                <div style="font-size:12px;letter-spacing:2px;color:#d6b84c;text-transform:uppercase;">Alpha Exchange</div>
+              <td align="center" style="padding:24px;background:linear-gradient(135deg,#1c1708,#111111);border-bottom:1px solid #3f3513;">
+                <img src="${logoUrl}" width="88" height="88" alt="Alpha Traders Academy &amp; Exchange" style="display:block;width:88px;height:88px;margin:0 auto;border-radius:18px;object-fit:cover;" />
+                <div style="margin-top:12px;font-size:12px;letter-spacing:2px;color:#d6b84c;text-transform:uppercase;">Alpha Exchange</div>
                 <h1 style="margin:10px 0 0;font-size:24px;line-height:1.3;color:#ffffff;">${title}</h1>
               </td>
             </tr>

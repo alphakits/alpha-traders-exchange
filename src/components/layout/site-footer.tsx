@@ -193,10 +193,10 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
             <Link href="/" locale={locale} className="inline-flex items-center gap-3">
               <Image
                 src="/images/brand/alpha-traders-logo.webp"
-                alt="Alpha Traders"
-                width={56}
-                height={56}
-                className="rounded-full border border-[#C9A227]/45 bg-black/35 p-0.5 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)]"
+                alt="Alpha Traders Academy & Exchange logo"
+                width={84}
+                height={84}
+                className="rounded-2xl border border-[#C9A227]/45 bg-black/35 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)]"
               />
               <div>
                 <p className="gold-gradient inline-block bg-clip-text pb-px text-[1.02rem] font-semibold leading-[1.15] tracking-wide text-transparent">
@@ -247,10 +247,10 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
             <Link href="/" locale={locale} className="inline-flex items-center gap-3">
               <Image
                 src="/images/brand/alpha-traders-logo.webp"
-                alt="Alpha Traders"
-                width={62}
-                height={62}
-                className="rounded-full border border-[#C9A227]/45 bg-black/35 p-0.5 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)]"
+                alt="Alpha Traders Academy & Exchange logo"
+                width={84}
+                height={84}
+                className="rounded-2xl border border-[#C9A227]/45 bg-black/35 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)]"
               />
               <div>
                 <p className="gold-gradient inline-block bg-clip-text pb-px text-[1.02rem] font-semibold leading-[1.15] tracking-wide text-transparent">
