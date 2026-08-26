@@ -12,6 +12,7 @@ describe("auth email branding", () => {
 
     expect(email.html).toContain("/images/brand/alpha-traders-logo.png");
     expect(email.html).toContain("Alpha Traders Academy &amp; Exchange");
+    expect(email.subject).toContain("Alpha Traders Academy & Exchange");
     expect(email.html).toContain("max-width:560px");
     expect(email.html).toContain("https://www.alphatraders.co.il/secure-action");
   });

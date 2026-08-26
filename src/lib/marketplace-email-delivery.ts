@@ -2,6 +2,7 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path";
 import { redactPrivateContactDetails } from "@/lib/privacy-redaction";
 import { getSiteUrl } from "@/lib/site-url";
+import { BRAND_NAME, BRAND_NAME_HTML, getBrandedEmailFrom } from "@/lib/brand";
 
 export type MarketplaceEmailEvent =
   | "new_buy_request"
@@ -136,7 +137,7 @@ export function buildMarketplaceEmail(input: MarketplaceEmailPayload) {
   const actionUrl = escapeHtml(safeActionUrl);
   const safeReferenceLabel = input.referenceLabel ? redactPrivateContactDetails(input.referenceLabel) : "";
   const referenceLabel = safeReferenceLabel ? escapeHtml(safeReferenceLabel) : "";
-  const subject = `${redactPrivateContactDetails(input.title)} | Alpha Exchange`;
+  const subject = `${redactPrivateContactDetails(input.title)} | ${BRAND_NAME}`;
 
   return {
     subject,
@@ -160,8 +161,8 @@ export function buildMarketplaceEmail(input: MarketplaceEmailPayload) {
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#111111;border:1px solid #2b2b2b;border-radius:18px;overflow:hidden;">
             <tr>
               <td align="center" style="padding:24px;background:linear-gradient(135deg,#1c1708,#111111);border-bottom:1px solid #3f3513;">
-                <img src="${logoUrl}" width="88" height="88" alt="Alpha Traders Academy &amp; Exchange" style="display:block;width:88px;height:88px;margin:0 auto;border-radius:18px;object-fit:cover;" />
-                <div style="margin-top:12px;font-size:12px;letter-spacing:2px;color:#d6b84c;text-transform:uppercase;">Alpha Exchange</div>
+                <img src="${logoUrl}" width="88" height="88" alt="${BRAND_NAME_HTML}" style="display:block;width:88px;height:88px;margin:0 auto;border-radius:18px;object-fit:cover;" />
+                <div style="margin-top:12px;font-size:12px;letter-spacing:2px;color:#d6b84c;text-transform:uppercase;">${BRAND_NAME_HTML}</div>
                 <h1 style="margin:10px 0 0;font-size:24px;line-height:1.3;color:#ffffff;">${title}</h1>
               </td>
             </tr>
@@ -190,7 +191,7 @@ export async function sendMarketplaceEmail(input: MarketplaceEmailPayload & { to
     referenceLabel: input.referenceLabel,
   });
   const apiKey = process.env.RESEND_API_KEY?.trim() ?? "";
-  const from = process.env.EMAIL_FROM?.trim() ?? "";
+  const from = getBrandedEmailFrom(process.env.EMAIL_FROM ?? "");
   if (!apiKey || !from) {
     return { ok: false as const, reason: "resend_not_configured" as const };
   }

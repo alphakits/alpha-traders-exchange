@@ -24,7 +24,7 @@ describe("marketplace email delivery", () => {
   it("builds a branded mobile-friendly transactional email", () => {
     const email = buildMarketplaceEmail(payload);
 
-    expect(email.subject).toBe("Trade Accepted | Alpha Exchange");
+    expect(email.subject).toBe("Trade Accepted | Alpha Traders Academy & Exchange");
     expect(email.text).toContain("Open Trade Room");
     expect(email.html).toContain("Alpha Exchange");
     expect(email.html).toContain("/images/brand/alpha-traders-logo.png");
@@ -44,7 +44,7 @@ describe("marketplace email delivery", () => {
       actionUrl: "https://www.alphatraders.co.il/en/usdt-exchange#market-overview",
       referenceLabel: "promotion-1",
     });
-    expect(email.subject).toBe("Congratulations on your new seller rank | Alpha Exchange");
+    expect(email.subject).toBe("Congratulations on your new seller rank | Alpha Traders Academy & Exchange");
     expect(email.text).toContain("View Seller Insights");
     expect(email.text).toContain("promotion-1");
   });
@@ -78,9 +78,9 @@ describe("marketplace email delivery", () => {
     );
     const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(JSON.parse(String(request.body))).toEqual(expect.objectContaining({
-      from: "Alpha Exchange <notifications@example.com>",
+      from: "Alpha Traders Academy & Exchange <notifications@example.com>",
       to: ["mark@example.com"],
-      subject: "Trade Accepted | Alpha Exchange",
+      subject: "Trade Accepted | Alpha Traders Academy & Exchange",
     }));
   });
 

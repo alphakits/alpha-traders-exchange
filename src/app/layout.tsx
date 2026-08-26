@@ -7,6 +7,7 @@ import { OfflineBanner } from "@/components/pwa/offline-banner";
 import { PwaInstallPrompt } from "@/components/pwa/pwa-install-prompt";
 import { getSiteUrlObject, getSiteUrl } from "@/lib/site-url";
 import { localeDirection, type AppLocale } from "@/i18n/routing";
+import { BRAND_NAME } from "@/lib/brand";
 
 const siteUrl = getSiteUrl();
 const OG_IMAGE = `${siteUrl}/images/hero/hero-trading-office.png`;
@@ -20,8 +21,8 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: getSiteUrlObject(),
   title: {
-    default: "Alpha Traders | Free Arabic Trading Academy",
-    template: "%s | Alpha Traders",
+    default: `${BRAND_NAME} | Trading Education & USDT Marketplace`,
+    template: `%s | ${BRAND_NAME}`,
   },
   description:
     "Premium free Arabic trading academy with structured lessons, analysis, and student dashboard. Buy and sell USDT securely on Alpha Exchange.",
@@ -37,10 +38,10 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Alpha Traders",
+    title: BRAND_NAME,
   },
   openGraph: {
-    title: "Alpha Traders | Free Arabic Trading Academy",
+    title: `${BRAND_NAME} | Trading Education & USDT Marketplace`,
     description:
       "Premium Arabic trading academy & USDT exchange. Learn trading with structured lessons and buy/sell USDT with verified sellers.",
     type: "website",
@@ -49,13 +50,13 @@ export const metadata: Metadata = {
         url: OG_IMAGE,
         width: 1200,
         height: 630,
-        alt: "Alpha Traders trading academy workspace",
+        alt: `${BRAND_NAME} trading workspace`,
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Alpha Traders | Free Arabic Trading Academy",
+    title: `${BRAND_NAME} | Trading Education & USDT Marketplace`,
     description: "Premium Arabic trading academy & USDT exchange.",
     images: [OG_IMAGE],
   },

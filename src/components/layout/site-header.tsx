@@ -7,6 +7,7 @@ import { hasRole } from "@/lib/roles";
 import { HeaderNav } from "@/components/layout/header-nav";
 import { HeaderAuthArea } from "@/components/layout/header-auth-area";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
+import { BRAND_NAME } from "@/lib/brand";
 
 export async function SiteHeader({
   locale,
@@ -46,15 +47,16 @@ export async function SiteHeader({
         <Link href="/" locale={locale} className="inline-flex min-w-0 items-center gap-2 text-lg font-semibold tracking-wide text-white sm:gap-3">
           <Image
             src="/images/brand/alpha-traders-logo.webp"
-            alt="Alpha Traders Academy & Exchange logo"
+            alt={`${BRAND_NAME} logo`}
             width={48}
             height={48}
             priority
             style={{ width: 48, height: 48 }}
             className="rounded-xl border border-[#C9A227]/45 bg-black/35 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)]"
           />
-          <span className="gold-gradient hidden bg-clip-text pb-px text-[1.02rem] leading-[1.15] text-transparent min-[360px]:inline-block">
-            {brand}
+          <span className="hidden min-w-0 flex-col min-[360px]:flex">
+            <span className="gold-gradient truncate bg-clip-text pb-px text-[1.02rem] leading-[1.15] text-transparent">{brand}</span>
+            <span className="truncate text-[0.55rem] font-semibold uppercase leading-tight tracking-[0.16em] text-[#D4AF37]">Academy &amp; Exchange</span>
           </span>
         </Link>
         <HeaderNav items={nav} locale={locale} />

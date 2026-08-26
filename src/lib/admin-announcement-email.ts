@@ -1,4 +1,5 @@
 import { getSiteUrl } from "@/lib/site-url";
+import { BRAND_NAME, BRAND_NAME_HTML, getBrandedEmailFrom } from "@/lib/brand";
 
 export type AdminAnnouncementEmailContent = {
   subject: string;
@@ -155,7 +156,7 @@ export function buildAdminAnnouncementEmail(input: AdminAnnouncementEmailContent
       "",
       `${input.ctaText}: ${input.ctaUrl}`,
       "",
-      `Alpha Exchange: ${siteUrl}`,
+      `${BRAND_NAME}: ${siteUrl}`,
       "Support: support@alphatraders.co.il",
     ].join("\n"),
     html: `<!doctype html>
@@ -167,8 +168,8 @@ export function buildAdminAnnouncementEmail(input: AdminAnnouncementEmailContent
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#101010;border:1px solid #332b12;border-radius:20px;overflow:hidden;">
             <tr>
               <td align="center" style="padding:28px 24px;background:#171308;border-bottom:1px solid #453914;">
-                <img src="${logoUrl}" width="96" height="96" alt="Alpha Traders Academy &amp; Exchange" style="display:block;width:96px;height:96px;margin:0 auto;border-radius:20px;object-fit:cover;" />
-                <div style="margin-top:12px;font-size:12px;letter-spacing:2.4px;color:#d6b84c;text-transform:uppercase;">Alpha Exchange</div>
+                <img src="${logoUrl}" width="96" height="96" alt="${BRAND_NAME_HTML}" style="display:block;width:96px;height:96px;margin:0 auto;border-radius:20px;object-fit:cover;" />
+                <div style="margin-top:12px;font-size:12px;letter-spacing:2.4px;color:#d6b84c;text-transform:uppercase;">${BRAND_NAME_HTML}</div>
                 <h1 style="margin:12px auto 0;max-width:520px;color:#ffffff;font-size:28px;line-height:1.3;">${title}</h1>
               </td>
             </tr>
@@ -186,7 +187,7 @@ export function buildAdminAnnouncementEmail(input: AdminAnnouncementEmailContent
             </tr>
             <tr>
               <td style="padding:22px 26px;border-top:1px solid #2b2b2b;background:#0a0a0a;color:#8f8f8f;font-size:12px;line-height:1.7;">
-                <a href="${escapeHtml(siteUrl)}" style="color:#d6b84c;text-decoration:none;">Alpha Exchange</a>
+                <a href="${escapeHtml(siteUrl)}" style="color:#d6b84c;text-decoration:none;">${BRAND_NAME_HTML}</a>
                 &nbsp;•&nbsp;
                 <a href="mailto:support@alphatraders.co.il" style="color:#d6b84c;text-decoration:none;">support@alphatraders.co.il</a>
               </td>
@@ -205,7 +206,7 @@ export async function sendAdminAnnouncementBatch(input: AdminAnnouncementEmailCo
   idempotencyKey: string;
 }) {
   const apiKey = process.env.RESEND_API_KEY?.trim() ?? "";
-  const from = process.env.EMAIL_FROM?.trim() ?? "";
+  const from = getBrandedEmailFrom(process.env.EMAIL_FROM ?? "");
   if (!apiKey || !from) {
     return { ok: false as const, reason: "resend_not_configured" as const };
   }

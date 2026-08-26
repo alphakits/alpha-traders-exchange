@@ -69,9 +69,9 @@ describe("admin announcement email", () => {
     });
 
     expect(email.subject).toBe(content.subject);
-    expect(email.html).toContain("Alpha Exchange");
     expect(email.html).toContain("/images/brand/alpha-traders-logo.png");
     expect(email.html).toContain("Alpha Traders Academy &amp; Exchange");
+    expect(email.text).toContain("Alpha Traders Academy & Exchange: https://www.alphatraders.co.il");
     expect(email.html).toContain("max-width:620px");
     expect(email.html).toContain("<strong");
     expect(email.html).toContain("<li");
@@ -132,7 +132,7 @@ describe("admin announcement email", () => {
     expect(request.headers).toEqual(expect.objectContaining({ "Idempotency-Key": "announcement-run-user" }));
     expect(JSON.parse(String(request.body))).toEqual([
       expect.objectContaining({
-        from: "Alpha Exchange <news@example.com>",
+        from: "Alpha Traders Academy & Exchange <news@example.com>",
         to: ["verified@example.com"],
         subject: content.subject,
       }),
