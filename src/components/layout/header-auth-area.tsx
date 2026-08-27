@@ -66,7 +66,7 @@ export function HeaderAuthArea({
         </div>
       ) : null}
       {!sessionUser ? (
-        <Link href={dashboardHref} locale={locale} className={cn(buttonVariants({ size: "sm" }), "inline-flex sm:hidden")}>
+        <Link href={dashboardHref} locale={locale} className={cn(buttonVariants({ size: "sm" }), "hidden min-[430px]:inline-flex sm:hidden")}>
           {dashboardLabel}
         </Link>
       ) : null}

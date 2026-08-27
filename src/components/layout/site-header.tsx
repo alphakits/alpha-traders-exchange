@@ -55,7 +55,7 @@ export async function SiteHeader({
             priority
             className="h-10 w-10 rounded-xl border border-[#C9A227]/45 bg-black/35 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)] min-[390px]:h-11 min-[390px]:w-11 sm:h-12 sm:w-12"
           />
-          <span className="hidden shrink-0 flex-col sm:flex" aria-label={brand}>
+          <span className="flex shrink-0 flex-col" aria-label={brand}>
             <span className="gold-gradient whitespace-nowrap bg-clip-text pb-px text-[0.78rem] leading-[1.15] text-transparent min-[390px]:text-[0.86rem] sm:text-[1.02rem]">{BRAND_PRIMARY_NAME}</span>
             <span className="whitespace-nowrap text-[0.42rem] font-semibold uppercase leading-tight tracking-[0.09em] text-[#D4AF37] min-[390px]:text-[0.48rem] sm:text-[0.55rem] sm:tracking-[0.16em]">{locale === "ar" ? BRAND_DESCRIPTOR_AR : BRAND_DESCRIPTOR}</span>
           </span>
