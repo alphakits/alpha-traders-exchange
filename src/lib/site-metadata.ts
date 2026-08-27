@@ -6,14 +6,14 @@ import { getSiteUrl, getSiteUrlObject } from "@/lib/site-url";
 const SITE_METADATA_COPY = {
   ar: {
     title: `${BRAND_NAME} | تعليم التداول وسوق USDT`,
-    description: "أكاديمية عربية مجانية ومتميزة لتعليم التداول، مع دروس منظمة وتحليلات ولوحة طالب وسوق آمن لشراء وبيع USDT.",
-    openGraphDescription: "أكاديمية Alpha Traders العربية لتعليم التداول وسوق موثوق لشراء وبيع USDT.",
+    description: "أكاديمية عربية مجانية ومتميزة لتعليم التداول، مع دروس منظمة وتحليلات ولوحة طالب وسوق منظم نظير إلى نظير لشراء وبيع USDT.",
+    openGraphDescription: "أكاديمية Alpha Traders العربية لتعليم التداول وسوق USDT منظم مع بائعين معتمدين يدويًا.",
     imageAlt: "منصة التداول والتعليم في Alpha Traders",
   },
   en: {
     title: `${BRAND_NAME} | Trading Education & USDT Marketplace`,
-    description: "Premium free trading academy with structured lessons, analysis, a student dashboard, and a secure marketplace to buy and sell USDT.",
-    openGraphDescription: "Alpha Traders trading academy and trusted marketplace for buying and selling USDT.",
+    description: "Premium free trading academy with structured lessons, analysis, a student dashboard, and a peer-to-peer USDT marketplace with manually approved sellers.",
+    openGraphDescription: "Alpha Traders trading academy and structured USDT marketplace with manually approved sellers.",
     imageAlt: `${BRAND_PRIMARY_NAME} trading and learning workspace`,
   },
 } as const;

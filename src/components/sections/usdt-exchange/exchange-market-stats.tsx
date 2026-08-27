@@ -104,7 +104,7 @@ export function ExchangeMarketStats({
       titleEn: "Active Sellers",
       titleAr: "البائعون النشطون",
       value: activeSellers !== undefined ? activeSellers.toString() : "—",
-      subtitleEn: "Verified marketplace participants",
+      subtitleEn: "Approved marketplace participants",
       subtitleAr: "مشاركون معتمدون في السوق",
     },
     {

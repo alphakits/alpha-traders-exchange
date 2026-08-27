@@ -45,13 +45,13 @@ export default async function AcademyPage({ params }: { params: Promise<{ locale
           <Card className="border-[#6CAEFF]/30 bg-[#0B0B0B]/95">
             <CardHeader>
               <CardDescription className="text-[#93C5FD]">{isAr ? "Alpha Exchange" : "Alpha Exchange"}</CardDescription>
-              <CardTitle>{isAr ? "بعد التعلم: ابدأ التداول الآمن" : "After learning: start trading safely"}</CardTitle>
+              <CardTitle>{isAr ? "بعد التعلم: استخدم مسار السوق المنظم" : "After learning: use the structured marketplace flow"}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-sm text-[#9CA3AF]">
                 {isAr
                   ? "عند إتقان أساسيات الأكاديمية، انتقل إلى Alpha Exchange لتطبيق منهجيتك مع بائعين موثوقين ونظام تقييم واضح."
-                  : "Once you master academy fundamentals, move to Alpha Exchange to apply your strategy with verified sellers and a transparent trust system."}
+                  : "Once you master academy fundamentals, move to Alpha Exchange to apply your strategy with approved sellers and a transparent trust system."}
               </p>
               <Link href="/usdt-exchange" className="text-sm text-[#6CAEFF] hover:underline">
                 {isAr ? "الانتقال إلى Alpha Exchange" : "Go to Alpha Exchange"}
