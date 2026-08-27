@@ -1163,9 +1163,9 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
           <div className="seller-card-info-panel min-w-0 space-y-1.5 rounded-xl border border-white/10 bg-black/25 p-3">
             <p>{isAr ? "حدود الصفقة" : "Trade limits"}: <span className="text-white">{toNumber(listing.minimumTrade).toLocaleString("en-IL")} – {toNumber(listing.maximumTrade).toLocaleString("en-IL")} USDT</span></p>
             <p>
-              {isAr ? "الضمان" : "Escrow"}:{" "}
+              {isAr ? "مسار الصفقة" : "Trade flow"}:{" "}
               <span className="seller-escrow-emphasis">
-                {isAr ? "مؤمّن عبر " : "Secured by "}
+                {isAr ? "منظّم ومسجّل عبر " : "Structured and recorded by "}
                 <span className="seller-escrow-brand">Alpha Traders</span>
               </span>
             </p>
@@ -7687,7 +7687,7 @@ export function UsdtExchangePage({
                   <h3 className="text-2xl font-semibold">{isAr ? "شراء USDT" : "Buy USDT"}</h3>
                   <p className={`mt-1 inline-flex items-center gap-1.5 text-xs text-[#C9A227] ${isAr ? "flex-row-reverse" : ""}`}>
                     <ShieldCheck className="h-3.5 w-3.5" />
-                    <span>{isAr ? "صفقة مؤمّنة عبر Alpha Traders" : "Secured trade · escrow by Alpha Traders"}</span>
+                    <span>{isAr ? "صفقة منظّمة · تسوية مباشرة" : "Structured trade · direct settlement"}</span>
                   </p>
                 </div>
                 <button type="button" aria-label={isAr ? "إغلاق نافذة شراء USDT" : "Close Buy USDT sheet"} onClick={closeListingModal} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227]">

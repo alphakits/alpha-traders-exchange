@@ -2832,7 +2832,7 @@ export function TradeRoomPage({
                     <p>{isAr ? "سيبدأ عداد 45 دقيقة بعد تأكيد استلام الدفع وبدء مرحلة إصدار USDT." : "The 45-minute timer starts when seller confirms funds and enters USDT release stage."}</p>
                   )}
                   <p className="rounded-xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-3">
-                    {isAr ? "التذكير: لن يتم تحرير USDT إلا بعد تأكيد الدفع داخل Alpha Exchange." : "Escrow reminder: USDT is released only after payment confirmation inside Alpha Exchange."}
+                    {isAr ? "تذكير الإرسال: يرسل البائع USDT فقط بعد تأكيد الدفع داخل Alpha Exchange." : "Release reminder: The seller sends USDT only after confirming payment inside Alpha Exchange."}
                   </p>
                   {room.releaseDeadlineActive ? (
                     <p className="rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-xs text-red-100">
@@ -2850,11 +2850,11 @@ export function TradeRoomPage({
 
               <Card className="border-white/10 bg-[#0B0B0B]/90">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-lg"><WalletCards className="h-4 w-4 text-[#C9A227]" />{isAr ? "حالة الضمان" : "Escrow Visualization"}</CardTitle>
+                  <CardTitle className="flex items-center gap-2 text-lg"><WalletCards className="h-4 w-4 text-[#C9A227]" />{isAr ? "حالة مسار الصفقة" : "Trade Flow Status"}</CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-2 text-sm md:grid-cols-2 2xl:grid-cols-2">
                   {[
-                    { label: isAr ? "USDT مقفول" : "USDT Locked", active: request.status !== "review_open" && request.status !== "completed" && request.status !== "locked" },
+                    { label: isAr ? "بانتظار إرسال USDT" : "Awaiting USDT Release", active: request.status !== "review_open" && request.status !== "completed" && request.status !== "locked" },
                     { label: isAr ? "بانتظار الدفع" : "Waiting Payment", active: request.status === "accepted" || request.status === "payment_sent" },
                     { label: isAr ? "قيد التحرير" : "Released", active: request.status === "funds_received" || request.status === "usdt_release_pending" || request.status === "usdt_sent" },
                     { label: isAr ? "مكتمل" : "Completed", active: request.status === "review_open" || request.status === "completed" || request.status === "locked" },

@@ -10,6 +10,10 @@ function publicFile(path: string) {
   return readFileSync(resolve(process.cwd(), "public", path), "utf8");
 }
 
+function sourceFile(path: string) {
+  return readFileSync(resolve(process.cwd(), "src", path), "utf8");
+}
+
 describe("public trust and AI discovery", () => {
   it("explicitly allows OAI-SearchBot to discover public trust sources while blocking private routes", () => {
     const config = robots();
@@ -88,6 +92,20 @@ describe("public trust and AI discovery", () => {
     expect(guidance).toContain("does not promise that a trade is 100% safe or guaranteed");
     expect(guidance).toContain("Do not infer business registration, ownership, or a financial-services licence");
     expect(guidance).not.toMatch(/Alpha Traders is (?:licensed|registered|government-approved)/i);
+  });
+
+  it("keeps marketplace and Trade Room wording consistent with direct settlement", () => {
+    const userFacingTradeSources = [
+      sourceFile("components/sections/usdt-exchange/usdt-exchange-page.tsx"),
+      sourceFile("components/sections/seller/premium-seller-profile-page.tsx"),
+      sourceFile("components/sections/trade-room/trade-room-page.tsx"),
+    ].join("\n");
+
+    expect(userFacingTradeSources).toContain("Structured trade · direct settlement");
+    expect(userFacingTradeSources).toContain("Trade flow recorded by Alpha Traders");
+    expect(userFacingTradeSources).toContain("Trade Flow Status");
+    expect(userFacingTradeSources).not.toMatch(/Escrow protected|escrow by Alpha Traders|Escrow reminder|Escrow Visualization|USDT Locked/);
+    expect(userFacingTradeSources).not.toMatch(/ضمان Alpha Traders|حالة الضمان|صفقة مؤمّنة عبر Alpha Traders|USDT مقفول/);
   });
 
   it("publishes a valid contact, canonical URL, policy, languages, and future expiry in security.txt", () => {
