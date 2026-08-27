@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { useLocale } from "next-intl";
 import { Link } from "@/i18n/navigation";
@@ -20,17 +20,21 @@ export default function VerifyEmailPage() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
+  const attemptedVerificationRef = useRef<string | null>(null);
 
   useEffect(() => {
     async function verify() {
-      if ((!token && !tokenHash) || isVerifying || isVerified) return;
+      if (!token && !tokenHash) return;
+      const attemptKey = `${token}\u0000${tokenHash}\u0000${tokenType}\u0000${locale}`;
+      if (attemptedVerificationRef.current === attemptKey) return;
+      attemptedVerificationRef.current = attemptKey;
       setIsVerifying(true);
       setErrorMessage(null);
       setStatusMessage(null);
       try {
         const response = await fetch("/api/auth/verify-email", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-Locale": locale },
           body: JSON.stringify({ token, tokenHash, type: tokenType }),
         });
         const payload = (await response.json()) as { error?: string; message?: string };
@@ -47,7 +51,7 @@ export default function VerifyEmailPage() {
       }
     }
     verify();
-  }, [token, tokenHash, tokenType, isAr, isVerifying, isVerified]);
+  }, [token, tokenHash, tokenType, isAr, locale]);
 
   useEffect(() => {
     if (!isVerified) return;
@@ -66,7 +70,7 @@ export default function VerifyEmailPage() {
     try {
       const response = await fetch("/api/auth/verify-email/resend", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify({ email }),
       });
       const payload = (await response.json()) as { error?: string; message?: string };

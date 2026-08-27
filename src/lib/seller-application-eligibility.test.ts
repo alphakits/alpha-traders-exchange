@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { getSellerApplicationEligibility } from "./seller-application-eligibility";
 
-const buyer = { role: "buyer" as const, roles: ["buyer" as const], sellerStatus: "buyer" };
-const nonBuyer = { role: "student" as const, roles: ["student" as const], sellerStatus: "not_seller" };
+const buyer = { role: "buyer" as const, roles: ["buyer" as const], sellerStatus: "buyer" as const };
+const nonBuyer = { role: "student" as const, roles: ["student" as const], sellerStatus: "rejected" as const };
 
 describe("seller application eligibility", () => {
   it("keeps a stale non-buyer bootstrap in loading until canonical state resolves", () => {

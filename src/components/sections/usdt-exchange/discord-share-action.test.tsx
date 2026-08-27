@@ -58,6 +58,59 @@ describe("Discord Share action", () => {
     expect(formatDiscordShareCountdown(60)).toBe("1m");
     expect(formatDiscordShareCountdown(1)).toBe("<1m");
     expect(formatDiscordShareCountdown(0)).toBe("now");
+    expect(formatDiscordShareCountdown(43_200, "ar")).toBe("12 س 0 د");
+    expect(formatDiscordShareCountdown(60, "ar")).toBe("1 د");
+    expect(formatDiscordShareCountdown(1, "ar")).toBe("أقل من دقيقة");
+    expect(formatDiscordShareCountdown(0, "ar")).toBe("الآن");
+  });
+
+  it("keeps every visible Discord state localized in Arabic", () => {
+    const { rerender } = render(
+      <DiscordShareAction
+        listing={{ ...listing, status: "paused" }}
+        sharing={sharing()}
+        busy={false}
+        locale="ar"
+        onShare={vi.fn()}
+      />,
+    );
+
+    expect((screen.getByRole("button", { name: "العرض غير مؤهل للمشاركة" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("status").textContent).toContain("يمكن مشاركة العروض النشطة والمعتمدة");
+    expect(screen.queryByText(/Listing ineligible|Only approved active listings/i)).toBeNull();
+
+    rerender(
+      <DiscordShareAction
+        listing={listing}
+        sharing={sharing({ linked: false })}
+        busy={false}
+        locale="ar"
+        onShare={vi.fn()}
+      />,
+    );
+    expect((screen.getByRole("button", { name: "اربط Discord أولاً" }) as HTMLButtonElement).disabled).toBe(true);
+
+    rerender(
+      <DiscordShareAction
+        listing={listing}
+        sharing={sharing({
+          nextEligibleAt: "2026-08-08T12:00:00.000Z",
+          cooldownSecondsRemaining: 43_200,
+          listings: [{
+            listingId: listing.id,
+            state: "active",
+            publishedAt: "2026-08-08T00:00:00.000Z",
+            updatedAt: "2026-08-08T00:00:00.000Z",
+            errorCode: null,
+          }],
+        })}
+        busy={false}
+        locale="ar"
+        onShare={vi.fn()}
+      />,
+    );
+    expect((screen.getByRole("button", { name: "تمت المشاركة" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("timer").textContent).toContain("المشاركة التالية بعد 12 س 0 د");
   });
 
   it.each([320, 390, 430, 1280])(

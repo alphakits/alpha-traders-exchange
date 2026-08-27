@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getSiteUrl } from "@/lib/site-url";
 import { resolveClientIp } from "@/lib/rate-limit";
+import { resolveSupportedRequestLocale } from "@/lib/request-locale";
 
 type Locale = "ar" | "en";
 
@@ -55,25 +56,7 @@ export function createSupabaseAdminClient() {
 }
 
 export function inferLocaleFromRequest(request: NextRequest): Locale {
-  const explicitLocale = request.headers.get("x-locale")?.trim().toLowerCase();
-  if (explicitLocale === "ar" || explicitLocale === "en") {
-    return explicitLocale;
-  }
-
-  const acceptLanguage = request.headers.get("accept-language") ?? "";
-  if (/\bar\b/i.test(acceptLanguage)) {
-    return "ar";
-  }
-
-  const referer = request.headers.get("referer");
-  if (!referer) return "en";
-  try {
-    const pathname = new URL(referer).pathname;
-    if (/^\/ar(?:\/|$)/.test(pathname)) return "ar";
-  } catch {
-    return "en";
-  }
-  return "en";
+  return resolveSupportedRequestLocale(request.headers, "en");
 }
 
 export function getSupabaseEmailRedirectUrl(locale: Locale) {

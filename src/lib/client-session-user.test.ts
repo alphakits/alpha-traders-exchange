@@ -6,7 +6,7 @@ describe("toClientSessionUser", () => {
   it("runtime-allowlists the client session and excludes present and future persistence-only fields", () => {
     const user = {
       id: "user-1", fullName: "Buyer", email: "buyer@example.test", passwordHash: "secret-password-hash", whatsappNumber: "+972500000000",
-      preferredNetworks: ["TRC20"], profilePhotoUrl: "/profile.png", languages: ["English"], bio: "Bio", onlineStatus: "offline", availabilityStatus: "available",
+      preferredNetworks: ["TRC20"], profilePhotoUrl: "/profile.png", languages: ["English"], preferredLocale: "en", bio: "Bio", onlineStatus: "offline", availabilityStatus: "available",
       role: "buyer", sellerStatus: "buyer", createdAt: "2026-01-01", updatedAt: "2026-01-01", phoneOtpHash: "secret-otp-hash", phoneOtpSalt: "secret-otp-salt",
       phoneOtpPhone: "+972511111111", phoneOtpExpiresAt: "2026-02-01", phoneOtpAttempts: 2, verifiedPhone: "+972522222222", phoneVerifiedAt: "2026-01-02",
       emailVerificationTokenHash: "secret-email-token-hash", emailVerificationTokenExpiresAt: "2026-02-01", emailVerificationSentAt: "2026-01-01",
@@ -25,6 +25,7 @@ describe("toClientSessionUser", () => {
       role: "buyer",
       sellerStatus: "buyer",
       preferredNetworks: ["TRC20"],
+      preferredLocale: "en",
       emailVerified: false,
     });
     for (const key of [

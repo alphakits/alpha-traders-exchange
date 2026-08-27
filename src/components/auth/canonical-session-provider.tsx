@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ClientSessionUser } from "@/lib/client-session-user";
+import type { AppLocale } from "@/i18n/routing";
 
 export type CanonicalSessionRefreshResult = "authenticated" | "anonymous" | "unavailable";
 
@@ -22,7 +23,15 @@ export function getSessionExpiryLoginDestination(location: Pick<Location, "pathn
   return `/${locale}/login?sessionExpired=1&redirectTo=${encodeURIComponent(intendedDestination)}`;
 }
 
-export function CanonicalSessionProvider({ children, initialSessionUser }: { children: ReactNode; initialSessionUser: ClientSessionUser | null }) {
+export function CanonicalSessionProvider({
+  children,
+  initialSessionUser,
+  locale,
+}: {
+  children: ReactNode;
+  initialSessionUser: ClientSessionUser | null;
+  locale?: AppLocale;
+}) {
   const [user, setUser] = useState<ClientSessionUser | null>(initialSessionUser);
   const [isResolving, setIsResolving] = useState(true);
   const [error, setError] = useState(false);
@@ -31,6 +40,9 @@ export function CanonicalSessionProvider({ children, initialSessionUser }: { chi
   const mountedRef = useRef(true);
   const hadAuthenticatedSessionRef = useRef(Boolean(initialSessionUser));
   const expiryRedirectStartedRef = useRef(false);
+  const localeSyncRef = useRef<string | null>(null);
+  const canonicalUserId = user?.id;
+  const canonicalPreferredLocale = user?.preferredLocale;
 
   const refresh = useCallback(async ({ force = false }: { force?: boolean } = {}) => {
     if (force) {
@@ -104,6 +116,37 @@ export function CanonicalSessionProvider({ children, initialSessionUser }: { chi
       window.removeEventListener("alpha-auth-signed-out", handleSignedOut);
     };
   }, [refresh]);
+
+  useEffect(() => {
+    if (!locale || !canonicalUserId || canonicalPreferredLocale === locale) return;
+    const syncKey = `${canonicalUserId}:${locale}`;
+    if (localeSyncRef.current === syncKey) return;
+    localeSyncRef.current = syncKey;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const response = await fetch("/api/auth/preferred-locale", {
+          method: "PATCH",
+          cache: "no-store",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", "X-Locale": locale },
+          body: JSON.stringify({ preferredLocale: locale }),
+          signal: controller.signal,
+        });
+        if (!response.ok) return;
+        if (mountedRef.current) {
+          setUser((current) => current?.id === canonicalUserId
+            ? { ...current, preferredLocale: locale }
+            : current);
+        }
+      } catch {
+        // Locale persistence is best-effort and must never interrupt navigation.
+      } finally {
+        if (localeSyncRef.current === syncKey) localeSyncRef.current = null;
+      }
+    })();
+    return () => controller.abort();
+  }, [canonicalPreferredLocale, canonicalUserId, locale]);
 
   useEffect(() => {
     if (user) {

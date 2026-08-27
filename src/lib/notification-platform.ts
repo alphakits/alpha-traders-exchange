@@ -18,17 +18,55 @@ export function maskPhone(phone: string): string {
 }
 
 export function getSmsTemplate(event: SmsEventType, destination?: string): string {
-  const templates: Record<SmsEventType, string> = {
-    seller_application_submitted: "Alpha Traders: seller application needs review.",
-    trade_requires_admin_review: "Alpha Traders: trade needs admin review.",
-    purchase_request_created: "Alpha Traders: new purchase request.",
-    trade_accepted: "Alpha Traders: seller accepted your trade.",
-    payment_sent: "Alpha Traders: payment marked sent. Verify funds.",
-    funds_received: "Alpha Traders: funds confirmed received.",
-    usdt_sent: "Alpha Traders: USDT sent. Confirm receipt.",
-    trade_completed: "Alpha Traders: trade completed.",
+  const templates: Record<SmsEventType, { ar: string; en: string }> = {
+    seller_application_submitted: {
+      ar: "طلب الانضمام كبائع بانتظار المراجعة.",
+      en: "Seller application needs review.",
+    },
+    trade_requires_admin_review: {
+      ar: "الصفقة بحاجة إلى مراجعة الإدارة.",
+      en: "Trade needs admin review.",
+    },
+    purchase_request_created: {
+      ar: "لديك طلب شراء جديد.",
+      en: "New purchase request.",
+    },
+    trade_accepted: {
+      ar: "وافق البائع على صفقتك.",
+      en: "Seller accepted your trade.",
+    },
+    payment_sent: {
+      ar: "تم تحديد الدفع كمُرسل. تحقّق من استلام الأموال.",
+      en: "Payment marked sent. Verify funds.",
+    },
+    funds_received: {
+      ar: "تم تأكيد استلام الأموال.",
+      en: "Funds confirmed received.",
+    },
+    usdt_sent: {
+      ar: "تم إرسال USDT. أكّد الاستلام.",
+      en: "USDT sent. Confirm receipt.",
+    },
+    trade_completed: {
+      ar: "اكتملت الصفقة.",
+      en: "Trade completed.",
+    },
   };
-  return destination ? `${templates[event]} ${destination}` : templates[event];
+  const template = templates[event];
+  return ["Alpha Traders", template.ar, template.en, destination].filter(Boolean).join("\n");
+}
+
+export function getBilingualOtpSms(code: string): string {
+  return [
+    "Alpha Traders",
+    `رمز التحقق / Verification code: ${code}`,
+    "صالح لمدة 10 دقائق / Expires in 10 minutes.",
+  ].join("\n");
+}
+
+function normalizeOutgoingSmsBody(body: string) {
+  const legacyOtp = body.match(/^Alpha Traders verification code: (\d{6})\. Expires in 10 minutes\.$/);
+  return legacyOtp ? getBilingualOtpSms(legacyOtp[1]) : body;
 }
 
 export function isSmsLifecycleEvent(value: string): value is SmsEventType {
@@ -56,7 +94,7 @@ export async function sendTwilioMessage(input: TwilioSendInput): Promise<TwilioS
   if (!sid || !token || !from) return { ok: false, retryable: false, error: "Twilio SMS is not configured." };
   const destination = normalizeE164(input.to);
   if (!destination) return { ok: false, retryable: false, error: "Invalid recipient phone number." };
-  const payload = new URLSearchParams({ To: destination, From: from, Body: input.body });
+  const payload = new URLSearchParams({ To: destination, From: from, Body: normalizeOutgoingSmsBody(input.body) });
   if (input.statusCallback) payload.set("StatusCallback", input.statusCallback);
   const controller = new AbortController();
   const timeoutMs = Math.max(250, Math.min(input.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS, 5_000));

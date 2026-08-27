@@ -1,5 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
 import type { AlphaExchangeDb, UserRole } from "@/types/alpha-exchange";
+
+const identityFixture = vi.hoisted(() => ({
+  ownerEmail: `owner-${globalThis.crypto.randomUUID()}@example.test`,
+}));
+
+vi.mock("@/lib/alpha-exchange-identity", () => ({
+  ALPHA_EXCHANGE_OWNER_EMAIL: identityFixture.ownerEmail,
+  isAlphaExchangeOwnerEmail: (email: string) => email.trim().toLowerCase() === identityFixture.ownerEmail,
+}));
 
 vi.mock("@/lib/postgres-runtime", () => ({
   getRuntimePostgresPool: () => null,
@@ -37,6 +47,35 @@ const DUAL_ROLE_BUYER_ID = "seller-buyer-eligible";
 const GUEST_ID = "guest-excluded";
 const SUSPENDED_BUYER_ID = "buyer-suspended-excluded";
 const DISABLED_BUYER_ID = "buyer-disabled-excluded";
+const OWNER_EMAIL = identityFixture.ownerEmail;
+const emailFor = (label: string) => `${label}-${randomUUID()}@example.test`;
+const SELLER_EMAIL = emailFor("seller");
+const BUYER_EMAIL = emailFor("buyer");
+const DUAL_ROLE_BUYER_EMAIL = emailFor("dual-role-buyer");
+const GUEST_EMAIL = emailFor("guest");
+const SUSPENDED_BUYER_EMAIL = emailFor("suspended-buyer");
+const DISABLED_BUYER_EMAIL = emailFor("disabled-buyer");
+const TEST_PHONE = `+97250${String(randomInt(1_000_000, 10_000_000))}`;
+const BASE58_CHARACTERS = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+function base58Encode(input: Uint8Array) {
+  let value = BigInt(`0x${Buffer.from(input).toString("hex")}`);
+  let encoded = "";
+  while (value > BigInt(0)) {
+    encoded = BASE58_CHARACTERS[Number(value % BigInt(58))] + encoded;
+    value /= BigInt(58);
+  }
+  return encoded;
+}
+
+function createTronWalletFixture() {
+  const payload = Buffer.concat([Buffer.from([0x41]), randomBytes(20)]);
+  const firstHash = createHash("sha256").update(payload).digest();
+  const checksum = createHash("sha256").update(firstHash).digest().subarray(0, 4);
+  return base58Encode(Buffer.concat([payload, checksum]));
+}
+
+const WALLET_REFERENCE = createTronWalletFixture();
 
 function createUser(input: {
   id: string;
@@ -44,6 +83,7 @@ function createUser(input: {
   role: UserRole;
   roles?: UserRole[];
   sellerStatus?: "buyer" | "pending_seller_approval" | "approved_seller" | "rejected" | "suspended";
+  preferredLocale?: "ar" | "en";
   disabled?: boolean;
 }) {
   const now = new Date().toISOString();
@@ -52,8 +92,6 @@ function createUser(input: {
     id: input.id,
     fullName: input.id,
     email: input.email,
-    passwordHash: "hash",
-    whatsappNumber: "+972500000000",
     role: input.role,
     roles,
     sellerStatus: input.sellerStatus ?? (roles.includes("approved_seller") ? "approved_seller" : "buyer"),
@@ -65,6 +103,7 @@ function createUser(input: {
     preferredPaymentMethods: [],
     profilePhotoUrl: "",
     languages: ["English"],
+    preferredLocale: input.preferredLocale ?? "ar",
     bio: "",
     tradingExperience: "",
     workingHours: "",
@@ -78,7 +117,6 @@ function createUser(input: {
     isFoundingSeller: false,
     emailVerified: true,
     emailVerifiedAt: now,
-    verifiedPhone: "+972500000000",
     phoneVerifiedAt: now,
     onboardingSelection: roles.includes("buyer") ? "buyer" : undefined,
     onboardingCompletedAt: now,
@@ -94,14 +132,14 @@ function createUser(input: {
 function seedDb(): AlphaExchangeDb & { __runtimeVersion: number } {
   return {
     users: [
-      createUser({ id: OWNER_ID, email: "jozenmark834@yahoo.com", role: "owner", roles: ["owner", "admin"] }),
-      createUser({ id: LISTING_CREATOR_ID, email: "seller.creator@example.com", role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller" }),
-      createUser({ id: BUYER_ID, email: "buyer.eligible@example.com", role: "buyer", roles: ["buyer"], sellerStatus: "buyer" }),
-      createUser({ id: DUAL_ROLE_BUYER_ID, email: "seller.buyer.eligible@example.com", role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "approved_seller" }),
-      createUser({ id: GUEST_ID, email: "guest.excluded@example.com", role: "guest", roles: ["guest"], sellerStatus: "buyer" }),
-      createUser({ id: SUSPENDED_BUYER_ID, email: "buyer.suspended@example.com", role: "buyer", roles: ["buyer"], sellerStatus: "suspended" }),
-      createUser({ id: DISABLED_BUYER_ID, email: "buyer.disabled@example.com", role: "buyer", roles: ["buyer"], sellerStatus: "buyer", disabled: true }),
-    ] as AlphaExchangeDb["users"],
+      createUser({ id: OWNER_ID, email: OWNER_EMAIL, role: "owner", roles: ["owner", "admin"], preferredLocale: "en" }),
+      createUser({ id: LISTING_CREATOR_ID, email: SELLER_EMAIL, role: "approved_seller", roles: ["approved_seller"], sellerStatus: "approved_seller", preferredLocale: "en" }),
+      createUser({ id: BUYER_ID, email: BUYER_EMAIL, role: "buyer", roles: ["buyer"], sellerStatus: "buyer", preferredLocale: "ar" }),
+      createUser({ id: DUAL_ROLE_BUYER_ID, email: DUAL_ROLE_BUYER_EMAIL, role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "approved_seller", preferredLocale: "en" }),
+      createUser({ id: GUEST_ID, email: GUEST_EMAIL, role: "guest", roles: ["guest"], sellerStatus: "buyer" }),
+      createUser({ id: SUSPENDED_BUYER_ID, email: SUSPENDED_BUYER_EMAIL, role: "buyer", roles: ["buyer"], sellerStatus: "suspended" }),
+      createUser({ id: DISABLED_BUYER_ID, email: DISABLED_BUYER_EMAIL, role: "buyer", roles: ["buyer"], sellerStatus: "buyer", disabled: true }),
+    ] as unknown as AlphaExchangeDb["users"],
     sellerApplications: [],
     marketplaceListings: [],
     purchaseRequests: [],
@@ -163,8 +201,8 @@ describe("marketplace listing publication broadcasts", () => {
     const application = await createSellerApplication({
       userId: BUYER_ID,
       fullName: "Eligible Buyer",
-      email: "buyer.eligible@example.com",
-      whatsappNumber: "+972501234567",
+      email: BUYER_EMAIL,
+      whatsappNumber: TEST_PHONE,
       preferredNetworks: ["USDT (TRC20 / Tron)"],
       expectedMonthlyTradingVolume: "2500",
       additionalNotes: "Ready to sell",
@@ -182,8 +220,9 @@ describe("marketplace listing publication broadcasts", () => {
     }));
     expect(sendMarketplaceEmailMock).toHaveBeenCalledWith(expect.objectContaining({
       event: "owner_seller_application_review_required",
-      to: "jozenmark834@yahoo.com",
-      actionUrl: expect.stringContaining(`/en${sellerApplicationReviewDestination(application.id)}`),
+      to: OWNER_EMAIL,
+      title: { ar: "طلب بائع يحتاج إلى المراجعة", en: "Seller Application Needs Review" },
+      actionPath: sellerApplicationReviewDestination(application.id),
     }));
 
     await approveSellerApplicationByAdmin(application.id, OWNER_ID, "Verified from owner notification");
@@ -234,8 +273,9 @@ describe("marketplace listing publication broadcasts", () => {
     }));
     expect(sendMarketplaceEmailMock).toHaveBeenCalledWith(expect.objectContaining({
       event: "owner_listing_review_required",
-      to: "jozenmark834@yahoo.com",
-      actionUrl: expect.stringContaining(`/en${reviewDestination}`),
+      to: OWNER_EMAIL,
+      title: { ar: "إعلان يحتاج إلى الموافقة", en: "Listing Approval Required" },
+      actionPath: reviewDestination,
     }));
 
     await reviewMarketplaceListingByOwner({
@@ -286,7 +326,7 @@ describe("marketplace listing publication broadcasts", () => {
       listingId: listing.id,
       usdtAmount: "100",
       buyerName: "Eligible Buyer",
-      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      buyerReceivingWalletAddress: WALLET_REFERENCE,
       paymentMethod: "Face-to-Face (Meet in Person)",
       safetyAcknowledged: true,
       actorUserId: BUYER_ID,
@@ -407,28 +447,31 @@ describe("marketplace listing publication broadcasts", () => {
     await deliver();
 
     const rawCalls = sendMarketplaceEmailMock.mock.calls as unknown[][];
-    const calls: Array<{ event: string; to: string }> = [];
+    const calls: Array<{ event: string; to: string; recipientLocale?: unknown }> = [];
     for (const call of rawCalls) {
       const maybeCall = call[0] as Record<string, unknown> | undefined;
       if (!maybeCall) continue;
       if (typeof maybeCall.event !== "string" || typeof maybeCall.to !== "string") continue;
-      calls.push({ event: maybeCall.event, to: maybeCall.to });
+      calls.push({ event: maybeCall.event, to: maybeCall.to, recipientLocale: maybeCall.recipientLocale });
     }
     const listingBroadcastCalls = calls.filter((call) => call.event === "new_listing_published");
 
-    expect(calls.some((call) => call.event === "listing_approved" && call.to === "seller.creator@example.com")).toBe(true);
+    expect(calls.some((call) => call.event === "listing_approved" && call.to === SELLER_EMAIL)).toBe(true);
+    expect(calls.find((call) => call.event === "listing_approved" && call.to === SELLER_EMAIL)?.recipientLocale).toBe("en");
+    expect(listingBroadcastCalls.find((call) => call.to === BUYER_EMAIL)?.recipientLocale).toBe("ar");
+    expect(listingBroadcastCalls.find((call) => call.to === DUAL_ROLE_BUYER_EMAIL)?.recipientLocale).toBe("en");
 
     const listingRecipientEmails = listingBroadcastCalls.map((call) => call.to).sort();
     expect(listingRecipientEmails).toEqual([
-      "buyer.eligible@example.com",
-      "seller.buyer.eligible@example.com",
+      BUYER_EMAIL,
+      DUAL_ROLE_BUYER_EMAIL,
     ]);
     expect(new Set(listingRecipientEmails).size).toBe(listingRecipientEmails.length);
 
-    expect(listingBroadcastCalls.every((call) => call.to !== "guest.excluded@example.com")).toBe(true);
-    expect(listingBroadcastCalls.every((call) => call.to !== "buyer.suspended@example.com")).toBe(true);
-    expect(listingBroadcastCalls.every((call) => call.to !== "buyer.disabled@example.com")).toBe(true);
-    expect(listingBroadcastCalls.every((call) => call.to !== "seller.creator@example.com")).toBe(true);
+    expect(listingBroadcastCalls.every((call) => call.to !== GUEST_EMAIL)).toBe(true);
+    expect(listingBroadcastCalls.every((call) => call.to !== SUSPENDED_BUYER_EMAIL)).toBe(true);
+    expect(listingBroadcastCalls.every((call) => call.to !== DISABLED_BUYER_EMAIL)).toBe(true);
+    expect(listingBroadcastCalls.every((call) => call.to !== SELLER_EMAIL)).toBe(true);
 
     const candidateUserIds = [
       BUYER_ID,
@@ -448,12 +491,12 @@ describe("marketplace listing publication broadcasts", () => {
     }
 
     const emailToUserId = new Map<string, string>([
-      ["buyer.eligible@example.com", BUYER_ID],
-      ["seller.buyer.eligible@example.com", DUAL_ROLE_BUYER_ID],
-      ["guest.excluded@example.com", GUEST_ID],
-      ["buyer.suspended@example.com", SUSPENDED_BUYER_ID],
-      ["buyer.disabled@example.com", DISABLED_BUYER_ID],
-      ["seller.creator@example.com", LISTING_CREATOR_ID],
+      [BUYER_EMAIL, BUYER_ID],
+      [DUAL_ROLE_BUYER_EMAIL, DUAL_ROLE_BUYER_ID],
+      [GUEST_EMAIL, GUEST_ID],
+      [SUSPENDED_BUYER_EMAIL, SUSPENDED_BUYER_ID],
+      [DISABLED_BUYER_EMAIL, DISABLED_BUYER_ID],
+      [SELLER_EMAIL, LISTING_CREATOR_ID],
     ] as const);
     const emailRecipientIds = new Set(
       listingBroadcastCalls

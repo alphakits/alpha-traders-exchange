@@ -6,22 +6,84 @@ import { logEvent } from "@/lib/structured-logging";
 import { assertNoDirectContactContent } from "@/lib/privacy-redaction";
 
 const AUTH_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
+const REGISTRATION_RESPONSE_FLOOR_MS = 450;
+
+type RegistrationErrorCode =
+  | "REGISTRATION_RATE_LIMITED"
+  | "REQUIRED_FIELDS"
+  | "FIELD_TOO_LONG"
+  | "INVALID_EMAIL"
+  | "EMAIL_ALREADY_REGISTERED"
+  | "TERMS_REQUIRED"
+  | "PASSWORD_TOO_SHORT"
+  | "PASSWORD_MISMATCH"
+  | "REGISTRATION_FAILED";
+
+const REGISTRATION_ERROR_COPY: Record<RegistrationErrorCode, { ar: string; en: string }> = {
+  REGISTRATION_RATE_LIMITED: {
+    ar: "تم تقييد التسجيل مؤقتًا. يُرجى المحاولة مرة أخرى خلال بضع دقائق.",
+    en: "Registration is temporarily rate-limited. Please try again in a few minutes.",
+  },
+  REQUIRED_FIELDS: {
+    ar: "الاسم الكامل والبريد الإلكتروني وكلمة المرور مطلوبة.",
+    en: "Full name, email, and password are required.",
+  },
+  FIELD_TOO_LONG: {
+    ar: "تجاوز حقل واحد أو أكثر الحد المسموح.",
+    en: "One or more fields exceed allowed length.",
+  },
+  INVALID_EMAIL: {
+    ar: "صيغة البريد الإلكتروني غير صحيحة.",
+    en: "Invalid email format.",
+  },
+  EMAIL_ALREADY_REGISTERED: {
+    ar: "البريد الإلكتروني مسجل بالفعل.",
+    en: "Email already registered.",
+  },
+  TERMS_REQUIRED: {
+    ar: "يجب الموافقة على شروط الخدمة.",
+    en: "Terms must be accepted.",
+  },
+  PASSWORD_TOO_SHORT: {
+    ar: "يجب أن تتكوّن كلمة المرور من 8 أحرف على الأقل.",
+    en: "Password must be at least 8 characters.",
+  },
+  PASSWORD_MISMATCH: {
+    ar: "كلمتا المرور غير متطابقتين.",
+    en: "Passwords do not match.",
+  },
+  REGISTRATION_FAILED: {
+    ar: "تعذر إنشاء الحساب. يُرجى المحاولة مرة أخرى.",
+    en: "Registration failed. Please try again.",
+  },
+};
+
+function registrationErrorResponse(
+  locale: "ar" | "en",
+  code: RegistrationErrorCode,
+  status: number,
+  headers: Record<string, string> = AUTH_RESPONSE_HEADERS,
+) {
+  return NextResponse.json({ code, error: REGISTRATION_ERROR_COPY[code][locale] }, { status, headers });
+}
 
 function isDuplicateRegistrationError(message: string) {
   const normalized = message.toLowerCase();
   return normalized.includes("already registered") || normalized.includes("already exists");
 }
 
-function registrationRateLimitMessage(locale: "ar" | "en") {
-  return locale === "ar"
-    ? "تم تقييد التسجيل مؤقتًا. يُرجى المحاولة مرة أخرى خلال بضع دقائق."
-    : "Registration is temporarily rate-limited. Please try again in a few minutes.";
-}
-
 function registrationSuccessMessage(locale: "ar" | "en") {
   return locale === "ar"
-    ? "تم إنشاء الحساب. يرجى تأكيد بريدك الإلكتروني قبل تسجيل الدخول."
-    : "Your account has been created. Please verify your email before signing in.";
+    ? "إذا كان البريد صالحًا للتسجيل، فستصلك رسالة تأكيد. إذا كان لديك حساب بالفعل، فسجّل الدخول أو أعد تعيين كلمة المرور."
+    : "If this email can be registered, you will receive a confirmation message. If you already have an account, sign in or reset your password.";
+}
+
+async function registrationAcceptedResponse(locale: "ar" | "en", startedAt: number) {
+  const remainingDelay = REGISTRATION_RESPONSE_FLOOR_MS - (Date.now() - startedAt);
+  if (remainingDelay > 0) {
+    await new Promise((resolve) => setTimeout(resolve, remainingDelay));
+  }
+  return NextResponse.json({ ok: true, message: registrationSuccessMessage(locale) }, { headers: AUTH_RESPONSE_HEADERS });
 }
 
 function logRegistrationRateLimit(reason: string, details: Record<string, unknown>) {
@@ -49,11 +111,12 @@ export async function POST(request: NextRequest) {
     logRegistrationRateLimit("ip_limit_reached", {
       retryAfterSeconds: ipRate.retryAfterSeconds,
     });
-    return NextResponse.json(
-      { error: registrationRateLimitMessage(locale) },
-      { status: 429, headers: { ...AUTH_RESPONSE_HEADERS, "Retry-After": String(ipRate.retryAfterSeconds) } },
-    );
+    return registrationErrorResponse(locale, "REGISTRATION_RATE_LIMITED", 429, {
+      ...AUTH_RESPONSE_HEADERS,
+      "Retry-After": String(ipRate.retryAfterSeconds),
+    });
   }
+  let validRegistrationStartedAt: number | null = null;
   try {
     const body = await request.json();
     const fullName = String(body.fullName ?? "").trim();
@@ -64,24 +127,24 @@ export async function POST(request: NextRequest) {
     const agreedToTerms = Boolean(body.agreedToTerms);
 
     if (!fullName || !email || !password || !confirmPassword) {
-      return NextResponse.json({ error: "Full name, email, and password are required." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+      return registrationErrorResponse(locale, "REQUIRED_FIELDS", 400);
     }
     if (fullName.length > 100 || whatsappNumber.length > 30 || email.length > 254) {
-      return NextResponse.json({ error: "One or more fields exceed allowed length." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+      return registrationErrorResponse(locale, "FIELD_TOO_LONG", 400);
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return NextResponse.json({ error: "Invalid email format." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+      return registrationErrorResponse(locale, "INVALID_EMAIL", 400);
     }
     assertNoDirectContactContent(fullName);
 
-    const existingUser = await findUserByEmail(email);
-    if (existingUser) {
-      logRegistrationRateLimit("duplicate_registration", {
-        ip: clientIp,
-        email,
-        provider: "local-profile",
-      });
-      return NextResponse.json({ error: "Email already registered." }, { status: 409, headers: AUTH_RESPONSE_HEADERS });
+    if (!agreedToTerms) {
+      return registrationErrorResponse(locale, "TERMS_REQUIRED", 400);
+    }
+    if (password.length < 8) {
+      return registrationErrorResponse(locale, "PASSWORD_TOO_SHORT", 400);
+    }
+    if (password !== confirmPassword) {
+      return registrationErrorResponse(locale, "PASSWORD_MISMATCH", 400);
     }
 
     const ipEmailRate = await checkSharedRateLimit({
@@ -97,20 +160,21 @@ export async function POST(request: NextRequest) {
         email,
         retryAfterSeconds: ipEmailRate.retryAfterSeconds,
       });
-      return NextResponse.json(
-        { error: registrationRateLimitMessage(locale) },
-        { status: 429, headers: { ...AUTH_RESPONSE_HEADERS, "Retry-After": String(ipEmailRate.retryAfterSeconds) } },
-      );
+      return registrationErrorResponse(locale, "REGISTRATION_RATE_LIMITED", 429, {
+        ...AUTH_RESPONSE_HEADERS,
+        "Retry-After": String(ipEmailRate.retryAfterSeconds),
+      });
     }
 
-    if (!agreedToTerms) {
-      return NextResponse.json({ error: "Terms must be accepted." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
-    }
-    if (password.length < 8) {
-      return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
-    }
-    if (password !== confirmPassword) {
-      return NextResponse.json({ error: "Passwords do not match." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    validRegistrationStartedAt = Date.now();
+    const existingUser = await findUserByEmail(email);
+    if (existingUser) {
+      logRegistrationRateLimit("duplicate_registration", {
+        ip: clientIp,
+        email,
+        provider: "local-profile",
+      });
+      return registrationAcceptedResponse(locale, validRegistrationStartedAt);
     }
 
     const supabase = createSupabaseAuthClient({ requestHeaders: request.headers });
@@ -121,10 +185,12 @@ export async function POST(request: NextRequest) {
         emailRedirectTo: getSupabaseEmailRedirectUrl(locale),
         data: {
           full_name: fullName,
+          preferred_locale: locale,
           ...(whatsappNumber ? { whatsapp_number: whatsappNumber } : {}),
         },
       },
     });
+
     if (error) {
       if (isDuplicateRegistrationError(error.message)) {
         logRegistrationRateLimit("duplicate_registration", {
@@ -132,28 +198,25 @@ export async function POST(request: NextRequest) {
           email,
           provider: "supabase",
         });
-        return NextResponse.json({ error: "Email already registered." }, { status: 409, headers: AUTH_RESPONSE_HEADERS });
+        return registrationAcceptedResponse(locale, validRegistrationStartedAt);
       }
-      if (error.message.toLowerCase().includes("rate limit")) {
-        logRegistrationRateLimit("provider_rate_limit", {
+      logRegistrationRateLimit(
+        error.message.toLowerCase().includes("rate limit")
+          ? "provider_rate_limit"
+          : "provider_signup_failed",
+        {
           ip: clientIp,
           email,
           provider: "supabase",
-        });
-        return NextResponse.json({ error: registrationRateLimitMessage(locale) }, { status: 429, headers: AUTH_RESPONSE_HEADERS });
-      }
-      logRegistrationRateLimit("provider_signup_failed", {
-        ip: clientIp,
-        email,
-        provider: "supabase",
-      });
-      return NextResponse.json({ error: "Registration failed. Please try again." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+        },
+      );
+      return registrationAcceptedResponse(locale, validRegistrationStartedAt);
     }
     if (!data.user) {
-      return NextResponse.json({ error: "Registration failed. Please try again." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+      return registrationAcceptedResponse(locale, validRegistrationStartedAt);
     }
     if (Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-      return NextResponse.json({ error: "Email already registered." }, { status: 409, headers: AUTH_RESPONSE_HEADERS });
+      return registrationAcceptedResponse(locale, validRegistrationStartedAt);
     }
 
     await upsertUserProfileForAuth({
@@ -161,13 +224,15 @@ export async function POST(request: NextRequest) {
       email,
       whatsappNumber,
       emailVerified: false,
+      preferredLocale: locale,
     });
 
-    return NextResponse.json({
-      ok: true,
-      message: registrationSuccessMessage(locale),
-    }, { headers: AUTH_RESPONSE_HEADERS });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Registration failed." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+    return registrationAcceptedResponse(locale, validRegistrationStartedAt);
+  } catch {
+    // Provider, storage, and validation internals must not leak into the UI.
+    if (validRegistrationStartedAt !== null) {
+      return registrationAcceptedResponse(locale, validRegistrationStartedAt);
+    }
+    return registrationErrorResponse(locale, "REGISTRATION_FAILED", 400);
   }
 }

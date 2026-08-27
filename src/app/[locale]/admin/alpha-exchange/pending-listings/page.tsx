@@ -27,5 +27,5 @@ export default async function PendingListingsPage({ params }: { params: Promise<
     redirect(`/${locale}/usdt-exchange`);
   }
 
-  return <OwnerPendingListingsDashboard />;
+  return <OwnerPendingListingsDashboard locale={locale === "ar" ? "ar" : "en"} />;
 }

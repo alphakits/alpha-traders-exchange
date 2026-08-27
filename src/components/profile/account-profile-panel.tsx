@@ -77,6 +77,84 @@ type OnboardingRoleResponse = {
   error?: string;
 };
 
+type ProfilePhotoErrorCode =
+  | "PHOTO_RATE_LIMITED"
+  | "INVALID_FORM_DATA"
+  | "INVALID_PHOTO_KIND"
+  | "PHOTO_REQUIRED"
+  | "UNSUPPORTED_IMAGE_FORMAT"
+  | "PHOTO_TOO_LARGE"
+  | "PHOTO_CONTENT_MISMATCH"
+  | "PHOTO_UPLOAD_FAILED"
+  | "PHOTO_REMOVE_FAILED";
+
+type ProfilePhotoResponse = {
+  url?: string;
+  error?: string;
+  code?: ProfilePhotoErrorCode;
+};
+
+const PROFILE_PHOTO_ERROR_COPY: Record<ProfilePhotoErrorCode, { ar: string; en: string }> = {
+  PHOTO_RATE_LIMITED: {
+    ar: "تم تجاوز عدد محاولات رفع الصور. يرجى الانتظار قبل المحاولة مرة أخرى.",
+    en: "Too many photo uploads. Please wait before trying again.",
+  },
+  INVALID_FORM_DATA: {
+    ar: "بيانات الصورة غير صالحة.",
+    en: "Invalid image data.",
+  },
+  INVALID_PHOTO_KIND: {
+    ar: "نوع الصورة غير صالح.",
+    en: "Invalid photo type.",
+  },
+  PHOTO_REQUIRED: {
+    ar: "يرجى اختيار صورة للرفع.",
+    en: "Please choose an image to upload.",
+  },
+  UNSUPPORTED_IMAGE_FORMAT: {
+    ar: "صيغة الصورة غير مدعومة. استخدم JPEG أو PNG أو WebP أو GIF.",
+    en: "Unsupported image format. Use JPEG, PNG, WebP, or GIF.",
+  },
+  PHOTO_TOO_LARGE: {
+    ar: "حجم الصورة يتجاوز الحد الأقصى المسموح وهو 5 ميغابايت.",
+    en: "Image exceeds the maximum allowed size of 5 MB.",
+  },
+  PHOTO_CONTENT_MISMATCH: {
+    ar: "محتوى الصورة لا يطابق صيغتها المعلنة.",
+    en: "Image content does not match its declared format.",
+  },
+  PHOTO_UPLOAD_FAILED: {
+    ar: "تعذر رفع الصورة. يرجى المحاولة مرة أخرى.",
+    en: "Photo upload failed. Please try again.",
+  },
+  PHOTO_REMOVE_FAILED: {
+    ar: "تعذر حذف الصورة. يرجى المحاولة مرة أخرى.",
+    en: "Failed to remove the photo. Please try again.",
+  },
+};
+
+async function readProfilePhotoResponse(response: Response): Promise<ProfilePhotoResponse> {
+  try {
+    return (await response.json()) as ProfilePhotoResponse;
+  } catch {
+    return {};
+  }
+}
+
+function profilePhotoErrorMessage(
+  locale: "ar" | "en",
+  response: ProfilePhotoResponse,
+  fallback: { ar: string; en: string },
+) {
+  if (response.code && PROFILE_PHOTO_ERROR_COPY[response.code]) {
+    return PROFILE_PHOTO_ERROR_COPY[response.code][locale];
+  }
+
+  // Legacy or unexpected API errors may contain provider details. Always keep
+  // the failure understandable and safe in the user's selected language.
+  return fallback[locale];
+}
+
 function deriveRoleBadgeFromRoles(roles: string[]): RoleBadgeVariant {
   if (roles.includes("owner")) return "owner";
   if (roles.includes("admin")) return "administrator";
@@ -417,33 +495,61 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
   async function handlePhotoUpload(file: File) {
     setPhotoUploading(true);
     setPhotoError(null);
-    const fd = new FormData();
-    fd.append("kind", "profile");
-    fd.append("file", file);
-    const res = await fetch("/api/auth/profile/photo", { method: "POST", body: fd });
-    const json = (await res.json()) as { url?: string; error?: string };
-    setPhotoUploading(false);
-    if (!res.ok) {
-      setPhotoError(json.error ?? (isAr ? "فشل رفع الصورة." : "Photo upload failed."));
-      return;
+    try {
+      const fd = new FormData();
+      fd.append("kind", "profile");
+      fd.append("file", file);
+      const res = await fetch("/api/auth/profile/photo", {
+        method: "POST",
+        headers: { "X-Locale": locale },
+        body: fd,
+      });
+      const json = await readProfilePhotoResponse(res);
+      if (!res.ok) {
+        setPhotoError(profilePhotoErrorMessage(locale, json, {
+          ar: "تعذر رفع الصورة الشخصية. يرجى المحاولة مرة أخرى.",
+          en: "Photo upload failed. Please try again.",
+        }));
+        return;
+      }
+      if (json.url) setAvatarUrl(json.url);
+    } catch {
+      setPhotoError(isAr
+        ? "تعذر الاتصال بالخادم لرفع الصورة. يرجى المحاولة مرة أخرى."
+        : "Unable to reach the server to upload the photo. Please try again.");
+    } finally {
+      setPhotoUploading(false);
     }
-    if (json.url) setAvatarUrl(json.url);
   }
 
   async function handleCoverUpload(file: File) {
     setCoverUploading(true);
     setCoverError(null);
-    const fd = new FormData();
-    fd.append("kind", "cover");
-    fd.append("file", file);
-    const res = await fetch("/api/auth/profile/photo", { method: "POST", body: fd });
-    const json = (await res.json()) as { url?: string; error?: string };
-    setCoverUploading(false);
-    if (!res.ok) {
-      setCoverError(json.error ?? (isAr ? "فشل رفع صورة الغلاف." : "Cover upload failed."));
-      return;
+    try {
+      const fd = new FormData();
+      fd.append("kind", "cover");
+      fd.append("file", file);
+      const res = await fetch("/api/auth/profile/photo", {
+        method: "POST",
+        headers: { "X-Locale": locale },
+        body: fd,
+      });
+      const json = await readProfilePhotoResponse(res);
+      if (!res.ok) {
+        setCoverError(profilePhotoErrorMessage(locale, json, {
+          ar: "تعذر رفع صورة الغلاف. يرجى المحاولة مرة أخرى.",
+          en: "Cover upload failed. Please try again.",
+        }));
+        return;
+      }
+      if (json.url) setCoverUrl(json.url);
+    } catch {
+      setCoverError(isAr
+        ? "تعذر الاتصال بالخادم لرفع صورة الغلاف. يرجى المحاولة مرة أخرى."
+        : "Unable to reach the server to upload the cover. Please try again.");
+    } finally {
+      setCoverUploading(false);
     }
-    if (json.url) setCoverUrl(json.url);
   }
 
   async function handleRemovePhoto() {
@@ -453,11 +559,22 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
     try {
       const res = await fetch("/api/auth/profile/photo", {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify({ kind: "profile" }),
       });
-      if (res.ok) setAvatarUrl("");
-      else setPhotoError(isAr ? "فشل حذف الصورة." : "Failed to remove photo.");
+      const json = await readProfilePhotoResponse(res);
+      if (res.ok) {
+        setAvatarUrl("");
+      } else {
+        setPhotoError(profilePhotoErrorMessage(locale, json, {
+          ar: "تعذر حذف الصورة الشخصية. يرجى المحاولة مرة أخرى.",
+          en: "Failed to remove the photo. Please try again.",
+        }));
+      }
+    } catch {
+      setPhotoError(isAr
+        ? "تعذر الاتصال بالخادم لحذف الصورة. يرجى المحاولة مرة أخرى."
+        : "Unable to reach the server to remove the photo. Please try again.");
     } finally {
       setPhotoRemoving(false);
     }
@@ -470,11 +587,22 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
     try {
       const res = await fetch("/api/auth/profile/photo", {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify({ kind: "cover" }),
       });
-      if (res.ok) setCoverUrl("");
-      else setCoverError(isAr ? "فشل حذف صورة الغلاف." : "Failed to remove cover.");
+      const json = await readProfilePhotoResponse(res);
+      if (res.ok) {
+        setCoverUrl("");
+      } else {
+        setCoverError(profilePhotoErrorMessage(locale, json, {
+          ar: "تعذر حذف صورة الغلاف. يرجى المحاولة مرة أخرى.",
+          en: "Failed to remove the cover. Please try again.",
+        }));
+      }
+    } catch {
+      setCoverError(isAr
+        ? "تعذر الاتصال بالخادم لحذف صورة الغلاف. يرجى المحاولة مرة أخرى."
+        : "Unable to reach the server to remove the cover. Please try again.");
     } finally {
       setCoverRemoving(false);
     }
@@ -487,16 +615,20 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
     try {
       const response = await fetch("/api/auth/profile", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify(form),
       });
       const data = (await response.json()) as AccountProfilePayload & { error?: string };
       if (!response.ok) {
-        setMessage(isAr ? "تعذر تحديث الهوية." : (data.error ?? "Failed to update profile."));
+        setMessage(isAr ? "تعذر تحديث الهوية." : "Failed to update the profile. Please try again.");
         return;
       }
       setPayload(data);
       setMessage(isAr ? "تم حفظ الهوية بنجاح." : "Trading identity saved.");
+    } catch {
+      setMessage(isAr
+        ? "تعذر الاتصال بالخادم لحفظ الهوية. يرجى المحاولة مرة أخرى."
+        : "Unable to reach the server to save your profile. Please try again.");
     } finally {
       setProfileSaving(false);
     }
@@ -506,7 +638,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
     if (roleActionLoading) return;
     setRoleActionLoading("student");
     try {
-      const response = await fetch("/api/auth/onboarding/student", { method: "POST" });
+      const response = await fetch("/api/auth/onboarding/student", { method: "POST", headers: { "X-Locale": locale } });
       const data = (await response.json()) as OnboardingRoleResponse;
       if (!response.ok) {
         setMessage(isAr ? "تعذر تفعيل دور الطالب." : (data.error ?? "Failed to activate student role."));
@@ -530,6 +662,10 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
         };
       });
       setMessage(isAr ? "تم تفعيل دور الطالب." : "Student role activated.");
+    } catch {
+      setMessage(isAr
+        ? "تعذر الاتصال بالخادم لتفعيل دور الطالب. يرجى المحاولة مرة أخرى."
+        : "Unable to reach the server to activate the student role. Please try again.");
     } finally {
       setRoleActionLoading(null);
     }
@@ -539,7 +675,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
     if (roleActionLoading) return;
     setRoleActionLoading("guest");
     try {
-      const response = await fetch("/api/auth/onboarding/guest", { method: "POST" });
+      const response = await fetch("/api/auth/onboarding/guest", { method: "POST", headers: { "X-Locale": locale } });
       const data = (await response.json()) as OnboardingRoleResponse;
       if (!response.ok) {
         setMessage(isAr ? "تعذر تحديث تفضيل الدور." : (data.error ?? "Failed to update role preference."));
@@ -563,6 +699,10 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
         };
       });
       setMessage(isAr ? "تم تحديث الاختيار إلى ضيف." : "Role selection updated to Guest.");
+    } catch {
+      setMessage(isAr
+        ? "تعذر الاتصال بالخادم لتحديث تفضيل الدور. يرجى المحاولة مرة أخرى."
+        : "Unable to reach the server to update your role preference. Please try again.");
     } finally {
       setRoleActionLoading(null);
     }
@@ -722,6 +862,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
         <input
           ref={photoInputRef}
           type="file"
+          aria-label={isAr ? "اختيار صورة شخصية" : "Choose profile photo"}
           accept="image/jpeg,image/png,image/webp,image/gif"
           className="hidden"
           onChange={(e) => {
@@ -733,6 +874,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
         <input
           ref={coverInputRef}
           type="file"
+          aria-label={isAr ? "اختيار صورة غلاف" : "Choose cover photo"}
           accept="image/jpeg,image/png,image/webp,image/gif"
           className="hidden"
           onChange={(e) => {

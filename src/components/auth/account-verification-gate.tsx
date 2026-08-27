@@ -97,7 +97,7 @@ export function AccountVerificationGate({
       }
       const res = await fetch("/api/auth/onboarding/buyer/send-otp", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify({
           firstName,
           lastName,
@@ -125,7 +125,7 @@ export function AccountVerificationGate({
     try {
       const res = await fetch("/api/auth/onboarding/buyer/verify-otp", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify({ phone: phoneForm.phone, token: phoneForm.token }),
       });
       const payload = (await res.json()) as ApiErrorPayload;
@@ -147,7 +147,7 @@ export function AccountVerificationGate({
     try {
       const res = await fetch("/api/auth/verify-email/resend", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify({ email: user?.email ?? initialEmail }),
       });
       const payload = (await res.json()) as { error?: string; message?: string };

@@ -8,10 +8,13 @@ import {
 const payload: MarketplaceEmailPayload = {
   event: "trade_accepted",
   recipientName: "Mark <Trader>",
-  title: "Trade Accepted",
-  message: "The seller accepted your request.",
-  actionLabel: "Open Trade Room",
-  actionUrl: "https://www.alphatraders.co.il/en/trade-room/request-1",
+  title: { ar: "تم قبول الصفقة", en: "Trade Accepted" },
+  message: {
+    ar: "وافق البائع على طلبك.",
+    en: "The seller accepted your request.",
+  },
+  actionLabel: { ar: "فتح غرفة الصفقة", en: "Open Trade Room" },
+  actionPath: "/trade-room/request-1",
   referenceLabel: "trade-1",
 };
 
@@ -24,29 +27,61 @@ describe("marketplace email delivery", () => {
   it("builds a branded mobile-friendly transactional email", () => {
     const email = buildMarketplaceEmail(payload);
 
-    expect(email.subject).toBe("Trade Accepted | Alpha Traders Academy & Exchange");
+    expect(email.subject).toBe("تم قبول الصفقة | Trade Accepted | Alpha Traders Academy & Exchange");
+    expect(email.text.indexOf("تم قبول الصفقة")).toBeLessThan(email.text.indexOf("Trade Accepted"));
+    expect(email.text).toContain("فتح غرفة الصفقة: https://www.alphatraders.co.il/ar/trade-room/request-1");
     expect(email.text).toContain("Open Trade Room");
+    expect(email.text).toContain("https://www.alphatraders.co.il/en/trade-room/request-1");
     expect(email.html).toContain("Alpha Exchange");
     expect(email.html).toContain("/images/brand/alpha-traders-logo.png");
     expect(email.html).toContain("Alpha Traders Academy &amp; Exchange");
     expect(email.html).toContain("max-width:560px");
     expect(email.html).toContain("Mark &lt;Trader&gt;");
     expect(email.html).not.toContain("Mark <Trader>");
+    expect(email.html).toContain('lang="ar" dir="rtl"');
+    expect(email.html).toContain('lang="en" dir="ltr"');
   });
 
   it("supports the dedicated seller prestige promotion email event", () => {
     const email = buildMarketplaceEmail({
       ...payload,
       event: "seller_prestige_promoted",
-      title: "Congratulations on your new seller rank",
-      message: "You reached silver seller.",
-      actionLabel: "View Seller Insights",
-      actionUrl: "https://www.alphatraders.co.il/en/usdt-exchange#market-overview",
+      title: {
+        ar: "تهانينا على رتبتك الجديدة كبائع",
+        en: "Congratulations on your new seller rank",
+      },
+      message: {
+        ar: "وصلت إلى رتبة البائع الفضية.",
+        en: "You reached silver seller.",
+      },
+      actionLabel: { ar: "عرض إحصاءات البائع", en: "View Seller Insights" },
+      actionPath: "/usdt-exchange#market-overview",
       referenceLabel: "promotion-1",
     });
-    expect(email.subject).toBe("Congratulations on your new seller rank | Alpha Traders Academy & Exchange");
+    expect(email.subject).toBe("تهانينا على رتبتك الجديدة كبائع | Congratulations on your new seller rank | Alpha Traders Academy & Exchange");
     expect(email.text).toContain("View Seller Insights");
     expect(email.text).toContain("promotion-1");
+  });
+
+  it("uses one locale and its matching route only when an explicit UI locale is available", () => {
+    const email = buildMarketplaceEmail({ ...payload, recipientLocale: "en" });
+
+    expect(email.subject).toBe("Trade Accepted | Alpha Traders Academy & Exchange");
+    expect(email.text).toContain("/en/trade-room/request-1");
+    expect(email.text).not.toContain("/ar/trade-room/request-1");
+    expect(email.html).toContain('<html lang="en" dir="ltr">');
+    expect(email.html).not.toContain('lang="ar" dir="rtl"');
+  });
+
+  it("renders only Arabic copy and an Arabic route for an Arabic recipient", () => {
+    const email = buildMarketplaceEmail({ ...payload, recipientLocale: "ar" });
+
+    expect(email.subject).toBe("تم قبول الصفقة | Alpha Traders Academy & Exchange");
+    expect(email.text).toContain("/ar/trade-room/request-1");
+    expect(email.text).not.toContain("/en/trade-room/request-1");
+    expect(email.text).not.toContain("Trade Accepted");
+    expect(email.html).toContain('<html lang="ar" dir="rtl">');
+    expect(email.html).not.toContain('lang="en" dir="ltr"');
   });
 
   it("does not call Resend when email delivery is not configured", async () => {
@@ -55,7 +90,7 @@ describe("marketplace email delivery", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(sendMarketplaceEmail({ ...payload, to: "mark@example.com" })).resolves.toEqual({
+    await expect(sendMarketplaceEmail({ ...payload, to: "mark@example.com", recipientLocale: "en" })).resolves.toEqual({
       ok: false,
       reason: "resend_not_configured",
     });
@@ -68,7 +103,7 @@ describe("marketplace email delivery", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(sendMarketplaceEmail({ ...payload, to: "mark@example.com" })).resolves.toEqual({ ok: true });
+    await expect(sendMarketplaceEmail({ ...payload, to: "mark@example.com", recipientLocale: "en" })).resolves.toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.resend.com/emails",
       expect.objectContaining({
@@ -89,7 +124,7 @@ describe("marketplace email delivery", () => {
     vi.stubEnv("EMAIL_FROM", "Alpha Exchange <notifications@example.com>");
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network unavailable")));
 
-    await expect(sendMarketplaceEmail({ ...payload, to: "mark@example.com" })).resolves.toEqual({
+    await expect(sendMarketplaceEmail({ ...payload, to: "mark@example.com", recipientLocale: "en" })).resolves.toEqual({
       ok: false,
       reason: "resend_network_failed",
       providerMessage: "network unavailable",
@@ -105,7 +140,7 @@ describe("marketplace email delivery", () => {
       text: vi.fn().mockResolvedValue(JSON.stringify({ message: "API key is invalid" })),
     }));
 
-    await expect(sendMarketplaceEmail({ ...payload, to: "mark@example.com" })).resolves.toEqual({
+    await expect(sendMarketplaceEmail({ ...payload, to: "mark@example.com", recipientLocale: "en" })).resolves.toEqual({
       ok: false,
       reason: "resend_request_failed",
       providerStatus: 400,

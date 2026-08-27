@@ -147,4 +147,33 @@ describe("CanonicalSessionProvider", () => {
     })).toBe("/ar/login?sessionExpired=1&redirectTo=%2Far%2Ftrade-room%2Ftrade-1%3Faction%3Dupload-payment-receipt%23evidence");
     expect(getSessionExpiryLoginDestination({ pathname: "/en/login", search: "", hash: "" })).toBeNull();
   });
+
+  it("persists the active route locale for an authenticated session", async () => {
+    const user = {
+      id: "locale-user", fullName: "Locale User", email: "locale@example.test", role: "buyer" as const, sellerStatus: "buyer" as const,
+      whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: ["English"], preferredLocale: "en" as const,
+      bio: "", onlineStatus: "offline" as const, createdAt: "2026-01-01",
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/auth/preferred-locale") {
+        return { ok: true, json: async () => ({ preferredLocale: "ar" }) } as Response;
+      }
+      return { ok: true, json: async () => ({ user: { ...user, preferredLocale: "ar" } }) } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <CanonicalSessionProvider initialSessionUser={user} locale="ar">
+        <Probe />
+      </CanonicalSessionProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/auth/preferred-locale",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ preferredLocale: "ar" }),
+      }),
+    ));
+  });
 });

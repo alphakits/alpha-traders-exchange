@@ -5,6 +5,7 @@ import { Link } from "@/i18n/navigation";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { getIsraeliBankDisplayName, getIsraeliBankOptions } from "@/lib/israeli-banks";
 
 type Tab = "profile" | "security" | "notifications" | "privacy" | "account";
 
@@ -33,14 +34,6 @@ type PrivacyKey = (typeof PRIVACY_KEYS)[number];
 
 type NotificationPrefs = Record<NotificationKey, boolean>;
 type PrivacyPrefs = Record<PrivacyKey, boolean>;
-type BrowserPushPrefs = {
-  browserPush: boolean;
-  browserPushTradeUpdates: boolean;
-  browserPushChatMessages: boolean;
-  browserPushListings: boolean;
-  browserPushFeedback: boolean;
-  browserPushAdminAlerts: boolean;
-};
 
 type DiscordConnection = {
   discordUserId: string;
@@ -124,14 +117,6 @@ export function AccountSettingsPanel({
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [phoneMessage, setPhoneMessage] = useState<string | null>(null);
   const [notifChannelsLoaded, setNotifChannelsLoaded] = useState(false);
-  const [browserPushPrefs, setBrowserPushPrefs] = useState<BrowserPushPrefs>({
-    browserPush: false,
-    browserPushTradeUpdates: true,
-    browserPushChatMessages: true,
-    browserPushListings: true,
-    browserPushFeedback: true,
-    browserPushAdminAlerts: false,
-  });
   const [privacyPrefs, setPrivacyPrefs] = useState<PrivacyPrefs>(defaultPrivacy());
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState("");
@@ -210,19 +195,11 @@ export function AccountSettingsPanel({
       }
       const channelRes = await fetch("/api/alpha-exchange/notification-preferences", { cache: "no-store" });
       if (channelRes.ok) {
-        const channelData = (await channelRes.json()) as { preferences?: { inApp?: boolean; email?: boolean; sms?: boolean; browserPush?: boolean; browserPushTradeUpdates?: boolean; browserPushChatMessages?: boolean; browserPushListings?: boolean; browserPushFeedback?: boolean; browserPushAdminAlerts?: boolean }; phone?: { verified?: boolean; masked?: string | null } };
+        const channelData = (await channelRes.json()) as { preferences?: { inApp?: boolean; email?: boolean; sms?: boolean }; phone?: { verified?: boolean; masked?: string | null } };
         setNotifChannels({
           inApp: channelData.preferences?.inApp !== false,
           email: channelData.preferences?.email === true,
           sms: channelData.preferences?.sms === true,
-        });
-        setBrowserPushPrefs({
-          browserPush: channelData.preferences?.browserPush === true,
-          browserPushTradeUpdates: channelData.preferences?.browserPushTradeUpdates !== false,
-          browserPushChatMessages: channelData.preferences?.browserPushChatMessages !== false,
-          browserPushListings: channelData.preferences?.browserPushListings !== false,
-          browserPushFeedback: channelData.preferences?.browserPushFeedback !== false,
-          browserPushAdminAlerts: channelData.preferences?.browserPushAdminAlerts === true,
         });
         setNotifChannelsLoaded(true);
         setPhoneVerified(channelData.phone?.verified === true);
@@ -285,6 +262,8 @@ export function AccountSettingsPanel({
     || userRole === "admin"
     || userRole === "owner";
   const hasMaxBankAccounts = bankAccounts.length >= 2;
+  const bankOptions = getIsraeliBankOptions();
+  const selectedBankIsKnown = bankOptions.some((option) => option.name === bankForm.bankName);
 
   function resetBankForm() {
     setEditingBankAccountId(null);
@@ -472,19 +451,6 @@ export function AccountSettingsPanel({
       setPhoneMessage(isAr ? "تم توثيق رقم الهاتف. يمكنك الآن تفعيل إشعارات SMS." : "Phone verified. You can now enable SMS notifications.");
     } else {
       setPhoneMessage(isAr ? "تعذر التحقق من الرمز." : (data.error ?? "Unable to verify code."));
-    }
-  }
-
-  async function saveBrowserPushPrefs(next: BrowserPushPrefs) {
-    setBrowserPushPrefs(next);
-    try {
-      await fetch("/api/alpha-exchange/notification-preferences", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(next),
-      });
-    } catch {
-      // keep optimistic state
     }
   }
 
@@ -811,10 +777,10 @@ export function AccountSettingsPanel({
                         <div key={account.id} className="rounded-xl border border-white/10 bg-black/25 p-3">
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <div className="min-w-0">
-                              <p className="text-sm font-semibold text-white">{account.bankName} {account.isDefault ? <span className="text-xs text-emerald-300">• {isAr ? "افتراضي" : "Default"}</span> : null}</p>
-                              <p className="text-xs text-[#D1D5DB]">{isAr ? "صاحب الحساب" : "Account holder"}: <span className="text-white">{account.accountHolderName}</span></p>
-                              <p className="text-xs text-[#D1D5DB]">{isAr ? "الفرع" : "Branch"}: <span className="text-white">{account.branchNumber}</span></p>
-                              <p className="text-xs text-[#D1D5DB]">{isAr ? "الحساب" : "Account"}: <span className="text-white">{account.maskedAccountNumber ?? `****${account.accountLast4}`}</span></p>
+                              <p className="text-sm font-semibold text-white">{getIsraeliBankDisplayName(account.bankName, locale)} {account.isDefault ? <span className="text-xs text-emerald-300">• {isAr ? "افتراضي" : "Default"}</span> : null}</p>
+                              <p className="text-xs text-[#D1D5DB]">{isAr ? "صاحب الحساب" : "Account holder"}: <span className="text-white"><bdi dir="auto">{account.accountHolderName}</bdi></span></p>
+                              <p className="text-xs text-[#D1D5DB]">{isAr ? "الفرع" : "Branch"}: <span className="text-white"><bdi dir="ltr">{account.branchNumber}</bdi></span></p>
+                              <p className="text-xs text-[#D1D5DB]">{isAr ? "الحساب" : "Account"}: <span className="text-white"><bdi dir="ltr">{account.maskedAccountNumber ?? `****${account.accountLast4}`}</bdi></span></p>
                             </div>
                             <div className="flex gap-2">
                               <Button type="button" size="sm" variant="secondary" disabled={bankAccountsBusy} onClick={() => startEditBankAccount(account)}>
@@ -837,19 +803,31 @@ export function AccountSettingsPanel({
                       value={bankForm.accountHolderName}
                       onChange={(event) => setBankForm((prev) => ({ ...prev, accountHolderName: event.target.value }))}
                     />
-                    <Input
-                      aria-label={isAr ? "اسم البنك" : "Bank name"}
-                      placeholder={isAr ? "اسم البنك" : "Bank name"}
+                    <select
+                      aria-label={isAr ? "اختر البنك" : "Select bank"}
                       value={bankForm.bankName}
                       onChange={(event) => setBankForm((prev) => ({ ...prev, bankName: event.target.value }))}
-                    />
+                      className="h-11 w-full rounded-xl border border-white/10 bg-[#080808] px-3 text-sm text-white outline-none transition focus:border-[#C9A227] focus:ring-2 focus:ring-[#C9A227]/25"
+                    >
+                      <option value="" className="bg-[#080808] text-white">{isAr ? "اختر البنك" : "Select bank"}</option>
+                      {!selectedBankIsKnown && bankForm.bankName ? (
+                        <option value={bankForm.bankName} className="bg-[#080808] text-white">{getIsraeliBankDisplayName(bankForm.bankName, locale)}</option>
+                      ) : null}
+                      {bankOptions.map((option) => (
+                        <option key={option.code} value={option.name} className="bg-[#080808] text-white">
+                          {getIsraeliBankDisplayName(option.name, locale)}
+                        </option>
+                      ))}
+                    </select>
                     <Input
+                      dir="ltr"
                       aria-label={isAr ? "رقم الفرع" : "Branch number"}
                       placeholder={isAr ? "رقم الفرع" : "Branch number"}
                       value={bankForm.branchNumber}
                       onChange={(event) => setBankForm((prev) => ({ ...prev, branchNumber: event.target.value }))}
                     />
                     <Input
+                      dir="ltr"
                       aria-label={isAr ? "رقم الحساب" : "Account number"}
                       placeholder={isAr ? "رقم الحساب" : "Account number"}
                       value={bankForm.accountNumber}
@@ -986,33 +964,6 @@ export function AccountSettingsPanel({
                     />
                   </div>
                 ))}
-              </div>
-              <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
-                <p className="text-sm font-medium text-white">{isAr ? "إشعارات المتصفح" : "Browser push"}</p>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-[#D1D5DB]">{isAr ? "تفعيل إشعارات المتصفح" : "Enable browser push"}</span>
-                  <PillToggle checked={browserPushPrefs.browserPush} onChange={(v) => void saveBrowserPushPrefs({ ...browserPushPrefs, browserPush: v })} />
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-[#D1D5DB]">{isAr ? "تحديثات الصفقات" : "Trade updates"}</span>
-                  <PillToggle checked={browserPushPrefs.browserPushTradeUpdates} onChange={(v) => void saveBrowserPushPrefs({ ...browserPushPrefs, browserPushTradeUpdates: v })} />
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-[#D1D5DB]">{isAr ? "رسائل الدردشة" : "Chat messages"}</span>
-                  <PillToggle checked={browserPushPrefs.browserPushChatMessages} onChange={(v) => void saveBrowserPushPrefs({ ...browserPushPrefs, browserPushChatMessages: v })} />
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-[#D1D5DB]">{isAr ? "الإعلانات الجديدة" : "New listings"}</span>
-                  <PillToggle checked={browserPushPrefs.browserPushListings} onChange={(v) => void saveBrowserPushPrefs({ ...browserPushPrefs, browserPushListings: v })} />
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-[#D1D5DB]">{isAr ? "تذكيرات التقييم" : "Feedback reminders"}</span>
-                  <PillToggle checked={browserPushPrefs.browserPushFeedback} onChange={(v) => void saveBrowserPushPrefs({ ...browserPushPrefs, browserPushFeedback: v })} />
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-[#D1D5DB]">{isAr ? "تنبيهات الإدارة" : "Admin alerts"}</span>
-                  <PillToggle checked={browserPushPrefs.browserPushAdminAlerts} onChange={(v) => void saveBrowserPushPrefs({ ...browserPushPrefs, browserPushAdminAlerts: v })} />
-                </div>
               </div>
             </CardContent>
           </Card>

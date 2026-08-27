@@ -182,3 +182,55 @@ describe("Account settings Discord connection", () => {
     });
   });
 });
+
+describe("Account settings notification channels", () => {
+  it.each([
+    {
+      locale: "en" as const,
+      visibleChannels: ["In-app notifications", "Email notifications", "SMS notifications"],
+      hiddenPushLabel: "Browser push",
+    },
+    {
+      locale: "ar" as const,
+      visibleChannels: ["إشعارات داخل المنصة", "إشعارات البريد الإلكتروني", "إشعارات الرسائل النصية"],
+      hiddenPushLabel: "إشعارات المتصفح",
+    },
+  ])("shows only implemented delivery channels in $locale", async ({ locale, visibleChannels, hiddenPushLabel }) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/api/auth/profile")) {
+        return new Response(JSON.stringify({ profile: { id: "alpha-user" } }), { status: 200 });
+      }
+      if (url.includes("/api/discord/identity")) {
+        return new Response(JSON.stringify({ connection: null }), { status: 200 });
+      }
+      if (url.includes("/api/alpha-exchange/notification-preferences")) {
+        return new Response(JSON.stringify({
+          preferences: {
+            inApp: true,
+            email: true,
+            sms: false,
+            // Legacy data remains accepted by the API but must not produce a fake control.
+            browserPush: true,
+            browserPushTradeUpdates: true,
+          },
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+
+    render(
+      <AccountSettingsPanel
+        locale={locale}
+        phoneVerificationEnabled={false}
+        initialTab="notifications"
+      />,
+    );
+
+    for (const label of visibleChannels) {
+      expect(await screen.findByText(label)).toBeTruthy();
+    }
+    expect(screen.queryByText(hiddenPushLabel)).toBeNull();
+    expect(screen.queryByText(locale === "ar" ? "تفعيل إشعارات المتصفح" : "Enable browser push")).toBeNull();
+  });
+});

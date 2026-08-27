@@ -14,12 +14,15 @@ const T = {
     name: "Full Name",
     namePlaceholder: "Your full name",
     nameMin: "Name must be at least 2 characters.",
+    nameMax: "Name must not exceed 100 characters.",
     email: "Email Address",
     emailPlaceholder: "your@email.com",
     emailInvalid: "Please enter a valid email address.",
+    emailMax: "Email address must not exceed 254 characters.",
     subject: "Subject",
     subjectPlaceholder: "How can we help?",
     subjectMin: "Subject must be at least 2 characters.",
+    subjectMax: "Subject must not exceed 200 characters.",
     message: "Message",
     messagePlaceholder: "Tell us more…",
     messageMin: "Message must be at least 10 characters.",
@@ -38,12 +41,15 @@ const T = {
     name: "الاسم الكامل",
     namePlaceholder: "اسمك الكامل",
     nameMin: "يجب أن يكون الاسم حرفين على الأقل.",
+    nameMax: "يجب ألا يتجاوز الاسم 100 حرف.",
     email: "البريد الإلكتروني",
     emailPlaceholder: "example@email.com",
     emailInvalid: "يرجى إدخال بريد إلكتروني صحيح.",
+    emailMax: "يجب ألا يتجاوز البريد الإلكتروني 254 حرفاً.",
     subject: "الموضوع",
     subjectPlaceholder: "كيف يمكننا مساعدتك؟",
     subjectMin: "يجب أن يكون الموضوع حرفين على الأقل.",
+    subjectMax: "يجب ألا يتجاوز الموضوع 200 حرف.",
     message: "الرسالة",
     messagePlaceholder: "أخبرنا بالمزيد…",
     messageMin: "يجب أن تكون الرسالة 10 أحرف على الأقل.",
@@ -59,11 +65,58 @@ const T = {
   },
 } satisfies Record<Locale, Record<string, string>>;
 
+type ContactIssueCode =
+  | "NAME_REQUIRED"
+  | "NAME_TOO_SHORT"
+  | "NAME_TOO_LONG"
+  | "EMAIL_REQUIRED"
+  | "EMAIL_INVALID"
+  | "EMAIL_TOO_LONG"
+  | "SUBJECT_REQUIRED"
+  | "SUBJECT_TOO_SHORT"
+  | "SUBJECT_TOO_LONG"
+  | "MESSAGE_REQUIRED"
+  | "MESSAGE_TOO_SHORT"
+  | "MESSAGE_TOO_LONG";
+
+function localizeContactIssue(
+  field: string,
+  code: string | undefined,
+  t: (typeof T)[Locale],
+) {
+  const copy: Partial<Record<ContactIssueCode, string>> = {
+    NAME_REQUIRED: t.required,
+    NAME_TOO_SHORT: t.nameMin,
+    NAME_TOO_LONG: t.nameMax,
+    EMAIL_REQUIRED: t.required,
+    EMAIL_INVALID: t.emailInvalid,
+    EMAIL_TOO_LONG: t.emailMax,
+    SUBJECT_REQUIRED: t.required,
+    SUBJECT_TOO_SHORT: t.subjectMin,
+    SUBJECT_TOO_LONG: t.subjectMax,
+    MESSAGE_REQUIRED: t.required,
+    MESSAGE_TOO_SHORT: t.messageMin,
+    MESSAGE_TOO_LONG: t.messageMax,
+  };
+  if (code && copy[code as ContactIssueCode]) return copy[code as ContactIssueCode];
+
+  // Handle old or unexpected API responses by field, without ever rendering
+  // raw server/Zod text in the user's selected language.
+  if (field === "name") return t.nameMin;
+  if (field === "email") return t.emailInvalid;
+  if (field === "subject") return t.subjectMin;
+  if (field === "message") return t.messageMin;
+  return null;
+}
+
 function validateClient(values: Record<string, string>, t: (typeof T)[Locale]) {
   const errors: Record<string, string> = {};
   if (!values.name || values.name.trim().length < 2) errors.name = t.nameMin;
+  else if (values.name.trim().length > 100) errors.name = t.nameMax;
   if (!values.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim())) errors.email = t.emailInvalid;
+  else if (values.email.trim().length > 254) errors.email = t.emailMax;
   if (!values.subject || values.subject.trim().length < 2) errors.subject = t.subjectMin;
+  else if (values.subject.trim().length > 200) errors.subject = t.subjectMax;
   if (!values.message || values.message.trim().length < 10) errors.message = t.messageMin;
   if (values.message && values.message.length > 4000) errors.message = t.messageMax;
   return errors;
@@ -108,7 +161,7 @@ export function ContactForm({ locale }: { locale: Locale }) {
     try {
       const res = await fetch("/api/contact", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify({
           ...values,
           name: values.name.trim(),
@@ -131,7 +184,9 @@ export function ContactForm({ locale }: { locale: Locale }) {
         if (data.issues) {
           const mapped: Record<string, string> = {};
           for (const [k, msgs] of Object.entries(data.issues as Record<string, string[]>)) {
-            mapped[k] = Array.isArray(msgs) ? msgs[0] : String(msgs);
+            const code = Array.isArray(msgs) ? msgs[0] : undefined;
+            const localized = localizeContactIssue(k, code, t);
+            if (localized) mapped[k] = localized;
           }
           setFieldErrors(mapped);
         }
@@ -203,6 +258,7 @@ export function ContactForm({ locale }: { locale: Locale }) {
           type="text"
           autoComplete="name"
           placeholder={t.namePlaceholder}
+          maxLength={100}
           value={values.name}
           onChange={set("name")}
           disabled={status === "loading"}
@@ -229,6 +285,7 @@ export function ContactForm({ locale }: { locale: Locale }) {
           type="email"
           autoComplete="email"
           placeholder={t.emailPlaceholder}
+          maxLength={254}
           value={values.email}
           onChange={set("email")}
           disabled={status === "loading"}
@@ -254,6 +311,7 @@ export function ContactForm({ locale }: { locale: Locale }) {
           name="subject"
           type="text"
           placeholder={t.subjectPlaceholder}
+          maxLength={200}
           value={values.subject}
           onChange={set("subject")}
           disabled={status === "loading"}
@@ -284,6 +342,7 @@ export function ContactForm({ locale }: { locale: Locale }) {
           aria-invalid={!!fieldErrors.message}
           aria-describedby={fieldErrors.message ? `${messageId}-err` : undefined}
           rows={5}
+          maxLength={4000}
           required
         />
         <div className={`flex items-center gap-1 ${fieldErrors.message ? "justify-between" : "justify-end"}`}>

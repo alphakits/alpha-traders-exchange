@@ -17,7 +17,18 @@ function verificationDeliveryFailedMessage(locale: "ar" | "en") {
     : "We could not send a verification email right now. Please try again shortly.";
 }
 
+function verificationRateLimitedMessage(locale: "ar" | "en") {
+  return locale === "ar"
+    ? "طلبات كثيرة جدًا. يُرجى المحاولة مرة أخرى بعد قليل."
+    : "Too many requests. Please try again shortly.";
+}
+
+function validEmailRequiredMessage(locale: "ar" | "en") {
+  return locale === "ar" ? "يلزم إدخال بريد إلكتروني صالح." : "A valid email is required.";
+}
+
 export async function POST(request: NextRequest) {
+  const locale = inferLocaleFromRequest(request);
   const rate = await checkSharedRateLimit({
     headers: request.headers,
     key: "auth:verify-email:resend",
@@ -26,7 +37,7 @@ export async function POST(request: NextRequest) {
   });
   if (!rate.allowed) {
     return NextResponse.json(
-      { error: "Too many requests. Please try again shortly." },
+      { error: verificationRateLimitedMessage(locale) },
       { status: 429, headers: { ...AUTH_RESPONSE_HEADERS, "Retry-After": String(rate.retryAfterSeconds) } },
     );
   }
@@ -35,9 +46,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const email = String(body?.email ?? "").trim();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return NextResponse.json({ error: "A valid email is required." }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
+      return NextResponse.json({ error: validEmailRequiredMessage(locale) }, { status: 400, headers: AUTH_RESPONSE_HEADERS });
     }
-    const locale = inferLocaleFromRequest(request);
     const supabase = createSupabaseAuthClient({ requestHeaders: request.headers });
     let resendError: { message?: string } | null = null;
     try {
@@ -72,9 +82,9 @@ export async function POST(request: NextRequest) {
       { message: verificationGenericMessage(locale) },
       { headers: AUTH_RESPONSE_HEADERS },
     );
-  } catch (error) {
+  } catch {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to process request." },
+      { error: verificationDeliveryFailedMessage(locale) },
       { status: 400, headers: AUTH_RESPONSE_HEADERS },
     );
   }

@@ -6,6 +6,7 @@ import { Inter, IBM_Plex_Sans_Arabic } from "next/font/google";
 import { routing, type AppLocale } from "@/i18n/routing";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
+import { MobileBottomNavigation } from "@/components/layout/mobile-bottom-navigation";
 import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { toClientSessionUser } from "@/lib/client-session-user";
@@ -54,10 +55,11 @@ export default async function LocaleLayout({
           appLocale === "ar" ? "font-[var(--font-plex-arabic)]" : "font-[var(--font-inter)]"
         }`}
       >
-        <CanonicalSessionProvider initialSessionUser={toClientSessionUser(sessionUser)}>
+        <CanonicalSessionProvider initialSessionUser={toClientSessionUser(sessionUser)} locale={appLocale}>
           <SiteHeader locale={appLocale} sessionUser={sessionUser} />
           <main className="min-h-[calc(100vh-9rem)]">{children}</main>
           <SiteFooter locale={appLocale} />
+          <MobileBottomNavigation locale={appLocale} />
         </CanonicalSessionProvider>
       </div>
     </NextIntlClientProvider>

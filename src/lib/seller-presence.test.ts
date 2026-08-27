@@ -44,6 +44,16 @@ describe("deriveSellerPresence", () => {
     expect(presence.label).toBe("Last seen yesterday");
   });
 
+  it("uses the Israel calendar day regardless of the server timezone", () => {
+    const now = new Date("2026-08-27T22:30:00.000Z").getTime();
+    const earlierSameIsraelDay = "2026-08-27T21:15:00.000Z";
+    const presence = deriveSellerPresence(
+      { onlineStatus: "offline", lastActiveAt: earlierSameIsraelDay },
+      now,
+    );
+    expect(presence.label).toBe("Last seen today");
+  });
+
   it("shows Offline for older activity", () => {
     const presence = deriveSellerPresence({ onlineStatus: "offline", lastActiveAt: iso(-4 * 24 * 60 * 60 * 1000) }, NOW);
     expect(presence.tone).toBe("idle");

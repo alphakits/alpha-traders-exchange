@@ -5,6 +5,17 @@ import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+type RegistrationErrorCode =
+  | "REGISTRATION_RATE_LIMITED"
+  | "REQUIRED_FIELDS"
+  | "FIELD_TOO_LONG"
+  | "INVALID_EMAIL"
+  | "EMAIL_ALREADY_REGISTERED"
+  | "TERMS_REQUIRED"
+  | "PASSWORD_TOO_SHORT"
+  | "PASSWORD_MISMATCH"
+  | "REGISTRATION_FAILED";
+
 export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
   const isAr = locale === "ar";
   const [form, setForm] = useState({
@@ -19,20 +30,62 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function localizeRegistrationError(error?: string) {
+  function localizeRegistrationError(error?: string, code?: RegistrationErrorCode) {
     const message = String(error ?? "").trim();
-    if (!message) {
-      return isAr ? "فشل إنشاء الحساب." : "Registration failed.";
-    }
-    if (!isAr) return message;
+    const copyByCode: Record<RegistrationErrorCode, { ar: string; en: string }> = {
+      REGISTRATION_RATE_LIMITED: {
+        ar: "تم تقييد التسجيل مؤقتًا. يُرجى المحاولة مرة أخرى خلال بضع دقائق.",
+        en: "Registration is temporarily rate-limited. Please try again in a few minutes.",
+      },
+      REQUIRED_FIELDS: {
+        ar: "الاسم الكامل والبريد الإلكتروني وكلمة المرور مطلوبة.",
+        en: "Full name, email, and password are required.",
+      },
+      FIELD_TOO_LONG: {
+        ar: "تجاوز حقل واحد أو أكثر الحد المسموح.",
+        en: "One or more fields exceed the allowed length.",
+      },
+      INVALID_EMAIL: {
+        ar: "صيغة البريد الإلكتروني غير صحيحة.",
+        en: "Enter a valid email address.",
+      },
+      EMAIL_ALREADY_REGISTERED: {
+        ar: "البريد الإلكتروني مسجل بالفعل.",
+        en: "Email already registered.",
+      },
+      TERMS_REQUIRED: {
+        ar: "يجب الموافقة على شروط الخدمة.",
+        en: "You must accept the Terms of Service.",
+      },
+      PASSWORD_TOO_SHORT: {
+        ar: "يجب أن تتكوّن كلمة المرور من 8 أحرف على الأقل.",
+        en: "Password must be at least 8 characters.",
+      },
+      PASSWORD_MISMATCH: {
+        ar: "كلمتا المرور غير متطابقتين.",
+        en: "Passwords do not match.",
+      },
+      REGISTRATION_FAILED: {
+        ar: "تعذر إنشاء الحساب. يُرجى المحاولة مرة أخرى.",
+        en: "Registration failed. Please try again.",
+      },
+    };
+    if (code && copyByCode[code]) return copyByCode[code][locale];
+    if (!message) return copyByCode.REGISTRATION_FAILED[locale];
     const normalized = message.toLowerCase();
     if (normalized.includes("temporarily rate-limited") || normalized.includes("too many registration attempts")) {
-      return "تم تقييد التسجيل مؤقتًا. يُرجى المحاولة مرة أخرى خلال بضع دقائق.";
+      return copyByCode.REGISTRATION_RATE_LIMITED[locale];
     }
-    if (normalized.includes("email already registered")) {
-      return "البريد الإلكتروني مسجل بالفعل.";
-    }
-    return message;
+    if (normalized.includes("email already registered") || normalized.includes("already exists")) return copyByCode.EMAIL_ALREADY_REGISTERED[locale];
+    if (normalized.includes("full name") && normalized.includes("required")) return copyByCode.REQUIRED_FIELDS[locale];
+    if (normalized.includes("exceed") && normalized.includes("length")) return copyByCode.FIELD_TOO_LONG[locale];
+    if (normalized.includes("invalid email")) return copyByCode.INVALID_EMAIL[locale];
+    if (normalized.includes("terms") && normalized.includes("accepted")) return copyByCode.TERMS_REQUIRED[locale];
+    if (normalized.includes("password") && normalized.includes("at least")) return copyByCode.PASSWORD_TOO_SHORT[locale];
+    if (normalized.includes("passwords do not match")) return copyByCode.PASSWORD_MISMATCH[locale];
+
+    // Never expose an unexpected provider/database error in either locale.
+    return copyByCode.REGISTRATION_FAILED[locale];
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -50,14 +103,14 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
         },
         body: JSON.stringify(form),
       });
-      const payload = (await response.json()) as { error?: string; message?: string };
+      const payload = (await response.json()) as { error?: string; code?: RegistrationErrorCode; message?: string };
       if (!response.ok) {
-        setErrorMessage(localizeRegistrationError(payload.error));
+        setErrorMessage(localizeRegistrationError(payload.error, payload.code));
         return;
       }
       setStatusMessage(isAr
-        ? "تم إنشاء الحساب. يرجى تأكيد بريدك الإلكتروني قبل تسجيل الدخول."
-        : (payload.message ?? "Your account has been created. Please verify your email before signing in."));
+        ? "إذا كان البريد صالحًا للتسجيل، فستصلك رسالة تأكيد. إذا كان لديك حساب بالفعل، فسجّل الدخول أو أعد تعيين كلمة المرور."
+        : "If this email can be registered, you will receive a confirmation message. If you already have an account, sign in or reset your password.");
       setForm({
         fullName: "",
         email: "",

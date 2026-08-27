@@ -65,9 +65,9 @@ const STATS: StatItem[] = [
     icon: <Globe className="h-5 w-5" aria-hidden="true" />,
     titleEn: "Languages",
     titleAr: "اللغات",
-    subtitleEn: "English • עברית • العربية",
-    subtitleAr: "الإنجليزية • العبرية • العربية",
-    numericValue: 3,
+    subtitleEn: "English • Arabic",
+    subtitleAr: "الإنجليزية • العربية",
+    numericValue: 2,
   },
   {
     icon: <Sparkles className="h-5 w-5" aria-hidden="true" />,

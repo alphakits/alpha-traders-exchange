@@ -82,6 +82,15 @@ const SCHEMA_SQL = [
     sort_index integer not null,
     payload jsonb not null
   )`,
+  `update alpha_exchange.users as u
+  set payload = jsonb_set(
+    u.payload,
+    '{preferredLocale}',
+    to_jsonb('ar'::text),
+    true
+  )
+  where u.payload->>'preferredLocale' is null
+    or u.payload->>'preferredLocale' not in ('ar', 'en')`,
   `create table if not exists alpha_exchange.seller_profiles (
     user_id text primary key references alpha_exchange.users(id) on delete cascade,
     seller_status text not null,

@@ -37,5 +37,5 @@ export default async function DiscordManagementPage({
   if (!hasRole(user, "admin")) {
     redirect(`/${locale}/usdt-exchange`);
   }
-  return <DiscordManagementDashboard />;
+  return <DiscordManagementDashboard locale={locale === "ar" ? "ar" : "en"} />;
 }

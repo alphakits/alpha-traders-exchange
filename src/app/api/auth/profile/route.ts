@@ -2,6 +2,38 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/api-auth";
 import { getAccountProfileData, updateAccountProfileData } from "@/lib/alpha-exchange-store";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
+import { resolveSupportedRequestLocale } from "@/lib/request-locale";
+
+const PROFILE_RESPONSE_HEADERS = { "Cache-Control": "no-store, max-age=0" };
+
+type ProfileErrorCode = "PROFILE_RATE_LIMITED" | "FULL_NAME_REQUIRED" | "PROFILE_UPDATE_FAILED";
+
+const PROFILE_ERROR_COPY: Record<ProfileErrorCode, { ar: string; en: string }> = {
+  PROFILE_RATE_LIMITED: {
+    ar: "تم إرسال طلبات تحديث كثيرة. انتظر قليلاً ثم حاول مرة أخرى.",
+    en: "Too many profile update requests. Please wait and try again.",
+  },
+  FULL_NAME_REQUIRED: {
+    ar: "الاسم الكامل مطلوب.",
+    en: "Full name is required.",
+  },
+  PROFILE_UPDATE_FAILED: {
+    ar: "تعذر تحديث الملف الشخصي. يرجى المحاولة مرة أخرى.",
+    en: "Failed to update the profile. Please try again.",
+  },
+};
+
+function profileLocale(request: NextRequest): "ar" | "en" {
+  return resolveSupportedRequestLocale(request.headers, "en");
+}
+
+function profileError(request: NextRequest, code: ProfileErrorCode, status: number, headers: Record<string, string> = {}) {
+  const locale = profileLocale(request);
+  return NextResponse.json(
+    { code, error: PROFILE_ERROR_COPY[code][locale] },
+    { status, headers: { ...PROFILE_RESPONSE_HEADERS, ...headers } },
+  );
+}
 
 type RoleBadgeVariant = "guest" | "student" | "buyer" | "pending_seller" | "approved_seller" | "administrator" | "owner";
 
@@ -90,7 +122,7 @@ export async function PATCH(request: NextRequest) {
   if (!user) return unauthorized;
   const rate = await checkSharedRateLimit({ headers: request.headers, key: "auth:profile-update", maxRequests: 20, windowMs: 60_000 });
   if (!rate.allowed) {
-    return NextResponse.json({ error: "Too many profile update requests. Please try again shortly." }, { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } });
+    return profileError(request, "PROFILE_RATE_LIMITED", 429, { "Retry-After": String(rate.retryAfterSeconds) });
   }
 
   try {
@@ -112,7 +144,7 @@ export async function PATCH(request: NextRequest) {
     const showEmailPublic = typeof body.showEmailPublic === "boolean" ? body.showEmailPublic : undefined;
 
     if (fullName !== undefined && !fullName) {
-      return NextResponse.json({ error: "Full name is required." }, { status: 400 });
+      return profileError(request, "FULL_NAME_REQUIRED", 400);
     }
     const validationMs = Date.now() - validationStartedAt;
 
@@ -158,7 +190,7 @@ export async function PATCH(request: NextRequest) {
         "Server-Timing": `route;dur=${routeMs}, validate;dur=${validationMs}, logic;dur=${logicMs}`,
       },
     });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update profile." }, { status: 400 });
+  } catch {
+    return profileError(request, "PROFILE_UPDATE_FAILED", 400);
   }
 }

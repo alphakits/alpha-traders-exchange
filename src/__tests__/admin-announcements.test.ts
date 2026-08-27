@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildAdminAnnouncementEmail,
+  composeAdminAnnouncementEmailContent,
   isRetryableAnnouncementDeliveryFailure,
   parseRetryAfterMs,
   sendAdminAnnouncementBatch,
@@ -15,13 +16,21 @@ import {
 } from "@/lib/alpha-exchange-store";
 import type { AdminAnnouncementRecipient, AlphaExchangeUser, UserRole } from "@/types/alpha-exchange";
 
-const content: AdminAnnouncementEmailContent = {
-  subject: "Alpha Exchange is live",
-  title: "A faster trading experience",
-  content: "Hello,\n\n**Trade faster** with:\n• Live updates\n• Better mobile UX",
-  ctaText: "Start Trading",
+const content: AdminAnnouncementEmailContent = composeAdminAnnouncementEmailContent({
+  ar: {
+    subject: "أصبحت منصة Alpha Exchange متاحة",
+    title: "تجربة تداول أسرع",
+    content: "مرحبًا،\n\n**تداول بسرعة أكبر** مع:\n• تحديثات فورية\n• تجربة هاتف أفضل",
+    ctaText: "ابدأ التداول",
+  },
+  en: {
+    subject: "Alpha Exchange is live",
+    title: "A faster trading experience",
+    content: "Hello,\n\n**Trade faster** with:\n• Live updates\n• Better mobile UX",
+    ctaText: "Start Trading",
+  },
   ctaUrl: "https://alphatraders.co.il",
-};
+});
 
 function user(input: {
   id: string;
@@ -64,21 +73,48 @@ afterEach(() => {
 describe("admin announcement email", () => {
   it("renders a responsive branded email with safe rich text", () => {
     const email = buildAdminAnnouncementEmail({
-      ...content,
-      content: `${content.content}\n\n<script>alert("unsafe")</script>\n[Help](https://alphatraders.co.il/support)`,
+      ...composeAdminAnnouncementEmailContent({
+        ar: {
+          subject: "أصبحت منصة Alpha Exchange متاحة",
+          title: "تجربة تداول أسرع",
+          content: "مرحبًا،\n\n**تداول بسرعة أكبر** مع:\n• تحديثات فورية\n\n<script>alert(\"unsafe\")</script>\n[المساعدة](https://alphatraders.co.il/support)",
+          ctaText: "ابدأ التداول",
+        },
+        en: {
+          subject: "Alpha Exchange is live",
+          title: "A faster trading experience",
+          content: "Hello,\n\n**Trade faster** with:\n• Live updates\n\n<script>alert(\"unsafe\")</script>\n[Help](https://alphatraders.co.il/support)",
+          ctaText: "Start Trading",
+        },
+        ctaUrl: "https://alphatraders.co.il",
+      }),
     });
 
     expect(email.subject).toBe(content.subject);
     expect(email.html).toContain("/images/brand/alpha-traders-logo.png");
     expect(email.html).toContain("Alpha Traders Academy &amp; Exchange");
-    expect(email.text).toContain("Alpha Traders Academy & Exchange: https://www.alphatraders.co.il");
+    expect(email.text).toContain("Alpha Traders Academy & Exchange: https://www.alphatraders.co.il/ar");
+    expect(email.text).toContain("Alpha Traders Academy & Exchange: https://www.alphatraders.co.il/en");
     expect(email.html).toContain("max-width:620px");
     expect(email.html).toContain("<strong");
     expect(email.html).toContain("<li");
     expect(email.html).toContain('href="https://alphatraders.co.il/support"');
     expect(email.html).toContain("&lt;script&gt;");
     expect(email.html).not.toContain("<script>");
-    expect(email.text).toContain("Start Trading: https://alphatraders.co.il");
+    expect(email.text).toContain("ابدأ التداول: https://www.alphatraders.co.il/ar");
+    expect(email.text).toContain("Start Trading: https://www.alphatraders.co.il/en");
+    expect(email.html).toContain('<html lang="ar" dir="rtl">');
+    expect(email.html).toContain('lang="en" dir="ltr"');
+  });
+
+  it("rejects an English-only announcement when recipient locale is unknown", () => {
+    expect(() => validateAdminAnnouncementContent({
+      subject: "Alpha Exchange is live",
+      title: "A faster trading experience",
+      content: "Hello, this is an English-only update.",
+      ctaText: "Start Trading",
+      ctaUrl: "https://alphatraders.co.il",
+    })).toThrow("must include Arabic and English versions");
   });
 
   it("requires an HTTPS CTA URL", () => {

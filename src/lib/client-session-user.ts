@@ -1,6 +1,7 @@
 import type {
   AlphaExchangeUser,
   OnboardingSelection,
+  PreferredLocale,
   SellerAvailabilityStatus,
   SellerLevel,
   SellerOnlineStatus,
@@ -8,6 +9,7 @@ import type {
   SupportedNetwork,
   UserRole,
 } from "@/types/alpha-exchange";
+import { normalizePreferredLocale } from "@/lib/preferred-locale";
 
 /**
  * The intentionally small, browser-safe representation of the current user.
@@ -27,6 +29,7 @@ export type ClientSessionUser = {
   profilePhotoUrl: string;
   coverBannerUrl?: string;
   languages: string[];
+  preferredLocale?: PreferredLocale;
   bio: string;
   tradingExperience?: string;
   workingHours?: string;
@@ -131,6 +134,7 @@ export function toClientSessionUser(
     profilePhotoUrl: user.profilePhotoUrl,
     coverBannerUrl: user.coverBannerUrl,
     languages: user.languages,
+    preferredLocale: normalizePreferredLocale(user.preferredLocale),
     bio: user.bio,
     tradingExperience: user.tradingExperience,
     workingHours: user.workingHours,

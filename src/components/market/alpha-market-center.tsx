@@ -116,7 +116,7 @@ export function AlphaMarketCenterView({
             {isAr ? "مباشر" : "LIVE"}
           </div>
         </div>
-        <p className="text-xs text-[#9CA3AF]">{ageLabel(snapshot.updatedAt, now, isAr)}</p>
+        <p className="text-xs text-[#9CA3AF]"><bdi dir="auto">{ageLabel(snapshot.updatedAt, now, isAr)}</bdi></p>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)]">
@@ -124,7 +124,7 @@ export function AlphaMarketCenterView({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-[11px] uppercase tracking-[0.18em] text-[#D4AF37]">{isAr ? "مرساة التسعير" : "Pricing Anchor"}</p>
-                <p className="mt-2 text-sm text-[#CFCFCF]">{heroPair.label}</p>
+                <p className="mt-2 text-sm text-[#CFCFCF]"><bdi dir="ltr">{heroPair.label}</bdi></p>
               </div>
               <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-300">
                 <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
@@ -134,15 +134,15 @@ export function AlphaMarketCenterView({
             <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
               <div>
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">USDT / ILS</p>
-                <p className="mt-2 text-4xl font-semibold tracking-tight text-white md:text-5xl">{formatPrice(heroPair.price, heroPair.key)}</p>
+                <p className="mt-2 text-4xl font-semibold tracking-tight text-white md:text-5xl"><bdi dir="ltr">{formatPrice(heroPair.price, heroPair.key)}</bdi></p>
                 <div className={`mt-3 inline-flex items-center gap-1.5 text-sm ${heroPair.changePercent !== null && heroPair.changePercent >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
                   <ArrowUpRight className={`h-4 w-4 ${heroPair.changePercent !== null && heroPair.changePercent >= 0 ? "" : "rotate-90"}`} />
-                  {formatChange(heroPair.changePercent)}
+                  <bdi dir="ltr">{formatChange(heroPair.changePercent)}</bdi>
                 </div>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-right text-xs text-[#9CA3AF]">
                 <p className="uppercase tracking-[0.14em]">{isAr ? "مصدر حي" : "Live Reference"}</p>
-                <p className="mt-1 text-sm text-white">{marketSourceLabel(heroPair.reference ?? heroPair.source, isAr)}</p>
+                <p className="mt-1 text-sm text-white"><bdi dir="auto">{marketSourceLabel(heroPair.reference ?? heroPair.source, isAr)}</bdi></p>
               </div>
             </div>
           </div>
@@ -152,15 +152,15 @@ export function AlphaMarketCenterView({
               const positive = pair.changePercent !== null && pair.changePercent >= 0;
               return (
                 <div key={pair.key} className="rounded-[1.5rem] border border-white/10 bg-black/25 p-4 md:p-5">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{pair.label}</p>
+                  <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]"><bdi dir="ltr">{pair.label}</bdi></p>
                   <div className="mt-3 flex items-end justify-between gap-3">
-                    <p className="text-2xl font-semibold text-white">{formatPrice(pair.price, pair.key)}</p>
+                    <p className="text-2xl font-semibold text-white"><bdi dir="ltr">{formatPrice(pair.price, pair.key)}</bdi></p>
                     <div className={`inline-flex items-center gap-1 text-xs ${positive ? "text-emerald-300" : "text-rose-300"}`}>
                       <ArrowUpRight className={`h-3.5 w-3.5 ${positive ? "" : "rotate-90"}`} />
-                      {formatChange(pair.changePercent)}
+                      <bdi dir="ltr">{formatChange(pair.changePercent)}</bdi>
                     </div>
                   </div>
-                  <p className="mt-2 text-xs text-[#9CA3AF]">{marketSourceLabel(pair.reference ?? pair.source, isAr)}</p>
+                  <p className="mt-2 text-xs text-[#9CA3AF]"><bdi dir="auto">{marketSourceLabel(pair.reference ?? pair.source, isAr)}</bdi></p>
                 </div>
               );
             })}

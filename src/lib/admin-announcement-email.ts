@@ -9,6 +9,66 @@ export type AdminAnnouncementEmailContent = {
   ctaUrl: string;
 };
 
+export type AdminAnnouncementLocalizedDraft = {
+  ar: Omit<AdminAnnouncementEmailContent, "ctaUrl">;
+  en: Omit<AdminAnnouncementEmailContent, "ctaUrl">;
+  ctaUrl: string;
+};
+
+const INLINE_LOCALE_SEPARATOR = " | ";
+const CONTENT_LOCALE_SEPARATOR = "\n\n[[ALPHA-ANNOUNCEMENT-EN]]\n\n";
+
+export function composeAdminAnnouncementEmailContent(
+  input: AdminAnnouncementLocalizedDraft,
+): AdminAnnouncementEmailContent {
+  return {
+    subject: `${input.ar.subject.trim()}${INLINE_LOCALE_SEPARATOR}${input.en.subject.trim()}`,
+    title: `${input.ar.title.trim()}${INLINE_LOCALE_SEPARATOR}${input.en.title.trim()}`,
+    content: `${input.ar.content.trim()}${CONTENT_LOCALE_SEPARATOR}${input.en.content.trim()}`,
+    ctaText: `${input.ar.ctaText.trim()}${INLINE_LOCALE_SEPARATOR}${input.en.ctaText.trim()}`,
+    ctaUrl: input.ctaUrl.trim(),
+  };
+}
+
+function splitLocalizedInline(value: string, fieldName: string) {
+  const separatorIndex = value.indexOf(INLINE_LOCALE_SEPARATOR);
+  if (separatorIndex === -1) {
+    throw new Error(`${fieldName} must include Arabic and English versions. | يجب أن يتضمن ${fieldName} نسختين بالعربية والإنجليزية.`);
+  }
+  return {
+    ar: value.slice(0, separatorIndex).trim(),
+    en: value.slice(separatorIndex + INLINE_LOCALE_SEPARATOR.length).trim(),
+  };
+}
+
+function splitLocalizedContent(value: string) {
+  const separatorIndex = value.indexOf(CONTENT_LOCALE_SEPARATOR);
+  if (separatorIndex === -1) {
+    throw new Error("Content must include Arabic and English versions. | يجب أن يتضمن المحتوى نسختين بالعربية والإنجليزية.");
+  }
+  return {
+    ar: value.slice(0, separatorIndex).trim(),
+    en: value.slice(separatorIndex + CONTENT_LOCALE_SEPARATOR.length).trim(),
+  };
+}
+
+function hasArabic(value: string) {
+  return /[\u0600-\u06ff]/.test(value);
+}
+
+function hasLatin(value: string) {
+  return /[A-Za-z]/.test(value);
+}
+
+function assertExpectedScript(value: string, locale: "ar" | "en", fieldName: string) {
+  if (locale === "ar" && !hasArabic(value)) {
+    throw new Error(`${fieldName} Arabic version must contain Arabic text. | يجب أن تتضمن النسخة العربية من ${fieldName} نصًا عربيًا.`);
+  }
+  if (locale === "en" && !hasLatin(value)) {
+    throw new Error(`${fieldName} English version must contain English text. | يجب أن تتضمن النسخة الإنجليزية من ${fieldName} نصًا إنجليزيًا.`);
+  }
+}
+
 function escapeHtml(value: string) {
   return value
     .replaceAll("&", "&amp;")
@@ -27,24 +87,32 @@ export function isValidAnnouncementCtaUrl(value: string) {
 }
 
 export function validateAdminAnnouncementContent(input: AdminAnnouncementEmailContent) {
-  const normalized = {
-    subject: input.subject.trim(),
-    title: input.title.trim(),
-    content: input.content.trim(),
-    ctaText: input.ctaText.trim(),
+  const subject = splitLocalizedInline(input.subject.trim(), "Subject");
+  const title = splitLocalizedInline(input.title.trim(), "Title");
+  const content = splitLocalizedContent(input.content.trim());
+  const ctaText = splitLocalizedInline(input.ctaText.trim(), "CTA button text");
+  const normalized = composeAdminAnnouncementEmailContent({
+    ar: { subject: subject.ar, title: title.ar, content: content.ar, ctaText: ctaText.ar },
+    en: { subject: subject.en, title: title.en, content: content.en, ctaText: ctaText.en },
     ctaUrl: input.ctaUrl.trim(),
-  };
-  if (normalized.subject.length < 5 || normalized.subject.length > 180) {
-    throw new Error("Subject must be between 5 and 180 characters.");
+  });
+  for (const locale of ["ar", "en"] as const) {
+    assertExpectedScript(subject[locale], locale, "Subject");
+    assertExpectedScript(title[locale], locale, "Title");
+    assertExpectedScript(content[locale], locale, "Content");
+    assertExpectedScript(ctaText[locale], locale, "CTA button text");
   }
-  if (normalized.title.length < 3 || normalized.title.length > 160) {
-    throw new Error("Title must be between 3 and 160 characters.");
+  if ([subject.ar, subject.en].some((value) => value.length < 5 || value.length > 180)) {
+    throw new Error("Each subject must be between 5 and 180 characters. | يجب أن يتراوح كل عنوان موضوع بين 5 و180 حرفًا.");
   }
-  if (normalized.content.length < 10 || normalized.content.length > 8_000) {
-    throw new Error("Content must be between 10 and 8,000 characters.");
+  if ([title.ar, title.en].some((value) => value.length < 3 || value.length > 160)) {
+    throw new Error("Each title must be between 3 and 160 characters. | يجب أن يتراوح كل عنوان بين 3 و160 حرفًا.");
   }
-  if (normalized.ctaText.length < 2 || normalized.ctaText.length > 80) {
-    throw new Error("CTA button text must be between 2 and 80 characters.");
+  if ([content.ar, content.en].some((value) => value.length < 10 || value.length > 8_000)) {
+    throw new Error("Each content version must be between 10 and 8,000 characters. | يجب أن يتراوح محتوى كل نسخة بين 10 و8,000 حرف.");
+  }
+  if ([ctaText.ar, ctaText.en].some((value) => value.length < 2 || value.length > 80)) {
+    throw new Error("Each CTA button text must be between 2 and 80 characters. | يجب أن يتراوح نص كل زر بين حرفين و80 حرفًا.");
   }
   if (normalized.ctaUrl.length > 2_048 || !isValidAnnouncementCtaUrl(normalized.ctaUrl)) {
     throw new Error("CTA button URL must be a valid HTTPS URL.");
@@ -96,7 +164,7 @@ function renderInlineFormatting(value: string) {
     .replace(/ANNOUNCEMENTLINK(\d+)TOKEN/g, (_match, index: string) => links[Number(index)] ?? "");
 }
 
-export function renderAnnouncementRichText(content: string) {
+export function renderAnnouncementRichText(content: string, locale: "ar" | "en" = "en") {
   const lines = content.replace(/\r\n?/g, "\n").split("\n");
   const blocks: string[] = [];
   let paragraph: string[] = [];
@@ -104,12 +172,13 @@ export function renderAnnouncementRichText(content: string) {
 
   const flushParagraph = () => {
     if (paragraph.length === 0) return;
-    blocks.push(`<p style="margin:0 0 18px;color:#d1d5db;font-size:16px;line-height:1.75;">${paragraph.map(renderInlineFormatting).join("<br>")}</p>`);
+    blocks.push(`<p dir="auto" style="margin:0 0 18px;color:#d1d5db;font-size:16px;line-height:1.75;">${paragraph.map(renderInlineFormatting).join("<br>")}</p>`);
     paragraph = [];
   };
   const flushBullets = () => {
     if (bullets.length === 0) return;
-    blocks.push(`<ul style="margin:0 0 20px;padding-left:22px;color:#d1d5db;font-size:16px;line-height:1.75;">${bullets.map((item) => `<li style="margin:0 0 6px;">${renderInlineFormatting(item)}</li>`).join("")}</ul>`);
+    const padding = locale === "ar" ? "padding-right:22px;padding-left:0;" : "padding-left:22px;";
+    blocks.push(`<ul dir="${locale === "ar" ? "rtl" : "ltr"}" style="margin:0 0 20px;${padding}color:#d1d5db;font-size:16px;line-height:1.75;">${bullets.map((item) => `<li dir="auto" style="margin:0 0 6px;">${renderInlineFormatting(item)}</li>`).join("")}</ul>`);
     bullets = [];
   };
 
@@ -139,28 +208,63 @@ function toPlainText(content: string) {
     .replace(/_([^_]+)_/g, "$1");
 }
 
+function localizedAnnouncementCtaUrl(value: string, locale: "ar" | "en") {
+  const requested = new URL(value);
+  const site = new URL(getSiteUrl());
+  const requestedHost = requested.hostname.replace(/^www\./i, "").toLowerCase();
+  const siteHost = site.hostname.replace(/^www\./i, "").toLowerCase();
+  if (requestedHost !== siteHost) return requested.toString();
+  const neutralPath = requested.pathname.replace(/^\/(?:ar|en)(?=\/|$)/, "") || "/";
+  const localized = new URL(`/${locale}${neutralPath === "/" ? "" : neutralPath}`, site);
+  localized.search = requested.search;
+  localized.hash = requested.hash;
+  return localized.toString();
+}
+
 export function buildAdminAnnouncementEmail(input: AdminAnnouncementEmailContent) {
+  const normalized = validateAdminAnnouncementContent(input);
   const siteUrl = getSiteUrl();
   const logoUrl = escapeHtml(new URL("/images/brand/alpha-traders-logo.png", siteUrl).toString());
-  const title = escapeHtml(input.title);
-  const ctaText = escapeHtml(input.ctaText);
-  const ctaUrl = escapeHtml(input.ctaUrl);
-  const body = renderAnnouncementRichText(input.content);
+  const subject = splitLocalizedInline(normalized.subject, "Subject");
+  const title = splitLocalizedInline(normalized.title, "Title");
+  const content = splitLocalizedContent(normalized.content);
+  const ctaText = splitLocalizedInline(normalized.ctaText, "CTA button text");
+  const safeTitle = { ar: escapeHtml(title.ar), en: escapeHtml(title.en) };
+  const safeCtaText = { ar: escapeHtml(ctaText.ar), en: escapeHtml(ctaText.en) };
+  const ctaUrl = {
+    ar: escapeHtml(localizedAnnouncementCtaUrl(normalized.ctaUrl, "ar")),
+    en: escapeHtml(localizedAnnouncementCtaUrl(normalized.ctaUrl, "en")),
+  };
+  const body = {
+    ar: renderAnnouncementRichText(content.ar, "ar"),
+    en: renderAnnouncementRichText(content.en, "en"),
+  };
 
   return {
-    subject: input.subject,
+    subject: `${subject.ar} | ${subject.en}`,
     text: [
-      input.title,
+      title.ar,
       "",
-      toPlainText(input.content),
+      toPlainText(content.ar),
       "",
-      `${input.ctaText}: ${input.ctaUrl}`,
+      `${ctaText.ar}: ${localizedAnnouncementCtaUrl(normalized.ctaUrl, "ar")}`,
       "",
-      `${BRAND_NAME}: ${siteUrl}`,
+      `${BRAND_NAME}: ${siteUrl}/ar`,
+      "الدعم: support@alphatraders.co.il",
+      "",
+      "--- English ---",
+      "",
+      title.en,
+      "",
+      toPlainText(content.en),
+      "",
+      `${ctaText.en}: ${localizedAnnouncementCtaUrl(normalized.ctaUrl, "en")}`,
+      "",
+      `${BRAND_NAME}: ${siteUrl}/en`,
       "Support: support@alphatraders.co.il",
     ].join("\n"),
     html: `<!doctype html>
-<html lang="en">
+<html lang="ar" dir="rtl">
   <body style="margin:0;background:#050505;color:#f9fafb;font-family:Arial,Helvetica,sans-serif;">
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#050505;padding:24px 12px;">
       <tr>
@@ -170,26 +274,40 @@ export function buildAdminAnnouncementEmail(input: AdminAnnouncementEmailContent
               <td align="center" style="padding:28px 24px;background:#171308;border-bottom:1px solid #453914;">
                 <img src="${logoUrl}" width="96" height="96" alt="${BRAND_NAME_HTML}" style="display:block;width:96px;height:96px;margin:0 auto;border-radius:20px;object-fit:cover;" />
                 <div style="margin-top:12px;font-size:12px;letter-spacing:2.4px;color:#d6b84c;text-transform:uppercase;">${BRAND_NAME_HTML}</div>
-                <h1 style="margin:12px auto 0;max-width:520px;color:#ffffff;font-size:28px;line-height:1.3;">${title}</h1>
+                <h1 lang="ar" dir="rtl" style="margin:12px auto 0;max-width:520px;color:#ffffff;font-size:28px;line-height:1.4;">${safeTitle.ar}</h1>
+                <p lang="en" dir="ltr" style="margin:8px auto 0;max-width:520px;color:#d1d5db;font-size:15px;line-height:1.5;">${safeTitle.en}</p>
               </td>
             </tr>
             <tr>
               <td style="padding:30px 26px;">
-                ${body}
+                <div lang="ar" dir="rtl" style="text-align:right;">
+                  ${body.ar}
+                  <table role="presentation" cellspacing="0" cellpadding="0" style="margin:26px 0 8px auto;">
+                    <tr>
+                      <td style="border-radius:10px;background:#c9a227;">
+                        <a href="${ctaUrl.ar}" style="display:inline-block;padding:14px 22px;color:#090909;text-decoration:none;font-size:16px;font-weight:800;">${safeCtaText.ar}</a>
+                      </td>
+                    </tr>
+                  </table>
+                </div>
+                <div role="separator" style="height:1px;background:#2b2b2b;margin:30px 0;"></div>
+                <div lang="en" dir="ltr" style="text-align:left;">
+                  ${body.en}
                 <table role="presentation" cellspacing="0" cellpadding="0" style="margin:26px 0 8px;">
                   <tr>
                     <td style="border-radius:10px;background:#c9a227;">
-                      <a href="${ctaUrl}" style="display:inline-block;padding:14px 22px;color:#090909;text-decoration:none;font-size:16px;font-weight:800;">${ctaText}</a>
+                      <a href="${ctaUrl.en}" style="display:inline-block;padding:14px 22px;color:#090909;text-decoration:none;font-size:16px;font-weight:800;">${safeCtaText.en}</a>
                     </td>
                   </tr>
                 </table>
+                </div>
               </td>
             </tr>
             <tr>
-              <td style="padding:22px 26px;border-top:1px solid #2b2b2b;background:#0a0a0a;color:#8f8f8f;font-size:12px;line-height:1.7;">
-                <a href="${escapeHtml(siteUrl)}" style="color:#d6b84c;text-decoration:none;">${BRAND_NAME_HTML}</a>
-                &nbsp;•&nbsp;
-                <a href="mailto:support@alphatraders.co.il" style="color:#d6b84c;text-decoration:none;">support@alphatraders.co.il</a>
+              <td style="padding:22px 26px;border-top:1px solid #2b2b2b;background:#0a0a0a;color:#8f8f8f;font-size:12px;line-height:1.8;text-align:center;">
+                <span lang="ar" dir="rtl">الموقع: <a href="${escapeHtml(`${siteUrl}/ar`)}" style="color:#d6b84c;text-decoration:none;">${BRAND_NAME_HTML}</a> &nbsp;•&nbsp; الدعم: <a href="mailto:support@alphatraders.co.il" style="color:#d6b84c;text-decoration:none;">support@alphatraders.co.il</a></span>
+                <br />
+                <span lang="en" dir="ltr">Website: <a href="${escapeHtml(`${siteUrl}/en`)}" style="color:#d6b84c;text-decoration:none;">${BRAND_NAME_HTML}</a> &nbsp;•&nbsp; Support: <a href="mailto:support@alphatraders.co.il" style="color:#d6b84c;text-decoration:none;">support@alphatraders.co.il</a></span>
               </td>
             </tr>
           </table>

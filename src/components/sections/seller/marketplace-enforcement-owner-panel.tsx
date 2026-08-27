@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { AlertTriangle, CheckCircle2, Gavel, ShieldAlert } from "lucide-react";
+import { useId, useRef, useState } from "react";
+import { AlertTriangle, CheckCircle2, FileText, Gavel, ShieldAlert, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { MarketplaceEnforcementAuditEntry, MarketplaceEnforcementRecord } from "@/types/alpha-exchange";
@@ -24,8 +24,62 @@ type MarketplaceEnforcementOwnerPanelProps = {
 function formatDate(value: string | undefined, locale: "ar" | "en") {
   if (!value) return "-";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(locale === "ar" ? "ar-IL" : "en-IL", { dateStyle: "medium", timeStyle: "short" }).format(date);
+  if (Number.isNaN(date.getTime())) return locale === "ar" ? "تاريخ غير متاح" : value;
+  return new Intl.DateTimeFormat(locale === "ar" ? "ar-IL-u-nu-latn" : "en-IL", { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+const AUDIT_ACTION_LABELS: Record<MarketplaceEnforcementAuditEntry["action"], { ar: string; en: string }> = {
+  fee_issued: { ar: "تم فرض رسوم الاستعادة", en: "Recovery fee issued" },
+  payment_submitted: { ar: "تم إرسال الدفع للمراجعة", en: "Payment submitted for review" },
+  fee_paid: { ar: "تم تأكيد دفع الرسوم", en: "Recovery fee marked paid" },
+  appeal_submitted: { ar: "تم تقديم استئناف", en: "Appeal submitted" },
+  appeal_decided: { ar: "تم اتخاذ قرار بشأن الاستئناف", en: "Appeal decision recorded" },
+  restriction_removed: { ar: "تمت إزالة التقييد", en: "Restriction removed" },
+  seller_revoked: { ar: "تم إلغاء صلاحيات البائع", en: "Seller privileges revoked" },
+  admin_note: { ar: "ملاحظة إدارية", en: "Admin note" },
+};
+
+const KNOWN_COMPLIANCE_TEXT: Record<string, string> = {
+  "marketplace compliance violation": "مخالفة امتثال السوق",
+  "payment verified": "تم التحقق من الدفع",
+  "recovery fee payment verified by owner": "تحقق المالك من دفع رسوم الاستعادة",
+  "manual admin resolution": "حل يدوي من الإدارة",
+  "second confirmed marketplace policy violation": "مخالفة ثانية مؤكدة لسياسة السوق",
+  "appeal accepted by owner": "قبل المالك الاستئناف",
+  "appeal rejected after review": "رُفض الاستئناف بعد المراجعة",
+};
+
+function localizedAuditAction(action: MarketplaceEnforcementAuditEntry["action"], locale: "ar" | "en") {
+  const labels = AUDIT_ACTION_LABELS[action];
+  if (labels) return labels[locale];
+  return locale === "ar" ? "نشاط امتثال" : String(action).replaceAll("_", " ");
+}
+
+function localizedComplianceText(value: string, locale: "ar" | "en") {
+  if (locale === "en" || /[\u0600-\u06ff]/u.test(value)) return value;
+  const normalized = value.trim().replace(/[.!?]+$/u, "").toLowerCase();
+  return KNOWN_COMPLIANCE_TEXT[normalized] ?? "تفاصيل مسجلة في سجل الامتثال";
+}
+
+function localizedRestrictionMessage(status: EnforcementStatus, locale: "ar" | "en") {
+  if (locale === "en") return status.blockReason ?? "Marketplace restriction is active.";
+  const record = status.activeRecord;
+  if (!record) {
+    return status.blockReason && /[\u0600-\u06ff]/u.test(status.blockReason)
+      ? status.blockReason
+      : "يوجد تقييد نشط على حساب البائع.";
+  }
+  const parts = [
+    `حساب البائع مقيّد مؤقتًا بسبب مخالفة سياسة السوق رقم ${record.violationNumber}.`,
+    `يجب دفع رسوم الاستعادة بقيمة ${record.feeAmount.toFixed(2)} ${record.feeCurrency} لاستعادة صلاحية إنشاء العروض ونشرها.`,
+  ];
+  if (record.recoveryPaymentStatus === "awaiting_verification") {
+    parts.push("الدفع في انتظار تحقق المالك.");
+  }
+  if (record.dueAt) {
+    parts.push(`موعد الاستحقاق: ${formatDate(record.dueAt, "ar")}.`);
+  }
+  return parts.join(" ");
 }
 
 export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStatus }: MarketplaceEnforcementOwnerPanelProps) {
@@ -38,6 +92,8 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
   const [issueFeeReason, setIssueFeeReason] = useState(isAr ? "مخالفة امتثال السوق" : "Marketplace compliance violation");
   const [issueFeeNotes, setIssueFeeNotes] = useState("");
   const [issueFeeEvidenceFiles, setIssueFeeEvidenceFiles] = useState<File[]>([]);
+  const evidenceInputId = useId();
+  const evidenceInputRef = useRef<HTMLInputElement>(null);
 
   async function fileToDataUrl(file: File) {
     return new Promise<string>((resolve, reject) => {
@@ -60,6 +116,7 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
     setIssueFeeReason(isAr ? "مخالفة امتثال السوق" : "Marketplace compliance violation");
     setIssueFeeNotes("");
     setIssueFeeEvidenceFiles([]);
+    if (evidenceInputRef.current) evidenceInputRef.current.value = "";
   }
 
   async function runAction(action: "issue_fee" | "mark_paid" | "confirm_payment" | "remove_restriction" | "revoke_seller" | "appeal_accept" | "appeal_reject") {
@@ -200,7 +257,7 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
         {status.blockReason ? (
           <div className="rounded-xl border border-red-500/25 bg-red-500/10 p-3 text-sm text-red-100">
             <p className="inline-flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" />{isAr ? "التقييد الحالي" : "Current restriction"}</p>
-            <p className="mt-1">{status.blockReason}</p>
+            <p className="mt-1">{localizedRestrictionMessage(status, locale)}</p>
           </div>
         ) : (
           <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3 text-sm text-emerald-100">
@@ -261,17 +318,52 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
                 placeholder={isAr ? "وثّق سبب إجراء الامتثال" : "Document the reason for the compliance action"}
               />
             </label>
-            <label className="space-y-1.5 text-sm text-[#D1D5DB]">
-              <span className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "ملفات الإثبات" : "Evidence files"}</span>
+            <div className="space-y-2 text-sm text-[#D1D5DB]">
+              <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "ملفات الإثبات" : "Evidence files"}</p>
               <input
+                ref={evidenceInputRef}
+                id={evidenceInputId}
                 type="file"
                 multiple
                 accept="image/png,image/jpeg,image/webp,application/pdf"
+                aria-describedby={`${evidenceInputId}-help`}
+                onClick={(event) => {
+                  event.currentTarget.value = "";
+                }}
                 onChange={(event) => setIssueFeeEvidenceFiles(Array.from(event.target.files ?? []))}
-                className="block w-full rounded-xl border border-white/10 bg-[#080808] px-3 py-2 text-sm text-[#D1D5DB] file:me-3 file:rounded-lg file:border-0 file:bg-[#C9A227] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-black"
+                className="peer sr-only"
               />
-              <p className="text-xs text-[#9CA3AF]">{issueFeeEvidenceFiles.length ? `${issueFeeEvidenceFiles.length} ${isAr ? "ملفات محددة" : "file(s) selected"}` : (isAr ? "ارفع لقطة شاشة أو صورة أو ملف PDF واحداً على الأقل." : "Upload at least one screenshot, image, or PDF.")}</p>
-            </label>
+              <label
+                htmlFor={evidenceInputId}
+                className="flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-[#C9A227]/55 bg-[#C9A227]/10 px-4 py-3 font-medium text-[#FDE68A] transition hover:border-[#FDE68A] hover:bg-[#C9A227]/15 peer-focus:ring-2 peer-focus:ring-[#C9A227] peer-focus:ring-offset-2 peer-focus:ring-offset-[#080808]"
+              >
+                <Upload className="h-4 w-4" aria-hidden="true" />
+                <span>{isAr ? "اختر صورة أو ملف PDF" : "Choose image or PDF files"}</span>
+              </label>
+              <p id={`${evidenceInputId}-help`} className="text-xs text-[#9CA3AF]">
+                {issueFeeEvidenceFiles.length
+                  ? (isAr ? `تم اختيار ${issueFeeEvidenceFiles.length} ملف` : `${issueFeeEvidenceFiles.length} file${issueFeeEvidenceFiles.length === 1 ? "" : "s"} selected`)
+                  : (isAr ? "ارفع لقطة شاشة أو صورة أو ملف PDF واحدًا على الأقل." : "Upload at least one screenshot, image, or PDF.")}
+              </p>
+              {issueFeeEvidenceFiles.length ? (
+                <ul className="space-y-1.5" aria-label={isAr ? "الملفات المحددة" : "Selected files"}>
+                  {issueFeeEvidenceFiles.map((file, index) => (
+                    <li key={`${file.name}-${file.size}-${file.lastModified}`} className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/25 px-2.5 py-2 text-xs">
+                      <FileText className="h-4 w-4 shrink-0 text-[#C9A227]" aria-hidden="true" />
+                      <span className="min-w-0 flex-1 truncate" dir="auto">{file.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => setIssueFeeEvidenceFiles((current) => current.filter((_, currentIndex) => currentIndex !== index))}
+                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[#D1D5DB] transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-[#C9A227]"
+                        aria-label={isAr ? `إزالة الملف ${file.name}` : `Remove file ${file.name}`}
+                      >
+                        <X className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="secondary" onClick={resetIssueFeeForm}>{isAr ? "إلغاء" : "Cancel"}</Button>
               <Button type="button" disabled={busy} onClick={() => void runAction("issue_fee")}>{isAr ? "فرض رسوم الاستعادة" : "Issue Recovery Fee"}</Button>
@@ -284,9 +376,9 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
           <div className="mt-3 space-y-2">
             {status.recentAuditEntries.length ? status.recentAuditEntries.slice(0, 8).map((entry) => (
               <div key={entry.id} className="rounded-lg border border-white/10 bg-white/[0.02] p-2.5 text-xs text-[#E5E7EB]">
-                <p className="font-semibold text-white">{entry.action.replaceAll("_", " ")}</p>
+                <p className="font-semibold text-white">{localizedAuditAction(entry.action, locale)}</p>
                 <p className="mt-0.5 text-[#9CA3AF]">{formatDate(entry.createdAt, locale)}</p>
-                {entry.reason ? <p className="mt-1">{isAr ? "السبب" : "Reason"}: {entry.reason}</p> : null}
+                {entry.reason ? <p className="mt-1">{isAr ? "السبب" : "Reason"}: {localizedComplianceText(entry.reason, locale)}</p> : null}
                 {entry.evidenceReferences?.length ? <p className="mt-1 text-[#C9A227]">{isAr ? "الإثبات" : "Evidence"}: {entry.evidenceReferences.length} {isAr ? "مرفقات" : "attachment(s)"}</p> : null}
               </div>
             )) : <p className="text-sm text-[#9CA3AF]">{isAr ? "لا يوجد نشاط امتثال حتى الآن." : "No compliance activity yet."}</p>}

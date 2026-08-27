@@ -31,6 +31,12 @@ function normalizeQuestions(quiz: QuizQuestion[] | undefined): QuizQuestion[] {
   return (quiz ?? []).map((item) => ({
     ...item,
     type: item.type === "true-false" ? "true-false" : "multiple-choice",
+    question: item.question ?? "",
+    questionAr: item.questionAr ?? "",
+    options: Array.isArray(item.options) ? item.options : [],
+    optionsAr: Array.isArray(item.optionsAr) ? item.optionsAr : [],
+    explanation: item.explanation ?? "",
+    explanationAr: item.explanationAr ?? "",
   }));
 }
 
@@ -122,14 +128,38 @@ function ensureUniqueSlug(lessons: Lesson[], proposedSlug: string, exceptId?: st
 }
 
 export function validateLessonPayload(lesson: Lesson, existing: Lesson[], mode: "create" | "update") {
-  if (!lesson.title.trim()) throw new Error("Lesson title is required.");
-  if (!lesson.description.trim()) throw new Error("Lesson description is required.");
-  if (!lesson.summary.trim()) throw new Error("Lesson summary is required.");
   if (!lesson.courseId.trim()) throw new Error("Course category is required.");
   if (lesson.durationMinutes <= 0) throw new Error("Estimated duration must be positive.");
   if (lesson.xpReward !== undefined && lesson.xpReward < 0) throw new Error("XP reward cannot be negative.");
   if (mode === "create" && existing.some((item) => item.id === lesson.id)) throw new Error("Duplicate lesson ID.");
   if (existing.some((item) => item.slug === lesson.slug && item.id !== lesson.id)) throw new Error("Duplicate lesson slug.");
+
+  // Drafts may be created while translation is still in progress. Publishing
+  // is fail-closed: both language editions must be authored independently.
+  if (lesson.status !== "published") return;
+  if (!lesson.title.trim()) throw new Error("English lesson title is required before publishing.");
+  if (!lesson.titleAr.trim()) throw new Error("Arabic lesson title is required before publishing.");
+  if (!lesson.description.trim()) throw new Error("English lesson description is required before publishing.");
+  if (!lesson.descriptionAr.trim()) throw new Error("Arabic lesson description is required before publishing.");
+  if (!lesson.summary.trim()) throw new Error("English lesson summary is required before publishing.");
+  if (!lesson.summaryAr.trim()) throw new Error("Arabic lesson summary is required before publishing.");
+
+  for (const [index, question] of lesson.quiz.entries()) {
+    const number = index + 1;
+    if (!question.question.trim()) throw new Error(`Quiz question ${number} needs English text before publishing.`);
+    if (!question.questionAr.trim()) throw new Error(`Quiz question ${number} needs Arabic text before publishing.`);
+    if (!question.options.length || question.options.some((option) => !option.trim())) {
+      throw new Error(`Quiz question ${number} needs complete English options before publishing.`);
+    }
+    if (question.optionsAr.length !== question.options.length || question.optionsAr.some((option) => !option.trim())) {
+      throw new Error(`Quiz question ${number} needs matching Arabic options before publishing.`);
+    }
+    if (!question.explanation.trim()) throw new Error(`Quiz question ${number} needs an English explanation before publishing.`);
+    if (!question.explanationAr.trim()) throw new Error(`Quiz question ${number} needs an Arabic explanation before publishing.`);
+    if (question.correctIndex < 0 || question.correctIndex >= question.options.length) {
+      throw new Error(`Quiz question ${number} has an invalid correct answer index.`);
+    }
+  }
 }
 
 export async function createLesson(input: Partial<Lesson>, role: LessonVersion["role"]) {
@@ -143,11 +173,11 @@ export async function createLesson(input: Partial<Lesson>, role: LessonVersion["
     moduleAr: input.moduleAr || "الوحدة",
     slug: ensureUniqueSlug(lessons, input.slug || input.title || id),
     title: input.title || "",
-    titleAr: input.titleAr || input.title || "",
+    titleAr: input.titleAr || "",
     description: input.description || "",
-    descriptionAr: input.descriptionAr || input.description || "",
+    descriptionAr: input.descriptionAr || "",
     summary: input.summary || "",
-    summaryAr: input.summaryAr || input.summary || "",
+    summaryAr: input.summaryAr || "",
     objectives: input.objectives || [],
     objectivesAr: input.objectivesAr || [],
     takeaways: input.takeaways || [],

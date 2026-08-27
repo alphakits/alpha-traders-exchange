@@ -5,19 +5,19 @@ import { addMediaItem, appendVersion, createLesson, inferMediaType, saveUploaded
 import { checkSharedRateLimit, createRateLimitResponse } from "@/lib/rate-limit";
 import type { Lesson } from "@/types/academy";
 
-function guessLessonFromFileName(fileName: string): Partial<Lesson> {
+function guessLessonFromFileName(fileName: string, contentLocale: "en" | "ar"): Partial<Lesson> {
   const stem = path.basename(fileName, path.extname(fileName));
   const cleaned = stem.replace(/[_-]+/g, " ").trim();
   return {
-    title: cleaned,
-    titleAr: cleaned,
+    title: contentLocale === "en" ? cleaned : "",
+    titleAr: contentLocale === "ar" ? cleaned : "",
     slug: cleaned,
-    description: cleaned,
-    descriptionAr: cleaned,
-    summary: cleaned,
-    summaryAr: cleaned,
-    module: "Imported Module",
-    moduleAr: "وحدة مستوردة",
+    description: contentLocale === "en" ? cleaned : "",
+    descriptionAr: contentLocale === "ar" ? cleaned : "",
+    summary: contentLocale === "en" ? cleaned : "",
+    summaryAr: contentLocale === "ar" ? cleaned : "",
+    module: contentLocale === "en" ? "Imported Module" : "",
+    moduleAr: contentLocale === "ar" ? "وحدة مستوردة" : "",
     category: "beginner",
     courseId: "c1",
     durationMinutes: 20,
@@ -32,6 +32,8 @@ export async function POST(request: NextRequest) {
     const rate = await checkSharedRateLimit({ headers: request.headers, key: "admin:lesson-import", identifier: identity.actor, maxRequests: 5, windowMs: 60 * 60_000 });
     if (!rate.allowed) return createRateLimitResponse(rate.retryAfterSeconds);
     const formData = await request.formData();
+    const requestedContentLocale = formData.get("contentLocale");
+    const contentLocale: "en" | "ar" = requestedContentLocale === "ar" ? "ar" : "en";
     const files = formData.getAll("files").filter((item): item is File => item instanceof File);
     if (!files.length) {
       return NextResponse.json({ error: "No files provided for import." }, { status: 400 });
@@ -43,7 +45,7 @@ export async function POST(request: NextRequest) {
       const mimeType = validateUpload(file.name, file.size, bytes);
       const upload = await saveUploadedFile(bytes, file.name, mimeType);
       const mediaType = inferMediaType(file.name);
-      const base = guessLessonFromFileName(file.name);
+      const base = guessLessonFromFileName(file.name, contentLocale);
       const lesson = await createLesson(
         {
           ...base,

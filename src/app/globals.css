@@ -5,14 +5,18 @@
   --card: #101010;
   --accent: #c9a227;
   --foreground: #ffffff;
-  --muted-foreground: #9ca3af;
-  --muted-secondary: #D1D5DB;
+  --muted-foreground: #b4bdc9;
+  --muted-secondary: #d7dce3;
   --border: rgba(255, 255, 255, 0.1);
   --border-accent: rgba(201, 162, 39, 0.25);
   --radius: 0.75rem;
   --radius-card: 1rem;
   --shadow-card: 0 10px 30px rgba(0, 0, 0, 0.22);
   --shadow-glow: 0 0 24px rgba(201, 162, 39, 0.18);
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
 }
 
 body {
@@ -27,6 +31,7 @@ body {
 
 html {
   overflow-x: clip;
+  scroll-padding-top: calc(5rem + var(--safe-area-top));
 }
 
 .global-chain-bg {
@@ -373,6 +378,76 @@ textarea {
   outline-offset: 2px;
 }
 
+/* Arabic glyphs become harder to scan when Latin-style tracking is applied. */
+html[lang="ar"] body {
+  line-height: 1.75;
+}
+
+html[lang="ar"] :where(body, body *) {
+  letter-spacing: normal !important;
+}
+
+/* Keep emails, wallet addresses, codes, and other mixed-direction tokens intact. */
+.bidi-isolate {
+  unicode-bidi: isolate;
+}
+
+.bidi-ltr,
+[data-bidi="ltr"],
+[dir="rtl"] :where(code, kbd, samp, input[type="email"], input[type="tel"], input[type="url"]) {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+[dir="rtl"] .tabular-nums {
+  unicode-bidi: isolate;
+}
+
+.bidi-rtl,
+[data-bidi="rtl"] {
+  direction: rtl;
+  unicode-bidi: isolate;
+}
+
+.bidi-auto,
+[data-bidi="auto"] {
+  unicode-bidi: plaintext;
+}
+
+/* Preserve the existing semantic muted color while raising contrast site-wide. */
+[class~="text-[#9CA3AF]"] {
+  color: var(--muted-foreground);
+}
+
+/* Reusable notch/home-indicator helpers for fixed and full-width mobile UI. */
+.safe-area-x {
+  padding-left: max(1rem, var(--safe-area-left));
+  padding-right: max(1rem, var(--safe-area-right));
+}
+
+.safe-area-top {
+  padding-top: var(--safe-area-top);
+}
+
+.safe-area-bottom {
+  padding-bottom: var(--safe-area-bottom);
+}
+
+.safe-area-page {
+  padding-left: max(1rem, var(--safe-area-left));
+  padding-right: max(1rem, var(--safe-area-right));
+  padding-bottom: max(1rem, var(--safe-area-bottom));
+}
+
+.touch-target {
+  display: inline-flex;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+}
+
 .gold-gradient {
   background-image: linear-gradient(135deg, #c9a227, #f0dd95 60%, #c9a227);
 }
@@ -406,7 +481,8 @@ textarea {
 }
 
 .empty-state-panel {
-  @apply rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-[#9CA3AF];
+  @apply rounded-xl border border-white/10 bg-black/20 p-4 text-sm;
+  color: var(--muted-foreground);
 }
 
 .role-badge {
@@ -1412,7 +1488,8 @@ textarea {
 }
 
 .page-subtitle {
-  @apply mt-3 max-w-2xl text-sm leading-relaxed text-[#9CA3AF] md:text-base;
+  @apply mt-3 max-w-2xl text-sm leading-relaxed md:text-base;
+  color: var(--muted-foreground);
 }
 
 .section-label {
@@ -1850,6 +1927,37 @@ textarea {
 }
 
 @media (max-width: 768px) {
+  .global-chain-bg__vignette {
+    background:
+      radial-gradient(circle at 50% 42%, transparent 28%, rgba(0, 0, 0, 0.78) 88%),
+      linear-gradient(180deg, rgba(5, 5, 5, 0.28) 0%, rgba(5, 5, 5, 0.7) 100%);
+  }
+
+  .global-chain-bg__mesh {
+    opacity: 0.065;
+  }
+
+  .global-chain-bg__hexband {
+    opacity: 0.045;
+  }
+
+  .global-chain-bg__pulse-line,
+  .global-chain-bg__particle {
+    opacity: 0.12;
+  }
+
+  body:has(main form, .exchange-marketplace-shell, .admin-dashboard-shell) > .global-chain-bg .global-chain-bg__mesh {
+    opacity: 0.035;
+  }
+
+  body:has(main form, .exchange-marketplace-shell, .admin-dashboard-shell) > .global-chain-bg .global-chain-bg__hexband {
+    opacity: 0.025;
+  }
+
+  body:has(main form, .exchange-marketplace-shell, .admin-dashboard-shell) > .global-chain-bg :where(.global-chain-bg__pulse-line, .global-chain-bg__particle) {
+    opacity: 0.07;
+  }
+
   .global-chain-bg__network,
   .global-chain-bg__crypto-layer,
   .global-chain-bg__pulse-line--desktop-detail,
@@ -1874,6 +1982,26 @@ textarea {
   .global-chain-bg__crypto-node:nth-child(n + 6),
   .global-chain-bg__crypto-dust:nth-child(n + 5) {
     display: none;
+  }
+}
+
+@media (max-width: 768px) and (pointer: coarse) {
+  :where(
+      button,
+      [role="button"],
+      select,
+      input[type="button"],
+      input[type="reset"],
+      input[type="submit"]
+    ):not([aria-hidden="true"]) {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    touch-action: manipulation;
+  }
+
+  :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    min-height: 2.75rem;
+    font-size: 1rem;
   }
 }
 
@@ -1904,7 +2032,11 @@ textarea {
 
   .profile-identity-name--seller,
   .profile-identity-name--admin,
-  .profile-identity-name--buyer {
+  .profile-identity-name--buyer,
+  .profile-identity-name--owner,
+  .page-shell,
+  .role-badge,
+  .role-badge__shine {
     animation: none !important;
   }
 }

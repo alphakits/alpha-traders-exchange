@@ -8,6 +8,7 @@ import { UsdtIcon } from "@/components/ui/usdt-icon";
 import { MarketplaceEnforcementOwnerPanel } from "@/components/sections/seller/marketplace-enforcement-owner-panel";
 import { buildSellerReviewStats, getVisibleSellerReviews } from "@/lib/reviews";
 import { deriveSellerPresence } from "@/lib/seller-presence";
+import { normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { cn } from "@/lib/utils";
 import type { PremiumSellerProfileData, SellerBadge, SellerLevel } from "@/types/alpha-exchange";
 
@@ -26,7 +27,8 @@ function formatSellerBadgeLabel(badge: string, isAr: boolean) {
   if (badge === "trusted_seller") return isAr ? "بائع موثوق" : "Trusted Seller";
   if (badge === "most_active") return isAr ? "الأكثر نشاطاً" : "Most Active";
   if (badge === "platinum_seller") return isAr ? "بائع بلاتيني" : "Platinum Seller";
-  return isAr ? "+1000 صفقة" : "1000+ Trades";
+  if (badge === "trades_1000_plus" || badge === "thousand_trades") return isAr ? "+1000 صفقة" : "1000+ Trades";
+  return isAr ? "إنجاز للبائع" : badge.replaceAll("_", " ");
 }
 
 function sellerRankTheme(level?: SellerLevel) {
@@ -58,18 +60,90 @@ function badgeLabel(badge: SellerBadge, isAr: boolean) {
   return formatSellerBadgeLabel(badge, isAr);
 }
 
+function containsArabic(value: string) {
+  return /[\u0600-\u06FF]/.test(value);
+}
+
 function languageLabel(language: string, isAr: boolean) {
-  if (!isAr) return language;
-  return ({ English: "الإنجليزية", Arabic: "العربية", Hebrew: "العبرية" } as Record<string, string>)[language] ?? language;
+  const value = language.trim();
+  const normalized = value.toLowerCase();
+  const labels: Record<string, { ar: string; en: string }> = {
+    ar: { ar: "العربية", en: "Arabic" },
+    arabic: { ar: "العربية", en: "Arabic" },
+    العربية: { ar: "العربية", en: "Arabic" },
+    en: { ar: "الإنجليزية", en: "English" },
+    english: { ar: "الإنجليزية", en: "English" },
+    الإنجليزية: { ar: "الإنجليزية", en: "English" },
+    he: { ar: "العبرية", en: "Hebrew" },
+    hebrew: { ar: "العبرية", en: "Hebrew" },
+    العبرية: { ar: "العبرية", en: "Hebrew" },
+    עברית: { ar: "العبرية", en: "Hebrew" },
+  };
+  const known = labels[normalized];
+  if (known) return isAr ? known.ar : known.en;
+  if (isAr) return containsArabic(value) ? value : "لغة أخرى";
+  return containsArabic(value) ? "Other language" : value;
 }
 
 function paymentMethodLabel(method: string, isAr: boolean) {
-  if (!isAr) return method;
-  return ({
-    "Bank Transfer": "تحويل بنكي",
-    "Cardless Withdrawal": "سحب من الصراف دون بطاقة",
-    "Face-to-Face": "لقاء مباشر وجهًا لوجه",
-  } as Record<string, string>)[method] ?? method;
+  const methodToken = method.trim().toLowerCase().replace(/\s+/g, " ");
+  const normalized = normalizeMarketplacePaymentMethod(method)
+    ?? (methodToken === "cardless withdrawal" ? "Cardless ATM Withdrawal" : null);
+  if (!isAr) return normalized ?? method;
+  if (normalized === "Bank Transfer") return "تحويل بنكي";
+  if (normalized === "Cardless ATM Withdrawal") return "سحب من الصراف دون بطاقة";
+  if (normalized === "Face-to-Face (Meet in Person)") return "لقاء مباشر وجهًا لوجه";
+  return containsArabic(method) ? method : "طريقة دفع أخرى";
+}
+
+const COUNTRY_LABELS: Record<string, { ar: string; en: string }> = {
+  il: { ar: "إسرائيل", en: "Israel" }, israel: { ar: "إسرائيل", en: "Israel" },
+  ps: { ar: "فلسطين", en: "Palestine" }, palestine: { ar: "فلسطين", en: "Palestine" }, "palestinian territories": { ar: "فلسطين", en: "Palestine" },
+  jo: { ar: "الأردن", en: "Jordan" }, jordan: { ar: "الأردن", en: "Jordan" },
+  eg: { ar: "مصر", en: "Egypt" }, egypt: { ar: "مصر", en: "Egypt" },
+  lb: { ar: "لبنان", en: "Lebanon" }, lebanon: { ar: "لبنان", en: "Lebanon" },
+  sy: { ar: "سوريا", en: "Syria" }, syria: { ar: "سوريا", en: "Syria" },
+  iq: { ar: "العراق", en: "Iraq" }, iraq: { ar: "العراق", en: "Iraq" },
+  sa: { ar: "السعودية", en: "Saudi Arabia" }, "saudi arabia": { ar: "السعودية", en: "Saudi Arabia" },
+  ae: { ar: "الإمارات العربية المتحدة", en: "United Arab Emirates" }, uae: { ar: "الإمارات العربية المتحدة", en: "United Arab Emirates" }, "united arab emirates": { ar: "الإمارات العربية المتحدة", en: "United Arab Emirates" },
+  qa: { ar: "قطر", en: "Qatar" }, qatar: { ar: "قطر", en: "Qatar" },
+  kw: { ar: "الكويت", en: "Kuwait" }, kuwait: { ar: "الكويت", en: "Kuwait" },
+  bh: { ar: "البحرين", en: "Bahrain" }, bahrain: { ar: "البحرين", en: "Bahrain" },
+  om: { ar: "عُمان", en: "Oman" }, oman: { ar: "عُمان", en: "Oman" },
+  tr: { ar: "تركيا", en: "Turkey" }, turkey: { ar: "تركيا", en: "Turkey" },
+  cy: { ar: "قبرص", en: "Cyprus" }, cyprus: { ar: "قبرص", en: "Cyprus" },
+  us: { ar: "الولايات المتحدة", en: "United States" }, usa: { ar: "الولايات المتحدة", en: "United States" }, "united states": { ar: "الولايات المتحدة", en: "United States" },
+  gb: { ar: "المملكة المتحدة", en: "United Kingdom" }, uk: { ar: "المملكة المتحدة", en: "United Kingdom" }, "united kingdom": { ar: "المملكة المتحدة", en: "United Kingdom" },
+  ca: { ar: "كندا", en: "Canada" }, canada: { ar: "كندا", en: "Canada" },
+  de: { ar: "ألمانيا", en: "Germany" }, germany: { ar: "ألمانيا", en: "Germany" },
+  fr: { ar: "فرنسا", en: "France" }, france: { ar: "فرنسا", en: "France" },
+};
+
+const ARABIC_COUNTRY_ALIASES: Record<string, string> = {
+  إسرائيل: "Israel", فلسطين: "Palestine", الأردن: "Jordan", مصر: "Egypt", لبنان: "Lebanon", سوريا: "Syria", العراق: "Iraq",
+  السعودية: "Saudi Arabia", "الإمارات العربية المتحدة": "United Arab Emirates", قطر: "Qatar", الكويت: "Kuwait", البحرين: "Bahrain",
+  عُمان: "Oman", عمان: "Oman", تركيا: "Turkey", قبرص: "Cyprus", "الولايات المتحدة": "United States", "المملكة المتحدة": "United Kingdom",
+  كندا: "Canada", ألمانيا: "Germany", فرنسا: "France",
+};
+
+function countryLabel(country: string | undefined, isAr: boolean) {
+  const value = country?.trim();
+  if (!value || /^(unknown|not specified|n\/?a|null|undefined|-+)$/i.test(value)) return isAr ? "غير محددة" : "Not specified";
+  const known = COUNTRY_LABELS[value.toLowerCase()];
+  if (known) return isAr ? known.ar : known.en;
+  if (isAr) return containsArabic(value) ? value : "دولة أخرى";
+  return ARABIC_COUNTRY_ALIASES[value] ?? (containsArabic(value) ? "Other country" : value);
+}
+
+function publicVolumeLabel(value: string, isAr: boolean) {
+  const trimmed = value.trim();
+  if (!isAr || !trimmed) return trimmed || "0+";
+  if (containsArabic(trimmed)) return trimmed;
+  const match = trimmed.match(/^([\d,.]+)\s*([KMB])?\s*(\+)?(?:\s+(USDT))?$/i);
+  if (!match) return "حجم موثّق";
+  const [, amount, unit, plus, currency] = match;
+  const unitLabel = unit ? ({ K: "ألف", M: "مليون", B: "مليار" } as const)[unit.toUpperCase() as "K" | "M" | "B"] : "";
+  return `${plus ? "+" : ""}${amount}${unitLabel ? ` ${unitLabel}` : ""}${currency ? " USDT" : ""}`;
 }
 
 function StatCard({ label, value, accent = false, isUsdt = false }: { label: string; value: string; accent?: boolean; isUsdt?: boolean }) {
@@ -79,7 +153,7 @@ function StatCard({ label, value, accent = false, isUsdt = false }: { label: str
         {isUsdt ? <UsdtIcon /> : null}
         {label}
       </p>
-      <p className="mt-2 text-xl font-semibold text-white">{value}</p>
+      <p className="mt-2 text-xl font-semibold text-white"><bdi dir="ltr">{value}</bdi></p>
     </div>
   );
 }
@@ -113,6 +187,7 @@ type PremiumSellerProfilePageProps = {
 
 export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, data }: PremiumSellerProfilePageProps) {
   const isAr = locale === "ar";
+  const listSeparator = isAr ? "، " : ", ";
   const profile = data.profile;
   const seller = profile?.profile;
   const slugify = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -171,8 +246,8 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
     { label: isAr ? "صفقات مكتملة" : "Completed trades", value: profile.completedTrades.toString() },
     { label: isAr ? "حجم التداول" : "Trade volume", value: `${profile.tradeVolume?.toLocaleString("en-IL") ?? profile.lifetimeCompletedVolumeUsdt.toLocaleString("en-IL")} USDT`, isUsdt: true },
     { label: isAr ? "التقييم المتوسط" : "Average rating", value: `${reviewStats.averageRating.toFixed(2)}★` },
-    { label: isAr ? "المشترون المتكرّرون" : "Repeat buyers", value: `${profile.repeatBuyersPercent.toFixed(1)}%` },
-    { label: isAr ? "معدل الإكمال" : "Completion rate", value: `${profile.completionRate.toFixed(1)}%` },
+    { label: isAr ? "المشترون المتكرّرون" : "Repeat buyers", value: `${profile.repeatBuyersPercent.toFixed(1)}${isAr ? "٪" : "%"}` },
+    { label: isAr ? "معدل الإكمال" : "Completion rate", value: `${profile.completionRate.toFixed(1)}${isAr ? "٪" : "%"}` },
     { label: isAr ? "متوسط سرعة الرد" : "Avg response", value: `${profile.responseTimeMinutes.toFixed(0)} ${isAr ? "دقيقة" : "min"}` },
     { label: isAr ? "العروض النشطة" : "Active listings", value: data.sellerListings.length.toString(), isUsdt: true },
     { label: isAr ? "سنوات على المنصة" : "Years on platform", value: `${profile.yearsOnPlatform.toFixed(1)}` },
@@ -232,7 +307,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                     </div>
                     <div className={isAr ? "text-right" : ""}>
                       <div className={cn("flex items-center gap-2", isAr ? "flex-row-reverse" : "")}>
-                        <h1 className={cn("seller-listing-seller-name text-3xl font-extrabold md:text-[2.35rem]", isOwnerSeller ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerRankKey}`)}>{seller.sellerName}</h1>
+                        <h1 className={cn("seller-listing-seller-name text-3xl font-extrabold md:text-[2.35rem]", isOwnerSeller ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${sellerRankKey}`)}><bdi dir="auto">{seller.sellerName}</bdi></h1>
                         <BadgeCheck className={cn("h-5 w-5", isOwnerSeller ? "text-red-300" : "text-[#C9A227]")} />
                       </div>
                       <p className="seller-listing-seller-subtitle mt-2 text-[12px] uppercase tracking-[0.16em] text-[#9CA3AF]">
@@ -258,7 +333,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                   <div className={cn("grid gap-3 lg:min-w-[260px]", isAr ? "text-right" : "")}>
                     <div className={cn("rounded-2xl border bg-black/35 px-4 py-3 text-sm backdrop-blur-md", isOwnerSeller ? "border-red-500/25" : `seller-rank-card seller-rank-card--${sellerRankKey}`)}>
                       <p className="text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust Score"}</p>
-                      <p className={cn("mt-1 text-2xl font-semibold", isOwnerSeller ? "text-red-200" : `seller-listing-rank-label seller-listing-rank-label--${sellerRankKey}`)}>{profile.trustScore.toFixed(1)}/100</p>
+                      <p className={cn("mt-1 text-2xl font-semibold", isOwnerSeller ? "text-red-200" : `seller-listing-rank-label seller-listing-rank-label--${sellerRankKey}`)}><bdi dir="ltr">{profile.trustScore.toFixed(1)}/100</bdi></p>
                       <p className="mt-1 text-[#D1D5DB]">{isAr ? "المستوى" : "Level"}: {formatSellerLevelLabel(profile.sellerLevel, isAr)}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -311,7 +386,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                         <span className={cn("seller-listing-rank-label", `seller-listing-rank-label--${sellerRankKey}`)}>{stat.icon}</span>
                         {stat.label}
                       </p>
-                      <p className="mt-2 text-sm font-semibold text-white md:text-base">{stat.value}</p>
+                      <p className="mt-2 text-sm font-semibold text-white md:text-base"><bdi dir="ltr">{stat.value}</bdi></p>
                     </div>
                   ))}
                 </div>
@@ -328,11 +403,11 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "البلد" : "Country"}</p>
-                  <p className="mt-2 font-medium text-white">{seller.country || "—"}</p>
+                  <p className="mt-2 font-medium text-white">{countryLabel(seller.country, isAr)}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "اللغات" : "Languages"}</p>
-                  <p className="mt-2 font-medium text-white">{seller.languages.length ? seller.languages.map((language) => languageLabel(language, isAr)).join(", ") : (isAr ? "العربية" : "English")}</p>
+                  <p className="mt-2 font-medium text-white">{seller.languages.length ? seller.languages.map((language) => languageLabel(language, isAr)).join(listSeparator) : (isAr ? "غير محددة" : "Not specified")}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "وقت الرد" : "Response time"}</p>
@@ -354,7 +429,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                     <ShieldCheck className="h-5 w-5" />
                   </div>
                 </div>
-                <p className={`mt-3 text-sm leading-7 text-[#D1D5DB] ${isAr ? "text-right" : ""}`}>{seller.bio || (isAr ? "بائع موثوق في Alpha Exchange." : "A trusted seller on Alpha Exchange.")}</p>
+                <p className={`mt-3 text-sm leading-7 text-[#D1D5DB] ${isAr ? "text-right" : ""}`}><bdi dir="auto">{seller.bio || (isAr ? "بائع موثوق في Alpha Exchange." : "A trusted seller on Alpha Exchange.")}</bdi></p>
               </div>
             </div>
 
@@ -367,7 +442,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                 <div className="mt-4">
                   <div className="mb-2 flex items-center justify-between text-sm text-[#D1D5DB]">
                     <span>{isAr ? "التقدم إلى المستوى التالي" : "Progress to next rank"}</span>
-                    <span className="text-white">{profile.progressToNextRankPercent.toFixed(0)}%</span>
+                    <bdi dir="ltr" className="text-white">{profile.progressToNextRankPercent.toFixed(0)}{isAr ? "٪" : "%"}</bdi>
                   </div>
                   <div className="h-2 overflow-hidden rounded-full bg-white/10">
                     <div className="h-full rounded-full bg-gradient-to-r from-[#C9A227] via-[#FDE68A] to-[#C9A227]" style={{ width: `${Math.min(100, profile.progressToNextRankPercent)}%` }} />
@@ -384,7 +459,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[#9CA3AF]">{isAr ? "المتبقي إلى الترقية" : "Remaining volume"}</p>
-                    <p className="mt-1 font-semibold text-white">{profile.amountToNextRankUsdt.toLocaleString("en-IL")} USDT</p>
+                    <p className="mt-1 font-semibold text-white"><bdi dir="ltr">{profile.amountToNextRankUsdt.toLocaleString("en-IL")} USDT</bdi></p>
                   </div>
                 </div>
               </div>
@@ -397,15 +472,15 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                 <div className={`mt-4 grid gap-3 text-sm ${isAr ? "text-right" : ""}`}>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[#9CA3AF]">{isAr ? "طرق الدفع" : "Payment methods"}</p>
-                    <p className="mt-1 font-medium text-white">{paymentMethods.length ? paymentMethods.map((method) => paymentMethodLabel(method, isAr)).join(", ") : "—"}</p>
+                    <p className="mt-1 font-medium text-white">{paymentMethods.length ? paymentMethods.map((method) => paymentMethodLabel(method, isAr)).join(listSeparator) : (isAr ? "غير محددة" : "Not specified")}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[#9CA3AF]">{isAr ? "الشبكات المدعومة" : "Supported networks"}</p>
-                    <p className="mt-1 font-medium text-white">{supportedNetworks.length ? supportedNetworks.join(", ") : "—"}</p>
+                    <p className="mt-1 font-medium text-white">{supportedNetworks.length ? <bdi dir="ltr">{supportedNetworks.join(", ")}</bdi> : (isAr ? "غير محددة" : "Not specified")}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[#9CA3AF]">{isAr ? "USDT المتاح" : "Available USDT"}</p>
-                    <p className="mt-1 font-medium text-white">{availableUsdt > 0 ? `${availableUsdt.toLocaleString("en-IL", { maximumFractionDigits: 2 })} USDT` : "—"}</p>
+                    <p className="mt-1 font-medium text-white">{availableUsdt > 0 ? <bdi dir="ltr">{availableUsdt.toLocaleString("en-IL", { maximumFractionDigits: 2 })} USDT</bdi> : (isAr ? "غير متاح" : "Not available")}</p>
                   </div>
                 </div>
                 <p className="mt-3 text-xs leading-6 text-[#9CA3AF]">{isAr ? "يتم التواصل مع البائع بشكل آمن داخل Alpha Traders أثناء الصفقة فقط." : "Seller contact stays private and is handled securely inside Alpha Traders trade flow only."}</p>
@@ -463,19 +538,19 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                     <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                       <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#C9A227]/20 text-sm font-semibold text-[#FDE68A]">{seller.sellerName.slice(0, 2).toUpperCase()}</div>
                       <div>
-                        <p className="font-medium text-white">{seller.sellerName}</p>
+                        <p className="font-medium text-white"><bdi dir="auto">{seller.sellerName}</bdi></p>
                         <p className="text-xs text-[#9CA3AF]">{new Date(review.createdAt).toLocaleDateString(locale === "ar" ? "ar-EG" : "en-IL")}</p>
                       </div>
                     </div>
                     <div className="text-sm text-[#FDE68A]">{Array.from({ length: review.rating }).map((_, index) => <span key={`${review.id}-${index}`}>★</span>)}</div>
                   </div>
-                  <p className={`mt-3 text-sm leading-7 text-[#D1D5DB] ${isAr ? "text-right" : ""}`}>{review.comment}</p>
+                  <p className={`mt-3 text-sm leading-7 text-[#D1D5DB] ${isAr ? "text-right" : ""}`}><bdi dir="auto">{review.comment}</bdi></p>
                   <div className={`mt-3 flex flex-wrap items-center gap-3 text-xs text-[#9CA3AF] ${isAr ? "flex-row-reverse" : ""}`}>
-                    <span className="inline-flex items-center gap-1.5"><UsdtIcon />{isAr ? "المبلغ" : "Trade amount"}: {review.tradeAmount} USDT</span>
+                    <span className="inline-flex items-center gap-1.5"><UsdtIcon />{isAr ? "المبلغ" : "Trade amount"}: <bdi dir="ltr">{review.tradeAmount} USDT</bdi></span>
                     <span>{isAr ? "التاريخ" : "Trade date"}: {new Date(review.createdAt).toLocaleDateString(locale === "ar" ? "ar-EG" : "en-IL")}</span>
-                    <span>{review.network}</span>
+                    <bdi dir="ltr">{review.network}</bdi>
                   </div>
-                  {review.sellerReply ? <div className="mt-3 rounded-xl border border-[#22C55E]/20 bg-[#22C55E]/10 p-3 text-sm text-[#86EFAC]">{review.sellerReply}</div> : null}
+                  {review.sellerReply ? <div className="mt-3 rounded-xl border border-[#22C55E]/20 bg-[#22C55E]/10 p-3 text-sm text-[#86EFAC]"><bdi dir="auto">{review.sellerReply}</bdi></div> : null}
                 </div>
               )) : <p className="empty-state-panel">{isAr ? "لا توجد مراجعات بعد." : "No reviews yet."}</p>}
             </CardContent>
@@ -491,14 +566,14 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                 <div key={listing.id} className="surface-panel-subtle p-4 transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/25">
                   <div className={`flex items-center justify-between ${isAr ? "flex-row-reverse" : ""}`}>
                     <div>
-                      <p className="text-lg font-semibold text-white">{listing.price} ILS / USDT</p>
-                      <p className="inline-flex items-center gap-1.5 text-sm text-[#9CA3AF]"><UsdtIcon />{isAr ? "المتاح" : "Available"}: {listing.availableAmount}</p>
+                      <p className="text-lg font-semibold text-white"><bdi dir="ltr">{listing.price} ILS / USDT</bdi></p>
+                      <p className="inline-flex items-center gap-1.5 text-sm text-[#9CA3AF]"><UsdtIcon />{isAr ? "المتاح" : "Available"}: <bdi dir="ltr">{listing.availableAmount} USDT</bdi></p>
                     </div>
-                    <span className="rounded-full border border-[#C9A227]/20 bg-[#C9A227]/10 px-3 py-1 text-xs text-[#FDE68A]">{listing.network}</span>
+                    <span className="rounded-full border border-[#C9A227]/20 bg-[#C9A227]/10 px-3 py-1 text-xs text-[#FDE68A]"><bdi dir="ltr">{listing.network}</bdi></span>
                   </div>
                   <div className={`mt-3 flex flex-wrap items-center gap-2 text-sm text-[#D1D5DB] ${isAr ? "flex-row-reverse" : ""}`}>
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1"><WalletCards className="h-4 w-4 text-[#C9A227]" />{paymentMethodLabel(listing.paymentMethod, isAr)}</span>
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1"><Network className="h-4 w-4 text-[#C9A227]" />{listing.network}</span>
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1"><Network className="h-4 w-4 text-[#C9A227]" /><bdi dir="ltr">{listing.network}</bdi></span>
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-[#B91C1C]/20 bg-[#B91C1C]/10 px-2.5 py-1 text-[#FCA5A5]"><ShieldCheck className="h-4 w-4" />{isAr ? "ضمان Alpha Traders" : "Escrow protected by Alpha Traders"}</span>
                   </div>
                   <Button className="mt-4 w-full">{isAr ? "شراء" : "Buy"}</Button>
@@ -527,8 +602,8 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                 <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#C9A227]/20 text-sm font-semibold text-[#FDE68A]">{sellerItem.sellerName.slice(0, 2).toUpperCase()}</div>
                   <div>
-                    <p className="font-medium text-white">{sellerItem.sellerName}</p>
-                    <p className="inline-flex items-center gap-1 text-xs text-[#9CA3AF]"><UsdtIcon />{sellerItem.publicVolumeRange}</p>
+                    <p className="font-medium text-white"><bdi dir="auto">{sellerItem.sellerName}</bdi></p>
+                    <p className="inline-flex items-center gap-1 text-xs text-[#9CA3AF]"><UsdtIcon /><bdi dir="auto">{publicVolumeLabel(sellerItem.publicVolumeRange, isAr)}</bdi></p>
                   </div>
                 </div>
                 <div className={`mt-3 flex items-center justify-between text-sm ${isAr ? "flex-row-reverse" : ""}`}>

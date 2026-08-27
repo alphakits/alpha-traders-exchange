@@ -82,4 +82,23 @@ describe("local legacy email verification route", () => {
     expect(mocks.consumeEmailVerificationToken).not.toHaveBeenCalled();
     expect(mocks.verifyOtp).toHaveBeenCalledWith({ token_hash: "supabase-token-hash", type: "signup" });
   });
+
+  it("returns Arabic verification copy for direct Arabic API clients", async () => {
+    mocks.consumeEmailVerificationToken.mockResolvedValueOnce({ status: "expired" });
+    const expired = await POST(new NextRequest("http://localhost/api/auth/verify-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Locale": "ar" },
+      body: JSON.stringify({ token: "d".repeat(64) }),
+    }));
+    expect(await expired.json()).toMatchObject({
+      error: "انتهت صلاحية رابط التحقق. يُرجى طلب رسالة تحقق جديدة.",
+    });
+
+    const invalid = await POST(new NextRequest("http://localhost/api/auth/verify-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Locale": "ar" },
+      body: JSON.stringify({ token: "short" }),
+    }));
+    expect(await invalid.json()).toMatchObject({ error: "رابط التحقق غير صالح." });
+  });
 });

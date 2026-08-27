@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { randomBytes, randomInt, randomUUID } from "node:crypto";
 import { buildMarketplaceEmail } from "@/lib/marketplace-email-delivery";
 import { sanitizePurchaseRequestForActor } from "@/lib/alpha-exchange-store";
 import {
@@ -10,12 +11,19 @@ import {
 } from "@/lib/privacy-redaction";
 import type { AlphaExchangeNotification, PurchaseRequest } from "@/types/alpha-exchange";
 
-const BUYER_PHONE = "+972 50-123-4567";
-const SELLER_PHONE = "0509876543";
-const INTERNATIONAL_PHONE = "+1 (202) 555-0123";
-const BUYER_EMAIL = "buyer-private@example.test";
-const BUYER_TELEGRAM = "@buyer_private";
-const BUYER_CONTACT_URL = "https://t.me/buyer_private";
+const sevenDigits = () => String(randomInt(1_000_000, 10_000_000));
+const fourDigits = () => String(randomInt(1_000, 10_000));
+const BUYER_PHONE_DIGITS = sevenDigits();
+const SELLER_PHONE_DIGITS = sevenDigits();
+const BUYER_PHONE = `+972 50-${BUYER_PHONE_DIGITS.slice(0, 3)}-${BUYER_PHONE_DIGITS.slice(3)}`;
+const SELLER_PHONE = `050${SELLER_PHONE_DIGITS}`;
+const INTERNATIONAL_PHONE = `+1 (${String(randomInt(200, 999))}) ${String(randomInt(200, 999))}-${fourDigits()}`;
+const BUYER_EMAIL = `privacy-${randomUUID()}@example.test`;
+const BUYER_TELEGRAM = `@privacy_${randomBytes(6).toString("hex")}`;
+const BUYER_CONTACT_URL = `https://t.me/${BUYER_TELEGRAM.slice(1)}`;
+const WALLET_REFERENCE = `0x${randomBytes(20).toString("hex")}`;
+const TRANSACTION_REFERENCE = randomBytes(16).toString("hex");
+const BANK_ACCOUNT_REFERENCE = String(randomInt(1_000_000_000, 2_000_000_000));
 
 const request = {
   id: "request-privacy",
@@ -55,29 +63,35 @@ describe("phone privacy boundaries", () => {
       isRead: false,
       createdAt: new Date().toISOString(),
     } satisfies AlphaExchangeNotification;
-    expect(redactPhoneNumbers(notification.title)).not.toContain("123-4567");
+    expect(redactPhoneNumbers(notification.title)).not.toContain(BUYER_PHONE_DIGITS);
     const redacted = redactPrivateContactDetails(notification.message);
-    expect(redacted).not.toContain("0509876543");
-    expect(redacted).not.toContain("555-0123");
+    expect(redacted).not.toContain(SELLER_PHONE);
+    expect(redacted).not.toContain(INTERNATIONAL_PHONE);
     expect(redacted).not.toContain(BUYER_EMAIL);
     expect(redacted).not.toContain(BUYER_TELEGRAM);
     expect(redacted).not.toContain(BUYER_CONTACT_URL);
-    expect(redactPrivateContactDetails("Call 555-123-4567")).toBe("Call [private contact removed]");
+    expect(redactPrivateContactDetails(`Call ${INTERNATIONAL_PHONE}`)).toBe("Call [private contact removed]");
   });
 
   it("redacts direct contact details from email subject, text, HTML, and action URLs", () => {
     const email = buildMarketplaceEmail({
       event: "trade_completed",
       recipientName: `Buyer ${BUYER_PHONE}`,
-      title: `Trade update ${SELLER_PHONE}`,
-      message: `Private contact ${BUYER_PHONE}, ${BUYER_EMAIL}, ${BUYER_TELEGRAM}, ${BUYER_CONTACT_URL}`,
-      actionLabel: "Open Trade Room",
-      actionUrl: BUYER_CONTACT_URL,
+      title: {
+        ar: `تحديث الصفقة ${SELLER_PHONE}`,
+        en: `Trade update ${SELLER_PHONE}`,
+      },
+      message: {
+        ar: `بيانات اتصال خاصة ${BUYER_PHONE}، ${BUYER_EMAIL}، ${BUYER_TELEGRAM}، ${BUYER_CONTACT_URL}`,
+        en: `Private contact ${BUYER_PHONE}, ${BUYER_EMAIL}, ${BUYER_TELEGRAM}, ${BUYER_CONTACT_URL}`,
+      },
+      actionLabel: { ar: "فتح غرفة الصفقة", en: "Open Trade Room" },
+      actionPath: `/trade-room/${BUYER_PHONE}`,
       referenceLabel: SELLER_PHONE,
     });
     expect(email.subject).not.toContain(SELLER_PHONE);
-    expect(email.text).not.toContain("123-4567");
-    expect(email.html).not.toContain("0509876543");
+    expect(email.text).not.toContain(BUYER_PHONE);
+    expect(email.html).not.toContain(SELLER_PHONE);
     expect(email.subject).not.toContain(BUYER_EMAIL);
     expect(email.text).not.toContain(BUYER_TELEGRAM);
     expect(email.text).not.toContain(BUYER_CONTACT_URL);
@@ -90,28 +104,28 @@ describe("phone privacy boundaries", () => {
   });
 
   it("detects clear off-platform contact forms through one canonical policy", () => {
-    expect(findDirectContactContent("Email buyer @ example . test")).toBe("email");
-    expect(findDirectContactContent("Call 050-123-4567 when ready")).toBe("phone");
-    expect(findDirectContactContent("Call +972 50 123 4567 when ready")).toBe("phone");
-    expect(findDirectContactContent("Call 555-123-4567 when ready")).toBe("phone");
-    expect(findDirectContactContent("WhatsApp https://wa.me/972501234567")).toBe("contact_url");
-    expect(findDirectContactContent("Telegram: @buyer_private")).toBe("telegram");
-    expect(findDirectContactContent("mailto:buyer-private@example.test")).toBe("contact_url");
-    expect(findDirectContactContent("tel:+972501234567")).toBe("contact_url");
+    expect(findDirectContactContent(`Email ${BUYER_EMAIL.replace("@", " @ ").replace(".", " . ")}`)).toBe("email");
+    expect(findDirectContactContent(`Call ${SELLER_PHONE} when ready`)).toBe("phone");
+    expect(findDirectContactContent(`Call ${BUYER_PHONE.replaceAll("-", " ")} when ready`)).toBe("phone");
+    expect(findDirectContactContent(`Call ${INTERNATIONAL_PHONE} when ready`)).toBe("phone");
+    expect(findDirectContactContent(`WhatsApp https://wa.me/${BUYER_PHONE.replace(/\D/g, "")}`)).toBe("contact_url");
+    expect(findDirectContactContent(`Telegram: ${BUYER_TELEGRAM}`)).toBe("telegram");
+    expect(findDirectContactContent(`mailto:${BUYER_EMAIL}`)).toBe("contact_url");
+    expect(findDirectContactContent(`tel:${BUYER_PHONE.replace(/\D/g, "")}`)).toBe("contact_url");
     expect(findDirectContactContent("Message me on WhatsApp")).toBe("contact_platform");
-    expect(() => assertNoDirectContactContent("https://t.me/buyer_private")).toThrow(DIRECT_CONTACT_CONTENT_ERROR);
+    expect(() => assertNoDirectContactContent(BUYER_CONTACT_URL)).toThrow(DIRECT_CONTACT_CONTENT_ERROR);
   });
 
   it("does not mistake payment values, wallets, or transaction hashes for direct contact", () => {
     expect(findDirectContactContent("Price is 3.64 ILS for 250 USDT.")).toBeNull();
-    expect(findDirectContactContent("Wallet 0x52908400098527886E0F7030069857D2E4169EE7")).toBeNull();
-    expect(findDirectContactContent("Transaction 5d41402abc4b2a76b9719d911017c592")).toBeNull();
-    expect(findDirectContactContent("Bank account 0123456789, branch 123")).toBeNull();
-    expect(findDirectContactContent("Bank account 123-456-789, branch 123")).toBeNull();
+    expect(findDirectContactContent(`Wallet ${WALLET_REFERENCE}`)).toBeNull();
+    expect(findDirectContactContent(`Transaction ${TRANSACTION_REFERENCE}`)).toBeNull();
+    expect(findDirectContactContent(`Bank account ${BANK_ACCOUNT_REFERENCE}, branch 123`)).toBeNull();
+    expect(findDirectContactContent(`Bank account ${BANK_ACCOUNT_REFERENCE.slice(0, 3)}-${BANK_ACCOUNT_REFERENCE.slice(3, 6)}-${BANK_ACCOUNT_REFERENCE.slice(6)}, branch 123`)).toBeNull();
   });
 
   it("redacts the complete direct-contact URL before number redaction can leave a clickable fragment", () => {
-    const redacted = redactPrivateContactDetails("Use https://wa.me/972501234567 or https://t.me/buyer_private");
+    const redacted = redactPrivateContactDetails(`Use https://wa.me/${BUYER_PHONE.replace(/\D/g, "")} or ${BUYER_CONTACT_URL}`);
     expect(redacted).toBe("Use [private contact removed] or [private contact removed]");
     expect(redacted).not.toContain("wa.me");
     expect(redacted).not.toContain("t.me");

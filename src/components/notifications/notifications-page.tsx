@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BellDot, Megaphone, Scale, Search, ShieldCheck, Star, Tags, UserRound } from "lucide-react";
+import { BellDot, CheckCheck, Megaphone, Scale, Search, ShieldCheck, Star, Tags, UserRound } from "lucide-react";
 import type { AppLocale } from "@/i18n/routing";
 import { useRouter } from "@/i18n/navigation";
 import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
 import { formatListingId, formatTradeId } from "@/lib/format-id";
@@ -47,6 +47,14 @@ type TradeSnapshotPayload = {
 };
 
 type NotificationFilter = "all" | "actions" | "unread" | "trades" | "listings" | "reviews" | "announcements" | "history";
+
+type NotificationGroup = {
+  key: string;
+  label: string;
+  description?: string;
+  isActionGroup: boolean;
+  items: AlphaExchangeNotification[];
+};
 
 const PAGE_SIZE = 20;
 const MOBILE_FETCH_LIMIT = 40;
@@ -99,19 +107,37 @@ function buildTradeRoomActionForRequest(request: TradeRoomRequestPayload, actorU
   return "open-trade";
 }
 
-function buildTradeRoomActionForSnapshot(snapshot: TradeSnapshotPayload, actorUserId: string) {
-  const requestId = String(snapshot.requestId ?? "").trim();
-  const status = String(snapshot.currentStage ?? "").trim();
-  const sellerId = String(snapshot.sellerId ?? "").trim();
-  const buyerId = String(snapshot.buyerId ?? "").trim();
+function buildTradeRoomActionForSnapshot(snapshot: TradeSnapshotPayload | null | undefined, actorUserId: string) {
+  const requestId = String(snapshot?.requestId ?? "").trim();
+  const status = String(snapshot?.currentStage ?? "").trim();
+  const sellerId = String(snapshot?.sellerId ?? "").trim();
+  const buyerId = String(snapshot?.buyerId ?? "").trim();
   if (!requestId || !status || !sellerId || !buyerId) return null;
   return buildTradeRoomActionForRequest({ id: requestId, status, sellerId, buyerId }, actorUserId);
+}
+
+function notificationNeedsUserAction(notification: AlphaExchangeNotification) {
+  if (isNotificationActionRequired(notification)) return true;
+  if (notification.category !== "trade") return false;
+  const tradeAction = buildTradeRoomActionForSnapshot(notification.tradeSnapshot, notification.userId);
+  return Boolean(tradeAction && tradeAction !== "open-trade");
+}
+
+function tradeRoomActionLabel(action: string, locale: AppLocale) {
+  const isAr = locale === "ar";
+  if (action === "accept-trade") return isAr ? "مراجعة طلب الصفقة" : "Review trade request";
+  if (action === "upload-payment-receipt") return isAr ? "رفع إيصال الدفع" : "Upload payment receipt";
+  if (action === "confirm-money-received") return isAr ? "تأكيد استلام الدفعة" : "Confirm payment received";
+  if (action === "upload-seller-evidence") return isAr ? "رفع الإثبات وإرسال USDT" : "Upload proof and send USDT";
+  if (action === "confirm-usdt-received") return isAr ? "تأكيد استلام USDT" : "Confirm USDT received";
+  if (action === "review-trade") return isAr ? "إضافة تقييم للصفقة" : "Leave a trade review";
+  return isAr ? "عرض تفاصيل الصفقة" : "View trade details";
 }
 
 function matchesFilter(notification: AlphaExchangeNotification, filter: NotificationFilter) {
   if (filter === "history") return notification.state === "archived";
   if (filter === "all") return true;
-  if (filter === "actions") return isNotificationActionRequired(notification);
+  if (filter === "actions") return notificationNeedsUserAction(notification);
   if (filter === "unread") return !notification.isRead;
   if (filter === "trades") return notification.category === "trade";
   if (filter === "listings") return notification.category === "listing";
@@ -155,6 +181,56 @@ function notificationGroupLabel(notificationDate: Date, locale: AppLocale) {
   return locale === "ar" ? "أقدم" : "Earlier";
 }
 
+function notificationFilterLabel(filter: NotificationFilter, locale: AppLocale) {
+  const isAr = locale === "ar";
+  if (filter === "all") return isAr ? "الكل" : "All";
+  if (filter === "actions") return isAr ? "تحتاج إلى إجراء" : "Needs action";
+  if (filter === "unread") return isAr ? "غير مقروء" : "Unread";
+  if (filter === "trades") return isAr ? "الصفقات" : "Trades";
+  if (filter === "listings") return isAr ? "العروض" : "Listings";
+  if (filter === "reviews") return isAr ? "التقييمات" : "Reviews";
+  if (filter === "announcements") return isAr ? "الإعلانات" : "Announcements";
+  return isAr ? "السجل" : "History";
+}
+
+function buildNotificationGroups(
+  notifications: AlphaExchangeNotification[],
+  filter: NotificationFilter,
+  locale: AppLocale,
+) {
+  const groups: NotificationGroup[] = [];
+  const dayGroups = new Map<string, AlphaExchangeNotification[]>();
+  const actionItems = filter === "all"
+    ? notifications.filter(notificationNeedsUserAction)
+    : [];
+  const remainingItems = filter === "all"
+    ? notifications.filter((notification) => !notificationNeedsUserAction(notification))
+    : notifications;
+
+  if (actionItems.length > 0) {
+    groups.push({
+      key: "needs-action",
+      label: locale === "ar" ? "تحتاج إلى إجراء الآن" : "Needs your action",
+      description: locale === "ar" ? "ابدأ بهذه الإشعارات أولاً" : "Start with these notifications first",
+      isActionGroup: true,
+      items: actionItems,
+    });
+  }
+
+  for (const notification of remainingItems) {
+    const key = notificationGroupLabel(new Date(notification.createdAt), locale);
+    const items = dayGroups.get(key) ?? [];
+    items.push(notification);
+    dayGroups.set(key, items);
+  }
+
+  for (const [label, items] of dayGroups) {
+    groups.push({ key: `date-${label}`, label, isActionGroup: false, items });
+  }
+
+  return groups;
+}
+
 function extractTradeRoomHrefFromRelatedHref(relatedHref?: string) {
   const href = relatedHref?.trim();
   if (!href) return null;
@@ -170,13 +246,11 @@ function extractRequestIdFromTradeRoomHref(href: string | null) {
   if (!href) return null;
   try {
     const parsed = new URL(href, "https://www.alphatraders.co.il");
-    const segments = parsed.pathname.replace(/\/+$/, "").split("/");
-    const requestId = segments[segments.length - 1]?.trim();
-    return requestId || null;
+    const match = parsed.pathname.match(/\/trade-room\/([^/]+)\/?$/i);
+    return match?.[1] ? decodeURIComponent(match[1]).trim() || null : null;
   } catch {
-    const normalized = href.split("?")[0]?.split("#")[0]?.replace(/\/+$/, "") ?? "";
-    const requestId = normalized.slice(normalized.lastIndexOf("/") + 1).trim();
-    return requestId || null;
+    const match = href.split("?")[0]?.split("#")[0]?.match(/\/trade-room\/([^/]+)\/?$/i);
+    return match?.[1] ? decodeURIComponent(match[1]).trim() || null : null;
   }
 }
 
@@ -315,31 +389,31 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
     return notifications.filter((notification) => {
       if (!matchesFilter(notification, filter)) return false;
       if (!normalizedSearch) return true;
-      const haystack = `${notification.title} ${notification.message} ${notification.relatedTradeId ?? ""} ${notification.relatedListingId ?? ""}`.toLowerCase();
+      const haystack = `${formatNotificationTitle(notification, locale)} ${formatNotificationMessage(notification, locale)} ${notification.relatedSellerName ?? ""} ${notification.relatedSellerUsername ?? ""} ${notification.relatedTradeId ?? ""} ${notification.relatedListingId ?? ""}`.toLowerCase();
       return haystack.includes(normalizedSearch);
     });
-  }, [filter, notifications, search]);
+  }, [filter, locale, notifications, search]);
 
-  const highlightedReminder = useMemo(
-    () => notifications.find((notification) => isNotificationActionRequired(notification) && !notification.isRead) ?? notifications.find(isNotificationActionRequired) ?? null,
+  const actionRequiredCount = useMemo(
+    () => notifications.filter(notificationNeedsUserAction).length,
     [notifications],
   );
 
-  const totalPages = Math.max(1, Math.ceil(filteredNotifications.length / PAGE_SIZE));
+  const orderedFilteredNotifications = useMemo(() => {
+    if (filter !== "all") return filteredNotifications;
+    const actionItems = filteredNotifications.filter(notificationNeedsUserAction);
+    const otherItems = filteredNotifications.filter((notification) => !notificationNeedsUserAction(notification));
+    return [...actionItems, ...otherItems];
+  }, [filter, filteredNotifications]);
+
+  const totalPages = Math.max(1, Math.ceil(orderedFilteredNotifications.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const pageStart = (currentPage - 1) * PAGE_SIZE;
-  const pageItems = filteredNotifications.slice(pageStart, pageStart + PAGE_SIZE);
+  const pageItems = orderedFilteredNotifications.slice(pageStart, pageStart + PAGE_SIZE);
 
   const groupedPageItems = useMemo(() => {
-    const groups = new Map<string, AlphaExchangeNotification[]>();
-    for (const notification of pageItems) {
-      const key = notificationGroupLabel(new Date(notification.createdAt), locale);
-      const list = groups.get(key) ?? [];
-      list.push(notification);
-      groups.set(key, list);
-    }
-    return Array.from(groups.entries()).map(([label, items]) => ({ label, items }));
-  }, [locale, pageItems]);
+    return buildNotificationGroups(pageItems, filter, locale);
+  }, [filter, locale, pageItems]);
 
   useEffect(() => {
     const relatedHrefs = pageItems
@@ -356,17 +430,36 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
   }
 
   function resolveNotificationActionLabel(notification: AlphaExchangeNotification) {
-    const label = getCommissionPaymentNotificationDestination(notification)
-      ? "Pay Commission"
-      : isTradeNotification(notification)
-        ? "Continue Trade"
-        : notification.actionLabel?.trim()
-          ? notification.actionLabel.trim()
-          : notification.category === "application"
-            ? "Review Application"
-            : notification.category === "listing"
-              ? "Manage Listing"
-              : "Open";
+    if (getCommissionPaymentNotificationDestination(notification)) {
+      return isAr ? "دفع العمولة" : "Pay commission";
+    }
+
+    if (isTradeNotification(notification)) {
+      const text = `${notification.title} ${notification.message}`.toLowerCase();
+      const normalizedTitle = notification.title.toLowerCase();
+      if (notification.reason === "trade_room_message" || normalizedTitle.includes("trade room message")) {
+        return isAr ? "فتح رسالة الصفقة" : "Open trade message";
+      }
+      const tradeAction = buildTradeRoomActionForSnapshot(notification.tradeSnapshot, notification.userId);
+      if (tradeAction && tradeAction !== "open-trade") return tradeRoomActionLabel(tradeAction, locale);
+      if (notification.actionLabel?.trim()) {
+        return localizeNotificationActionLabel(notification.actionLabel, locale, notification);
+      }
+      if (text.includes("review") || text.includes("feedback")) return isAr ? "إضافة تقييم" : "Leave a review";
+      if (text.includes("new trade request")) return isAr ? "مراجعة طلب الصفقة" : "Review trade request";
+      if (text.includes("completed") || text.includes("cancelled") || text.includes("closed")) return isAr ? "عرض تفاصيل الصفقة" : "View trade details";
+      return isAr ? "متابعة الصفقة" : "Continue trade";
+    }
+
+    if (notification.actionLabel?.trim()) {
+      return localizeNotificationActionLabel(notification.actionLabel, locale, notification);
+    }
+
+    const label = notification.category === "application"
+      ? "Review Application"
+      : notification.category === "listing"
+        ? "Manage Listing"
+        : "View Details";
     return localizeNotificationActionLabel(label, locale, notification);
   }
 
@@ -567,99 +660,180 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
   }
 
   return (
-    <section className="section-container page-shell">
+    <section className="section-container page-shell" dir={isAr ? "rtl" : "ltr"}>
       <Card className="border-white/10 bg-[#0B0B0B]/90">
-        <CardHeader>
-          <CardTitle className="inline-flex items-center gap-2 text-white">
-            <BellDot className="h-5 w-5 text-[#C9A227]" />
-            {isAr ? "الإشعارات" : "Notifications"}
-            {unreadCount > 0 ? (
-              <span className="badge-chip border-[#C9A227]/35 bg-[#C9A227]/10 font-normal text-[#C9A227]">
-                {unreadCount} {isAr ? "غير مقروء" : "unread"}
+        <CardHeader className="space-y-4 p-4 sm:p-6">
+          <div className="space-y-2">
+            <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold leading-snug tracking-tight text-white sm:text-2xl">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10">
+                <BellDot className="h-5 w-5 text-[#C9A227]" aria-hidden="true" />
               </span>
-            ) : null}
-          </CardTitle>
-          <CardDescription>{isAr ? "السجل الكامل لإشعارات حسابك." : "Complete notification history for your account."}</CardDescription>
-          {highlightedReminder ? (
-            <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-              <p className="font-semibold">{formatNotificationTitle(highlightedReminder, locale)}</p>
-              <p className="mt-1">{formatNotificationMessage(highlightedReminder, locale)}</p>
-            </div>
-          ) : null}
+              <span>{isAr ? "مركز الإشعارات" : "Notification center"}</span>
+              {unreadCount > 0 ? (
+                <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2.5 py-1 text-xs font-semibold text-[#F3CF58]">
+                  {unreadCount} {isAr ? "غير مقروء" : "unread"}
+                </span>
+              ) : null}
+            </h1>
+            <CardDescription className="text-[15px] leading-6 text-[#B8BEC8] sm:text-base">
+              {isAr
+                ? "ابدأ بما يحتاج إلى إجراء، ثم راجع آخر تحديثات حسابك."
+                : "Start with what needs action, then review your latest account updates."}
+            </CardDescription>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2" aria-live="polite">
+            <button
+              type="button"
+              aria-label={isAr ? `عرض الإشعارات التي تحتاج إلى إجراء: ${actionRequiredCount}` : `Show notifications that need action: ${actionRequiredCount}`}
+              aria-pressed={filter === "actions"}
+              onClick={() => setFilter("actions")}
+              className={`min-h-[76px] rounded-2xl border p-3 text-start transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] ${
+                filter === "actions"
+                  ? "border-amber-300/60 bg-amber-400/15"
+                  : "border-amber-400/25 bg-amber-500/[0.07] hover:border-amber-300/45"
+              }`}
+            >
+              <span className="block text-sm font-medium leading-5 text-amber-100">{isAr ? "تحتاج إلى إجراء" : "Needs action"}</span>
+              <span className="mt-1 block text-2xl font-semibold leading-none text-amber-300">{actionRequiredCount}</span>
+            </button>
+            <button
+              type="button"
+              aria-label={isAr ? `عرض الإشعارات غير المقروءة: ${unreadCount}` : `Show unread notifications: ${unreadCount}`}
+              aria-pressed={filter === "unread"}
+              onClick={() => setFilter("unread")}
+              className={`min-h-[76px] rounded-2xl border p-3 text-start transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] ${
+                filter === "unread"
+                  ? "border-[#C9A227]/60 bg-[#C9A227]/15"
+                  : "border-white/15 bg-white/[0.03] hover:border-[#C9A227]/35"
+              }`}
+            >
+              <span className="block text-sm font-medium leading-5 text-[#D7DBE2]">{isAr ? "غير مقروء" : "Unread"}</span>
+              <span className="mt-1 block text-2xl font-semibold leading-none text-white">{unreadCount}</span>
+            </button>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-5 p-4 pt-0 sm:p-6 sm:pt-0">
           <div className="grid gap-2 md:grid-cols-[1fr_auto]">
             <div className="relative">
-              <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
-              <Input className="ps-9" placeholder={isAr ? "البحث في الإشعارات" : "Search notifications"} value={search} onChange={(event) => setSearch(event.target.value)} />
+              <Search className="pointer-events-none absolute start-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" aria-hidden="true" />
+              <Input
+                aria-label={isAr ? "البحث في الإشعارات" : "Search notifications"}
+                className="h-12 ps-10 text-base md:h-11"
+                placeholder={isAr ? "ابحث عن صفقة، عرض، أو بائع" : "Search a trade, listing, or seller"}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
             </div>
-            <Button type="button" size="sm" variant="secondary" className="h-11 px-4" loading={isMarkingAllRead} loadingLabel={isAr ? "جاري التحديد..." : "Marking..."} onClick={() => void handleMarkAllRead()}>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="h-12 px-4 text-sm md:h-11"
+              disabled={unreadCount === 0}
+              loading={isMarkingAllRead}
+              loadingLabel={isAr ? "جاري التحديد..." : "Marking..."}
+              onClick={() => void handleMarkAllRead()}
+            >
+              <CheckCheck className="h-4 w-4" aria-hidden="true" />
               {isAr ? "تحديد الكل كمقروء" : "Mark all as read"}
             </Button>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            {(["all", "actions", "unread", "trades", "listings", "reviews", "announcements", "history"] as NotificationFilter[]).map((item) => (
-              <button
-                key={item}
-                type="button"
-                onClick={() => setFilter(item)}
-                className={`inline-flex min-h-10 items-center rounded-full border px-3 text-sm transition ${
-                  filter === item
-                    ? "border-[#C9A227]/50 bg-[#C9A227]/15 text-[#C9A227]"
-                    : "border-white/15 bg-black/20 text-[#D1D5DB] hover:border-white/25 hover:text-white"
-                }`}
-              >
-                {item === "all" ? (isAr ? "الكل" : "All") : item === "actions" ? (isAr ? "تحتاج إلى إجراء" : "Needs action") : item === "unread" ? (isAr ? "غير مقروء" : "Unread") : item === "trades" ? (isAr ? "الصفقات" : "Trades") : item === "listings" ? (isAr ? "العروض" : "Listings") : item === "reviews" ? (isAr ? "التقييمات" : "Reviews") : item === "announcements" ? (isAr ? "الإعلانات" : "Announcements") : (isAr ? "السجل" : "History")}
-              </button>
-            ))}
+          <div className="-mx-4 overflow-x-auto px-4 pb-1 sm:mx-0 sm:overflow-visible sm:px-0">
+            <div className="flex w-max gap-2 sm:w-auto sm:flex-wrap" role="group" aria-label={isAr ? "تصنيف الإشعارات" : "Notification filters"}>
+              {(["all", "actions", "unread", "trades", "listings", "reviews", "announcements", "history"] as NotificationFilter[]).map((item) => {
+                const count = item === "actions" ? actionRequiredCount : item === "unread" ? unreadCount : null;
+                return (
+                  <button
+                    key={item}
+                    type="button"
+                    aria-label={`${notificationFilterLabel(item, locale)}${count !== null ? `: ${count}` : ""}`}
+                    aria-pressed={filter === item}
+                    onClick={() => setFilter(item)}
+                    className={`inline-flex min-h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227] ${
+                      filter === item
+                        ? "border-[#C9A227]/55 bg-[#C9A227]/15 text-[#F3CF58]"
+                        : "border-white/15 bg-black/20 text-[#D1D5DB] hover:border-white/25 hover:text-white"
+                    }`}
+                  >
+                    <span>{notificationFilterLabel(item, locale)}</span>
+                    {count !== null && count > 0 ? (
+                      <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-white/10 px-1.5 text-xs leading-5 text-white">{count}</span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {loading ? (
-            <div className="space-y-2">
-              {Array.from({ length: 4 }).map((_, index) => (
-                <div key={index} className="h-20 animate-pulse rounded-xl border border-white/10 bg-black/20" />
+            <div className="space-y-3" aria-label={isAr ? "جاري تحميل الإشعارات" : "Loading notifications"}>
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div key={index} className="h-36 animate-pulse rounded-2xl border border-white/10 bg-black/20" />
               ))}
             </div>
           ) : null}
-          {!loading && error ? <p className="rounded-xl border border-red-400/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</p> : null}
-          {!loading && !error && pageItems.length === 0 ? <p className="empty-state-panel">{isAr ? "لا توجد إشعارات ضمن هذا التصنيف." : "No notifications found for this filter."}</p> : null}
+          {!loading && error ? <p role="alert" className="rounded-xl border border-red-400/20 bg-red-500/10 p-4 text-base leading-6 text-red-200">{error}</p> : null}
+          {!loading && !error && pageItems.length === 0 ? (
+            <div className="empty-state-panel py-8 text-center">
+              <CheckCheck className="mx-auto h-7 w-7 text-[#C9A227]" aria-hidden="true" />
+              <p className="mt-2 text-base font-medium text-white">{isAr ? "لا توجد إشعارات هنا" : "Nothing here right now"}</p>
+              <p className="mt-1 text-sm leading-6 text-[#AEB4BE]">
+                {isAr
+                  ? `لا توجد إشعارات ضمن تصنيف «${notificationFilterLabel(filter, locale)}».`
+                  : `There are no notifications in “${notificationFilterLabel(filter, locale)}”.`}
+              </p>
+            </div>
+          ) : null}
 
-          <div className="space-y-4">
+          {!loading && !error ? <div className="space-y-6">
             {groupedPageItems.map((group) => (
-              <div key={group.label} className="space-y-2">
-                <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#9CA3AF]">{group.label}</p>
+              <section key={group.key} className="space-y-3">
+                <div className={`flex items-end justify-between gap-3 border-b pb-2 ${group.isActionGroup ? "border-amber-400/25" : "border-white/10"}`}>
+                  <div>
+                    <h2 className={`text-sm font-semibold leading-5 ${group.isActionGroup ? "text-amber-200" : "text-[#D7DBE2]"} ${!isAr && !group.isActionGroup ? "uppercase tracking-[0.08em]" : ""}`}>
+                      {group.label}
+                    </h2>
+                    {group.description ? <p className="mt-0.5 text-sm leading-5 text-[#AEB4BE]">{group.description}</p> : null}
+                  </div>
+                  <span className="shrink-0 text-xs text-[#8F96A1]">{group.items.length}</span>
+                </div>
                 {group.items.map((notification) => {
                   const Icon = notificationIcon(notification);
-                  const actionRequired = isNotificationActionRequired(notification);
+                  const actionRequired = notificationNeedsUserAction(notification);
                   return (
-                    <div
+                    <article
                       key={notification.id}
-                      className={`rounded-xl border p-3 md:p-4 ${actionRequired ? "border-amber-400/55 bg-amber-500/10" : notification.isRead ? "border-white/10 bg-black/20" : "border-[#C9A227]/35 bg-[#C9A227]/10"}`}
+                      className={`rounded-2xl border p-4 transition sm:p-5 ${actionRequired ? "border-amber-400/45 bg-amber-500/[0.09]" : notification.isRead ? "border-white/10 bg-black/20" : "border-[#C9A227]/35 bg-[#C9A227]/[0.08]"}`}
                     >
-                      <div className="flex items-start gap-3">
-                        <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[#C9A227]" />
+                      <div className="flex items-start gap-3.5">
+                        <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border ${actionRequired ? "border-amber-400/35 bg-amber-400/10" : "border-[#C9A227]/25 bg-[#C9A227]/10"}`}>
+                          <Icon className={`h-5 w-5 ${actionRequired ? "text-amber-300" : "text-[#D6B13F]"}`} aria-hidden="true" />
+                        </span>
                         <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-start justify-between gap-2">
-                            <p className="text-sm font-medium text-white">{formatNotificationTitle(notification, locale)}</p>
-                            <span className="text-[11px] text-[#9CA3AF]">{formatNotificationRelativeTime(notification.createdAt, locale)}</span>
+                          <div className="flex items-start justify-between gap-2">
+                            <h3 className="text-base font-semibold leading-6 text-white"><bdi dir="auto">{formatNotificationTitle(notification, locale)}</bdi></h3>
+                            {!notification.isRead ? (
+                              <span role="img" className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-[#E5BD3D]" aria-label={isAr ? "غير مقروء" : "Unread"} />
+                            ) : null}
                           </div>
-                          <p className="mt-1 text-sm text-[#D1D5DB]">{formatNotificationMessage(notification, locale)}</p>
-                          <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-[#C9A227]">
-                            {!notification.isRead ? <span className="rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5">{isAr ? "غير مقروء" : "Unread"}</span> : <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#9CA3AF]">{isAr ? "مقروء" : "Read"}</span>}
-                            {actionRequired ? <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 font-semibold text-amber-200">{isAr ? "مطلوب إجراء" : "Action required"}</span> : null}
-                            {isTradeNotification(notification) && (notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber) ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">{isAr ? "صفقة" : "Trade"} {formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId)}</span> : null}
-                            {notification.relatedListingId || notification.relatedListingDisplayNumber ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">{isAr ? "عرض" : "Listing"} {formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}</span> : null}
-                            {notification.relatedSellerName ? <span className="max-w-full truncate rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5 text-[#FDE68A]">{isAr ? "البائع" : "Seller"}: {notification.relatedSellerName}{notification.relatedSellerUsername ? ` • @${notification.relatedSellerUsername}` : ""}</span> : null}
-                            {notification.tradeSnapshot?.usdtAmount ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">{notification.tradeSnapshot.usdtAmount} USDT</span> : null}
-                            {notification.tradeSnapshot?.counterpartyName ? <span className="rounded-full border border-white/15 px-2 py-0.5 text-[#D1D5DB]">{notification.tradeSnapshot.counterpartyName}</span> : null}
+                          <span className="mt-1 block text-xs leading-5 text-[#9CA3AF]">{formatNotificationRelativeTime(notification.createdAt, locale)}</span>
+                          <p className="mt-2 text-base leading-7 text-[#D7DBE2]"><bdi dir="auto" className="text-base">{formatNotificationMessage(notification, locale)}</bdi></p>
+                          <div className="mt-3 flex flex-wrap gap-1.5 text-xs leading-5">
+                            {actionRequired ? <span className="rounded-full border border-amber-400/35 bg-amber-400/10 px-2.5 py-1 font-semibold text-amber-200">{isAr ? "مطلوب منك إجراء" : "Action required"}</span> : null}
+                            {isTradeNotification(notification) && (notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber) ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]">{isAr ? "صفقة" : "Trade"} <bdi dir="ltr">{formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId)}</bdi></span> : null}
+                            {notification.relatedListingId || notification.relatedListingDisplayNumber ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]">{isAr ? "عرض" : "Listing"} <bdi dir="ltr">{formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}</bdi></span> : null}
+                            {notification.relatedSellerName ? <span className="max-w-full truncate rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-2.5 py-1 text-[#FDE68A]">{isAr ? "البائع" : "Seller"}: <bdi dir="auto">{notification.relatedSellerName}</bdi>{notification.relatedSellerUsername ? <> • <bdi dir="ltr">@{notification.relatedSellerUsername}</bdi></> : null}</span> : null}
+                            {notification.tradeSnapshot?.usdtAmount ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]"><bdi dir="ltr">{notification.tradeSnapshot.usdtAmount} USDT</bdi></span> : null}
+                            {notification.tradeSnapshot?.counterpartyName ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]"><bdi dir="auto">{notification.tradeSnapshot.counterpartyName}</bdi></span> : null}
                           </div>
-                          <div className="mt-3 flex flex-wrap gap-2">
+                          <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
                             <Button
                               type="button"
                               size="sm"
-                              variant="secondary"
-                              className="h-10 px-3 text-xs md:h-8"
+                              variant={actionRequired && notification.category !== "application" ? "default" : "secondary"}
+                              className="col-span-2 h-auto min-h-11 px-4 py-2 text-sm sm:col-auto md:min-h-9"
                               onMouseEnter={() => {
                                 if (!isTradeNotification(notification)) return;
                                 const href = resolveTradeRoomHref(notification);
@@ -678,46 +852,48 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                             </Button>
                             {notification.category === "application" && extractSellerApplicationId(notification) ? (
                               <>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              className="h-10 px-3 text-xs md:h-8"
-                              loading={Boolean(itemLoading[`approve:${notification.id}`])}
-                              loadingLabel={isAr ? "جاري القبول..." : "Approving..."}
-                              onClick={() => void handleSellerApplicationDecision(notification, "approve")}
-                            >
-                              {isAr ? "موافقة" : "Approve"}
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              className="h-10 px-3 text-xs md:h-8"
-                              loading={Boolean(itemLoading[`reject:${notification.id}`])}
-                              loadingLabel={isAr ? "جاري الرفض..." : "Rejecting..."}
-                              onClick={() => void handleSellerApplicationDecision(notification, "reject")}
-                            >
-                              {isAr ? "رفض" : "Reject"}
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              className="h-10 px-3 text-xs md:h-8"
-                              onClick={() => void handleMarkOneRead(notification.id)}
-                            >
-                              {isAr ? "لاحقاً" : "Later"}
-                            </Button>
-                          </>
-                        ) : (
-                          <>
-                            {!notification.isRead ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="default"
+                                  className="h-auto min-h-11 px-4 py-2 text-sm md:min-h-9"
+                                  loading={Boolean(itemLoading[`approve:${notification.id}`])}
+                                  loadingLabel={isAr ? "جاري القبول..." : "Approving..."}
+                                  onClick={() => void handleSellerApplicationDecision(notification, "approve")}
+                                >
+                                  {isAr ? "قبول الطلب" : "Approve application"}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="destructive"
+                                  className="h-auto min-h-11 px-4 py-2 text-sm md:min-h-9"
+                                  loading={Boolean(itemLoading[`reject:${notification.id}`])}
+                                  loadingLabel={isAr ? "جاري الرفض..." : "Rejecting..."}
+                                  onClick={() => void handleSellerApplicationDecision(notification, "reject")}
+                                >
+                                  {isAr ? "رفض الطلب" : "Reject application"}
+                                </Button>
+                                {!notification.isRead ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    className="col-span-2 h-auto min-h-11 px-4 py-2 text-sm sm:col-auto md:min-h-9"
+                                    loading={Boolean(itemLoading[`read:${notification.id}`])}
+                                    loadingLabel={isAr ? "جاري الحفظ..." : "Saving..."}
+                                    onClick={() => void handleMarkOneRead(notification.id)}
+                                  >
+                                    {isAr ? "تحديد كمقروء" : "Mark as read"}
+                                  </Button>
+                                ) : null}
+                              </>
+                            ) : !notification.isRead ? (
                               <Button
                                 type="button"
                                 size="sm"
-                                variant="secondary"
-                                className="h-10 px-3 text-xs md:h-8"
+                                variant="ghost"
+                                className="col-span-2 h-auto min-h-11 px-4 py-2 text-sm sm:col-auto md:min-h-9"
                                 loading={Boolean(itemLoading[`read:${notification.id}`])}
                                 loadingLabel={isAr ? "جاري الحفظ..." : "Saving..."}
                                 onClick={() => void handleMarkOneRead(notification.id)}
@@ -725,39 +901,37 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                                 {isAr ? "تحديد كمقروء" : "Mark as read"}
                               </Button>
                             ) : null}
-                          </>
-                        )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                </div>
+                    </article>
                   );
                 })}
-              </div>
+              </section>
             ))}
-          </div>
+          </div> : null}
 
           {canLoadOlder ? (
             <div className="flex justify-center pt-1">
-              <Button type="button" size="sm" variant="secondary" className="h-10 px-4 text-xs md:h-8" loading={isLoadingMore} loadingLabel={isAr ? "جاري التحميل..." : "Loading..."} onClick={() => void handleLoadOlder()}>
+              <Button type="button" size="sm" variant="secondary" className="h-11 px-4 text-sm md:h-9" loading={isLoadingMore} loadingLabel={isAr ? "جاري التحميل..." : "Loading..."} onClick={() => void handleLoadOlder()}>
                 {isAr ? "تحميل إشعارات أقدم" : "Load older notifications"}
               </Button>
             </div>
           ) : null}
 
-          <div className="flex items-center justify-between border-t border-white/10 pt-3">
-            <p className="text-xs text-[#9CA3AF]">
+          <div className="flex flex-col gap-3 border-t border-white/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm leading-5 text-[#9CA3AF]">
               {isAr ? "عرض" : "Showing"} {pageItems.length ? pageStart + 1 : 0}-{Math.min(pageStart + PAGE_SIZE, filteredNotifications.length)} {isAr ? "من" : "of"} {filteredNotifications.length}
               {totalCount > notifications.length ? (isAr ? ` (تم تحميل ${notifications.length} من ${totalCount})` : ` loaded (${notifications.length}/${totalCount} total)`) : ""}
             </p>
-            <div className="flex items-center gap-2">
-              <Button type="button" size="sm" variant="secondary" className="h-10 px-3 text-xs md:h-8" disabled={currentPage <= 1} onClick={() => setPage((prev) => Math.max(1, prev - 1))}>
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:flex">
+              <Button type="button" size="sm" variant="secondary" className="h-11 px-3 text-sm md:h-9" disabled={currentPage <= 1} onClick={() => setPage((prev) => Math.max(1, prev - 1))}>
                 {isAr ? "السابق" : "Previous"}
               </Button>
-              <span className="text-xs text-[#D1D5DB]">
+              <span className="min-w-12 text-center text-sm text-[#D1D5DB]">
                 {currentPage}/{totalPages}
               </span>
-              <Button type="button" size="sm" variant="secondary" className="h-10 px-3 text-xs md:h-8" disabled={currentPage >= totalPages} onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}>
+              <Button type="button" size="sm" variant="secondary" className="h-11 px-3 text-sm md:h-9" disabled={currentPage >= totalPages} onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}>
                 {isAr ? "التالي" : "Next"}
               </Button>
             </div>

@@ -2,7 +2,6 @@ import {
   findUserById,
   getListingBroadcastEmailRecipients,
 } from "@/lib/alpha-exchange-store";
-import { getSiteUrl } from "@/lib/site-url";
 import {
   sendMarketplaceEmail,
   type MarketplaceEmailEvent,
@@ -10,11 +9,13 @@ import {
 } from "@/lib/marketplace-email-delivery";
 import type { MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
 import { logEvent } from "@/lib/structured-logging";
+import { normalizePreferredLocale } from "@/lib/preferred-locale";
 
 type EmailRecipient = {
   id: string;
   fullName: string;
   email: string;
+  preferredLocale?: "ar" | "en";
 };
 
 type LifecycleTradeEmailEvent = Extract<
@@ -38,12 +39,12 @@ type TradeRoomConversationEmailEvent = Extract<
 // shared limiter for this short server-owned burst window.
 export const TRADE_ROOM_MESSAGE_EMAIL_BURST_WINDOW_MS = 2 * 60_000;
 
-function tradeUrl(requestId: string) {
-  return `${getSiteUrl()}/en/trade-room/${encodeURIComponent(requestId)}`;
+function tradePath(requestId: string) {
+  return `/trade-room/${encodeURIComponent(requestId)}`;
 }
 
-function marketplaceUrl() {
-  return `${getSiteUrl()}/en/usdt-exchange`;
+function marketplacePath() {
+  return "/usdt-exchange";
 }
 
 export function tradeEmailEventForStatus(status: PurchaseRequest["status"]) {
@@ -62,6 +63,7 @@ async function deliver(input: Omit<MarketplaceEmailPayload, "recipientName"> & {
     ...payload,
     to: recipient.email,
     recipientName: recipient.fullName,
+    recipientLocale: normalizePreferredLocale(recipient.preferredLocale),
     idempotencyKey,
   });
   if (!result.ok) {
@@ -83,27 +85,81 @@ function tradeEmailContent(
   request: PurchaseRequest,
 ) {
   const referenceLabel = request.tradeId ?? request.id;
-  const actionUrl = tradeUrl(request.id);
-  const common = { event, actionUrl, actionLabel: "Open Trade Room", referenceLabel };
+  const actionPath = tradePath(request.id);
+  const common = {
+    event,
+    actionPath,
+    actionLabel: { ar: "فتح غرفة الصفقة", en: "Open Trade Room" },
+    referenceLabel,
+  };
   if (event === "new_buy_request") {
-    return { ...common, title: "New Buy Request", message: `${request.buyerName} requested ${request.usdtAmount} USDT. Review the request in your Trade Room.` };
+    return {
+      ...common,
+      title: { ar: "طلب شراء جديد", en: "New Buy Request" },
+      message: {
+        ar: `طلب ${request.buyerName} شراء ${request.usdtAmount} USDT. راجع الطلب في غرفة الصفقة.`,
+        en: `${request.buyerName} requested ${request.usdtAmount} USDT. Review the request in your Trade Room.`,
+      },
+    };
   }
   if (event === "trade_accepted") {
-    return { ...common, title: "Trade Accepted", message: "The seller accepted your request. Upload your payment receipt to continue." };
+    return {
+      ...common,
+      title: { ar: "تم قبول الصفقة", en: "Trade Accepted" },
+      message: {
+        ar: "وافق البائع على طلبك. ارفع إيصال الدفع للمتابعة.",
+        en: "The seller accepted your request. Upload your payment receipt to continue.",
+      },
+    };
   }
   if (event === "trade_rejected") {
-    return { ...common, title: "Trade Rejected", message: "The seller rejected this trade request. No payment is required." };
+    return {
+      ...common,
+      title: { ar: "تم رفض الصفقة", en: "Trade Rejected" },
+      message: {
+        ar: "رفض البائع طلب الصفقة. لا يلزم إجراء أي دفع.",
+        en: "The seller rejected this trade request. No payment is required.",
+      },
+    };
   }
   if (event === "buyer_payment_sent") {
-    return { ...common, title: "Buyer Marked Payment Sent", message: "The buyer submitted payment evidence. Verify the funds before continuing." };
+    return {
+      ...common,
+      title: { ar: "أبلغ المشتري بإرسال الدفع", en: "Buyer Marked Payment Sent" },
+      message: {
+        ar: "أرسل المشتري إثبات الدفع. تحقّق من وصول الأموال قبل المتابعة.",
+        en: "The buyer submitted payment evidence. Verify the funds before continuing.",
+      },
+    };
   }
   if (event === "seller_usdt_released") {
-    return { ...common, title: "Seller Released USDT", message: "The seller marked USDT as sent. Confirm receipt in the Trade Room." };
+    return {
+      ...common,
+      title: { ar: "أرسل البائع USDT", en: "Seller Released USDT" },
+      message: {
+        ar: "أكّد البائع إرسال USDT. أكّد الاستلام في غرفة الصفقة.",
+        en: "The seller marked USDT as sent. Confirm receipt in the Trade Room.",
+      },
+    };
   }
   if (event === "trade_completed") {
-    return { ...common, title: "Trade Completed", message: `Trade ${referenceLabel} is complete and available in your history.` };
+    return {
+      ...common,
+      title: { ar: "اكتملت الصفقة", en: "Trade Completed" },
+      message: {
+        ar: `اكتملت الصفقة ${referenceLabel} وأصبحت متاحة في سجلّك.`,
+        en: `Trade ${referenceLabel} is complete and available in your history.`,
+      },
+    };
   }
-  return { ...common, title: "Trade Cancelled", message: `Trade ${referenceLabel} was cancelled. Open the Trade Room for the final status.` };
+  return {
+    ...common,
+    title: { ar: "أُلغيت الصفقة", en: "Trade Cancelled" },
+    message: {
+      ar: `أُلغيت الصفقة ${referenceLabel}. افتح غرفة الصفقة للاطّلاع على الحالة النهائية.`,
+      en: `Trade ${referenceLabel} was cancelled. Open the Trade Room for the final status.`,
+    },
+  };
 }
 
 export async function prepareTradeEventEmails(input: {
@@ -144,28 +200,37 @@ export async function prepareTradeRoomConversationEmail(input: {
   const recipient = await findUserById(input.recipientUserId);
   if (!recipient) return async () => {};
 
-  const actionUrl = `${tradeUrl(input.request.id)}#chat`;
+  const actionPath = `${tradePath(input.request.id)}#chat`;
   const referenceLabel = input.request.tradeId ?? input.request.id;
   const content = input.event === "trade_room_message"
     ? {
         event: input.event,
-        title: "New Trade Room message",
-        message: "You have a new message in your active Alpha Exchange trade.",
+        title: { ar: "رسالة جديدة في غرفة الصفقة", en: "New Trade Room message" },
+        message: {
+          ar: "لديك رسالة جديدة في صفقة نشطة على Alpha Exchange.",
+          en: "You have a new message in your active Alpha Exchange trade.",
+        },
       }
     : {
         event: input.event,
-        title: "Trade Room reminder",
+        title: { ar: "تذكير من غرفة الصفقة", en: "Trade Room reminder" },
         message: input.senderRole === "buyer"
-          ? "Your Buyer is waiting for you in an active trade."
-          : "Your Seller is waiting for you in an active trade.",
+          ? {
+              ar: "المشتري ينتظرك في صفقة نشطة.",
+              en: "Your Buyer is waiting for you in an active trade.",
+            }
+          : {
+              ar: "البائع ينتظرك في صفقة نشطة.",
+              en: "Your Seller is waiting for you in an active trade.",
+            },
       };
 
   return async () => {
     await deliver({
       ...content,
       recipient,
-      actionLabel: "Open Trade Room",
-      actionUrl,
+      actionLabel: { ar: "فتح غرفة الصفقة", en: "Open Trade Room" },
+      actionPath,
       referenceLabel,
       idempotencyKey: input.idempotencyKey,
     });
@@ -184,12 +249,22 @@ export async function prepareListingReviewEmails(input: {
   const sellerDelivery = {
     event: approved ? "listing_approved" : "listing_rejected",
     recipient: seller,
-    title: approved ? "Listing Approved" : "Listing Rejected",
+    title: approved
+      ? { ar: "تمت الموافقة على الإعلان", en: "Listing Approved" }
+      : { ar: "تم رفض الإعلان", en: "Listing Rejected" },
     message: approved
-      ? "Your listing has been approved and is now live in the Alpha Exchange marketplace."
-      : `Your listing was rejected.${input.reason ? ` Reason: ${input.reason}` : ""}`,
-    actionLabel: approved ? "View Live Listing" : "Review Listing",
-    actionUrl: marketplaceUrl(),
+      ? {
+          ar: "تمت الموافقة على إعلانك، وهو متاح الآن في سوق Alpha Exchange.",
+          en: "Your listing has been approved and is now live in the Alpha Exchange marketplace.",
+        }
+      : {
+          ar: `تم رفض إعلانك.${input.reason ? ` السبب: ${input.reason}` : ""}`,
+          en: `Your listing was rejected.${input.reason ? ` Reason: ${input.reason}` : ""}`,
+        },
+    actionLabel: approved
+      ? { ar: "عرض الإعلان المباشر", en: "View Live Listing" }
+      : { ar: "مراجعة الإعلان", en: "Review Listing" },
+    actionPath: marketplacePath(),
     referenceLabel: input.listing.id,
   } as const;
 
@@ -202,10 +277,13 @@ export async function prepareListingReviewEmails(input: {
       ...recipients.map((recipient) => deliver({
         event: "new_listing_published" as const,
         recipient,
-        title: "New USDT Listing Published",
-        message: `${seller.fullName} published ${input.listing.availableAmount} USDT on ${input.listing.network} at ${input.listing.price} ${input.listing.currency}/USDT.`,
-        actionLabel: "Browse Marketplace",
-        actionUrl: marketplaceUrl(),
+        title: { ar: "نُشر إعلان USDT جديد", en: "New USDT Listing Published" },
+        message: {
+          ar: `نشر ${seller.fullName} كمية ${input.listing.availableAmount} USDT على شبكة ${input.listing.network} بسعر ${input.listing.price} ${input.listing.currency}/USDT.`,
+          en: `${seller.fullName} published ${input.listing.availableAmount} USDT on ${input.listing.network} at ${input.listing.price} ${input.listing.currency}/USDT.`,
+        },
+        actionLabel: { ar: "تصفّح السوق", en: "Browse Marketplace" },
+        actionPath: marketplacePath(),
         referenceLabel: input.listing.id,
       })),
     ]);

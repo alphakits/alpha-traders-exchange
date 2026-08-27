@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getIsraeliBankOption, normalizeIsraeliBankName } from "@/lib/israeli-banks";
+import { getIsraeliBankDisplayName, getIsraeliBankOption, normalizeIsraeliBankName } from "@/lib/israeli-banks";
 
 describe("israeli bank helpers", () => {
   it("resolves the official bank option from a known bank name", () => {
@@ -24,5 +24,17 @@ describe("israeli bank helpers", () => {
 
   it("falls back to the generic bank transfer label for unknown banks", () => {
     expect(getIsraeliBankOption("Mystery Bank")).toMatchObject({ name: "Bank transfer" });
+  });
+
+  it("shows Arabic bank names without changing the canonical stored value", () => {
+    expect(getIsraeliBankDisplayName("Bank Hapoalim", "ar")).toBe("بنك هبوعليم");
+    expect(getIsraeliBankDisplayName("Bank Hapoalim", "en")).toBe("Bank Hapoalim");
+    expect(normalizeIsraeliBankName("Bank Hapoalim")).toBe("Bank Hapoalim");
+  });
+
+  it("preserves unknown legacy bank labels only when they match the display language", () => {
+    expect(getIsraeliBankDisplayName("Legacy Community Bank", "en")).toBe("Legacy Community Bank");
+    expect(getIsraeliBankDisplayName("Legacy Community Bank", "ar")).toBe("تحويل بنكي");
+    expect(getIsraeliBankDisplayName("بنك محلي", "ar")).toBe("بنك محلي");
   });
 });

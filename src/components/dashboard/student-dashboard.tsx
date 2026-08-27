@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useLocale } from "next-intl";
 import { CalendarClock, CheckCircle2, Clock3, FileText, PlayCircle } from "lucide-react";
-import { lessons } from "@/lib/content";
+import { getLessonBySlug, lessons } from "@/lib/content";
 import { getDashboardSnapshot, getLearningMeta } from "@/lib/learning-progress";
 import { Link } from "@/i18n/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,6 +16,12 @@ export function StudentDashboard() {
   const snapshot = useMemo(() => getDashboardSnapshot(lessons), []);
   const meta = useMemo(() => getLearningMeta(), []);
   const overallProgress = lessons.length ? Math.round((snapshot.completedLessons / lessons.length) * 100) : 0;
+  const lastLesson = meta.lastLessonSlug ? getLessonBySlug(meta.lastLessonSlug) : undefined;
+  const lastLessonLabel = meta.lastLessonSlug
+    ? lastLesson
+      ? (isAr ? lastLesson.titleAr : lastLesson.title)
+      : (isAr ? "درس محفوظ" : "Saved lesson")
+    : null;
 
   return (
     <section className="section-container page-shell">
@@ -43,12 +49,12 @@ export function StudentDashboard() {
         <Card className="h-full transition duration-300 hover:-translate-y-0.5 hover:border-[#C9A227]/30">
           <CardHeader>
             <CardDescription>{isAr ? "تقدم الدورة" : "Course Progress"}</CardDescription>
-            <CardTitle>{overallProgress}%</CardTitle>
+            <CardTitle><bdi dir="ltr">{overallProgress}%</bdi></CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <Progress value={overallProgress} />
             <p className="text-sm text-[#9CA3AF]">
-              {snapshot.completedLessons}/{lessons.length} {isAr ? "دروس مكتملة" : "lessons completed"}
+              <bdi dir="ltr">{snapshot.completedLessons}/{lessons.length}</bdi> {isAr ? "دروس مكتملة" : "lessons completed"}
             </p>
           </CardContent>
         </Card>
@@ -89,7 +95,12 @@ export function StudentDashboard() {
           <CardContent className="text-sm text-[#9CA3AF]">
             <div className="flex items-center gap-2">
               <CalendarClock className="h-4 w-4 text-[#C9A227]" />
-              {meta.lastLessonSlug ? (isAr ? `آخر درس: ${meta.lastLessonSlug}` : `Last lesson: ${meta.lastLessonSlug}`) : isAr ? "ابدأ أول درس الآن." : "Start your first lesson now."}
+              {lastLessonLabel ? (
+                <>
+                  {isAr ? "آخر درس: " : "Last lesson: "}
+                  <bdi dir="auto">{lastLessonLabel}</bdi>
+                </>
+              ) : isAr ? "ابدأ أول درس الآن." : "Start your first lesson now."}
             </div>
           </CardContent>
         </Card>

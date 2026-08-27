@@ -53,10 +53,15 @@ const subscribeToNothing = () => () => undefined;
 const getSecondClockSnapshot = () => secondClockSnapshot;
 const getServerClockSnapshot = () => 0;
 
-export function formatDiscordShareCountdown(seconds: number) {
+export function formatDiscordShareCountdown(seconds: number, locale: "ar" | "en" = "en") {
   const safeSeconds = Math.max(0, Math.ceil(seconds));
   const hours = Math.floor(safeSeconds / 3600);
   const minutes = Math.floor((safeSeconds % 3600) / 60);
+  if (locale === "ar") {
+    if (hours > 0) return `${hours} س ${minutes} د`;
+    if (minutes > 0) return `${minutes} د`;
+    return safeSeconds > 0 ? "أقل من دقيقة" : "الآن";
+  }
   if (hours > 0) return `${hours}h ${minutes}m`;
   if (minutes > 0) return `${minutes}m`;
   return safeSeconds > 0 ? "<1m" : "now";
@@ -67,12 +72,15 @@ export const DiscordShareAction = memo(function DiscordShareAction({
   sharing,
   busy,
   onShare,
+  locale = "en",
 }: {
   listing: MarketplaceListing;
   sharing: DiscordListingSharingStatus | null;
   busy: boolean;
   onShare: (listing: MarketplaceListing) => void;
+  locale?: "ar" | "en";
 }) {
+  const isAr = locale === "ar";
   const mapping = sharing?.listings.find((item) => item.listingId === listing.id);
   const serverOffsetMs = useMemo(
     () => sharing ? new Date(sharing.serverTime).getTime() - Date.now() : 0,
@@ -100,45 +108,47 @@ export const DiscordShareAction = memo(function DiscordShareAction({
     && toAmount(listing.availableAmount) > 0
     && (!listing.expiresAt || new Date(listing.expiresAt).getTime() > Date.now());
   const cooldownLabel = secondsRemaining > 0
-    ? formatDiscordShareCountdown(secondsRemaining)
+    ? formatDiscordShareCountdown(secondsRemaining, locale)
     : null;
 
-  let label = "Share to Discord";
-  let detail = "Publish this current listing to the managed Discord marketplace.";
+  let label = isAr ? "المشاركة على Discord" : "Share to Discord";
+  let detail = isAr ? "انشر هذا العرض الحالي في سوق Discord المُدار." : "Publish this current listing to the managed Discord marketplace.";
   let disabled = busy || !listingEligible || !sharing?.available || !sharing.linked;
   if (busy) {
-    label = "Accepting share...";
-    detail = "The website is validating and claiming your share window.";
+    label = isAr ? "جارٍ قبول المشاركة..." : "Accepting share...";
+    detail = isAr ? "يتحقق الموقع من العرض ويحجز نافذة المشاركة الآمنة." : "The website is validating and claiming your share window.";
   } else if (!listingEligible) {
-    label = "Listing ineligible";
-    detail = "Only approved active listings with available USDT can be shared.";
+    label = isAr ? "العرض غير مؤهل للمشاركة" : "Listing ineligible";
+    detail = isAr ? "يمكن مشاركة العروض النشطة والمعتمدة التي تحتوي على USDT متاح فقط." : "Only approved active listings with available USDT can be shared.";
   } else if (!sharing?.available) {
-    label = "Sharing unavailable";
-    detail = "Discord sharing status could not be loaded. Your listing actions still work.";
+    label = isAr ? "المشاركة غير متاحة" : "Sharing unavailable";
+    detail = isAr ? "تعذّر تحميل حالة مشاركة Discord. لا تزال إجراءات العرض الأخرى تعمل." : "Discord sharing status could not be loaded. Your listing actions still work.";
   } else if (!sharing.linked) {
-    label = "Connect Discord first";
-    detail = "Link Discord in Account Settings before sharing.";
+    label = isAr ? "اربط Discord أولاً" : "Connect Discord first";
+    detail = isAr ? "اربط حساب Discord من إعدادات الحساب قبل المشاركة." : "Link Discord in Account Settings before sharing.";
   } else if (mapping?.state === "queued" || mapping?.state === "publishing") {
-    label = "Publishing to Discord...";
-    detail = "Accepted by Alpha Traders and waiting for the Discord worker.";
+    label = isAr ? "جارٍ النشر على Discord..." : "Publishing to Discord...";
+    detail = isAr ? "قبلت Alpha Traders الطلب وهو بانتظار خدمة نشر Discord." : "Accepted by Alpha Traders and waiting for the Discord worker.";
     disabled = true;
   } else if (mapping?.state === "update_pending") {
-    label = "Discord update pending";
-    detail = "Your existing Discord post is being refreshed from current listing data.";
+    label = isAr ? "تحديث Discord قيد الانتظار" : "Discord update pending";
+    detail = isAr ? "يتم تحديث منشور Discord الحالي باستخدام أحدث بيانات العرض." : "Your existing Discord post is being refreshed from current listing data.";
     disabled = true;
   } else if (mapping?.state === "failed") {
-    label = "Discord delivery needs support";
-    detail = "The share window remains claimed to prevent spam. Support can inspect the safe delivery diagnostics.";
+    label = isAr ? "نشر Discord يحتاج إلى دعم" : "Discord delivery needs support";
+    detail = isAr ? "تبقى نافذة المشاركة محجوزة لمنع الإرسال المكرر، ويمكن للدعم فحص حالة التسليم الآمنة." : "The share window remains claimed to prevent spam. Support can inspect the safe delivery diagnostics.";
     disabled = true;
   } else if (cooldownLabel) {
-    label = mapping?.state === "active" ? "Shared" : `Next Share ${cooldownLabel}`;
+    label = mapping?.state === "active"
+      ? (isAr ? "تمت المشاركة" : "Shared")
+      : (isAr ? `المشاركة التالية بعد ${cooldownLabel}` : `Next Share ${cooldownLabel}`);
     detail = mapping?.state === "active"
-      ? `Next Share ${cooldownLabel}`
-      : `Seller-wide cooldown • Next Share ${cooldownLabel}`;
+      ? (isAr ? `المشاركة التالية بعد ${cooldownLabel}` : `Next Share ${cooldownLabel}`)
+      : (isAr ? `مهلة موحدة للبائع • المشاركة التالية بعد ${cooldownLabel}` : `Seller-wide cooldown • Next Share ${cooldownLabel}`);
     disabled = true;
   } else if (mapping?.state === "active") {
-    label = "Refresh Discord post";
-    detail = "Refresh the same post from authoritative website data.";
+    label = isAr ? "تحديث منشور Discord" : "Refresh Discord post";
+    detail = isAr ? "حدّث المنشور نفسه باستخدام بيانات الموقع المعتمدة." : "Refresh the same post from authoritative website data.";
     disabled = false;
   }
 

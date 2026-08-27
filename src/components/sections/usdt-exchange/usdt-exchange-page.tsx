@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, ArrowRight, BadgePercent, BellRing, Building2, CheckCircle2, Check, ChevronDown, ChevronRight, Clock3, Copy, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Users, Wallet, WalletCards, X, Zap } from "lucide-react";
+import { AlertTriangle, ArrowRight, BadgePercent, BellRing, Building2, CheckCircle2, Check, ChevronDown, ChevronRight, Clock3, Copy, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Upload, Users, Wallet, WalletCards, X, Zap } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,7 +25,7 @@ import { useOptionalCanonicalSession } from "@/components/auth/canonical-session
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import { sellerListingWorkspaceAnchor } from "@/lib/action-destinations";
 import type { ClientSessionUser } from "@/lib/client-session-user";
-import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
+import { getIsraeliBankDisplayName, MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
 import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, isCardlessAtmPaymentMethod, isBankTransferPaymentMethod, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import { CLIENT_COMMISSION_WALLETS, COMMISSION_NETWORKS, type CommissionNetworkId, type CommissionWalletConfiguration } from "@/lib/commission-config";
 import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, finalizeLoginJourneyRedirectEnd, incrementLoginJourneyApiCall, isLoginJourneyTraceEnabled } from "@/lib/login-journey-trace";
@@ -43,7 +43,7 @@ import { LISTING_CHANGE_REASONS, listingEditRequiresReason, validateListingChang
 import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 import { formatNotificationRelativeTime } from "@/lib/notification-time";
-import { containsArabicText, localizeNotificationActionLabel, localizeNotificationCopy } from "@/lib/notification-localization";
+import { containsArabicText, localizeActivityCopy, localizeNotificationActionLabel, localizeNotificationCopy } from "@/lib/notification-localization";
 import { calculateSellerMarketplaceInsights } from "@/lib/marketplace-insights";
 import { cn } from "@/lib/utils";
 import { SELLER_PRESTIGE_TIERS } from "@/lib/seller-prestige";
@@ -51,7 +51,7 @@ import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
 import { deriveBuyerRankSummary, type BuyerRankSummary } from "@/lib/buyer-rank";
 import { navigateAfterSuccess, navigateOrRevealResult } from "@/lib/client-success-navigation";
 import { ensurePayoutBankIsSupported, isPayoutBankSupported } from "@/lib/seller-listing-bank-selection";
-import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SupportedNetwork } from "@/types/alpha-exchange";
+import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, AuditAction, ListingStatus, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, TradeTimelineEntry } from "@/types/alpha-exchange";
 
 const WHATSAPP_URL = getOfficialOwnerWhatsAppUrl();
 const MAX_EVIDENCE_SIZE_BYTES = 8 * 1024 * 1024;
@@ -99,6 +99,27 @@ function sellerApplicationMethodLabel(method: SellerApplicationMethod, isAr: boo
   if (method === "Cardless Withdrawal") return "سحب بلا بطاقة";
   if (method === "Bank Transfer") return "تحويل بنكي";
   return method;
+}
+
+export function spokenLanguageLabel(language: string, isAr: boolean) {
+  if (!isAr) return language;
+  const normalized = language.trim().toLowerCase();
+  if (["english", "en", "الإنجليزية", "الانجليزية"].includes(normalized)) return "الإنجليزية";
+  if (["arabic", "ar", "العربية"].includes(normalized)) return "العربية";
+  if (["hebrew", "he", "العبرية", "עברית"].includes(normalized)) return "العبرية";
+  return containsArabicText(language) ? language : "لغة إضافية";
+}
+
+export function sellerAccountStatusLabel(status: SellerStatus | null | undefined, isAr: boolean) {
+  const normalized = status ?? "buyer";
+  const labels: Record<SellerStatus, { ar: string; en: string }> = {
+    buyer: { ar: "مشتري", en: "Buyer" },
+    pending_seller_approval: { ar: "طلب البائع قيد المراجعة", en: "Seller application pending" },
+    approved_seller: { ar: "بائع معتمد", en: "Approved seller" },
+    rejected: { ar: "طلب البائع مرفوض", en: "Seller application rejected" },
+    suspended: { ar: "حساب البائع معلّق", en: "Seller account suspended" },
+  };
+  return labels[normalized][isAr ? "ar" : "en"];
 }
 
 type Locale = "ar" | "en";
@@ -182,6 +203,223 @@ function safeText(value: unknown, fallback = "—") {
   return fallback;
 }
 
+export function marketReferenceLabel(reference: string | null | undefined, source: string | null | undefined, isAr: boolean) {
+  const rawLabel = safeText(reference, safeText(source, ""));
+  const normalized = rawLabel.toLowerCase().replace(/[_-]+/g, " ").trim();
+
+  if (normalized.includes("coinbase") && normalized.includes("spot")) {
+    return isAr ? "سوق Coinbase الفوري" : "Coinbase spot market";
+  }
+  if (normalized.includes("marketplace reference") || normalized.includes("alpha reference")) {
+    return isAr ? "مرجع سوق Alpha Traders" : "Alpha Traders market reference";
+  }
+  if (isAr && rawLabel && !containsArabicText(rawLabel)) return "مصدر تسعير موثوق";
+  return rawLabel || (isAr ? "مصدر تسعير موثوق" : "Trusted pricing source");
+}
+
+export function localizedTimelineMessage(event: TradeTimelineEntry, isAr: boolean) {
+  if (!isAr) return event.message;
+  if (containsArabicText(event.message)) return event.message;
+  const labels: Record<TradeTimelineEntry["type"], string> = {
+    request_submitted: "أرسل المشتري طلب الصفقة.",
+    request_accepted: "وافق البائع على طلب الصفقة.",
+    payment_sent: "أكد المشتري إرسال الدفعة.",
+    seller_confirmed_funds: "أكد البائع استلام الدفعة.",
+    usdt_release_started: "بدأت مرحلة إرسال USDT.",
+    usdt_sent: "أكد البائع إرسال USDT.",
+    trade_completed: "اكتملت الصفقة بنجاح.",
+    trade_timed_out: "انتهت مهلة الصفقة.",
+    trade_locked: "تم قفل الصفقة للمراجعة.",
+    review_unlocked: "أصبح تقييم الصفقة متاحاً.",
+    dispute_opened: "تم فتح نزاع على الصفقة.",
+    commission_recorded: "تم تسجيل عمولة الصفقة.",
+    commission_paid: "تم تأكيد دفع العمولة.",
+    buyer_evidence_uploaded: "رفع المشتري إثبات الدفع.",
+    seller_evidence_uploaded: "رفع البائع إثبات إرسال USDT.",
+    request_declined: "رفض البائع طلب الصفقة.",
+    request_cancelled: "تم إلغاء طلب الصفقة.",
+    buyer_confirmed_receipt: "أكد المشتري استلام USDT.",
+    buyer_confirmation_overdue: "تأخر تأكيد المشتري للاستلام.",
+    trade_closed_manually: "تم إغلاق الصفقة يدوياً.",
+    trade_inactivity_warning_sent: "تم إرسال تنبيه بسبب عدم النشاط.",
+    bank_details_revealed: "أصبحت تفاصيل التحويل البنكي متاحة للمشتري.",
+  };
+  return labels[event.type] ?? "تم تحديث حالة الصفقة.";
+}
+
+export function localizedAuditAction(action: AuditAction | string, isAr: boolean) {
+  if (!isAr) {
+    return action
+      .split("_")
+      .filter(Boolean)
+      .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+      .join(" ");
+  }
+
+  const labels: Partial<Record<AuditAction, string>> = {
+    seller_approved: "الموافقة على البائع",
+    seller_rejected: "رفض طلب البائع",
+    seller_suspended: "تعليق حساب البائع",
+    seller_reactivated: "إعادة تفعيل البائع",
+    seller_featured: "تمييز البائع",
+    seller_hidden: "إخفاء ملف البائع",
+    seller_unhidden: "إظهار ملف البائع",
+    listing_created: "إنشاء إعلان",
+    listing_expired: "انتهاء الإعلان",
+    listing_renewed: "تجديد الإعلان",
+    listing_expiration_extended: "تمديد صلاحية الإعلان",
+    listing_edited: "تعديل الإعلان",
+    listing_paused: "إيقاف الإعلان مؤقتاً",
+    listing_resumed: "استئناف الإعلان",
+    listing_matched: "مطابقة الإعلان مع طلب",
+    listing_reopened: "إعادة فتح الإعلان",
+    listing_completed: "اكتمال الإعلان",
+    listing_cancelled: "إلغاء الإعلان",
+    listing_closed: "إغلاق الإعلان",
+    listing_removed: "إزالة الإعلان",
+    purchase_request_submitted: "إرسال طلب شراء",
+    purchase_completed: "اكتمال عملية الشراء",
+    commission_recorded: "تسجيل العمولة",
+    commission_paid: "دفع العمولة",
+    commission_overdue: "تأخر دفع العمولة",
+    seller_vacation_enabled: "تفعيل وضع الإجازة",
+    seller_vacation_disabled: "إيقاف وضع الإجازة",
+    trade_timed_out: "انتهاء مهلة الصفقة",
+    admin_override: "تعديل إداري",
+    trade_review_submitted: "إرسال تقييم الصفقة",
+    trade_review_responded: "الرد على تقييم الصفقة",
+    trust_score_updated: "تحديث درجة الثقة",
+    beta_invite_created: "إنشاء دعوة تجريبية",
+    beta_invite_expired: "انتهاء الدعوة التجريبية",
+    beta_invite_disabled: "تعطيل الدعوة التجريبية",
+    beta_feedback_status_updated: "تحديث حالة الملاحظات",
+    beta_announcement_created: "إنشاء إعلان تجريبي",
+    beta_announcement_updated: "تحديث إعلان تجريبي",
+    admin_announcement_started: "بدء الإعلان الإداري",
+    admin_announcement_completed: "اكتمال الإعلان الإداري",
+    trade_evidence_uploaded: "رفع إثبات الصفقة",
+    trade_evidence_replaced: "استبدال إثبات الصفقة",
+    trade_evidence_viewed_by_owner: "عرض المالك لإثبات الصفقة",
+    trade_evidence_viewed_by_moderator: "عرض المشرف لإثبات الصفقة",
+    trade_evidence_downloaded: "تنزيل إثبات الصفقة",
+    seller_prestige_promoted: "ترقية مستوى البائع",
+    seller_prestige_overridden: "تعديل مستوى البائع إدارياً",
+    marketplace_enforcement_fee_issued: "إصدار رسوم امتثال السوق",
+    marketplace_enforcement_fee_paid: "دفع رسوم امتثال السوق",
+    marketplace_enforcement_restriction_removed: "إزالة قيود السوق",
+    marketplace_enforcement_seller_revoked: "سحب صلاحية البائع",
+    seller_bank_account_added: "إضافة حساب بنكي للبائع",
+    seller_bank_account_updated: "تحديث حساب بنكي للبائع",
+    seller_bank_account_deleted: "حذف حساب بنكي للبائع",
+    trade_closed_manually: "إغلاق الصفقة يدوياً",
+    trade_inactivity_warning_sent: "إرسال تنبيه عدم نشاط",
+    trade_bank_details_revealed: "إظهار تفاصيل التحويل البنكي",
+  };
+  return labels[action as AuditAction] ?? "إجراء إداري";
+}
+
+export function formatIsraelMarketTime(value: string | null | undefined, isAr: boolean) {
+  if (!value) return "--:--";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "--:--";
+  return parsed.toLocaleTimeString(isAr ? "ar-IL-u-nu-latn" : "en-IL", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Jerusalem",
+  });
+}
+
+export function marketTrendAriaLabel(pairLabel: string, isAr: boolean) {
+  return isAr
+    ? `رسم بياني مصغّر لحركة سعر ${pairLabel}`
+    : `${pairLabel} price trend chart`;
+}
+
+function CompactTradeTimeline({ events, isAr }: { events: TradeTimelineEntry[]; isAr: boolean }) {
+  const compactEvents = [...events]
+    .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime())
+    .reduce<Array<{ event: TradeTimelineEntry; count: number; message: string }>>((items, event) => {
+      const message = localizedTimelineMessage(event, isAr);
+      const previous = items[items.length - 1];
+      if (previous?.event.type === event.type && previous.message === message) {
+        previous.count += 1;
+        previous.event = event;
+        return items;
+      }
+      items.push({ event, count: 1, message });
+      return items;
+    }, []);
+  const recentEvents = compactEvents.slice(-3);
+  const olderEvents = compactEvents.slice(0, -3);
+  const renderEvent = ({ event, count, message }: (typeof compactEvents)[number]) => (
+    <div key={event.id} className="flex items-start gap-2 text-sm leading-6">
+      <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-[#C9A227]" />
+      <span className="min-w-0 text-[#D1D5DB]">
+        <span className="me-1 text-xs text-[#9CA3AF]">
+          {new Date(event.createdAt).toLocaleTimeString(isAr ? "ar-IL-u-nu-latn" : "en-IL", { hour: "2-digit", minute: "2-digit" })}
+        </span>
+        {message}
+        {count > 1 ? <span className="ms-1 text-xs text-[#9CA3AF]">×{count}</span> : null}
+      </span>
+    </div>
+  );
+
+  if (!compactEvents.length) return null;
+  return (
+    <div className="space-y-2 rounded-xl border border-white/10 bg-black/20 p-3">
+      <p className="text-sm font-semibold text-white">{isAr ? "آخر تحديثات الصفقة" : "Latest trade updates"}</p>
+      {olderEvents.length ? (
+        <details className="group rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 text-sm font-medium text-[#D1D5DB]">
+            <span>{isAr ? `عرض ${olderEvents.length.toLocaleString("ar-IL-u-nu-latn")} تحديثات سابقة` : `Show ${olderEvents.length} earlier update${olderEvents.length === 1 ? "" : "s"}`}</span>
+            <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
+          </summary>
+          <div className="mt-2 space-y-2 border-t border-white/10 pt-2">{olderEvents.map(renderEvent)}</div>
+        </details>
+      ) : null}
+      <div className="space-y-2">{recentEvents.map(renderEvent)}</div>
+    </div>
+  );
+}
+
+function LocalizedEvidenceFileInput({
+  id,
+  isAr,
+  selectedFile,
+  onSelect,
+}: {
+  id: string;
+  isAr: boolean;
+  selectedFile: File | null;
+  onSelect: (file: File | null) => void;
+}) {
+  const fileNameId = `${id}-file-name`;
+  return (
+    <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+      <label
+        htmlFor={id}
+        className="relative inline-flex min-h-11 shrink-0 cursor-pointer items-center justify-center gap-2 overflow-hidden rounded-xl border border-white/15 bg-white/5 px-4 text-sm font-medium text-white transition hover:border-[#C9A227]/45 hover:bg-[#C9A227]/10 focus-within:ring-2 focus-within:ring-[#C9A227]/40"
+      >
+        <input
+          id={id}
+          type="file"
+          accept=".png,.jpg,.jpeg,.webp,.pdf"
+          aria-label={isAr ? "اختيار ملف الإثبات" : "Choose evidence file"}
+          aria-describedby={fileNameId}
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+          onChange={(event) => onSelect(event.target.files?.[0] ?? null)}
+        />
+        <Upload className="h-4 w-4 text-[#F4D87A]" aria-hidden="true" />
+        <span>{isAr ? "اختيار ملف" : "Choose file"}</span>
+      </label>
+      <span id={fileNameId} className="min-w-0 break-all text-sm leading-5 text-[#D1D5DB]" aria-live="polite">
+        {selectedFile?.name ?? (isAr ? "لم يتم اختيار ملف" : "No file selected")}
+      </span>
+    </div>
+  );
+}
+
 function formatIls(value: number) {
   return `₪${value.toFixed(2)}`;
 }
@@ -190,16 +428,35 @@ function formatUsdt(value: number) {
   return `${value.toFixed(2)} USDT`;
 }
 
+export function formatIsraelDateKey(value: string | number | Date) {
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: "Asia/Jerusalem",
+  }).formatToParts(parsed);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
 function groupActivityEntriesByDay(entries: AlphaExchangeActivityLogEntry[], locale: Locale) {
   const sorted = [...entries].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
   const grouped = new Map<string, AlphaExchangeActivityLogEntry[]>();
   for (const entry of sorted) {
-    const dayKey = entry.createdAt.slice(0, 10);
+    const dayKey = formatIsraelDateKey(entry.createdAt);
+    if (!dayKey) continue;
     grouped.set(dayKey, [...(grouped.get(dayKey) ?? []), entry]);
   }
   return Array.from(grouped.entries()).map(([dayKey, items]) => ({
     dayKey,
-    label: new Date(`${dayKey}T00:00:00`).toLocaleDateString(locale === "ar" ? "ar-IL" : "en-IL", { weekday: "short", month: "short", day: "numeric" }),
+    label: new Intl.DateTimeFormat(locale === "ar" ? "ar-IL-u-nu-latn" : "en-IL", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      timeZone: "Asia/Jerusalem",
+    }).format(new Date(items[0]?.createdAt ?? `${dayKey}T12:00:00.000Z`)),
     items,
   }));
 }
@@ -360,7 +617,7 @@ function purchaseRequestErrorMessage(code: string, isAr: boolean, englishMessage
   return safeErrorMessage("purchase", true);
 }
 
-function localizeWalletValidationError(error: string | null, network: SupportedNetwork, isAr = false) {
+export function localizeWalletValidationError(error: string | null, network: SupportedNetwork, isAr = false) {
   if (!error || !isAr) return error;
   if (error.includes("is required")) return `عنوان محفظة الاستلام مطلوب لشبكة ${network}.`;
   if (network === "ERC20" || network === "BEP20") return `تتطلب شبكة ${network} عنوان EVM من 42 خانة يبدأ بـ 0x.`;
@@ -394,26 +651,36 @@ async function readApiErrorMessage(response: Response, fallback: string) {
   return fallbackText;
 }
 
-function tradeStatusLabel(status: PurchaseRequest["status"], isAr = false) {
-  if (isAr) {
-    if (status === "pending") return "قيد الانتظار";
-    if (status === "accepted") return "مقبولة";
-    if (status === "payment_sent") return "تم إرسال الدفعة";
-    if (status === "funds_received") return "تم استلام الأموال";
-    if (status === "usdt_release_pending") return "إرسال USDT قيد الانتظار";
-    if (status === "usdt_sent") return "تم إرسال USDT";
-    if (status === "review_open") return "التقييم متاح";
-    if (status === "completed") return "مكتملة";
-    if (status === "declined") return "مرفوضة";
-    if (status === "cancelled") return "ملغاة";
-    return "قيد المعالجة";
-  }
-  if (status === "payment_sent") return "Payment Sent";
-  if (status === "funds_received") return "Funds Received";
-  if (status === "usdt_release_pending") return "USDT Release Pending";
-  if (status === "usdt_sent") return "USDT Sent";
-  if (status === "review_open") return "Review Open";
-  return status[0].toUpperCase() + status.slice(1);
+const TRADE_STATUS_LABELS_EN = {
+  pending: "Pending",
+  accepted: "Accepted",
+  payment_sent: "Payment Sent",
+  funds_received: "Funds Received",
+  usdt_release_pending: "USDT Release Pending",
+  usdt_sent: "USDT Sent",
+  completed: "Completed",
+  locked: "Locked",
+  review_open: "Review Open",
+  declined: "Declined",
+  cancelled: "Cancelled",
+} satisfies Record<PurchaseRequest["status"], string>;
+
+const TRADE_STATUS_LABELS_AR = {
+  pending: "قيد الانتظار",
+  accepted: "مقبولة",
+  payment_sent: "تم إرسال الدفعة",
+  funds_received: "تم استلام الأموال",
+  usdt_release_pending: "إرسال USDT قيد الانتظار",
+  usdt_sent: "تم إرسال USDT",
+  completed: "مكتملة",
+  locked: "مقفلة",
+  review_open: "التقييم متاح",
+  declined: "مرفوضة",
+  cancelled: "ملغاة",
+} satisfies Record<PurchaseRequest["status"], string>;
+
+export function tradeStatusLabel(status: PurchaseRequest["status"], isAr = false) {
+  return isAr ? TRADE_STATUS_LABELS_AR[status] : TRADE_STATUS_LABELS_EN[status];
 }
 
 type TradeQueueSectionKey = "action" | "active" | "waiting" | "completed" | "cancelled";
@@ -552,19 +819,38 @@ function sellerBadgeLabel(badge: SellerBadge, isAr = false) {
   return "1000+ Trades";
 }
 
-function listingStatusLabel(status: string | null | undefined, isAr = false) {
+const LISTING_STATUS_LABELS_EN = {
+  draft: "Draft",
+  active: "Active",
+  paused: "Paused",
+  matched: "Matched to Trade",
+  in_trade: "In Trade",
+  expired: "Expired",
+  completed: "Completed",
+  cancelled: "Cancelled",
+  closed: "Closed",
+} satisfies Record<ListingStatus, string>;
+
+const LISTING_STATUS_LABELS_AR = {
+  draft: "مسودة",
+  active: "نشط",
+  paused: "متوقف مؤقتاً",
+  matched: "مرتبط بصفقة",
+  in_trade: "قيد التداول",
+  expired: "منتهي الصلاحية",
+  completed: "مكتمل",
+  cancelled: "ملغى",
+  closed: "مغلق",
+} satisfies Record<ListingStatus, string>;
+
+export function listingStatusLabel(status: string | null | undefined, isAr = false) {
   const value = safeText(status, isAr ? "غير معروف" : "Unknown");
-  if (!isAr) return value;
-  const labels: Record<string, string> = {
-    active: "نشط",
-    paused: "متوقف مؤقتاً",
-    draft: "مسودة",
-    matched: "مرتبط بصفقة",
-    in_trade: "قيد التداول",
-    expired: "منتهي الصلاحية",
-    removed: "محذوف",
-  };
-  return labels[value.toLowerCase()] ?? (containsArabicText(value) ? value : "قيد المراجعة");
+  const normalized = value.toLowerCase();
+  if (normalized in LISTING_STATUS_LABELS_EN) {
+    const key = normalized as ListingStatus;
+    return isAr ? LISTING_STATUS_LABELS_AR[key] : LISTING_STATUS_LABELS_EN[key];
+  }
+  return isAr && !containsArabicText(value) ? "غير معروف" : value;
 }
 
 function listingChangeReasonLabel(reason: string, isAr = false) {
@@ -2367,9 +2653,8 @@ export function UsdtExchangePage({
         setApplicationSubmitted(true);
         window.dispatchEvent(new Event("alpha-auth-changed"));
       }
-    } catch (error) {
-      const message = error instanceof Error && error.message.trim() ? error.message : fallbackMessage;
-      setStatusMessage(message);
+    } catch {
+      setStatusMessage(fallbackMessage);
     }
   }
 
@@ -2396,7 +2681,7 @@ export function UsdtExchangePage({
     }
     const walletValidationError = getWalletAddressValidationError(selectedListing.network, buyerInfo.receivingWalletAddress);
     if (walletValidationError) {
-      setStatusMessage(walletValidationError);
+      setStatusMessage(localizeWalletValidationError(walletValidationError, selectedListing.network, isAr));
       return;
     }
     const fallbackMessage = isAr
@@ -2536,7 +2821,8 @@ export function UsdtExchangePage({
   const listingCreateTotalIls = listingCreateAmount * listingCreatePrice;
   const listingCreateCurrencyValue = Number.isFinite(listingCreateTotalIls) ? Math.round(listingCreateTotalIls) : 0;
   const listingCreationBlocked = Boolean(sellerWorkspaceSummary && !sellerWorkspaceSummary.canCreateListing);
-  const listingCreationBlockedReason = sellerWorkspaceSummary?.blockedReason ?? "Listing creation is currently blocked.";
+  const listingCreationBlockedReason = sellerWorkspaceSummary?.blockedReason
+    ?? (isAr ? "إنشاء العروض متوقف حالياً. راجع العروض النشطة أو العمولة أو حالة الامتثال." : "Listing creation is currently blocked.");
   const listingBlockedByMarketplaceEnforcement = Boolean(sellerWorkspaceSummary?.enforcement?.restricted);
   const listingBlockedByCommission = !listingBlockedByMarketplaceEnforcement && (sellerWorkspaceSummary?.pendingCommissionCount ?? 0) > 0;
   const listingBlockedByActiveLimit = Boolean(
@@ -2612,7 +2898,7 @@ export function UsdtExchangePage({
   const selectedListingPaymentMethods = selectedListing ? normalizePaymentMethodList(selectedListing.paymentMethods, selectedListing.paymentMethod) : [];
   const selectedListingPaymentMethod = normalizeMarketplacePaymentMethod(selectedPurchasePaymentMethod) ?? selectedListingPaymentMethods[0] ?? null;
   const selectedListingRequiresSafetyNotice = listingRequiresFaceToFaceSafetyNotice(selectedListingPaymentMethod);
-  const todayDateKey = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const todayDateKey = useMemo(() => formatIsraelDateKey(new Date()), []);
 
   const sellerRequests = useMemo(() => myRequests.filter((request) => request.sellerId === sessionUser?.id), [myRequests, sessionUser?.id]);
   const buyerRequests = useMemo(() => myRequests.filter((request) => request.buyerId === sessionUser?.id), [myRequests, sessionUser?.id]);
@@ -2752,19 +3038,22 @@ export function UsdtExchangePage({
         :
       myRequests.filter((request) => {
         const completedAt = request.completedAt ?? (request.status === "completed" ? request.updatedAt : "");
-        return completedAt.slice(0, 10) === todayDateKey;
+        return formatIsraelDateKey(completedAt) === todayDateKey;
       }).length,
     [deferredSellerPanelsReady, myRequests, todayDateKey],
   );
   const sortedNotifications = useMemo(() => sortNotificationsNewestFirst(notifications), [notifications]);
   const marketplaceUpdates = useMemo(() => {
     if (!deferredSellerPanelsReady) return [];
-    const activityItems = activityHistory.slice(0, 6).map((entry) => ({
-      id: `activity-${entry.id}`,
-      title: isAr && !containsArabicText(entry.title) ? "تحديث على نشاط السوق" : entry.title,
-      details: isAr && !containsArabicText(entry.details) ? "تم تسجيل تحديث جديد على نشاطك في السوق." : entry.details,
-      createdAt: entry.createdAt,
-    }));
+    const activityItems = activityHistory.slice(0, 6).map((entry) => {
+      const copy = localizeActivityCopy(entry, locale);
+      return {
+        id: `activity-${entry.id}`,
+        title: copy.title,
+        details: copy.details,
+        createdAt: entry.createdAt,
+      };
+    });
     if (activityItems.length) return activityItems;
     return sortedNotifications.slice(0, 6).map((notification) => {
       const copy = localizeNotificationCopy(notification, locale);
@@ -2775,7 +3064,7 @@ export function UsdtExchangePage({
         createdAt: notification.createdAt,
       };
     });
-  }, [activityHistory, deferredSellerPanelsReady, isAr, locale, sortedNotifications]);
+  }, [activityHistory, deferredSellerPanelsReady, locale, sortedNotifications]);
   const groupedActivityHistory = useMemo(
     () => (deferredSellerPanelsReady ? groupActivityEntriesByDay(activityHistory, locale).slice(0, 4) : []),
     [activityHistory, deferredSellerPanelsReady, locale],
@@ -2812,7 +3101,7 @@ export function UsdtExchangePage({
       recentPurchases: sortedBuyerRequests.slice(0, 3).length,
       uniqueTrustedSellers: uniqueTrustedSellers.size,
       totalUsdtBought,
-      activeDays: new Set(buyerRequests.map((request) => (request.completedAt ?? request.updatedAt ?? request.createdAt).slice(0, 10))).size,
+      activeDays: new Set(buyerRequests.map((request) => formatIsraelDateKey(request.completedAt ?? request.updatedAt ?? request.createdAt)).filter(Boolean)).size,
     };
   }, [buyerRequests, isAr, listingsById, marketPricePerUsdt, sortedBuyerRequests]);
 
@@ -3059,7 +3348,7 @@ export function UsdtExchangePage({
         subtitle: canAccessListingCreation
           ? (isAr ? "ابدأ عرض بيع" : "Start a seller listing")
           : (isAr ? "راجع متطلبات إنشاء العرض" : "Review listing requirements"),
-        stat: isAr ? "فتح" : "Open",
+        stat: isAr ? "ابدأ الإنشاء" : "Create now",
         onClick: () => {
           void scrollToCreateListingSection();
         },
@@ -3134,7 +3423,7 @@ export function UsdtExchangePage({
         key: "public-profile",
         title: isAr ? "الملف العام" : "Public Profile",
         subtitle: isAr ? "عرض ملف البائع" : "View seller profile",
-        stat: isAr ? "فتح" : "Open",
+        stat: isAr ? "عرض الملف" : "View profile",
         onClick: () => router.push("/profile"),
         icon: Users,
         tone: "blue",
@@ -3143,7 +3432,7 @@ export function UsdtExchangePage({
         key: "account-settings",
         title: isAr ? "إعدادات الحساب" : "Account Settings",
         subtitle: isAr ? "الملف الشخصي والأمان" : "Profile and security",
-        stat: isAr ? "فتح" : "Open",
+        stat: isAr ? "إدارة الحساب" : "Manage account",
         onClick: () => router.push("/settings"),
         icon: ShieldCheck,
         tone: "green",
@@ -3250,7 +3539,7 @@ export function UsdtExchangePage({
       key: "marketplace-compliance",
       title: isAr ? "امتثال السوق" : "Marketplace Compliance",
       subtitle: isAr ? "دفعة استعادة الصلاحيات" : "Recovery Payment",
-      stat: isAr ? "إجراء" : "Action",
+      stat: isAr ? "استعادة الصلاحيات" : "Restore access",
       onClick: openMarketplaceCompliancePayment,
       icon: ShieldCheck,
       tone: "amber",
@@ -3491,7 +3780,11 @@ export function UsdtExchangePage({
 
   async function handleSellerListingStatus(listing: MarketplaceListing, nextStatus: "active" | "paused") {
     const actionLabel = nextStatus === "paused" ? "pause" : "resume";
-    const confirmed = window.confirm(nextStatus === "paused" ? "Pause this listing? Buyers will not see it until you resume." : "Resume this listing and make it visible to buyers?");
+    const confirmed = window.confirm(
+      nextStatus === "paused"
+        ? (isAr ? "هل تريد إيقاف هذا الإعلان مؤقتاً؟ لن يراه المشترون حتى تستأنفه." : "Pause this listing? Buyers will not see it until you resume.")
+        : (isAr ? "هل تريد استئناف هذا الإعلان وإظهاره للمشترين؟" : "Resume this listing and make it visible to buyers?"),
+    );
     if (!confirmed) return;
     setListingActionKey(`${listing.id}:${actionLabel}`);
     try {
@@ -4406,11 +4699,13 @@ export function UsdtExchangePage({
             </div>
           </div>
 
-          <div id="workspace-summary" className="mt-4 scroll-mt-24">
-            <p className="text-xs uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "ملخص مساحة العمل" : "Workspace Summary"}</p>
-            <div className="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div id="workspace-summary" className="mt-5 scroll-mt-24">
+            <h2 className="text-lg font-semibold text-white md:text-xl">{isAr ? "مساحة العمل" : "Your workspace"}</h2>
+            <p className="mt-1 text-sm leading-6 text-[#B6BDC8]">{isAr ? "اختر المهمة التي تريد تنفيذها الآن." : "Choose what you want to do next."}</p>
+            <div className="mt-3 grid gap-2 min-[360px]:grid-cols-2 xl:grid-cols-4">
               {workspaceCards.map((card) => {
                 const Icon = card.icon;
+                const statIsAction = ["create-listing", "public-profile", "account-settings", "marketplace-compliance"].includes(card.key);
                 const toneClass = card.tone === "gold"
                   ? "border-[#C9A227]/35 bg-[#C9A227]/10"
                   : card.tone === "blue"
@@ -4424,18 +4719,21 @@ export function UsdtExchangePage({
                     type="button"
                     onClick={card.onClick}
                     aria-label={`${card.title}: ${card.subtitle}`}
-                    className={`w-full rounded-2xl border p-3.5 text-start transition hover:-translate-y-0.5 hover:border-white/30 ${toneClass}`}
+                    className={`flex min-h-[116px] w-full flex-col rounded-2xl border p-3 text-start transition hover:-translate-y-0.5 hover:border-white/30 ${toneClass}`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{card.title}</p>
-                        <p className="mt-1 text-xs font-medium text-[#D1D5DB]">{card.subtitle}</p>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold leading-5 text-white">{card.title}</p>
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#C8CDD5]">{card.subtitle}</p>
                       </div>
-                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-black/20">
+                      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/15 bg-black/20">
                         <Icon className="h-4 w-4 text-[#F4D87A]" />
                       </span>
                     </div>
-                    <p className="mt-2 text-2xl font-semibold tracking-tight text-white">{card.stat}</p>
+                    <p className={cn("mt-auto pt-2 font-semibold", statIsAction ? "inline-flex items-center gap-1 text-sm text-[#F4D87A]" : "text-xl tracking-tight text-white")}>
+                      {card.stat}
+                      {statIsAction ? <ArrowRight className={cn("h-4 w-4", isAr && "rotate-180")} aria-hidden="true" /> : null}
+                    </p>
                   </button>
                 );
               })}
@@ -4617,7 +4915,7 @@ export function UsdtExchangePage({
           <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "السوق المباشر" : "Live Marketplace"}</h2>
           <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
             <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-            LIVE
+            {isAr ? "مباشر" : "LIVE"}
           </div>
         </div>
 
@@ -4630,7 +4928,7 @@ export function UsdtExchangePage({
             </div>
             <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-[11px] text-emerald-300">
               <span className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-              {marketSnapshot?.status === "live" ? "LIVE" : (isAr ? "آخر تحديث" : "Last update")}
+              {marketSnapshot?.status === "live" ? (isAr ? "مباشر" : "LIVE") : (isAr ? "آخر تحديث" : "Last update")}
             </span>
           </div>
           {(() => {
@@ -4659,11 +4957,11 @@ export function UsdtExchangePage({
                         </div>
                         <p className="mt-2 text-2xl font-semibold tracking-tight text-white">{formatMarketCardPrice(pair.key, pair.price)}</p>
                         <div className="mt-3 h-10 rounded-xl border border-white/10 bg-black/30 px-2 py-1">
-                          <svg viewBox="0 0 100 32" className="h-full w-full" preserveAspectRatio="none" role="img" aria-label={`${pair.label} sparkline`}>
+                          <svg viewBox="0 0 100 32" className="h-full w-full" preserveAspectRatio="none" role="img" aria-label={marketTrendAriaLabel(pair.label, isAr)}>
                             <path d={spark} fill="none" stroke={positive ? "#34D399" : "#F87171"} strokeWidth="2" strokeLinecap="round" />
                           </svg>
                         </div>
-                        <p className="mt-2 text-[11px] text-[#9CA3AF]">{pair.reference ?? pair.source}</p>
+                        <p className="mt-2 text-xs leading-5 text-[#AEB5C0]">{marketReferenceLabel(pair.reference, pair.source, isAr)}</p>
                       </article>
                     );
                   })}
@@ -4673,7 +4971,7 @@ export function UsdtExchangePage({
           })()}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.07] px-4 py-2.5 text-[11px] text-[#9CA3AF] sm:px-5">
             <span>
-              {isAr ? "آخر تحديث" : "Last update"}: {marketSnapshot?.updatedAt ? new Date(marketSnapshot.updatedAt).toISOString().slice(11, 16) : "--:--"}
+              {isAr ? "آخر تحديث" : "Last update"}: {formatIsraelMarketTime(marketSnapshot?.updatedAt, isAr)}
             </span>
             <span>{isAr ? "الحالة" : "Status"}: <span className={marketSnapshot?.status === "live" ? "text-emerald-300" : "text-amber-200"}>{marketSnapshot?.status === "live" ? (isAr ? "مباشر" : "LIVE") : (isAr ? "متدهور" : "Degraded")}</span></span>
           </div>
@@ -4746,7 +5044,7 @@ export function UsdtExchangePage({
                   || listing.status === "in_trade";
                 const listingPaymentMethods = normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod)
                   .map((method) => paymentMethodLabel(method, isAr))
-                  .join(", ") || (isAr ? "غير محدد" : "Not set");
+                  .join(isAr ? "، " : ", ") || (isAr ? "غير محدد" : "Not set");
                 const listingAttention = isAwaitingApproval
                   ? (isAr ? "بانتظار موافقة الإدارة" : "Awaiting admin approval")
                   : isLockedForActiveTrade
@@ -4814,6 +5112,7 @@ export function UsdtExchangePage({
                         listing={listing}
                         sharing={discordSharing}
                         busy={discordShareActionKey === listing.id}
+                        locale={locale}
                         onShare={(selected) => {
                           void handleDiscordListingShare(selected);
                         }}
@@ -4971,7 +5270,7 @@ export function UsdtExchangePage({
                                       {renderBankLogo(bank)}
                                     </span>
                                     <div>
-                                      <p className="text-xs font-medium text-white">{bank.name}</p>
+                                      <p className="text-xs font-medium text-white">{getIsraeliBankDisplayName(bank.name, locale)}</p>
                                       <p className="text-[10px] text-[#9CA3AF]">{bank.code}</p>
                                     </div>
                                   </div>
@@ -4980,7 +5279,7 @@ export function UsdtExchangePage({
                               );
                             })}
                           </div>
-                          {listingEditSelectedBanks.length ? <p className="mt-2 text-xs text-[#93C5FD]">{isAr ? "المحدد" : "Selected"}: {listingEditSelectedBanks.join(", ")}</p> : null}
+                          {listingEditSelectedBanks.length ? <p className="mt-2 text-xs text-[#93C5FD]">{isAr ? "المحدد" : "Selected"}: {listingEditSelectedBanks.map((bankName) => getIsraeliBankDisplayName(bankName, locale)).join(isAr ? "، " : ", ")}</p> : null}
                         </div>
                         ) : null}
                         {listingEditRequiresBankAccount ? (
@@ -5002,7 +5301,7 @@ export function UsdtExchangePage({
                                 <option value="">{isAr ? "اختر حساباً بنكياً" : "Select bank account"}</option>
                                 {sellerBankAccounts.map((account) => (
                                   <option key={account.id} value={account.id}>
-                                    {`${account.bankName} • ${account.maskedAccountNumber ?? `****${account.accountLast4}`}${account.isDefault ? (isAr ? " (افتراضي)" : " (Default)") : ""}`}
+                                    {`${getIsraeliBankDisplayName(account.bankName, locale)} • ${account.maskedAccountNumber ?? `****${account.accountLast4}`}${account.isDefault ? (isAr ? " (افتراضي)" : " (Default)") : ""}`}
                                   </option>
                                 ))}
                               </select>
@@ -5237,7 +5536,7 @@ export function UsdtExchangePage({
         ) : null}
       </div>
 
-      {showDeferredSections && !isDashboardWorkspace ? (
+      {showDeferredSections && !sessionUser && !isDashboardWorkspace ? (
       <div className="mt-12">
         <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "لماذا Alpha Exchange" : "Why Alpha Exchange"}</h2>
         <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -5879,7 +6178,7 @@ export function UsdtExchangePage({
                           {isAr ? "إرسال إلى" : "Send To"} · {COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.sublabel ?? commissionNetwork}
                         </p>
                         <div className="flex items-center gap-2">
-                          <code className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-xs font-mono text-white break-all select-all">
+                          <code dir="ltr" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-left text-xs font-mono text-white break-all select-all">
                             {selectedCommissionWallet}
                           </code>
                           <Button
@@ -5979,6 +6278,7 @@ export function UsdtExchangePage({
                         {commissionAdvancedOpen ? (
                           <div className="mt-2 space-y-1 rounded-xl border border-white/8 bg-black/20 px-4 py-3">
                             <Input
+                              dir="ltr"
                               placeholder={isAr ? "0x… أو توقيع Solana" : "0x… or Solana signature"}
                               value={commissionTxSignature}
                               onChange={(event) => setCommissionTxSignature(event.target.value)}
@@ -5986,7 +6286,7 @@ export function UsdtExchangePage({
                                event.preventDefault();
                                setCommissionTxSignature(normalizeTransactionHash(event.clipboardData.getData("text")));
                              }}
-                             className="font-mono text-xs"
+                             className="text-left font-mono text-xs"
                            />
                            <p className="text-xs text-[#6B7280]">
                              {isAr ? "ستجده في نشاط المحفظة أو سجل المعاملات. يجب أن يكون معاملة إرسال USDT، وليس مبادلة أو صفقة أو تفاعلاً آخر." : "Find this in your wallet’s Activity or Transaction History. It must be the USDT send transaction — not a swap, trade, or other interaction."}
@@ -5998,6 +6298,7 @@ export function UsdtExchangePage({
                       <div className="space-y-1">
                         <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">{isAr ? "رمز المعاملة" : "Transaction Hash"}</p>
                         <Input
+                         dir="ltr"
                          placeholder={isAr ? "0x… أو توقيع Solana" : "0x… or Solana signature"}
                          value={commissionTxSignature}
                          onChange={(event) => setCommissionTxSignature(event.target.value)}
@@ -6005,7 +6306,7 @@ export function UsdtExchangePage({
                            event.preventDefault();
                            setCommissionTxSignature(normalizeTransactionHash(event.clipboardData.getData("text")));
                          }}
-                         className="font-mono text-xs"
+                         className="text-left font-mono text-xs"
                         />
                         <p className="text-xs text-[#6B7280]">{isAr ? "انسخ هذا الرمز من سجل السحب في المنصة بعد تأكيد المعاملة." : "Copy this from your exchange withdrawal history after the transaction is confirmed."}</p>
                       </div>
@@ -6297,7 +6598,7 @@ export function UsdtExchangePage({
                               {renderBankLogo(bank)}
                             </span>
                             <div>
-                              <p className="text-sm font-medium text-white">{bank.name}</p>
+                              <p className="text-sm font-medium text-white">{getIsraeliBankDisplayName(bank.name, locale)}</p>
                               <p className="text-[11px] text-[#9CA3AF]">{bank.code}</p>
                             </div>
                           </div>
@@ -6306,7 +6607,7 @@ export function UsdtExchangePage({
                       );
                     })}
                   </div>
-                  {listingCreateSelectedBanks.length ? <p className="mt-2 text-xs text-[#93C5FD]">{isAr ? "المحدد" : "Selected"}: {listingCreateSelectedBanks.join(", ")}</p> : null}
+                  {listingCreateSelectedBanks.length ? <p className="mt-2 text-xs text-[#93C5FD]">{isAr ? "المحدد" : "Selected"}: {listingCreateSelectedBanks.map((bankName) => getIsraeliBankDisplayName(bankName, locale)).join(isAr ? "، " : ", ")}</p> : null}
                 </div>
                 ) : null}
                 {listingCreateRequiresBankAccount ? (
@@ -6341,7 +6642,7 @@ export function UsdtExchangePage({
                         <option value="">{isAr ? "اختر الحساب البنكي" : "Select bank account"}</option>
                         {sellerBankAccounts.map((account) => (
                           <option key={account.id} value={account.id}>
-                            {`${account.bankName} • ${account.maskedAccountNumber ?? `****${account.accountLast4}`}${account.isDefault ? (isAr ? " (افتراضي)" : " (Default)") : ""}`}
+                            {`${getIsraeliBankDisplayName(account.bankName, locale)} • ${account.maskedAccountNumber ?? `****${account.accountLast4}`}${account.isDefault ? (isAr ? " (افتراضي)" : " (Default)") : ""}`}
                           </option>
                         ))}
                       </select>
@@ -6384,7 +6685,7 @@ export function UsdtExchangePage({
                       {listingCreateBankAccountMismatch ? (
                         <p className="text-red-200">
                           {listingCreateSelectedBankAccount
-                            ? (isAr ? `يجب أن تشمل البنوك المدعومة بنك استلام الدفعات (${listingCreateSelectedBankAccount.bankName}).` : `Supported banks must include your payout bank (${listingCreateSelectedBankAccount.bankName}).`)
+                            ? (isAr ? `يجب أن تشمل البنوك المدعومة بنك استلام الدفعات (${getIsraeliBankDisplayName(listingCreateSelectedBankAccount.bankName, "ar")}).` : `Supported banks must include your payout bank (${getIsraeliBankDisplayName(listingCreateSelectedBankAccount.bankName, "en")}).`)
                             : (isAr ? "حساب استلام الدفعات المحدد لم يعد متاحاً. اختر حساباً بنكياً محفوظاً مرة أخرى." : "Your selected payout bank account is no longer available. Choose a saved bank account again.")}
                         </p>
                       ) : null}
@@ -6654,14 +6955,13 @@ export function UsdtExchangePage({
                       </div>
                       {!request.sellerEvidence ? (
                         <div className="md:col-span-2">
-                          <label className="text-[11px] uppercase tracking-[0.1em] text-[#9CA3AF]">{isAr ? "رفع إثبات البائع" : "Upload Seller Evidence"}</label>
+                          <p className="text-sm font-semibold text-white">{isAr ? "رفع إثبات البائع" : "Upload seller evidence"}</p>
                           <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <Input
-                              type="file"
-                              accept=".png,.jpg,.jpeg,.webp,.pdf"
-                              className="h-10 max-w-xs"
-                              onChange={(event) => {
-                                const file = event.target.files?.[0] ?? null;
+                            <LocalizedEvidenceFileInput
+                              id={`seller-evidence-file-${request.id}`}
+                              isAr={isAr}
+                              selectedFile={sellerEvidenceFiles[request.id] ?? null}
+                              onSelect={(file) => {
                                 setSellerEvidenceFiles((prev) => ({ ...prev, [request.id]: file }));
                               }}
                             />
@@ -6682,15 +6982,8 @@ export function UsdtExchangePage({
                         </div>
                       ) : null}
                     </div>
-                    <div className="mt-4 space-y-2">
-                      {(request.timeline ?? []).map((event) => (
-                        <div key={event.id} className="flex items-start gap-2 text-xs">
-                          <span className="mt-1 h-2.5 w-2.5 rounded-full bg-[#C9A227]" />
-                          <span className="text-[#D1D5DB]">
-                            {new Date(event.createdAt).toLocaleTimeString(isAr ? "ar-IL" : "en-IL", { hour: "2-digit", minute: "2-digit" })} {isAr && !containsArabicText(event.message) ? "تم تحديث حالة الصفقة." : event.message}
-                          </span>
-                        </div>
-                      ))}
+                    <div className="mt-4">
+                      <CompactTradeTimeline events={request.timeline ?? []} isAr={isAr} />
                     </div>
                     {request.buyerReview ? (
                       <div className="mt-3 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
@@ -6767,25 +7060,25 @@ export function UsdtExchangePage({
                       </div>
                     )}
                     <div>
-                      <p className="text-base font-semibold text-white">{safeText(sessionUser?.fullName, isAr ? "بائع" : "Seller")}</p>
+                      <p className="text-base font-semibold text-white"><bdi dir="auto">{safeText(sessionUser?.fullName, isAr ? "بائع" : "Seller")}</bdi></p>
                       <RoleBadge variant="approved_seller" locale={isAr ? "ar" : "en"} />
                     </div>
                   </div>
-                  <p>{isAr ? "عضو منذ" : "Member Since"}: <span className="text-white">{sessionUser?.createdAt ? new Date(sessionUser.createdAt).toLocaleDateString(isAr ? "ar-IL" : "en-IL") : "—"}</span></p>
-                  <p>{isAr ? "اللغات" : "Languages"}: <span className="text-white">{sessionUser?.languages?.length ? sessionUser.languages.map((language) => isAr ? ({ English: "الإنجليزية", Arabic: "العربية", Hebrew: "العبرية" }[language] ?? language) : language).join(", ") : (isAr ? "العربية" : "English")}</span></p>
-                  <p>{isAr ? "الشبكات المفضلة" : "Preferred Networks"}: <span className="text-white">{sessionUser?.preferredNetworks?.join(", ") || "TRC20"}</span></p>
-                  <p>{isAr ? "التقييم" : "Rating"}: <span className="text-white">{(sellerOverviewStats.reputation?.rating ?? 4.5).toFixed(2)}</span></p>
-                  <p>{isAr ? "نسبة النجاح" : "Success Rate"}: <span className="text-white">{sellerOverviewStats.successRate.toFixed(1)}%</span></p>
-                  <p>{isAr ? "الصفقات المكتملة" : "Completed Trades"}: <span className="text-white">{sellerOverviewStats.completedTrades}</span></p>
-                  <p>{isAr ? "إجمالي حجم USDT" : "Total USDT Volume"}: <span className="text-white">{sellerOverviewStats.totalUsdtSold.toLocaleString("en-IL")}</span></p>
-                  <p>{isAr ? "العروض الحالية" : "Current Listings"}: <span className="text-white">{sellerOverviewStats.activeListings}</span></p>
+                  <p>{isAr ? "عضو منذ" : "Member Since"}: <span className="text-white"><bdi dir="ltr">{sessionUser?.createdAt ? new Date(sessionUser.createdAt).toLocaleDateString(isAr ? "ar-IL-u-nu-latn" : "en-IL") : "—"}</bdi></span></p>
+                  <p>{isAr ? "اللغات" : "Languages"}: <span className="text-white"><bdi dir="auto">{sessionUser?.languages?.length ? sessionUser.languages.map((language) => spokenLanguageLabel(language, isAr)).join(isAr ? "، " : ", ") : (isAr ? "العربية" : "English")}</bdi></span></p>
+                  <p>{isAr ? "الشبكات المفضلة" : "Preferred Networks"}: <span className="text-white"><bdi dir="ltr">{sessionUser?.preferredNetworks?.join(", ") || "TRC20"}</bdi></span></p>
+                  <p>{isAr ? "التقييم" : "Rating"}: <span className="text-white"><bdi dir="ltr">{(sellerOverviewStats.reputation?.rating ?? 4.5).toFixed(2)}</bdi></span></p>
+                  <p>{isAr ? "نسبة النجاح" : "Success Rate"}: <span className="text-white"><bdi dir="ltr">{sellerOverviewStats.successRate.toFixed(1)}{isAr ? "٪" : "%"}</bdi></span></p>
+                  <p>{isAr ? "الصفقات المكتملة" : "Completed Trades"}: <span className="text-white"><bdi dir="ltr">{sellerOverviewStats.completedTrades}</bdi></span></p>
+                  <p>{isAr ? "إجمالي حجم USDT" : "Total USDT Volume"}: <span className="text-white"><bdi dir="ltr">{sellerOverviewStats.totalUsdtSold.toLocaleString("en-IL")} USDT</bdi></span></p>
+                  <p>{isAr ? "العروض الحالية" : "Current Listings"}: <span className="text-white"><bdi dir="ltr">{sellerOverviewStats.activeListings}</bdi></span></p>
                   <p>{isAr ? "متوسط وقت الاستجابة" : "Average Response Time"}: <span className="text-white">{sellerOverviewStats.averageResponseTime}</span></p>
                   <p>{isAr ? "الحالة" : "Status"}: <span className="text-white">{sessionUser?.onlineStatus === "online" ? (isAr ? "متصل" : "Online") : (isAr ? "غير متصل" : "Offline")}</span></p>
                   <p>{isAr ? "آخر نشاط" : "Last Active"}: <span className="text-white">{formatRelativeMinutesLabel(sessionUser?.lastActiveAt, isAr)}</span></p>
-                  <p>{isAr ? "نبذة" : "Bio"}: <span className="text-white">{safeText(sessionUser?.bio, isAr ? "بائع USDT محترف على Alpha Exchange." : "Professional USDT seller on Alpha Exchange.")}</span></p>
-                  <p>{isAr ? "خبرة التداول" : "Trading Experience"}: <span className="text-white">{safeText(sessionUser?.tradingExperience, isAr ? "خبرة احترافية في التداول" : "Professional trading experience")}</span></p>
-                  <p>{isAr ? "ساعات العمل" : "Working Hours"}: <span className="text-white">{safeText(sessionUser?.workingHours, isAr ? "الأحد-الخميس، 09:00-21:00" : "Sun-Thu, 09:00-21:00")}</span></p>
-                  <p>{isAr ? "حالة الحساب" : "Account Status"}: <span className="text-white">{isAr ? (sessionUser?.sellerStatus === "approved_seller" ? "بائع معتمد" : "مشتري") : (sessionUser?.sellerStatus ?? "buyer")}</span></p>
+                  <p>{isAr ? "نبذة" : "Bio"}: <span className="text-white"><bdi dir="auto">{safeText(sessionUser?.bio, isAr ? "بائع USDT محترف على Alpha Exchange." : "Professional USDT seller on Alpha Exchange.")}</bdi></span></p>
+                  <p>{isAr ? "خبرة التداول" : "Trading Experience"}: <span className="text-white"><bdi dir="auto">{safeText(sessionUser?.tradingExperience, isAr ? "خبرة احترافية في التداول" : "Professional trading experience")}</bdi></span></p>
+                  <p>{isAr ? "ساعات العمل" : "Working Hours"}: <span className="text-white"><bdi dir="auto">{safeText(sessionUser?.workingHours, isAr ? "الأحد-الخميس، 09:00-21:00" : "Sun-Thu, 09:00-21:00")}</bdi></span></p>
+                  <p>{isAr ? "حالة الحساب" : "Account Status"}: <span className="text-white">{sellerAccountStatusLabel(sessionUser?.sellerStatus, isAr)}</span></p>
                   <div className="flex flex-wrap gap-2 pt-1">
                     {(sellerOverviewStats.reputation?.badges ?? []).map((badge) => (
                       <span key={badge} className="rounded-full border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-2 py-1 text-[11px] text-[#93C5FD]">
@@ -6841,15 +7134,18 @@ export function UsdtExchangePage({
                       <div key={group.dayKey} className="rounded-2xl border border-white/10 bg-black/20 p-3">
                         <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{group.label}</p>
                         <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
-                          {group.items.slice(0, 3).map((entry) => (
-                            <div key={entry.id} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
-                              <div className="flex items-start justify-between gap-3">
-                                <p className="font-medium text-white">{isAr && !containsArabicText(entry.title) ? "تحديث على نشاط السوق" : entry.title}</p>
-                                <p className="shrink-0 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleTimeString(isAr ? "ar-IL" : "en-IL", { hour: "2-digit", minute: "2-digit" })}</p>
+                          {group.items.slice(0, 3).map((entry) => {
+                            const copy = localizeActivityCopy(entry, locale);
+                            return (
+                              <div key={entry.id} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
+                                <div className="flex items-start justify-between gap-3">
+                                  <p className="font-medium text-white"><bdi dir="auto">{copy.title}</bdi></p>
+                                  <p className="shrink-0 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleTimeString(isAr ? "ar-IL-u-nu-latn" : "en-IL", { hour: "2-digit", minute: "2-digit" })}</p>
+                                </div>
+                                <p className="mt-1 line-clamp-2 text-[#9CA3AF]"><bdi dir="auto">{copy.details}</bdi></p>
                               </div>
-                              <p className="mt-1 line-clamp-2 text-[#9CA3AF]">{isAr && !containsArabicText(entry.details) ? "تم تسجيل تحديث جديد على نشاطك في السوق." : entry.details}</p>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     ))
@@ -7118,14 +7414,13 @@ export function UsdtExchangePage({
                                 </div>
                                 {!request.buyerEvidence ? (
                                   <div className="md:col-span-2">
-                                    <label className="text-[11px] uppercase tracking-[0.1em] text-[#9CA3AF]">{isAr ? "رفع إثبات الدفع" : "Upload Payment Evidence"}</label>
+                                    <p className="text-sm font-semibold text-white">{isAr ? "رفع إثبات الدفع" : "Upload payment evidence"}</p>
                                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                                      <Input
-                                        type="file"
-                                        accept=".png,.jpg,.jpeg,.webp,.pdf"
-                                        className="h-10 max-w-xs"
-                                        onChange={(event) => {
-                                          const file = event.target.files?.[0] ?? null;
+                                      <LocalizedEvidenceFileInput
+                                        id={`buyer-evidence-file-${request.id}`}
+                                        isAr={isAr}
+                                        selectedFile={buyerEvidenceFiles[request.id] ?? null}
+                                        onSelect={(file) => {
                                           setBuyerEvidenceFiles((prev) => ({ ...prev, [request.id]: file }));
                                         }}
                                       />
@@ -7146,14 +7441,7 @@ export function UsdtExchangePage({
                                   </div>
                                 ) : null}
                               </div>
-                              <div className="space-y-2">
-                                {(request.timeline ?? []).map((event) => (
-                                  <div key={event.id} className="flex items-start gap-2 text-xs">
-                                    <span className="mt-1 h-2.5 w-2.5 rounded-full bg-[#C9A227]" />
-                                    <span className="text-[#D1D5DB]">{new Date(event.createdAt).toLocaleTimeString(isAr ? "ar-IL" : "en-IL", { hour: "2-digit", minute: "2-digit" })} {isAr && !containsArabicText(event.message) ? "تم تحديث حالة الصفقة." : event.message}</span>
-                                  </div>
-                                ))}
-                              </div>
+                              <CompactTradeTimeline events={request.timeline ?? []} isAr={isAr} />
                               {request.status === "review_open" && !request.buyerReview ? (
                                 <form
                                   className="grid gap-2"
@@ -7224,15 +7512,18 @@ export function UsdtExchangePage({
                     <div key={group.dayKey} className="rounded-2xl border border-white/10 bg-black/20 p-3">
                       <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{group.label}</p>
                       <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
-                        {group.items.slice(0, 3).map((entry) => (
-                          <div key={entry.id} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
-                            <div className="flex items-start justify-between gap-3">
-                              <p className="font-medium text-white">{isAr && !containsArabicText(entry.title) ? "تحديث على نشاط السوق" : entry.title}</p>
-                              <p className="shrink-0 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleTimeString(isAr ? "ar-IL" : "en-IL", { hour: "2-digit", minute: "2-digit" })}</p>
+                        {group.items.slice(0, 3).map((entry) => {
+                          const copy = localizeActivityCopy(entry, locale);
+                          return (
+                            <div key={entry.id} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
+                              <div className="flex items-start justify-between gap-3">
+                                <p className="font-medium text-white"><bdi dir="auto">{copy.title}</bdi></p>
+                                <p className="shrink-0 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleTimeString(isAr ? "ar-IL-u-nu-latn" : "en-IL", { hour: "2-digit", minute: "2-digit" })}</p>
+                              </div>
+                              <p className="mt-1 line-clamp-2 text-[#9CA3AF]"><bdi dir="auto">{copy.details}</bdi></p>
                             </div>
-                            <p className="mt-1 line-clamp-2 text-[#9CA3AF]">{isAr && !containsArabicText(entry.details) ? "تم تسجيل تحديث جديد على نشاطك في السوق." : entry.details}</p>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   ))
@@ -7243,7 +7534,7 @@ export function UsdtExchangePage({
         </div>
       )}
 
-      {showDeepDeferredSections && !isDashboardWorkspace ? (
+      {showDeepDeferredSections && !sessionUser && !isDashboardWorkspace ? (
       <div className="mt-12 grid gap-4 md:grid-cols-4">
         {[
           { value: `${todaysCompletedTrades.toLocaleString("en-IL")}`, labelAr: "صفقات مكتملة اليوم", label: "Completed Trades Today", icon: HandCoins },
@@ -7267,7 +7558,7 @@ export function UsdtExchangePage({
       </div>
       ) : null}
 
-      {showDeepDeferredSections && !isDashboardWorkspace ? (
+      {showDeepDeferredSections && !sessionUser && !isDashboardWorkspace ? (
       <div className="mt-12">
         <h2 className="text-2xl font-semibold md:text-3xl">{isAr ? "الأسئلة الشائعة" : "FAQ"}</h2>
         <div className="mt-5 space-y-3">
@@ -7284,7 +7575,7 @@ export function UsdtExchangePage({
       </div>
       ) : null}
 
-      {showDeepDeferredSections && !isDashboardWorkspace ? (
+      {showDeepDeferredSections && !sessionUser && !isDashboardWorkspace ? (
       <Card className="mt-12 overflow-hidden border-[#C9A227]/25 bg-[#0A0A0A]/95">
         <CardContent className="relative p-6 md:p-8">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_14%_20%,rgba(201,162,39,0.16),transparent_42%),radial-gradient(circle_at_86%_78%,rgba(201,162,39,0.12),transparent_40%)]" />
@@ -7499,7 +7790,7 @@ export function UsdtExchangePage({
                         <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
                           <p className="font-medium text-white">{isAr ? "أحدث عمليات التدقيق" : "Recent Audit"}</p>
                           {(sellerProfileData.ownerTools?.auditHistory ?? []).slice(0, 3).map((entry) => (
-                            <p key={entry.id} className="mt-1">{entry.action} • {new Date(entry.createdAt).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}</p>
+                            <p key={entry.id} className="mt-1">{localizedAuditAction(entry.action, isAr)} • {new Date(entry.createdAt).toLocaleDateString(isAr ? "ar-IL-u-nu-latn" : "en-IL")}</p>
                           ))}
                         </div>
                         <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
@@ -7545,7 +7836,7 @@ export function UsdtExchangePage({
                         })}
                       </div>
                       {selectedMethodUsesBanks(selectedListingPaymentMethod) && parseIsraeliBankSelection(selectedListing.bankName).length ? (
-                        <p className="mt-3 text-xs text-[#D1D5DB]">{isAr ? "البنوك المدعومة" : "Supported banks"}: <span className="text-white">{parseIsraeliBankSelection(selectedListing.bankName).join(", ")}</span></p>
+                        <p className="mt-3 text-xs text-[#D1D5DB]">{isAr ? "البنوك المدعومة" : "Supported banks"}: <span className="text-white">{parseIsraeliBankSelection(selectedListing.bankName).map((bankName) => getIsraeliBankDisplayName(bankName, locale)).join(isAr ? "، " : ", ")}</span></p>
                       ) : null}
                     </div>
                     <div className="grid gap-3 md:grid-cols-3">
@@ -7555,11 +7846,12 @@ export function UsdtExchangePage({
                         </label>
                         <Input
                           id="buyer-usdt-amount"
+                          dir="ltr"
                           inputMode="numeric"
                           placeholder={isAr ? "أدخل الكمية" : "Enter amount"}
                           value={buyerInfo.usdtAmount}
                           onChange={(event) => setBuyerInfo((prev) => ({ ...prev, usdtAmount: formatIntegerForInput(event.target.value) }))}
-                          className={buyerTradeAmountInvalid ? "border-red-500/80" : buyerTradeAmount > 0 ? "border-emerald-500/70" : ""}
+                          className={`text-left ${buyerTradeAmountInvalid ? "border-red-500/80" : buyerTradeAmount > 0 ? "border-emerald-500/70" : ""}`}
                           aria-invalid={buyerTradeAmountInvalid || undefined}
                           aria-describedby="buyer-amount-help"
                         />
@@ -7573,13 +7865,14 @@ export function UsdtExchangePage({
                         </label>
                         <Input
                           id="buyer-receiving-wallet"
+                          dir="ltr"
                           required
                           autoComplete="off"
                           spellCheck={false}
                           placeholder={isAr ? `عنوان محفظة ${selectedListing.network}` : `${selectedListing.network} wallet address`}
                           value={buyerInfo.receivingWalletAddress}
                           onChange={(event) => setBuyerInfo((prev) => ({ ...prev, receivingWalletAddress: event.target.value }))}
-                          className={buyerInfo.receivingWalletAddress && buyerWalletInvalid ? "border-red-500/80" : ""}
+                          className={`text-left font-mono ${buyerInfo.receivingWalletAddress && buyerWalletInvalid ? "border-red-500/80" : ""}`}
                           aria-describedby="buyer-wallet-guidance"
                           aria-invalid={buyerInfo.receivingWalletAddress ? buyerWalletInvalid : undefined}
                         />

@@ -102,4 +102,36 @@ describe("LoginForm", () => {
     render(<LoginForm locale="en" sessionExpired />);
     expect(screen.getByText("Your session expired. Please sign in again.")).toBeTruthy();
   });
+
+  it("keeps Arabic for verification-email resend actions", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        headers: new Headers(),
+        json: async () => ({ requiresEmailVerification: true, error: "English provider error" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ message: "English provider response" }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<LoginForm locale="ar" />);
+    fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "buyer@example.test" } });
+    fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "abc12345" } });
+    fireEvent.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "إعادة إرسال بريد التحقق" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/auth/verify-email/resend",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Locale": "ar" },
+      }),
+    ));
+    expect(await screen.findByText(/إذا كان الحساب موجودًا وغير موثق/)).toBeTruthy();
+  });
 });

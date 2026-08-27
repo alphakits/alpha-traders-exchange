@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountVerificationGate } from "@/components/auth/account-verification-gate";
 import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
@@ -35,5 +35,38 @@ describe("AccountVerificationGate canonical session ownership", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(fetchMock).toHaveBeenCalledWith("/api/auth/me", { cache: "no-store", credentials: "include" });
+  });
+
+  it("sends the Arabic locale when resending account verification", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/auth/me") {
+        return {
+          ok: true,
+          json: async () => ({ user: unverifiedUser }),
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({ message: "English provider response" }),
+      };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <CanonicalSessionProvider initialSessionUser={unverifiedUser}>
+        <AccountVerificationGate locale="ar" initialEmail="buyer@example.test" initialName="Buyer User" phoneVerificationEnabled />
+      </CanonicalSessionProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "إعادة إرسال بريد التحقق" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/auth/verify-email/resend",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Locale": "ar" },
+      }),
+    ));
+    expect(await screen.findByText("تم إرسال رسالة تحقق جديدة.")).toBeTruthy();
   });
 });

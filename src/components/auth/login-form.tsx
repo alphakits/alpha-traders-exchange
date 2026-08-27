@@ -101,7 +101,7 @@ export function LoginForm({
         method: "POST",
         cache: "no-store",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify(form),
       });
       appendLoginJourneyStep("HTTP response returned", loginFetchStartedAt, Date.now(), {
@@ -161,7 +161,7 @@ export function LoginForm({
     try {
       const response = await fetch("/api/auth/verify-email/resend", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify({ email: form.email }),
       });
       const payload = (await response.json()) as { error?: string; message?: string };

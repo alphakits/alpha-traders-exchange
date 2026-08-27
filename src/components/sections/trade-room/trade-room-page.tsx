@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, BellRing, CheckCircle2, Clock3, Copy, LoaderCircle, MessageCircle, ShieldCheck, WalletCards } from "lucide-react";
+import { AlertTriangle, BellRing, CheckCircle2, Clock3, Copy, LoaderCircle, MessageCircle, Paperclip, ShieldCheck, Upload, WalletCards } from "lucide-react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { Link, useRouter } from "@/i18n/navigation";
@@ -18,7 +18,9 @@ import { formatTradeId } from "@/lib/format-id";
 import { canBuyerCancelTrade, canSellerDeclineTrade } from "@/lib/trade-room-actions";
 import { readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
 import { isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { getIsraeliBankDisplayName, parseIsraeliBankSelection } from "@/lib/israeli-banks";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
+import { localizeTradeRoomSystemMessage } from "@/lib/trade-room-system-message-localization";
 
 type Locale = "ar" | "en";
 
@@ -121,13 +123,38 @@ function formatDuration(totalSeconds: number) {
   return `${String(minutes).padStart(2, "0")}:${String(remaining).padStart(2, "0")}`;
 }
 
-function readApiErrorFallback(payload: unknown, fallback: string) {
+function readApiErrorFallback(payload: unknown, fallback: string, isAr = false) {
   if (payload && typeof payload === "object") {
     const candidate = payload as { error?: unknown; message?: unknown };
-    if (typeof candidate.error === "string" && candidate.error.trim()) return candidate.error;
-    if (typeof candidate.message === "string" && candidate.message.trim()) return candidate.message;
+    if (typeof candidate.error === "string" && candidate.error.trim()) {
+      return !isAr || /[\u0600-\u06ff]/.test(candidate.error) ? candidate.error : fallback;
+    }
+    if (typeof candidate.message === "string" && candidate.message.trim()) {
+      return !isAr || /[\u0600-\u06ff]/.test(candidate.message) ? candidate.message : fallback;
+    }
   }
   return fallback;
+}
+
+function localizedCaughtError(error: unknown, fallback: string, isAr: boolean) {
+  if (!(error instanceof Error) || !error.message.trim()) return fallback;
+  if (!isAr || /[\u0600-\u06ff]/.test(error.message)) return error.message;
+  return fallback;
+}
+
+function paymentMethodDisplayLabel(method: string, isAr: boolean) {
+  const normalized = normalizeMarketplacePaymentMethod(method) ?? method;
+  if (!isAr) return normalized;
+  if (normalized === "Bank Transfer") return "تحويل بنكي";
+  if (normalized === "Face-to-Face (Meet in Person)") return "لقاء شخصي";
+  if (normalized === "Cardless ATM Withdrawal") return "سحب من الصراف دون بطاقة";
+  return normalized;
+}
+
+function bankSelectionDisplayLabel(rawValue: string, locale: Locale) {
+  const banks = parseIsraeliBankSelection(rawValue);
+  if (!banks.length) return getIsraeliBankDisplayName(rawValue, locale);
+  return banks.map((bank) => getIsraeliBankDisplayName(bank, locale)).join(locale === "ar" ? "، " : ", ");
 }
 
 function tradeStatusLabel(status: PurchaseRequest["status"], isAr: boolean, isOverdue = false) {
@@ -565,6 +592,28 @@ function timelineEventLabel(event: TradeTimelineEntry, isAr: boolean) {
   return event.message;
 }
 
+export function groupTradeTimelineEntries(entries: TradeTimelineEntry[], isAr: boolean) {
+  const groups: Array<{ event: TradeTimelineEntry; count: number }> = [];
+  const newestFirst = [...entries].sort(
+    (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+  );
+
+  for (const event of newestFirst) {
+    const previous = groups.at(-1);
+    if (
+      previous
+      && previous.event.type === event.type
+      && timelineEventLabel(previous.event, isAr) === timelineEventLabel(event, isAr)
+    ) {
+      previous.count += 1;
+      continue;
+    }
+    groups.push({ event, count: 1 });
+  }
+
+  return groups;
+}
+
 function encodeFileToDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -858,7 +907,7 @@ export function TradeRoomPage({
   actor: ActorSession;
 }) {
   const isAr = locale === "ar";
-  const dateLocale = isAr ? "ar-IL" : "en-IL";
+  const dateLocale = isAr ? "ar-IL-u-nu-latn" : "en-IL";
   const router = useRouter();
   const canonicalSession = useOptionalCanonicalSession();
   const hasCanonicalSession = Boolean(canonicalSession);
@@ -902,6 +951,7 @@ export function TradeRoomPage({
   const [selectedStep, setSelectedStep] = useState<StepId>("request");
   const [buyerEvidenceFile, setBuyerEvidenceFile] = useState<File | null>(null);
   const [sellerEvidenceFile, setSellerEvidenceFile] = useState<File | null>(null);
+  const [showAllTimeline, setShowAllTimeline] = useState(false);
   const [evidenceBusy, setEvidenceBusy] = useState<"buyer" | "seller" | null>(null);
   const [clockTick, setClockTick] = useState(Date.now());
   const [reviewBusy, setReviewBusy] = useState(false);
@@ -932,6 +982,7 @@ export function TradeRoomPage({
   const buyerRedirectFadeTimeoutRef = useRef<number | null>(null);
   const buyerEvidenceInputRef = useRef<HTMLInputElement | null>(null);
   const sellerEvidenceInputRef = useRef<HTMLInputElement | null>(null);
+  const chatImageInputRef = useRef<HTMLInputElement | null>(null);
   const reviewCommentInputRef = useRef<HTMLTextAreaElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const chatWasNearBottomRef = useRef(true);
@@ -982,7 +1033,7 @@ export function TradeRoomPage({
       const payload = (await response.json()) as TradeRoomData & { error?: string; message?: string };
       if (!response.ok) {
         if (response.status === 401) void refreshCanonicalSession?.({ force: true });
-        throw new Error(readApiErrorFallback(payload, isAr ? "تعذر تحميل غرفة الصفقة." : "Failed to load trade room."));
+        throw new Error(readApiErrorFallback(payload, isAr ? "تعذر تحميل غرفة الصفقة." : "Failed to load trade room.", isAr));
       }
       const apiLatencyMs = Math.round(performance.now() - startedAt);
       const routeMs = Number(response.headers.get("X-Trade-Route-Ms") ?? "0");
@@ -1009,7 +1060,7 @@ export function TradeRoomPage({
       setRoom(nextRoom);
       return nextRoom;
     } catch (error) {
-      const message = error instanceof Error ? error.message : (isAr ? "تعذر تحميل غرفة الصفقة." : "Failed to load trade room.");
+      const message = localizedCaughtError(error, isAr ? "تعذر تحميل غرفة الصفقة." : "Failed to load trade room.", isAr);
       setErrorMessage(message);
       return null;
     } finally {
@@ -1332,6 +1383,8 @@ export function TradeRoomPage({
   const request = room?.request ?? null;
   const sellerWalletAddress = isSeller ? request?.buyerReceivingWalletAddress : undefined;
   const requestPaymentMethod = request ? (normalizeMarketplacePaymentMethod(request.paymentMethod) ?? request.paymentMethod) : "";
+  const requestPaymentMethodLabel = paymentMethodDisplayLabel(requestPaymentMethod, isAr);
+  const requestBankNamesLabel = request?.bankName ? bankSelectionDisplayLabel(request.bankName, locale) : "";
   const sellerEvidenceRequired = request ? isSellerEvidenceRequiredForPaymentMethod(requestPaymentMethod) : false;
   const counterpartName = request
     ? (isSeller ? room?.counterpart.buyerName : room?.counterpart.sellerName)
@@ -1365,10 +1418,11 @@ export function TradeRoomPage({
   );
   const canShowBuyerReceipt = Boolean(request?.buyerEvidence && (!isSeller || sellerCanViewBuyerReceipt));
   const sellerEvidenceUploadOpen = Boolean(isSeller && request?.status === "usdt_release_pending");
-  const activeTimeline = useMemo(() => {
-    if (!request) return [] as TradeTimelineEntry[];
-    return [...(request.timeline ?? [])].sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
-  }, [request]);
+  const activeTimeline = useMemo(
+    () => groupTradeTimelineEntries(request?.timeline ?? [], isAr),
+    [isAr, request?.timeline],
+  );
+  const visibleTimeline = showAllTimeline ? activeTimeline : activeTimeline.slice(0, 4);
 
   useEffect(() => {
     if (!sellerWalletAddress) {
@@ -1434,7 +1488,7 @@ export function TradeRoomPage({
       .catch((error) => {
         if (!cancelled) {
           setBankDetails(null);
-          setBankDetailsError(error instanceof Error ? error.message : (isAr ? "تعذر تحميل تفاصيل الحساب البنكي." : "Failed to load bank details."));
+          setBankDetailsError(localizedCaughtError(error, isAr ? "تعذر تحميل تفاصيل الحساب البنكي." : "Failed to load bank details.", isAr));
         }
       })
       .finally(() => {
@@ -1580,7 +1634,7 @@ export function TradeRoomPage({
         });
       }
       if (!response.ok) {
-        throw new Error(readApiErrorFallback(responsePayload, isAr ? "تعذر تحديث حالة الصفقة." : "Failed to update trade status."));
+        throw new Error(readApiErrorFallback(responsePayload, isAr ? "تعذر تحديث حالة الصفقة." : "Failed to update trade status.", isAr));
       }
       if (responsePayload.request) {
         const nextRoom = applyRequestToRoom(optimisticRoom, responsePayload.request);
@@ -1628,9 +1682,7 @@ export function TradeRoomPage({
         roomRef.current = previousRoom;
         setRoom(previousRoom);
         writeTradeRoomCache(requestId, previousRoom);
-        const message = error instanceof Error
-          ? error.message
-          : (isAr ? "تعذر تحديث حالة الصفقة." : "Failed to update trade status.");
+        const message = localizedCaughtError(error, isAr ? "تعذر تحديث حالة الصفقة." : "Failed to update trade status.", isAr);
         setActionError(message);
         setActionNotice(null);
       }
@@ -1700,9 +1752,10 @@ export function TradeRoomPage({
           setRoom(revertedRoom);
         }
         setChatDraft(message);
-        throw new Error(readApiErrorFallback(payload, isAr ? "تعذر إرسال الرسالة." : "Failed to send message."));
+        throw new Error(readApiErrorFallback(payload, isAr ? "تعذر إرسال الرسالة." : "Failed to send message.", isAr));
       }
       setChatImage(null);
+      if (chatImageInputRef.current) chatImageInputRef.current.value = "";
       if (payload.message) {
         const confirmedRoom = roomRef.current;
         if (confirmedRoom) {
@@ -1716,7 +1769,7 @@ export function TradeRoomPage({
         }
       }
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : (isAr ? "تعذر إرسال الرسالة." : "Failed to send message."));
+      setStatusMessage(isAr ? "تعذر إرسال الرسالة." : (error instanceof Error ? error.message : "Failed to send message."));
     } finally {
       chatMessageInFlightRef.current = false;
       setChatBusy(false);
@@ -1748,7 +1801,7 @@ export function TradeRoomPage({
               }
             : current);
         }
-        throw new Error(readApiErrorFallback(payload, isAr ? "تعذر إرسال التذكير." : "Could not send the reminder."));
+        throw new Error(readApiErrorFallback(payload, isAr ? "تعذر إرسال التذكير." : "Could not send the reminder.", isAr));
       }
       if (payload.poke) {
         setRoom((current) => current ? { ...current, poke: payload.poke! } : current);
@@ -1760,7 +1813,7 @@ export function TradeRoomPage({
       );
       void fetchRoom(true);
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : (isAr ? "تعذر إرسال التذكير." : "Could not send the reminder."));
+      setStatusMessage(localizedCaughtError(error, isAr ? "تعذر إرسال التذكير." : "Could not send the reminder.", isAr));
     } finally {
       setPokeBusy(false);
     }
@@ -1811,7 +1864,7 @@ export function TradeRoomPage({
       });
       const payload = (await response.json()) as { error?: string; message?: string; request?: PurchaseRequest };
       if (!response.ok) {
-        throw new Error(readApiErrorFallback(payload, isAr ? "تعذر رفع الإثبات." : "Failed to upload evidence."));
+        throw new Error(readApiErrorFallback(payload, isAr ? "تعذر رفع الإثبات." : "Failed to upload evidence.", isAr));
       }
       const nextRoom = payload.request ? applyRequestToRoom(previousRoom, payload.request) : optimisticRoom;
       roomRef.current = nextRoom;
@@ -1844,7 +1897,7 @@ export function TradeRoomPage({
       roomRef.current = previousRoom;
       setRoom(previousRoom);
       writeTradeRoomCache(requestId, previousRoom);
-      setStatusMessage(error instanceof Error ? error.message : (isAr ? "تعذر رفع الإثبات." : "Failed to upload evidence."));
+      setStatusMessage(localizedCaughtError(error, isAr ? "تعذر رفع الإثبات." : "Failed to upload evidence.", isAr));
     } finally {
       setEvidenceBusy(null);
     }
@@ -1883,14 +1936,14 @@ export function TradeRoomPage({
       });
       const payload = (await response.json()) as { error?: string; message?: string };
       if (!response.ok) {
-        throw new Error(readApiErrorFallback(payload, isAr ? "تعذر فتح النزاع." : "Failed to open dispute."));
+        throw new Error(readApiErrorFallback(payload, isAr ? "تعذر فتح النزاع." : "Failed to open dispute.", isAr));
       }
       setDisputeReason("");
       setShowDisputeComposer(false);
       setStatusMessage(isAr ? "تم فتح النزاع وإبلاغ الإدارة." : "Dispute opened and admins were notified.");
       await fetchRoom(true);
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : (isAr ? "تعذر فتح النزاع." : "Failed to open dispute."));
+      setStatusMessage(localizedCaughtError(error, isAr ? "تعذر فتح النزاع." : "Failed to open dispute.", isAr));
     } finally {
       setDisputeBusy(false);
     }
@@ -2040,7 +2093,7 @@ export function TradeRoomPage({
         };
       };
       if (!response.ok) {
-        throw new Error(readApiErrorFallback(payload, isAr ? "تعذر إرسال التقييم." : "Failed to submit review."));
+        throw new Error(readApiErrorFallback(payload, isAr ? "تعذر إرسال التقييم." : "Failed to submit review.", isAr));
       }
       logReviewDiagnostic("success-handler-executed", { status: response.status });
       setReviewComment("");
@@ -2060,7 +2113,7 @@ export function TradeRoomPage({
       startBuyerCompletionSuccessFlow(currentRequest.id);
     } catch (error) {
       logReviewDiagnostic("error-handler-executed", { error: error instanceof Error ? error.message : "unknown-error" });
-      setStatusMessage(error instanceof Error ? error.message : (isAr ? "تعذر إرسال التقييم." : "Failed to submit review."));
+      setStatusMessage(localizedCaughtError(error, isAr ? "تعذر إرسال التقييم." : "Failed to submit review.", isAr));
     } finally {
       reviewSubmitInFlightRef.current = false;
       setReviewBusy(false);
@@ -2190,20 +2243,25 @@ export function TradeRoomPage({
             <div className="grid gap-3 xl:grid-cols-[minmax(0,1.45fr)_320px] xl:items-end">
               <div>
                 <p className="text-xs uppercase tracking-[0.14em] text-[#C9A227]">{isAr ? "غرفة التداول" : "Trade Room"}</p>
-                <CardTitle className="mt-1 text-2xl font-semibold">{`Trade ${formatTradeId(request.displayNumber, request.tradeId ?? request.id)}`}</CardTitle>
+                <CardTitle className="mt-1 text-2xl font-semibold">
+                  {isAr ? "الصفقة" : "Trade"} <bdi dir="ltr">{formatTradeId(request.displayNumber, request.tradeId ?? request.id)}</bdi>
+                </CardTitle>
                 <p className="mt-1 text-sm text-[#D1D5DB]">
-                  {isAr ? "المبلغ:" : "Amount:"} <span className="font-semibold text-white">{toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT</span> • {toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}
+                  {isAr ? "المبلغ:" : "Amount:"}{" "}
+                  <bdi dir="ltr" className="font-semibold text-white">{toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT</bdi>
+                  {" • "}
+                  <bdi dir="ltr">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</bdi>
                 </p>
                 <p className="text-sm text-[#9CA3AF]">
                   {isSeller ? (isAr ? "المشتري" : "Buyer") : (isAr ? "البائع" : "Seller")}: <span className="text-white">{counterpartName}</span>
                 </p>
                 <p className="hidden text-xs text-[#6B7280] sm:block">{isAr ? "حسابك" : "Your account"}: {actor.fullName}</p>
                 <p className="hidden text-sm text-[#9CA3AF] sm:block">
-                  {isAr ? "طريقة الدفع" : "Payment Method"}: <span className="text-white">{request.paymentMethod}</span>
+                  {isAr ? "طريقة الدفع" : "Payment Method"}: <span className="text-white">{requestPaymentMethodLabel}</span>
                 </p>
                 {request.bankName ? (
                   <p className="hidden text-sm text-[#9CA3AF] sm:block">
-                    {isAr ? "البنوك المعتمدة" : "Supported Banks"}: <span className="text-white">{request.bankName}</span>
+                    {isAr ? "البنوك المعتمدة" : "Supported Banks"}: <span className="text-white">{requestBankNamesLabel}</span>
                   </p>
                 ) : null}
                 {request.closedAt ? (
@@ -2220,7 +2278,7 @@ export function TradeRoomPage({
             <div>
               <div className="mb-1 flex items-center justify-between text-xs text-[#D1D5DB]">
                 <span>{isAr ? "تقدم الصفقة" : "Trade Progress"}</span>
-                <span>{progressPercent}%</span>
+                <span><bdi dir="ltr">{progressPercent}{isAr ? "٪" : "%"}</bdi></span>
               </div>
               <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
                 <div className="h-full bg-gradient-to-r from-[#C9A227] to-[#FDE68A] transition-all duration-300" style={{ width: `${progressPercent}%` }} />
@@ -2274,7 +2332,7 @@ export function TradeRoomPage({
               <span className="text-[#9CA3AF]">{isAr ? "الخطوة الحالية" : "Current step"}: </span>
               <span className="font-semibold text-[#FDE68A]">{isAr ? STEP_ORDER[currentStepIndex]?.label.ar : STEP_ORDER[currentStepIndex]?.label.en}</span>
             </span>
-            <span className="shrink-0 text-xs text-[#C9A227]">{progressPercent}%</span>
+            <span className="shrink-0 text-xs text-[#C9A227]"><bdi dir="ltr">{progressPercent}{isAr ? "٪" : "%"}</bdi></span>
           </summary>
           <div className="mt-3 space-y-2">
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
@@ -2343,7 +2401,7 @@ export function TradeRoomPage({
         ) : null}
 
         {!showSuccessScreen && primaryAction ? (
-          <section className="rounded-2xl border border-[#C9A227]/55 bg-[#C9A227]/10 p-3 shadow-[0_8px_24px_rgba(0,0,0,0.22)] md:hidden">
+          <section className="sticky bottom-[calc(1rem+env(safe-area-inset-bottom))] z-30 rounded-2xl border border-[#C9A227]/55 bg-[#11100b]/95 p-3 shadow-[0_12px_36px_rgba(0,0,0,0.55)] backdrop-blur-xl md:hidden">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#FDE68A]">{isAr ? "الإجراء المطلوب الآن" : "Required action now"}</p>
             <p className="mt-1 text-sm text-[#E5E7EB]">{turn?.detail}</p>
             <Button
@@ -2414,7 +2472,7 @@ export function TradeRoomPage({
                   {room.sellerCommissionDueCount > 1 ? <p className="text-xs">{isAr ? `إجمالي المستحق: ${room.sellerCommissionDueAmount.toFixed(2)} USDT` : `Total outstanding: ${room.sellerCommissionDueAmount.toFixed(2)} USDT`}</p> : null}
                   <p className="text-xs">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
                   <Button type="button" size="sm" className="mt-2" disabled={!room.sellerPayableCommissionId} onClick={() => openCommissionPayNow(room.sellerPayableCommissionId)}>
-                    Pay Now
+                    {isAr ? "ادفع الآن" : "Pay Now"}
                   </Button>
                 </div>
               ) : null}
@@ -2605,10 +2663,10 @@ export function TradeRoomPage({
                       <p className="mt-2 text-sm text-amber-200">{bankDetailsError}</p>
                     ) : bankDetails ? (
                       <div className="mt-2 space-y-1 text-sm text-[#E5E7EB]">
-                        <p>{isAr ? "اسم صاحب الحساب" : "Account holder"}: <span className="text-white">{bankDetails.accountHolderName}</span></p>
-                        <p>{isAr ? "اسم البنك" : "Bank"}: <span className="text-white">{bankDetails.bankName}</span></p>
-                        <p>{isAr ? "رقم الفرع" : "Branch"}: <span className="text-white">{bankDetails.branchNumber}</span></p>
-                        <p>{isAr ? "رقم الحساب" : "Account number"}: <span className="font-mono text-white">{bankDetails.accountNumber}</span></p>
+                        <p>{isAr ? "اسم صاحب الحساب" : "Account holder"}: <span className="text-white"><bdi dir="auto">{bankDetails.accountHolderName}</bdi></span></p>
+                        <p>{isAr ? "اسم البنك" : "Bank"}: <span className="text-white"><bdi dir="auto">{getIsraeliBankDisplayName(bankDetails.bankName, locale)}</bdi></span></p>
+                        <p>{isAr ? "رقم الفرع" : "Branch"}: <span className="text-white"><bdi dir="ltr">{bankDetails.branchNumber}</bdi></span></p>
+                        <p>{isAr ? "رقم الحساب" : "Account number"}: <span className="font-mono text-white"><bdi dir="ltr">{bankDetails.accountNumber}</bdi></span></p>
                       </div>
                     ) : (
                       <p className="mt-2 text-sm text-[#D1D5DB]">{isAr ? "سيتم إظهار التفاصيل بعد قبول البائع للصفقة." : "Details appear after seller accepts the trade."}</p>
@@ -2632,7 +2690,7 @@ export function TradeRoomPage({
                             ? `أرسل USDT فقط عبر شبكة ${request.network} إلى هذا العنوان.`
                             : `Send USDT ONLY on ${request.network} to this address.`}
                         </p>
-                        <p className="mt-3 break-all rounded-xl border border-white/10 bg-black/45 p-3 font-mono text-sm text-white">
+                        <p dir="ltr" className="mt-3 break-all rounded-xl border border-white/10 bg-black/45 p-3 text-left font-mono text-sm text-white">
                           {sellerWalletAddress}
                         </p>
                         <Button type="button" variant="secondary" className="mt-3 w-full sm:w-auto" onClick={() => void copySellerWallet()}>
@@ -2779,8 +2837,12 @@ export function TradeRoomPage({
                   {room.releaseDeadlineActive ? (
                     <p className="rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-xs text-red-100">
                       {isSeller
-                        ? "You must complete this trade before the timer expires. Repeated delays or failure to deliver funds may affect your seller reputation, future listings, and may result in administrative review."
-                        : "You must confirm receipt before the timer expires and follow platform rules. Repeated delays or inaccurate confirmations may affect your account standing and can trigger administrative review."}
+                        ? (isAr
+                            ? "يجب إكمال الصفقة قبل انتهاء المؤقت. قد يؤثر التأخير المتكرر أو عدم إرسال الأموال في سمعتك كبائع وعروضك المستقبلية، وقد يؤدي إلى مراجعة إدارية."
+                            : "You must complete this trade before the timer expires. Repeated delays or failure to deliver funds may affect your seller reputation, future listings, and may result in administrative review.")
+                        : (isAr
+                            ? "يجب تأكيد الاستلام قبل انتهاء المؤقت واتباع قواعد المنصة. قد يؤثر التأخير المتكرر أو التأكيد غير الصحيح في حالة حسابك ويؤدي إلى مراجعة إدارية."
+                            : "You must confirm receipt before the timer expires and follow platform rules. Repeated delays or inaccurate confirmations may affect your account standing and can trigger administrative review.")}
                     </p>
                   ) : null}
                 </CardContent>
@@ -2829,10 +2891,30 @@ export function TradeRoomPage({
                       <p className="text-xs text-[#9CA3AF]">
                         {isAr ? "هذه الخطوة مطلوبة قبل إرسال تأكيد الدفع." : "This receipt is required before payment confirmation."}
                       </p>
-                      <Input ref={buyerEvidenceInputRef} type="file" accept=".png,.jpg,.jpeg,.webp,.pdf" onChange={(event) => setBuyerEvidenceFile(event.target.files?.[0] ?? null)} />
+                      <Input
+                        ref={buyerEvidenceInputRef}
+                        type="file"
+                        tabIndex={-1}
+                        accept=".png,.jpg,.jpeg,.webp,.pdf"
+                        className="sr-only"
+                        aria-label={isAr ? "اختيار إيصال الدفع" : "Choose payment receipt"}
+                        onChange={(event) => setBuyerEvidenceFile(event.target.files?.[0] ?? null)}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="min-h-11 w-full"
+                        onClick={() => buyerEvidenceInputRef.current?.click()}
+                      >
+                        <Upload className="h-4 w-4" aria-hidden="true" />
+                        {buyerEvidenceFile
+                          ? (isAr ? "تغيير الملف" : "Change File")
+                          : (isAr ? "اختيار إيصال الدفع" : "Choose Payment Receipt")}
+                      </Button>
                       {buyerEvidenceFile ? (
                         <p className="text-xs text-[#C9A227]">
-                          {isAr ? `الملف المحدد: ${buyerEvidenceFile.name}` : `Selected file: ${buyerEvidenceFile.name}`}
+                          {isAr ? "الملف المحدد" : "Selected file"}: <bdi dir="ltr">{buyerEvidenceFile.name}</bdi>
                         </p>
                       ) : (
                         <p className="text-xs text-[#9CA3AF]">
@@ -2872,14 +2954,37 @@ export function TradeRoomPage({
                           ? (isAr ? "رفع الإثبات مطلوب قبل تأكيد إرسال USDT." : "Seller evidence is required before marking USDT sent.")
                           : (isAr ? "يمكنك رفع إثبات اختياري قبل تأكيد إرسال USDT." : "You may upload optional evidence before marking USDT sent.")}
                       </p>
-                      <Input ref={sellerEvidenceInputRef} type="file" accept=".png,.jpg,.jpeg,.webp,.pdf" onChange={(event) => setSellerEvidenceFile(event.target.files?.[0] ?? null)} />
+                      <Input
+                        ref={sellerEvidenceInputRef}
+                        type="file"
+                        tabIndex={-1}
+                        accept=".png,.jpg,.jpeg,.webp,.pdf"
+                        className="sr-only"
+                        aria-label={isAr ? "اختيار إثبات إرسال USDT" : "Choose USDT release proof"}
+                        onChange={(event) => setSellerEvidenceFile(event.target.files?.[0] ?? null)}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="min-h-11 w-full"
+                        onClick={() => sellerEvidenceInputRef.current?.click()}
+                      >
+                        <Upload className="h-4 w-4" aria-hidden="true" />
+                        {sellerEvidenceFile
+                          ? (isAr ? "تغيير الملف" : "Change File")
+                          : (isAr ? "اختيار إثبات البائع" : "Choose Seller Proof")}
+                      </Button>
                       {sellerEvidenceFile ? (
                         <div className="space-y-2">
                           <p className="text-xs text-[#C9A227]">
-                            {isAr ? `الملف المحدد: ${sellerEvidenceFile.name}` : `Selected file: ${sellerEvidenceFile.name}`}
+                            {isAr ? "الملف المحدد" : "Selected file"}: <bdi dir="ltr">{sellerEvidenceFile.name}</bdi>
                           </p>
                           <div className="flex flex-wrap gap-2">
-                            <Button type="button" size="sm" variant="secondary" onClick={() => setSellerEvidenceFile(null)}>
+                            <Button type="button" size="sm" variant="secondary" onClick={() => {
+                              setSellerEvidenceFile(null);
+                              if (sellerEvidenceInputRef.current) sellerEvidenceInputRef.current.value = "";
+                            }}>
                               {isAr ? "إزالة الملف" : "Remove File"}
                             </Button>
                           </div>
@@ -2895,13 +3000,8 @@ export function TradeRoomPage({
                         variant="secondary"
                         loading={evidenceBusy === "seller"}
                         loadingLabel={isAr ? "جارٍ الرفع..." : "Uploading..."}
-                        onClick={() => {
-                          if (sellerEvidenceFile) {
-                            void handleUploadEvidence("seller");
-                            return;
-                          }
-                          sellerEvidenceInputRef.current?.click();
-                        }}
+                        disabled={!sellerEvidenceFile}
+                        onClick={() => void handleUploadEvidence("seller")}
                       >
                         {request.sellerEvidence
                           ? (isAr ? "استبدال الرفع" : "Replace Upload")
@@ -2918,12 +3018,15 @@ export function TradeRoomPage({
                 <CardTitle className="text-lg">{isAr ? "الخط الزمني للصفقة" : "Trade Timeline"}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                {activeTimeline.length ? (
-                  activeTimeline.map((event) => (
+                {visibleTimeline.length ? (
+                  visibleTimeline.map(({ event, count }) => (
                     <div key={event.id} className="flex gap-3 rounded-xl border border-white/10 bg-black/20 p-3 text-sm">
                       <div className="mt-1 h-2.5 w-2.5 rounded-full bg-[#C9A227]" />
-                      <div>
-                        <p className="text-white">{timelineEventLabel(event, isAr)}</p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-white">{timelineEventLabel(event, isAr)}</p>
+                          {count > 1 ? <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-xs text-[#D1D5DB]">×{count}</span> : null}
+                        </div>
                         <p className="text-xs text-[#9CA3AF]">{new Date(event.createdAt).toLocaleString(dateLocale)}</p>
                       </div>
                     </div>
@@ -2931,6 +3034,13 @@ export function TradeRoomPage({
                 ) : (
                   <p className="text-sm text-[#9CA3AF]">{isAr ? "لا توجد أحداث بعد." : "No timeline events yet."}</p>
                 )}
+                {activeTimeline.length > 4 ? (
+                  <Button type="button" size="sm" variant="secondary" className="w-full" onClick={() => setShowAllTimeline((value) => !value)}>
+                    {showAllTimeline
+                      ? (isAr ? "عرض أحدث التحديثات فقط" : "Show Latest Updates Only")
+                      : (isAr ? `عرض كل التحديثات (${activeTimeline.length})` : `Show All Updates (${activeTimeline.length})`)}
+                  </Button>
+                ) : null}
               </CardContent>
             </Card>
             </div>
@@ -2971,17 +3081,21 @@ export function TradeRoomPage({
                 <div className="mb-3 rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-[#D1D5DB]">
                   <div className="grid gap-1 md:grid-cols-2 xl:grid-cols-3">
                     <p><span className="text-[#9CA3AF]">{isAr ? "الحالة" : "Status"}:</span> {tradeStatusLabel(request.status, isAr, isOverdueTrade)}</p>
-                    <p><span className="text-[#9CA3AF]">{isAr ? "البائع" : "Seller"}:</span> {request.sellerId === actor.id ? actor.fullName : counterpartName}</p>
-                    <p><span className="text-[#9CA3AF]">{isAr ? "المشتري" : "Buyer"}:</span> {request.buyerId === actor.id ? actor.fullName : counterpartName}</p>
-                    <p><span className="text-[#9CA3AF]">{isAr ? "المبلغ" : "Amount"}:</span> {toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT</p>
-                    <p><span className="text-[#9CA3AF]">{isAr ? "الشبكة" : "Network"}:</span> {request.network}</p>
-                    <p><span className="text-[#9CA3AF]">{isAr ? "الإجراء" : "Action"}:</span> {turn?.detail}</p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "البائع" : "Seller"}:</span> <bdi dir="auto">{request.sellerId === actor.id ? actor.fullName : counterpartName}</bdi></p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "المشتري" : "Buyer"}:</span> <bdi dir="auto">{request.buyerId === actor.id ? actor.fullName : counterpartName}</bdi></p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "المبلغ" : "Amount"}:</span> <bdi dir="ltr">{toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT</bdi></p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "الشبكة" : "Network"}:</span> <bdi dir="ltr">{request.network}</bdi></p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "الإجراء" : "Action"}:</span> <bdi dir="auto">{turn?.detail}</bdi></p>
                   </div>
                 </div>
                 <div ref={chatScrollRef} onScroll={handleChatScroll} className="max-h-[420px] space-y-3 overflow-y-auto rounded-2xl border border-white/10 bg-black/30 p-3">
                   {room.messages.length ? (
                     room.messages.map((message) => {
                       const ownMessage = message.senderUserId === actor.id;
+                      const messageBody = message.message || (isAr ? "صورة مرفقة" : "Image attachment");
+                      const localizedSystemMessage = message.kind === "system"
+                        ? localizeTradeRoomSystemMessage(messageBody, locale)
+                        : null;
                       const counterpartyId = ownMessage ? (isSeller ? request.buyerId : request.sellerId) : "";
                       const readByCounterparty = ownMessage && message.readByUserIds.includes(counterpartyId);
                       const statusIcon = message.deletedAt
@@ -3011,7 +3125,19 @@ export function TradeRoomPage({
                                 : (ownMessage ? actor.fullName.slice(0, 1) : chatCounterpartName.slice(0, 1))}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <p className="whitespace-pre-wrap break-words">{message.message || (isAr ? "صورة مرفقة" : "Image attachment")}</p>
+                              <p
+                                lang={localizedSystemMessage ? locale : undefined}
+                                dir={localizedSystemMessage?.dir ?? "auto"}
+                                className="whitespace-pre-wrap break-words"
+                              >
+                                {localizedSystemMessage
+                                  ? localizedSystemMessage.segments.map((segment, index) => (
+                                      segment.isolate
+                                        ? <bdi key={`${message.id}-segment-${index}`} dir="auto">{segment.value}</bdi>
+                                        : <span key={`${message.id}-segment-${index}`}>{segment.value}</span>
+                                    ))
+                                  : <bdi dir="auto">{messageBody}</bdi>}
+                              </p>
                               {message.imageUrl ? (
                                 <a href={message.imageUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block overflow-hidden rounded-xl border border-white/10">
                                   <Image src={message.imageUrl} alt={message.imageName ?? "chat attachment"} width={640} height={480} className="h-auto w-full object-cover" />
@@ -3043,8 +3169,31 @@ export function TradeRoomPage({
                 ) : null}
                 <form className="sticky bottom-2 z-10 space-y-2 rounded-2xl border border-white/10 bg-[#101010]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-xl backdrop-blur-md" onSubmit={handleSendMessage}>
                   <Textarea value={chatDraft} onChange={handleChatDraftChange} placeholder={isAr ? "اكتب رسالة..." : "Type a message..."} className="min-h-[56px] resize-none sm:min-h-[96px]" />
-                  <Input type="file" accept="image/png,image/jpeg,image/webp" capture="environment" onChange={(event) => setChatImage(event.target.files?.[0] ?? null)} />
-                  {chatImage ? <p className="text-xs text-[#9CA3AF]">{chatImage.name}</p> : null}
+                  <Input
+                    ref={chatImageInputRef}
+                    type="file"
+                    tabIndex={-1}
+                    accept="image/png,image/jpeg,image/webp"
+                    capture="environment"
+                    className="sr-only"
+                    aria-label={isAr ? "اختيار صورة للمحادثة" : "Choose chat image"}
+                    onChange={(event) => setChatImage(event.target.files?.[0] ?? null)}
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" size="sm" variant="secondary" onClick={() => chatImageInputRef.current?.click()}>
+                      <Paperclip className="h-4 w-4" aria-hidden="true" />
+                      {chatImage ? (isAr ? "تغيير الصورة" : "Change Image") : (isAr ? "إرفاق صورة" : "Attach Image")}
+                    </Button>
+                    {chatImage ? (
+                      <Button type="button" size="sm" variant="ghost" onClick={() => {
+                        setChatImage(null);
+                        if (chatImageInputRef.current) chatImageInputRef.current.value = "";
+                      }}>
+                        {isAr ? "إزالة" : "Remove"}
+                      </Button>
+                    ) : null}
+                  </div>
+                  {chatImage ? <p className="break-all text-xs text-[#D1D5DB]"><bdi dir="ltr">{chatImage.name}</bdi></p> : null}
                   <div className="flex items-center gap-2">
                     <Button type="submit" className="flex-1" disabled={chatBusy || (!chatDraft.trim() && !chatImage)}>
                       {chatBusy ? (isAr ? "جاري الإرسال..." : "Sending...") : (isAr ? "إرسال الرسالة" : "Send Message")}
@@ -3078,7 +3227,7 @@ export function TradeRoomPage({
                   <p className="mt-1">{isAr ? `الدفع الحالي: ${(room.sellerPayableCommissionAmount ?? 0).toFixed(2)} USDT` : `Current payment: ${(room.sellerPayableCommissionAmount ?? 0).toFixed(2)} USDT`}</p>
                   <p className="mt-1 text-xs text-amber-100">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
                   <Button type="button" size="sm" className="mt-2" disabled={!room.sellerPayableCommissionId} onClick={() => openCommissionPayNow(room.sellerPayableCommissionId)}>
-                    Pay Now
+                    {isAr ? "ادفع الآن" : "Pay Now"}
                   </Button>
                 </CardContent>
               </Card>

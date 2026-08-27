@@ -24,7 +24,7 @@ export function ForgotPasswordForm({ locale }: { locale: "ar" | "en" }) {
     try {
       const response = await fetch("/api/auth/reset/request", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Locale": locale },
         body: JSON.stringify({ email }),
       });
       const payload = (await response.json()) as { error?: string; message?: string };

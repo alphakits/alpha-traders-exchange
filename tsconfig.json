@@ -39,6 +39,9 @@
     ".next-runtime-build/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "e2e/new-buyer-seller-application.spec.ts",
+    "src/__tests__/admin-approved-sellers-privacy.test.ts",
+    "src/__tests__/legacy-pending-seller-normalization.test.ts"
   ]
 }

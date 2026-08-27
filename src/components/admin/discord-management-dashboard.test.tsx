@@ -183,4 +183,15 @@ describe("DiscordManagementDashboard", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
   });
+
+  it("renders the operator controls and raw states in Arabic", async () => {
+    render(<DiscordManagementDashboard locale="ar" />);
+
+    expect(await screen.findByRole("heading", { name: "إدارة Discord" })).toBeTruthy();
+    expect(screen.getByRole("status", { name: "حالة التكامل: سليم" })).toBeTruthy();
+    expect(screen.getByText("الحسابات المتصلة")).toBeTruthy();
+    expect(screen.getByText("صلاحية Guild Members إلزامية. الأوامر المسجّلة لا تعدّل العروض أبدًا.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "مطابقة الموارد والأوامر والمحتوى المُدار" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Discord Management" })).toBeNull();
+  });
 });

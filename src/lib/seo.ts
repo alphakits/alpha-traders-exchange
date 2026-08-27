@@ -35,7 +35,8 @@ export function buildPageMetadata({
       description,
       url: canonical,
       siteName: "Alpha Traders",
-      locale: locale === "ar" ? "ar_SA" : "en_US",
+      locale: locale === "ar" ? "ar_IL" : "en_US",
+      alternateLocale: locale === "ar" ? ["en_US"] : ["ar_IL"],
       type: "website",
       images: [
         {

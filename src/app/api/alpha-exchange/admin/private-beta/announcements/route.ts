@@ -20,15 +20,19 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const typeRaw = String(body.type ?? "").trim();
-    const title = String(body.title ?? "").trim();
-    const message = String(body.message ?? "").trim();
+    const titleEn = String(body.titleEn ?? "").trim();
+    const messageEn = String(body.messageEn ?? "").trim();
+    const titleAr = String(body.titleAr ?? "").trim();
+    const messageAr = String(body.messageAr ?? "").trim();
     if (!isAnnouncementType(typeRaw)) {
       return NextResponse.json({ error: "Invalid announcement type." }, { status: 400 });
     }
     const announcement = await createBetaAnnouncement({
       ownerUserId: user.id,
-      title,
-      message,
+      titleEn,
+      messageEn,
+      titleAr,
+      messageAr,
       type: typeRaw,
     });
     return NextResponse.json({ announcement }, { status: 201 });

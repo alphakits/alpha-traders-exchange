@@ -1,6 +1,6 @@
 import { createHmac } from "crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getSmsTemplate, isSmsLifecycleEvent, mapTwilioStatus, normalizeE164, resolveSmsDeliveryStatusTransition, sendTwilioMessageWithRetry, validateTwilioSignature } from "@/lib/notification-platform";
+import { getBilingualOtpSms, getSmsTemplate, isSmsLifecycleEvent, mapTwilioStatus, normalizeE164, resolveSmsDeliveryStatusTransition, sendTwilioMessageWithRetry, validateTwilioSignature } from "@/lib/notification-platform";
 
 describe("notification platform", () => {
   afterEach(() => {
@@ -19,9 +19,50 @@ describe("notification platform", () => {
   it("allows only critical lifecycle SMS events", () => {
     expect(isSmsLifecycleEvent("funds_received")).toBe(true);
     expect(isSmsLifecycleEvent("announcement")).toBe(false);
-    expect(getSmsTemplate("trade_completed")).toContain("completed");
-    expect(getSmsTemplate("trade_completed", "https://alphatraders.co.il/trade-room/123"))
-      .toContain("https://alphatraders.co.il/trade-room/123");
+  });
+
+  it.each([
+    ["seller_application_submitted", "طلب الانضمام كبائع بانتظار المراجعة.", "Seller application needs review."],
+    ["trade_requires_admin_review", "الصفقة بحاجة إلى مراجعة الإدارة.", "Trade needs admin review."],
+    ["purchase_request_created", "لديك طلب شراء جديد.", "New purchase request."],
+    ["trade_accepted", "وافق البائع على صفقتك.", "Seller accepted your trade."],
+    ["payment_sent", "تم تحديد الدفع كمُرسل. تحقّق من استلام الأموال.", "Payment marked sent. Verify funds."],
+    ["funds_received", "تم تأكيد استلام الأموال.", "Funds confirmed received."],
+    ["usdt_sent", "تم إرسال USDT. أكّد الاستلام.", "USDT sent. Confirm receipt."],
+    ["trade_completed", "اكتملت الصفقة.", "Trade completed."],
+  ] as const)("renders %s SMS in Arabic first and English second", (event, arabic, english) => {
+    const destination = "https://alphatraders.co.il/trade-room/123";
+    expect(getSmsTemplate(event, destination).split("\n")).toEqual([
+      "Alpha Traders",
+      arabic,
+      english,
+      destination,
+    ]);
+  });
+
+  it("keeps brand, code, and expiry clear in the compact bilingual OTP", () => {
+    expect(getBilingualOtpSms("482901").split("\n")).toEqual([
+      "Alpha Traders",
+      "رمز التحقق / Verification code: 482901",
+      "صالح لمدة 10 دقائق / Expires in 10 minutes.",
+    ]);
+  });
+
+  it("upgrades legacy OTP callers before the provider request is sent", async () => {
+    vi.stubEnv("TWILIO_ACCOUNT_SID", "ACtest");
+    vi.stubEnv("TWILIO_AUTH_TOKEN", "token");
+    vi.stubEnv("TWILIO_PHONE_NUMBER", "+15551234567");
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+      const payload = new URLSearchParams(String(init?.body ?? ""));
+      expect(payload.get("Body")).toBe(getBilingualOtpSms("482901"));
+      return Promise.resolve(new Response(JSON.stringify({ sid: "SM1", status: "queued" }), { status: 201 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(sendTwilioMessageWithRetry({
+      to: "+15557654321",
+      body: "Alpha Traders verification code: 482901. Expires in 10 minutes.",
+    })).resolves.toEqual(expect.objectContaining({ ok: true }));
   });
 
   it("maps provider statuses without treating unknown statuses as delivery", () => {

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
 import { AccountProfilePanel } from "@/components/profile/account-profile-panel";
@@ -213,6 +213,54 @@ describe("AccountProfilePanel", () => {
     expect(screen.queryByText("Preparing trading identity...")).toBeNull();
   });
 
+  it("never exposes an unexpected English photo API error in Arabic", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makePayload("buyer"),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: "Storage provider bucket is unavailable" }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AccountProfilePanel locale="ar" />);
+    await waitFor(() => expect(screen.getByText("Test User")).toBeTruthy());
+
+    const input = screen.getByLabelText("اختيار صورة شخصية");
+    fireEvent.change(input, {
+      target: { files: [new File(["photo"], "profile.png", { type: "image/png" })] },
+    });
+
+    await waitFor(() => expect(screen.getByText("تعذر رفع الصورة الشخصية. يرجى المحاولة مرة أخرى.")).toBeTruthy());
+    expect(screen.queryByText(/Storage provider bucket/i)).toBeNull();
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/auth/profile/photo", expect.objectContaining({
+      headers: { "X-Locale": "ar" },
+    }));
+  });
+
+  it("shows localized stable photo validation errors", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => makePayload("buyer") })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({
+          code: "UNSUPPORTED_IMAGE_FORMAT",
+          error: "Unsupported image format. Use JPEG, PNG, WebP, or GIF.",
+        }),
+      }));
+
+    render(<AccountProfilePanel locale="ar" />);
+    await waitFor(() => expect(screen.getByText("Test User")).toBeTruthy());
+    fireEvent.change(screen.getByLabelText("اختيار صورة غلاف"), {
+      target: { files: [new File(["photo"], "cover.svg", { type: "image/svg+xml" })] },
+    });
+
+    await waitFor(() => expect(screen.getByText("صيغة الصورة غير مدعومة. استخدم JPEG أو PNG أو WebP أو GIF.")).toBeTruthy());
+    expect(screen.queryByText(/^Unsupported image format/)).toBeNull();
+  });
+
   it("clears cached private profile data when the canonical session becomes anonymous", async () => {
     const replaceSpy = vi.fn();
     const originalLocation = window.location;
@@ -287,7 +335,7 @@ describe("AccountProfilePanel", () => {
     render(<AccountProfilePanel locale="en" />);
 
     await waitFor(() => expect(screen.getByText("Bronze")).toBeTruthy());
-    expect(eventSourceInstances).toHaveLength(1);
+    await waitFor(() => expect(eventSourceInstances).toHaveLength(1));
 
     eventSourceInstances[0].emit("notifications", JSON.stringify({ notifications: [], unreadCount: 1 }));
 

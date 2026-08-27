@@ -166,14 +166,14 @@ export function MarketplaceCompliancePaymentPage({ locale }: { locale: "ar" | "e
         <CardContent className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-4">
             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "الحالة" : "Status"}</p><p className="mt-1 font-semibold text-white">{paymentStatusLabel}</p></div>
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "المخالفة" : "Violation"}</p><p className="mt-1 font-semibold text-white">#{activeRecord.violationNumber}</p></div>
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "المبلغ المستحق" : "Amount Due"}</p><p className="mt-1 font-semibold text-[#FDE68A]">{activeRecord.feeAmount.toFixed(2)} {activeRecord.feeCurrency}</p></div>
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "الشبكة" : "Network"}</p><p className="mt-1 font-semibold text-white">{activeRecord.recoveryWalletNetwork ?? "-"}</p></div>
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "المخالفة" : "Violation"}</p><p className="mt-1 font-semibold text-white"><bdi dir="ltr">#{activeRecord.violationNumber}</bdi></p></div>
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "المبلغ المستحق" : "Amount Due"}</p><p className="mt-1 font-semibold text-[#FDE68A]"><bdi dir="ltr">{activeRecord.feeAmount.toFixed(2)} {activeRecord.feeCurrency}</bdi></p></div>
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "الشبكة" : "Network"}</p><p className="mt-1 font-semibold text-white"><bdi dir="ltr">{activeRecord.recoveryWalletNetwork ?? "-"}</bdi></p></div>
           </div>
 
           <div className="rounded-2xl border border-[#C9A227]/30 bg-black/30 p-4">
             <p className="text-xs uppercase tracking-[0.12em] text-[#C9A227]">{isAr ? "محفظة الاسترداد" : "Recovery Wallet"}</p>
-            <p className="mt-2 break-all rounded-lg border border-white/10 bg-black/50 p-3 font-mono text-sm text-white">{activeRecord.recoveryWalletAddress}</p>
+            <p dir="ltr" className="mt-2 break-all rounded-lg border border-white/10 bg-black/50 p-3 text-left font-mono text-sm text-white">{activeRecord.recoveryWalletAddress}</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Button type="button" variant="secondary" onClick={() => void handleCopyWallet()}><Copy className="mr-1.5 h-4 w-4" />{isAr ? "نسخ العنوان" : "Copy Wallet"}</Button>
               <Button type="button" disabled={busy || activeRecord.recoveryPaymentStatus === "awaiting_verification" || activeRecord.recoveryPaymentStatus === "confirmed_paid"} onClick={() => void handleSubmitPayment()}>

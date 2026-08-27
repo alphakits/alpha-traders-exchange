@@ -22,7 +22,11 @@ import { getAlphaExchangeRepository, type SnapshotTableName } from "@/lib/alpha-
 import { addRole, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
-import { sendMarketplaceEmail, type MarketplaceEmailEvent } from "@/lib/marketplace-email-delivery";
+import {
+  sendMarketplaceEmail,
+  type MarketplaceEmailEvent,
+  type MarketplaceEmailLocalizedText,
+} from "@/lib/marketplace-email-delivery";
 import {
   isRetryableAnnouncementDeliveryFailure,
   sendAdminAnnouncementBatch,
@@ -32,6 +36,7 @@ import {
 } from "@/lib/admin-announcement-email";
 import { getSiteUrl } from "@/lib/site-url";
 import { normalizePublicProfileUsername } from "@/lib/public-profile-username";
+import { formatIsraelCalendarDateKey } from "@/lib/israel-calendar";
 import { assertNoDirectContactContent, containsDirectContactContent, redactPrivateContactDetails } from "@/lib/privacy-redaction";
 import { getSmsTemplate, normalizeE164, resolveSmsDeliveryStatusTransition, sendTwilioMessageWithRetry, twilioStatusCallbackUrl } from "@/lib/notification-platform";
 import { normalizeSellerLevel } from "@/types/alpha-exchange";
@@ -110,6 +115,7 @@ import type {
   AlphaExchangeTradeReminder,
   OwnerPrivateBetaDashboardData,
   OnboardingSelection,
+  PreferredLocale,
   UserRole,
   SellerReviewRecord,
   TrustSnapshotRecord,
@@ -139,6 +145,7 @@ import {
   sellerProfileDestination,
 } from "@/lib/action-destinations";
 import { COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON, commissionPaymentDestination } from "@/lib/commission-payment-destination";
+import { normalizePreferredLocale } from "@/lib/preferred-locale";
 
 const SELLER_EVIDENCE_TRACE_PATH = path.join(process.cwd(), "tmp", "seller-evidence-server.log");
 
@@ -615,6 +622,12 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
         : "Alpha Exchange update";
   let title = redactPrivateContactDetails(notification.title?.trim() || fallbackTitle);
   let message = redactPrivateContactDetails(notification.message?.trim() || "Open notifications for the latest account update.");
+  const localizedCopy = {
+    titleEn: notification.titleEn ? redactPrivateContactDetails(notification.titleEn.trim()) : undefined,
+    messageEn: notification.messageEn ? redactPrivateContactDetails(notification.messageEn.trim()) : undefined,
+    titleAr: notification.titleAr ? redactPrivateContactDetails(notification.titleAr.trim()) : undefined,
+    messageAr: notification.messageAr ? redactPrivateContactDetails(notification.messageAr.trim()) : undefined,
+  };
   if (sellerContext?.user) {
     title = title.split(sellerContext.user.id).join(sellerContext.displayName);
     message = message.split(sellerContext.user.id).join(sellerContext.displayName);
@@ -630,6 +643,10 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     ...notification,
     title: replaceExchangeEntityIds(title, displayLookup),
     message: replaceExchangeEntityIds(message, displayLookup),
+    titleEn: localizedCopy.titleEn ? replaceExchangeEntityIds(localizedCopy.titleEn, displayLookup) : undefined,
+    messageEn: localizedCopy.messageEn ? replaceExchangeEntityIds(localizedCopy.messageEn, displayLookup) : undefined,
+    titleAr: localizedCopy.titleAr ? replaceExchangeEntityIds(localizedCopy.titleAr, displayLookup) : undefined,
+    messageAr: localizedCopy.messageAr ? replaceExchangeEntityIds(localizedCopy.messageAr, displayLookup) : undefined,
     isRead: state !== "unread",
     state,
     centerCategory,
@@ -1090,6 +1107,22 @@ function summarizePromotionBenefits(rank: SellerLevel) {
   if (rank === "diamond") return "Premium placement and increased visibility with serious buyers.";
   if (rank === "elite") return "Elite recognition across Alpha Exchange and maximum buyer trust.";
   return "Starter prestige level unlocked.";
+}
+
+function summarizePromotionBenefitsAr(rank: SellerLevel) {
+  if (rank === "silver") return "ظهور أعلى في السوق وثقة أقوى لدى المشترين.";
+  if (rank === "gold") return "ترتيب ذو أولوية وإشارة ثقة أقوى على بطاقات البائعين.";
+  if (rank === "diamond") return "ترتيب مميّز وظهور أكبر أمام المشترين الجادّين.";
+  if (rank === "elite") return "تقدير النخبة في Alpha Exchange وأعلى مستوى من ثقة المشترين.";
+  return "تم فتح مستوى المكانة الأول.";
+}
+
+function sellerRankAr(rank: SellerLevel) {
+  if (rank === "bronze") return "البرونزية";
+  if (rank === "silver") return "الفضية";
+  if (rank === "gold") return "الذهبية";
+  if (rank === "diamond") return "الماسية";
+  return "النخبة";
 }
 
 function getSellerApprovedAt(db: AlphaExchangeDb, sellerId: string) {
@@ -2026,6 +2059,71 @@ function isValidAnnouncementType(value: string): value is BetaAnnouncementType {
   return value === "maintenance" || value === "new_feature" || value === "bug_fix" || value === "known_issue";
 }
 
+export type BetaAnnouncementLocale = "ar" | "en";
+
+function announcementText(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * Resolves old, single-language rows without discarding their copy. Locale
+ * fields are authoritative when present; legacy aliases are only fallbacks.
+ */
+function normalizeBetaAnnouncement(item: BetaAnnouncement): BetaAnnouncement {
+  const legacyTitle = announcementText((item as { title?: unknown }).title);
+  const legacyMessage = announcementText((item as { message?: unknown }).message);
+  const explicitTitleEn = announcementText((item as { titleEn?: unknown }).titleEn);
+  const explicitMessageEn = announcementText((item as { messageEn?: unknown }).messageEn);
+  const explicitTitleAr = announcementText((item as { titleAr?: unknown }).titleAr);
+  const explicitMessageAr = announcementText((item as { messageAr?: unknown }).messageAr);
+
+  const titleEn = explicitTitleEn || legacyTitle || explicitTitleAr;
+  const messageEn = explicitMessageEn || legacyMessage || explicitMessageAr;
+  const titleAr = explicitTitleAr || legacyTitle || explicitTitleEn;
+  const messageAr = explicitMessageAr || legacyMessage || explicitMessageEn;
+
+  return {
+    ...item,
+    // Keep the established aliases stable for older admin/public clients.
+    title: legacyTitle || titleEn || titleAr,
+    message: legacyMessage || messageEn || messageAr,
+    titleEn,
+    messageEn,
+    titleAr,
+    messageAr,
+  };
+}
+
+export function getLocalizedBetaAnnouncementCopy(
+  announcement: Pick<BetaAnnouncement, "title" | "message" | "titleEn" | "messageEn" | "titleAr" | "messageAr">,
+  locale: BetaAnnouncementLocale,
+) {
+  const normalized = normalizeBetaAnnouncement(announcement as BetaAnnouncement);
+  if (locale === "ar") {
+    return {
+      title: normalized.titleAr || normalized.titleEn || normalized.title,
+      message: normalized.messageAr || normalized.messageEn || normalized.message,
+    };
+  }
+  return {
+    title: normalized.titleEn || normalized.title || normalized.titleAr,
+    message: normalized.messageEn || normalized.message || normalized.messageAr,
+  };
+}
+
+export function resolveBetaAnnouncementLocale(language: string | null | undefined): BetaAnnouncementLocale {
+  const normalized = announcementText(language).toLocaleLowerCase("en-US");
+  if (
+    normalized === "ar"
+    || normalized.startsWith("ar-")
+    || normalized === "arabic"
+    || normalized === "العربية"
+    || normalized === "عربي"
+    || normalized === "عربية"
+  ) return "ar";
+  return "en";
+}
+
 function isMarketplaceEnforcementStatus(value: string | undefined): value is MarketplaceEnforcementStatus {
   return value === "active" || value === "resolved_paid" || value === "resolved_removed" || value === "revoked";
 }
@@ -2150,6 +2248,9 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       const sellerAchievementsRaw = Array.isArray((user as { sellerAchievements?: unknown[] }).sellerAchievements)
         ? (user as { sellerAchievements: unknown[] }).sellerAchievements.filter((entry) => entry && typeof entry === "object")
         : [];
+      const normalizedLanguages = Array.isArray((user as { languages?: string[] }).languages)
+        ? (user as { languages: string[] }).languages.map((language) => String(language).trim()).filter(Boolean)
+        : ["English"];
       return {
         ...user,
         email,
@@ -2160,7 +2261,8 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
           ? ((user as { preferredNetworks: string[] }).preferredNetworks.filter((network) => isSupportedNetwork(network)) as SupportedNetwork[])
           : [],
         profilePhotoUrl: typeof (user as { profilePhotoUrl?: string }).profilePhotoUrl === "string" ? (user as { profilePhotoUrl: string }).profilePhotoUrl : "",
-        languages: Array.isArray((user as { languages?: string[] }).languages) ? (user as { languages: string[] }).languages.map((language) => String(language).trim()).filter(Boolean) : ["English"],
+        languages: normalizedLanguages,
+        preferredLocale: normalizePreferredLocale((user as { preferredLocale?: unknown }).preferredLocale),
         bio: typeof (user as { bio?: string }).bio === "string" ? (user as { bio: string }).bio : "",
         tradingExperience: typeof (user as { tradingExperience?: string }).tradingExperience === "string" ? (user as { tradingExperience: string }).tradingExperience.trim() : "",
         workingHours: typeof (user as { workingHours?: string }).workingHours === "string" ? (user as { workingHours: string }).workingHours.trim() : "",
@@ -2526,12 +2628,10 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       status: isValidFeedbackStatus(String((item as { status?: string }).status ?? "")) ? (item as { status: BetaFeedbackStatus }).status : "new",
       message: String((item as { message?: string }).message ?? "").trim(),
     })),
-    betaAnnouncements: (db.betaAnnouncements ?? []).map((item) => ({
+    betaAnnouncements: (db.betaAnnouncements ?? []).map((item) => normalizeBetaAnnouncement({
       ...item,
       type: isValidAnnouncementType(String((item as { type?: string }).type ?? "")) ? (item as { type: BetaAnnouncementType }).type : "maintenance",
       isActive: (item as { isActive?: boolean }).isActive !== false,
-      title: String((item as { title?: string }).title ?? "").trim(),
-      message: String((item as { message?: string }).message ?? "").trim(),
     })),
     adminAnnouncementRuns: (db.adminAnnouncementRuns ?? []).map((run) => ({
       ...run,
@@ -2804,8 +2904,11 @@ async function readDb(options?: { bypassCache?: boolean; skipMaintenance?: boole
           if (!listing.expirationEmailPendingAt || listing.expirationEmailSentAt) continue;
           await sendListingOwnerLifecycleEmail(normalized, listing, {
             event: "listing_expired",
-            title: "Listing Expired",
-            message: "Your listing expired and is no longer visible to buyers. Renew it when you are ready to trade again.",
+            title: { ar: "انتهت صلاحية الإعلان", en: "Listing Expired" },
+            message: {
+              ar: "انتهت صلاحية إعلانك ولم يعد ظاهرًا للمشترين. جدّده عندما تصبح جاهزًا للتداول مجددًا.",
+              en: "Your listing expired and is no longer visible to buyers. Renew it when you are ready to trade again.",
+            },
             idempotencyKey: `listing-${listing.id}-expired-${listing.expirationEmailPendingAt}`,
           });
         }
@@ -3099,9 +3202,9 @@ async function dispatchOwnerActionRequiredEmails(
   db: AlphaExchangeDb,
   input: {
     event: OwnerActionEmailEvent;
-    title: string;
-    message: string;
-    actionLabel: string;
+    title: MarketplaceEmailLocalizedText;
+    message: MarketplaceEmailLocalizedText;
+    actionLabel: MarketplaceEmailLocalizedText;
     actionHref: string;
     referenceLabel: string;
     idempotencyKey?: string;
@@ -3119,10 +3222,11 @@ async function dispatchOwnerActionRequiredEmails(
         event: input.event,
         to: recipient.email,
         recipientName: recipient.fullName,
+        recipientLocale: normalizePreferredLocale(recipient.preferredLocale),
         title: input.title,
         message: input.message,
         actionLabel: input.actionLabel,
-        actionUrl: `${getSiteUrl()}/en${input.actionHref}`,
+        actionPath: input.actionHref,
         referenceLabel: input.referenceLabel,
         idempotencyKey: `${input.idempotencyKey ?? `${input.event}:${input.referenceLabel}`}:${recipient.id}`,
       });
@@ -3175,8 +3279,8 @@ async function sendListingOwnerLifecycleEmail(
   listing: MarketplaceListing,
   input: {
     event: Extract<MarketplaceEmailEvent, "listing_submitted" | "listing_expired" | "listing_renewed">;
-    title: string;
-    message: string;
+    title: MarketplaceEmailLocalizedText;
+    message: MarketplaceEmailLocalizedText;
     idempotencyKey?: string;
   },
 ) {
@@ -3186,10 +3290,11 @@ async function sendListingOwnerLifecycleEmail(
     event: input.event,
     to: seller.email,
     recipientName: seller.fullName,
+    recipientLocale: normalizePreferredLocale(seller.preferredLocale),
     title: input.title,
     message: input.message,
-    actionLabel: "Open Seller Listings",
-    actionUrl: `${getSiteUrl()}/en${sellerListingWorkspaceDestination(listing)}`,
+    actionLabel: { ar: "فتح إعلانات البائع", en: "Open Seller Listings" },
+    actionPath: sellerListingWorkspaceDestination(listing),
     referenceLabel: listing.id,
     idempotencyKey: input.idempotencyKey,
   });
@@ -3219,10 +3324,17 @@ async function sendSellerPrestigePromotionEmail(input: {
     event: "seller_prestige_promoted",
     to: input.seller.email,
     recipientName: input.seller.fullName,
-    title: "Congratulations on your new seller rank",
-    message: `You reached ${input.rank} seller. ${summarizePromotionBenefits(input.rank)}`,
-    actionLabel: "View Seller Insights",
-    actionUrl: `${getSiteUrl()}/en/usdt-exchange#market-overview`,
+    recipientLocale: normalizePreferredLocale(input.seller.preferredLocale),
+    title: {
+      ar: "تهانينا على رتبتك الجديدة كبائع",
+      en: "Congratulations on your new seller rank",
+    },
+    message: {
+      ar: `وصلت إلى رتبة البائع ${sellerRankAr(input.rank)}. ${summarizePromotionBenefitsAr(input.rank)}`,
+      en: `You reached ${input.rank} seller. ${summarizePromotionBenefits(input.rank)}`,
+    },
+    actionLabel: { ar: "عرض إحصاءات البائع", en: "View Seller Insights" },
+    actionPath: "/usdt-exchange#market-overview",
     referenceLabel: input.promotionId,
     idempotencyKey: `seller-prestige-${input.promotionId}`,
   });
@@ -3246,6 +3358,7 @@ export async function getListingBroadcastEmailRecipients(creatorUserId: string) 
       id: user.id,
       fullName: user.fullName,
       email: user.email,
+      preferredLocale: normalizePreferredLocale(user.preferredLocale),
     }));
 }
 
@@ -3254,8 +3367,8 @@ async function sendSellerEnforcementEmail(
   sellerId: string,
   input: {
     event: Extract<MarketplaceEmailEvent, "marketplace_enforcement_fee_issued" | "marketplace_enforcement_fee_paid" | "marketplace_enforcement_seller_revoked">;
-    title: string;
-    message: string;
+    title: MarketplaceEmailLocalizedText;
+    message: MarketplaceEmailLocalizedText;
     referenceLabel: string;
     idempotencyKey?: string;
   },
@@ -3267,12 +3380,15 @@ async function sendSellerEnforcementEmail(
     event: input.event,
     to: seller.email,
     recipientName: seller.fullName,
+    recipientLocale: normalizePreferredLocale(seller.preferredLocale),
     title: input.title,
     message: input.message,
-    actionLabel: paymentRequired ? "Open Compliance Payment" : "Open Account",
-    actionUrl: paymentRequired
-      ? `${getSiteUrl()}/en/dashboard/seller/compliance-payment`
-      : `${getSiteUrl()}/en/dashboard`,
+    actionLabel: paymentRequired
+      ? { ar: "فتح دفع الامتثال", en: "Open Compliance Payment" }
+      : { ar: "فتح الحساب", en: "Open Account" },
+    actionPath: paymentRequired
+      ? "/dashboard/seller/compliance-payment"
+      : "/dashboard",
     referenceLabel: input.referenceLabel,
     idempotencyKey: input.idempotencyKey,
   });
@@ -3312,6 +3428,10 @@ function pushNotification(
     category: NotificationCategory;
     title: string;
     message: string;
+    titleEn?: string;
+    messageEn?: string;
+    titleAr?: string;
+    messageAr?: string;
     relatedTradeId?: string;
     relatedRequestId?: string;
     relatedListingId?: string;
@@ -3369,7 +3489,12 @@ function pushNotification(
     if (duplicateIndex >= 0) {
       const updated = enrichNotification(db, {
         ...duplicate,
+        title: input.title,
         message: input.message,
+        titleEn: input.titleEn ?? duplicate.titleEn,
+        messageEn: input.messageEn ?? duplicate.messageEn,
+        titleAr: input.titleAr ?? duplicate.titleAr,
+        messageAr: input.messageAr ?? duplicate.messageAr,
         state: nextState,
         isRead: nextState !== "unread",
         relatedTradeId: input.relatedTradeId ?? duplicate.relatedTradeId,
@@ -3400,6 +3525,10 @@ function pushNotification(
     category: input.category,
     title: input.title,
     message: input.message,
+    titleEn: input.titleEn,
+    messageEn: input.messageEn,
+    titleAr: input.titleAr,
+    messageAr: input.messageAr,
     isRead: nextState !== "unread",
     state: nextState,
     priority: input.priority ?? inferredPriority.priority,
@@ -3715,10 +3844,17 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
         event: "trade_cancelled",
         to: buyer.email,
         recipientName: buyer.fullName,
-        title: "Action Required: Trade Still Waiting",
-        message: `Trade ${request.tradeId ?? request.id} is still active and waiting for your payment confirmation.`,
-        actionLabel: "Open Trade Room",
-        actionUrl: `${getSiteUrl()}/en/trade-room/${request.id}`,
+        recipientLocale: normalizePreferredLocale(buyer.preferredLocale),
+        title: {
+          ar: "إجراء مطلوب: الصفقة ما زالت بانتظارك",
+          en: "Action Required: Trade Still Waiting",
+        },
+        message: {
+          ar: `الصفقة ${request.tradeId ?? request.id} ما زالت نشطة وبانتظار تأكيد الدفع منك.`,
+          en: `Trade ${request.tradeId ?? request.id} is still active and waiting for your payment confirmation.`,
+        },
+        actionLabel: { ar: "فتح غرفة الصفقة", en: "Open Trade Room" },
+        actionPath: `/trade-room/${encodeURIComponent(request.id)}`,
         referenceLabel: request.tradeId ?? request.id,
         idempotencyKey: `trade-${request.id}-inactivity-warning-buyer-${request.updatedAt}`,
       });
@@ -3729,10 +3865,17 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
         event: "trade_cancelled",
         to: seller.email,
         recipientName: seller.fullName,
-        title: "Trade Update: Buyer Reminder Sent",
-        message: `Trade ${request.tradeId ?? request.id} remains active. The buyer received an inactivity reminder.`,
-        actionLabel: "Open Trade Room",
-        actionUrl: `${getSiteUrl()}/en/trade-room/${request.id}`,
+        recipientLocale: normalizePreferredLocale(seller.preferredLocale),
+        title: {
+          ar: "تحديث الصفقة: تم تذكير المشتري",
+          en: "Trade Update: Buyer Reminder Sent",
+        },
+        message: {
+          ar: `الصفقة ${request.tradeId ?? request.id} ما زالت نشطة. تلقّى المشتري تذكيرًا بسبب عدم النشاط.`,
+          en: `Trade ${request.tradeId ?? request.id} remains active. The buyer received an inactivity reminder.`,
+        },
+        actionLabel: { ar: "فتح غرفة الصفقة", en: "Open Trade Room" },
+        actionPath: `/trade-room/${encodeURIComponent(request.id)}`,
         referenceLabel: request.tradeId ?? request.id,
         idempotencyKey: `trade-${request.id}-inactivity-warning-seller-${request.updatedAt}`,
       });
@@ -4155,7 +4298,7 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
           notification.userId === owner.id &&
           notification.category === "trust" &&
           (notification.relatedSellerUsername === sellerNotificationContext.username || notification.message.includes(snapshot.sellerId)) &&
-          now.slice(0, 10) === notification.createdAt.slice(0, 10),
+          formatIsraelCalendarDateKey(now) === formatIsraelCalendarDateKey(notification.createdAt),
       );
       if (!alreadyNotifiedRecently) {
         pushNotification(db, {
@@ -4209,6 +4352,7 @@ export async function createUser(input: {
   email: string;
   passwordHash: string;
   whatsappNumber: string;
+  preferredLocale?: PreferredLocale;
 }) {
   assertNoExchangeDirectContact(input.fullName);
   const db = await readDb();
@@ -4233,6 +4377,7 @@ export async function createUser(input: {
     preferredNetworks: [],
     profilePhotoUrl: "",
     languages: ["English"],
+    preferredLocale: normalizePreferredLocale(input.preferredLocale),
     bio: "",
     tradingExperience: "",
     workingHours: "",
@@ -4282,6 +4427,7 @@ export async function upsertUserProfileForAuth(input: {
   passwordHash?: string;
   whatsappNumber: string;
   emailVerified?: boolean;
+  preferredLocale?: PreferredLocale;
 }) {
   const db = await readDb({ skipMaintenance: true });
   const email = normalizeEmail(input.email);
@@ -4307,6 +4453,7 @@ export async function upsertUserProfileForAuth(input: {
     const nextEmailVerifiedAt = input.emailVerified === true
       ? (existing.emailVerifiedAt ?? timestamp)
       : existing.emailVerifiedAt;
+    const nextPreferredLocale = input.preferredLocale ?? normalizePreferredLocale(existing.preferredLocale);
 
     const unchanged =
       existing.fullName === nextFullName
@@ -4315,6 +4462,7 @@ export async function upsertUserProfileForAuth(input: {
       && existing.role === nextRole
       && existing.emailVerified === nextEmailVerified
       && existing.emailVerifiedAt === nextEmailVerifiedAt
+      && existing.preferredLocale === nextPreferredLocale
       && JSON.stringify(existing.roles ?? []) === JSON.stringify(normalizedRoles);
 
     if (unchanged) {
@@ -4330,6 +4478,7 @@ export async function upsertUserProfileForAuth(input: {
       role: nextRole,
       emailVerified: nextEmailVerified,
       emailVerifiedAt: nextEmailVerifiedAt,
+      preferredLocale: nextPreferredLocale,
       updatedAt: timestamp,
     };
     await writeDb(db, { selectedTables: USER_PROFILE_TABLES });
@@ -4352,6 +4501,7 @@ export async function upsertUserProfileForAuth(input: {
     preferredNetworks: [],
     profilePhotoUrl: "",
     languages: ["English"],
+    preferredLocale: normalizePreferredLocale(input.preferredLocale),
     bio: "",
     tradingExperience: "",
     workingHours: "",
@@ -4540,7 +4690,7 @@ export async function beginBuyerVerification(input: {
     throw new Error("This marketplace is currently available only for verified Israeli buyers.");
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = formatIsraelCalendarDateKey(Date.now());
   const sendsDate = user.buyerOtpSendsDate ?? today;
   const sendsToday = sendsDate === today ? Number(user.buyerOtpSendsToday ?? 0) : 0;
   if (sendsToday >= 5) throw new Error("OTP send limit reached for today.");
@@ -4930,6 +5080,38 @@ export async function deleteSellerBankAccount(input: {
   });
   await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
   return { deleted: true };
+}
+
+export async function updateUserPreferredLocale(input: {
+  userId: string;
+  preferredLocale: PreferredLocale;
+}): Promise<AlphaExchangeUser> {
+  const db = await readDb({ bypassCache: true });
+  const committed: { user?: AlphaExchangeUser } = {};
+  const applyPreferredLocale = (snapshot: AlphaExchangeDb) => {
+    const index = snapshot.users.findIndex((user) => user.id === input.userId);
+    if (index === -1) throw new Error("User not found.");
+    const user = snapshot.users[index];
+    if (user.preferredLocale === input.preferredLocale) {
+      committed.user = user;
+      return snapshot;
+    }
+    snapshot.users[index] = {
+      ...user,
+      preferredLocale: input.preferredLocale,
+      updatedAt: nowIso(),
+    };
+    committed.user = snapshot.users[index];
+    return snapshot;
+  };
+
+  applyPreferredLocale(db);
+  await writeDb(db, {
+    selectedTables: ["users"],
+    rebaseOnLatest: applyPreferredLocale,
+  });
+  if (!committed.user) throw new Error("User not found.");
+  return committed.user;
 }
 
 export async function updateUserSellerSettings(input: {
@@ -5388,9 +5570,12 @@ export async function createSellerApplication(input: {
   await dispatchCommittedSms(db, priorSmsCount);
   await dispatchOwnerActionRequiredEmails(db, {
     event: "owner_seller_application_review_required",
-    title: "Seller Application Needs Review",
-    message: `${next.fullName} applied to become an Approved Seller. Review the application from your phone.`,
-    actionLabel: "Review Application",
+    title: { ar: "طلب بائع يحتاج إلى المراجعة", en: "Seller Application Needs Review" },
+    message: {
+      ar: `تقدّم ${next.fullName} ليصبح بائعًا معتمدًا. راجع الطلب من هاتفك.`,
+      en: `${next.fullName} applied to become an Approved Seller. Review the application from your phone.`,
+    },
+    actionLabel: { ar: "مراجعة الطلب", en: "Review Application" },
     actionHref: reviewDestination,
     referenceLabel: next.id,
   });
@@ -5752,8 +5937,14 @@ export async function issueMarketplaceEnforcementFeeByAdmin(input: {
   });
   await sendSellerEnforcementEmail(db, input.sellerId, {
     event: "marketplace_enforcement_fee_issued",
-    title: "Marketplace Compliance Restriction Issued",
-    message: `A Marketplace Recovery Fee of ${feeAmount.toFixed(2)} USDT was issued for your seller account. Send payment to ${walletConfig.walletAddress} on ${walletConfig.network}, then submit payment proof for verification.`,
+    title: {
+      ar: "تم فرض تقييد امتثال في السوق",
+      en: "Marketplace Compliance Restriction Issued",
+    },
+    message: {
+      ar: `تم إصدار رسوم استعادة للسوق بقيمة ${feeAmount.toFixed(2)} USDT على حساب البائع الخاص بك. أرسل المبلغ إلى ${walletConfig.walletAddress} عبر شبكة ${walletConfig.network}، ثم قدّم إثبات الدفع للتحقّق.`,
+      en: `A Marketplace Recovery Fee of ${feeAmount.toFixed(2)} USDT was issued for your seller account. Send payment to ${walletConfig.walletAddress} on ${walletConfig.network}, then submit payment proof for verification.`,
+    },
     referenceLabel: enforcementRecord.id,
     idempotencyKey: `enforcement-${enforcementRecord.id}-issued`,
   });
@@ -5995,8 +6186,14 @@ export async function markMarketplaceEnforcementFeePaidByAdmin(input: {
   });
   await sendSellerEnforcementEmail(db, input.sellerId, {
     event: "marketplace_enforcement_fee_paid",
-    title: "Marketplace Compliance Restriction Cleared",
-    message: "Your Marketplace Recovery Fee was marked as paid. Listing and publishing permissions are now restored.",
+    title: {
+      ar: "تم رفع تقييد الامتثال في السوق",
+      en: "Marketplace Compliance Restriction Cleared",
+    },
+    message: {
+      ar: "تم تأكيد دفع رسوم استعادة السوق. تمت استعادة صلاحيات إنشاء الإعلانات ونشرها.",
+      en: "Your Marketplace Recovery Fee was marked as paid. Listing and publishing permissions are now restored.",
+    },
     referenceLabel: activeRecord.id,
     idempotencyKey: `enforcement-${activeRecord.id}-paid`,
   });
@@ -6140,8 +6337,14 @@ export async function revokeSellerMarketplacePrivilegesByAdmin(input: {
   });
   await sendSellerEnforcementEmail(db, input.sellerId, {
     event: "marketplace_enforcement_seller_revoked",
-    title: "Seller Marketplace Privileges Revoked",
-    message: "Your seller marketplace privileges were permanently revoked after repeated policy violations. Existing active trades remain available for completion.",
+    title: {
+      ar: "تم إلغاء صلاحيات البائع في السوق",
+      en: "Seller Marketplace Privileges Revoked",
+    },
+    message: {
+      ar: "تم إلغاء صلاحياتك كبائع في السوق نهائيًا بعد انتهاكات متكررة للسياسات. تبقى الصفقات النشطة الحالية متاحة لإكمالها.",
+      en: "Your seller marketplace privileges were permanently revoked after repeated policy violations. Existing active trades remain available for completion.",
+    },
     referenceLabel: revokeRecord.id,
     idempotencyKey: `enforcement-${revokeRecord.id}-revoked`,
   });
@@ -6599,7 +6802,8 @@ function isDevelopmentTesterSeedEnabled() {
 }
 
 function isTesterSellerAccount(user: AlphaExchangeUser) {
-  return user.email.trim().toLowerCase() === "marksally11@yahoo.com";
+  const configuredEmail = process.env.ALPHA_EXCHANGE_DEVELOPMENT_TESTER_EMAIL?.trim().toLowerCase();
+  return user.email.trim().toLowerCase() === (configuredEmail || "seller@example.test");
 }
 
 function findTesterMarketplaceListing(db: AlphaExchangeDb, sellerId: string) {
@@ -6866,16 +7070,22 @@ export async function createMarketplaceListing(input: {
   }, fromCache);
   await dispatchOwnerActionRequiredEmails(db, {
     event: "owner_listing_review_required",
-    title: "Listing Approval Required",
-    message: `${input.sellerDisplayName} submitted ${listing.availableAmount} USDT on ${listing.network}. Review the listing before it can go live.`,
-    actionLabel: "Review Listing",
+    title: { ar: "إعلان يحتاج إلى الموافقة", en: "Listing Approval Required" },
+    message: {
+      ar: `قدّم ${input.sellerDisplayName} إعلانًا بكمية ${listing.availableAmount} USDT على شبكة ${listing.network}. راجع الإعلان قبل نشره.`,
+      en: `${input.sellerDisplayName} submitted ${listing.availableAmount} USDT on ${listing.network}. Review the listing before it can go live.`,
+    },
+    actionLabel: { ar: "مراجعة الإعلان", en: "Review Listing" },
     actionHref: reviewDestination,
     referenceLabel: listing.id,
   });
   await sendListingOwnerLifecycleEmail(db, listing, {
     event: "listing_submitted",
-    title: "Listing Submitted",
-    message: "Your listing was submitted successfully and is waiting for admin review.",
+    title: { ar: "تم إرسال الإعلان", en: "Listing Submitted" },
+    message: {
+      ar: "تم إرسال إعلانك بنجاح، وهو بانتظار مراجعة الإدارة.",
+      en: "Your listing was submitted successfully and is waiting for admin review.",
+    },
     idempotencyKey: `listing-${listing.id}-submitted`,
   });
   logProfile("writeDbForListingCreation");
@@ -7078,9 +7288,12 @@ export async function updateMarketplaceListingForSeller(input: {
   if (reviewDestination) {
     await dispatchOwnerActionRequiredEmails(db, {
       event: "owner_listing_review_required",
-      title: "Listing Changes Need Review",
-      message: `${next.sellerDisplayName} changed listing ${next.id}. Review it before the listing can return live.`,
-      actionLabel: "Review Listing",
+      title: { ar: "تعديلات الإعلان تحتاج إلى المراجعة", en: "Listing Changes Need Review" },
+      message: {
+        ar: `عدّل ${next.sellerDisplayName} الإعلان ${next.id}. راجعه قبل إعادة نشره.`,
+        en: `${next.sellerDisplayName} changed listing ${next.id}. Review it before the listing can return live.`,
+      },
+      actionLabel: { ar: "مراجعة الإعلان", en: "Review Listing" },
       actionHref: reviewDestination,
       referenceLabel: next.id,
       idempotencyKey: `owner-listing-resubmission:${next.id}:${next.updatedAt}`,
@@ -7166,8 +7379,11 @@ export async function renewMarketplaceListing(input: {
   await writeDb(db, { selectedTables: LISTING_WRITE_TABLES });
   await sendListingOwnerLifecycleEmail(db, listing, {
     event: "listing_renewed",
-    title: "Listing Renewed",
-    message: "Your listing was renewed successfully and is live in the marketplace again.",
+    title: { ar: "تم تجديد الإعلان", en: "Listing Renewed" },
+    message: {
+      ar: "تم تجديد إعلانك بنجاح، وهو منشور مجددًا في السوق.",
+      en: "Your listing was renewed successfully and is live in the marketplace again.",
+    },
     idempotencyKey: `listing-${listing.id}-renewed-${listing.lastRenewedAt}`,
   });
   publishRealtimeEvent({ type: "listing.status_changed", payload: { listingId: listing.id, status: listing.status } });
@@ -8814,6 +9030,7 @@ export interface AccountProfileSummary {
   bio: string;
   country: string;
   language: string;
+  preferredLocale: PreferredLocale;
   whatsappNumber: string;
   showTradeStats: boolean;
   showLastActive: boolean;
@@ -8877,6 +9094,7 @@ export async function getAccountProfileData(userId: string): Promise<{
     bio: user.bio ?? "",
     country: user.country ?? "",
     language: user.languages?.[0] ?? "English",
+    preferredLocale: normalizePreferredLocale(user.preferredLocale),
     whatsappNumber: user.whatsappNumber ?? "",
     showTradeStats: user.showTradeStats !== false,
     showLastActive: user.showLastActive !== false,
@@ -11451,20 +11669,31 @@ export async function updateBetaFeedbackStatus(input: {
 
 export async function createBetaAnnouncement(input: {
   ownerUserId: string;
-  title: string;
-  message: string;
+  titleEn: string;
+  messageEn: string;
+  titleAr: string;
+  messageAr: string;
   type: BetaAnnouncementType;
 }) {
   const db = await readDb();
-  const title = String(input.title ?? "").trim();
-  const message = String(input.message ?? "").trim();
-  if (!title || !message) throw new Error("Announcement title and message are required.");
-  if (title.length > 160) throw new Error("Announcement title is too long.");
-  if (message.length > 2000) throw new Error("Announcement message is too long.");
+  const titleEn = announcementText(input.titleEn);
+  const messageEn = announcementText(input.messageEn);
+  const titleAr = announcementText(input.titleAr);
+  const messageAr = announcementText(input.messageAr);
+  if (!titleEn || !messageEn || !titleAr || !messageAr) {
+    throw new Error("English and Arabic announcement titles and messages are required.");
+  }
+  if (titleEn.length > 160 || titleAr.length > 160) throw new Error("Announcement titles must be 160 characters or fewer.");
+  if (messageEn.length > 2000 || messageAr.length > 2000) throw new Error("Announcement messages must be 2000 characters or fewer.");
   const announcement: BetaAnnouncement = {
     id: `announcement-${randomUUID()}`,
-    title,
-    message,
+    // Older clients continue to receive useful English aliases.
+    title: titleEn,
+    message: messageEn,
+    titleEn,
+    messageEn,
+    titleAr,
+    messageAr,
     type: input.type,
     isActive: true,
     createdByUserId: input.ownerUserId,
@@ -11474,11 +11703,19 @@ export async function createBetaAnnouncement(input: {
   db.betaAnnouncements.unshift(announcement);
   for (const user of db.users) {
     if (!user.isFoundingMember) continue;
+    const userLocale = normalizePreferredLocale(user.preferredLocale);
+    const copy = getLocalizedBetaAnnouncementCopy(announcement, userLocale);
+    const notificationTitleEn = `Marketplace announcement: ${titleEn}`;
+    const notificationTitleAr = `إعلان السوق: ${titleAr}`;
     pushNotification(db, {
       userId: user.id,
       category: "system",
-      title: `Marketplace announcement: ${announcement.title}`,
-      message: announcement.message.slice(0, 140),
+      title: userLocale === "ar" ? notificationTitleAr : notificationTitleEn,
+      message: copy.message.slice(0, 140),
+      titleEn: notificationTitleEn,
+      messageEn: messageEn.slice(0, 140),
+      titleAr: notificationTitleAr,
+      messageAr: messageAr.slice(0, 140),
       relatedHref: "/usdt-exchange",
     });
   }
@@ -11513,9 +11750,14 @@ export async function updateBetaAnnouncementState(input: {
   return db.betaAnnouncements[index];
 }
 
-export async function getActiveBetaAnnouncements() {
+export async function getActiveBetaAnnouncements(locale?: BetaAnnouncementLocale) {
   const db = await readDb();
-  return db.betaAnnouncements.filter((item) => item.isActive);
+  const active = db.betaAnnouncements.filter((item) => item.isActive);
+  if (!locale) return active;
+  return active.map((announcement) => ({
+    ...announcement,
+    ...getLocalizedBetaAnnouncementCopy(announcement, locale),
+  }));
 }
 
 export function isAdminAnnouncementAudience(value: string): value is AdminAnnouncementAudience {
@@ -12739,21 +12981,48 @@ export async function setSellerVacationModeByAdmin(input: { userId: string; enab
   await writeDb(db, { selectedTables: SELLER_PROFILE_STATE_TABLES });
 }
 
-export async function broadcastNotificationByAdmin(input: { title: string; body: string; type: "info" | "warning" | "success"; actorUserId: string; reason?: string }) {
+export async function broadcastNotificationByAdmin(input: {
+  titleEn: string;
+  bodyEn: string;
+  titleAr: string;
+  bodyAr: string;
+  type: "info" | "warning" | "success";
+  actorUserId: string;
+  reason?: string;
+}) {
+  const titleEn = announcementText(input.titleEn);
+  const bodyEn = announcementText(input.bodyEn);
+  const titleAr = announcementText(input.titleAr);
+  const bodyAr = announcementText(input.bodyAr);
+  if (!titleEn || !bodyEn || !titleAr || !bodyAr) {
+    throw new Error("English and Arabic broadcast titles and messages are required.");
+  }
+  if (titleEn.length > 160 || titleAr.length > 160) {
+    throw new Error("Broadcast titles must be 160 characters or fewer.");
+  }
+  if (bodyEn.length > 2000 || bodyAr.length > 2000) {
+    throw new Error("Broadcast messages must be 2000 characters or fewer.");
+  }
+
   const db = await readDb();
   for (const user of db.users) {
+    const userLocale = normalizePreferredLocale(user.preferredLocale);
     pushNotification(db, {
       userId: user.id,
       category: "system",
-      title: input.title,
-      message: input.body,
+      title: userLocale === "ar" ? titleAr : titleEn,
+      message: userLocale === "ar" ? bodyAr : bodyEn,
+      titleEn,
+      messageEn: bodyEn,
+      titleAr,
+      messageAr: bodyAr,
       priority: input.type === "warning" ? "high" : "normal",
     });
   }
   await appendAuditLog(db, {
     action: "admin_override",
     actorUserId: input.actorUserId,
-    details: `Broadcast notification sent: ${input.title}`,
+    details: `Broadcast notification sent: ${titleEn}`,
     reason: input.reason?.trim() || undefined,
   });
   await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });

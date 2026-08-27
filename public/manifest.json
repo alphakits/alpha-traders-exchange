@@ -1,13 +1,16 @@
 {
   "name": "Alpha Traders Academy & Exchange",
-  "short_name": "Alpha Traders Academy & Exchange",
-  "description": "Alpha Traders Academy & Exchange — professional trading education and a trusted USDT marketplace.",
+  "short_name": "Alpha Traders",
+  "description": "Trading education and a trusted USDT marketplace — تعليم التداول وسوق موثوق لعملة USDT.",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "theme_color": "#C9A227",
   "background_color": "#050505",
-  "lang": "ar",
+  "lang": "mul",
+  "dir": "auto",
   "categories": ["finance", "education"],
   "icons": [
     {
@@ -31,17 +34,17 @@
   "screenshots": [],
   "shortcuts": [
     {
-      "name": "Alpha Exchange",
-      "short_name": "Exchange",
-      "description": "Open the USDT marketplace",
-      "url": "/ar/usdt-exchange",
+      "name": "USDT Marketplace — سوق USDT",
+      "short_name": "USDT",
+      "description": "Open the USDT marketplace — افتح سوق USDT",
+      "url": "/usdt-exchange",
       "icons": [{ "src": "/images/brand/alpha-traders-logo-192.png", "sizes": "192x192" }]
     },
     {
-      "name": "Alpha Academy",
-      "short_name": "Academy",
-      "description": "Access trading lessons",
-      "url": "/ar/academy",
+      "name": "Alpha Academy — أكاديمية Alpha",
+      "short_name": "Academy — الأكاديمية",
+      "description": "Access trading lessons — افتح دروس التداول",
+      "url": "/academy",
       "icons": [{ "src": "/images/brand/alpha-traders-logo-192.png", "sizes": "192x192" }]
     }
   ]

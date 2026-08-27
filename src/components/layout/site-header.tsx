@@ -8,6 +8,7 @@ import { HeaderNav } from "@/components/layout/header-nav";
 import { HeaderAuthArea } from "@/components/layout/header-auth-area";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
 import { BRAND_DESCRIPTOR, BRAND_DESCRIPTOR_AR, BRAND_NAME, BRAND_PRIMARY_NAME } from "@/lib/brand";
+import { getLocalizedTradeReminderDisplay } from "@/lib/trade-reminder-localization";
 
 export async function SiteHeader({
   locale,
@@ -25,6 +26,7 @@ export async function SiteHeader({
   const brand = (await getTranslations({ locale }))("brand");
   const activeTrade = sessionUser ? await getFirstActiveTradeForUser(sessionUser.id, sessionUser.role) : null;
   const tradeReminder = sessionUser ? await getTradeReminderForUser(sessionUser.id, sessionUser.role) : null;
+  const tradeReminderDisplay = tradeReminder ? getLocalizedTradeReminderDisplay(tradeReminder, locale) : null;
   const activeTradeCounterparty = activeTrade
     ? (activeTrade.sellerId === sessionUser?.id ? activeTrade.buyerName : (locale === "ar" ? "البائع" : "seller"))
     : null;
@@ -53,7 +55,7 @@ export async function SiteHeader({
             priority
             className="h-10 w-10 rounded-xl border border-[#C9A227]/45 bg-black/35 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)] min-[390px]:h-11 min-[390px]:w-11 sm:h-12 sm:w-12"
           />
-          <span className="hidden shrink-0 flex-col min-[360px]:flex" aria-label={brand}>
+          <span className="hidden shrink-0 flex-col sm:flex" aria-label={brand}>
             <span className="gold-gradient whitespace-nowrap bg-clip-text pb-px text-[0.78rem] leading-[1.15] text-transparent min-[390px]:text-[0.86rem] sm:text-[1.02rem]">{BRAND_PRIMARY_NAME}</span>
             <span className="whitespace-nowrap text-[0.42rem] font-semibold uppercase leading-tight tracking-[0.09em] text-[#D4AF37] min-[390px]:text-[0.48rem] sm:text-[0.55rem] sm:tracking-[0.16em]">{locale === "ar" ? BRAND_DESCRIPTOR_AR : BRAND_DESCRIPTOR}</span>
           </span>
@@ -76,11 +78,13 @@ export async function SiteHeader({
       </div>
       {sessionUser && (tradeReminder || activeTrade) ? (
       <div className="section-container pb-2">
-        <div className={`flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs ${tradeReminder ? "border border-amber-400/35 bg-amber-500/10 text-amber-100" : "border border-emerald-400/35 bg-emerald-500/10 text-emerald-100"}`}>
-          <p className="truncate">
-            {tradeReminder ? (
+        <div className={`flex flex-col items-stretch justify-between gap-2 rounded-xl px-3 py-2 text-xs sm:flex-row sm:items-center ${tradeReminder ? "border border-amber-400/35 bg-amber-500/10 text-amber-100" : "border border-emerald-400/35 bg-emerald-500/10 text-emerald-100"}`}>
+          <p className="min-w-0 leading-5">
+            {tradeReminder && tradeReminderDisplay ? (
               <>
-                🔔 {tradeReminder.title} — {tradeReminder.message}
+                🔔 <span className="font-semibold text-white">{tradeReminderDisplay.title}</span> — {tradeReminderDisplay.messageBeforeReference}{" "}
+                <bdi dir="ltr" className="font-semibold text-white">{tradeReminderDisplay.reference}</bdi>{" "}
+                {tradeReminderDisplay.messageAfterReference}
               </>
             ) : (
               <>
@@ -89,8 +93,8 @@ export async function SiteHeader({
               </>
             )}
           </p>
-          <Link href={tradeReminder?.actionHref ?? `/trade-room/${activeTrade!.id}`} locale={locale} className="shrink-0 rounded-full border border-current/40 bg-white/10 px-3 py-1 text-[11px] font-semibold transition hover:bg-white/15">
-            {tradeReminder?.actionLabel ?? (locale === "ar" ? "استئناف الصفقة" : "Resume Trade")}
+          <Link href={tradeReminder?.actionHref ?? `/trade-room/${activeTrade!.id}`} locale={locale} className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-full border border-current/40 bg-white/10 px-4 py-2 text-center text-xs font-semibold transition hover:bg-white/15 sm:min-h-0 sm:py-1">
+            {tradeReminderDisplay?.actionLabel ?? (locale === "ar" ? "استئناف الصفقة" : "Resume Trade")}
           </Link>
         </div>
       </div>

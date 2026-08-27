@@ -7,6 +7,7 @@ export type UserRole =
   | "admin"
   | "owner";
 export type OnboardingSelection = "guest" | "student" | "buyer" | "seller_applicant";
+export type PreferredLocale = "ar" | "en";
 export type SellerStatus = "buyer" | "pending_seller_approval" | "approved_seller" | "rejected" | "suspended";
 export type SellerOnlineStatus = "online" | "offline";
 export type SellerAvailabilityStatus = "available" | "away" | "vacation";
@@ -104,6 +105,8 @@ export interface AlphaExchangeUser {
   preferredNetworks: SupportedNetwork[];
   profilePhotoUrl: string;
   languages: string[];
+  /** Site interface locale. Optional only for backward compatibility with legacy persisted payloads. */
+  preferredLocale?: PreferredLocale;
   bio: string;
   tradingExperience?: string;
   workingHours?: string;
@@ -552,6 +555,15 @@ export interface AlphaExchangeNotification {
   category: NotificationCategory;
   title: string;
   message: string;
+  /**
+   * Explicit copy for user-authored announcements. These fields let the same
+   * persisted notification follow the interface when a user switches locale.
+   * Legacy/system notifications continue to use the translation catalogue.
+   */
+  titleEn?: string;
+  messageEn?: string;
+  titleAr?: string;
+  messageAr?: string;
   isRead: boolean;
   relatedTradeId?: string;
   relatedRequestId?: string;
@@ -667,8 +679,17 @@ export type BetaAnnouncementType = "maintenance" | "new_feature" | "bug_fix" | "
 
 export interface BetaAnnouncement {
   id: string;
+  /**
+   * Legacy aliases kept for persisted rows and older clients. New records use
+   * the English copy for these fields while the locale-specific fields below
+   * remain the source of truth.
+   */
   title: string;
   message: string;
+  titleEn: string;
+  messageEn: string;
+  titleAr: string;
+  messageAr: string;
   type: BetaAnnouncementType;
   isActive: boolean;
   createdByUserId: string;

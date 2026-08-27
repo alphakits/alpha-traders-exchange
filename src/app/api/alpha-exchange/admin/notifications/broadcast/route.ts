@@ -7,15 +7,26 @@ export async function POST(request: NextRequest) {
   if (!user) return unauthorized;
 
   try {
-    const body = await request.json() as { title?: string; body?: string; type?: string; reason?: string };
-    const title = String(body.title ?? "").trim();
-    const notifBody = String(body.body ?? "").trim();
+    const body = await request.json() as {
+      titleEn?: string;
+      bodyEn?: string;
+      titleAr?: string;
+      bodyAr?: string;
+      type?: string;
+      reason?: string;
+    };
+    const titleEn = String(body.titleEn ?? "").trim();
+    const bodyEn = String(body.bodyEn ?? "").trim();
+    const titleAr = String(body.titleAr ?? "").trim();
+    const bodyAr = String(body.bodyAr ?? "").trim();
     const reason = String(body.reason ?? "").trim();
     const type = body.type === "warning" || body.type === "success" ? body.type : "info";
-    if (!title || !notifBody) return NextResponse.json({ error: "Title and body are required." }, { status: 400 });
+    if (!titleEn || !bodyEn || !titleAr || !bodyAr) {
+      return NextResponse.json({ error: "English and Arabic titles and bodies are required." }, { status: 400 });
+    }
     if (!reason) return NextResponse.json({ error: "Reason is required." }, { status: 400 });
 
-    await broadcastNotificationByAdmin({ title, body: notifBody, type, actorUserId: user.id, reason });
+    await broadcastNotificationByAdmin({ titleEn, bodyEn, titleAr, bodyAr, type, actorUserId: user.id, reason });
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to broadcast notification." }, { status: 400 });

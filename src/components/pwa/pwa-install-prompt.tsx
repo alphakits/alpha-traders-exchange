@@ -54,7 +54,7 @@ export function PwaInstallPrompt({ locale }: { locale: AppLocale }) {
   if (!visible) return null;
 
   return (
-    <div className="fixed bottom-4 start-4 z-[60] max-w-sm rounded-2xl border border-white/15 bg-[#0B0B0B]/95 p-4 text-sm text-[#E5E7EB] shadow-2xl" dir={isAr ? "rtl" : "ltr"}>
+    <div className="fixed inset-x-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-[60] max-w-sm rounded-2xl border border-white/15 bg-[#0B0B0B]/95 p-4 text-sm text-[#E5E7EB] shadow-2xl sm:end-auto lg:bottom-4" dir={isAr ? "rtl" : "ltr"}>
       <p className="font-semibold text-white">{isAr ? "ثبّت Alpha Traders" : "Install Alpha Traders"}</p>
       <p className="mt-1 text-xs text-[#C9A227]">{isAr ? "افتح المنصة كتطبيق مباشرة من شاشتك الرئيسية." : "Open it like a native app from your home screen."}</p>
       <div className="mt-3 flex gap-2">

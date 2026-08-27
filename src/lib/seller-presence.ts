@@ -1,4 +1,5 @@
 import type { SellerOnlineStatus } from "@/types/alpha-exchange";
+import { israelCalendarDayNumber } from "@/lib/israel-calendar";
 
 // Presence and listing-countdown helpers.
 //
@@ -36,11 +37,10 @@ function parseTimestamp(value: string | null | undefined): number | null {
 }
 
 function calendarDayDifference(fromMs: number, toMs: number): number {
-  const from = new Date(fromMs);
-  const to = new Date(toMs);
-  const fromMidnight = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime();
-  const toMidnight = new Date(to.getFullYear(), to.getMonth(), to.getDate()).getTime();
-  return Math.round((toMidnight - fromMidnight) / (24 * 60 * 60 * 1000));
+  const fromDay = israelCalendarDayNumber(fromMs);
+  const toDay = israelCalendarDayNumber(toMs);
+  if (!Number.isFinite(fromDay) || !Number.isFinite(toDay)) return 0;
+  return Math.round(toDay - fromDay);
 }
 
 /**

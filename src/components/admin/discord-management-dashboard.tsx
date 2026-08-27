@@ -51,22 +51,23 @@ function statusClasses(status: DiscordManagementDiagnostics["status"]) {
   return "border-slate-400/35 bg-slate-500/10 text-slate-200";
 }
 
-function formatTimestamp(value: string | null) {
-  if (!value) return "Not available";
+function formatTimestamp(value: string | null, locale: "ar" | "en") {
+  if (!value) return locale === "ar" ? "غير متاح" : "Not available";
   const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "Not available";
-  return new Intl.DateTimeFormat(undefined, {
+  if (!Number.isFinite(date.getTime())) return locale === "ar" ? "غير متاح" : "Not available";
+  return new Intl.DateTimeFormat(locale === "ar" ? "ar-IL" : "en-IL", {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
 }
 
-function formatDuration(milliseconds: number | null) {
-  if (milliseconds === null) return "Not available";
+function formatDuration(milliseconds: number | null, locale: "ar" | "en") {
+  if (milliseconds === null) return locale === "ar" ? "غير متاح" : "Not available";
   const totalMinutes = Math.floor(milliseconds / 60_000);
   const days = Math.floor(totalMinutes / 1_440);
   const hours = Math.floor((totalMinutes % 1_440) / 60);
   const minutes = totalMinutes % 60;
+  if (locale === "ar") return days > 0 ? `${days} يوم ${hours} ساعة` : `${hours} ساعة ${minutes} دقيقة`;
   return days > 0 ? `${days}d ${hours}h` : `${hours}h ${minutes}m`;
 }
 
@@ -94,7 +95,28 @@ function StatusIcon({ status }: { status: DiscordManagementDiagnostics["status"]
   return <Server aria-hidden className="h-5 w-5" />;
 }
 
-export function DiscordManagementDashboard() {
+export function DiscordManagementDashboard({ locale = "en" }: { locale?: "ar" | "en" }) {
+  const isArabic = locale === "ar";
+  const t = useCallback((english: string, arabic: string) => isArabic ? arabic : english, [isArabic]);
+  const statusLabel = useCallback((value: string | number | null | undefined) => {
+    if (value === null || value === undefined) return t("Unknown", "غير معروف");
+    const key = String(value);
+    const english: Record<string, string> = {
+      healthy: "Healthy", degraded: "Degraded", blocked: "Blocked", unknown: "Unknown", ready: "Ready",
+      queued: "Queued", publishing: "Publishing", active: "Active", update_pending: "Update Pending",
+      delete_pending: "Delete Pending", sold: "Sold", deleted: "Deleted", failed: "Failed",
+      pending: "Pending", processing: "Processing", completed: "Completed", dead: "Dead", suppressed: "Suppressed",
+      accepted: "Accepted", coalesced: "Coalesced", replayed: "Replayed", text: "Text Channel", category: "Category",
+    };
+    const arabic: Record<string, string> = {
+      healthy: "سليم", degraded: "يحتاج متابعة", blocked: "محظور", unknown: "غير معروف", ready: "جاهز",
+      queued: "في قائمة الانتظار", publishing: "جارٍ النشر", active: "نشط", update_pending: "التحديث معلّق",
+      delete_pending: "الحذف معلّق", sold: "مباع", deleted: "محذوف", failed: "فشل",
+      pending: "قيد الانتظار", processing: "قيد المعالجة", completed: "مكتمل", dead: "متوقف", suppressed: "تم منعه",
+      accepted: "مقبول", coalesced: "تم دمجه", replayed: "مكرّر", text: "قناة نصية", category: "فئة",
+    };
+    return (isArabic ? arabic[key] : english[key]) ?? (isArabic ? "حالة غير معروفة" : key.replaceAll("_", " "));
+  }, [isArabic, t]);
   const [diagnostics, setDiagnostics] =
     useState<DiscordManagementDiagnostics | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("loading");
@@ -127,7 +149,7 @@ export function DiscordManagementDashboard() {
         | DiscordManagementDiagnostics
         | { error?: string; code?: string };
       if (!("status" in payload)) {
-        throw new Error(payload.error ?? "Diagnostics are unavailable.");
+        throw new Error(isArabic ? "بيانات التشخيص غير متاحة." : payload.error ?? "Diagnostics are unavailable.");
       }
       if (!mounted.current) return;
       diagnosticsRef.current = payload;
@@ -140,7 +162,7 @@ export function DiscordManagementDashboard() {
       if (!mounted.current) return;
       failureCount.current += 1;
       setLoadState(diagnosticsRef.current ? "ready" : "error");
-      setLoadError("Diagnostics could not be refreshed. The last confirmed state is preserved.");
+      setLoadError(t("Diagnostics could not be refreshed. The last confirmed state is preserved.", "تعذّر تحديث بيانات التشخيص. تم الاحتفاظ بآخر حالة مؤكدة."));
       const delay = Math.min(
         MAX_ERROR_POLL_MS,
         MIN_ERROR_POLL_MS * (2 ** (failureCount.current - 1)),
@@ -149,7 +171,7 @@ export function DiscordManagementDashboard() {
     } finally {
       inFlight.current = false;
     }
-  }, [schedule]);
+  }, [isArabic, schedule, t]);
 
   useEffect(() => {
     mounted.current = true;
@@ -221,32 +243,32 @@ export function DiscordManagementDashboard() {
         error?: string;
       };
       if (!response.ok || !payload.disposition || !payload.status) {
-        throw new Error(payload.error ?? "The request was not accepted.");
+        throw new Error(isArabic ? "لم يتم قبول الطلب." : payload.error ?? "The request was not accepted.");
       }
       setAction({
         status: "accepted",
         message: payload.disposition === "replayed"
-          ? `The original request is ${payload.status}${
-              payload.resultCode ? ` (${payload.resultCode})` : ""
-            }.`
+          ? t(`The original request is ${statusLabel(payload.status)}${payload.resultCode ? ` (${payload.resultCode})` : ""}.`, `حالة الطلب الأصلي: ${statusLabel(payload.status)}${payload.resultCode ? ` (${payload.resultCode})` : ""}.`)
           : payload.disposition === "coalesced"
-          ? `An active reconciliation already exists (${payload.status}).`
-          : "Reconciliation was accepted and is pending Railway processing.",
+          ? t(`An active reconciliation already exists (${statusLabel(payload.status)}).`, `توجد مطابقة نشطة بالفعل (${statusLabel(payload.status)}).`)
+          : t("Reconciliation was accepted and is pending Railway processing.", "تم قبول طلب المطابقة وهو بانتظار المعالجة على Railway."),
       });
       schedule(1_000, () => void load());
     } catch (error) {
       setAction({
         status: "error",
-        message: error instanceof Error
-          ? error.message
-          : "The request could not be persisted.",
+        message: isArabic
+          ? "تعذّر حفظ طلب المطابقة. حاول مجددًا."
+          : error instanceof Error
+            ? error.message
+            : "The request could not be persisted.",
       });
     }
   };
 
   if (loadState === "loading") {
     return (
-      <main className="section-container min-h-[70vh] py-10" aria-busy="true">
+      <main dir={isArabic ? "rtl" : "ltr"} lang={locale} className="section-container min-h-[70vh] py-10" aria-busy="true">
         <div className="animate-pulse rounded-3xl border border-white/10 bg-white/[0.03] p-6">
           <div className="h-8 w-64 max-w-full rounded bg-white/10" />
           <div className="mt-4 h-4 w-full rounded bg-white/5" />
@@ -262,17 +284,17 @@ export function DiscordManagementDashboard() {
 
   if (!diagnostics) {
     return (
-      <main className="section-container min-h-[70vh] py-10">
+      <main dir={isArabic ? "rtl" : "ltr"} lang={locale} className="section-container min-h-[70vh] py-10">
         <Card className="border-red-400/30 bg-red-500/5">
           <CardHeader>
-            <CardTitle>Discord Management is unavailable</CardTitle>
+            <CardTitle>{t("Discord Management is unavailable", "إدارة Discord غير متاحة")}</CardTitle>
             <CardDescription>
-              {loadError ?? "No verified diagnostic state was returned."}
+              {loadError ?? t("No verified diagnostic state was returned.", "لم تصل حالة تشخيص مؤكدة.")}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Button className="min-h-11" onClick={() => void load()}>
-              Try again
+              {t("Try again", "حاول مجددًا")}
             </Button>
           </CardContent>
         </Card>
@@ -284,38 +306,36 @@ export function DiscordManagementDashboard() {
   const latestOperator = db.operatorRequests.latest;
 
   return (
-    <main className="section-container min-h-screen overflow-x-clip py-8 sm:py-10">
+    <main dir={isArabic ? "rtl" : "ltr"} lang={locale} className="section-container min-h-screen overflow-x-clip py-8 sm:py-10">
       <div className="mx-auto max-w-7xl space-y-5">
         <div className="rounded-3xl border border-[#C9A227]/30 bg-gradient-to-br from-[#C9A227]/10 via-black/65 to-black p-5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] sm:p-7">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D4AF37]">
-                Private operator surface
+                {t("Private operator surface", "لوحة تشغيل خاصة")}
               </p>
               <h1 className="mt-2 break-words text-3xl font-semibold text-white sm:text-4xl">
-                Discord Management
+                {t("Discord Management", "إدارة Discord")}
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-[#B8BDC8]">
-                Aggregate health only. Discord mutations remain Railway-owned and no
-                Discord IDs, account data, raw payloads, or secrets are shown.
+                {t("Aggregate health only. Discord mutations remain Railway-owned and no Discord IDs, account data, raw payloads, or secrets are shown.", "تُعرض حالة عامة فقط. تبقى تغييرات Discord داخل Railway ولا تظهر معرّفات Discord أو بيانات الحسابات أو البيانات الخام أو الأسرار.")}
               </p>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-[#D8C98B]">
-                Monitoring and reconciliation only. Seller approvals, role decisions,
-                listings, payments, and trades stay in the authoritative website workflows.
+                {t("Monitoring and reconciliation only. Seller approvals, role decisions, listings, payments, and trades stay in the authoritative website workflows.", "هذه اللوحة للمراقبة والمطابقة فقط. تبقى موافقات البائعين والأدوار والعروض والمدفوعات والصفقات داخل مسارات الموقع الرسمية.")}
               </p>
             </div>
             <div
               className={`inline-flex min-h-11 shrink-0 items-center gap-2 self-start rounded-full border px-4 py-2 text-sm font-semibold ${statusClasses(diagnostics.status)}`}
               role="status"
-              aria-label={`Integration status: ${diagnostics.status}`}
+              aria-label={isArabic ? `حالة التكامل: ${statusLabel(diagnostics.status)}` : `Integration status: ${diagnostics.status}`}
             >
               <StatusIcon status={diagnostics.status} />
-              <span className="capitalize">{diagnostics.status}</span>
+              <span className="capitalize">{statusLabel(diagnostics.status)}</span>
             </div>
           </div>
           <p className="mt-4 flex items-center gap-2 text-xs text-[#8E96A3]">
             <Clock3 aria-hidden className="h-4 w-4" />
-            Verified {formatTimestamp(diagnostics.generatedAt)}
+            {t("Verified", "آخر تحقق")} {formatTimestamp(diagnostics.generatedAt, locale)}
           </p>
           {loadError ? (
             <p className="mt-3 rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-sm text-amber-100" role="status">
@@ -329,32 +349,32 @@ export function DiscordManagementDashboard() {
             <CardHeader>
               <CardTitle id="worker-health-heading" className="flex items-center gap-2">
                 <Bot aria-hidden className="h-5 w-5 text-[#D4AF37]" />
-                Railway worker
+                {t("Railway worker", "عامل Railway")}
               </CardTitle>
-              <CardDescription>Signed readiness response and gateway state.</CardDescription>
+              <CardDescription>{t("Signed readiness response and gateway state.", "استجابة الجاهزية الموقّعة وحالة بوابة الاتصال.")}</CardDescription>
             </CardHeader>
             <CardContent>
               <dl className="grid gap-3 min-[390px]:grid-cols-2">
-                <Stat label="Ready" value={diagnostics.worker.ready ? "Yes" : "No"} />
-                <Stat label="Gateway" value={diagnostics.worker.readyState} />
-                <Stat label="Latency" value={
+                <Stat label={t("Ready", "الجاهزية")} value={diagnostics.worker.ready ? t("Yes", "نعم") : t("No", "لا")} />
+                <Stat label={t("Gateway", "بوابة الاتصال")} value={statusLabel(diagnostics.worker.readyState)} />
+                <Stat label={t("Latency", "زمن الاستجابة")} value={
                   diagnostics.worker.apiLatencyMs === null
-                    ? "Not available"
+                    ? t("Not available", "غير متاح")
                     : `${Math.round(diagnostics.worker.apiLatencyMs)} ms`
                 } />
-                <Stat label="Connection uptime" value={
-                  formatDuration(diagnostics.worker.connectionUptimeMs)
+                <Stat label={t("Connection uptime", "مدة الاتصال")} value={
+                  formatDuration(diagnostics.worker.connectionUptimeMs, locale)
                 } />
-                <Stat label="Environment" value={
-                  diagnostics.worker.deployment.environment ?? "Not injected"
+                <Stat label={t("Environment", "البيئة")} value={
+                  diagnostics.worker.deployment.environment ?? t("Not injected", "غير محددة")
                 } />
-                <Stat label="Source revision" value={
-                  diagnostics.worker.deployment.revision?.slice(0, 12) ?? "Not injected"
+                <Stat label={t("Source revision", "إصدار المصدر")} value={
+                  diagnostics.worker.deployment.revision?.slice(0, 12) ?? t("Not injected", "غير محدد")
                 } />
               </dl>
               {diagnostics.worker.error ? (
                 <p className="mt-3 break-words rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-100">
-                  {diagnostics.worker.error.code}: {diagnostics.worker.error.message}
+                  {diagnostics.worker.error.code}: {isArabic ? "تعذّر تشغيل تكامل Discord بصورة سليمة." : diagnostics.worker.error.message}
                 </p>
               ) : null}
             </CardContent>
@@ -364,20 +384,20 @@ export function DiscordManagementDashboard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <ShieldCheck aria-hidden className="h-5 w-5 text-[#D4AF37]" />
-                Managed resources
+                {t("Managed resources", "الموارد المُدارة")}
               </CardTitle>
-              <CardDescription>Integration-owned categories, channels, and permissions.</CardDescription>
+              <CardDescription>{t("Integration-owned categories, channels, and permissions.", "الفئات والقنوات والصلاحيات التي يديرها التكامل.")}</CardDescription>
             </CardHeader>
             <CardContent>
               <dl className="grid gap-3 min-[390px]:grid-cols-3">
-                <Stat label="Ready" value={diagnostics.resources.ready ?? "Unknown"} />
-                <Stat label="Total" value={diagnostics.resources.total ?? "Unknown"} />
-                <Stat label="Missing" value={diagnostics.resources.missing ?? "Unknown"} />
+                <Stat label={t("Ready", "الجاهز")} value={diagnostics.resources.ready ?? t("Unknown", "غير معروف")} />
+                <Stat label={t("Total", "الإجمالي")} value={diagnostics.resources.total ?? t("Unknown", "غير معروف")} />
+                <Stat label={t("Missing", "المفقود")} value={diagnostics.resources.missing ?? t("Unknown", "غير معروف")} />
               </dl>
               <div className="mt-4 flex flex-wrap gap-2">
                 {diagnostics.topology.map((resource) => (
                   <span key={resource.key} className="max-w-full break-words rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-[#D1D5DB]">
-                    {resource.name} · {resource.type}
+                    {resource.name} · {statusLabel(resource.type)}
                   </span>
                 ))}
               </div>
@@ -385,20 +405,20 @@ export function DiscordManagementDashboard() {
           </Card>
         </section>
 
-        <section aria-label="Discord aggregate health" className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <section aria-label={t("Discord aggregate health", "الحالة العامة لتكامل Discord")} className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <Card className="min-w-0 border-white/10 bg-[#0A0A0A]/85">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Users aria-hidden className="h-5 w-5 text-[#D4AF37]" />
-                Identities and seller roles
+                {t("Identities and seller roles", "الحسابات وأدوار البائعين")}
               </CardTitle>
             </CardHeader>
             <CardContent>
               <dl className="grid gap-3 min-[390px]:grid-cols-2">
-                <Stat label="Connected identities" value={db.identities.connected} />
-                <Stat label="Approved synced" value={db.approvedSellerRoleSync.synced} />
-                <Stat label="Role pending" value={db.approvedSellerRoleSync.pending} />
-                <Stat label="Role failed" value={db.approvedSellerRoleSync.failed} />
+                <Stat label={t("Connected identities", "الحسابات المتصلة")} value={db.identities.connected} />
+                <Stat label={t("Approved synced", "المعتمدون المتزامنون")} value={db.approvedSellerRoleSync.synced} />
+                <Stat label={t("Role pending", "أدوار معلّقة")} value={db.approvedSellerRoleSync.pending} />
+                <Stat label={t("Role failed", "أدوار فشل تزامنها")} value={db.approvedSellerRoleSync.failed} />
               </dl>
             </CardContent>
           </Card>
@@ -407,22 +427,22 @@ export function DiscordManagementDashboard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Database aria-hidden className="h-5 w-5 text-[#D4AF37]" />
-                Listings and jobs
+                {t("Listings and jobs", "العروض والمهام")}
               </CardTitle>
             </CardHeader>
             <CardContent>
               <dl className="grid gap-3 min-[390px]:grid-cols-2">
-                <Stat label="Active posts" value={db.listings.activePosts} />
-                <Stat label="Cooldown claims" value={db.listings.cooldownClaims} />
-                <Stat label="Jobs pending" value={db.listings.jobs.pending} />
-                <Stat label="Jobs processing" value={db.listings.jobs.processing} />
-                <Stat label="Jobs dead" value={db.listings.jobs.dead} />
-                <Stat label="Stale leases" value={db.listings.jobs.staleLeases} />
+                <Stat label={t("Active posts", "المنشورات النشطة")} value={db.listings.activePosts} />
+                <Stat label={t("Cooldown claims", "طلبات فترة الانتظار")} value={db.listings.cooldownClaims} />
+                <Stat label={t("Jobs pending", "مهام معلّقة")} value={db.listings.jobs.pending} />
+                <Stat label={t("Jobs processing", "مهام قيد المعالجة")} value={db.listings.jobs.processing} />
+                <Stat label={t("Jobs dead", "مهام متوقفة")} value={db.listings.jobs.dead} />
+                <Stat label={t("Stale leases", "مهام عالقة")} value={db.listings.jobs.staleLeases} />
               </dl>
               <div className="mt-4 flex flex-wrap gap-2">
                 {Object.entries(db.listings.lifecycle).map(([state, value]) => (
                   <span key={state} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-[#D1D5DB]">
-                    {state.replaceAll("_", " ")}: {value}
+                    {statusLabel(state)}: {value}
                   </span>
                 ))}
               </div>
@@ -433,17 +453,19 @@ export function DiscordManagementDashboard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Activity aria-hidden className="h-5 w-5 text-[#D4AF37]" />
-                Market singletons
+                {t("Market singletons", "محتوى السوق الثابت")}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {db.marketContent.map((content) => (
                 <div key={content.key} className="min-w-0 rounded-xl border border-white/10 bg-black/25 p-3">
                   <p className="break-words text-sm font-semibold text-white">
-                    {content.key.replaceAll("_", " ")}
+                    {content.key === "live_market_pulse"
+                      ? t("Live market pulse", "نبض السوق المباشر")
+                      : isArabic ? "محتوى سوق ثابت" : content.key.replaceAll("_", " ")}
                   </p>
                   <p className="mt-1 text-xs capitalize text-[#B8BDC8]">
-                    {content.state} · Last success {formatTimestamp(content.lastSuccessAt)}
+                    {statusLabel(content.state)} · {t("Last success", "آخر نجاح")} {formatTimestamp(content.lastSuccessAt, locale)}
                   </p>
                   {content.errorCode ? (
                     <p className="mt-1 break-words text-xs text-amber-200">{content.errorCode}</p>
@@ -457,16 +479,16 @@ export function DiscordManagementDashboard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <CheckCircle2 aria-hidden className="h-5 w-5 text-[#D4AF37]" />
-                Welcome and approval delivery
+                {t("Welcome and approval delivery", "إرسال الترحيب والموافقات")}
               </CardTitle>
             </CardHeader>
             <CardContent>
               <dl className="grid gap-3 min-[390px]:grid-cols-2">
-                <Stat label="Pending" value={db.notifications.pending} />
-                <Stat label="Processing" value={db.notifications.processing} />
-                <Stat label="Completed" value={db.notifications.completed} />
-                <Stat label="Suppressed" value={db.notifications.suppressed} />
-                <Stat label="Dead" value={db.notifications.dead} />
+                <Stat label={t("Pending", "قيد الانتظار")} value={db.notifications.pending} />
+                <Stat label={t("Processing", "قيد المعالجة")} value={db.notifications.processing} />
+                <Stat label={t("Completed", "مكتمل")} value={db.notifications.completed} />
+                <Stat label={t("Suppressed", "تم منعه")} value={db.notifications.suppressed} />
+                <Stat label={t("Dead", "متوقف")} value={db.notifications.dead} />
               </dl>
             </CardContent>
           </Card>
@@ -475,18 +497,18 @@ export function DiscordManagementDashboard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Command aria-hidden className="h-5 w-5 text-[#D4AF37]" />
-                Commands and interactions
+                {t("Commands and interactions", "الأوامر والتفاعلات")}
               </CardTitle>
               <CardDescription>
-                Guild Members intent is mandatory. Registered commands never mutate listings.
+                {t("Guild Members intent is mandatory. Registered commands never mutate listings.", "صلاحية Guild Members إلزامية. الأوامر المسجّلة لا تعدّل العروض أبدًا.")}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <dl className="grid gap-3 min-[390px]:grid-cols-2">
-                <Stat label="Registered" value={`${diagnostics.commands.registered ?? "?"}/${diagnostics.commands.expected}`} />
-                <Stat label="Accepted 24h" value={db.interactions.accepted24h} />
-                <Stat label="Rate limited 24h" value={db.interactions.rateLimited24h} />
-                <Stat label="Replayed 24h" value={db.interactions.replayed24h} />
+                <Stat label={t("Registered", "المسجّلة")} value={`${diagnostics.commands.registered ?? "?"}/${diagnostics.commands.expected}`} />
+                <Stat label={t("Accepted 24h", "المقبولة خلال 24 ساعة")} value={db.interactions.accepted24h} />
+                <Stat label={t("Rate limited 24h", "المحدودة خلال 24 ساعة")} value={db.interactions.rateLimited24h} />
+                <Stat label={t("Replayed 24h", "المكررة خلال 24 ساعة")} value={db.interactions.replayed24h} />
               </dl>
               <div className="mt-4 flex flex-wrap gap-2">
                 {diagnostics.commands.names.map((name) => (
@@ -502,19 +524,19 @@ export function DiscordManagementDashboard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <AlertTriangle aria-hidden className="h-5 w-5 text-[#D4AF37]" />
-                Recent safe errors
+                {t("Recent safe errors", "أحدث الأخطاء الآمنة")}
               </CardTitle>
-              <CardDescription>Codes and timestamps only; no raw provider payloads.</CardDescription>
+              <CardDescription>{t("Codes and timestamps only; no raw provider payloads.", "تظهر الرموز والأوقات فقط، من دون بيانات خام من المزوّد.")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               {db.recentErrors.length === 0 ? (
-                <p className="text-sm text-emerald-200">No current safe error codes.</p>
+                <p className="text-sm text-emerald-200">{t("No current safe error codes.", "لا توجد رموز أخطاء حالية.")}</p>
               ) : db.recentErrors.map((error, index) => (
                 <div key={`${error.source}-${error.occurredAt}-${index}`} className="min-w-0 rounded-xl border border-white/10 bg-black/25 p-3">
                   <p className="break-words text-sm font-medium text-white">
                     {error.source}: {error.code}
                   </p>
-                  <p className="mt-1 text-xs text-[#9CA3AF]">{formatTimestamp(error.occurredAt)}</p>
+                  <p className="mt-1 text-xs text-[#9CA3AF]">{formatTimestamp(error.occurredAt, locale)}</p>
                 </div>
               ))}
             </CardContent>
@@ -525,25 +547,24 @@ export function DiscordManagementDashboard() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <RefreshCw aria-hidden className="h-5 w-5 text-[#D4AF37]" />
-              Safe operator control
+              {t("Safe operator control", "تحكم تشغيلي آمن")}
             </CardTitle>
             <CardDescription>
-              Requests are audited, coalesced, and processed by Railway. There are no
-              cooldown resets, role overrides, SOLD recreation, raw deletes, or arbitrary targets.
+              {t("Requests are audited, coalesced, and processed by Railway. There are no cooldown resets, role overrides, SOLD recreation, raw deletes, or arbitrary targets.", "تُراجع الطلبات وتُدمج وتُعالج على Railway. لا توجد إعادة ضبط لفترات الانتظار أو تعديل للأدوار أو إعادة إنشاء SOLD أو حذف خام أو أهداف عشوائية.")}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid gap-3 sm:grid-cols-4">
-              <Stat label="Pending" value={db.operatorRequests.pending} />
-              <Stat label="Processing" value={db.operatorRequests.processing} />
-              <Stat label="Dead" value={db.operatorRequests.dead} />
-              <Stat label="Stale leases" value={db.operatorRequests.staleLeases} />
+              <Stat label={t("Pending", "قيد الانتظار")} value={db.operatorRequests.pending} />
+              <Stat label={t("Processing", "قيد المعالجة")} value={db.operatorRequests.processing} />
+              <Stat label={t("Dead", "متوقف")} value={db.operatorRequests.dead} />
+              <Stat label={t("Stale leases", "مهام عالقة")} value={db.operatorRequests.staleLeases} />
             </div>
             {latestOperator ? (
               <p className="mt-4 break-words text-sm text-[#B8BDC8]">
-                Latest request: <strong className="text-white">{latestOperator.status}</strong>
+                {t("Latest request:", "أحدث طلب:")} <strong className="text-white">{statusLabel(latestOperator.status)}</strong>
                 {latestOperator.resultCode ? ` · ${latestOperator.resultCode}` : ""}
-                {" · "}{formatTimestamp(latestOperator.updatedAt)}
+                {" · "}{formatTimestamp(latestOperator.updatedAt, locale)}
               </p>
             ) : null}
             <div className="mt-5">
@@ -558,11 +579,10 @@ export function DiscordManagementDashboard() {
                   onKeyDown={handleConfirmationKeyDown}
                 >
                   <h2 id="reconcile-confirm-title" className="font-semibold text-white">
-                    Confirm managed reconciliation
+                    {t("Confirm managed reconciliation", "تأكيد المطابقة المُدارة")}
                   </h2>
                   <p id="reconcile-confirm-description" className="mt-2 text-sm leading-6 text-amber-50">
-                    Railway will verify integration-owned resources, commands, active listing
-                    content, and market singletons. Existing active work is reused.
+                    {t("Railway will verify integration-owned resources, commands, active listing content, and market singletons. Existing active work is reused.", "سيتحقق Railway من موارد التكامل والأوامر ومحتوى العروض النشطة ومحتوى السوق الثابت. وسيُعاد استخدام أي عمل نشط حاليًا.")}
                   </p>
                   <div className="mt-4 flex flex-col gap-2 min-[390px]:flex-row">
                     <Button
@@ -570,14 +590,14 @@ export function DiscordManagementDashboard() {
                       className="min-h-11"
                       onClick={() => void requestReconciliation()}
                     >
-                      Confirm and enqueue
+                      {t("Confirm and enqueue", "تأكيد وإضافة إلى قائمة الانتظار")}
                     </Button>
                     <Button
                       className="min-h-11"
                       variant="secondary"
                       onClick={closeConfirmation}
                     >
-                      Cancel
+                      {t("Cancel", "إلغاء")}
                     </Button>
                   </div>
                 </div>
@@ -589,8 +609,8 @@ export function DiscordManagementDashboard() {
                   onClick={() => setAction({ status: "confirming" })}
                 >
                   {action.status === "submitting"
-                    ? "Enqueuing…"
-                    : "Reconcile managed resources, commands, and content"}
+                    ? t("Enqueuing…", "جارٍ الإضافة...")
+                    : t("Reconcile managed resources, commands, and content", "مطابقة الموارد والأوامر والمحتوى المُدار")}
                 </Button>
               )}
               {action.status === "accepted" || action.status === "error" ? (
@@ -606,8 +626,7 @@ export function DiscordManagementDashboard() {
                 </p>
               ) : null}
               <p className="mt-4 text-xs leading-5 text-[#8E96A3]">
-                Dead jobs are diagnostic-only. Investigate the safe error code and authoritative
-                website state before support intervention; generic retry is intentionally unavailable.
+                {t("Dead jobs are diagnostic-only. Investigate the safe error code and authoritative website state before support intervention; generic retry is intentionally unavailable.", "المهام المتوقفة للتشخيص فقط. افحص رمز الخطأ الآمن وحالة الموقع الرسمية قبل التدخل؛ إعادة المحاولة العامة غير متاحة عمدًا.")}
               </p>
             </div>
           </CardContent>

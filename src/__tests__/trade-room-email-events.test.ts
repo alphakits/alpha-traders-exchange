@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AlphaExchangeDb, AlphaExchangeUser } from "@/types/alpha-exchange";
+import type { AlphaExchangeDb, AlphaExchangeUser, PurchaseRequest } from "@/types/alpha-exchange";
 
 const { sendMarketplaceEmailMock } = vi.hoisted(() => ({
   sendMarketplaceEmailMock: vi.fn(async () => ({ ok: true as const })),
@@ -18,7 +18,7 @@ vi.mock("@/lib/marketplace-email-delivery", async () => {
 });
 
 import { invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
-import { prepareTradeRoomConversationEmail } from "@/lib/marketplace-email-events";
+import { prepareTradeEventEmails, prepareTradeRoomConversationEmail } from "@/lib/marketplace-email-events";
 
 const BUYER_ID = "buyer-1";
 const SELLER_ID = "seller-1";
@@ -42,6 +42,7 @@ function createUser(id: string): AlphaExchangeUser {
     preferredPaymentMethods: [],
     profilePhotoUrl: "",
     languages: ["English"],
+    preferredLocale: id === BUYER_ID ? "ar" : "en",
     bio: "",
     country: "Israel",
     city: "",
@@ -87,6 +88,27 @@ function seedDb(): AlphaExchangeDb & { __runtimeVersion: number } {
   } as AlphaExchangeDb & { __runtimeVersion: number };
 }
 
+function createRequest(status: PurchaseRequest["status"] = "pending"): PurchaseRequest {
+  const now = "2026-08-22T10:00:00.000Z";
+  return {
+    id: "purchase-1",
+    tradeId: "TR-100",
+    buyerId: BUYER_ID,
+    sellerId: SELLER_ID,
+    listingId: "listing-1",
+    buyerName: "Buyer One",
+    usdtAmount: "125",
+    fiatAmount: "400",
+    currency: "ILS",
+    network: "TRC20",
+    paymentMethod: "Bank Transfer",
+    timeline: [],
+    status,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 describe("Trade Room email events", () => {
   beforeEach(() => {
     globalThis.__alphaExchangeMemorySnapshot = seedDb() as never;
@@ -95,6 +117,48 @@ describe("Trade Room email events", () => {
     invalidateAlphaExchangeStoreCache();
     sendMarketplaceEmailMock.mockReset();
     sendMarketplaceEmailMock.mockResolvedValue({ ok: true });
+  });
+
+  it("sends Arabic-first and English lifecycle copy to the seller for a new buy request", async () => {
+    const deliver = await prepareTradeEventEmails({
+      event: "new_buy_request",
+      request: createRequest(),
+    });
+
+    await deliver();
+
+    expect(sendMarketplaceEmailMock).toHaveBeenCalledWith(expect.objectContaining({
+      event: "new_buy_request",
+      to: "seller-1@example.test",
+      recipientLocale: "en",
+      title: { ar: "طلب شراء جديد", en: "New Buy Request" },
+      message: {
+        ar: "طلب Buyer One شراء 125 USDT. راجع الطلب في غرفة الصفقة.",
+        en: "Buyer One requested 125 USDT. Review the request in your Trade Room.",
+      },
+      actionPath: "/trade-room/purchase-1",
+    }));
+  });
+
+  it("sends bilingual accepted-trade instructions to the buyer", async () => {
+    const deliver = await prepareTradeEventEmails({
+      event: "trade_accepted",
+      request: createRequest("accepted"),
+    });
+
+    await deliver();
+
+    expect(sendMarketplaceEmailMock).toHaveBeenCalledWith(expect.objectContaining({
+      event: "trade_accepted",
+      to: "buyer-1@example.test",
+      recipientLocale: "ar",
+      title: { ar: "تم قبول الصفقة", en: "Trade Accepted" },
+      message: {
+        ar: "وافق البائع على طلبك. ارفع إيصال الدفع للمتابعة.",
+        en: "The seller accepted your request. Upload your payment receipt to continue.",
+      },
+      actionPath: "/trade-room/purchase-1",
+    }));
   });
 
   it("sends a generic Buyer-to-Seller message email with an exact canonical Trade Room link", async () => {
@@ -112,15 +176,23 @@ describe("Trade Room email events", () => {
     expect(sendMarketplaceEmailMock).toHaveBeenCalledWith(expect.objectContaining({
       event: "trade_room_message",
       to: "seller-1@example.test",
-      title: "New Trade Room message",
-      message: "You have a new message in your active Alpha Exchange trade.",
-      actionLabel: "Open Trade Room",
-      actionUrl: expect.stringMatching(/\/en\/trade-room\/purchase-1#chat$/),
+      recipientLocale: "en",
+      title: { ar: "رسالة جديدة في غرفة الصفقة", en: "New Trade Room message" },
+      message: {
+        ar: "لديك رسالة جديدة في صفقة نشطة على Alpha Exchange.",
+        en: "You have a new message in your active Alpha Exchange trade.",
+      },
+      actionLabel: { ar: "فتح غرفة الصفقة", en: "Open Trade Room" },
+      actionPath: "/trade-room/purchase-1#chat",
       idempotencyKey: "trade-room-message:message-1:seller-1",
     }));
-    const payload = (sendMarketplaceEmailMock.mock.calls as unknown[][])[0]?.[0] as { message?: string; actionUrl?: string };
-    expect(payload.message).not.toContain("bank");
-    expect(payload.actionUrl).not.toContain("seller-1@example.test");
+    const payload = (sendMarketplaceEmailMock.mock.calls as unknown[][])[0]?.[0] as {
+      message?: { ar: string; en: string };
+      actionPath?: string;
+    };
+    expect(payload.message?.en).not.toContain("bank");
+    expect(payload.message?.ar).not.toContain("bank");
+    expect(payload.actionPath).not.toContain("seller-1@example.test");
   });
 
   it("sends the reverse Seller-to-Buyer Poke email without exposing participant data", async () => {
@@ -138,9 +210,13 @@ describe("Trade Room email events", () => {
     expect(sendMarketplaceEmailMock).toHaveBeenCalledWith(expect.objectContaining({
       event: "trade_room_poke",
       to: "buyer-1@example.test",
-      title: "Trade Room reminder",
-      message: "Your Seller is waiting for you in an active trade.",
-      actionUrl: expect.stringMatching(/\/en\/trade-room\/purchase-1#chat$/),
+      recipientLocale: "ar",
+      title: { ar: "تذكير من غرفة الصفقة", en: "Trade Room reminder" },
+      message: {
+        ar: "البائع ينتظرك في صفقة نشطة.",
+        en: "Your Seller is waiting for you in an active trade.",
+      },
+      actionPath: "/trade-room/purchase-1#chat",
     }));
   });
 
@@ -159,9 +235,13 @@ describe("Trade Room email events", () => {
     expect(sendMarketplaceEmailMock).toHaveBeenCalledWith(expect.objectContaining({
       event: "trade_room_message",
       to: "buyer-1@example.test",
-      title: "New Trade Room message",
-      message: "You have a new message in your active Alpha Exchange trade.",
-      actionUrl: expect.stringMatching(/\/en\/trade-room\/purchase-1#chat$/),
+      recipientLocale: "ar",
+      title: { ar: "رسالة جديدة في غرفة الصفقة", en: "New Trade Room message" },
+      message: {
+        ar: "لديك رسالة جديدة في صفقة نشطة على Alpha Exchange.",
+        en: "You have a new message in your active Alpha Exchange trade.",
+      },
+      actionPath: "/trade-room/purchase-1#chat",
     }));
   });
 
@@ -180,9 +260,13 @@ describe("Trade Room email events", () => {
     expect(sendMarketplaceEmailMock).toHaveBeenCalledWith(expect.objectContaining({
       event: "trade_room_poke",
       to: "seller-1@example.test",
-      title: "Trade Room reminder",
-      message: "Your Buyer is waiting for you in an active trade.",
-      actionUrl: expect.stringMatching(/\/en\/trade-room\/purchase-1#chat$/),
+      recipientLocale: "en",
+      title: { ar: "تذكير من غرفة الصفقة", en: "Trade Room reminder" },
+      message: {
+        ar: "المشتري ينتظرك في صفقة نشطة.",
+        en: "Your Buyer is waiting for you in an active trade.",
+      },
+      actionPath: "/trade-room/purchase-1#chat",
     }));
   });
 

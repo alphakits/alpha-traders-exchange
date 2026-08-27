@@ -27,8 +27,127 @@ function sellerTierLabel(level: string, isAr: boolean) {
   if (normalized === "gold") return isAr ? "ذهبي" : "Gold";
   if (normalized === "platinum") return isAr ? "بلاتيني" : "Platinum";
   if (normalized === "diamond") return isAr ? "ألماسي" : "Diamond";
+  if (normalized === "elite") return isAr ? "النخبة" : "Elite";
   if (normalized === "legendary") return isAr ? "أسطوري" : "Legendary";
-  return level;
+  return isAr ? "مستوى بائع" : "Seller tier";
+}
+
+const COUNTRY_LABELS: Record<string, { ar: string; en: string }> = {
+  il: { ar: "إسرائيل", en: "Israel" },
+  israel: { ar: "إسرائيل", en: "Israel" },
+  ps: { ar: "فلسطين", en: "Palestine" },
+  palestine: { ar: "فلسطين", en: "Palestine" },
+  "palestinian territories": { ar: "فلسطين", en: "Palestine" },
+  jo: { ar: "الأردن", en: "Jordan" },
+  jordan: { ar: "الأردن", en: "Jordan" },
+  eg: { ar: "مصر", en: "Egypt" },
+  egypt: { ar: "مصر", en: "Egypt" },
+  lb: { ar: "لبنان", en: "Lebanon" },
+  lebanon: { ar: "لبنان", en: "Lebanon" },
+  sy: { ar: "سوريا", en: "Syria" },
+  syria: { ar: "سوريا", en: "Syria" },
+  iq: { ar: "العراق", en: "Iraq" },
+  iraq: { ar: "العراق", en: "Iraq" },
+  sa: { ar: "السعودية", en: "Saudi Arabia" },
+  "saudi arabia": { ar: "السعودية", en: "Saudi Arabia" },
+  ae: { ar: "الإمارات العربية المتحدة", en: "United Arab Emirates" },
+  uae: { ar: "الإمارات العربية المتحدة", en: "United Arab Emirates" },
+  "united arab emirates": { ar: "الإمارات العربية المتحدة", en: "United Arab Emirates" },
+  qa: { ar: "قطر", en: "Qatar" },
+  qatar: { ar: "قطر", en: "Qatar" },
+  kw: { ar: "الكويت", en: "Kuwait" },
+  kuwait: { ar: "الكويت", en: "Kuwait" },
+  bh: { ar: "البحرين", en: "Bahrain" },
+  bahrain: { ar: "البحرين", en: "Bahrain" },
+  om: { ar: "عُمان", en: "Oman" },
+  oman: { ar: "عُمان", en: "Oman" },
+  tr: { ar: "تركيا", en: "Turkey" },
+  turkey: { ar: "تركيا", en: "Turkey" },
+  cy: { ar: "قبرص", en: "Cyprus" },
+  cyprus: { ar: "قبرص", en: "Cyprus" },
+  us: { ar: "الولايات المتحدة", en: "United States" },
+  usa: { ar: "الولايات المتحدة", en: "United States" },
+  "united states": { ar: "الولايات المتحدة", en: "United States" },
+  gb: { ar: "المملكة المتحدة", en: "United Kingdom" },
+  uk: { ar: "المملكة المتحدة", en: "United Kingdom" },
+  "united kingdom": { ar: "المملكة المتحدة", en: "United Kingdom" },
+  ca: { ar: "كندا", en: "Canada" },
+  canada: { ar: "كندا", en: "Canada" },
+  de: { ar: "ألمانيا", en: "Germany" },
+  germany: { ar: "ألمانيا", en: "Germany" },
+  fr: { ar: "فرنسا", en: "France" },
+  france: { ar: "فرنسا", en: "France" },
+};
+
+const ARABIC_COUNTRY_ALIASES: Record<string, string> = {
+  إسرائيل: "Israel",
+  فلسطين: "Palestine",
+  الأردن: "Jordan",
+  مصر: "Egypt",
+  لبنان: "Lebanon",
+  سوريا: "Syria",
+  العراق: "Iraq",
+  السعودية: "Saudi Arabia",
+  "الإمارات العربية المتحدة": "United Arab Emirates",
+  قطر: "Qatar",
+  الكويت: "Kuwait",
+  البحرين: "Bahrain",
+  عُمان: "Oman",
+  عمان: "Oman",
+  تركيا: "Turkey",
+  قبرص: "Cyprus",
+  "الولايات المتحدة": "United States",
+  "المملكة المتحدة": "United Kingdom",
+  كندا: "Canada",
+  ألمانيا: "Germany",
+  فرنسا: "France",
+};
+
+function containsArabic(value: string) {
+  return /[\u0600-\u06FF]/.test(value);
+}
+
+export function publicCountryLabel(country: string | undefined, isAr: boolean) {
+  const value = country?.trim();
+  if (!value || /^(unknown|not specified|n\/?a|null|undefined|-+)$/i.test(value)) {
+    return isAr ? "غير محددة" : "Not specified";
+  }
+  const known = COUNTRY_LABELS[value.toLowerCase()];
+  if (known) return isAr ? known.ar : known.en;
+  if (isAr) return containsArabic(value) ? value : "دولة أخرى";
+  return ARABIC_COUNTRY_ALIASES[value] ?? (containsArabic(value) ? "Other country" : value);
+}
+
+export function publicLanguageLabel(language: string, isAr: boolean) {
+  const value = language.trim();
+  const normalized = value.toLowerCase();
+  const labels: Record<string, { ar: string; en: string }> = {
+    ar: { ar: "العربية", en: "Arabic" },
+    arabic: { ar: "العربية", en: "Arabic" },
+    العربية: { ar: "العربية", en: "Arabic" },
+    en: { ar: "الإنجليزية", en: "English" },
+    english: { ar: "الإنجليزية", en: "English" },
+    الإنجليزية: { ar: "الإنجليزية", en: "English" },
+    he: { ar: "العبرية", en: "Hebrew" },
+    hebrew: { ar: "العبرية", en: "Hebrew" },
+    العبرية: { ar: "العبرية", en: "Hebrew" },
+    עברית: { ar: "العبرية", en: "Hebrew" },
+  };
+  const known = labels[normalized];
+  if (known) return isAr ? known.ar : known.en;
+  if (isAr) return containsArabic(value) ? value : "لغة أخرى";
+  return containsArabic(value) ? "Other language" : value;
+}
+
+export function publicVolumeLabel(value: string, isAr: boolean) {
+  const trimmed = value.trim();
+  if (!isAr || !trimmed) return trimmed || "0+";
+  if (containsArabic(trimmed)) return trimmed;
+  const match = trimmed.match(/^([\d,.]+)\s*([KMB])?\s*(\+)?(?:\s+(USDT))?$/i);
+  if (!match) return "حجم موثّق";
+  const [, amount, unit, plus, currency] = match;
+  const unitLabel = unit ? ({ K: "ألف", M: "مليون", B: "مليار" } as const)[unit.toUpperCase() as "K" | "M" | "B"] : "";
+  return `${plus ? "+" : ""}${amount}${unitLabel ? ` ${unitLabel}` : ""}${currency ? " USDT" : ""}`;
 }
 
 function sellerBadgeLabel(badge: string, isAr: boolean) {
@@ -59,7 +178,8 @@ export default async function PublicUserProfilePage({
 }) {
   const { locale, username } = await params;
   const isAr = locale === "ar";
-  const dateLocale = isAr ? "ar-IL" : "en-IL";
+  const dateLocale = isAr ? "ar-IL-u-nu-latn" : "en-IL";
+  const listSeparator = isAr ? "، " : ", ";
   const viewer = await getCurrentSessionUser();
   const data = await getPublicUserProfileRouteData({
     username,
@@ -110,7 +230,7 @@ export default async function PublicUserProfilePage({
                 </div>
                 <div className="pb-1">
                   <h1 className={isSellerRole(data.profile.role, data.profile.sellerStatus) ? "profile-identity-name profile-identity-name--seller" : "profile-identity-name"}>
-                    {publicTradingName}
+                    <bdi dir="auto">{publicTradingName}</bdi>
                   </h1>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                     {isSellerRole(data.profile.role, data.profile.sellerStatus) ? (
@@ -160,11 +280,11 @@ export default async function PublicUserProfilePage({
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "الدولة" : "Country"}</p>
-                <p className="mt-2 text-sm font-semibold text-white">{data.profile.country || "—"}</p>
+                <p className="mt-2 text-sm font-semibold text-white">{publicCountryLabel(data.profile.country, isAr)}</p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "اللغات" : "Languages"}</p>
-                <p className="mt-2 text-sm font-semibold text-white">{data.profile.languages.length ? data.profile.languages.map((language) => isAr ? ({ English: "الإنجليزية", Arabic: "العربية", Hebrew: "العبرية" } as Record<string, string>)[language] ?? language : language).join(", ") : "—"}</p>
+                <p className="mt-2 text-sm font-semibold text-white">{data.profile.languages.length ? data.profile.languages.map((language) => publicLanguageLabel(language, isAr)).join(listSeparator) : (isAr ? "غير محددة" : "Not specified")}</p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "الحالة" : "Status"}</p>
@@ -180,7 +300,7 @@ export default async function PublicUserProfilePage({
               <CardTitle>{isAr ? "نبذة احترافية" : "Professional overview"}</CardTitle>
             </CardHeader>
             <CardContent className="text-sm leading-7 text-[#D1D5DB]">
-              {data.profile.bio || (isAr ? "لا توجد نبذة منشورة بعد." : "No professional bio published yet.")}
+              <bdi dir="auto">{data.profile.bio || (isAr ? "لا توجد نبذة منشورة بعد." : "No professional bio published yet.")}</bdi>
             </CardContent>
           </Card>
           <Card className="border-white/10 bg-[#0B0B0B]/92">
@@ -221,7 +341,7 @@ export default async function PublicUserProfilePage({
                   </div>
                   <p className="mt-2 text-xs text-[#E5E7EB]">
                     {sellerIdentity.nextRank
-                      ? `${sellerIdentity.amountToNextRankUsdt.toLocaleString("en-IL")} USDT ${isAr ? "للمستوى التالي" : "to the next tier"}`
+                      ? <><bdi dir="ltr">{sellerIdentity.amountToNextRankUsdt.toLocaleString("en-IL")} USDT</bdi> {isAr ? "للمستوى التالي" : "to the next tier"}</>
                       : isAr
                         ? "تم الوصول لأعلى مستوى."
                         : "Highest tier achieved."}
@@ -229,12 +349,12 @@ export default async function PublicUserProfilePage({
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust score"}</p><p className="mt-1 text-lg font-semibold text-white">{sellerIdentity.trustScore.toFixed(1)}/100</p></div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "تقييم البائع" : "Seller rating"}</p><p className="mt-1 text-lg font-semibold text-white">{sellerIdentity.averageRating.toFixed(2)} ★</p></div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "معدل الإنجاز" : "Completion rate"}</p><p className="mt-1 text-lg font-semibold text-white">{sellerIdentity.completionRate.toFixed(1)}%</p></div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "متوسط الاستجابة" : "Response time"}</p><p className="mt-1 text-lg font-semibold text-white">{Math.max(1, Math.round(sellerIdentity.responseTimeMinutes))} {isAr ? "دقيقة" : "min"}</p></div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "الحجم المنجز" : "Completed volume"}</p><p className="mt-1 text-lg font-semibold text-white">{sellerIdentity.publicVolumeRange}</p></div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "الصفقات المكتملة" : "Completed trades"}</p><p className="mt-1 text-lg font-semibold text-white">{sellerIdentity.completedTrades.toLocaleString("en-IL")}</p></div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust score"}</p><p className="mt-1 text-lg font-semibold text-white"><bdi dir="ltr">{sellerIdentity.trustScore.toFixed(1)}/100</bdi></p></div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "تقييم البائع" : "Seller rating"}</p><p className="mt-1 text-lg font-semibold text-white"><bdi dir="ltr">{sellerIdentity.averageRating.toFixed(2)} ★</bdi></p></div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "معدل الإنجاز" : "Completion rate"}</p><p className="mt-1 text-lg font-semibold text-white"><bdi dir="ltr">{sellerIdentity.completionRate.toFixed(1)}{isAr ? "٪" : "%"}</bdi></p></div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "متوسط الاستجابة" : "Response time"}</p><p className="mt-1 text-lg font-semibold text-white"><bdi dir="auto">{Math.max(1, Math.round(sellerIdentity.responseTimeMinutes))} {isAr ? "دقيقة" : "min"}</bdi></p></div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "الحجم المنجز" : "Completed volume"}</p><p className="mt-1 text-lg font-semibold text-white"><bdi dir="auto">{publicVolumeLabel(sellerIdentity.publicVolumeRange, isAr)}</bdi></p></div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "الصفقات المكتملة" : "Completed trades"}</p><p className="mt-1 text-lg font-semibold text-white"><bdi dir="ltr">{sellerIdentity.completedTrades.toLocaleString("en-IL")}</bdi></p></div>
                 </div>
 
                 <div className="rounded-xl border border-white/10 bg-black/20 p-4">
@@ -258,8 +378,8 @@ export default async function PublicUserProfilePage({
                     <div className="mt-2 space-y-2">
                       {sellerIdentity.latestReviews.slice(0, 3).map((review) => (
                         <div key={review.id} className="rounded-lg border border-white/10 bg-black/30 p-2 text-xs text-[#D1D5DB]">
-                          <p className="font-medium text-white">{review.buyerName} • {review.rating.toFixed(1)}★</p>
-                          <p className="mt-1">{review.comment}</p>
+                          <p className="font-medium text-white"><bdi dir="auto">{review.buyerName}</bdi> • <bdi dir="ltr">{review.rating.toFixed(1)}★</bdi></p>
+                          <p className="mt-1"><bdi dir="auto">{review.comment}</bdi></p>
                         </div>
                       ))}
                       {!sellerIdentity.latestReviews.length ? <p className="text-xs text-[#9CA3AF]">{isAr ? "لا توجد تقييمات منشورة بعد." : "No reviews published yet."}</p> : null}
@@ -292,15 +412,15 @@ export default async function PublicUserProfilePage({
                 </p>
                 <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                   <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "حجم التداول" : "Trading footprint"}</p>
-                  <p className="mt-1 text-lg font-semibold text-white">{sellerIdentity.prestigeVolumePublicLabel}</p>
+                  <p className="mt-1 text-lg font-semibold text-white"><bdi dir="auto">{publicVolumeLabel(sellerIdentity.prestigeVolumePublicLabel, isAr)}</bdi></p>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                   <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "المشترون المتكررون" : "Repeat buyers"}</p>
-                  <p className="mt-1 text-lg font-semibold text-white">{sellerIdentity.repeatBuyersPercent.toFixed(1)}%</p>
+                  <p className="mt-1 text-lg font-semibold text-white"><bdi dir="ltr">{sellerIdentity.repeatBuyersPercent.toFixed(1)}{isAr ? "٪" : "%"}</bdi></p>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                   <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "العمر على المنصة" : "Years on platform"}</p>
-                  <p className="mt-1 text-lg font-semibold text-white">{sellerIdentity.yearsOnPlatform.toFixed(1)}</p>
+                  <p className="mt-1 text-lg font-semibold text-white"><bdi dir="ltr">{sellerIdentity.yearsOnPlatform.toFixed(1)}</bdi></p>
                 </div>
                 <p className="text-xs leading-6 text-[#9CA3AF]">
                   {isAr

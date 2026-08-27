@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { TradeChatMessage } from "@/types/alpha-exchange";
+import type { TradeChatMessage, TradeTimelineEntry } from "@/types/alpha-exchange";
 
 vi.mock("next/image", () => ({ default: () => null }));
 vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
@@ -10,6 +12,7 @@ vi.mock("@/i18n/navigation", () => ({
 
 import {
   isTradeRoomChatNearBottom,
+  groupTradeTimelineEntries,
   mergeTradeRoomSnapshotPreservingOptimisticMessages,
   mergeTradeRoomMessages,
   revealTradeRoomDeepLinkTarget,
@@ -70,6 +73,21 @@ describe("Trade Room client stability helpers", () => {
     vi.restoreAllMocks();
   });
 
+  it("keeps button-triggered file inputs out of the keyboard tab order", () => {
+    const source = readFileSync(join(process.cwd(), "src/components/sections/trade-room/trade-room-page.tsx"), "utf8");
+
+    for (const accessibleName of ["Choose payment receipt", "Choose USDT release proof", "Choose chat image"]) {
+      const labelIndex = source.indexOf(accessibleName);
+      const inputIndex = source.lastIndexOf("<Input", labelIndex);
+      const inputEnd = source.indexOf("/>", inputIndex);
+      const inputMarkup = source.slice(inputIndex, inputEnd);
+      expect(labelIndex, accessibleName).toBeGreaterThan(-1);
+      expect(inputIndex, accessibleName).toBeGreaterThan(-1);
+      expect(inputMarkup, accessibleName).toContain('type="file"');
+      expect(inputMarkup, accessibleName).toContain("tabIndex={-1}");
+    }
+  });
+
   it("rejects an older normal snapshot instead of only protecting terminal status regressions", () => {
     const current = room({
       updatedAt: "2026-08-22T12:01:00.000Z",
@@ -97,6 +115,21 @@ describe("Trade Room client stability helpers", () => {
     });
 
     expect(tradeRoomSnapshotSignature(deliveredMiddle)).not.toBe(tradeRoomSnapshotSignature(base));
+  });
+
+  it("shows newest timeline activity first and groups adjacent duplicate updates", () => {
+    const entries: TradeTimelineEntry[] = [
+      { id: "one", type: "payment_sent", actorUserId: "buyer-1", actorRole: "buyer", message: "Buyer marked payment sent", createdAt: "2026-08-22T12:00:00.000Z" },
+      { id: "two", type: "payment_sent", actorUserId: "buyer-1", actorRole: "buyer", message: "Buyer marked payment sent", createdAt: "2026-08-22T12:01:00.000Z" },
+      { id: "three", type: "seller_confirmed_funds", actorUserId: "seller-1", actorRole: "approved_seller", message: "Seller confirmed funds received", createdAt: "2026-08-22T12:02:00.000Z" },
+    ];
+
+    const grouped = groupTradeTimelineEntries(entries, false);
+
+    expect(grouped.map(({ event, count }) => [event.id, count])).toEqual([
+      ["three", 1],
+      ["two", 2],
+    ]);
   });
 
   it("replaces the optimistic message with the confirmed message once and keeps chronological chat order", () => {
