@@ -20,6 +20,16 @@ const SELLER_METHOD_OPTIONS = [
 ] as const;
 type SellerMethod = (typeof SELLER_METHOD_OPTIONS)[number]["id"];
 
+function sellerMethodLabel(method: SellerMethod, isAr: boolean) {
+  if (!isAr) return method;
+  if (method === "USDT (ERC20 / Ethereum)") return "USDT (ERC20 / إيثيريوم)";
+  if (method === "USDT (Polygon)") return "USDT (بوليجون)";
+  if (method === "USDT (Solana SPL / Phantom)") return "USDT (سولانا SPL / فانتوم)";
+  if (method === "Face-to-Face") return "لقاء مباشر وجهًا لوجه";
+  if (method === "Cardless Withdrawal") return "سحب من الصراف دون بطاقة";
+  return "تحويل بنكي";
+}
+
 type Props = {
   locale: "ar" | "en";
   isBuyer?: boolean;
@@ -108,8 +118,8 @@ export function GuestOnboarding({
     [isAr],
   );
 
-  function withSupportDetails(payload: ApiErrorPayload, fallback: string) {
-    const message = payload.error ?? fallback;
+  function withSupportDetails(payload: ApiErrorPayload, fallbackEn: string, fallbackAr: string) {
+    const message = isAr ? fallbackAr : (payload.error ?? fallbackEn);
     if (!payload.supportCode && !payload.requestId) return message;
     const suffix = [payload.supportCode, payload.requestId].filter(Boolean).join(" • ");
     return `${message} (${suffix})`;
@@ -139,11 +149,12 @@ export function GuestOnboarding({
     try {
       const res = await fetch("/api/auth/onboarding/student", { method: "POST" });
       const payload = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(payload.error ?? "Failed to enable student role.");
+      if (!res.ok) throw new Error(isAr ? "تعذر تفعيل دور الطالب." : (payload.error ?? "Failed to enable student role."));
       await refreshCanonicalSession();
       router.replace((consumePostOnboardingRedirect() ?? "/academy") as "/academy");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to enable student role.");
+      const detail = err instanceof Error ? err.message : "";
+      setError(isAr ? "تعذر تفعيل دور الطالب." : (detail || "Failed to enable student role."));
     } finally {
       setLoading(null);
     }
@@ -164,11 +175,12 @@ export function GuestOnboarding({
         }),
       });
       const payload = (await res.json()) as ApiErrorPayload;
-      if (!res.ok) throw new Error(withSupportDetails(payload, "Failed to continue as buyer."));
+      if (!res.ok) throw new Error(withSupportDetails(payload, "Failed to continue as buyer.", "تعذر المتابعة كمشترٍ."));
       await refreshCanonicalSession();
       router.replace((consumePostOnboardingRedirect() ?? "/usdt-exchange") as "/usdt-exchange");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to continue as buyer.");
+      const detail = err instanceof Error ? err.message : "";
+      setError(isAr ? "تعذر المتابعة كمشترٍ." : (detail || "Failed to continue as buyer."));
     } finally {
       setLoading(null);
     }
@@ -181,11 +193,12 @@ export function GuestOnboarding({
     try {
       const res = await fetch("/api/auth/onboarding/guest", { method: "POST" });
       const payload = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(payload.error ?? "Failed to continue as guest.");
+      if (!res.ok) throw new Error(isAr ? "تعذر المتابعة كضيف." : (payload.error ?? "Failed to continue as guest."));
       await refreshCanonicalSession();
       router.replace((consumePostOnboardingRedirect() ?? "/usdt-exchange") as "/usdt-exchange");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to continue as guest.");
+      const detail = err instanceof Error ? err.message : "";
+      setError(isAr ? "تعذر المتابعة كضيف." : (detail || "Failed to continue as guest."));
       setLoading(null);
     }
   }
@@ -206,11 +219,12 @@ export function GuestOnboarding({
         }),
       });
       const payload = (await res.json()) as ApiErrorPayload;
-      if (!res.ok) throw new Error(withSupportDetails(payload, "Failed to send verification code."));
+      if (!res.ok) throw new Error(withSupportDetails(payload, "Failed to send verification code.", "تعذر إرسال رمز التحقق."));
       setSellerStep("otp_sent");
-      setSellerStatus2(payload.message ?? "Verification code sent.");
+      setSellerStatus2(isAr ? "تم إرسال رمز التحقق." : (payload.message ?? "Verification code sent."));
     } catch (err) {
-      setSellerError(err instanceof Error ? err.message : "Failed to send verification code.");
+      const detail = err instanceof Error ? err.message : "";
+      setSellerError(isAr ? "تعذر إرسال رمز التحقق." : (detail || "Failed to send verification code."));
     } finally {
       setLoading(null);
     }
@@ -232,12 +246,13 @@ export function GuestOnboarding({
         }),
       });
       const payload = (await res.json()) as { error?: string; destination?: string };
-      if (!res.ok) throw new Error(payload.error ?? "Failed to submit seller application.");
+      if (!res.ok) throw new Error(isAr ? "تعذر تقديم طلب البائع." : (payload.error ?? "Failed to submit seller application."));
       setSellerStep("applied");
       await refreshCanonicalSession();
       if (!navigateAfterSuccess(router, payload.destination)) consumePostOnboardingRedirect();
     } catch (err) {
-      setSellerError(err instanceof Error ? err.message : "Failed to submit seller application.");
+      const detail = err instanceof Error ? err.message : "";
+      setSellerError(isAr ? "تعذر تقديم طلب البائع." : (detail || "Failed to submit seller application."));
     } finally {
       setLoading(null);
     }
@@ -254,10 +269,11 @@ export function GuestOnboarding({
         body: JSON.stringify({ phone: seller.phone, token: seller.token }),
       });
       const verifyPayload = (await verifyRes.json()) as ApiErrorPayload;
-      if (!verifyRes.ok) throw new Error(withSupportDetails(verifyPayload, "Verification failed."));
+      if (!verifyRes.ok) throw new Error(withSupportDetails(verifyPayload, "Verification failed.", "فشل التحقق من الرمز."));
       await submitSellerApplication();
     } catch (err) {
-      setSellerError(err instanceof Error ? err.message : "Verification failed.");
+      const detail = err instanceof Error ? err.message : "";
+      setSellerError(isAr ? "فشل التحقق من الرمز." : (detail || "Verification failed."));
       setLoading(null);
     }
   }
@@ -278,11 +294,12 @@ export function GuestOnboarding({
           }),
         });
         const buyerPayload = (await buyerRes.json()) as ApiErrorPayload;
-        if (!buyerRes.ok) throw new Error(withSupportDetails(buyerPayload, "Failed to activate buyer access."));
+        if (!buyerRes.ok) throw new Error(withSupportDetails(buyerPayload, "Failed to activate buyer access.", "تعذر تفعيل صلاحية المشتري."));
       }
       await submitSellerApplication();
     } catch (err) {
-      setSellerError(err instanceof Error ? err.message : "Failed to submit seller application.");
+      const detail = err instanceof Error ? err.message : "";
+      setSellerError(isAr ? "تعذر تقديم طلب البائع." : (detail || "Failed to submit seller application."));
       setLoading(null);
     }
   }
@@ -319,7 +336,7 @@ export function GuestOnboarding({
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <PremiumCard
-            title={isAr ? "Become a Buyer" : "Become a Buyer"}
+            title={isAr ? "كن مشتريًا" : "Become a Buyer"}
             subtitle={isAr
               ? "تحقق من بريدك الإلكتروني ثم فعّل وصول المشتري إلى السوق."
               : "Verify your email, then activate Buyer access to the marketplace."}
@@ -368,7 +385,7 @@ export function GuestOnboarding({
           </PremiumCard>
 
           <PremiumCard
-            title={isAr ? "Apply for Seller Status" : "Apply for Seller Status"}
+            title={isAr ? "التقدّم للحصول على صفة بائع" : "Apply for Seller Status"}
             subtitle={isAr ? "قدّم كبائع وابدأ بعد الموافقة الرسمية." : "Submit as a seller and start after admin approval."}
             icon={Store}
             accent="blue"
@@ -427,7 +444,7 @@ export function GuestOnboarding({
                                   }`}
                                 >
                                   <div className="flex items-center justify-between gap-2">
-                                    <span>{option.id}</span>
+                                    <span>{sellerMethodLabel(option.id, isAr)}</span>
                                     {option.recommended ? <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#D4AF37]">⭐</span> : null}
                                   </div>
                                 </button>
@@ -477,7 +494,7 @@ export function GuestOnboarding({
                                       : "border-[#374151] bg-black/20 text-[#D1D5DB] hover:border-[#C9A227]/50"
                                   }`}
                                 >
-                                  {option.id}
+                                  {sellerMethodLabel(option.id, isAr)}
                                 </button>
                               );
                             })}
@@ -547,7 +564,7 @@ export function GuestOnboarding({
                                   }`}
                                 >
                                   <div className="flex items-center justify-between gap-2">
-                                    <span>{option.id}</span>
+                                    <span>{sellerMethodLabel(option.id, isAr)}</span>
                                     {option.recommended ? <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#D4AF37]">⭐ {isAr ? "موصى به" : "Recommended"}</span> : null}
                                   </div>
                                 </button>
@@ -618,7 +635,7 @@ export function GuestOnboarding({
           </PremiumCard>
 
           <PremiumCard
-            title={isAr ? "Join Alpha Academy" : "Join Alpha Academy"}
+            title={isAr ? "انضم إلى أكاديمية Alpha" : "Join Alpha Academy"}
             subtitle={isAr ? "تعلم عبر فيديوهات وملفات PDF واختبارات تتبع التقدم." : "Learn through videos, PDFs, and progress-based quizzes."}
             icon={GraduationCap}
             accent="green"
@@ -636,7 +653,7 @@ export function GuestOnboarding({
           </PremiumCard>
 
           <PremiumCard
-            title={isAr ? "Continue as Guest" : "Continue as Guest"}
+            title={isAr ? "المتابعة كضيف" : "Continue as Guest"}
             subtitle={isAr ? "استكشف الواجهة الآن وحدد دورك لاحقًا." : "Explore now and choose your role later."}
             icon={UserCircle2}
             accent="slate"

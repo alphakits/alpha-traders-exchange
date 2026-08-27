@@ -31,11 +31,20 @@ function formatChange(changePercent: number | null) {
   return `${direction}${Math.abs(changePercent).toFixed(2)}%`;
 }
 
-function ageLabel(updatedAt: string, now: number) {
+function ageLabel(updatedAt: string, now: number, isAr: boolean) {
   const updatedMs = new Date(updatedAt).getTime();
-  if (!updatedMs) return "Updated just now";
+  if (!updatedMs) return isAr ? "تم التحديث الآن" : "Updated just now";
   const seconds = Math.max(0, Math.floor((now - updatedMs) / 1000));
-  return `Updated ${seconds} sec ago`;
+  return isAr ? `تم التحديث قبل ${seconds} ثانية` : `Updated ${seconds} sec ago`;
+}
+
+function marketSourceLabel(value: string, isAr: boolean) {
+  if (!isAr) return value;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "marketplace reference") return "مرجع السوق";
+  if (normalized === "coinbase-spot") return "سوق Coinbase الفوري";
+  if (normalized === "alpha-reference") return "مرجع Alpha Traders";
+  return "مصدر سوق موثوق";
 }
 
 export function AlphaMarketCenter({ locale, showCta = false }: { locale: Locale; showCta?: boolean }) {
@@ -104,10 +113,10 @@ export function AlphaMarketCenterView({
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
             <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400" />
-            LIVE
+            {isAr ? "مباشر" : "LIVE"}
           </div>
         </div>
-        <p className="text-xs text-[#9CA3AF]">{ageLabel(snapshot.updatedAt, now)}</p>
+        <p className="text-xs text-[#9CA3AF]">{ageLabel(snapshot.updatedAt, now, isAr)}</p>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)]">
@@ -119,7 +128,7 @@ export function AlphaMarketCenterView({
               </div>
               <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-medium text-emerald-300">
                 <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                LIVE
+                {isAr ? "مباشر" : "LIVE"}
               </span>
             </div>
             <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
@@ -133,7 +142,7 @@ export function AlphaMarketCenterView({
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-right text-xs text-[#9CA3AF]">
                 <p className="uppercase tracking-[0.14em]">{isAr ? "مصدر حي" : "Live Reference"}</p>
-                <p className="mt-1 text-sm text-white">{heroPair.reference ?? heroPair.source}</p>
+                <p className="mt-1 text-sm text-white">{marketSourceLabel(heroPair.reference ?? heroPair.source, isAr)}</p>
               </div>
             </div>
           </div>
@@ -151,7 +160,7 @@ export function AlphaMarketCenterView({
                       {formatChange(pair.changePercent)}
                     </div>
                   </div>
-                  <p className="mt-2 text-xs text-[#9CA3AF]">{pair.reference ?? pair.source}</p>
+                  <p className="mt-2 text-xs text-[#9CA3AF]">{marketSourceLabel(pair.reference ?? pair.source, isAr)}</p>
                 </div>
               );
             })}

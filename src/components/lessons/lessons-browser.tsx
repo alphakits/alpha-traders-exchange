@@ -85,7 +85,7 @@ export function LessonsBrowser({ initialQuery = "" }: { initialQuery?: string })
         {filtered.map((lesson) => (
           <Card key={lesson.id} className="h-full hover:-translate-y-0.5">
             <CardHeader>
-              <CardDescription>{lesson.durationMinutes} min</CardDescription>
+              <CardDescription>{lesson.durationMinutes} {isAr ? "دقيقة" : "min"}</CardDescription>
               <CardTitle>{isAr ? lesson.titleAr : lesson.title}</CardTitle>
             </CardHeader>
             <CardContent>

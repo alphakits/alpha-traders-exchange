@@ -347,6 +347,19 @@ function safeErrorMessage(context: "application" | "purchase" | "listing" | "req
   return map[context];
 }
 
+function purchaseRequestErrorMessage(code: string, isAr: boolean, englishMessage: string) {
+  if (!isAr) return englishMessage;
+  if (code === "EMAIL_VERIFICATION_REQUIRED") return "يجب تأكيد البريد الإلكتروني قبل بدء صفقة.";
+  if (code === "BUYER_ROLE_REQUIRED") return "يلزم تفعيل دور المشتري لبدء صفقة.";
+  if (code === "RATE_LIMITED") return "أرسلت طلبات كثيرة خلال وقت قصير. حاول مرة أخرى بعد قليل.";
+  if (code === "LISTING_ID_REQUIRED") return "تعذر تحديد العرض. أعد فتح العرض وحاول مرة أخرى.";
+  if (code === "BUYER_NAME_REQUIRED") return "أكمل اسمك في الملف الشخصي قبل بدء صفقة.";
+  if (code === "RECEIVING_WALLET_REQUIRED") return "عنوان محفظة استلام USDT مطلوب.";
+  if (code === "RECEIVING_WALLET_INVALID") return "عنوان محفظة الاستلام غير صالح.";
+  if (code === "TRADE_AMOUNT_REQUIRED") return "مبلغ الصفقة مطلوب.";
+  return safeErrorMessage("purchase", true);
+}
+
 function localizeWalletValidationError(error: string | null, network: SupportedNetwork, isAr = false) {
   if (!error || !isAr) return error;
   if (error.includes("is required")) return `عنوان محفظة الاستلام مطلوب لشبكة ${network}.`;
@@ -1076,8 +1089,10 @@ export function UsdtExchangePage({
   const selectedCommissionWallet = CLIENT_COMMISSION_WALLETS[commissionNetwork];
   const selectedCommissionWalletConfiguration = commissionWalletConfiguration?.[commissionNetwork];
   const selectedCommissionWalletAvailable = Boolean(selectedCommissionWalletConfiguration?.available && selectedCommissionWallet);
-  const selectedCommissionWalletError = selectedCommissionWalletConfiguration?.error
-    ?? `Commission wallet configuration is unavailable for ${commissionNetwork}. Please contact Alpha Traders support.`;
+  const selectedCommissionWalletError = isAr
+    ? `إعدادات محفظة العمولة غير متاحة لشبكة ${commissionNetwork}. تواصل مع دعم Alpha Traders.`
+    : (selectedCommissionWalletConfiguration?.error
+      ?? `Commission wallet configuration is unavailable for ${commissionNetwork}. Please contact Alpha Traders support.`);
   const commissionTotalAmountDue = sellerCommissionStatus?.totalAmountDue ?? sellerCommissionStatus?.amountDue ?? 0;
   // Do not infer a payable amount from an aggregate outstanding balance. The
   // server returns this only for the exact commissionId that it authorized.
@@ -1198,9 +1213,9 @@ export function UsdtExchangePage({
 
   const goToVerificationGate = useCallback(() => {
     setIsRedirectingToVerification(true);
-    setStatusMessage("Redirecting to verification...");
+    setStatusMessage(isAr ? "جارٍ الانتقال إلى التحقق..." : "Redirecting to verification...");
     router.push(`/verify-account?redirectTo=${encodeURIComponent(tradeReturnPath)}`);
-  }, [router, tradeReturnPath]);
+  }, [isAr, router, tradeReturnPath]);
   const [currencyFilter, setCurrencyFilter] = useState("all");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState("all");
   const [networkFilter, setNetworkFilter] = useState<"all" | SupportedNetwork>("all");
@@ -1451,11 +1466,11 @@ export function UsdtExchangePage({
   const openCommissionPayment = useCallback((commissionId: string) => {
     const normalizedCommissionId = commissionId.trim();
     if (!normalizedCommissionId) {
-      setSellerWorkspaceMessage("No exact payable commission record was found.");
+      setSellerWorkspaceMessage(isAr ? "لم يتم العثور على سجل عمولة محدد قابل للدفع." : "No exact payable commission record was found.");
       return;
     }
     router.push(commissionPaymentDestination(normalizedCommissionId));
-  }, [router]);
+  }, [isAr, router]);
 
   const reviewPayableCommissions = useCallback(() => {
     if (typeof document !== "undefined") {
@@ -1492,7 +1507,7 @@ export function UsdtExchangePage({
     if (!sessionUser || !isApprovedSellerSession) {
       commissionPayDeepLinkHandledRef.current = true;
       clearCommissionPayDeepLink();
-      setSellerWorkspaceMessage("A seller workspace is required to pay a commission.");
+      setSellerWorkspaceMessage(isAr ? "يلزم وجود مساحة عمل للبائع لدفع العمولة." : "A seller workspace is required to pay a commission.");
       return;
     }
     const requestedCommissionId = new URLSearchParams(window.location.search).get("commissionId")?.trim() || undefined;
@@ -1503,7 +1518,7 @@ export function UsdtExchangePage({
     // payment notification instead.
     if (!requestedCommissionId) {
       clearCommissionPayDeepLink();
-      setSellerWorkspaceMessage("This payment link is missing its commission record. Please open a current commission reminder.");
+      setSellerWorkspaceMessage(isAr ? "رابط الدفع هذا لا يحتوي على سجل العمولة. افتح تذكير عمولة حاليًا." : "This payment link is missing its commission record. Please open a current commission reminder.");
       return;
     }
     let cancelled = false;
@@ -1515,11 +1530,11 @@ export function UsdtExchangePage({
       if (cancelled) return;
       clearCommissionPayDeepLink();
       if (!commissionStatus) {
-        setSellerWorkspaceMessage("Unable to load commission status. Please retry.");
+        setSellerWorkspaceMessage(isAr ? "تعذر تحميل حالة العمولة. حاول مرة أخرى." : "Unable to load commission status. Please retry.");
         return;
       }
       if (commissionStatus.selectionError) {
-        setSellerWorkspaceMessage(commissionStatus.selectionError);
+        setSellerWorkspaceMessage(isAr ? "تعذّر تحديد العمولة. اختر سجلاً غير مدفوع وحاول مرة أخرى." : commissionStatus.selectionError);
         // Restore the ordinary seller workspace selection after rejecting an
         // untrusted/stale deep link; it must not leave the page aimed at an
         // empty payment record.
@@ -1527,7 +1542,7 @@ export function UsdtExchangePage({
         return;
       }
       if (commissionStatus.status === "clear" || !commissionStatus.commissionId) {
-        setSellerWorkspaceMessage("No payable commission record was found.");
+        setSellerWorkspaceMessage(isAr ? "لم يتم العثور على سجل عمولة قابل للدفع." : "No payable commission record was found.");
         return;
       }
 
@@ -1541,6 +1556,7 @@ export function UsdtExchangePage({
     };
   }, [
     clearCommissionPayDeepLink,
+    isAr,
     isApprovedSellerSession,
     isSessionResolving,
     isWorkspaceWidgetsLoading,
@@ -1677,7 +1693,7 @@ export function UsdtExchangePage({
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("settings", isAr)));
         return;
       }
-      setSellerWorkspaceMessage("Notification preferences updated.");
+      setSellerWorkspaceMessage(isAr ? "تم تحديث تفضيلات الإشعارات." : "Notification preferences updated.");
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("settings", isAr));
     }
@@ -1920,7 +1936,7 @@ export function UsdtExchangePage({
       if (requestId !== sellerProfileRequestIdRef.current || controller.signal.aborted) return;
       if (!response.ok || !payload.profile) {
         setSellerProfileData(null);
-        setStatusMessage(payload.error ?? safeErrorMessage("workspace", isAr));
+        setStatusMessage(isAr ? safeErrorMessage("workspace", true) : (payload.error ?? safeErrorMessage("workspace", false)));
         return;
       }
       setSellerProfileData(payload.profile);
@@ -1995,7 +2011,7 @@ export function UsdtExchangePage({
     const listing = listings.find((item) => item.id === listingId);
     if (!listing) {
       updateListingSelectionQuery(null);
-      setStatusMessage("This listing is no longer available.");
+      setStatusMessage(isAr ? "هذا العرض لم يعد متاحًا." : "This listing is no longer available.");
       return;
     }
     setSelectedListing(listing);
@@ -2010,7 +2026,7 @@ export function UsdtExchangePage({
       usdtAmount: formatIntegerForInput(listing.minimumTrade || listing.availableAmount),
       receivingWalletAddress: "",
     }));
-  }, [isLoadingListings, listings, selectedListing, sessionUser, updateListingSelectionQuery]);
+  }, [isAr, isLoadingListings, listings, selectedListing, sessionUser, updateListingSelectionQuery]);
 
   useEffect(() => {
     if (deepLinkAppliedRef.current) return;
@@ -2040,7 +2056,7 @@ export function UsdtExchangePage({
       const target = document.getElementById("marketplace-sellers") ?? document.getElementById("marketplace");
       target?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, [scrollToCreateListingSection, updateListingSelectionQuery]);
+  }, [isAr, scrollToCreateListingSection, updateListingSelectionQuery]);
 
   useEffect(() => {
     if (!qaCommissionModeEnabled || !qaCommissionResetEnabled) return;
@@ -2055,13 +2071,13 @@ export function UsdtExchangePage({
           headers: { "Content-Type": "application/json" },
         });
         if (!response.ok) return;
-        setCommissionPayMessage("QA commission cleanup completed.");
+        setCommissionPayMessage(isAr ? "اكتمل تنظيف عمولات الاختبار." : "QA commission cleanup completed.");
         await refreshSellerWorkspace();
       } catch {
         // Keep normal commission flow available if QA cleanup fails.
       }
     })();
-  }, [qaCommissionModeEnabled, qaCommissionResetEnabled, refreshSellerWorkspace, sellerCommissionStatus]);
+  }, [isAr, qaCommissionModeEnabled, qaCommissionResetEnabled, refreshSellerWorkspace, sellerCommissionStatus]);
 
   // Generate QR code when commission modal opens or network changes
   useEffect(() => {
@@ -2257,7 +2273,7 @@ export function UsdtExchangePage({
       });
       const payload = (await response.json()) as { error?: string };
       if (!response.ok) {
-        setStatusMessage(payload.error ?? safeErrorMessage("request", isAr));
+        setStatusMessage(isAr ? safeErrorMessage("request", true) : (payload.error ?? safeErrorMessage("request", false)));
         return;
       }
       setStatusMessage(successMessage);
@@ -2275,10 +2291,10 @@ export function UsdtExchangePage({
       const response = await fetch(`/api/alpha-exchange/admin/sellers/${sellerId}/suspend`, { method: "POST" });
       const payload = (await response.json()) as { error?: string };
       if (!response.ok) {
-        setStatusMessage(payload.error ?? safeErrorMessage("request", isAr));
+        setStatusMessage(isAr ? safeErrorMessage("request", true) : (payload.error ?? safeErrorMessage("request", false)));
         return;
       }
-      setStatusMessage("Seller suspended.");
+      setStatusMessage(isAr ? "تم إيقاف البائع." : "Seller suspended.");
       await Promise.all([refreshSellerWorkspace(), fetchSellerProfileData(sellerId)]);
     } catch {
       setStatusMessage(safeErrorMessage("request", isAr));
@@ -2314,14 +2330,14 @@ export function UsdtExchangePage({
     if (isSellerDashboardWorkspace) {
       window.requestAnimationFrame(() => {
         if (!scrollToMyListingsSection()) {
-          setSellerWorkspaceMessage("Your listings workspace is still loading. Please try again in a moment.");
+          setSellerWorkspaceMessage(isAr ? "ما زالت مساحة العروض قيد التحميل. حاول بعد لحظات." : "Your listings workspace is still loading. Please try again in a moment.");
         }
       });
       return;
     }
     router.push("/dashboard/seller#my-listings-section");
-    setStatusMessage(`Manage your listing in Seller Dashboard (${shortListingRef(listing)}).`);
-  }, [isSellerDashboardWorkspace, requireAuth, router, scrollToMyListingsSection]);
+    setStatusMessage(isAr ? `أدر عرضك من لوحة البائع (${shortListingRef(listing)}).` : `Manage your listing in Seller Dashboard (${shortListingRef(listing)}).`);
+  }, [isAr, isSellerDashboardWorkspace, requireAuth, router, scrollToMyListingsSection]);
 
   async function handleSellerApplicationSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2361,19 +2377,21 @@ export function UsdtExchangePage({
     if (!selectedListing) return;
     if (isSubmittingPurchase) return;
     if (listingRequiresFaceToFaceSafetyNotice(selectedListingPaymentMethod) && !faceToFaceSafetyAcknowledged) {
-      setStatusMessage("Please acknowledge the Face-to-Face privacy and safety guidelines before continuing.");
+      setStatusMessage(isAr ? "وافق على إرشادات الخصوصية والأمان للقاء المباشر قبل المتابعة." : "Please acknowledge the Face-to-Face privacy and safety guidelines before continuing.");
       return;
     }
     const tradeAmount = String(buyerInfo.usdtAmount ?? "").trim();
     if (!tradeAmount || toNumber(tradeAmount) <= 0) {
-      setStatusMessage("Enter a valid USDT trade amount to continue.");
+      setStatusMessage(isAr ? "أدخل مبلغ USDT صالحًا للمتابعة." : "Enter a valid USDT trade amount to continue.");
       return;
     }
     const requestedAmount = toNumber(tradeAmount);
     const minTrade = Math.max(0, toNumber(selectedListing.minimumTrade));
     const maxTrade = toNumber(selectedListing.maximumTrade || selectedListing.availableAmount);
     if (requestedAmount < minTrade || requestedAmount > maxTrade) {
-      setStatusMessage(`Trade amount must be between ${minTrade.toLocaleString("en-IL")} and ${maxTrade.toLocaleString("en-IL")} USDT.`);
+      setStatusMessage(isAr
+        ? `يجب أن يكون مبلغ الصفقة بين ${minTrade.toLocaleString("en-IL")} و${maxTrade.toLocaleString("en-IL")} USDT.`
+        : `Trade amount must be between ${minTrade.toLocaleString("en-IL")} and ${maxTrade.toLocaleString("en-IL")} USDT.`);
       return;
     }
     const walletValidationError = getWalletAddressValidationError(selectedListing.network, buyerInfo.receivingWalletAddress);
@@ -2381,7 +2399,9 @@ export function UsdtExchangePage({
       setStatusMessage(walletValidationError);
       return;
     }
-    const fallbackMessage = "We could not start this trade due to an unexpected server error.";
+    const fallbackMessage = isAr
+      ? "تعذر بدء الصفقة بسبب خطأ غير متوقع. حاول مرة أخرى."
+      : "We could not start this trade due to an unexpected server error.";
     setIsSubmittingPurchase(true);
     try {
       const response = await fetch("/api/alpha-exchange/purchase-requests", {
@@ -2431,7 +2451,7 @@ export function UsdtExchangePage({
           router.push(`/trade-room/${blockingId}`);
           return;
         }
-        setStatusMessage(errorMessage);
+        setStatusMessage(purchaseRequestErrorMessage(errorCode, isAr, errorMessage));
         return;
       }
       const data = (await response.json()) as { purchase?: PurchaseRequest; destination?: string };
@@ -2445,9 +2465,11 @@ export function UsdtExchangePage({
         navigateAfterSuccess(router, data.destination);
       }
     } catch (error) {
-      const message = error instanceof Error && error.message.trim()
-        ? error.message
-        : "Unable to reach the server right now. Check your connection and try again.";
+      const message = isAr
+        ? "تعذر الاتصال بالخادم الآن. تحقق من اتصالك وحاول مرة أخرى."
+        : (error instanceof Error && error.message.trim()
+          ? error.message
+          : "Unable to reach the server right now. Check your connection and try again.");
       setStatusMessage(message);
     } finally {
       setIsSubmittingPurchase(false);
@@ -2914,19 +2936,25 @@ export function UsdtExchangePage({
     ? [
         marketplaceComplianceActive
           ? {
-              title: "Marketplace Compliance",
-              body: sellerWorkspaceSummary?.enforcement?.blockReason ?? "Open your compliance payment case to restore listing access.",
-              action: "Open payment",
+              title: isAr ? "امتثال السوق" : "Marketplace Compliance",
+              body: isAr
+                ? "افتح حالة دفع الامتثال لاستعادة صلاحية إنشاء العروض."
+                : (sellerWorkspaceSummary?.enforcement?.blockReason ?? "Open your compliance payment case to restore listing access."),
+              action: isAr ? "فتح الدفع" : "Open payment",
               onClick: openMarketplaceCompliancePayment,
             }
           : null,
         commissionWorkspaceAction.kind !== "none"
           ? {
-              title: sellerCommissionStatus?.status === "overdue" ? "Commission overdue" : "Commission due",
+              title: sellerCommissionStatus?.status === "overdue"
+                ? (isAr ? "العمولة متأخرة" : "Commission overdue")
+                : (isAr ? "عمولة مستحقة" : "Commission due"),
               body: sellerCommissionStatus?.status === "overdue"
-                ? "Complete the payment to restore full seller access."
-                : "Pay the current commission to keep listing actions available.",
-              action: commissionWorkspaceAction.kind === "pay-one" ? "Pay now" : "Review unpaid",
+                ? (isAr ? "أكمل الدفع لاستعادة جميع صلاحيات البائع." : "Complete the payment to restore full seller access.")
+                : (isAr ? "ادفع العمولة الحالية لتبقى إجراءات العروض متاحة." : "Pay the current commission to keep listing actions available."),
+              action: commissionWorkspaceAction.kind === "pay-one"
+                ? (isAr ? "ادفع الآن" : "Pay now")
+                : (isAr ? "مراجعة غير المدفوع" : "Review unpaid"),
               onClick: commissionWorkspaceAction.kind === "pay-one"
                 ? () => openCommissionPayment(commissionWorkspaceAction.commissionId)
                 : reviewPayableCommissions,
@@ -2934,17 +2962,21 @@ export function UsdtExchangePage({
           : null,
         latestOpenSellerTrade
           ? {
-              title: "Trade waiting",
-              body: `Trade ${formatTradeId(latestOpenSellerTrade.displayNumber, latestOpenSellerTrade.tradeId ?? latestOpenSellerTrade.id)} needs your attention.`,
-              action: "Open trade",
+              title: isAr ? "صفقة بانتظارك" : "Trade waiting",
+              body: isAr
+                ? `الصفقة ${formatTradeId(latestOpenSellerTrade.displayNumber, latestOpenSellerTrade.tradeId ?? latestOpenSellerTrade.id)} تحتاج إلى انتباهك.`
+                : `Trade ${formatTradeId(latestOpenSellerTrade.displayNumber, latestOpenSellerTrade.tradeId ?? latestOpenSellerTrade.id)} needs your attention.`,
+              action: isAr ? "فتح الصفقة" : "Open trade",
               onClick: () => handleOpenTradeRoom(latestOpenSellerTrade.id),
             }
           : null,
         sellerOverviewStats.pendingRequests > 0
           ? {
-              title: "Pending requests",
-              body: `${sellerOverviewStats.pendingRequests.toLocaleString("en-IL")} buyer requests are waiting for review.`,
-              action: "Review listings",
+              title: isAr ? "طلبات معلّقة" : "Pending requests",
+              body: isAr
+                ? `${sellerOverviewStats.pendingRequests.toLocaleString("en-IL")} من طلبات المشترين بانتظار المراجعة.`
+                : `${sellerOverviewStats.pendingRequests.toLocaleString("en-IL")} buyer requests are waiting for review.`,
+              action: isAr ? "مراجعة العروض" : "Review listings",
               onClick: () => {
                 if (!scrollToMyListingsSection()) {
                   void scrollToCreateListingSection();
@@ -2954,17 +2986,19 @@ export function UsdtExchangePage({
           : null,
         unreadNotificationsTotal > 0
           ? {
-              title: "Unread notifications",
-              body: `${unreadNotificationsTotal.toLocaleString("en-IL")} new updates are ready.`,
-              action: "Open notifications",
+              title: isAr ? "إشعارات غير مقروءة" : "Unread notifications",
+              body: isAr
+                ? `${unreadNotificationsTotal.toLocaleString("en-IL")} من التحديثات الجديدة جاهزة.`
+                : `${unreadNotificationsTotal.toLocaleString("en-IL")} new updates are ready.`,
+              action: isAr ? "فتح الإشعارات" : "Open notifications",
               onClick: () => router.push("/notifications"),
             }
           : null,
         urgentSellerListing
           ? {
-              title: "Listing expiring soon",
-              body: "Renew the listing before it drops out of view.",
-              action: "Review listing",
+              title: isAr ? "العرض سينتهي قريبًا" : "Listing expiring soon",
+              body: isAr ? "جدّد العرض قبل أن يختفي من السوق." : "Renew the listing before it drops out of view.",
+              action: isAr ? "مراجعة العرض" : "Review listing",
               onClick: () => {
                 document.getElementById(`listing-${urgentSellerListing.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
               },
@@ -2974,25 +3008,29 @@ export function UsdtExchangePage({
     : [
         pendingBuyerReviewTrade
           ? {
-              title: "Complete your previous trade",
-              body: "Leave feedback before starting another request.",
-              action: "Leave feedback",
+              title: isAr ? "أكمل صفقتك السابقة" : "Complete your previous trade",
+              body: isAr ? "اترك تقييمك قبل بدء طلب جديد." : "Leave feedback before starting another request.",
+              action: isAr ? "إضافة تقييم" : "Leave feedback",
               onClick: () => router.push(`/trade-room/${pendingBuyerReviewTrade.id}`),
             }
           : null,
         latestOpenBuyerTrade
           ? {
-              title: "Active trade",
-              body: `Trade ${formatTradeId(latestOpenBuyerTrade.displayNumber, latestOpenBuyerTrade.tradeId ?? latestOpenBuyerTrade.id)} is in progress.`,
-              action: "Open trade",
+              title: isAr ? "صفقة نشطة" : "Active trade",
+              body: isAr
+                ? `الصفقة ${formatTradeId(latestOpenBuyerTrade.displayNumber, latestOpenBuyerTrade.tradeId ?? latestOpenBuyerTrade.id)} قيد التنفيذ.`
+                : `Trade ${formatTradeId(latestOpenBuyerTrade.displayNumber, latestOpenBuyerTrade.tradeId ?? latestOpenBuyerTrade.id)} is in progress.`,
+              action: isAr ? "فتح الصفقة" : "Open trade",
               onClick: () => handleOpenTradeRoom(latestOpenBuyerTrade.id),
             }
           : null,
         unreadNotificationsTotal > 0
           ? {
-              title: "Unread notifications",
-              body: `${unreadNotificationsTotal.toLocaleString("en-IL")} new updates are ready.`,
-              action: "Open notifications",
+              title: isAr ? "إشعارات غير مقروءة" : "Unread notifications",
+              body: isAr
+                ? `${unreadNotificationsTotal.toLocaleString("en-IL")} من التحديثات الجديدة جاهزة.`
+                : `${unreadNotificationsTotal.toLocaleString("en-IL")} new updates are ready.`,
+              action: isAr ? "فتح الإشعارات" : "Open notifications",
               onClick: () => router.push("/notifications"),
             }
           : null,
@@ -3017,9 +3055,11 @@ export function UsdtExchangePage({
     ? [
       {
         key: "create-listing",
-        title: "Create Listing",
-        subtitle: canAccessListingCreation ? "Start a seller listing" : "Review listing requirements",
-        stat: "Open",
+        title: isAr ? "إنشاء عرض" : "Create Listing",
+        subtitle: canAccessListingCreation
+          ? (isAr ? "ابدأ عرض بيع" : "Start a seller listing")
+          : (isAr ? "راجع متطلبات إنشاء العرض" : "Review listing requirements"),
+        stat: isAr ? "فتح" : "Open",
         onClick: () => {
           void scrollToCreateListingSection();
         },
@@ -3028,8 +3068,8 @@ export function UsdtExchangePage({
       },
       {
         key: "listings",
-        title: "My Listings",
-        subtitle: "Open listing workspace",
+        title: isAr ? "عروضي" : "My Listings",
+        subtitle: isAr ? "فتح مساحة إدارة العروض" : "Open listing workspace",
         stat: `${myListings.length.toLocaleString("en-IL")}`,
         onClick: () => {
           if (!scrollToMyListingsSection()) {
@@ -3041,8 +3081,10 @@ export function UsdtExchangePage({
       },
       {
         key: "trades",
-        title: "Purchase Requests",
-        subtitle: `${openTradeCount.toLocaleString("en-IL")} active trade${openTradeCount === 1 ? "" : "s"}`,
+        title: isAr ? "طلبات الشراء" : "Purchase Requests",
+        subtitle: isAr
+          ? `${openTradeCount.toLocaleString("en-IL")} من الصفقات النشطة`
+          : `${openTradeCount.toLocaleString("en-IL")} active trade${openTradeCount === 1 ? "" : "s"}`,
         stat: `${sellerRequests.length.toLocaleString("en-IL")}`,
         onClick: () => {
           const target = document.getElementById("purchase-requests-section");
@@ -3058,8 +3100,8 @@ export function UsdtExchangePage({
       },
       {
         key: "notifications",
-        title: "Notifications",
-        subtitle: "Notification Center",
+        title: isAr ? "الإشعارات" : "Notifications",
+        subtitle: isAr ? "مركز الإشعارات" : "Notification Center",
         stat: `${unreadNotificationsTotal.toLocaleString("en-IL")}`,
         onClick: () => {
           const target = document.getElementById("notification-center-section");
@@ -3074,8 +3116,8 @@ export function UsdtExchangePage({
       },
       {
         key: "market",
-        title: "Today's Market",
-        subtitle: "Market Details",
+        title: isAr ? "سوق اليوم" : "Today's Market",
+        subtitle: isAr ? "تفاصيل السوق" : "Market Details",
         stat: formatIls(marketPricePerUsdt),
           onClick: () => {
             const target = document.getElementById("market-overview");
@@ -3090,18 +3132,18 @@ export function UsdtExchangePage({
       },
       {
         key: "public-profile",
-        title: "Public Profile",
-        subtitle: "View seller profile",
-        stat: "Open",
+        title: isAr ? "الملف العام" : "Public Profile",
+        subtitle: isAr ? "عرض ملف البائع" : "View seller profile",
+        stat: isAr ? "فتح" : "Open",
         onClick: () => router.push("/profile"),
         icon: Users,
         tone: "blue",
       },
       {
         key: "account-settings",
-        title: "Account Settings",
-        subtitle: "Profile and security",
-        stat: "Open",
+        title: isAr ? "إعدادات الحساب" : "Account Settings",
+        subtitle: isAr ? "الملف الشخصي والأمان" : "Profile and security",
+        stat: isAr ? "فتح" : "Open",
         onClick: () => router.push("/settings"),
         icon: ShieldCheck,
         tone: "green",
@@ -3110,8 +3152,8 @@ export function UsdtExchangePage({
     : [
       {
         key: "browse-marketplace",
-        title: "Browse Marketplace",
-        subtitle: "Live Offers",
+        title: isAr ? "تصفّح السوق" : "Browse Marketplace",
+        subtitle: isAr ? "العروض المباشرة" : "Live Offers",
         stat: `${marketplacePulse.liveListings.toLocaleString("en-IL")}`,
           onClick: () => {
             const target = document.getElementById("marketplace");
@@ -3126,8 +3168,8 @@ export function UsdtExchangePage({
       },
       {
         key: "orders",
-        title: "My Trade Requests",
-        subtitle: "Request Queue",
+        title: isAr ? "طلبات صفقاتي" : "My Trade Requests",
+        subtitle: isAr ? "قائمة الطلبات" : "Request Queue",
         stat: `${totalBuyerRequests.toLocaleString("en-IL")}`,
         onClick: () => {
           if (scrollToBuyerTradeHistorySection()) return;
@@ -3138,8 +3180,8 @@ export function UsdtExchangePage({
       },
       {
         key: "active-trades",
-        title: "Active Trades",
-        subtitle: "Continue Trade",
+        title: isAr ? "الصفقات النشطة" : "Active Trades",
+        subtitle: isAr ? "متابعة الصفقة" : "Continue Trade",
         stat: `${openTradeCount.toLocaleString("en-IL")}`,
         onClick: () => {
           if (latestOpenBuyerTrade) {
@@ -3153,8 +3195,8 @@ export function UsdtExchangePage({
       },
       {
         key: "notifications",
-        title: "Notifications",
-        subtitle: "Notification Center",
+        title: isAr ? "الإشعارات" : "Notifications",
+        subtitle: isAr ? "مركز الإشعارات" : "Notification Center",
         stat: `${unreadNotificationsTotal.toLocaleString("en-IL")}`,
         onClick: () => {
           const target = document.getElementById("notification-center-section");
@@ -3169,8 +3211,8 @@ export function UsdtExchangePage({
       },
       {
         key: "market",
-        title: "Market Overview",
-        subtitle: "Today’s Market",
+        title: isAr ? "نظرة عامة على السوق" : "Market Overview",
+        subtitle: isAr ? "سوق اليوم" : "Today’s Market",
         stat: formatIls(marketPricePerUsdt),
           onClick: () => {
             const target = document.getElementById("market-overview");
@@ -3187,10 +3229,12 @@ export function UsdtExchangePage({
   if (standardCommissionDueActive) {
     workspaceCards.push({
       key: "commission",
-      title: "Commission Due",
+      title: isAr ? "عمولة مستحقة" : "Commission Due",
       subtitle: commissionWorkspaceAction.kind === "pay-one"
-        ? "Pay the exact commission"
-        : `Review ${sellerCommissionStatus?.pendingCount ?? 0} unpaid commissions`,
+        ? (isAr ? "ادفع مبلغ العمولة المحدد" : "Pay the exact commission")
+        : (isAr
+          ? `راجع ${sellerCommissionStatus?.pendingCount ?? 0} من العمولات غير المدفوعة`
+          : `Review ${sellerCommissionStatus?.pendingCount ?? 0} unpaid commissions`),
       stat: commissionWorkspaceAction.kind === "pay-one"
         ? formatUsdt(sellerCommissionStatus?.payableAmountDue ?? 0)
         : `${sellerCommissionStatus?.pendingCount ?? 0}`,
@@ -3204,9 +3248,9 @@ export function UsdtExchangePage({
   if (marketplaceComplianceActive) {
     workspaceCards.push({
       key: "marketplace-compliance",
-      title: "Marketplace Compliance",
-      subtitle: "Recovery Payment",
-      stat: "Action",
+      title: isAr ? "امتثال السوق" : "Marketplace Compliance",
+      subtitle: isAr ? "دفعة استعادة الصلاحيات" : "Recovery Payment",
+      stat: isAr ? "إجراء" : "Action",
       onClick: openMarketplaceCompliancePayment,
       icon: ShieldCheck,
       tone: "amber",
@@ -3217,14 +3261,14 @@ export function UsdtExchangePage({
     ? [
       {
         key: "hero-create-listing",
-        label: "Create Listing",
+        label: isAr ? "إنشاء عرض" : "Create Listing",
         onClick: () => {
           void scrollToCreateListingSection();
         },
       },
       {
         key: "hero-active-trades",
-        label: "Active Trades",
+        label: isAr ? "الصفقات النشطة" : "Active Trades",
         onClick: () => {
           if (latestOpenSellerTrade) {
             handleOpenTradeRoom(latestOpenSellerTrade.id);
@@ -3237,7 +3281,7 @@ export function UsdtExchangePage({
     : [
       {
         key: "hero-browse-marketplace",
-        label: "Browse Marketplace",
+        label: isAr ? "تصفّح السوق" : "Browse Marketplace",
         onClick: () => {
           const target = document.getElementById("marketplace");
           if (target) {
@@ -3249,7 +3293,7 @@ export function UsdtExchangePage({
       },
       {
         key: "hero-my-trades",
-        label: "My Trade Requests",
+        label: isAr ? "طلبات صفقاتي" : "My Trade Requests",
         onClick: () => {
           if (scrollToBuyerTradeHistorySection()) return;
           router.push(`/usdt-exchange#${BUYER_TRADE_HISTORY_SECTION_ID}`);
@@ -3459,14 +3503,16 @@ export function UsdtExchangePage({
       if (!response.ok) {
         if (response.status === 401) {
           void refreshCanonicalSession?.({ force: true });
-          setSellerWorkspaceMessage("Your session has expired. Please sign in again.");
+          setSellerWorkspaceMessage(isAr ? "انتهت جلستك. سجّل الدخول مرة أخرى." : "Your session has expired. Please sign in again.");
           return;
         }
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing", isAr)));
         return;
       }
 
-      setSellerWorkspaceMessage(nextStatus === "paused" ? "⏸ Listing paused. It is no longer visible to buyers until you resume it." : "▶ Listing resumed. Your listing is now live in the marketplace.");
+      setSellerWorkspaceMessage(nextStatus === "paused"
+        ? (isAr ? "⏸ تم إيقاف العرض مؤقتًا. لن يظهر للمشترين حتى تستأنفه." : "⏸ Listing paused. It is no longer visible to buyers until you resume it.")
+        : (isAr ? "▶ تم استئناف العرض وهو ظاهر الآن في السوق." : "▶ Listing resumed. Your listing is now live in the marketplace."));
       await refreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing", isAr));
@@ -3494,17 +3540,17 @@ export function UsdtExchangePage({
       };
       if (payload.sharing) setDiscordSharing(payload.sharing);
       if (!response.ok) {
-        setSellerWorkspaceMessage(payload.error || "Discord listing sharing is temporarily unavailable.");
+        setSellerWorkspaceMessage(isAr ? "مشاركة العرض عبر Discord غير متاحة مؤقتًا." : (payload.error || "Discord listing sharing is temporarily unavailable."));
         return;
       }
       setSellerWorkspaceMessage(
         payload.accepted
-          ? "Discord share accepted. Publishing is processing in the background."
-          : "This listing already has a current Discord share state.",
+          ? (isAr ? "تم قبول مشاركة Discord ويجري النشر في الخلفية." : "Discord share accepted. Publishing is processing in the background.")
+          : (isAr ? "لهذا العرض حالة مشاركة حالية على Discord." : "This listing already has a current Discord share state."),
       );
       scheduleDiscordSharingRefreshes();
     } catch {
-      setSellerWorkspaceMessage("Discord listing sharing is temporarily unavailable.");
+      setSellerWorkspaceMessage(isAr ? "مشاركة العرض عبر Discord غير متاحة مؤقتًا." : "Discord listing sharing is temporarily unavailable.");
     } finally {
       setDiscordShareActionKey(null);
     }
@@ -3534,14 +3580,14 @@ export function UsdtExchangePage({
       if (!response.ok) {
         if (response.status === 401) {
           void refreshCanonicalSession?.({ force: true });
-          setSellerWorkspaceMessage("Your session has expired. Please sign in again.");
+          setSellerWorkspaceMessage(isAr ? "انتهت جلستك. سجّل الدخول مرة أخرى." : "Your session has expired. Please sign in again.");
           return;
         }
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing", isAr)));
         return;
       }
       syncListingState(listing, { remove: true });
-      setSellerWorkspaceMessage("🗑 Listing removed successfully.");
+      setSellerWorkspaceMessage(isAr ? "🗑 تم حذف العرض بنجاح." : "🗑 Listing removed successfully.");
       setRemovalListing(null);
       backgroundRefreshSellerWorkspace();
     } catch {
@@ -3574,7 +3620,7 @@ export function UsdtExchangePage({
       if (!response.ok) {
         if (response.status === 401) {
           void refreshCanonicalSession?.({ force: true });
-          setSellerWorkspaceMessage("Your session has expired. Please sign in again.");
+          setSellerWorkspaceMessage(isAr ? "انتهت جلستك. سجّل الدخول مرة أخرى." : "Your session has expired. Please sign in again.");
           return;
         }
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing", isAr)));
@@ -3582,7 +3628,7 @@ export function UsdtExchangePage({
       }
       const payload = await response.json() as { listing?: MarketplaceListing; destination?: string };
       syncListingState(payload.listing ?? null);
-      setSellerWorkspaceMessage("📋 Listing duplicated successfully. Review and publish it when ready.");
+      setSellerWorkspaceMessage(isAr ? "📋 تم نسخ العرض بنجاح. راجعه وانشره عندما يصبح جاهزًا." : "📋 Listing duplicated successfully. Review and publish it when ready.");
       navigateOrRevealResult(router, payload.destination, "listing-publish-result");
       setEditingListingId(null);
       backgroundRefreshSellerWorkspace();
@@ -3604,7 +3650,7 @@ export function UsdtExchangePage({
       if (!response.ok) {
         if (response.status === 401) {
           void refreshCanonicalSession?.({ force: true });
-          setSellerWorkspaceMessage("Your session has expired. Please sign in again.");
+          setSellerWorkspaceMessage(isAr ? "انتهت جلستك. سجّل الدخول مرة أخرى." : "Your session has expired. Please sign in again.");
           return;
         }
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing", isAr)));
@@ -3612,7 +3658,7 @@ export function UsdtExchangePage({
       }
       const payload = await response.json() as { listing?: MarketplaceListing; destination?: string };
       syncListingState(payload.listing ?? listing);
-      setSellerWorkspaceMessage("🔄 Listing renewed. Your listing is now live with a refreshed expiry.");
+      setSellerWorkspaceMessage(isAr ? "🔄 تم تجديد العرض وأصبح مباشرًا بموعد انتهاء جديد." : "🔄 Listing renewed. Your listing is now live with a refreshed expiry.");
       backgroundRefreshSellerWorkspace();
     } catch {
       setSellerWorkspaceMessage(safeErrorMessage("listing", isAr));
@@ -3736,7 +3782,7 @@ export function UsdtExchangePage({
       if (!response.ok) {
         if (response.status === 401) {
           void refreshCanonicalSession?.({ force: true });
-          setSellerWorkspaceMessage("Your session has expired. Please sign in again.");
+          setSellerWorkspaceMessage(isAr ? "انتهت جلستك. سجّل الدخول مرة أخرى." : "Your session has expired. Please sign in again.");
           return;
         }
         setSellerWorkspaceMessage(await readApiErrorMessage(response, safeErrorMessage("listing", isAr)));
@@ -3746,7 +3792,7 @@ export function UsdtExchangePage({
       syncListingState(payload.listing ?? null);
       setEditingListingId(null);
       setListingEditOriginal(null);
-      setSellerWorkspaceMessage("✅ Listing updated successfully. Changes are now visible to buyers.");
+      setSellerWorkspaceMessage(isAr ? "✅ تم تحديث العرض بنجاح وأصبحت التغييرات ظاهرة للمشترين." : "✅ Listing updated successfully. Changes are now visible to buyers.");
       navigateAfterSuccess(router, payload.destination);
       backgroundRefreshSellerWorkspace();
     } catch {
@@ -3776,7 +3822,7 @@ export function UsdtExchangePage({
       return false;
     }
     if (file.size > MAX_EVIDENCE_SIZE_BYTES) {
-      const message = "Evidence file is too large. Maximum size is 8MB.";
+      const message = isAr ? "ملف الإثبات كبير جدًا. الحد الأقصى 8 ميجابايت." : "Evidence file is too large. Maximum size is 8MB.";
       if (side === "buyer") setStatusMessage(message);
       else setSellerWorkspaceMessage(message);
       return false;
@@ -3799,17 +3845,17 @@ export function UsdtExchangePage({
       });
       const payload = (await response.json()) as { error?: string };
       if (!response.ok) {
-        const message = payload.error ?? safeErrorMessage("evidence", isAr);
+        const message = isAr ? safeErrorMessage("evidence", true) : (payload.error ?? safeErrorMessage("evidence", false));
         if (side === "buyer") setStatusMessage(message);
         else setSellerWorkspaceMessage(message);
         return false;
       }
       if (side === "buyer") {
         setBuyerEvidenceFiles((prev) => ({ ...prev, [requestId]: null }));
-        setStatusMessage("Buyer evidence uploaded.");
+        setStatusMessage(isAr ? "تم رفع إثبات المشتري." : "Buyer evidence uploaded.");
       } else {
         setSellerEvidenceFiles((prev) => ({ ...prev, [requestId]: null }));
-        setSellerWorkspaceMessage("Seller evidence uploaded.");
+        setSellerWorkspaceMessage(isAr ? "تم رفع إثبات البائع." : "Seller evidence uploaded.");
       }
       await refreshSellerWorkspace();
       return true;
@@ -3841,14 +3887,14 @@ export function UsdtExchangePage({
       });
       const payload = (await response.json()) as { error?: string };
       if (!response.ok) {
-        setSellerWorkspaceMessage(payload.error ?? safeErrorMessage("request", isAr));
+        setSellerWorkspaceMessage(isAr ? safeErrorMessage("request", true) : (payload.error ?? safeErrorMessage("request", false)));
         return;
       }
-      if (nextStatus === "accepted") setSellerWorkspaceMessage("Request accepted and trade created.");
-      else if (nextStatus === "funds_received") setSellerWorkspaceMessage("Funds received confirmed.");
-      else if (nextStatus === "usdt_release_pending") setSellerWorkspaceMessage("USDT release started.");
-      else if (nextStatus === "usdt_sent") setSellerWorkspaceMessage("USDT sent marked.");
-      else setSellerWorkspaceMessage("Request declined.");
+      if (nextStatus === "accepted") setSellerWorkspaceMessage(isAr ? "تم قبول الطلب وإنشاء الصفقة." : "Request accepted and trade created.");
+      else if (nextStatus === "funds_received") setSellerWorkspaceMessage(isAr ? "تم تأكيد استلام الأموال." : "Funds received confirmed.");
+      else if (nextStatus === "usdt_release_pending") setSellerWorkspaceMessage(isAr ? "بدأ إرسال USDT." : "USDT release started.");
+      else if (nextStatus === "usdt_sent") setSellerWorkspaceMessage(isAr ? "تم تحديد USDT كمُرسل." : "USDT sent marked.");
+      else setSellerWorkspaceMessage(isAr ? "تم رفض الطلب." : "Request declined.");
       await refreshSellerWorkspace();
     } finally {
       setRequestActionKey(null);
@@ -3857,15 +3903,15 @@ export function UsdtExchangePage({
 
   async function handleCommissionPayNow() {
     if (!sellerCommissionStatus?.commissionId) {
-      setCommissionPayMessage("No payable commission record was found.");
+      setCommissionPayMessage(isAr ? "لم يتم العثور على سجل عمولة قابل للدفع." : "No payable commission record was found.");
       return;
     }
     if (!(commissionPayableAmountDue > 0)) {
-      setCommissionPayMessage("The exact commission amount is unavailable. Please reopen the payment request.");
+      setCommissionPayMessage(isAr ? "مبلغ العمولة المحدد غير متاح. أعد فتح طلب الدفع." : "The exact commission amount is unavailable. Please reopen the payment request.");
       return;
     }
     if (!commissionTxSignature.trim()) {
-      setCommissionPayMessage("Please paste your transaction hash before confirming.");
+      setCommissionPayMessage(isAr ? "ألصق معرّف المعاملة قبل التأكيد." : "Please paste your transaction hash before confirming.");
       return;
     }
     if (!selectedCommissionWalletAvailable) {
@@ -3886,14 +3932,16 @@ export function UsdtExchangePage({
       });
       const payload = (await response.json()) as { error?: string; verification?: { verified: boolean; notes: string } };
       if (!response.ok) {
-        setCommissionPayMessage(payload.error ?? "Unable to verify commission payment.");
+        setCommissionPayMessage(isAr ? "تعذر التحقق من دفع العمولة." : (payload.error ?? "Unable to verify commission payment."));
         return;
       }
-      setCommissionPayMessage(payload.verification?.verified ? "✅ Commission payment verified. Seller access has been unlocked." : (payload.verification?.notes ?? "Verification failed."));
+      setCommissionPayMessage(payload.verification?.verified
+        ? (isAr ? "✅ تم التحقق من دفع العمولة واستعادة صلاحيات البائع." : "✅ Commission payment verified. Seller access has been unlocked.")
+        : (isAr ? "فشل التحقق من الدفع." : (payload.verification?.notes ?? "Verification failed.")));
       setCommissionTxSignature("");
       await refreshSellerWorkspace();
     } catch {
-      setCommissionPayMessage("Unable to verify commission payment.");
+      setCommissionPayMessage(isAr ? "تعذر التحقق من دفع العمولة." : "Unable to verify commission payment.");
     } finally {
       setCommissionPayBusy(false);
     }
@@ -3907,16 +3955,18 @@ export function UsdtExchangePage({
     });
     const payload = (await response.json()) as { error?: string };
     if (!response.ok) {
-      setStatusMessage(payload.error ?? safeErrorMessage("request", isAr));
+      setStatusMessage(isAr ? safeErrorMessage("request", true) : (payload.error ?? safeErrorMessage("request", false)));
       return;
     }
     const paymentMethod = normalizeMarketplacePaymentMethod(request.paymentMethod) ?? request.paymentMethod;
     setStatusMessage(
       nextStatus === "payment_sent"
-        ? (paymentMethod === "Cardless ATM Withdrawal" ? "Withdrawal marked as ready." : "Payment sent confirmed.")
+        ? (paymentMethod === "Cardless ATM Withdrawal"
+          ? (isAr ? "تم تحديد السحب كجاهز." : "Withdrawal marked as ready.")
+          : (isAr ? "تم تأكيد إرسال الدفعة." : "Payment sent confirmed."))
         : nextStatus === "completed"
-          ? "Trade completed. Review window is open."
-          : "Request cancelled.",
+          ? (isAr ? "اكتملت الصفقة وأصبح التقييم متاحًا." : "Trade completed. Review window is open.")
+          : (isAr ? "تم إلغاء الطلب." : "Request cancelled."),
     );
     await refreshSellerWorkspace();
   }
@@ -5313,7 +5363,7 @@ export function UsdtExchangePage({
                       <p className="font-semibold text-white">{isAr ? "الطلب قيد المراجعة" : "Application Pending Review"}</p>
                       <p className="mt-0.5 text-xs text-[#D1D5DB]">
                         {sellerApplication?.createdAt
-                          ? `${isAr ? "تاريخ التقديم" : "Submitted"}: ${new Date(sellerApplication.createdAt).toLocaleDateString("en-IL")}`
+                          ? `${isAr ? "تاريخ التقديم" : "Submitted"}: ${new Date(sellerApplication.createdAt).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}`
                           : (isAr ? "تم إرسال الطلب" : "Application submitted")}
                       </p>
                     </div>

@@ -35,11 +35,11 @@ export default function VerifyEmailPage() {
         });
         const payload = (await response.json()) as { error?: string; message?: string };
         if (!response.ok) {
-          setErrorMessage(payload.error ?? (isAr ? "فشل التحقق من البريد." : "Email verification failed."));
+          setErrorMessage(isAr ? "فشل التحقق من البريد." : (payload.error ?? "Email verification failed."));
           return;
         }
         setIsVerified(true);
-        setStatusMessage(payload.message ?? (isAr ? "تم التحقق من البريد الإلكتروني بنجاح." : "Email verified successfully."));
+        setStatusMessage(isAr ? "تم التحقق من البريد الإلكتروني بنجاح." : (payload.message ?? "Email verified successfully."));
       } catch {
         setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
       } finally {
@@ -71,10 +71,10 @@ export default function VerifyEmailPage() {
       });
       const payload = (await response.json()) as { error?: string; message?: string };
       if (!response.ok) {
-        setErrorMessage(payload.error ?? (isAr ? "فشل إرسال بريد التحقق." : "Failed to resend verification email."));
+        setErrorMessage(isAr ? "فشل إرسال بريد التحقق." : (payload.error ?? "Failed to resend verification email."));
         return;
       }
-      setStatusMessage(payload.message ?? (isAr ? "إذا كان الحساب موجودًا وغير موثق، تم إرسال رسالة جديدة." : "If the account exists and is unverified, a new verification email has been sent."));
+      setStatusMessage(isAr ? "إذا كان الحساب موجودًا وغير موثق، تم إرسال رسالة جديدة." : (payload.message ?? "If the account exists and is unverified, a new verification email has been sent."));
     } catch {
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
     } finally {

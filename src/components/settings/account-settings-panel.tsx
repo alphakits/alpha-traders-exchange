@@ -308,7 +308,7 @@ export function AccountSettingsPanel({
       });
       const data = await response.json().catch(() => ({})) as { error?: string; bankAccounts?: SellerBankAccount[] };
       if (!response.ok) {
-        setBankAccountsMessage(data.error ?? (isAr ? "تعذر حفظ الحساب البنكي." : "Failed to save bank account."));
+        setBankAccountsMessage(isAr ? "تعذر حفظ الحساب البنكي." : (data.error ?? "Failed to save bank account."));
         return;
       }
       setBankAccounts(Array.isArray(data.bankAccounts) ? data.bankAccounts : []);
@@ -551,7 +551,7 @@ export function AccountSettingsPanel({
   };
 
   async function handleDeleteAccount() {
-    if (deleteConfirm !== "DELETE") return;
+    if (deleteConfirm !== (isAr ? "حذف" : "DELETE")) return;
     const res = await fetch("/api/auth/me", { method: "DELETE" });
     if (res.ok) {
       setDeleteMessage(isAr ? "تم حذف الحساب." : "Account deleted.");
@@ -576,8 +576,7 @@ export function AccountSettingsPanel({
       const data = await response.json() as { authorizationUrl?: string; error?: string };
       if (!response.ok || !data.authorizationUrl) {
         setDiscordMessage(
-          data.error
-          ?? (isAr ? "تعذر بدء ربط Discord." : "Could not start Discord connection."),
+          isAr ? "تعذر بدء ربط Discord." : (data.error ?? "Could not start Discord connection."),
         );
         return;
       }
@@ -609,8 +608,7 @@ export function AccountSettingsPanel({
           ? data.error
           : null;
         setDiscordMessage(
-          error
-          ?? (isAr ? "تعذر فصل Discord." : "Could not disconnect Discord."),
+          isAr ? "تعذر فصل Discord." : (error ?? "Could not disconnect Discord."),
         );
         return;
       }
@@ -1098,18 +1096,18 @@ export function AccountSettingsPanel({
                 ) : (
                   <div className="rounded-xl border border-red-500/30 bg-red-950/20 p-4 space-y-3">
                     <p className="text-sm text-red-300">
-                      {isAr ? 'اكتب "DELETE" للتأكيد:' : 'Type "DELETE" to confirm:'}
+                      {isAr ? 'اكتب "حذف" للتأكيد:' : 'Type "DELETE" to confirm:'}
                     </p>
                     <Input
                       value={deleteConfirm}
                       onChange={(e) => setDeleteConfirm(e.target.value)}
-                      placeholder="DELETE"
+                      placeholder={isAr ? "حذف" : "DELETE"}
                       className="border-red-500/30 bg-red-950/20 text-red-300 placeholder:text-red-500/40"
                     />
                     <div className="flex gap-2">
                       <Button
                         variant="destructive"
-                        disabled={deleteConfirm !== "DELETE"}
+                        disabled={deleteConfirm !== (isAr ? "حذف" : "DELETE")}
                         onClick={() => void handleDeleteAccount()}
                       >
                         {isAr ? "تأكيد الحذف" : "Confirm Delete"}

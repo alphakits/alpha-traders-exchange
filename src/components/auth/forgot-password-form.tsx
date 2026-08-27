@@ -29,7 +29,7 @@ export function ForgotPasswordForm({ locale }: { locale: "ar" | "en" }) {
       });
       const payload = (await response.json()) as { error?: string; message?: string };
       if (!response.ok) {
-        setErrorMessage(payload.error ?? (isAr ? "فشل إرسال رابط إعادة التعيين." : "Failed to send reset link."));
+        setErrorMessage(isAr ? "فشل إرسال رابط إعادة التعيين." : (payload.error ?? "Failed to send reset link."));
         return;
       }
       setStatusMessage(genericSuccessMessage);

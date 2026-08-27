@@ -31,15 +31,25 @@ function sellerTierLabel(level: string, isAr: boolean) {
   return level;
 }
 
-function sellerBadgeLabel(badge: string) {
-  if (badge === "elite_seller") return "Elite Seller";
-  if (badge === "top_rated") return "Top Rated";
-  if (badge === "fast_responder") return "Fast Responder";
-  if (badge === "trusted_seller") return "Trusted Seller";
-  if (badge === "most_active") return "Most Active";
-  if (badge === "platinum_seller") return "Platinum Seller";
-  if (badge === "thousand_trades") return "1000+ Trades";
+function sellerBadgeLabel(badge: string, isAr: boolean) {
+  if (badge === "elite_seller") return isAr ? "بائع من النخبة" : "Elite Seller";
+  if (badge === "top_rated") return isAr ? "الأعلى تقييمًا" : "Top Rated";
+  if (badge === "fast_responder") return isAr ? "سريع الاستجابة" : "Fast Responder";
+  if (badge === "trusted_seller") return isAr ? "بائع موثوق" : "Trusted Seller";
+  if (badge === "most_active") return isAr ? "الأكثر نشاطًا" : "Most Active";
+  if (badge === "platinum_seller") return isAr ? "بائع بلاتيني" : "Platinum Seller";
+  if (badge === "trades_1000_plus" || badge === "thousand_trades") return isAr ? "+1000 صفقة" : "1000+ Trades";
+  if (isAr) return "إنجاز للبائع";
   return badge.replaceAll("_", " ");
+}
+
+function sellerActivityLabel(activity: { type: string; message: string }, isAr: boolean) {
+  if (!isAr) return activity.message;
+  if (activity.type === "trade_completed") return "اكتملت صفقة بنجاح.";
+  if (activity.type === "review_submitted") return "تم استلام تقييم موثّق جديد.";
+  if (activity.type === "trust_score_updated") return "ارتفعت درجة الثقة.";
+  if (activity.type === "achievement_earned") return "تم تفعيل إنجاز جديد.";
+  return "تم تحديث نشاط البائع.";
 }
 
 export default async function PublicUserProfilePage({
@@ -49,6 +59,7 @@ export default async function PublicUserProfilePage({
 }) {
   const { locale, username } = await params;
   const isAr = locale === "ar";
+  const dateLocale = isAr ? "ar-IL" : "en-IL";
   const viewer = await getCurrentSessionUser();
   const data = await getPublicUserProfileRouteData({
     username,
@@ -135,9 +146,9 @@ export default async function PublicUserProfilePage({
                 </div>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-xs text-[#D1D5DB]">
-                <p>{isAr ? "عضو منذ" : "Member since"}: <span className="text-white">{new Date(data.profile.memberSince).toLocaleDateString("en-IL")}</span></p>
+                <p>{isAr ? "عضو منذ" : "Member since"}: <span className="text-white">{new Date(data.profile.memberSince).toLocaleDateString(dateLocale)}</span></p>
                 {data.profile.lastActiveAt ? (
-                  <p className="mt-1">{isAr ? "آخر نشاط" : "Last active"}: <span className="text-white">{new Date(data.profile.lastActiveAt).toLocaleString("en-IL")}</span></p>
+                  <p className="mt-1">{isAr ? "آخر نشاط" : "Last active"}: <span className="text-white">{new Date(data.profile.lastActiveAt).toLocaleString(dateLocale)}</span></p>
                 ) : null}
               </div>
             </div>
@@ -153,7 +164,7 @@ export default async function PublicUserProfilePage({
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "اللغات" : "Languages"}</p>
-                <p className="mt-2 text-sm font-semibold text-white">{data.profile.languages.length ? data.profile.languages.join(", ") : "—"}</p>
+                <p className="mt-2 text-sm font-semibold text-white">{data.profile.languages.length ? data.profile.languages.map((language) => isAr ? ({ English: "الإنجليزية", Arabic: "العربية", Hebrew: "العبرية" } as Record<string, string>)[language] ?? language : language).join(", ") : "—"}</p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "الحالة" : "Status"}</p>
@@ -221,7 +232,7 @@ export default async function PublicUserProfilePage({
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust score"}</p><p className="mt-1 text-lg font-semibold text-white">{sellerIdentity.trustScore.toFixed(1)}/100</p></div>
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "تقييم البائع" : "Seller rating"}</p><p className="mt-1 text-lg font-semibold text-white">{sellerIdentity.averageRating.toFixed(2)} ★</p></div>
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "معدل الإنجاز" : "Completion rate"}</p><p className="mt-1 text-lg font-semibold text-white">{sellerIdentity.completionRate.toFixed(1)}%</p></div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "متوسط الاستجابة" : "Response time"}</p><p className="mt-1 text-lg font-semibold text-white">{Math.max(1, Math.round(sellerIdentity.responseTimeMinutes))} min</p></div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "متوسط الاستجابة" : "Response time"}</p><p className="mt-1 text-lg font-semibold text-white">{Math.max(1, Math.round(sellerIdentity.responseTimeMinutes))} {isAr ? "دقيقة" : "min"}</p></div>
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "الحجم المنجز" : "Completed volume"}</p><p className="mt-1 text-lg font-semibold text-white">{sellerIdentity.publicVolumeRange}</p></div>
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-xs text-[#9CA3AF]">{isAr ? "الصفقات المكتملة" : "Completed trades"}</p><p className="mt-1 text-lg font-semibold text-white">{sellerIdentity.completedTrades.toLocaleString("en-IL")}</p></div>
                 </div>
@@ -232,7 +243,7 @@ export default async function PublicUserProfilePage({
                     {(sellerIdentity.badges ?? []).slice(0, 6).map((badge) => (
                       <span key={badge} className="inline-flex items-center gap-1 rounded-full border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-2.5 py-1 text-[11px] text-[#BFDBFE]">
                         <Star className="h-3.5 w-3.5 text-[#93C5FD]" />
-                        {sellerBadgeLabel(badge)}
+                        {sellerBadgeLabel(badge, isAr)}
                       </span>
                     ))}
                     {!sellerIdentity.badges.length ? (
@@ -259,8 +270,8 @@ export default async function PublicUserProfilePage({
                     <div className="mt-2 space-y-2">
                       {sellerIdentity.recentActivity.slice(0, 4).map((activity) => (
                         <div key={activity.id} className="rounded-lg border border-white/10 bg-black/30 p-2 text-xs text-[#D1D5DB]">
-                          <p className="font-medium text-white">{activity.message}</p>
-                          <p className="mt-1 text-[#9CA3AF]">{new Date(activity.createdAt).toLocaleString("en-IL")}</p>
+                          <p className="font-medium text-white">{sellerActivityLabel(activity, isAr)}</p>
+                          <p className="mt-1 text-[#9CA3AF]">{new Date(activity.createdAt).toLocaleString(dateLocale)}</p>
                         </div>
                       ))}
                       {!sellerIdentity.recentActivity.length ? <p className="text-xs text-[#9CA3AF]">{isAr ? "لا توجد تحديثات نشاط حالياً." : "No recent activity updates yet."}</p> : null}

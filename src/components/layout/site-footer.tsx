@@ -20,7 +20,7 @@ import type { ComponentType } from "react";
 import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
-import { BRAND_DESCRIPTOR, BRAND_NAME, BRAND_PRIMARY_NAME } from "@/lib/brand";
+import { BRAND_DESCRIPTOR, BRAND_DESCRIPTOR_AR, BRAND_NAME, BRAND_PRIMARY_NAME } from "@/lib/brand";
 
 type FooterItem = {
   href: string;
@@ -191,7 +191,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
             <Link href="/" locale={locale} className="inline-flex items-center gap-3">
               <Image
                 src="/images/brand/alpha-traders-logo.webp"
-                alt={`${BRAND_NAME} logo`}
+                alt={isAr ? `شعار ${BRAND_PRIMARY_NAME}` : `${BRAND_NAME} logo`}
                 width={84}
                 height={84}
                 className="rounded-2xl border border-[#C9A227]/45 bg-black/35 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)]"
@@ -201,7 +201,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
                   {BRAND_PRIMARY_NAME}
                 </p>
                 <p className="text-xs text-[#D4AF37]">
-                  {BRAND_DESCRIPTOR}
+                  {isAr ? BRAND_DESCRIPTOR_AR : BRAND_DESCRIPTOR}
                 </p>
               </div>
             </Link>
@@ -245,7 +245,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
             <Link href="/" locale={locale} className="inline-flex items-center gap-3">
               <Image
                 src="/images/brand/alpha-traders-logo.webp"
-                alt={`${BRAND_NAME} logo`}
+                alt={isAr ? `شعار ${BRAND_PRIMARY_NAME}` : `${BRAND_NAME} logo`}
                 width={84}
                 height={84}
                 className="rounded-2xl border border-[#C9A227]/45 bg-black/35 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)]"
@@ -255,7 +255,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
                   {BRAND_PRIMARY_NAME}
                 </p>
                 <p className="text-xs text-[#D4AF37]">
-                  {BRAND_DESCRIPTOR}
+                  {isAr ? BRAND_DESCRIPTOR_AR : BRAND_DESCRIPTOR}
                 </p>
               </div>
             </Link>

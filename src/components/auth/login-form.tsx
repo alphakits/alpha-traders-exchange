@@ -124,8 +124,11 @@ export function LoginForm({
         payload = null;
       }
       if (!response.ok) {
-        setErrorMessage(payload?.error ?? "Login failed.");
-        setRequiresEmailVerification(payload?.requiresEmailVerification === true);
+        const needsVerification = payload?.requiresEmailVerification === true;
+        setRequiresEmailVerification(needsVerification);
+        setErrorMessage(isAr
+          ? (needsVerification ? "يجب تأكيد بريدك الإلكتروني قبل تسجيل الدخول." : "تعذر تسجيل الدخول. تحقق من البريد الإلكتروني وكلمة المرور.")
+          : (payload?.error ?? "Login failed."));
         return;
       }
 
@@ -163,14 +166,13 @@ export function LoginForm({
       });
       const payload = (await response.json()) as { error?: string; message?: string };
       if (!response.ok) {
-        setErrorMessage(payload.error ?? "Failed to resend verification email.");
+        setErrorMessage(isAr ? "فشل إرسال بريد التحقق." : (payload.error ?? "Failed to resend verification email."));
         return;
       }
       setStatusMessage(
-        payload.message ??
-          (isAr
-            ? "إذا كان الحساب موجودًا وغير موثق، تم إرسال رسالة تحقق جديدة."
-            : "If the account exists and is unverified, a new verification email has been sent."),
+        isAr
+          ? "إذا كان الحساب موجودًا وغير موثق، تم إرسال رسالة تحقق جديدة."
+          : (payload.message ?? "If the account exists and is unverified, a new verification email has been sent."),
       );
     } catch {
       setErrorMessage(isAr ? "تعذر الاتصال بالخادم. حاول مرة أخرى." : "Unable to reach the server. Please try again.");
