@@ -21,6 +21,7 @@ import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
 import { BRAND_DESCRIPTOR, BRAND_DESCRIPTOR_AR, BRAND_NAME, BRAND_PRIMARY_NAME } from "@/lib/brand";
+import { FooterMarketOverview } from "@/components/layout/footer-market-overview";
 
 type FooterItem = {
   href: string;
@@ -314,31 +315,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-black/35 p-5 shadow-[0_10px_24px_rgba(0,0,0,0.28)]">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D4AF37]">
-              {isAr ? "نظرة السوق" : "Market Overview"}
-            </p>
-            <div className="mt-4 space-y-2 text-sm text-[#D8DFEA]">
-              <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
-                <span>BTC</span>
-                <span className="font-semibold text-white">$118,000</span>
-                <span className="text-emerald-300">+2.3%</span>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
-                <span>ETH</span>
-                <span className="font-semibold text-white">$4,580</span>
-                <span className="text-emerald-300">+1.2%</span>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
-                <span>USDT / ILS</span>
-                <span className="font-semibold text-white">3.05</span>
-                <span className="inline-flex items-center gap-1 text-emerald-300">
-                  <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                  {isAr ? "مباشر" : "LIVE"}
-                </span>
-              </div>
-            </div>
-          </div>
+          <FooterMarketOverview locale={locale} />
 
           <div className="rounded-2xl border border-white/10 bg-black/35 p-5 shadow-[0_10px_24px_rgba(0,0,0,0.28)]">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#D4AF37]">
