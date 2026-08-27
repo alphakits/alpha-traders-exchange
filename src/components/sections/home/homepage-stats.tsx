@@ -66,7 +66,7 @@ const STATS: StatItem[] = [
     titleEn: "Languages",
     titleAr: "اللغات",
     subtitleEn: "English • עברית • العربية",
-    subtitleAr: "English • עברית • العربية",
+    subtitleAr: "الإنجليزية • العبرية • العربية",
     numericValue: 3,
   },
   {

@@ -15,6 +15,7 @@ import { TrustBar } from "@/components/sections/home/trust-bar";
 import { HomepageStats } from "@/components/sections/home/homepage-stats";
 import { FounderPreview } from "@/components/sections/home/founder-preview";
 import { AlphaMarketCenter } from "@/components/market/alpha-market-center";
+import { formatAcademyLevel } from "@/lib/academy-localization";
 
 export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
   const t = useTranslations("home");
@@ -93,7 +94,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
               <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/20 bg-black/25 px-3 py-1.5 text-[11px] uppercase tracking-[0.2em] text-[#C9A227]">
                 <Image
                   src="/images/brand/alpha-traders-logo.webp"
-                  alt={isRtl ? "شعار Alpha Traders Academy & Exchange" : "Alpha Traders Academy & Exchange logo"}
+                  alt={isRtl ? "شعار Alpha Traders للأكاديمية والسوق" : "Alpha Traders Academy & Exchange logo"}
                   width={40}
                   height={40}
                   style={{ width: 40, height: 40 }}
@@ -235,7 +236,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isRtl ? "مسار المشتري" : "Buyer Journey"}</p>
                 <p className="mt-2 text-xs leading-6 text-[#D1D5DB]">
                   {isRtl
-                    ? "تسجيل دخول ← مقارنة البائعين ← Trust Score + Reviews ← طلب الصفقة ← إكمال الصفقة ← تقييم"
+                    ? "تسجيل دخول ← مقارنة البائعين ← درجة الثقة والتقييمات ← طلب الصفقة ← إكمال الصفقة ← تقييم"
                     : "Register/Login -> Compare sellers -> Trust Score + Reviews -> Submit trade request -> Trade lifecycle -> Leave review"}
                 </p>
               </div>
@@ -243,7 +244,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isRtl ? "مسار البائع" : "Seller Journey"}</p>
                 <p className="mt-2 text-xs leading-6 text-[#D1D5DB]">
                   {isRtl
-                    ? "تسجيل ← طلب اعتماد بائع ← موافقة المالك ← إنشاء عرض ← مراجعة المالك ← استقبال الطلبات ← نمو Trust Score"
+                    ? "تسجيل ← طلب اعتماد بائع ← موافقة المالك ← إنشاء عرض ← مراجعة المالك ← استقبال الطلبات ← نمو درجة الثقة"
                     : "Register -> Seller application -> Owner approval -> Create listing -> Owner review -> Receive requests -> Grow trust score"}
                 </p>
               </div>
@@ -251,7 +252,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isRtl ? "تشغيل المالك" : "Owner Operations"}</p>
                 <p className="mt-2 text-xs leading-6 text-[#D1D5DB]">
                   {isRtl
-                    ? "كل صفقة مكتملة تحدث تلقائيًا: الحجم، العمولة، إحصاءات البائع، Trust Score، والتحليلات."
+                    ? "كل صفقة مكتملة تحدّث تلقائيًا: الحجم، العمولة، إحصاءات البائع، درجة الثقة، والتحليلات."
                     : "Every completed trade automatically updates volume, commission, seller statistics, trust score, and marketplace analytics."}
                 </p>
                 <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-[#C9A227]">
@@ -409,7 +410,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
           ) : latestLessons.map((lesson) => (
             <Card key={lesson.id} className="h-full">
               <CardHeader>
-                <CardDescription>{lesson.durationMinutes} min</CardDescription>
+                <CardDescription>{lesson.durationMinutes} {locale === "ar" ? "دقيقة" : "min"}</CardDescription>
                 <CardTitle>
                   <span className={`inline-flex items-center gap-2 ${isRtl ? "flex-row-reverse" : ""}`}>
                     {getLessonIcon(lesson.slug)}
@@ -482,7 +483,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
         ) : courses.map((course) => (
           <Card key={course.id} className="h-full">
             <CardHeader>
-              <CardDescription>{course.level.toUpperCase()}</CardDescription>
+              <CardDescription>{formatAcademyLevel(course.level, locale === "ar" ? "ar" : "en")}</CardDescription>
               <CardTitle>{locale === "ar" ? course.titleAr : course.title}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">

@@ -58,6 +58,20 @@ function badgeLabel(badge: SellerBadge, isAr: boolean) {
   return formatSellerBadgeLabel(badge, isAr);
 }
 
+function languageLabel(language: string, isAr: boolean) {
+  if (!isAr) return language;
+  return ({ English: "الإنجليزية", Arabic: "العربية", Hebrew: "العبرية" } as Record<string, string>)[language] ?? language;
+}
+
+function paymentMethodLabel(method: string, isAr: boolean) {
+  if (!isAr) return method;
+  return ({
+    "Bank Transfer": "تحويل بنكي",
+    "Cardless Withdrawal": "سحب من الصراف دون بطاقة",
+    "Face-to-Face": "لقاء مباشر وجهًا لوجه",
+  } as Record<string, string>)[method] ?? method;
+}
+
 function StatCard({ label, value, accent = false, isUsdt = false }: { label: string; value: string; accent?: boolean; isUsdt?: boolean }) {
   return (
     <div className={`rounded-2xl border border-white/10 bg-black/20 p-4 ${accent ? "border-[#C9A227]/25 bg-[#C9A227]/10" : ""}`}>
@@ -318,7 +332,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "اللغات" : "Languages"}</p>
-                  <p className="mt-2 font-medium text-white">{seller.languages.join(", ") || "English"}</p>
+                  <p className="mt-2 font-medium text-white">{seller.languages.length ? seller.languages.map((language) => languageLabel(language, isAr)).join(", ") : (isAr ? "العربية" : "English")}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "وقت الرد" : "Response time"}</p>
@@ -362,11 +376,11 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                 <div className={`mt-4 grid gap-3 text-sm ${isAr ? "text-right" : ""}`}>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[#9CA3AF]">{isAr ? "الرتبة الحالية" : "Current rank"}</p>
-                    <p className={`mt-1 font-semibold capitalize text-white ${sellerRankTheme(profile.sellerLevel)}`}>{profile.sellerLevel}</p>
+                    <p className={`mt-1 font-semibold capitalize text-white ${sellerRankTheme(profile.sellerLevel)}`}>{formatSellerLevelLabel(profile.sellerLevel, isAr)}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[#9CA3AF]">{isAr ? "الرتبة التالية" : "Next rank"}</p>
-                    <p className="mt-1 font-semibold text-[#C9A227]">{profile.nextRank ? profile.nextRank : (isAr ? "أعلى مستوى" : "Top tier reached")}</p>
+                    <p className="mt-1 font-semibold text-[#C9A227]">{profile.nextRank ? formatSellerLevelLabel(profile.nextRank, isAr) : (isAr ? "أعلى مستوى" : "Top tier reached")}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[#9CA3AF]">{isAr ? "المتبقي إلى الترقية" : "Remaining volume"}</p>
@@ -383,7 +397,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                 <div className={`mt-4 grid gap-3 text-sm ${isAr ? "text-right" : ""}`}>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[#9CA3AF]">{isAr ? "طرق الدفع" : "Payment methods"}</p>
-                    <p className="mt-1 font-medium text-white">{paymentMethods.length ? paymentMethods.join(", ") : "—"}</p>
+                    <p className="mt-1 font-medium text-white">{paymentMethods.length ? paymentMethods.map((method) => paymentMethodLabel(method, isAr)).join(", ") : "—"}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                     <p className="text-[#9CA3AF]">{isAr ? "الشبكات المدعومة" : "Supported networks"}</p>
@@ -483,7 +497,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                     <span className="rounded-full border border-[#C9A227]/20 bg-[#C9A227]/10 px-3 py-1 text-xs text-[#FDE68A]">{listing.network}</span>
                   </div>
                   <div className={`mt-3 flex flex-wrap items-center gap-2 text-sm text-[#D1D5DB] ${isAr ? "flex-row-reverse" : ""}`}>
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1"><WalletCards className="h-4 w-4 text-[#C9A227]" />{listing.paymentMethod}</span>
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1"><WalletCards className="h-4 w-4 text-[#C9A227]" />{paymentMethodLabel(listing.paymentMethod, isAr)}</span>
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1"><Network className="h-4 w-4 text-[#C9A227]" />{listing.network}</span>
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-[#B91C1C]/20 bg-[#B91C1C]/10 px-2.5 py-1 text-[#FCA5A5]"><ShieldCheck className="h-4 w-4" />{isAr ? "ضمان Alpha Traders" : "Escrow protected by Alpha Traders"}</span>
                   </div>
@@ -519,7 +533,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                 </div>
                 <div className={`mt-3 flex items-center justify-between text-sm ${isAr ? "flex-row-reverse" : ""}`}>
                   <span className="text-[#9CA3AF]">{sellerItem.trustScore.toFixed(1)}/100</span>
-                  <span className="text-[#C9A227] capitalize">{sellerItem.sellerLevel}</span>
+                  <span className="text-[#C9A227] capitalize">{formatSellerLevelLabel(sellerItem.sellerLevel, isAr)}</span>
                 </div>
                 <Link href={`/exchange/seller/${sellerItem.sellerUsername || slugify(sellerItem.sellerName)}`} className="mt-4 inline-flex text-sm text-[#C9A227] hover:underline">{isAr ? "عرض الملف" : "View profile"}</Link>
               </div>

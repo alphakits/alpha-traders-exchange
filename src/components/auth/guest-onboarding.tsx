@@ -336,7 +336,7 @@ export function GuestOnboarding({
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <PremiumCard
-            title={isAr ? "Become a Buyer" : "Become a Buyer"}
+            title={isAr ? "كن مشتريًا" : "Become a Buyer"}
             subtitle={isAr
               ? "تحقق من بريدك الإلكتروني ثم فعّل وصول المشتري إلى السوق."
               : "Verify your email, then activate Buyer access to the marketplace."}
@@ -385,7 +385,7 @@ export function GuestOnboarding({
           </PremiumCard>
 
           <PremiumCard
-            title={isAr ? "Apply for Seller Status" : "Apply for Seller Status"}
+            title={isAr ? "التقدّم للحصول على صفة بائع" : "Apply for Seller Status"}
             subtitle={isAr ? "قدّم كبائع وابدأ بعد الموافقة الرسمية." : "Submit as a seller and start after admin approval."}
             icon={Store}
             accent="blue"
@@ -635,7 +635,7 @@ export function GuestOnboarding({
           </PremiumCard>
 
           <PremiumCard
-            title={isAr ? "Join Alpha Academy" : "Join Alpha Academy"}
+            title={isAr ? "انضم إلى أكاديمية Alpha" : "Join Alpha Academy"}
             subtitle={isAr ? "تعلم عبر فيديوهات وملفات PDF واختبارات تتبع التقدم." : "Learn through videos, PDFs, and progress-based quizzes."}
             icon={GraduationCap}
             accent="green"
@@ -653,7 +653,7 @@ export function GuestOnboarding({
           </PremiumCard>
 
           <PremiumCard
-            title={isAr ? "Continue as Guest" : "Continue as Guest"}
+            title={isAr ? "المتابعة كضيف" : "Continue as Guest"}
             subtitle={isAr ? "استكشف الواجهة الآن وحدد دورك لاحقًا." : "Explore now and choose your role later."}
             icon={UserCircle2}
             accent="slate"

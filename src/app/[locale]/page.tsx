@@ -7,14 +7,17 @@ import { BRAND_NAME } from "@/lib/brand";
 export async function generateMetadata() {
   const locale = await getLocale();
   const t = await getTranslations({ locale, namespace: "home" });
+  const title = locale === "ar"
+    ? `${BRAND_NAME} | تعليم التداول وسوق USDT`
+    : `${BRAND_NAME} | Trading Education & USDT Marketplace`;
   const base = buildPageMetadata({
     locale: locale as "ar" | "en",
-    title: `${BRAND_NAME} | Trading Education & USDT Marketplace`,
+    title,
     description: t("subheadline"),
     path: "",
   });
   // Use absolute title so it doesn't get the root layout template applied twice
-  return { ...base, title: { absolute: `${BRAND_NAME} | Trading Education & USDT Marketplace` } };
+  return { ...base, title: { absolute: title } };
 }
 
 export default async function LocalizedHomePage() {

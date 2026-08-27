@@ -164,7 +164,7 @@ export default async function PublicUserProfilePage({
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "اللغات" : "Languages"}</p>
-                <p className="mt-2 text-sm font-semibold text-white">{data.profile.languages.length ? data.profile.languages.join(", ") : "—"}</p>
+                <p className="mt-2 text-sm font-semibold text-white">{data.profile.languages.length ? data.profile.languages.map((language) => isAr ? ({ English: "الإنجليزية", Arabic: "العربية", Hebrew: "العبرية" } as Record<string, string>)[language] ?? language : language).join(", ") : "—"}</p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "الحالة" : "Status"}</p>

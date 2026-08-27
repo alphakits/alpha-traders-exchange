@@ -87,6 +87,21 @@ describe("Arabic localization integrity", () => {
     }
   });
 
+  it("localizes dynamic public-home and onboarding labels instead of leaking English", () => {
+    const market = readFileSync(join(process.cwd(), "src", "components", "market", "alpha-market-center.tsx"), "utf8");
+    const home = readFileSync(join(process.cwd(), "src", "components", "sections", "home", "home-page.tsx"), "utf8");
+    const onboarding = readFileSync(join(process.cwd(), "src", "components", "auth", "guest-onboarding.tsx"), "utf8");
+    const lessons = readFileSync(join(process.cwd(), "src", "components", "lessons", "lessons-browser.tsx"), "utf8");
+
+    for (const label of ["مباشر", "تم التحديث قبل", "مرجع السوق", "سوق Coinbase الفوري"]) expect(market).toContain(label);
+    expect(home).toContain("درجة الثقة والتقييمات");
+    expect(home).toContain("formatAcademyLevel");
+    expect(onboarding).toContain("كن مشتريًا");
+    expect(onboarding).toContain("التقدّم للحصول على صفة بائع");
+    expect(onboarding).toContain("المتابعة كضيف");
+    expect(lessons).toContain('isAr ? "دقيقة" : "min"');
+  });
+
   it("does not surface English API errors directly in Arabic account and trade flows", () => {
     const sources = [
       "src/components/profile/account-profile-panel.tsx",
