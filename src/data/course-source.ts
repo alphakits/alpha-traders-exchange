@@ -299,7 +299,7 @@ export const lessonNarratives: Record<string, LessonNarrative> = {
       { src: "/images/course-materials/image9.png", title: "Morning Star", titleAr: "نجمة الصباح" },
       { src: "/images/course-materials/image13.png", title: "Three White Soldiers", titleAr: "ثلاثة جنود بيض" },
       { src: "/images/course-materials/image18.png", title: "Doji", titleAr: "دوجي" },
-      { src: "/images/course-materials/image23.png", title: "Falling Three Methods", titleAr: "Falling Three Methods" },
+      { src: "/images/course-materials/image23.png", title: "Falling Three Methods", titleAr: "نموذج الطرق الثلاث الهابطة" },
     ],
   },
   "trendline-precision": {

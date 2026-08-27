@@ -152,7 +152,7 @@ export default async function CommunityPage() {
                     <Music2 className="h-5 w-5 text-[#C9A227]" />
                   </span>
                   <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-[#9CA3AF]">Official Creator</p>
+                    <p className="text-xs uppercase tracking-[0.2em] text-[#9CA3AF]">{isAr ? "صانع المحتوى الرسمي" : "Official Creator"}</p>
                     <p className="text-base font-medium text-white">@Mark_Jozen</p>
                   </div>
                 </div>

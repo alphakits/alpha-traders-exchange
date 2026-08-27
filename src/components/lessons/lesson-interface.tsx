@@ -21,17 +21,28 @@ import {
 } from "@/lib/learning-progress";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { formatLessonDifficulty } from "@/lib/academy-localization";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { VideoPlayer } from "./video-player";
 import dynamic from "next/dynamic";
 
+function PdfViewerLoading() {
+  const isAr = useLocale() === "ar";
+  return <div className="flex h-48 items-center justify-center rounded-xl border border-white/10 bg-black/20 text-sm text-[#9CA3AF]">{isAr ? "جاري تحميل عارض PDF…" : "Loading PDF viewer…"}</div>;
+}
+
+function QuizLoading() {
+  const isAr = useLocale() === "ar";
+  return <div className="flex h-24 items-center justify-center rounded-xl border border-white/10 bg-black/20 text-sm text-[#9CA3AF]">{isAr ? "جاري تحميل الاختبار…" : "Loading quiz…"}</div>;
+}
+
 const PdfViewer = dynamic(() => import("./pdf-viewer").then((m) => ({ default: m.PdfViewer })), {
-  loading: () => <div className="flex h-48 items-center justify-center rounded-xl border border-white/10 bg-black/20 text-sm text-[#9CA3AF]">Loading PDF viewer…</div>,
+  loading: PdfViewerLoading,
   ssr: false,
 });
 const LessonQuiz = dynamic(() => import("./lesson-quiz").then((m) => ({ default: m.LessonQuiz })), {
-  loading: () => <div className="flex h-24 items-center justify-center rounded-xl border border-white/10 bg-black/20 text-sm text-[#9CA3AF]">Loading quiz…</div>,
+  loading: QuizLoading,
   ssr: false,
 });
 
@@ -216,9 +227,9 @@ export function LessonInterface({
                 </p>
               ) : null}
               <div className="flex flex-wrap gap-2 text-xs text-[#D1D5DB]">
-                <span className="rounded-full border border-white/10 px-3 py-1">{lesson.lessonNumber || lesson.order}. {isAr ? "الدرس" : "Lesson"}</span>
+                <span className="rounded-full border border-white/10 px-3 py-1">{isAr ? `الدرس ${lesson.lessonNumber || lesson.order}` : `Lesson ${lesson.lessonNumber || lesson.order}`}</span>
                 <span className="rounded-full border border-white/10 px-3 py-1">{lessonDuration} {isAr ? "دقيقة" : "minutes"}</span>
-                <span className="rounded-full border border-white/10 px-3 py-1">{lesson.difficulty || "medium"}</span>
+                <span className="rounded-full border border-white/10 px-3 py-1">{formatLessonDifficulty(lesson.difficulty, isAr ? "ar" : "en")}</span>
                 {lesson.instructor ? <span className="rounded-full border border-white/10 px-3 py-1">{lesson.instructor}</span> : null}
               </div>
               <div className="space-y-2">
@@ -570,7 +581,7 @@ export function LessonInterface({
                 aria-label={isAr ? "ملاحظات الدرس" : "Lesson notes"}
               />
               <p className="text-xs text-[#9CA3AF]">
-                {notesSyncState === "saving" ? (isAr ? "جاري الحفظ..." : "Saving...") : notesSyncState === "saved" ? "✓ Saved" : " "}
+                {notesSyncState === "saving" ? (isAr ? "جاري الحفظ..." : "Saving...") : notesSyncState === "saved" ? (isAr ? "✓ تم الحفظ" : "✓ Saved") : " "}
               </p>
             </CardContent>
           </Card>

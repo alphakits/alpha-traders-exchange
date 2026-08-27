@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { AppLocale } from "@/i18n/routing";
 
-export function OfflineBanner() {
+export function OfflineBanner({ locale }: { locale: AppLocale }) {
   const [offline, setOffline] = useState(false);
 
   useEffect(() => {
@@ -20,7 +21,7 @@ export function OfflineBanner() {
 
   return (
     <div className="fixed top-0 left-0 right-0 z-[70] bg-black/90 px-4 py-2 text-center text-xs text-[#E5E7EB]">
-      You’re offline. Reconnect to continue trading.
+      {locale === "ar" ? "أنت غير متصل بالإنترنت. أعد الاتصال للمتابعة." : "You’re offline. Reconnect to continue trading."}
     </div>
   );
 }

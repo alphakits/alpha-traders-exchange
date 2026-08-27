@@ -7,7 +7,7 @@ import { hasRole } from "@/lib/roles";
 import { HeaderNav } from "@/components/layout/header-nav";
 import { HeaderAuthArea } from "@/components/layout/header-auth-area";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
-import { BRAND_NAME } from "@/lib/brand";
+import { BRAND_DESCRIPTOR, BRAND_NAME, BRAND_PRIMARY_NAME } from "@/lib/brand";
 
 export async function SiteHeader({
   locale,
@@ -42,21 +42,20 @@ export async function SiteHeader({
 
   return (
     <header className="sticky top-0 z-40 border-b border-white/10 bg-gradient-to-b from-[#070707]/95 to-[#050505]/85 shadow-[0_14px_40px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-      <div className="section-container relative flex h-16 items-center justify-between gap-3">
+      <div className="section-container relative flex h-16 items-center justify-between gap-1.5 sm:gap-3">
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-[#C9A227]/45 to-transparent" />
-        <Link href="/" locale={locale} className="inline-flex min-w-0 items-center gap-2 text-lg font-semibold tracking-wide text-white sm:gap-3">
+        <Link href="/" locale={locale} className="inline-flex shrink-0 items-center gap-1.5 text-lg font-semibold tracking-wide text-white min-[390px]:gap-2 sm:gap-3">
           <Image
             src="/images/brand/alpha-traders-logo.webp"
             alt={`${BRAND_NAME} logo`}
             width={48}
             height={48}
             priority
-            style={{ width: 48, height: 48 }}
-            className="rounded-xl border border-[#C9A227]/45 bg-black/35 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)]"
+            className="h-10 w-10 rounded-xl border border-[#C9A227]/45 bg-black/35 object-cover shadow-[0_4px_16px_rgba(0,0,0,0.45)] min-[390px]:h-11 min-[390px]:w-11 sm:h-12 sm:w-12"
           />
-          <span className="hidden min-w-0 flex-col min-[360px]:flex">
-            <span className="gold-gradient truncate bg-clip-text pb-px text-[1.02rem] leading-[1.15] text-transparent">{brand}</span>
-            <span className="truncate text-[0.55rem] font-semibold uppercase leading-tight tracking-[0.16em] text-[#D4AF37]">Academy &amp; Exchange</span>
+          <span className="hidden shrink-0 flex-col min-[360px]:flex" aria-label={brand}>
+            <span className="gold-gradient whitespace-nowrap bg-clip-text pb-px text-[0.78rem] leading-[1.15] text-transparent min-[390px]:text-[0.86rem] sm:text-[1.02rem]">{BRAND_PRIMARY_NAME}</span>
+            <span className="whitespace-nowrap text-[0.42rem] font-semibold uppercase leading-tight tracking-[0.09em] text-[#D4AF37] min-[390px]:text-[0.48rem] sm:text-[0.55rem] sm:tracking-[0.16em]">{BRAND_DESCRIPTOR}</span>
           </span>
         </Link>
         <HeaderNav items={nav} locale={locale} />

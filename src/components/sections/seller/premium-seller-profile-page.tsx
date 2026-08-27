@@ -11,22 +11,22 @@ import { deriveSellerPresence } from "@/lib/seller-presence";
 import { cn } from "@/lib/utils";
 import type { PremiumSellerProfileData, SellerBadge, SellerLevel } from "@/types/alpha-exchange";
 
-function formatSellerLevelLabel(level?: SellerLevel) {
-  if (level === "elite") return "Alpha Elite Seller";
-  if (level === "diamond") return "Alpha Diamond Seller";
-  if (level === "gold") return "Alpha Gold Seller";
-  if (level === "silver") return "Alpha Silver Seller";
-  return "Alpha Bronze Seller";
+function formatSellerLevelLabel(level: SellerLevel | undefined, isAr: boolean) {
+  if (level === "elite") return isAr ? "بائع ألفا النخبة" : "Alpha Elite Seller";
+  if (level === "diamond") return isAr ? "بائع ألفا الماسي" : "Alpha Diamond Seller";
+  if (level === "gold") return isAr ? "بائع ألفا الذهبي" : "Alpha Gold Seller";
+  if (level === "silver") return isAr ? "بائع ألفا الفضي" : "Alpha Silver Seller";
+  return isAr ? "بائع ألفا البرونزي" : "Alpha Bronze Seller";
 }
 
-function formatSellerBadgeLabel(badge: string) {
-  if (badge === "elite_seller") return "Elite Seller";
-  if (badge === "top_rated") return "Top Rated";
-  if (badge === "fast_responder") return "Fast Responder";
-  if (badge === "trusted_seller") return "Trusted Seller";
-  if (badge === "most_active") return "Most Active";
-  if (badge === "platinum_seller") return "Platinum Seller";
-  return "1000+ Trades";
+function formatSellerBadgeLabel(badge: string, isAr: boolean) {
+  if (badge === "elite_seller") return isAr ? "بائع نخبة" : "Elite Seller";
+  if (badge === "top_rated") return isAr ? "الأعلى تقييماً" : "Top Rated";
+  if (badge === "fast_responder") return isAr ? "سريع الرد" : "Fast Responder";
+  if (badge === "trusted_seller") return isAr ? "بائع موثوق" : "Trusted Seller";
+  if (badge === "most_active") return isAr ? "الأكثر نشاطاً" : "Most Active";
+  if (badge === "platinum_seller") return isAr ? "بائع بلاتيني" : "Platinum Seller";
+  return isAr ? "+1000 صفقة" : "1000+ Trades";
 }
 
 function sellerRankTheme(level?: SellerLevel) {
@@ -45,17 +45,17 @@ function sellerLevelToneKey(level?: SellerLevel) {
   return "bronze";
 }
 
-function heroRankLabel(level?: SellerLevel, isOwner = false) {
-  if (isOwner) return "OWNER";
-  if (level === "elite") return "ELITE SELLER";
-  if (level === "diamond") return "DIAMOND SELLER";
-  if (level === "gold") return "GOLD SELLER";
-  if (level === "silver") return "SILVER SELLER";
-  return "BRONZE SELLER";
+function heroRankLabel(level: SellerLevel | undefined, isOwner = false, isAr = false) {
+  if (isOwner) return isAr ? "المالك" : "OWNER";
+  if (level === "elite") return isAr ? "بائع نخبة" : "ELITE SELLER";
+  if (level === "diamond") return isAr ? "بائع ماسي" : "DIAMOND SELLER";
+  if (level === "gold") return isAr ? "بائع ذهبي" : "GOLD SELLER";
+  if (level === "silver") return isAr ? "بائع فضي" : "SILVER SELLER";
+  return isAr ? "بائع برونزي" : "BRONZE SELLER";
 }
 
-function badgeLabel(badge: SellerBadge) {
-  return formatSellerBadgeLabel(badge);
+function badgeLabel(badge: SellerBadge, isAr: boolean) {
+  return formatSellerBadgeLabel(badge, isAr);
 }
 
 function StatCard({ label, value, accent = false, isUsdt = false }: { label: string; value: string; accent?: boolean; isUsdt?: boolean }) {
@@ -122,9 +122,9 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
   const sellerRankKey = isOwnerSeller ? "legendary" : sellerLevelToneKey(profile.sellerLevel);
   const presence = deriveSellerPresence({ onlineStatus: seller.onlineStatus, lastActiveAt: seller.lastActiveAt });
   const heroBadgeItems = [
-    seller.isFeaturedSeller ? "Featured Seller" : null,
-    seller.isFoundingSeller ? "Founding Seller" : null,
-    ...profile.badges.slice(0, 2).map((badge) => badgeLabel(badge)),
+    seller.isFeaturedSeller ? (isAr ? "بائع مميز" : "Featured Seller") : null,
+    seller.isFoundingSeller ? (isAr ? "بائع مؤسس" : "Founding Seller") : null,
+    ...profile.badges.slice(0, 2).map((badge) => badgeLabel(badge, isAr)),
   ].filter(Boolean) as string[];
   const heroStats = [
     {
@@ -144,7 +144,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
     },
     {
       label: isAr ? "الاستجابة" : "Response Time",
-      value: `${profile.responseTimeMinutes.toFixed(0)} min`,
+      value: `${profile.responseTimeMinutes.toFixed(0)} ${isAr ? "دقيقة" : "min"}`,
       icon: <Zap className="h-3.5 w-3.5" />,
     },
   ];
@@ -159,7 +159,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
     { label: isAr ? "التقييم المتوسط" : "Average rating", value: `${reviewStats.averageRating.toFixed(2)}★` },
     { label: isAr ? "المشترون المتكرّرون" : "Repeat buyers", value: `${profile.repeatBuyersPercent.toFixed(1)}%` },
     { label: isAr ? "معدل الإكمال" : "Completion rate", value: `${profile.completionRate.toFixed(1)}%` },
-    { label: isAr ? "متوسط سرعة الرد" : "Avg response", value: `${profile.responseTimeMinutes.toFixed(0)} min` },
+    { label: isAr ? "متوسط سرعة الرد" : "Avg response", value: `${profile.responseTimeMinutes.toFixed(0)} ${isAr ? "دقيقة" : "min"}` },
     { label: isAr ? "العروض النشطة" : "Active listings", value: data.sellerListings.length.toString(), isUsdt: true },
     { label: isAr ? "سنوات على المنصة" : "Years on platform", value: `${profile.yearsOnPlatform.toFixed(1)}` },
   ];
@@ -178,8 +178,8 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
           {isOwnerSeller ? (
             <div className="flex items-center gap-2 rounded-t-xl border-b border-red-500/20 bg-gradient-to-r from-red-950/60 via-red-900/30 to-transparent px-4 py-2">
               <Sparkles className="h-3.5 w-3.5 text-red-300" />
-              <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-red-300">Official Alpha Exchange Profile</span>
-              <span className="ml-auto text-[11px] text-red-400/70">Verified owner identity</span>
+              <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-red-300">{isAr ? "الملف الرسمي لمالك Alpha Exchange" : "Official Alpha Exchange Profile"}</span>
+              <span className="ms-auto text-[11px] text-red-400/70">{isAr ? "هوية المالك موثّقة" : "Verified owner identity"}</span>
             </div>
           ) : null}
           <div
@@ -223,15 +223,15 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                       </div>
                       <p className="seller-listing-seller-subtitle mt-2 text-[12px] uppercase tracking-[0.16em] text-[#9CA3AF]">
                         <span className={cn("seller-listing-rank-label", `seller-listing-rank-label--${sellerRankKey}`)}>
-                          {heroRankLabel(profile.sellerLevel, isOwnerSeller)}
+                          {heroRankLabel(profile.sellerLevel, isOwnerSeller, isAr)}
                         </span>
                         <span className="seller-listing-status-separator"> • </span>
-                        <span className="text-[#D1D5DB]">{seller.onlineStatus === "online" ? "ONLINE" : "OFFLINE"}</span>
+                        <span className="text-[#D1D5DB]">{seller.onlineStatus === "online" ? (isAr ? "متصل" : "ONLINE") : (isAr ? "غير متصل" : "OFFLINE")}</span>
                       </p>
                       <div className={cn("mt-3 flex flex-wrap gap-2", isAr ? "justify-end" : "")}>
-                        {isOwnerSeller ? <RoleBadge variant="owner" /> : null}
-                        <RoleBadge variant="approved_seller" className={cn("seller-rank-badge", `seller-rank-badge--${sellerRankKey}`)} />
-                        <span className={cn("seller-rank-pill", `seller-rank-pill--${sellerRankKey}`)}>{formatSellerLevelLabel(profile.sellerLevel)}</span>
+                        {isOwnerSeller ? <RoleBadge variant="owner" locale={locale} /> : null}
+                        <RoleBadge variant="approved_seller" locale={locale} className={cn("seller-rank-badge", `seller-rank-badge--${sellerRankKey}`)} />
+                        <span className={cn("seller-rank-pill", `seller-rank-pill--${sellerRankKey}`)}>{formatSellerLevelLabel(profile.sellerLevel, isAr)}</span>
                         <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 text-xs text-[#E5E7EB]">{isAr ? "بائع موثّق" : "Verified Seller"}</span>
                         {seller.isEmailVerified ? <span className="rounded-full border border-sky-400/30 bg-sky-500/10 px-3 py-1 text-xs text-sky-200">{isAr ? "بريد إلكتروني موثّق" : "Verified Email"}</span> : null}
                         {heroBadgeItems.map((badge) => (
@@ -245,7 +245,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                     <div className={cn("rounded-2xl border bg-black/35 px-4 py-3 text-sm backdrop-blur-md", isOwnerSeller ? "border-red-500/25" : `seller-rank-card seller-rank-card--${sellerRankKey}`)}>
                       <p className="text-[#9CA3AF]">{isAr ? "درجة الثقة" : "Trust Score"}</p>
                       <p className={cn("mt-1 text-2xl font-semibold", isOwnerSeller ? "text-red-200" : `seller-listing-rank-label seller-listing-rank-label--${sellerRankKey}`)}>{profile.trustScore.toFixed(1)}/100</p>
-                      <p className="mt-1 text-[#D1D5DB]">{isAr ? "المستوى" : "Level"}: {formatSellerLevelLabel(profile.sellerLevel)}</p>
+                      <p className="mt-1 text-[#D1D5DB]">{isAr ? "المستوى" : "Level"}: {formatSellerLevelLabel(profile.sellerLevel, isAr)}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <span className={cn("seller-listing-availability", `seller-listing-availability--${sellerRankKey}`)}>{availabilityLabel}</span>
@@ -322,7 +322,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "وقت الرد" : "Response time"}</p>
-                  <p className="mt-2 font-medium text-white">{profile.responseTimeMinutes.toFixed(0)} min</p>
+                  <p className="mt-2 font-medium text-white">{profile.responseTimeMinutes.toFixed(0)} {isAr ? "دقيقة" : "min"}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#9CA3AF]">{isAr ? "التوفر" : "Availability"}</p>
@@ -420,7 +420,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2">
               {profile.badges.length ? profile.badges.map((badge) => (
-                <span key={badge} className="rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 px-3 py-2 text-sm text-[#FDE68A]">{badgeLabel(badge)}</span>
+                <span key={badge} className="rounded-full border border-[#C9A227]/25 bg-[#C9A227]/10 px-3 py-2 text-sm text-[#FDE68A]">{badgeLabel(badge, isAr)}</span>
               )) : <p className="text-sm text-[#9CA3AF]">{isAr ? "لا توجد شارات بعد." : "No badges yet."}</p>}
             </CardContent>
           </Card>

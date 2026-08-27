@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import type { AppLocale } from "@/i18n/routing";
 
 const DISMISS_KEY = "alpha.pwa.install.dismissed";
 
@@ -10,7 +11,8 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
 };
 
-export function PwaInstallPrompt() {
+export function PwaInstallPrompt({ locale }: { locale: AppLocale }) {
+  const isAr = locale === "ar";
   const [promptEvent, setPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
   const [visible, setVisible] = useState(false);
 
@@ -52,12 +54,12 @@ export function PwaInstallPrompt() {
   if (!visible) return null;
 
   return (
-    <div className="fixed bottom-4 left-4 z-[60] max-w-sm rounded-2xl border border-white/15 bg-[#0B0B0B]/95 p-4 text-sm text-[#E5E7EB] shadow-2xl">
-      <p className="font-semibold text-white">Install Alpha Traders</p>
-      <p className="mt-1 text-xs text-[#C9A227]">Open it like a native app from your home screen.</p>
+    <div className="fixed bottom-4 start-4 z-[60] max-w-sm rounded-2xl border border-white/15 bg-[#0B0B0B]/95 p-4 text-sm text-[#E5E7EB] shadow-2xl" dir={isAr ? "rtl" : "ltr"}>
+      <p className="font-semibold text-white">{isAr ? "ثبّت Alpha Traders" : "Install Alpha Traders"}</p>
+      <p className="mt-1 text-xs text-[#C9A227]">{isAr ? "افتح المنصة كتطبيق مباشرة من شاشتك الرئيسية." : "Open it like a native app from your home screen."}</p>
       <div className="mt-3 flex gap-2">
-        <Button type="button" size="sm" onClick={() => void install()}>Install</Button>
-        <Button type="button" size="sm" variant="secondary" onClick={dismiss}>Later</Button>
+        <Button type="button" size="sm" onClick={() => void install()}>{isAr ? "تثبيت" : "Install"}</Button>
+        <Button type="button" size="sm" variant="secondary" onClick={dismiss}>{isAr ? "لاحقاً" : "Later"}</Button>
       </div>
     </div>
   );

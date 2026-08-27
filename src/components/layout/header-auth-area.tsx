@@ -55,7 +55,7 @@ export function HeaderAuthArea({
   const adminDashboardAccess = useMemo(() => canAccessAdminDashboard(sessionUser), [sessionUser]);
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex min-w-0 items-center gap-1 sm:gap-2">
       <LocaleSwitcher />
       {sessionUser ? (
         <div className="hidden items-center gap-2 rounded-full border border-white/15 bg-white/[0.03] px-3 py-1 text-xs text-[#D1D5DB] sm:inline-flex">

@@ -18,6 +18,7 @@ import { getExplicitNonTradeRoomNotificationDestination } from "@/lib/notificati
 import { isNotificationActionRequired } from "@/lib/notification-action-required";
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
+import { localizeNotificationActionLabel, localizeNotificationCopy } from "@/lib/notification-localization";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -83,12 +84,12 @@ function extractRequestIdFromTradeRoomHref(href: string | null | undefined) {
   }
 }
 
-function formatNotificationTitle(notification: AlphaExchangeNotification) {
-  return replaceExchangeEntityIdsWithHints(notification.title, notification);
+function formatNotificationTitle(notification: AlphaExchangeNotification, locale: AppLocale) {
+  return replaceExchangeEntityIdsWithHints(localizeNotificationCopy(notification, locale).title, notification);
 }
 
-function formatNotificationMessage(notification: AlphaExchangeNotification) {
-  return replaceExchangeEntityIdsWithHints(notification.message, notification);
+function formatNotificationMessage(notification: AlphaExchangeNotification, locale: AppLocale) {
+  return replaceExchangeEntityIdsWithHints(localizeNotificationCopy(notification, locale).message, notification);
 }
 
 function buildTradeRoomHashForAction(action: string) {
@@ -148,6 +149,7 @@ function buildTradeDestinationFromNotification(notification: AlphaExchangeNotifi
 }
 
 export function NotificationBell({ locale }: { locale: AppLocale }) {
+  const isAr = locale === "ar";
   const canonicalSession = useOptionalCanonicalSession();
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -214,7 +216,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
       const response = await fetch(`/api/alpha-exchange/notifications?limit=${limit}&includeActivity=0`, { cache: "no-store" });
       if (!response.ok) {
         if (response.status === 401) void canonicalSession?.refresh({ force: true });
-        throw new Error("Failed to load notifications.");
+        throw new Error(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
       }
       const payload = (await response.json()) as NotificationsPayload;
       const keepVisibleList = isOpenRef.current && notificationsCountRef.current > 0;
@@ -225,13 +227,13 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
       setLastLoadedAt(Date.now());
       appendLoginJourneyStep("Notifications loading (header bell)", startedAt, Date.now(), { limit, status: response.status });
     } catch {
-      setError("Failed to load notifications.");
+      setError(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
     } finally {
       if (!shouldPreserveList) {
         setIsLoading(false);
       }
     }
-  }, [canLoadNotifications, canonicalSession]);
+  }, [canLoadNotifications, canonicalSession, isAr]);
 
   useEffect(() => {
     if (!canLoadNotifications) return;
@@ -377,12 +379,18 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   }
 
   function resolveNotificationActionLabel(notification: AlphaExchangeNotification) {
-    if (getCommissionPaymentNotificationDestination(notification)) return "Pay Commission";
-    if (isTradeNotification(notification)) return "Continue Trade";
-    if (notification.actionLabel?.trim()) return notification.actionLabel.trim();
-    if (notification.category === "application") return "Review Application";
-    if (notification.category === "listing") return "Manage Listing";
-    return "View Details";
+    const label = getCommissionPaymentNotificationDestination(notification)
+      ? "Pay Commission"
+      : isTradeNotification(notification)
+        ? "Continue Trade"
+        : notification.actionLabel?.trim()
+          ? notification.actionLabel.trim()
+          : notification.category === "application"
+            ? "Review Application"
+            : notification.category === "listing"
+              ? "Manage Listing"
+              : "View Details";
+    return localizeNotificationActionLabel(label, locale, notification);
   }
 
   function resolveTradeRoomHref(notification: AlphaExchangeNotification) {
@@ -404,7 +412,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
         type="button"
         onClick={() => void handleToggleOpen()}
         className="relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/[0.02] text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227] md:h-9 md:w-9"
-        aria-label="Notifications"
+        aria-label={isAr ? "الإشعارات" : "Notifications"}
       >
         <Bell className="h-4 w-4" />
         {hasUnread ? (
@@ -426,22 +434,22 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
           <div className="inline-flex items-center gap-2 text-sm font-semibold text-white">
             <BellDot className="h-4 w-4 text-[#C9A227]" />
-            Notifications
+            {isAr ? "الإشعارات" : "Notifications"}
             {hasUnread ? (
               <span className="badge-chip border-[#C9A227]/35 bg-[#C9A227]/10 font-normal text-[#C9A227]">
-                {unreadCount} unread
+                {unreadCount} {isAr ? "غير مقروء" : "unread"}
               </span>
             ) : null}
             {hasActionRequired ? (
               <span className="badge-chip border-amber-400/40 bg-amber-400/10 font-normal text-amber-200">
-                {actionRequiredCount} need action
+                {actionRequiredCount} {isAr ? "تحتاج إلى إجراء" : "need action"}
               </span>
             ) : null}
           </div>
           <button
             type="button"
             onClick={() => setIsOpen(false)}
-            aria-label="Close notifications"
+            aria-label={isAr ? "إغلاق الإشعارات" : "Close notifications"}
             className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/15 text-[#9CA3AF] transition hover:border-white/30 hover:text-white"
           >
             <XCircle className="h-4 w-4" />
@@ -449,9 +457,9 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
         </div>
 
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-3 [touch-action:pan-y]">
-          {isLoading ? <p className="empty-state-panel p-3 text-xs">Loading...</p> : null}
+          {isLoading ? <p className="empty-state-panel p-3 text-xs">{isAr ? "جاري التحميل..." : "Loading..."}</p> : null}
           {error ? <p className="rounded-xl border border-red-400/20 bg-red-500/10 p-3 text-xs text-red-200">{error}</p> : null}
-          {renderedNotifications.length === 0 ? <p className="empty-state-panel p-3 text-xs">No notifications yet.</p> : null}
+          {renderedNotifications.length === 0 ? <p className="empty-state-panel p-3 text-xs">{isAr ? "لا توجد إشعارات حتى الآن." : "No notifications yet."}</p> : null}
           {renderedNotifications.map((notification) => {
                 const Icon = notificationIcon(notification);
                 const destination = isTradeNotification(notification) ? resolveNotificationDestination(notification) : null;
@@ -472,22 +480,22 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[#C9A227]" />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="truncate text-sm font-medium text-white">{formatNotificationTitle(notification)}</p>
+                          <p className="truncate text-sm font-medium text-white">{formatNotificationTitle(notification, locale)}</p>
                           <span className="shrink-0 text-[11px] text-[#9CA3AF]">{formatNotificationRelativeTime(notification.createdAt, locale)}</span>
                         </div>
-                        <p className="mt-1 line-clamp-2">{formatNotificationMessage(notification)}</p>
+                        <p className="mt-1 line-clamp-2">{formatNotificationMessage(notification, locale)}</p>
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                          {!notification.isRead ? <span className="inline-flex items-center rounded-full bg-[#C9A227]/20 px-2 py-0.5 text-[10px] text-[#C9A227]">Unread</span> : null}
-                          {actionRequired ? <span className="inline-flex items-center rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200">Action required</span> : null}
+                          {!notification.isRead ? <span className="inline-flex items-center rounded-full bg-[#C9A227]/20 px-2 py-0.5 text-[10px] text-[#C9A227]">{isAr ? "غير مقروء" : "Unread"}</span> : null}
+                          {actionRequired ? <span className="inline-flex items-center rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200">{isAr ? "مطلوب إجراء" : "Action required"}</span> : null}
                           {isTradeNotification(notification) && (notification.relatedTradeId || notification.relatedTradeDisplayNumber || notification.relatedRequestId || notification.relatedRequestDisplayNumber)
-                            ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Trade {formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId)}</span>
+                            ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">{isAr ? "صفقة" : "Trade"} {formatTradeId(notification.relatedTradeDisplayNumber ?? notification.relatedRequestDisplayNumber, notification.relatedTradeId ?? notification.relatedRequestId)}</span>
                             : null}
                           {notification.relatedListingId || notification.relatedListingDisplayNumber
-                            ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">Listing {formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}</span>
+                            ? <span className="inline-flex items-center rounded-full border border-white/15 px-2 py-0.5 text-[10px]">{isAr ? "عرض" : "Listing"} {formatListingId(notification.relatedListingDisplayNumber, notification.relatedListingId)}</span>
                             : null}
                           {notification.relatedSellerName ? (
                             <span className="inline-flex max-w-full items-center rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-2 py-0.5 text-[10px] text-[#FDE68A]">
-                              <span className="truncate">Seller: {notification.relatedSellerName}{notification.relatedSellerUsername ? ` • @${notification.relatedSellerUsername}` : ""}</span>
+                              <span className="truncate">{isAr ? "البائع" : "Seller"}: {notification.relatedSellerName}{notification.relatedSellerUsername ? ` • @${notification.relatedSellerUsername}` : ""}</span>
                             </span>
                           ) : null}
                         </div>
@@ -534,7 +542,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                                 disabled={Boolean(actionLoading[`${notification.id}:approve`])}
                                 onClick={() => void handleSellerApplicationDecision(notification, "approve")}
                               >
-                                Approve
+                                {isAr ? "موافقة" : "Approve"}
                               </Button>
                               <Button
                                 type="button"
@@ -544,7 +552,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                                 disabled={Boolean(actionLoading[`${notification.id}:reject`])}
                                 onClick={() => void handleSellerApplicationDecision(notification, "reject")}
                               >
-                                Reject
+                                {isAr ? "رفض" : "Reject"}
                               </Button>
                               <Button
                                 type="button"
@@ -558,14 +566,14 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                                   setIsOpen(false);
                                 }}
                               >
-                                Later
+                                {isAr ? "لاحقاً" : "Later"}
                               </Button>
                             </>
                           ) : (
                             <>
                               {!notification.isRead ? (
                                 <Button type="button" size="sm" variant="secondary" className="h-7 px-2.5 text-[11px]" onClick={() => void handleMarkOneRead(notification.id)}>
-                                  Mark read
+                                  {isAr ? "تحديد كمقروء" : "Mark read"}
                                 </Button>
                               ) : null}
                             </>
@@ -580,11 +588,11 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
 
         <div className="flex items-center justify-between border-t border-white/10 px-3 py-2">
           <Button type="button" size="sm" variant="secondary" onClick={() => void handleMarkAllRead()} className="h-8 px-3 text-xs">
-            Mark all as read
+            {isAr ? "تحديد الكل كمقروء" : "Mark all as read"}
           </Button>
           <Link href="/notifications" locale={locale} className="inline-flex h-8 items-center gap-1 rounded-full border border-white/20 px-3 text-xs text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227]">
             <CircleDot className="h-3 w-3" />
-            View all notifications
+            {isAr ? "عرض كل الإشعارات" : "View all notifications"}
           </Link>
         </div>
       </div>

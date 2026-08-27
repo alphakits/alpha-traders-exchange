@@ -9,12 +9,14 @@ export function FieldLabel({
   htmlFor,
   required = false,
   optional = false,
+  optionalLabel = "optional",
   className,
   children,
 }: {
   htmlFor?: string;
   required?: boolean;
   optional?: boolean;
+  optionalLabel?: string;
   className?: string;
   children: React.ReactNode;
 }) {
@@ -28,7 +30,7 @@ export function FieldLabel({
         <span className="text-sm font-bold leading-none text-[#F04438]" aria-hidden="true">*</span>
       ) : null}
       {optional ? (
-        <span className="font-normal normal-case tracking-normal text-[11px] text-[#6B7280]">(optional)</span>
+        <span className="font-normal normal-case tracking-normal text-[11px] text-[#6B7280]">({optionalLabel})</span>
       ) : null}
     </label>
   );

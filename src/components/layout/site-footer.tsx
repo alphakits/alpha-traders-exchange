@@ -17,11 +17,10 @@ import {
   UserCircle2,
 } from "lucide-react";
 import type { ComponentType } from "react";
-import { getTranslations } from "next-intl/server";
 import type { AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
-import { BRAND_NAME } from "@/lib/brand";
+import { BRAND_DESCRIPTOR, BRAND_NAME, BRAND_PRIMARY_NAME } from "@/lib/brand";
 
 type FooterItem = {
   href: string;
@@ -164,8 +163,6 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
   const whatsappUrl = getOfficialOwnerWhatsAppUrl();
   const isAr = locale === "ar";
   const year = new Date().getFullYear();
-  const brand = (await getTranslations({ locale }))("brand");
-
   return (
     <footer className="relative overflow-hidden border-t border-[#C9A227]/25 bg-[#020202]">
       <div className="pointer-events-none absolute inset-0">
@@ -201,10 +198,10 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
               />
               <div>
                 <p className="gold-gradient inline-block bg-clip-text pb-px text-[1.02rem] font-semibold leading-[1.15] tracking-wide text-transparent">
-                  {brand}
+                  {BRAND_PRIMARY_NAME}
                 </p>
                 <p className="text-xs text-[#D4AF37]">
-                  Academy &amp; Exchange
+                  {BRAND_DESCRIPTOR}
                 </p>
               </div>
             </Link>
@@ -255,10 +252,10 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
               />
               <div>
                 <p className="gold-gradient inline-block bg-clip-text pb-px text-[1.02rem] font-semibold leading-[1.15] tracking-wide text-transparent">
-                  {brand}
+                  {BRAND_PRIMARY_NAME}
                 </p>
                 <p className="text-xs text-[#D4AF37]">
-                  Academy &amp; Exchange
+                  {BRAND_DESCRIPTOR}
                 </p>
               </div>
             </Link>
@@ -337,7 +334,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
                 <span className="font-semibold text-white">3.05</span>
                 <span className="inline-flex items-center gap-1 text-emerald-300">
                   <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                  LIVE
+                  {isAr ? "مباشر" : "LIVE"}
                 </span>
               </div>
             </div>

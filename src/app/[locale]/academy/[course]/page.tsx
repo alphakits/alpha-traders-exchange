@@ -5,6 +5,7 @@ import { buildCourseSchema, buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Link } from "@/i18n/navigation";
+import { formatAcademyLevel } from "@/lib/academy-localization";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string; course: string }> }) {
   const { locale, course: slug } = await params;
@@ -40,7 +41,7 @@ export default async function CoursePage({ params }: { params: Promise<{ locale:
     <section className="section-container page-shell">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }} />
       <div className="mb-8">
-        <p className="text-xs uppercase tracking-[0.22em] text-[#C9A227]">{course.level.toUpperCase()}</p>
+        <p className="text-xs uppercase tracking-[0.22em] text-[#C9A227]">{formatAcademyLevel(course.level, isAr ? "ar" : "en")}</p>
         <h1 className="mt-3 text-3xl font-semibold leading-tight md:text-4xl">{isAr ? course.titleAr : course.title}</h1>
         <p className="mt-3 text-[#9CA3AF]">{isAr ? course.summaryAr : course.summary}</p>
         {courseNarrative ? (

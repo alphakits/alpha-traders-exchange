@@ -1,1095 +1,1095 @@
-﻿[
-    {
-        "id":  "l101",
-        "courseId":  "c5",
-        "module":  "Module 1 - Course Blueprint",
-        "moduleAr":  "Ø§Ù„ÙˆØ­Ø¯Ø© 1 - Ø®Ø±ÙŠØ·Ø© Ø§Ù„Ø¯ÙˆØ±Ø©",
-        "slug":  "full-files-examples-workbook",
-        "title":  "Alpha Traders Full Files Examples",
-        "titleAr":  "Alpha Traders Full Files Examples",
-        "description":  "Start with the course workbook and complete file examples to understand the full academy structure before watching the core strategy lessons.",
-        "descriptionAr":  "Ø§Ø¨Ø¯Ø£ Ø¨Ø¯Ù„ÙŠÙ„ Ø§Ù„Ù…Ù„ÙØ§Øª ÙˆØ§Ù„Ø£Ù…Ø«Ù„Ø© Ø§Ù„ÙƒØ§Ù…Ù„Ø© Ù„ÙÙ‡Ù… Ù‡ÙŠÙƒÙ„ Ø§Ù„Ø£ÙƒØ§Ø¯ÙŠÙ…ÙŠØ© Ø¨Ø§Ù„ÙƒØ§Ù…Ù„ Ù‚Ø¨Ù„ Ù…Ø´Ø§Ù‡Ø¯Ø© Ø¯Ø±ÙˆØ³ Ø§Ù„Ø§Ø³ØªØ±Ø§ØªÙŠØ¬ÙŠØ© Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ©.",
-        "summary":  "This lesson introduces the complete course structure, workbook flow, and how each upcoming video fits into your practical trading journey.",
-        "summaryAr":  "Ù‡Ø°Ø§ Ø§Ù„Ø¯Ø±Ø³ ÙŠØ´Ø±Ø­ Ù‡ÙŠÙƒÙ„ Ø§Ù„Ø¯ÙˆØ±Ø© Ø¨Ø§Ù„ÙƒØ§Ù…Ù„ ÙˆØªØ³Ù„Ø³Ù„ ÙƒØ±Ø§Ø³Ø© Ø§Ù„Ø¹Ù…Ù„ ÙˆÙƒÙŠÙ ÙŠØ±ØªØ¨Ø· ÙƒÙ„ ÙÙŠØ¯ÙŠÙˆ Ù„Ø§Ø­Ù‚Ø§Ù‹ Ø¨Ù…Ø³Ø§Ø±Ùƒ Ø§Ù„Ø¹Ù…Ù„ÙŠ ÙÙŠ Ø§Ù„ØªØ¯Ø§ÙˆÙ„.",
-        "objectives":  [
-                           "Understand the full training path",
-                           "Access all workbook files and references",
-                           "Prepare your personal study checklist"
-                       ],
-        "objectivesAr":  [
-                             "ÙÙ‡Ù… Ø§Ù„Ù…Ø³Ø§Ø± Ø§Ù„ØªØ¯Ø±ÙŠØ¨ÙŠ Ø§Ù„ÙƒØ§Ù…Ù„",
-                             "Ø§Ù„ÙˆØµÙˆÙ„ Ø¥Ù„Ù‰ Ø¬Ù…ÙŠØ¹ Ù…Ù„ÙØ§Øª ÙˆÙƒØ±Ø§Ø³Ø© Ø§Ù„Ø¯ÙˆØ±Ø©",
-                             "ØªØ¬Ù‡ÙŠØ² Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø© Ø§Ù„Ø®Ø§ØµØ© Ø¨Ùƒ"
-                         ],
-        "takeaways":  [
-                          "A structured sequence gives faster progress",
-                          "Workbook + videos should be used together",
-                          "Consistency is more important than speed"
-                      ],
-        "takeawaysAr":  [
-                            "Ø§Ù„ØªØ³Ù„Ø³Ù„ Ø§Ù„Ù…Ù†Ù‡Ø¬ÙŠ ÙŠØ³Ø±Ù‘Ø¹ Ø§Ù„ØªÙ‚Ø¯Ù…",
-                            "ÙŠØ¬Ø¨ Ø§Ø³ØªØ®Ø¯Ø§Ù… Ø§Ù„ÙƒØ±Ø§Ø³Ø© ÙˆØ§Ù„ÙÙŠØ¯ÙŠÙˆÙ‡Ø§Øª Ù…Ø¹Ø§Ù‹",
-                            "Ø§Ù„Ø§Ø³ØªÙ…Ø±Ø§Ø±ÙŠØ© Ø£Ù‡Ù… Ù…Ù† Ø§Ù„Ø³Ø±Ø¹Ø©"
-                        ],
-        "keywords":  [
-                         "course map",
-                         "workbook",
-                         "study plan",
-                         "alpha traders"
-                     ],
-        "keywordsAr":  [
-                           "Ø®Ø±ÙŠØ·Ø© Ø§Ù„Ø¯ÙˆØ±Ø©",
-                           "ÙƒØ±Ø§Ø³Ø© Ø§Ù„Ø¹Ù…Ù„",
-                           "Ø®Ø·Ø© Ø§Ù„Ø¯Ø±Ø§Ø³Ø©",
-                           "Ø£Ù„ÙØ§ ØªØ±ÙŠØ¯Ø±Ø²"
-                       ],
-        "durationMinutes":  15,
-        "estimatedDurationMinutes":  15,
-        "order":  1,
-        "lessonNumber":  1,
-        "category":  "beginner",
-        "status":  "draft",
-        "difficulty":  "easy",
-        "xpReward":  80,
-        "thumbnail":  "/images/course-market-structure.jpg",
-        "instructor":  "Alpha Traders",
-        "tags":  [
-                     "Blueprint",
-                     "Workbook",
-                     "Preparation"
-                 ],
-        "tagsAr":  [
-                       "Ø®Ø±ÙŠØ·Ø©",
-                       "ÙƒØ±Ø§Ø³Ø©",
-                       "ØªØ¬Ù‡ÙŠØ²"
-                   ],
-        "assets":  {
-                       "videoProvider":  "self-hosted",
-                       "videoId":  "",
-                       "videoUrl":  "",
-                       "videoChapters":  [
-                                             {
-                                                 "id":  "l101-c1",
-                                                 "title":  "Course Overview",
-                                                 "titleAr":  "Ù†Ø¸Ø±Ø© Ø¹Ø§Ù…Ø© Ø¹Ù„Ù‰ Ø§Ù„Ø¯ÙˆØ±Ø©",
-                                                 "timeSeconds":  0
-                                             },
-                                             {
-                                                 "id":  "l101-c2",
-                                                 "title":  "Workbook Flow",
-                                                 "titleAr":  "ØªØ³Ù„Ø³Ù„ ÙƒØ±Ø§Ø³Ø© Ø§Ù„Ø¹Ù…Ù„",
-                                                 "timeSeconds":  240
-                                             },
-                                             {
-                                                 "id":  "l101-c3",
-                                                 "title":  "How to Study",
-                                                 "titleAr":  "Ø·Ø±ÙŠÙ‚Ø© Ø§Ù„Ø¯Ø±Ø§Ø³Ø©",
-                                                 "timeSeconds":  480
-                                             }
-                                         ],
-                       "pdfProvider":  "custom-url",
-                       "pdfFileId":  "",
-                       "pdfUrl":  "/files/course/pdfs/full-files-examples-workbook.pdf",
-                       "presentationUrl":  "/files/course/alpha-traders-full-files-examples.pptx",
-                       "notes":  "Use the workbook before each lesson and track your completion checklists.",
-                       "notesAr":  "Ø§Ø³ØªØ®Ø¯Ù… ÙƒØ±Ø§Ø³Ø© Ø§Ù„Ø¹Ù…Ù„ Ù‚Ø¨Ù„ ÙƒÙ„ Ø¯Ø±Ø³ ÙˆØ³Ø¬Ù‘Ù„ ØªÙ‚Ø¯Ù…Ùƒ ÙÙŠ Ù‚ÙˆØ§Ø¦Ù… Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©.",
-                       "resources":  [
-                                         {
-                                             "id":  "l101-r1",
-                                             "label":  "Full Files Examples (PPTX)",
-                                             "labelAr":  "Ø§Ù„Ù…Ù„ÙØ§Øª Ø§Ù„ÙƒØ§Ù…Ù„Ø© ÙˆØ§Ù„Ø£Ù…Ø«Ù„Ø© (PPTX)",
-                                             "url":  "/files/course/alpha-traders-full-files-examples.pptx",
-                                             "type":  "slide"
-                                         },
-                                         {
-                                             "id":  "l101-rpdf",
-                                             "label":  "Lesson Workbook (PDF)",
-                                             "labelAr":  "كراسة الدرس (PDF)",
-                                             "url":  "/files/course/pdfs/full-files-examples-workbook.pdf",
-                                             "type":  "pdf"
-                                         }
-                                     ]
-                   },
-        "quizSettings":  {
-                             "passingScore":  70,
-                             "randomizedOrder":  false,
-                             "instantFeedback":  true
-                         },
-        "quiz":  [
-                     {
-                         "id":  "l101-q1",
-                         "type":  "multiple-choice",
-                         "question":  "What is the recommended first step before jumping to strategy videos?",
-                         "questionAr":  "ما الخطوة الأولى الموصى بها قبل الانتقال إلى فيديوهات الاستراتيجية؟",
-                         "options":  [
-                                         "Skip to random lessons",
-                                         "Review the workbook and lesson roadmap",
-                                         "Trade live immediately",
-                                         "Only read quiz questions"
-                                     ],
-                         "optionsAr":  [
-                                           "الانتقال إلى دروس عشوائية",
-                                           "مراجعة الكراسة وخريطة الدروس",
-                                           "التداول المباشر فوراً",
-                                           "قراءة أسئلة الاختبار فقط"
-                                       ],
-                         "correctIndex":  1,
-                         "explanation":  "Starting with the workbook roadmap creates structured learning and better execution.",
-                         "explanationAr":  "البدء بخريطة الكراسة يبني تعلماً منظماً وتنفيذاً أفضل."
-                     },
-                     {
-                         "id":  "l101-q2",
-                         "type":  "multiple-choice",
-                         "question":  "Why is lesson order important in this academy?",
-                         "questionAr":  "لماذا ترتيب الدروس مهم في هذه الأكاديمية؟",
-                         "options":  [
-                                         "It is only cosmetic",
-                                         "Each lesson builds on previous concepts",
-                                         "It is required for video playback",
-                                         "It unlocks social links"
-                                     ],
-                         "optionsAr":  [
-                                           "هو شكلي فقط",
-                                           "كل درس يبني على مفاهيم الدرس السابق",
-                                           "مطلوب لتشغيل الفيديو",
-                                           "يفتح روابط اجتماعية"
-                                       ],
-                         "correctIndex":  1,
-                         "explanation":  "The sequence is designed to compound understanding step by step.",
-                         "explanationAr":  "تم تصميم التسلسل لتراكم الفهم خطوة بخطوة."
-                     },
-                     {
-                         "id":  "l101-q3",
-                         "type":  "multiple-choice",
-                         "question":  "What habit improves learning consistency the most?",
-                         "questionAr":  "ما العادة التي تحسن الاستمرارية في التعلم أكثر شيء؟",
-                         "options":  [
-                                         "Studying without notes",
-                                         "Using a checklist and tracking progress",
-                                         "Switching courses daily",
-                                         "Ignoring objectives"
-                                     ],
-                         "optionsAr":  [
-                                           "الدراسة بدون ملاحظات",
-                                           "استخدام قائمة تحقق وتتبع التقدم",
-                                           "تبديل الدورات يومياً",
-                                           "تجاهل الأهداف"
-                                       ],
-                         "correctIndex":  1,
-                         "explanation":  "Checklists and progress tracking turn lessons into a repeatable process.",
-                         "explanationAr":  "قوائم التحقق وتتبع التقدم يحولان الدروس إلى عملية قابلة للتكرار."
-                     }
-                 ]
+[
+  {
+    "id": "l101",
+    "courseId": "c5",
+    "module": "Module 1 - Course Blueprint",
+    "moduleAr": "الوحدة 1 - خريطة الدورة",
+    "slug": "full-files-examples-workbook",
+    "title": "Alpha Traders Full Files Examples",
+    "titleAr": "الملفات والأمثلة الكاملة من Alpha Traders",
+    "description": "Start with the course workbook and complete file examples to understand the full academy structure before watching the core strategy lessons.",
+    "descriptionAr": "ابدأ بدليل الملفات والأمثلة الكاملة لفهم هيكل الأكاديمية بالكامل قبل مشاهدة دروس الاستراتيجية الأساسية.",
+    "summary": "This lesson introduces the complete course structure, workbook flow, and how each upcoming video fits into your practical trading journey.",
+    "summaryAr": "هذا الدرس يشرح هيكل الدورة بالكامل وتسلسل كراسة العمل وكيف يرتبط كل فيديو لاحقاً بمسارك العملي في التداول.",
+    "objectives": [
+      "Understand the full training path",
+      "Access all workbook files and references",
+      "Prepare your personal study checklist"
+    ],
+    "objectivesAr": [
+      "فهم المسار التدريبي الكامل",
+      "الوصول إلى جميع ملفات وكراسة الدورة",
+      "تجهيز قائمة المتابعة الخاصة بك"
+    ],
+    "takeaways": [
+      "A structured sequence gives faster progress",
+      "Workbook + videos should be used together",
+      "Consistency is more important than speed"
+    ],
+    "takeawaysAr": [
+      "التسلسل المنهجي يسرّع التقدم",
+      "يجب استخدام الكراسة والفيديوهات معاً",
+      "الاستمرارية أهم من السرعة"
+    ],
+    "keywords": [
+      "course map",
+      "workbook",
+      "study plan",
+      "alpha traders"
+    ],
+    "keywordsAr": [
+      "خريطة الدورة",
+      "كراسة العمل",
+      "خطة الدراسة",
+      "ألفا تريدرز"
+    ],
+    "durationMinutes": 15,
+    "estimatedDurationMinutes": 15,
+    "order": 1,
+    "lessonNumber": 1,
+    "category": "beginner",
+    "status": "draft",
+    "difficulty": "easy",
+    "xpReward": 80,
+    "thumbnail": "/images/course-market-structure.jpg",
+    "instructor": "Alpha Traders",
+    "tags": [
+      "Blueprint",
+      "Workbook",
+      "Preparation"
+    ],
+    "tagsAr": [
+      "خريطة",
+      "كراسة",
+      "تجهيز"
+    ],
+    "assets": {
+      "videoProvider": "self-hosted",
+      "videoId": "",
+      "videoUrl": "",
+      "videoChapters": [
+        {
+          "id": "l101-c1",
+          "title": "Course Overview",
+          "titleAr": "نظرة عامة على الدورة",
+          "timeSeconds": 0
+        },
+        {
+          "id": "l101-c2",
+          "title": "Workbook Flow",
+          "titleAr": "تسلسل كراسة العمل",
+          "timeSeconds": 240
+        },
+        {
+          "id": "l101-c3",
+          "title": "How to Study",
+          "titleAr": "طريقة الدراسة",
+          "timeSeconds": 480
+        }
+      ],
+      "pdfProvider": "custom-url",
+      "pdfFileId": "",
+      "pdfUrl": "/files/course/pdfs/full-files-examples-workbook.pdf",
+      "presentationUrl": "/files/course/alpha-traders-full-files-examples.pptx",
+      "notes": "Use the workbook before each lesson and track your completion checklists.",
+      "notesAr": "استخدم كراسة العمل قبل كل درس وسجّل تقدمك في قوائم المتابعة.",
+      "resources": [
+        {
+          "id": "l101-r1",
+          "label": "Full Files Examples (PPTX)",
+          "labelAr": "الملفات الكاملة والأمثلة (PPTX)",
+          "url": "/files/course/alpha-traders-full-files-examples.pptx",
+          "type": "slide"
+        },
+        {
+          "id": "l101-rpdf",
+          "label": "Lesson Workbook (PDF)",
+          "labelAr": "كراسة الدرس (PDF)",
+          "url": "/files/course/pdfs/full-files-examples-workbook.pdf",
+          "type": "pdf"
+        }
+      ]
     },
-    {
-        "id":  "l102",
-        "courseId":  "c5",
-        "module":  "Module 2 - Candles",
-        "moduleAr":  "Ø§Ù„ÙˆØ­Ø¯Ø© 2 - Ø§Ù„Ø´Ù…ÙˆØ¹",
-        "slug":  "candles-foundation",
-        "title":  "Lesson 2 - Candles",
-        "titleAr":  "Lesson 2 - Candles",
-        "description":  "Master candle anatomy, structure intent, and high-probability reading before entering any setup.",
-        "descriptionAr":  "Ø¥ØªÙ‚Ø§Ù† ØªØ±ÙƒÙŠØ¨ Ø§Ù„Ø´Ù…ÙˆØ¹ ÙˆÙÙ‡Ù… Ù†ÙŠØ© Ø§Ù„Ø­Ø±ÙƒØ© ÙˆÙ‚Ø±Ø§Ø¡Ø© Ø§Ù„Ø§Ø­ØªÙ…Ø§Ù„Ø§Øª Ø§Ù„Ø¹Ø§Ù„ÙŠØ© Ù‚Ø¨Ù„ Ø£ÙŠ Ø¯Ø®ÙˆÙ„.",
-        "summary":  "This lesson builds a practical candle-reading framework you can use immediately on live charts.",
-        "summaryAr":  "Ù‡Ø°Ø§ Ø§Ù„Ø¯Ø±Ø³ ÙŠØ¨Ù†ÙŠ Ø¥Ø·Ø§Ø±Ø§Ù‹ Ø¹Ù…Ù„ÙŠØ§Ù‹ Ù„Ù‚Ø±Ø§Ø¡Ø© Ø§Ù„Ø´Ù…ÙˆØ¹ ÙŠÙ…ÙƒÙ†Ùƒ ØªØ·Ø¨ÙŠÙ‚Ù‡ Ù…Ø¨Ø§Ø´Ø±Ø© Ø¹Ù„Ù‰ Ø§Ù„Ø´Ø§Ø±Øª.",
-        "objectives":  [
-                           "Read candle body and wick intent",
-                           "Identify rejection and continuation behavior",
-                           "Use candle context in execution timing"
-                       ],
-        "objectivesAr":  [
-                             "Ù‚Ø±Ø§Ø¡Ø© Ù†ÙŠØ© Ø¬Ø³Ù… ÙˆØ¸Ù„ Ø§Ù„Ø´Ù…Ø¹Ø©",
-                             "ØªÙ…ÙŠÙŠØ² Ø³Ù„ÙˆÙƒ Ø§Ù„Ø±ÙØ¶ ÙˆØ§Ù„Ø§Ø³ØªÙ…Ø±Ø§Ø±ÙŠØ©",
-                             "Ø§Ø³ØªØ®Ø¯Ø§Ù… Ø³ÙŠØ§Ù‚ Ø§Ù„Ø´Ù…ÙˆØ¹ Ù„ØªÙˆÙ‚ÙŠØª Ø§Ù„Ø¯Ø®ÙˆÙ„"
-                         ],
-        "takeaways":  [
-                          "Candles are context, not random signals",
-                          "Wick behavior reveals liquidity reaction",
-                          "Execution quality improves with candle confirmation"
-                      ],
-        "takeawaysAr":  [
-                            "Ø§Ù„Ø´Ù…ÙˆØ¹ Ø³ÙŠØ§Ù‚ ÙˆÙ„ÙŠØ³Øª Ø¥Ø´Ø§Ø±Ø§Øª Ø¹Ø´ÙˆØ§Ø¦ÙŠØ©",
-                            "Ø³Ù„ÙˆÙƒ Ø§Ù„Ø¸Ù„Ø§Ù„ ÙŠÙƒØ´Ù ØªÙØ§Ø¹Ù„ Ø§Ù„Ø³ÙŠÙˆÙ„Ø©",
-                            "Ø¬ÙˆØ¯Ø© Ø§Ù„ØªÙ†ÙÙŠØ° ØªØªØ­Ø³Ù† Ù…Ø¹ ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ø´Ù…ÙˆØ¹"
-                        ],
-        "keywords":  [
-                         "candles",
-                         "price action",
-                         "rejection",
-                         "continuation"
-                     ],
-        "keywordsAr":  [
-                           "Ø§Ù„Ø´Ù…ÙˆØ¹",
-                           "Ø¨Ø±Ø§ÙŠØ³ Ø£ÙƒØ´Ù†",
-                           "Ø±ÙØ¶",
-                           "Ø§Ø³ØªÙ…Ø±Ø§Ø±ÙŠØ©"
-                       ],
-        "durationMinutes":  42,
-        "estimatedDurationMinutes":  42,
-        "order":  2,
-        "lessonNumber":  2,
-        "category":  "beginner",
-        "status":  "published",
-        "difficulty":  "medium",
-        "xpReward":  120,
-        "thumbnail":  "/images/course-market-structure.jpg",
-        "instructor":  "Alpha Traders",
-        "tags":  [
-                     "Candles",
-                     "Price Action"
-                 ],
-        "tagsAr":  [
-                       "Ø§Ù„Ø´Ù…ÙˆØ¹",
-                       "Ø­Ø±ÙƒØ© Ø§Ù„Ø³Ø¹Ø±"
-                   ],
-        "assets":  {
-                       "videoProvider":  "supabase",
-                       "videoId":  "",
-                       "videoUrl":  "/lesson-2-candles.mp4",
-                       "videoChapters":  [
-                                             {
-                                                 "id":  "l102-c1",
-                                                 "title":  "Candle Anatomy",
-                                                 "titleAr":  "ØªØ±ÙƒÙŠØ¨ Ø§Ù„Ø´Ù…Ø¹Ø©",
-                                                 "timeSeconds":  0
-                                             },
-                                             {
-                                                 "id":  "l102-c2",
-                                                 "title":  "Rejection vs Continuation",
-                                                 "titleAr":  "Ø§Ù„Ø±ÙØ¶ Ù…Ù‚Ø§Ø¨Ù„ Ø§Ù„Ø§Ø³ØªÙ…Ø±Ø§Ø±ÙŠØ©",
-                                                 "timeSeconds":  780
-                                             },
-                                             {
-                                                 "id":  "l102-c3",
-                                                 "title":  "Live Chart Examples",
-                                                 "titleAr":  "Ø£Ù…Ø«Ù„Ø© Ù…Ø¨Ø§Ø´Ø±Ø©",
-                                                 "timeSeconds":  1620
-                                             }
-                                         ],
-                       "pdfProvider":  "custom-url",
-                       "pdfFileId":  "",
-                       "pdfUrl":  "/files/course/pdfs/candles-foundation.pdf",
-                       "presentationUrl":  "/files/course/alpha-traders-full-files-examples.pptx",
-                       "notes":  "Focus on consistency in reading intent, not on memorizing isolated patterns.",
-                       "notesAr":  "Ø±ÙƒÙ‘Ø² Ø¹Ù„Ù‰ Ø§Ù„Ø«Ø¨Ø§Øª ÙÙŠ Ù‚Ø±Ø§Ø¡Ø© Ø§Ù„Ù†ÙŠØ© ÙˆÙ„ÙŠØ³ Ø­ÙØ¸ Ø£Ø´ÙƒØ§Ù„ Ù…Ù†ÙØµÙ„Ø©.",
-                       "resources":  [
-                                         {
-                                             "id":  "l102-r1",
-                                             "label":  "Candles Lesson Video",
-                                             "labelAr":  "ÙÙŠØ¯ÙŠÙˆ Ø¯Ø±Ø³ Ø§Ù„Ø´Ù…ÙˆØ¹",
-                                             "url":  "/lesson-2-candles.mp4",
-                                             "type":  "link"
-                                         },
-                                         {
-                                             "id":  "l102-r2",
-                                             "label":  "Full Files Examples (PPTX)",
-                                             "labelAr":  "Ø§Ù„Ù…Ù„ÙØ§Øª Ø§Ù„ÙƒØ§Ù…Ù„Ø© ÙˆØ§Ù„Ø£Ù…Ø«Ù„Ø© (PPTX)",
-                                             "url":  "/files/course/alpha-traders-full-files-examples.pptx",
-                                             "type":  "slide"
-                                         },
-                                         {
-                                             "id":  "l102-rpdf",
-                                             "label":  "Lesson Workbook (PDF)",
-                                             "labelAr":  "كراسة الدرس (PDF)",
-                                             "url":  "/files/course/pdfs/candles-foundation.pdf",
-                                             "type":  "pdf"
-                                         }
-                                     ]
-                   },
-        "quizSettings":  {
-                             "passingScore":  70,
-                             "randomizedOrder":  false,
-                             "instantFeedback":  true
-                         },
-        "quiz":  [
-                     {
-                         "id":  "l102-q1",
-                         "type":  "multiple-choice",
-                         "question":  "What does a long lower wick usually signal in context?",
-                         "questionAr":  "ماذا يشير غالباً الظل السفلي الطويل ضمن السياق؟",
-                         "options":  [
-                                         "Guaranteed reversal",
-                                         "Potential rejection and demand response",
-                                         "Random noise",
-                                         "Only low liquidity"
-                                     ],
-                         "optionsAr":  [
-                                           "انعكاس مؤكد",
-                                           "احتمال رفض واستجابة من الطلب",
-                                           "ضوضاء عشوائية",
-                                           "سيولة منخفضة فقط"
-                                       ],
-                         "correctIndex":  1,
-                         "explanation":  "A long lower wick often shows rejection, but still needs structure confirmation.",
-                         "explanationAr":  "الظل السفلي الطويل غالباً يظهر رفضاً، لكنه يحتاج تأكيداً هيكلياً."
-                     },
-                     {
-                         "id":  "l102-q2",
-                         "type":  "multiple-choice",
-                         "question":  "Before entering a candle-based setup, what must be checked first?",
-                         "questionAr":  "قبل الدخول في صفقة مبنية على الشموع، ما الذي يجب فحصه أولاً؟",
-                         "options":  [
-                                         "Indicator color",
-                                         "Market context and structure",
-                                         "Spread only",
-                                         "Session timer only"
-                                     ],
-                         "optionsAr":  [
-                                           "لون المؤشر",
-                                           "سياق السوق والهيكل",
-                                           "السبريد فقط",
-                                           "وقت الجلسة فقط"
-                                       ],
-                         "correctIndex":  1,
-                         "explanation":  "Candle signals are strongest when aligned with market structure and context.",
-                         "explanationAr":  "إشارات الشموع تكون أقوى عند توافقها مع هيكل السوق والسياق."
-                     },
-                     {
-                         "id":  "l102-q3",
-                         "type":  "multiple-choice",
-                         "question":  "Which behavior best supports bullish continuation?",
-                         "questionAr":  "أي سلوك يدعم استمرارية صاعدة بشكل أفضل؟",
-                         "options":  [
-                                         "Lower highs forming",
-                                         "Repeated higher highs with defended pullbacks",
-                                         "Single breakout candle only",
-                                         "Flat sideways candles"
-                                     ],
-                         "optionsAr":  [
-                                           "تكوّن قمم أدنى",
-                                           "قمم أعلى متكررة مع تصحيحات مدعومة",
-                                           "شمعة اختراق واحدة فقط",
-                                           "شموع جانبية ثابتة"
-                                       ],
-                         "correctIndex":  1,
-                         "explanation":  "Continuation requires structure strength, not one isolated candle.",
-                         "explanationAr":  "الاستمرارية تحتاج قوة هيكلية وليس شمعة منفردة."
-                     }
-                 ]
+    "quizSettings": {
+      "passingScore": 70,
+      "randomizedOrder": false,
+      "instantFeedback": true
     },
-    {
-        "id":  "l103",
-        "courseId":  "c5",
-        "module":  "Module 3 - Trendline",
-        "moduleAr":  "Ø§Ù„ÙˆØ­Ø¯Ø© 3 - Ø§Ù„ØªØ±Ù†Ø¯Ù„Ø§ÙŠÙ†",
-        "slug":  "trendline-precision",
-        "title":  "Lesson 3 - Trendline",
-        "titleAr":  "Lesson 3 - Trendline",
-        "description":  "Learn how to draw valid trendlines and use them with structure and momentum for objective decisions.",
-        "descriptionAr":  "ØªØ¹Ù„Ù‘Ù… Ø±Ø³Ù… Ø§Ù„ØªØ±Ù†Ø¯Ù„Ø§ÙŠÙ† Ø§Ù„ØµØ­ÙŠØ­ ÙˆØ§Ø³ØªØ®Ø¯Ø§Ù…Ù‡ Ù…Ø¹ Ø§Ù„Ù‡ÙŠÙƒÙ„ ÙˆØ§Ù„Ø²Ø®Ù… Ù„Ø§ØªØ®Ø§Ø° Ù‚Ø±Ø§Ø±Ø§Øª Ù…ÙˆØ¶ÙˆØ¹ÙŠØ©.",
-        "summary":  "This lesson converts trendlines from visual bias tools into structured confluence components.",
-        "summaryAr":  "Ù‡Ø°Ø§ Ø§Ù„Ø¯Ø±Ø³ ÙŠØ­ÙˆÙ‘Ù„ Ø§Ù„ØªØ±Ù†Ø¯Ù„Ø§ÙŠÙ† Ù…Ù† Ø£Ø¯Ø§Ø© Ø¨ØµØ±ÙŠØ© Ø¹Ø´ÙˆØ§Ø¦ÙŠØ© Ø¥Ù„Ù‰ Ø¹Ù†ØµØ± ØªØ£ÙƒÙŠØ¯ Ù…Ù†Ø¶Ø¨Ø· Ø¯Ø§Ø®Ù„ Ø§Ù„Ø®Ø·Ø©.",
-        "objectives":  [
-                           "Draw valid trendline anchors",
-                           "Avoid overfitted trendline mistakes",
-                           "Combine trendline with market structure"
-                       ],
-        "objectivesAr":  [
-                             "ØªØ­Ø¯ÙŠØ¯ Ù†Ù‚Ø§Ø· Ø±Ø³Ù… Ø§Ù„ØªØ±Ù†Ø¯Ù„Ø§ÙŠÙ† Ø§Ù„ØµØ­ÙŠØ­Ø©",
-                             "ØªØ¬Ù†Ø¨ Ø£Ø®Ø·Ø§Ø¡ Ø§Ù„ØªÙØµÙŠÙ„ Ø§Ù„Ø²Ø§Ø¦Ø¯",
-                             "Ø¯Ù…Ø¬ Ø§Ù„ØªØ±Ù†Ø¯Ù„Ø§ÙŠÙ† Ù…Ø¹ Ù‡ÙŠÙƒÙ„ Ø§Ù„Ø³ÙˆÙ‚"
-                         ],
-        "takeaways":  [
-                          "Trendline is a confluence tool, not a standalone signal",
-                          "Context and touches quality matter more than visual fit",
-                          "Break + retest needs confirmation"
-                      ],
-        "takeawaysAr":  [
-                            "Ø§Ù„ØªØ±Ù†Ø¯Ù„Ø§ÙŠÙ† Ø¹Ù†ØµØ± ØªØ£ÙƒÙŠØ¯ ÙˆÙ„ÙŠØ³ Ø¥Ø´Ø§Ø±Ø© Ù…Ø³ØªÙ‚Ù„Ø©",
-                            "Ø¬ÙˆØ¯Ø© Ø§Ù„Ø³ÙŠØ§Ù‚ ÙˆØ§Ù„Ù„Ù…Ø³Ø§Øª Ø£Ù‡Ù… Ù…Ù† Ø§Ù„Ø´ÙƒÙ„",
-                            "Ø§Ù„ÙƒØ³Ø± ÙˆØ¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø§Ø®ØªØ¨Ø§Ø± ÙŠØ­ØªØ§Ø¬Ø§Ù† ØªØ£ÙƒÙŠØ¯Ø§Ù‹"
-                        ],
-        "keywords":  [
-                         "trendline",
-                         "confluence",
-                         "structure"
-                     ],
-        "keywordsAr":  [
-                           "ØªØ±Ù†Ø¯Ù„Ø§ÙŠÙ†",
-                           "ØªØ£ÙƒÙŠØ¯",
-                           "Ù‡ÙŠÙƒÙ„"
-                       ],
-        "durationMinutes":  38,
-        "estimatedDurationMinutes":  38,
-        "order":  3,
-        "lessonNumber":  3,
-        "category":  "intermediate",
-        "status":  "published",
-        "difficulty":  "medium",
-        "xpReward":  130,
-        "thumbnail":  "/images/course-risk.jpg",
-        "instructor":  "Alpha Traders",
-        "tags":  [
-                     "Trendline",
-                     "Confluence"
-                 ],
-        "tagsAr":  [
-                       "ØªØ±Ù†Ø¯Ù„Ø§ÙŠÙ†",
-                       "ØªØ£ÙƒÙŠØ¯"
-                   ],
-        "assets":  {
-                       "videoProvider":  "supabase",
-                       "videoId":  "",
-                       "videoUrl":  "/lesson-3-trendline.mp4",
-                       "videoChapters":  [
-                                             {
-                                                 "id":  "l103-c1",
-                                                 "title":  "Anchor Rules",
-                                                 "titleAr":  "Ù‚ÙˆØ§Ø¹Ø¯ Ù†Ù‚Ø§Ø· Ø§Ù„Ø§Ø±ØªÙƒØ§Ø²",
-                                                 "timeSeconds":  0
-                                             },
-                                             {
-                                                 "id":  "l103-c2",
-                                                 "title":  "Invalid Drawings",
-                                                 "titleAr":  "Ø§Ù„Ø±Ø³ÙˆÙ… ØºÙŠØ± Ø§Ù„ØµØ­ÙŠØ­Ø©",
-                                                 "timeSeconds":  720
-                                             },
-                                             {
-                                                 "id":  "l103-c3",
-                                                 "title":  "Confluence Scenarios",
-                                                 "titleAr":  "Ø³ÙŠÙ†Ø§Ø±ÙŠÙˆÙ‡Ø§Øª Ø§Ù„ØªØ£ÙƒÙŠØ¯",
-                                                 "timeSeconds":  1440
-                                             }
-                                         ],
-                       "pdfProvider":  "custom-url",
-                       "pdfFileId":  "",
-                       "pdfUrl":  "/files/course/pdfs/trendline-precision.pdf",
-                       "presentationUrl":  "/files/course/alpha-traders-full-files-examples.pptx",
-                       "notes":  "Keep trendline objective by using fixed anchor criteria and structure validation.",
-                       "notesAr":  "Ø­Ø§ÙØ¸ Ø¹Ù„Ù‰ Ù…ÙˆØ¶ÙˆØ¹ÙŠØ© Ø§Ù„ØªØ±Ù†Ø¯Ù„Ø§ÙŠÙ† Ø¹Ø¨Ø± Ù…Ø¹Ø§ÙŠÙŠØ± Ø«Ø§Ø¨ØªØ© Ù„Ù†Ù‚Ø§Ø· Ø§Ù„Ø±Ø³Ù… ÙˆØªØ£ÙƒÙŠØ¯ Ù‡ÙŠÙƒÙ„ Ø§Ù„Ø³ÙˆÙ‚.",
-                       "resources":  [
-                                         {
-                                             "id":  "l103-r1",
-                                             "label":  "Trendline Lesson Video",
-                                             "labelAr":  "ÙÙŠØ¯ÙŠÙˆ Ø¯Ø±Ø³ Ø§Ù„ØªØ±Ù†Ø¯Ù„Ø§ÙŠÙ†",
-                                             "url":  "/lesson-3-trendline.mp4",
-                                             "type":  "link"
-                                         },
-                                         {
-                                             "id":  "l103-rpdf",
-                                             "label":  "Lesson Workbook (PDF)",
-                                             "labelAr":  "كراسة الدرس (PDF)",
-                                             "url":  "/files/course/pdfs/trendline-precision.pdf",
-                                             "type":  "pdf"
-                                         }
-                                     ]
-                   },
-        "quizSettings":  {
-                             "passingScore":  70,
-                             "randomizedOrder":  false,
-                             "instantFeedback":  true
-                         },
-        "quiz":  [
-                     {
-                         "id":  "l103-q1",
-                         "type":  "multiple-choice",
-                         "question":  "What makes a trendline valid?",
-                         "questionAr":  "ما الذي يجعل الترندلاين صالحاً؟",
-                         "options":  [
-                                         "Any two random points",
-                                         "Clear swing anchors with structure context",
-                                         "Only steep angle",
-                                         "Touching every candle"
-                                     ],
-                         "optionsAr":  [
-                                           "أي نقطتين عشوائيتين",
-                                           "نقاط ارتكاز واضحة ضمن هيكل السوق",
-                                           "زاوية حادة فقط",
-                                           "ملامسة كل شمعة"
-                                       ],
-                         "correctIndex":  1,
-                         "explanation":  "Trendlines are valid when anchored to meaningful swing structure.",
-                         "explanationAr":  "يكون الترندلاين صالحاً عند ربطه بنقاط ارتكاز ذات معنى هيكلي."
-                     },
-                     {
-                         "id":  "l103-q2",
-                         "type":  "multiple-choice",
-                         "question":  "A trendline break is actionable when:",
-                         "questionAr":  "يصبح كسر الترندلاين قابلاً للتنفيذ عندما:",
-                         "options":  [
-                                         "It happens once",
-                                         "It is confirmed with structure and retest behavior",
-                                         "Volume is unknown",
-                                         "Price moves quickly only"
-                                     ],
-                         "optionsAr":  [
-                                           "يحدث مرة واحدة",
-                                           "يتأكد بالهيكل وسلوك إعادة الاختبار",
-                                           "الحجم غير معروف",
-                                           "السعر يتحرك بسرعة فقط"
-                                       ],
-                         "correctIndex":  1,
-                         "explanation":  "Break + structural confirmation reduces false entries.",
-                         "explanationAr":  "الكسر مع تأكيد هيكلي يقلل الدخولات الخاطئة."
-                     },
-                     {
-                         "id":  "l103-q3",
-                         "type":  "multiple-choice",
-                         "question":  "What is the main role of trendline in this course?",
-                         "questionAr":  "ما الدور الأساسي للترندلاين في هذه الدورة؟",
-                         "options":  [
-                                         "Standalone entry signal",
-                                         "Confluence tool with other confirmations",
-                                         "Replacement for risk rules",
-                                         "Automatic TP/SL rule"
-                                     ],
-                         "optionsAr":  [
-                                           "إشارة دخول مستقلة",
-                                           "أداة تأكيد مع عناصر أخرى",
-                                           "بديل لقواعد المخاطر",
-                                           "قاعدة تلقائية للهدف والوقف"
-                                       ],
-                         "correctIndex":  1,
-                         "explanation":  "Trendline is a confluence element, not a standalone trigger.",
-                         "explanationAr":  "الترندلاين عنصر تأكيد وليس محفزاً مستقلاً."
-                     }
-                 ]
+    "quiz": [
+      {
+        "id": "l101-q1",
+        "type": "multiple-choice",
+        "question": "What is the recommended first step before jumping to strategy videos?",
+        "questionAr": "ما الخطوة الأولى الموصى بها قبل الانتقال إلى فيديوهات الاستراتيجية؟",
+        "options": [
+          "Skip to random lessons",
+          "Review the workbook and lesson roadmap",
+          "Trade live immediately",
+          "Only read quiz questions"
+        ],
+        "optionsAr": [
+          "الانتقال إلى دروس عشوائية",
+          "مراجعة الكراسة وخريطة الدروس",
+          "التداول المباشر فوراً",
+          "قراءة أسئلة الاختبار فقط"
+        ],
+        "correctIndex": 1,
+        "explanation": "Starting with the workbook roadmap creates structured learning and better execution.",
+        "explanationAr": "البدء بخريطة الكراسة يبني تعلماً منظماً وتنفيذاً أفضل."
+      },
+      {
+        "id": "l101-q2",
+        "type": "multiple-choice",
+        "question": "Why is lesson order important in this academy?",
+        "questionAr": "لماذا ترتيب الدروس مهم في هذه الأكاديمية؟",
+        "options": [
+          "It is only cosmetic",
+          "Each lesson builds on previous concepts",
+          "It is required for video playback",
+          "It unlocks social links"
+        ],
+        "optionsAr": [
+          "هو شكلي فقط",
+          "كل درس يبني على مفاهيم الدرس السابق",
+          "مطلوب لتشغيل الفيديو",
+          "يفتح روابط اجتماعية"
+        ],
+        "correctIndex": 1,
+        "explanation": "The sequence is designed to compound understanding step by step.",
+        "explanationAr": "تم تصميم التسلسل لتراكم الفهم خطوة بخطوة."
+      },
+      {
+        "id": "l101-q3",
+        "type": "multiple-choice",
+        "question": "What habit improves learning consistency the most?",
+        "questionAr": "ما العادة التي تحسن الاستمرارية في التعلم أكثر شيء؟",
+        "options": [
+          "Studying without notes",
+          "Using a checklist and tracking progress",
+          "Switching courses daily",
+          "Ignoring objectives"
+        ],
+        "optionsAr": [
+          "الدراسة بدون ملاحظات",
+          "استخدام قائمة تحقق وتتبع التقدم",
+          "تبديل الدورات يومياً",
+          "تجاهل الأهداف"
+        ],
+        "correctIndex": 1,
+        "explanation": "Checklists and progress tracking turn lessons into a repeatable process.",
+        "explanationAr": "قوائم التحقق وتتبع التقدم يحولان الدروس إلى عملية قابلة للتكرار."
+      }
+    ]
+  },
+  {
+    "id": "l102",
+    "courseId": "c5",
+    "module": "Module 2 - Candles",
+    "moduleAr": "الوحدة 2 - الشموع",
+    "slug": "candles-foundation",
+    "title": "Lesson 2 - Candles",
+    "titleAr": "الدرس 2 - الشموع",
+    "description": "Master candle anatomy, structure intent, and high-probability reading before entering any setup.",
+    "descriptionAr": "إتقان تركيب الشموع وفهم نية الحركة وقراءة الاحتمالات العالية قبل أي دخول.",
+    "summary": "This lesson builds a practical candle-reading framework you can use immediately on live charts.",
+    "summaryAr": "هذا الدرس يبني إطاراً عملياً لقراءة الشموع يمكنك تطبيقه مباشرة على الشارت.",
+    "objectives": [
+      "Read candle body and wick intent",
+      "Identify rejection and continuation behavior",
+      "Use candle context in execution timing"
+    ],
+    "objectivesAr": [
+      "قراءة نية جسم وظل الشمعة",
+      "تمييز سلوك الرفض والاستمرارية",
+      "استخدام سياق الشموع لتوقيت الدخول"
+    ],
+    "takeaways": [
+      "Candles are context, not random signals",
+      "Wick behavior reveals liquidity reaction",
+      "Execution quality improves with candle confirmation"
+    ],
+    "takeawaysAr": [
+      "الشموع سياق وليست إشارات عشوائية",
+      "سلوك الظلال يكشف تفاعل السيولة",
+      "جودة التنفيذ تتحسن مع تأكيد الشموع"
+    ],
+    "keywords": [
+      "candles",
+      "price action",
+      "rejection",
+      "continuation"
+    ],
+    "keywordsAr": [
+      "الشموع",
+      "برايس أكشن",
+      "رفض",
+      "استمرارية"
+    ],
+    "durationMinutes": 42,
+    "estimatedDurationMinutes": 42,
+    "order": 2,
+    "lessonNumber": 2,
+    "category": "beginner",
+    "status": "published",
+    "difficulty": "medium",
+    "xpReward": 120,
+    "thumbnail": "/images/course-market-structure.jpg",
+    "instructor": "Alpha Traders",
+    "tags": [
+      "Candles",
+      "Price Action"
+    ],
+    "tagsAr": [
+      "الشموع",
+      "حركة السعر"
+    ],
+    "assets": {
+      "videoProvider": "supabase",
+      "videoId": "",
+      "videoUrl": "/lesson-2-candles.mp4",
+      "videoChapters": [
+        {
+          "id": "l102-c1",
+          "title": "Candle Anatomy",
+          "titleAr": "تركيب الشمعة",
+          "timeSeconds": 0
+        },
+        {
+          "id": "l102-c2",
+          "title": "Rejection vs Continuation",
+          "titleAr": "الرفض مقابل الاستمرارية",
+          "timeSeconds": 780
+        },
+        {
+          "id": "l102-c3",
+          "title": "Live Chart Examples",
+          "titleAr": "أمثلة مباشرة",
+          "timeSeconds": 1620
+        }
+      ],
+      "pdfProvider": "custom-url",
+      "pdfFileId": "",
+      "pdfUrl": "/files/course/pdfs/candles-foundation.pdf",
+      "presentationUrl": "/files/course/alpha-traders-full-files-examples.pptx",
+      "notes": "Focus on consistency in reading intent, not on memorizing isolated patterns.",
+      "notesAr": "ركّز على الثبات في قراءة النية وليس حفظ أشكال منفصلة.",
+      "resources": [
+        {
+          "id": "l102-r1",
+          "label": "Candles Lesson Video",
+          "labelAr": "فيديو درس الشموع",
+          "url": "/lesson-2-candles.mp4",
+          "type": "link"
+        },
+        {
+          "id": "l102-r2",
+          "label": "Full Files Examples (PPTX)",
+          "labelAr": "الملفات الكاملة والأمثلة (PPTX)",
+          "url": "/files/course/alpha-traders-full-files-examples.pptx",
+          "type": "slide"
+        },
+        {
+          "id": "l102-rpdf",
+          "label": "Lesson Workbook (PDF)",
+          "labelAr": "كراسة الدرس (PDF)",
+          "url": "/files/course/pdfs/candles-foundation.pdf",
+          "type": "pdf"
+        }
+      ]
     },
-    {
-        "id":  "l104",
-        "courseId":  "c5",
-        "module":  "Module 4 - Support \u0026 Resistance",
-        "moduleAr":  "Ø§Ù„ÙˆØ­Ø¯Ø© 4 - Ø§Ù„Ø¯Ø¹Ù… ÙˆØ§Ù„Ù…Ù‚Ø§ÙˆÙ…Ø©",
-        "slug":  "support-resistance-engine",
-        "title":  "Lesson 4 - Support Resistance",
-        "titleAr":  "Lesson 4 - Support Resistance",
-        "description":  "Build reliable support and resistance zones and apply them with confidence and risk control.",
-        "descriptionAr":  "Ø¨Ù†Ø§Ø¡ Ù…Ù†Ø§Ø·Ù‚ Ø¯Ø¹Ù… ÙˆÙ…Ù‚Ø§ÙˆÙ…Ø© Ù…ÙˆØ«ÙˆÙ‚Ø© ÙˆØªØ·Ø¨ÙŠÙ‚Ù‡Ø§ Ø¨Ø«Ù‚Ø© Ù…Ø¹ Ø¥Ø¯Ø§Ø±Ø© Ù…Ø®Ø§Ø·Ø± Ù…Ù†Ø¶Ø¨Ø·Ø©.",
-        "summary":  "This lesson focuses on zone quality, reaction behavior, and practical entry timing around key levels.",
-        "summaryAr":  "ÙŠØ±ÙƒØ² Ù‡Ø°Ø§ Ø§Ù„Ø¯Ø±Ø³ Ø¹Ù„Ù‰ Ø¬ÙˆØ¯Ø© Ø§Ù„Ù…Ù†Ø§Ø·Ù‚ ÙˆØ³Ù„ÙˆÙƒ Ø§Ù„ØªÙØ§Ø¹Ù„ ÙˆØªÙˆÙ‚ÙŠØª Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø§Ù„Ø¹Ù…Ù„ÙŠ Ø­ÙˆÙ„ Ø§Ù„Ù…Ø³ØªÙˆÙŠØ§Øª Ø§Ù„Ù…Ù‡Ù…Ø©.",
-        "objectives":  [
-                           "Mark high-quality zones only",
-                           "Read reaction strength and failure",
-                           "Integrate levels with execution plan"
-                       ],
-        "objectivesAr":  [
-                             "ØªØ­Ø¯ÙŠØ¯ Ø§Ù„Ù…Ù†Ø§Ø·Ù‚ Ø¹Ø§Ù„ÙŠØ© Ø§Ù„Ø¬ÙˆØ¯Ø© ÙÙ‚Ø·",
-                             "Ù‚Ø±Ø§Ø¡Ø© Ù‚ÙˆØ© Ø§Ù„ØªÙØ§Ø¹Ù„ Ø£Ùˆ ÙØ´Ù„ Ø§Ù„Ù…Ù†Ø·Ù‚Ø©",
-                             "Ø¯Ù…Ø¬ Ø§Ù„Ù…Ø³ØªÙˆÙŠØ§Øª Ø¶Ù…Ù† Ø®Ø·Ø© Ø§Ù„ØªÙ†ÙÙŠØ°"
-                         ],
-        "takeaways":  [
-                          "Zone quality beats zone quantity",
-                          "Retests must be judged by reaction, not assumption",
-                          "Risk is defined before entry"
-                      ],
-        "takeawaysAr":  [
-                            "Ø¬ÙˆØ¯Ø© Ø§Ù„Ù…Ù†Ø§Ø·Ù‚ Ø£Ù‡Ù… Ù…Ù† ÙƒØ«Ø±ØªÙ‡Ø§",
-                            "Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø§Ø®ØªØ¨Ø§Ø± ØªÙÙ‚Ø§Ø³ Ø¨Ø§Ù„ØªÙØ§Ø¹Ù„ Ù„Ø§ Ø¨Ø§Ù„Ø§ÙØªØ±Ø§Ø¶",
-                            "Ø§Ù„Ù…Ø®Ø§Ø·Ø±Ø© ØªÙØ­Ø¯Ø¯ Ù‚Ø¨Ù„ Ø§Ù„Ø¯Ø®ÙˆÙ„"
-                        ],
-        "keywords":  [
-                         "support",
-                         "resistance",
-                         "zones",
-                         "reaction"
-                     ],
-        "keywordsAr":  [
-                           "Ø¯Ø¹Ù…",
-                           "Ù…Ù‚Ø§ÙˆÙ…Ø©",
-                           "Ù…Ù†Ø§Ø·Ù‚",
-                           "ØªÙØ§Ø¹Ù„"
-                       ],
-        "durationMinutes":  41,
-        "estimatedDurationMinutes":  41,
-        "order":  4,
-        "lessonNumber":  4,
-        "category":  "intermediate",
-        "status":  "published",
-        "difficulty":  "medium",
-        "xpReward":  140,
-        "thumbnail":  "/images/course-risk.jpg",
-        "instructor":  "Alpha Traders",
-        "tags":  [
-                     "Support",
-                     "Resistance",
-                     "Zones"
-                 ],
-        "tagsAr":  [
-                       "Ø¯Ø¹Ù…",
-                       "Ù…Ù‚Ø§ÙˆÙ…Ø©",
-                       "Ù…Ù†Ø§Ø·Ù‚"
-                   ],
-        "assets":  {
-                       "videoProvider":  "supabase",
-                       "videoId":  "",
-                       "videoUrl":  "/lesson-4-support-resistance.mp4",
-                       "videoChapters":  [
-                                             {
-                                                 "id":  "l104-c1",
-                                                 "title":  "Zone Selection",
-                                                 "titleAr":  "Ø§Ø®ØªÙŠØ§Ø± Ø§Ù„Ù…Ù†Ø§Ø·Ù‚",
-                                                 "timeSeconds":  0
-                                             },
-                                             {
-                                                 "id":  "l104-c2",
-                                                 "title":  "Reaction Reading",
-                                                 "titleAr":  "Ù‚Ø±Ø§Ø¡Ø© Ø§Ù„ØªÙØ§Ø¹Ù„",
-                                                 "timeSeconds":  840
-                                             },
-                                             {
-                                                 "id":  "l104-c3",
-                                                 "title":  "Risk Placement",
-                                                 "titleAr":  "ØªØ­Ø¯ÙŠØ¯ Ø§Ù„Ù…Ø®Ø§Ø·Ø±Ø©",
-                                                 "timeSeconds":  1710
-                                             }
-                                         ],
-                       "pdfProvider":  "custom-url",
-                       "pdfFileId":  "",
-                       "pdfUrl":  "/files/course/pdfs/support-resistance-engine.pdf",
-                       "presentationUrl":  "/files/course/alpha-traders-full-files-examples.pptx",
-                       "notes":  "Treat levels as zones with reaction criteria, never exact single lines.",
-                       "notesAr":  "ØªØ¹Ø§Ù…Ù„ Ù…Ø¹ Ø§Ù„Ù…Ø³ØªÙˆÙŠØ§Øª ÙƒÙ…Ù†Ø§Ø·Ù‚ Ø°Ø§Øª Ù…Ø¹Ø§ÙŠÙŠØ± ØªÙØ§Ø¹Ù„ ÙˆÙ„ÙŠØ³ ÙƒØ®Ø·ÙˆØ· Ø¯Ù‚ÙŠÙ‚Ø© Ø«Ø§Ø¨ØªØ©.",
-                       "resources":  [
-                                         {
-                                             "id":  "l104-r1",
-                                             "label":  "Support \u0026 Resistance Lesson Video",
-                                             "labelAr":  "ÙÙŠØ¯ÙŠÙˆ Ø¯Ø±Ø³ Ø§Ù„Ø¯Ø¹Ù… ÙˆØ§Ù„Ù…Ù‚Ø§ÙˆÙ…Ø©",
-                                             "url":  "/lesson-4-support-resistance.mp4",
-                                             "type":  "link"
-                                         },
-                                         {
-                                             "id":  "l104-rpdf",
-                                             "label":  "Lesson Workbook (PDF)",
-                                             "labelAr":  "كراسة الدرس (PDF)",
-                                             "url":  "/files/course/pdfs/support-resistance-engine.pdf",
-                                             "type":  "pdf"
-                                         }
-                                     ]
-                   },
-        "quizSettings":  {
-                             "passingScore":  70,
-                             "randomizedOrder":  false,
-                             "instantFeedback":  true
-                         },
-        "quiz":  [
-                     {
-                         "id":  "l104-q1",
-                         "type":  "multiple-choice",
-                         "question":  "How should support and resistance zones be treated?",
-                         "questionAr":  "كيف يجب التعامل مع مناطق الدعم والمقاومة؟",
-                         "options":  [
-                                         "As exact lines only",
-                                         "As reaction zones with context",
-                                         "As guaranteed reversal points",
-                                         "As ignored areas"
-                                     ],
-                         "optionsAr":  [
-                                           "كخطوط دقيقة فقط",
-                                           "كمناطق تفاعل ضمن السياق",
-                                           "كنقاط انعكاس مؤكدة",
-                                           "كمناطق يتم تجاهلها"
-                                       ],
-                         "correctIndex":  1,
-                         "explanation":  "Zones are reaction areas; context decides execution quality.",
-                         "explanationAr":  "المناطق هي نطاقات تفاعل والسياق يحدد جودة التنفيذ."
-                     },
-                     {
-                         "id":  "l104-q2",
-                         "type":  "multiple-choice",
-                         "question":  "A strong level setup usually includes:",
-                         "questionAr":  "إعداد مستوى قوي يتضمن غالباً:",
-                         "options":  [
-                                         "No confirmation needed",
-                                         "Rejection + structure + risk plan",
-                                         "High leverage only",
-                                         "One timeframe glance"
-                                     ],
-                         "optionsAr":  [
-                                           "لا يحتاج تأكيد",
-                                           "رفض + هيكل + خطة مخاطرة",
-                                           "رافعة عالية فقط",
-                                           "نظرة سريعة على فريم واحد"
-                                       ],
-                         "correctIndex":  1,
-                         "explanation":  "Confluence and risk discipline are required for quality setups.",
-                         "explanationAr":  "التأكيدات والانضباط في المخاطر ضروريان لإعدادات قوية."
-                     },
-                     {
-                         "id":  "l104-q3",
-                         "type":  "multiple-choice",
-                         "question":  "What weakens a level-based entry?",
-                         "questionAr":  "ما الذي يضعف دخولاً مبنياً على مستوى؟",
-                         "options":  [
-                                         "Waiting for confirmation",
-                                         "Ignoring market context",
-                                         "Using stop-loss",
-                                         "Reviewing multiple timeframes"
-                                     ],
-                         "optionsAr":  [
-                                           "انتظار التأكيد",
-                                           "تجاهل سياق السوق",
-                                           "استخدام وقف الخسارة",
-                                           "مراجعة عدة فريمات"
-                                       ],
-                         "correctIndex":  1,
-                         "explanation":  "Ignoring context increases false reactions and failed entries.",
-                         "explanationAr":  "تجاهل السياق يزيد التفاعلات الخاطئة والدخولات الفاشلة."
-                     }
-                 ]
+    "quizSettings": {
+      "passingScore": 70,
+      "randomizedOrder": false,
+      "instantFeedback": true
     },
-    {
-        "id":  "l105",
-        "courseId":  "c5",
-        "module":  "Module 5 - Chart Patterns + RSI",
-        "moduleAr":  "Ø§Ù„ÙˆØ­Ø¯Ø© 5 - Ø§Ù„Ù†Ù…Ø§Ø°Ø¬ + RSI",
-        "slug":  "chart-patterns-rsi-integration",
-        "title":  "Lesson 5 - Chart Pattern RSI",
-        "titleAr":  "Lesson 5 - Chart Pattern RSI",
-        "description":  "Use chart patterns with RSI as a confirmation layer without overfitting or indicator dependency.",
-        "descriptionAr":  "Ø§Ø³ØªØ®Ø¯Ø§Ù… Ø§Ù„Ù†Ù…Ø§Ø°Ø¬ Ø§Ù„Ø³Ø¹Ø±ÙŠØ© Ù…Ø¹ RSI ÙƒØ·Ø¨Ù‚Ø© ØªØ£ÙƒÙŠØ¯ Ø¨Ø¯ÙˆÙ† Ù…Ø¨Ø§Ù„ØºØ© Ø£Ùˆ Ø§Ø¹ØªÙ…Ø§Ø¯ ÙƒØ§Ù…Ù„ Ø¹Ù„Ù‰ Ø§Ù„Ù…Ø¤Ø´Ø±.",
-        "summary":  "This lesson teaches practical confluence between structure, pattern behavior, and RSI momentum context.",
-        "summaryAr":  "ÙŠØ¹Ù„Ù…Ùƒ Ù‡Ø°Ø§ Ø§Ù„Ø¯Ø±Ø³ Ø¯Ù…Ø¬Ø§Ù‹ Ø¹Ù…Ù„ÙŠØ§Ù‹ Ø¨ÙŠÙ† Ø§Ù„Ù‡ÙŠÙƒÙ„ Ø§Ù„Ø³Ø¹Ø±ÙŠ ÙˆØ³Ù„ÙˆÙƒ Ø§Ù„Ù†Ù…Ø§Ø°Ø¬ ÙˆØ³ÙŠØ§Ù‚ Ø²Ø®Ù… RSI.",
-        "objectives":  [
-                           "Identify valid chart pattern context",
-                           "Use RSI for confirmation not prediction",
-                           "Avoid common pattern/indicator traps"
-                       ],
-        "objectivesAr":  [
-                             "ØªØ­Ø¯ÙŠØ¯ Ø³ÙŠØ§Ù‚ Ø§Ù„Ù†Ù…Ø§Ø°Ø¬ Ø§Ù„ØµØ­ÙŠØ­Ø©",
-                             "Ø§Ø³ØªØ®Ø¯Ø§Ù… RSI Ù„Ù„ØªØ£ÙƒÙŠØ¯ Ù„Ø§ Ù„Ù„ØªÙ†Ø¨Ø¤",
-                             "ØªØ¬Ù†Ø¨ Ø£Ø®Ø·Ø§Ø¡ Ø´Ø§Ø¦Ø¹Ø© ÙÙŠ Ø§Ù„Ù†Ù…Ø§Ø°Ø¬ ÙˆØ§Ù„Ù…Ø¤Ø´Ø±Ø§Øª"
-                         ],
-        "takeaways":  [
-                          "Pattern quality depends on context",
-                          "RSI adds confidence when aligned with structure",
-                          "Execution should remain risk-first"
-                      ],
-        "takeawaysAr":  [
-                            "Ø¬ÙˆØ¯Ø© Ø§Ù„Ù†Ù…ÙˆØ°Ø¬ Ù…Ø±ØªØ¨Ø·Ø© Ø¨Ø§Ù„Ø³ÙŠØ§Ù‚",
-                            "RSI ÙŠØ²ÙŠØ¯ Ø§Ù„Ø«Ù‚Ø© Ø¹Ù†Ø¯ ØªÙˆØ§ÙÙ‚Ù‡ Ù…Ø¹ Ø§Ù„Ù‡ÙŠÙƒÙ„",
-                            "Ø§Ù„ØªÙ†ÙÙŠØ° ÙŠØ¬Ø¨ Ø£Ù† ÙŠØ¨Ù‚Ù‰ Ù…Ø¨Ù†ÙŠØ§Ù‹ Ø¹Ù„Ù‰ Ø§Ù„Ù…Ø®Ø§Ø·Ø±Ø© Ø£ÙˆÙ„Ø§Ù‹"
-                        ],
-        "keywords":  [
-                         "chart patterns",
-                         "RSI",
-                         "confluence",
-                         "momentum"
-                     ],
-        "keywordsAr":  [
-                           "Ù†Ù…Ø§Ø°Ø¬ Ø³Ø¹Ø±ÙŠØ©",
-                           "RSI",
-                           "ØªØ£ÙƒÙŠØ¯",
-                           "Ø²Ø®Ù…"
-                       ],
-        "durationMinutes":  56,
-        "estimatedDurationMinutes":  56,
-        "order":  5,
-        "lessonNumber":  5,
-        "category":  "advanced",
-        "status":  "published",
-        "difficulty":  "hard",
-        "xpReward":  170,
-        "thumbnail":  "/images/course-ict.jpg",
-        "instructor":  "Alpha Traders",
-        "tags":  [
-                     "Patterns",
-                     "RSI",
-                     "Confluence"
-                 ],
-        "tagsAr":  [
-                       "Ù†Ù…Ø§Ø°Ø¬",
-                       "RSI",
-                       "ØªØ£ÙƒÙŠØ¯"
-                   ],
-        "assets":  {
-                       "videoProvider":  "supabase",
-                       "videoId":  "",
-                       "videoUrl":  "/lesson-5-chart-pattern-rsi.mp4",
-                       "videoChapters":  [
-                                             {
-                                                 "id":  "l105-c1",
-                                                 "title":  "Pattern Validation",
-                                                 "titleAr":  "ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ù†Ù…ÙˆØ°Ø¬",
-                                                 "timeSeconds":  0
-                                             },
-                                             {
-                                                 "id":  "l105-c2",
-                                                 "title":  "RSI Context",
-                                                 "titleAr":  "Ø³ÙŠØ§Ù‚ RSI",
-                                                 "timeSeconds":  1020
-                                             },
-                                             {
-                                                 "id":  "l105-c3",
-                                                 "title":  "Execution Cases",
-                                                 "titleAr":  "Ø­Ø§Ù„Ø§Øª Ø§Ù„ØªÙ†ÙÙŠØ°",
-                                                 "timeSeconds":  2310
-                                             }
-                                         ],
-                       "pdfProvider":  "custom-url",
-                       "pdfFileId":  "",
-                       "pdfUrl":  "/files/course/pdfs/chart-patterns-rsi-integration.pdf",
-                       "presentationUrl":  "/files/course/alpha-traders-full-files-examples.pptx",
-                       "notes":  "Use RSI as confirmation aligned with structure and pattern quality.",
-                       "notesAr":  "Ø§Ø³ØªØ®Ø¯Ù… RSI ÙƒØ£Ø¯Ø§Ø© ØªØ£ÙƒÙŠØ¯ Ù…ØªÙˆØ§ÙÙ‚Ø© Ù…Ø¹ Ø§Ù„Ù‡ÙŠÙƒÙ„ ÙˆØ¬ÙˆØ¯Ø© Ø§Ù„Ù†Ù…ÙˆØ°Ø¬.",
-                       "resources":  [
-                                         {
-                                             "id":  "l105-r1",
-                                             "label":  "Chart Patterns + RSI Lesson Video",
-                                             "labelAr":  "ÙÙŠØ¯ÙŠÙˆ Ø§Ù„Ù†Ù…Ø§Ø°Ø¬ + RSI",
-                                             "url":  "/lesson-5-chart-pattern-rsi.mp4",
-                                             "type":  "link"
-                                         },
-                                         {
-                                             "id":  "l105-rpdf",
-                                             "label":  "Lesson Workbook (PDF)",
-                                             "labelAr":  "كراسة الدرس (PDF)",
-                                             "url":  "/files/course/pdfs/chart-patterns-rsi-integration.pdf",
-                                             "type":  "pdf"
-                                         }
-                                     ]
-                   },
-        "quizSettings":  {
-                             "passingScore":  70,
-                             "randomizedOrder":  false,
-                             "instantFeedback":  true
-                         },
-        "quiz":  [
-                     {
-                         "id":  "l105-q1",
-                         "type":  "multiple-choice",
-                         "question":  "In this lesson, RSI is used primarily to:",
-                         "questionAr":  "في هذا الدرس، يستخدم RSI بشكل أساسي من أجل:",
-                         "options":  [
-                                         "Replace price action",
-                                         "Confirm pattern momentum context",
-                                         "Predict exact tops/bottoms",
-                                         "Set leverage size"
-                                     ],
-                         "optionsAr":  [
-                                           "استبدال حركة السعر",
-                                           "تأكيد سياق زخم النموذج",
-                                           "توقع القمم والقيعان بدقة",
-                                           "تحديد الرافعة"
-                                       ],
-                         "correctIndex":  1,
-                         "explanation":  "RSI is used as a confirmation layer, not as a standalone signal.",
-                         "explanationAr":  "يُستخدم RSI كطبقة تأكيد وليس كإشارة مستقلة."
-                     },
-                     {
-                         "id":  "l105-q2",
-                         "type":  "multiple-choice",
-                         "question":  "A chart pattern is strongest when:",
-                         "questionAr":  "يكون النموذج الفني أقوى عندما:",
-                         "options":  [
-                                         "Seen without context",
-                                         "Aligned with structure and confirmation",
-                                         "Appears on one random candle",
-                                         "Used without risk limits"
-                                     ],
-                         "optionsAr":  [
-                                           "يُرى بدون سياق",
-                                           "يتوافق مع الهيكل وعناصر التأكيد",
-                                           "يظهر على شمعة عشوائية واحدة",
-                                           "يُستخدم بدون حدود مخاطرة"
-                                       ],
-                         "correctIndex":  1,
-                         "explanation":  "Patterns gain reliability when aligned with broader structure context.",
-                         "explanationAr":  "تزداد موثوقية النماذج عند توافقها مع السياق الهيكلي العام."
-                     },
-                     {
-                         "id":  "l105-q3",
-                         "type":  "multiple-choice",
-                         "question":  "What is the safest execution approach for patterns?",
-                         "questionAr":  "ما الأسلوب الأكثر أماناً لتنفيذ النماذج؟",
-                         "options":  [
-                                         "Immediate market entry always",
-                                         "Wait for confirmation and predefined risk",
-                                         "Increase size after losses",
-                                         "Ignore invalidation levels"
-                                     ],
-                         "optionsAr":  [
-                                           "الدخول الفوري دائماً",
-                                           "انتظار التأكيد مع مخاطرة محددة مسبقاً",
-                                           "زيادة الحجم بعد الخسائر",
-                                           "تجاهل مستويات الإلغاء"
-                                       ],
-                         "correctIndex":  1,
-                         "explanation":  "Confirmation + fixed risk improves consistency and survivability.",
-                         "explanationAr":  "التأكيد مع مخاطرة ثابتة يحسن الاتساق والاستمرارية."
-                     }
-                 ]
+    "quiz": [
+      {
+        "id": "l102-q1",
+        "type": "multiple-choice",
+        "question": "What does a long lower wick usually signal in context?",
+        "questionAr": "ماذا يشير غالباً الظل السفلي الطويل ضمن السياق؟",
+        "options": [
+          "Guaranteed reversal",
+          "Potential rejection and demand response",
+          "Random noise",
+          "Only low liquidity"
+        ],
+        "optionsAr": [
+          "انعكاس مؤكد",
+          "احتمال رفض واستجابة من الطلب",
+          "ضوضاء عشوائية",
+          "سيولة منخفضة فقط"
+        ],
+        "correctIndex": 1,
+        "explanation": "A long lower wick often shows rejection, but still needs structure confirmation.",
+        "explanationAr": "الظل السفلي الطويل غالباً يظهر رفضاً، لكنه يحتاج تأكيداً هيكلياً."
+      },
+      {
+        "id": "l102-q2",
+        "type": "multiple-choice",
+        "question": "Before entering a candle-based setup, what must be checked first?",
+        "questionAr": "قبل الدخول في صفقة مبنية على الشموع، ما الذي يجب فحصه أولاً؟",
+        "options": [
+          "Indicator color",
+          "Market context and structure",
+          "Spread only",
+          "Session timer only"
+        ],
+        "optionsAr": [
+          "لون المؤشر",
+          "سياق السوق والهيكل",
+          "السبريد فقط",
+          "وقت الجلسة فقط"
+        ],
+        "correctIndex": 1,
+        "explanation": "Candle signals are strongest when aligned with market structure and context.",
+        "explanationAr": "إشارات الشموع تكون أقوى عند توافقها مع هيكل السوق والسياق."
+      },
+      {
+        "id": "l102-q3",
+        "type": "multiple-choice",
+        "question": "Which behavior best supports bullish continuation?",
+        "questionAr": "أي سلوك يدعم استمرارية صاعدة بشكل أفضل؟",
+        "options": [
+          "Lower highs forming",
+          "Repeated higher highs with defended pullbacks",
+          "Single breakout candle only",
+          "Flat sideways candles"
+        ],
+        "optionsAr": [
+          "تكوّن قمم أدنى",
+          "قمم أعلى متكررة مع تصحيحات مدعومة",
+          "شمعة اختراق واحدة فقط",
+          "شموع جانبية ثابتة"
+        ],
+        "correctIndex": 1,
+        "explanation": "Continuation requires structure strength, not one isolated candle.",
+        "explanationAr": "الاستمرارية تحتاج قوة هيكلية وليس شمعة منفردة."
+      }
+    ]
+  },
+  {
+    "id": "l103",
+    "courseId": "c5",
+    "module": "Module 3 - Trendline",
+    "moduleAr": "الوحدة 3 - الترندلاين",
+    "slug": "trendline-precision",
+    "title": "Lesson 3 - Trendline",
+    "titleAr": "الدرس 3 - الترندلاين",
+    "description": "Learn how to draw valid trendlines and use them with structure and momentum for objective decisions.",
+    "descriptionAr": "تعلّم رسم الترندلاين الصحيح واستخدامه مع الهيكل والزخم لاتخاذ قرارات موضوعية.",
+    "summary": "This lesson converts trendlines from visual bias tools into structured confluence components.",
+    "summaryAr": "هذا الدرس يحوّل الترندلاين من أداة بصرية عشوائية إلى عنصر تأكيد منضبط داخل الخطة.",
+    "objectives": [
+      "Draw valid trendline anchors",
+      "Avoid overfitted trendline mistakes",
+      "Combine trendline with market structure"
+    ],
+    "objectivesAr": [
+      "تحديد نقاط رسم الترندلاين الصحيحة",
+      "تجنب أخطاء التفصيل الزائد",
+      "دمج الترندلاين مع هيكل السوق"
+    ],
+    "takeaways": [
+      "Trendline is a confluence tool, not a standalone signal",
+      "Context and touches quality matter more than visual fit",
+      "Break + retest needs confirmation"
+    ],
+    "takeawaysAr": [
+      "الترندلاين عنصر تأكيد وليس إشارة مستقلة",
+      "جودة السياق واللمسات أهم من الشكل",
+      "الكسر وإعادة الاختبار يحتاجان تأكيداً"
+    ],
+    "keywords": [
+      "trendline",
+      "confluence",
+      "structure"
+    ],
+    "keywordsAr": [
+      "ترندلاين",
+      "تأكيد",
+      "هيكل"
+    ],
+    "durationMinutes": 38,
+    "estimatedDurationMinutes": 38,
+    "order": 3,
+    "lessonNumber": 3,
+    "category": "intermediate",
+    "status": "published",
+    "difficulty": "medium",
+    "xpReward": 130,
+    "thumbnail": "/images/course-risk.jpg",
+    "instructor": "Alpha Traders",
+    "tags": [
+      "Trendline",
+      "Confluence"
+    ],
+    "tagsAr": [
+      "ترندلاين",
+      "تأكيد"
+    ],
+    "assets": {
+      "videoProvider": "supabase",
+      "videoId": "",
+      "videoUrl": "/lesson-3-trendline.mp4",
+      "videoChapters": [
+        {
+          "id": "l103-c1",
+          "title": "Anchor Rules",
+          "titleAr": "قواعد نقاط الارتكاز",
+          "timeSeconds": 0
+        },
+        {
+          "id": "l103-c2",
+          "title": "Invalid Drawings",
+          "titleAr": "الرسوم غير الصحيحة",
+          "timeSeconds": 720
+        },
+        {
+          "id": "l103-c3",
+          "title": "Confluence Scenarios",
+          "titleAr": "سيناريوهات التأكيد",
+          "timeSeconds": 1440
+        }
+      ],
+      "pdfProvider": "custom-url",
+      "pdfFileId": "",
+      "pdfUrl": "/files/course/pdfs/trendline-precision.pdf",
+      "presentationUrl": "/files/course/alpha-traders-full-files-examples.pptx",
+      "notes": "Keep trendline objective by using fixed anchor criteria and structure validation.",
+      "notesAr": "حافظ على موضوعية الترندلاين عبر معايير ثابتة لنقاط الرسم وتأكيد هيكل السوق.",
+      "resources": [
+        {
+          "id": "l103-r1",
+          "label": "Trendline Lesson Video",
+          "labelAr": "فيديو درس الترندلاين",
+          "url": "/lesson-3-trendline.mp4",
+          "type": "link"
+        },
+        {
+          "id": "l103-rpdf",
+          "label": "Lesson Workbook (PDF)",
+          "labelAr": "كراسة الدرس (PDF)",
+          "url": "/files/course/pdfs/trendline-precision.pdf",
+          "type": "pdf"
+        }
+      ]
     },
-    {
-        "id":  "l106",
-        "courseId":  "c5",
-        "module":  "Module 6 - Full Strategy",
-        "moduleAr":  "Ø§Ù„ÙˆØ­Ø¯Ø© 6 - Ø§Ù„Ø§Ø³ØªØ±Ø§ØªÙŠØ¬ÙŠØ© Ø§Ù„ÙƒØ§Ù…Ù„Ø©",
-        "slug":  "full-strategy-time-frame-explained",
-        "title":  "Lesson 6 - Full Strategy Timeframe",
-        "titleAr":  "Lesson 6 - Full Strategy Timeframe",
-        "description":  "Complete strategy execution with multi-timeframe logic, session structure, entry timing, and risk discipline.",
-        "descriptionAr":  "ØªÙ†ÙÙŠØ° Ø§Ù„Ø§Ø³ØªØ±Ø§ØªÙŠØ¬ÙŠØ© Ø§Ù„ÙƒØ§Ù…Ù„Ø© Ø¨Ù…Ù†Ø·Ù‚ Ù…ØªØ¹Ø¯Ø¯ Ø§Ù„ÙØ±ÙŠÙ…Ø§Øª ÙˆÙ‡ÙŠÙƒÙ„ Ø§Ù„Ø¬Ù„Ø³Ø© ÙˆØªÙˆÙ‚ÙŠØª Ø§Ù„Ø¯Ø®ÙˆÙ„ ÙˆØ§Ù„Ø§Ù†Ø¶Ø¨Ø§Ø· ÙÙŠ Ø§Ù„Ù…Ø®Ø§Ø·Ø±Ø©.",
-        "summary":  "This capstone lesson unifies all prior modules into one practical strategy workflow from analysis to execution.",
-        "summaryAr":  "ÙŠÙˆØ­Ù‘Ø¯ Ù‡Ø°Ø§ Ø§Ù„Ø¯Ø±Ø³ Ø§Ù„Ø®ØªØ§Ù…ÙŠ Ø¬Ù…ÙŠØ¹ Ø§Ù„ÙˆØ­Ø¯Ø§Øª Ø§Ù„Ø³Ø§Ø¨Ù‚Ø© ÙÙŠ ØªØ¯ÙÙ‚ Ø§Ø³ØªØ±Ø§ØªÙŠØ¬ÙŠ Ø¹Ù…Ù„ÙŠ Ù…Ù† Ø§Ù„ØªØ­Ù„ÙŠÙ„ Ø­ØªÙ‰ Ø§Ù„ØªÙ†ÙÙŠØ°.",
-        "objectives":  [
-                           "Build a multi-timeframe bias model",
-                           "Define precise execution windows",
-                           "Apply complete risk-governed strategy"
-                       ],
-        "objectivesAr":  [
-                             "Ø¨Ù†Ø§Ø¡ Ù†Ù…ÙˆØ°Ø¬ Ø§Ù†Ø­ÙŠØ§Ø² Ù…ØªØ¹Ø¯Ø¯ Ø§Ù„ÙØ±ÙŠÙ…Ø§Øª",
-                             "ØªØ­Ø¯ÙŠØ¯ Ù†ÙˆØ§ÙØ° ØªÙ†ÙÙŠØ° Ø¯Ù‚ÙŠÙ‚Ø©",
-                             "ØªØ·Ø¨ÙŠÙ‚ Ø§Ù„Ø§Ø³ØªØ±Ø§ØªÙŠØ¬ÙŠØ© Ø§Ù„ÙƒØ§Ù…Ù„Ø© Ø¨Ø¥Ø¯Ø§Ø±Ø© Ù…Ø®Ø§Ø·Ø± Ù…Ù†Ø¶Ø¨Ø·Ø©"
-                         ],
-        "takeaways":  [
-                          "Top-down alignment improves consistency",
-                          "Execution must follow predefined rules",
-                          "Risk discipline protects long-term edge"
-                      ],
-        "takeawaysAr":  [
-                            "Ø§Ù„ØªÙˆØ§ÙÙ‚ Ù…Ù† Ø§Ù„ÙØ±ÙŠÙ… Ø§Ù„ÙƒØ¨ÙŠØ± Ù„Ù„ØµØºÙŠØ± ÙŠØ­Ø³Ù† Ø§Ù„Ø§ØªØ³Ø§Ù‚",
-                            "Ø§Ù„ØªÙ†ÙÙŠØ° ÙŠØ¬Ø¨ Ø£Ù† ÙŠØªØ¨Ø¹ Ù‚ÙˆØ§Ø¹Ø¯ Ù…Ø­Ø¯Ø¯Ø© Ù…Ø³Ø¨Ù‚Ø§Ù‹",
-                            "Ø§Ù†Ø¶Ø¨Ø§Ø· Ø§Ù„Ù…Ø®Ø§Ø·Ø±Ø© ÙŠØ­Ù…ÙŠ Ø§Ù„Ù…ÙŠØ²Ø© Ø¹Ù„Ù‰ Ø§Ù„Ù…Ø¯Ù‰ Ø§Ù„Ø·ÙˆÙŠÙ„"
-                        ],
-        "keywords":  [
-                         "full strategy",
-                         "timeframe",
-                         "execution",
-                         "risk"
-                     ],
-        "keywordsAr":  [
-                           "Ø§Ø³ØªØ±Ø§ØªÙŠØ¬ÙŠØ© ÙƒØ§Ù…Ù„Ø©",
-                           "ÙØ±ÙŠÙ…Ø§Øª",
-                           "ØªÙ†ÙÙŠØ°",
-                           "Ù…Ø®Ø§Ø·Ø±"
-                       ],
-        "durationMinutes":  68,
-        "estimatedDurationMinutes":  68,
-        "order":  6,
-        "lessonNumber":  6,
-        "category":  "advanced",
-        "status":  "published",
-        "difficulty":  "expert",
-        "xpReward":  220,
-        "thumbnail":  "/images/course-ict.jpg",
-        "instructor":  "Alpha Traders",
-        "tags":  [
-                     "Strategy",
-                     "Timeframe",
-                     "Execution"
-                 ],
-        "tagsAr":  [
-                       "Ø§Ø³ØªØ±Ø§ØªÙŠØ¬ÙŠØ©",
-                       "ÙØ±ÙŠÙ…Ø§Øª",
-                       "ØªÙ†ÙÙŠØ°"
-                   ],
-        "assets":  {
-                       "videoProvider":  "supabase",
-                       "videoId":  "",
-                       "videoUrl":  "/lesson-6-full-strategy-timeframe.mp4",
-                       "videoChapters":  [
-                                             {
-                                                 "id":  "l106-c1",
-                                                 "title":  "Top-Down Analysis",
-                                                 "titleAr":  "Ø§Ù„ØªØ­Ù„ÙŠÙ„ Ù…Ù† Ø§Ù„Ø£Ø¹Ù„Ù‰ Ù„Ù„Ø£Ø³ÙÙ„",
-                                                 "timeSeconds":  0
-                                             },
-                                             {
-                                                 "id":  "l106-c2",
-                                                 "title":  "Session and Entry Windows",
-                                                 "titleAr":  "Ø§Ù„Ø¬Ù„Ø³Ø§Øª ÙˆÙ†ÙˆØ§ÙØ° Ø§Ù„Ø¯Ø®ÙˆÙ„",
-                                                 "timeSeconds":  1260
-                                             },
-                                             {
-                                                 "id":  "l106-c3",
-                                                 "title":  "Full Execution Walkthrough",
-                                                 "titleAr":  "Ø´Ø±Ø­ Ø§Ù„ØªÙ†ÙÙŠØ° Ø§Ù„ÙƒØ§Ù…Ù„",
-                                                 "timeSeconds":  2820
-                                             }
-                                         ],
-                       "pdfProvider":  "custom-url",
-                       "pdfFileId":  "",
-                       "pdfUrl":  "/files/course/pdfs/full-strategy-time-frame-explained.pdf",
-                       "presentationUrl":  "/files/course/alpha-traders-full-files-examples.pptx",
-                       "notes":  "This is your complete strategy implementation lesson. Build your repeatable checklist from it.",
-                       "notesAr":  "Ù‡Ø°Ø§ Ù‡Ùˆ Ø¯Ø±Ø³ Ø§Ù„ØªØ·Ø¨ÙŠÙ‚ Ø§Ù„ÙƒØ§Ù…Ù„ Ù„Ù„Ø§Ø³ØªØ±Ø§ØªÙŠØ¬ÙŠØ©. Ø§Ø¨Ù†Ù Ù…Ù†Ù‡ Ù‚Ø§Ø¦Ù…Ø© ØªÙ†ÙÙŠØ° Ù…ØªÙƒØ±Ø±Ø© Ø®Ø§ØµØ© Ø¨Ùƒ.",
-                       "resources":  [
-                                         {
-                                             "id":  "l106-r1",
-                                             "label":  "Full Strategy Lesson Video",
-                                             "labelAr":  "ÙÙŠØ¯ÙŠÙˆ Ø§Ù„Ø§Ø³ØªØ±Ø§ØªÙŠØ¬ÙŠØ© Ø§Ù„ÙƒØ§Ù…Ù„Ø©",
-                                             "url":  "/lesson-6-full-strategy-timeframe.mp4",
-                                             "type":  "link"
-                                         },
-                                         {
-                                             "id":  "l106-rpdf",
-                                             "label":  "Lesson Workbook (PDF)",
-                                             "labelAr":  "كراسة الدرس (PDF)",
-                                             "url":  "/files/course/pdfs/full-strategy-time-frame-explained.pdf",
-                                             "type":  "pdf"
-                                         }
-                                     ]
-                   },
-        "quizSettings":  {
-                             "passingScore":  70,
-                             "randomizedOrder":  false,
-                             "instantFeedback":  true
-                         },
-        "quiz":  [
-                     {
-                         "id":  "l106-q1",
-                         "type":  "multiple-choice",
-                         "question":  "The main goal of multi-timeframe analysis is to:",
-                         "questionAr":  "الهدف الأساسي من التحليل متعدد الفريمات هو:",
-                         "options":  [
-                                         "Add more indicators",
-                                         "Align bias, setup, and execution timing",
-                                         "Trade every signal",
-                                         "Remove stop-loss usage"
-                                     ],
-                         "optionsAr":  [
-                                           "إضافة مؤشرات أكثر",
-                                           "مواءمة الانحياز والإعداد وتوقيت التنفيذ",
-                                           "تداول كل إشارة",
-                                           "إلغاء استخدام وقف الخسارة"
-                                       ],
-                         "correctIndex":  1,
-                         "explanation":  "Multi-timeframe workflow aligns context with precise execution.",
-                         "explanationAr":  "يساعد تعدد الفريمات على مواءمة السياق مع تنفيذ دقيق."
-                     },
-                     {
-                         "id":  "l106-q2",
-                         "type":  "multiple-choice",
-                         "question":  "A complete strategy should always include:",
-                         "questionAr":  "يجب أن تتضمن الاستراتيجية المتكاملة دائماً:",
-                         "options":  [
-                                         "Entry only",
-                                         "Entry, invalidation, risk, and exit plan",
-                                         "High leverage preset",
-                                         "One fixed indicator"
-                                     ],
-                         "optionsAr":  [
-                                           "الدخول فقط",
-                                           "الدخول والإلغاء والمخاطرة وخطة الخروج",
-                                           "إعداد رافعة عالية",
-                                           "مؤشر ثابت واحد"
-                                       ],
-                         "correctIndex":  1,
-                         "explanation":  "A complete plan defines both opportunity and risk boundaries.",
-                         "explanationAr":  "الخطة المتكاملة تحدد حدود الفرصة وحدود المخاطرة معاً."
-                     },
-                     {
-                         "id":  "l106-q3",
-                         "type":  "multiple-choice",
-                         "question":  "When should you move to the next lesson/trade phase?",
-                         "questionAr":  "متى يجب الانتقال للدرس التالي/مرحلة التداول التالية؟",
-                         "options":  [
-                                         "After one winning trade",
-                                         "After completing checklist and review",
-                                         "Immediately after entry",
-                                         "Without journaling"
-                                     ],
-                         "optionsAr":  [
-                                           "بعد صفقة رابحة واحدة",
-                                           "بعد إكمال قائمة التحقق والمراجعة",
-                                           "مباشرة بعد الدخول",
-                                           "بدون تدوين"
-                                       ],
-                         "correctIndex":  1,
-                         "explanation":  "Progress should be checklist-driven, not emotion-driven.",
-                         "explanationAr":  "يجب أن يكون التقدم قائماً على قائمة تحقق لا على العاطفة."
-                     }
-                 ]
-    }
+    "quizSettings": {
+      "passingScore": 70,
+      "randomizedOrder": false,
+      "instantFeedback": true
+    },
+    "quiz": [
+      {
+        "id": "l103-q1",
+        "type": "multiple-choice",
+        "question": "What makes a trendline valid?",
+        "questionAr": "ما الذي يجعل الترندلاين صالحاً؟",
+        "options": [
+          "Any two random points",
+          "Clear swing anchors with structure context",
+          "Only steep angle",
+          "Touching every candle"
+        ],
+        "optionsAr": [
+          "أي نقطتين عشوائيتين",
+          "نقاط ارتكاز واضحة ضمن هيكل السوق",
+          "زاوية حادة فقط",
+          "ملامسة كل شمعة"
+        ],
+        "correctIndex": 1,
+        "explanation": "Trendlines are valid when anchored to meaningful swing structure.",
+        "explanationAr": "يكون الترندلاين صالحاً عند ربطه بنقاط ارتكاز ذات معنى هيكلي."
+      },
+      {
+        "id": "l103-q2",
+        "type": "multiple-choice",
+        "question": "A trendline break is actionable when:",
+        "questionAr": "يصبح كسر الترندلاين قابلاً للتنفيذ عندما:",
+        "options": [
+          "It happens once",
+          "It is confirmed with structure and retest behavior",
+          "Volume is unknown",
+          "Price moves quickly only"
+        ],
+        "optionsAr": [
+          "يحدث مرة واحدة",
+          "يتأكد بالهيكل وسلوك إعادة الاختبار",
+          "الحجم غير معروف",
+          "السعر يتحرك بسرعة فقط"
+        ],
+        "correctIndex": 1,
+        "explanation": "Break + structural confirmation reduces false entries.",
+        "explanationAr": "الكسر مع تأكيد هيكلي يقلل الدخولات الخاطئة."
+      },
+      {
+        "id": "l103-q3",
+        "type": "multiple-choice",
+        "question": "What is the main role of trendline in this course?",
+        "questionAr": "ما الدور الأساسي للترندلاين في هذه الدورة؟",
+        "options": [
+          "Standalone entry signal",
+          "Confluence tool with other confirmations",
+          "Replacement for risk rules",
+          "Automatic TP/SL rule"
+        ],
+        "optionsAr": [
+          "إشارة دخول مستقلة",
+          "أداة تأكيد مع عناصر أخرى",
+          "بديل لقواعد المخاطر",
+          "قاعدة تلقائية للهدف والوقف"
+        ],
+        "correctIndex": 1,
+        "explanation": "Trendline is a confluence element, not a standalone trigger.",
+        "explanationAr": "الترندلاين عنصر تأكيد وليس محفزاً مستقلاً."
+      }
+    ]
+  },
+  {
+    "id": "l104",
+    "courseId": "c5",
+    "module": "Module 4 - Support & Resistance",
+    "moduleAr": "الوحدة 4 - الدعم والمقاومة",
+    "slug": "support-resistance-engine",
+    "title": "Lesson 4 - Support Resistance",
+    "titleAr": "الدرس 4 - الدعم والمقاومة",
+    "description": "Build reliable support and resistance zones and apply them with confidence and risk control.",
+    "descriptionAr": "بناء مناطق دعم ومقاومة موثوقة وتطبيقها بثقة مع إدارة مخاطر منضبطة.",
+    "summary": "This lesson focuses on zone quality, reaction behavior, and practical entry timing around key levels.",
+    "summaryAr": "يركز هذا الدرس على جودة المناطق وسلوك التفاعل وتوقيت الدخول العملي حول المستويات المهمة.",
+    "objectives": [
+      "Mark high-quality zones only",
+      "Read reaction strength and failure",
+      "Integrate levels with execution plan"
+    ],
+    "objectivesAr": [
+      "تحديد المناطق عالية الجودة فقط",
+      "قراءة قوة التفاعل أو فشل المنطقة",
+      "دمج المستويات ضمن خطة التنفيذ"
+    ],
+    "takeaways": [
+      "Zone quality beats zone quantity",
+      "Retests must be judged by reaction, not assumption",
+      "Risk is defined before entry"
+    ],
+    "takeawaysAr": [
+      "جودة المناطق أهم من كثرتها",
+      "إعادة الاختبار تُقاس بالتفاعل لا بالافتراض",
+      "المخاطرة تُحدد قبل الدخول"
+    ],
+    "keywords": [
+      "support",
+      "resistance",
+      "zones",
+      "reaction"
+    ],
+    "keywordsAr": [
+      "دعم",
+      "مقاومة",
+      "مناطق",
+      "تفاعل"
+    ],
+    "durationMinutes": 41,
+    "estimatedDurationMinutes": 41,
+    "order": 4,
+    "lessonNumber": 4,
+    "category": "intermediate",
+    "status": "published",
+    "difficulty": "medium",
+    "xpReward": 140,
+    "thumbnail": "/images/course-risk.jpg",
+    "instructor": "Alpha Traders",
+    "tags": [
+      "Support",
+      "Resistance",
+      "Zones"
+    ],
+    "tagsAr": [
+      "دعم",
+      "مقاومة",
+      "مناطق"
+    ],
+    "assets": {
+      "videoProvider": "supabase",
+      "videoId": "",
+      "videoUrl": "/lesson-4-support-resistance.mp4",
+      "videoChapters": [
+        {
+          "id": "l104-c1",
+          "title": "Zone Selection",
+          "titleAr": "اختيار المناطق",
+          "timeSeconds": 0
+        },
+        {
+          "id": "l104-c2",
+          "title": "Reaction Reading",
+          "titleAr": "قراءة التفاعل",
+          "timeSeconds": 840
+        },
+        {
+          "id": "l104-c3",
+          "title": "Risk Placement",
+          "titleAr": "تحديد المخاطرة",
+          "timeSeconds": 1710
+        }
+      ],
+      "pdfProvider": "custom-url",
+      "pdfFileId": "",
+      "pdfUrl": "/files/course/pdfs/support-resistance-engine.pdf",
+      "presentationUrl": "/files/course/alpha-traders-full-files-examples.pptx",
+      "notes": "Treat levels as zones with reaction criteria, never exact single lines.",
+      "notesAr": "تعامل مع المستويات كمناطق ذات معايير تفاعل وليس كخطوط دقيقة ثابتة.",
+      "resources": [
+        {
+          "id": "l104-r1",
+          "label": "Support & Resistance Lesson Video",
+          "labelAr": "فيديو درس الدعم والمقاومة",
+          "url": "/lesson-4-support-resistance.mp4",
+          "type": "link"
+        },
+        {
+          "id": "l104-rpdf",
+          "label": "Lesson Workbook (PDF)",
+          "labelAr": "كراسة الدرس (PDF)",
+          "url": "/files/course/pdfs/support-resistance-engine.pdf",
+          "type": "pdf"
+        }
+      ]
+    },
+    "quizSettings": {
+      "passingScore": 70,
+      "randomizedOrder": false,
+      "instantFeedback": true
+    },
+    "quiz": [
+      {
+        "id": "l104-q1",
+        "type": "multiple-choice",
+        "question": "How should support and resistance zones be treated?",
+        "questionAr": "كيف يجب التعامل مع مناطق الدعم والمقاومة؟",
+        "options": [
+          "As exact lines only",
+          "As reaction zones with context",
+          "As guaranteed reversal points",
+          "As ignored areas"
+        ],
+        "optionsAr": [
+          "كخطوط دقيقة فقط",
+          "كمناطق تفاعل ضمن السياق",
+          "كنقاط انعكاس مؤكدة",
+          "كمناطق يتم تجاهلها"
+        ],
+        "correctIndex": 1,
+        "explanation": "Zones are reaction areas; context decides execution quality.",
+        "explanationAr": "المناطق هي نطاقات تفاعل والسياق يحدد جودة التنفيذ."
+      },
+      {
+        "id": "l104-q2",
+        "type": "multiple-choice",
+        "question": "A strong level setup usually includes:",
+        "questionAr": "إعداد مستوى قوي يتضمن غالباً:",
+        "options": [
+          "No confirmation needed",
+          "Rejection + structure + risk plan",
+          "High leverage only",
+          "One timeframe glance"
+        ],
+        "optionsAr": [
+          "لا يحتاج تأكيد",
+          "رفض + هيكل + خطة مخاطرة",
+          "رافعة عالية فقط",
+          "نظرة سريعة على فريم واحد"
+        ],
+        "correctIndex": 1,
+        "explanation": "Confluence and risk discipline are required for quality setups.",
+        "explanationAr": "التأكيدات والانضباط في المخاطر ضروريان لإعدادات قوية."
+      },
+      {
+        "id": "l104-q3",
+        "type": "multiple-choice",
+        "question": "What weakens a level-based entry?",
+        "questionAr": "ما الذي يضعف دخولاً مبنياً على مستوى؟",
+        "options": [
+          "Waiting for confirmation",
+          "Ignoring market context",
+          "Using stop-loss",
+          "Reviewing multiple timeframes"
+        ],
+        "optionsAr": [
+          "انتظار التأكيد",
+          "تجاهل سياق السوق",
+          "استخدام وقف الخسارة",
+          "مراجعة عدة فريمات"
+        ],
+        "correctIndex": 1,
+        "explanation": "Ignoring context increases false reactions and failed entries.",
+        "explanationAr": "تجاهل السياق يزيد التفاعلات الخاطئة والدخولات الفاشلة."
+      }
+    ]
+  },
+  {
+    "id": "l105",
+    "courseId": "c5",
+    "module": "Module 5 - Chart Patterns + RSI",
+    "moduleAr": "الوحدة 5 - النماذج + RSI",
+    "slug": "chart-patterns-rsi-integration",
+    "title": "Lesson 5 - Chart Pattern RSI",
+    "titleAr": "الدرس 5 - النماذج الفنية ومؤشر RSI",
+    "description": "Use chart patterns with RSI as a confirmation layer without overfitting or indicator dependency.",
+    "descriptionAr": "استخدام النماذج السعرية مع RSI كطبقة تأكيد بدون مبالغة أو اعتماد كامل على المؤشر.",
+    "summary": "This lesson teaches practical confluence between structure, pattern behavior, and RSI momentum context.",
+    "summaryAr": "يعلمك هذا الدرس دمجاً عملياً بين الهيكل السعري وسلوك النماذج وسياق زخم RSI.",
+    "objectives": [
+      "Identify valid chart pattern context",
+      "Use RSI for confirmation not prediction",
+      "Avoid common pattern/indicator traps"
+    ],
+    "objectivesAr": [
+      "تحديد سياق النماذج الصحيحة",
+      "استخدام RSI للتأكيد لا للتنبؤ",
+      "تجنب أخطاء شائعة في النماذج والمؤشرات"
+    ],
+    "takeaways": [
+      "Pattern quality depends on context",
+      "RSI adds confidence when aligned with structure",
+      "Execution should remain risk-first"
+    ],
+    "takeawaysAr": [
+      "جودة النموذج مرتبطة بالسياق",
+      "RSI يزيد الثقة عند توافقه مع الهيكل",
+      "التنفيذ يجب أن يبقى مبنياً على المخاطرة أولاً"
+    ],
+    "keywords": [
+      "chart patterns",
+      "RSI",
+      "confluence",
+      "momentum"
+    ],
+    "keywordsAr": [
+      "نماذج سعرية",
+      "RSI",
+      "تأكيد",
+      "زخم"
+    ],
+    "durationMinutes": 56,
+    "estimatedDurationMinutes": 56,
+    "order": 5,
+    "lessonNumber": 5,
+    "category": "advanced",
+    "status": "published",
+    "difficulty": "hard",
+    "xpReward": 170,
+    "thumbnail": "/images/course-ict.jpg",
+    "instructor": "Alpha Traders",
+    "tags": [
+      "Patterns",
+      "RSI",
+      "Confluence"
+    ],
+    "tagsAr": [
+      "نماذج",
+      "RSI",
+      "تأكيد"
+    ],
+    "assets": {
+      "videoProvider": "supabase",
+      "videoId": "",
+      "videoUrl": "/lesson-5-chart-pattern-rsi.mp4",
+      "videoChapters": [
+        {
+          "id": "l105-c1",
+          "title": "Pattern Validation",
+          "titleAr": "تأكيد النموذج",
+          "timeSeconds": 0
+        },
+        {
+          "id": "l105-c2",
+          "title": "RSI Context",
+          "titleAr": "سياق RSI",
+          "timeSeconds": 1020
+        },
+        {
+          "id": "l105-c3",
+          "title": "Execution Cases",
+          "titleAr": "حالات التنفيذ",
+          "timeSeconds": 2310
+        }
+      ],
+      "pdfProvider": "custom-url",
+      "pdfFileId": "",
+      "pdfUrl": "/files/course/pdfs/chart-patterns-rsi-integration.pdf",
+      "presentationUrl": "/files/course/alpha-traders-full-files-examples.pptx",
+      "notes": "Use RSI as confirmation aligned with structure and pattern quality.",
+      "notesAr": "استخدم RSI كأداة تأكيد متوافقة مع الهيكل وجودة النموذج.",
+      "resources": [
+        {
+          "id": "l105-r1",
+          "label": "Chart Patterns + RSI Lesson Video",
+          "labelAr": "فيديو النماذج + RSI",
+          "url": "/lesson-5-chart-pattern-rsi.mp4",
+          "type": "link"
+        },
+        {
+          "id": "l105-rpdf",
+          "label": "Lesson Workbook (PDF)",
+          "labelAr": "كراسة الدرس (PDF)",
+          "url": "/files/course/pdfs/chart-patterns-rsi-integration.pdf",
+          "type": "pdf"
+        }
+      ]
+    },
+    "quizSettings": {
+      "passingScore": 70,
+      "randomizedOrder": false,
+      "instantFeedback": true
+    },
+    "quiz": [
+      {
+        "id": "l105-q1",
+        "type": "multiple-choice",
+        "question": "In this lesson, RSI is used primarily to:",
+        "questionAr": "في هذا الدرس، يستخدم RSI بشكل أساسي من أجل:",
+        "options": [
+          "Replace price action",
+          "Confirm pattern momentum context",
+          "Predict exact tops/bottoms",
+          "Set leverage size"
+        ],
+        "optionsAr": [
+          "استبدال حركة السعر",
+          "تأكيد سياق زخم النموذج",
+          "توقع القمم والقيعان بدقة",
+          "تحديد الرافعة"
+        ],
+        "correctIndex": 1,
+        "explanation": "RSI is used as a confirmation layer, not as a standalone signal.",
+        "explanationAr": "يُستخدم RSI كطبقة تأكيد وليس كإشارة مستقلة."
+      },
+      {
+        "id": "l105-q2",
+        "type": "multiple-choice",
+        "question": "A chart pattern is strongest when:",
+        "questionAr": "يكون النموذج الفني أقوى عندما:",
+        "options": [
+          "Seen without context",
+          "Aligned with structure and confirmation",
+          "Appears on one random candle",
+          "Used without risk limits"
+        ],
+        "optionsAr": [
+          "يُرى بدون سياق",
+          "يتوافق مع الهيكل وعناصر التأكيد",
+          "يظهر على شمعة عشوائية واحدة",
+          "يُستخدم بدون حدود مخاطرة"
+        ],
+        "correctIndex": 1,
+        "explanation": "Patterns gain reliability when aligned with broader structure context.",
+        "explanationAr": "تزداد موثوقية النماذج عند توافقها مع السياق الهيكلي العام."
+      },
+      {
+        "id": "l105-q3",
+        "type": "multiple-choice",
+        "question": "What is the safest execution approach for patterns?",
+        "questionAr": "ما الأسلوب الأكثر أماناً لتنفيذ النماذج؟",
+        "options": [
+          "Immediate market entry always",
+          "Wait for confirmation and predefined risk",
+          "Increase size after losses",
+          "Ignore invalidation levels"
+        ],
+        "optionsAr": [
+          "الدخول الفوري دائماً",
+          "انتظار التأكيد مع مخاطرة محددة مسبقاً",
+          "زيادة الحجم بعد الخسائر",
+          "تجاهل مستويات الإلغاء"
+        ],
+        "correctIndex": 1,
+        "explanation": "Confirmation + fixed risk improves consistency and survivability.",
+        "explanationAr": "التأكيد مع مخاطرة ثابتة يحسن الاتساق والاستمرارية."
+      }
+    ]
+  },
+  {
+    "id": "l106",
+    "courseId": "c5",
+    "module": "Module 6 - Full Strategy",
+    "moduleAr": "الوحدة 6 - الاستراتيجية الكاملة",
+    "slug": "full-strategy-time-frame-explained",
+    "title": "Lesson 6 - Full Strategy Timeframe",
+    "titleAr": "الدرس 6 - الاستراتيجية الكاملة والفريمات الزمنية",
+    "description": "Complete strategy execution with multi-timeframe logic, session structure, entry timing, and risk discipline.",
+    "descriptionAr": "تنفيذ الاستراتيجية الكاملة بمنطق متعدد الفريمات وهيكل الجلسة وتوقيت الدخول والانضباط في المخاطرة.",
+    "summary": "This capstone lesson unifies all prior modules into one practical strategy workflow from analysis to execution.",
+    "summaryAr": "يوحّد هذا الدرس الختامي جميع الوحدات السابقة في تدفق استراتيجي عملي من التحليل حتى التنفيذ.",
+    "objectives": [
+      "Build a multi-timeframe bias model",
+      "Define precise execution windows",
+      "Apply complete risk-governed strategy"
+    ],
+    "objectivesAr": [
+      "بناء نموذج انحياز متعدد الفريمات",
+      "تحديد نوافذ تنفيذ دقيقة",
+      "تطبيق الاستراتيجية الكاملة بإدارة مخاطر منضبطة"
+    ],
+    "takeaways": [
+      "Top-down alignment improves consistency",
+      "Execution must follow predefined rules",
+      "Risk discipline protects long-term edge"
+    ],
+    "takeawaysAr": [
+      "التوافق من الفريم الكبير للصغير يحسن الاتساق",
+      "التنفيذ يجب أن يتبع قواعد محددة مسبقاً",
+      "انضباط المخاطرة يحمي الميزة على المدى الطويل"
+    ],
+    "keywords": [
+      "full strategy",
+      "timeframe",
+      "execution",
+      "risk"
+    ],
+    "keywordsAr": [
+      "استراتيجية كاملة",
+      "فريمات",
+      "تنفيذ",
+      "مخاطر"
+    ],
+    "durationMinutes": 68,
+    "estimatedDurationMinutes": 68,
+    "order": 6,
+    "lessonNumber": 6,
+    "category": "advanced",
+    "status": "published",
+    "difficulty": "expert",
+    "xpReward": 220,
+    "thumbnail": "/images/course-ict.jpg",
+    "instructor": "Alpha Traders",
+    "tags": [
+      "Strategy",
+      "Timeframe",
+      "Execution"
+    ],
+    "tagsAr": [
+      "استراتيجية",
+      "فريمات",
+      "تنفيذ"
+    ],
+    "assets": {
+      "videoProvider": "supabase",
+      "videoId": "",
+      "videoUrl": "/lesson-6-full-strategy-timeframe.mp4",
+      "videoChapters": [
+        {
+          "id": "l106-c1",
+          "title": "Top-Down Analysis",
+          "titleAr": "التحليل من الأعلى للأسفل",
+          "timeSeconds": 0
+        },
+        {
+          "id": "l106-c2",
+          "title": "Session and Entry Windows",
+          "titleAr": "الجلسات ونوافذ الدخول",
+          "timeSeconds": 1260
+        },
+        {
+          "id": "l106-c3",
+          "title": "Full Execution Walkthrough",
+          "titleAr": "شرح التنفيذ الكامل",
+          "timeSeconds": 2820
+        }
+      ],
+      "pdfProvider": "custom-url",
+      "pdfFileId": "",
+      "pdfUrl": "/files/course/pdfs/full-strategy-time-frame-explained.pdf",
+      "presentationUrl": "/files/course/alpha-traders-full-files-examples.pptx",
+      "notes": "This is your complete strategy implementation lesson. Build your repeatable checklist from it.",
+      "notesAr": "هذا هو درس التطبيق الكامل للاستراتيجية. ابنِ منه قائمة تنفيذ متكررة خاصة بك.",
+      "resources": [
+        {
+          "id": "l106-r1",
+          "label": "Full Strategy Lesson Video",
+          "labelAr": "فيديو الاستراتيجية الكاملة",
+          "url": "/lesson-6-full-strategy-timeframe.mp4",
+          "type": "link"
+        },
+        {
+          "id": "l106-rpdf",
+          "label": "Lesson Workbook (PDF)",
+          "labelAr": "كراسة الدرس (PDF)",
+          "url": "/files/course/pdfs/full-strategy-time-frame-explained.pdf",
+          "type": "pdf"
+        }
+      ]
+    },
+    "quizSettings": {
+      "passingScore": 70,
+      "randomizedOrder": false,
+      "instantFeedback": true
+    },
+    "quiz": [
+      {
+        "id": "l106-q1",
+        "type": "multiple-choice",
+        "question": "The main goal of multi-timeframe analysis is to:",
+        "questionAr": "الهدف الأساسي من التحليل متعدد الفريمات هو:",
+        "options": [
+          "Add more indicators",
+          "Align bias, setup, and execution timing",
+          "Trade every signal",
+          "Remove stop-loss usage"
+        ],
+        "optionsAr": [
+          "إضافة مؤشرات أكثر",
+          "مواءمة الانحياز والإعداد وتوقيت التنفيذ",
+          "تداول كل إشارة",
+          "إلغاء استخدام وقف الخسارة"
+        ],
+        "correctIndex": 1,
+        "explanation": "Multi-timeframe workflow aligns context with precise execution.",
+        "explanationAr": "يساعد تعدد الفريمات على مواءمة السياق مع تنفيذ دقيق."
+      },
+      {
+        "id": "l106-q2",
+        "type": "multiple-choice",
+        "question": "A complete strategy should always include:",
+        "questionAr": "يجب أن تتضمن الاستراتيجية المتكاملة دائماً:",
+        "options": [
+          "Entry only",
+          "Entry, invalidation, risk, and exit plan",
+          "High leverage preset",
+          "One fixed indicator"
+        ],
+        "optionsAr": [
+          "الدخول فقط",
+          "الدخول والإلغاء والمخاطرة وخطة الخروج",
+          "إعداد رافعة عالية",
+          "مؤشر ثابت واحد"
+        ],
+        "correctIndex": 1,
+        "explanation": "A complete plan defines both opportunity and risk boundaries.",
+        "explanationAr": "الخطة المتكاملة تحدد حدود الفرصة وحدود المخاطرة معاً."
+      },
+      {
+        "id": "l106-q3",
+        "type": "multiple-choice",
+        "question": "When should you move to the next lesson/trade phase?",
+        "questionAr": "متى يجب الانتقال للدرس التالي/مرحلة التداول التالية؟",
+        "options": [
+          "After one winning trade",
+          "After completing checklist and review",
+          "Immediately after entry",
+          "Without journaling"
+        ],
+        "optionsAr": [
+          "بعد صفقة رابحة واحدة",
+          "بعد إكمال قائمة التحقق والمراجعة",
+          "مباشرة بعد الدخول",
+          "بدون تدوين"
+        ],
+        "correctIndex": 1,
+        "explanation": "Progress should be checklist-driven, not emotion-driven.",
+        "explanationAr": "يجب أن يكون التقدم قائماً على قائمة تحقق لا على العاطفة."
+      }
+    ]
+  }
 ]

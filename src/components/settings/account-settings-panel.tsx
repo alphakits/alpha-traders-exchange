@@ -448,7 +448,7 @@ export function AccountSettingsPanel({
         if (!response.ok) {
           const data = await response.json().catch(() => ({}));
           setNotifChannels((current) => ({ ...current, sms: current.sms && !phoneVerified ? false : current.sms }));
-          setPhoneMessage(typeof data.error === "string" ? data.error : "Failed to save notification preference.");
+          setPhoneMessage(isAr ? "تعذر حفظ تفضيلات الإشعارات." : (typeof data.error === "string" ? data.error : "Failed to save notification preference."));
         }
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") return;
@@ -461,7 +461,7 @@ export function AccountSettingsPanel({
   async function sendPhoneCode() {
     const response = await fetch("/api/alpha-exchange/phone/send-code", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone }) });
     const data = await response.json().catch(() => ({}));
-    setPhoneMessage(response.ok ? "Verification code sent." : (data.error ?? "Unable to send code."));
+    setPhoneMessage(response.ok ? (isAr ? "تم إرسال رمز التحقق." : "Verification code sent.") : (isAr ? "تعذر إرسال الرمز." : (data.error ?? "Unable to send code.")));
   }
 
   async function verifyPhoneCode() {
@@ -469,9 +469,9 @@ export function AccountSettingsPanel({
     const data = await response.json().catch(() => ({}));
     if (response.ok) {
       setPhoneVerified(true);
-      setPhoneMessage("Phone verified. You can now enable SMS notifications.");
+      setPhoneMessage(isAr ? "تم توثيق رقم الهاتف. يمكنك الآن تفعيل إشعارات SMS." : "Phone verified. You can now enable SMS notifications.");
     } else {
-      setPhoneMessage(data.error ?? "Unable to verify code.");
+      setPhoneMessage(isAr ? "تعذر التحقق من الرمز." : (data.error ?? "Unable to verify code."));
     }
   }
 
@@ -958,7 +958,7 @@ export function AccountSettingsPanel({
                     checked={notifChannels.sms}
                     onChange={(v) => {
                       if (v && !phoneVerified) {
-                        setPhoneMessage("Verify your phone number before enabling SMS notifications.");
+                        setPhoneMessage(isAr ? "وثّق رقم هاتفك قبل تفعيل إشعارات SMS." : "Verify your phone number before enabling SMS notifications.");
                         return;
                       }
                       void saveNotificationChannels({ ...notifChannels, sms: v });
@@ -966,12 +966,12 @@ export function AccountSettingsPanel({
                   />
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-2">
-                  <p className="text-sm text-[#D1D5DB]">{phoneVerified ? "Phone verified for SMS notifications." : "Verify an E.164 phone number to enable SMS notifications."}</p>
+                  <p className="text-sm text-[#D1D5DB]">{phoneVerified ? (isAr ? "رقم الهاتف موثّق لإشعارات SMS." : "Phone verified for SMS notifications.") : (isAr ? "وثّق رقم هاتف بالصيغة الدولية لتفعيل إشعارات SMS." : "Verify an E.164 phone number to enable SMS notifications.")}</p>
                   {!phoneVerified && <div className="flex flex-wrap gap-2">
                     <Input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+15551234567" className="max-w-xs" />
-                    <Button type="button" variant="secondary" onClick={() => void sendPhoneCode()}>Send code</Button>
-                    <Input value={phoneCode} onChange={(event) => setPhoneCode(event.target.value)} placeholder="6-digit code" className="max-w-36" />
-                    <Button type="button" onClick={() => void verifyPhoneCode()}>Verify</Button>
+                    <Button type="button" variant="secondary" onClick={() => void sendPhoneCode()}>{isAr ? "إرسال الرمز" : "Send code"}</Button>
+                    <Input value={phoneCode} onChange={(event) => setPhoneCode(event.target.value)} placeholder={isAr ? "رمز من 6 أرقام" : "6-digit code"} className="max-w-36" />
+                    <Button type="button" onClick={() => void verifyPhoneCode()}>{isAr ? "تحقق" : "Verify"}</Button>
                   </div>}
                   {phoneMessage && <p className="text-xs text-[#C9A227]">{phoneMessage}</p>}
                 </div>

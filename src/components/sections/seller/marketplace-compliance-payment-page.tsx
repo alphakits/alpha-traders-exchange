@@ -34,17 +34,17 @@ export function MarketplaceCompliancePaymentPage({ locale }: { locale: "ar" | "e
         const response = await fetch("/api/alpha-exchange/seller/compliance-payment", { cache: "no-store" });
         const data = (await response.json()) as Payload & { error?: string };
         if (!response.ok) {
-          setError(data.error ?? "Failed to load compliance payment details.");
+          setError(isAr ? "تعذر تحميل تفاصيل دفع الامتثال." : (data.error ?? "Failed to load compliance payment details."));
           return;
         }
         setStatus(data.enforcement);
       } catch {
-        setError("Failed to load compliance payment details.");
+        setError(isAr ? "تعذر تحميل تفاصيل دفع الامتثال." : "Failed to load compliance payment details.");
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [isAr]);
 
   useEffect(() => {
     if (!activeRecord?.recoveryPaymentQrPayload) {

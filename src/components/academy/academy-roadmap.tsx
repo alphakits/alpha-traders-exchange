@@ -7,6 +7,7 @@ import { Link } from "@/i18n/navigation";
 import { courses, getLessonsByCourse } from "@/lib/content";
 import { getAllLessonProgress, getCourseProgressPercent } from "@/lib/learning-progress";
 import type { AcademyLevel } from "@/types/academy";
+import { formatAcademyLevel } from "@/lib/academy-localization";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 
@@ -63,7 +64,7 @@ export function AcademyRoadmap() {
               return (
                 <Card key={course.id} className="relative overflow-hidden">
                   <CardHeader>
-                    <CardDescription>{course.level.toUpperCase()}</CardDescription>
+                    <CardDescription>{formatAcademyLevel(course.level, isAr ? "ar" : "en")}</CardDescription>
                     <CardTitle>{isAr ? course.titleAr : course.title}</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
