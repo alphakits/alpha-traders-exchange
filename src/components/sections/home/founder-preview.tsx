@@ -26,7 +26,7 @@ const fadeUp: import("framer-motion").Variants = {
 // ---------------------------------------------------------------------------
 const BULLETS = [
   { en: "Professional Education", ar: "تعليم احترافي" },
-  { en: "Verified Marketplace", ar: "سوق موثوق" },
+  { en: "Structured Marketplace", ar: "سوق منظم" },
   { en: "Community First", ar: "المجتمع أولاً" },
 ];
 
@@ -119,8 +119,8 @@ export function FounderPreview() {
             className="max-w-lg text-sm leading-7 text-[#9CA3AF]"
           >
             {isRtl
-              ? "تم إنشاء Alpha Traders لمساعدة المتداولين على التعلم باحتراف والتداول بأمان من خلال سوق موثوق يركز على الشفافية والتعليم والنمو على المدى الطويل."
-              : "Alpha Traders was created to help traders learn professionally and trade safely through a trusted marketplace focused on transparency, education, and long-term growth."}
+              ? "تم إنشاء Alpha Traders لمساعدة المتداولين على التعلم باحتراف واستخدام سوق منظم يركز على الشفافية والتعليم والنمو على المدى الطويل."
+              : "Alpha Traders was created to help traders learn professionally and use a structured marketplace focused on transparency, education, and long-term growth."}
           </motion.p>
 
           {/* Bullets */}

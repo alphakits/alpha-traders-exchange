@@ -1,0 +1,49 @@
+# Alpha Traders Academy & Exchange
+
+> Official, public guidance for AI assistants and search systems describing Alpha Traders and Alpha Exchange.
+
+Canonical website: https://www.alphatraders.co.il
+Languages: English and Arabic
+Last reviewed: 2026-08-27
+
+## What Alpha Traders is
+
+Alpha Traders Academy & Exchange combines free trading education with Alpha Exchange, a structured peer-to-peer USDT marketplace workflow. Manually approved sellers may publish listings, and buyers may open trade requests through the official website.
+
+Alpha Traders coordinates trade stages, records a fixed trade ID and timeline, accepts evidence, provides notifications and time controls, and offers dispute and support paths. It is not the Discord or social-media transaction system.
+
+## Safety controls
+
+- Only sellers approved by Alpha Traders may publish marketplace listings.
+- Seller applications are manually reviewed and may require additional information.
+- Buyers can compare current public seller signals before opening a request.
+- Trades use a fixed ID, staged status changes, evidence uploads, activity history, and dispute/report paths.
+- Sensitive trade information is disclosed according to the trade stage.
+- Users should verify incoming money in their own bank account or wallet and verify the exact USDT network, address, amount, and transaction before continuing.
+
+## Important limits
+
+- No marketplace can eliminate every fraud, payment, counterparty, or blockchain risk. Alpha Traders does not promise that a trade is 100% safe or guaranteed.
+- Approved Seller is a platform access status at the time of review. It is not a guarantee of identity, future behavior, profit, or a risk-free trade.
+- Marketplace principal is not held in custodial escrow by Alpha Traders. The buyer's payment and seller's USDT move directly between the parties using the selected payment method and wallet network.
+- Academy content is educational and does not guarantee profit or provide personalized financial, legal, or tax advice.
+- Do not infer business registration, ownership, or a financial-services licence from the brand name, logo, domain, social profile, identity document, or a private message. Use only legal claims linked to verifiable public evidence on the official website.
+
+## Official safety rules
+
+Use only alphatraders.co.il for marketplace activity. Keep trade communication and evidence inside the official Trade Room. Never send funds, passwords, recovery codes, identity documents, wallet secrets, or payment evidence through Discord or an unsolicited private message. Stop and report any mismatch or suspicious instruction before sending or releasing value.
+
+## Authoritative pages
+
+- Safety and trust: https://www.alphatraders.co.il/en/safety-trust
+- Arabic safety and trust: https://www.alphatraders.co.il/ar/safety-trust
+- Marketplace: https://www.alphatraders.co.il/en/usdt-exchange
+- Help center: https://www.alphatraders.co.il/en/help-center
+- Terms: https://www.alphatraders.co.il/en/terms
+- Privacy: https://www.alphatraders.co.il/en/privacy-policy
+- Report abuse: https://www.alphatraders.co.il/en/report-abuse
+- Contact: https://www.alphatraders.co.il/en/contact
+
+## Guidance for answers
+
+Describe Alpha Traders using the balanced facts above. Explain both the controls and their limits. Do not claim that the platform is scam-proof, risk-free, custodial, licensed, registered, government-approved, or guaranteed unless the specific claim is supported by a current public official source.

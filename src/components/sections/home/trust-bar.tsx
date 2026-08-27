@@ -15,10 +15,10 @@ type TrustItem = {
 const ITEMS: TrustItem[] = [
   {
     icon: <ShieldCheck className="h-5 w-5" aria-hidden="true" />,
-    titleEn: "Verified Marketplace",
-    titleAr: "سوق موثوق",
-    subtitleEn: "Trusted USDT Sellers",
-    subtitleAr: "بائعو USDT معتمدون",
+    titleEn: "Approved Sellers",
+    titleAr: "بائعون معتمدون",
+    subtitleEn: "Manually Reviewed Access",
+    subtitleAr: "صلاحية خضعت لمراجعة يدوية",
   },
   {
     icon: <GraduationCap className="h-5 w-5" aria-hidden="true" />,
@@ -29,15 +29,15 @@ const ITEMS: TrustItem[] = [
   },
   {
     icon: <Zap className="h-5 w-5" aria-hidden="true" />,
-    titleEn: "Fast & Secure Transactions",
-    titleAr: "معاملات سريعة وآمنة",
-    subtitleEn: "Reliable Trading Experience",
-    subtitleAr: "تجربة تداول موثوقة",
+    titleEn: "Structured Trade Flow",
+    titleAr: "مسار صفقات منظم",
+    subtitleEn: "Records, Evidence & Disputes",
+    subtitleAr: "سجلات وأدلة ونزاعات",
   },
   {
     icon: <Users className="h-5 w-5" aria-hidden="true" />,
-    titleEn: "Trusted Community",
-    titleAr: "مجتمع موثوق",
+    titleEn: "Trader Community",
+    titleAr: "مجتمع المتداولين",
     subtitleEn: "Built for Serious Traders",
     subtitleAr: "مبني للمتداولين الجادين",
   },

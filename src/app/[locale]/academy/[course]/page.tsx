@@ -100,7 +100,7 @@ export default async function CoursePage({ params }: { params: Promise<{ locale:
           <p className="text-sm text-[#9CA3AF]">
             {isAr
               ? "بعد إنهاء هذا المسار، يمكنك الدخول إلى Alpha Exchange للتداول مع بائعين موثوقين ضمن دورة صفقة واضحة وإشعارات فورية."
-              : "After finishing this track, you can move to Alpha Exchange to trade with verified sellers using a clear trade lifecycle and real-time notifications."}
+              : "After finishing this track, you can move to Alpha Exchange to trade with approved sellers using a clear trade lifecycle and real-time notifications."}
           </p>
           <Link href="/usdt-exchange" className="inline-flex text-sm text-[#6CAEFF] hover:underline">
             {isAr ? "الانتقال إلى Alpha Exchange" : "Go to Alpha Exchange"}

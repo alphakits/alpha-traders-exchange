@@ -6,7 +6,23 @@ const base = getSiteUrl();
 const locales = ["ar", "en"] as const;
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const staticRoutes = ["", "/academy", "/about-founder", "/founder", "/community", "/contact", "/usdt-exchange", "/login", "/register", "/dashboard", "/admin"];
+  const staticRoutes = [
+    "",
+    "/academy",
+    "/lessons",
+    "/about-founder",
+    "/founder",
+    "/community",
+    "/contact",
+    "/usdt-exchange",
+    "/safety-trust",
+    "/help-center",
+    "/support",
+    "/report-abuse",
+    "/terms",
+    "/privacy-policy",
+    "/cookies",
+  ];
 
   const entries: MetadataRoute.Sitemap = [];
 
@@ -15,7 +31,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
       entries.push({
         url: `${base}/${locale}${route}`,
         changeFrequency: "weekly",
-        priority: route === "" ? 1 : 0.8,
+        priority: route === "" ? 1 : ["/usdt-exchange", "/safety-trust", "/terms", "/privacy-policy"].includes(route) ? 0.9 : 0.8,
       });
     }
     for (const course of courses) {

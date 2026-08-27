@@ -1,0 +1,6 @@
+Contact: mailto:support@alphatraders.co.il
+Contact: https://www.alphatraders.co.il/en/report-abuse
+Expires: 2027-08-27T23:59:59.000Z
+Preferred-Languages: en, ar
+Canonical: https://www.alphatraders.co.il/.well-known/security.txt
+Policy: https://www.alphatraders.co.il/en/safety-trust

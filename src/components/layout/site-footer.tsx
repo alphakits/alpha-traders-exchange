@@ -54,7 +54,7 @@ const MARKETPLACE_SECTION: FooterSection = {
     { href: "/usdt-exchange?sort=trust-desc", en: "Seller Rankings", ar: "ترتيب البائعين", icon: Activity },
     { href: "/trade-room", en: "Trade Room", ar: "غرفة التداول", icon: MessageCircle },
     { href: "/safety-trust", en: "Safety Center", ar: "مركز الأمان", icon: ShieldCheck },
-    { href: "/safety-trust#escrow", en: "Escrow Protection", ar: "حماية الضمان", icon: Lock },
+    { href: "/safety-trust#settlement", en: "Direct Settlement", ar: "التسوية المباشرة", icon: Lock },
     { href: "/usdt-exchange#market-overview", en: "Market Status (LIVE)", ar: "حالة السوق (مباشر)", icon: Activity },
   ],
 };
@@ -123,10 +123,10 @@ const NAV_SECTIONS = [MARKETPLACE_SECTION, LEARN_SECTION, COMPANY_SECTION, ACCOU
 
 const TRUST_POINTS = [
   { en: "SSL Secured", ar: "حماية SSL" },
-  { en: "Escrow Protected", ar: "ضمان محمي" },
-  { en: "Verified Marketplace", ar: "سوق موثوق" },
-  { en: "24/7 Support", ar: "دعم 24/7" },
-  { en: "Fast Transactions", ar: "معاملات سريعة" },
+  { en: "Approved Sellers", ar: "بائعون معتمدون" },
+  { en: "Recorded Trade Flow", ar: "مسار صفقات مسجل" },
+  { en: "Dispute Support", ar: "دعم النزاعات" },
+  { en: "Live Market Data", ar: "بيانات سوق مباشرة" },
 ];
 
 function FooterNavSection({ section, locale }: { section: FooterSection; locale: AppLocale }) {
@@ -208,15 +208,15 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
             </Link>
             <p className="mt-3 text-sm text-[#BFC6D2]">
               {isAr
-                ? "أكاديمية تداول احترافية وسوق USDT موثوق. موثوق من مجتمعنا المتنامي من المتداولين."
-                : "Professional Trading Education • Trusted USDT Marketplace. Trusted by our growing community of traders."}
+                ? "تعليم تداول احترافي وسوق USDT منظم نظير إلى نظير مع ضوابط واضحة للمخاطر."
+                : "Professional Trading Education • Structured peer-to-peer USDT marketplace with clear risk controls."}
             </p>
             <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-[#D5DBE6]">
               {[
-                isAr ? "سوق آمن" : "Secure Marketplace",
-                isAr ? "ضمان محمي" : "Escrow Protected",
-                isAr ? "بائعون موثقون" : "Verified Sellers",
-                isAr ? "مدعوم بالمجتمع" : "Community Driven",
+                isAr ? "سوق منظم" : "Structured Marketplace",
+                isAr ? "تسوية مباشرة" : "Direct Settlement",
+                isAr ? "بائعون معتمدون يدويًا" : "Manually Approved Sellers",
+                isAr ? "سجل صفقات ونزاعات" : "Trade Records & Disputes",
               ].map((point) => (
                 <p key={point} className="inline-flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-[#D4AF37]" />
@@ -262,15 +262,15 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
             </Link>
             <p className="mt-3 text-sm leading-relaxed text-[#BFC6D2]">
               {isAr
-                ? "أكاديمية تداول احترافية وسوق USDT موثوق. موثوق من مجتمعنا المتنامي من المتداولين."
-                : "Professional Trading Education • Trusted USDT Marketplace. Trusted by our growing community of traders."}
+                ? "تعليم تداول احترافي وسوق USDT منظم نظير إلى نظير مع ضوابط واضحة للمخاطر."
+                : "Professional Trading Education • Structured peer-to-peer USDT marketplace with clear risk controls."}
             </p>
             <div className="mt-4 space-y-2 text-sm text-[#D5DBE6]">
               {[
-                isAr ? "سوق آمن" : "Secure Marketplace",
-                isAr ? "ضمان محمي" : "Escrow Protected",
-                isAr ? "بائعون موثقون" : "Verified Sellers",
-                isAr ? "مدعوم بالمجتمع" : "Community Driven",
+                isAr ? "سوق منظم" : "Structured Marketplace",
+                isAr ? "تسوية مباشرة" : "Direct Settlement",
+                isAr ? "بائعون معتمدون يدويًا" : "Manually Approved Sellers",
+                isAr ? "سجل صفقات ونزاعات" : "Trade Records & Disputes",
               ].map((point) => (
                 <p key={point} className="inline-flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-[#D4AF37]" />

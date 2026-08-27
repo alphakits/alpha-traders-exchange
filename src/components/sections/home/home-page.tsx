@@ -162,7 +162,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
               <p className="mt-3 text-sm leading-7 text-[#9CA3AF] md:text-base">
                 {isRtl
                   ? "سواء كنت تريد تعلم التداول باحتراف أو شراء وبيع USDT بأمان، Alpha Traders يقدم لك المسار المناسب."
-                  : "Whether you want to learn trading or buy and sell USDT safely, Alpha Traders gives you the right path."}
+                  : "Whether you want to learn trading or use a structured workflow to buy and sell USDT, Alpha Traders gives you a clear path."}
               </p>
             </div>
 
@@ -201,18 +201,18 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                 <Card className="h-full border-[#6CAEFF]/30 bg-[#0B0B0B]/95 transition duration-300 hover:-translate-y-1 hover:border-[#6CAEFF]/50 hover:shadow-[0_22px_60px_rgba(17,87,188,0.25)]">
                   <CardHeader>
                     <CardDescription className="text-[#93C5FD]">💵 Alpha Exchange</CardDescription>
-                    <CardTitle>{isRtl ? "شراء وبيع USDT مع محترفين موثوقين" : "Buy and Sell USDT with Verified Professionals."}</CardTitle>
+                    <CardTitle>{isRtl ? "شراء وبيع USDT مع بائعين معتمدين" : "Buy and Sell USDT with Approved Sellers."}</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <p className="text-sm leading-7 text-[#9CA3AF]">
                       {isRtl
-                        ? "تداول USDT من خلال بائعين موثوقين تمت مراجعتهم من Alpha Exchange."
-                        : "Trade USDT through trusted sellers reviewed by Alpha Exchange."}
+                        ? "استخدم مسار USDT منظمًا مع بائعين راجعت Alpha Exchange صلاحية وصولهم."
+                        : "Use a structured USDT workflow with sellers whose platform access was reviewed by Alpha Exchange."}
                     </p>
                     <div className="flex flex-wrap gap-2 text-xs text-[#D1D5DB]">
                       {(isRtl
-                        ? ["بائعون موثوقون", "نقاط ثقة", "تقييمات", "معاملات سريعة", "سوق معتمد"]
-                        : ["Verified Sellers", "Trust Score", "Reviews", "Fast Transactions", "Owner Approved Marketplace"]
+                        ? ["بائعون معتمدون", "نقاط ثقة", "تقييمات", "مسار صفقات مسجل", "موافقة المالك"]
+                        : ["Approved Sellers", "Trust Score", "Reviews", "Recorded Trade Flow", "Owner Approval"]
                       ).map((item) => (
                         <span key={item} className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1">
                           {item}
@@ -264,8 +264,8 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
             <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-3 py-1 text-xs text-[#C9A227]">
               <CheckCircle2 className="h-3.5 w-3.5" />
               {isRtl
-                ? "تعلم أو تداول بأمان: Alpha Traders يغطي المسارين باحترافية."
-                : "Learn or trade safely: Alpha Traders covers both experiences with premium clarity."}
+                ? "تعلم أو استخدم مسار السوق المنظم: توضح Alpha Traders التجربتين باحترافية."
+                : "Learn or use the structured marketplace workflow: Alpha Traders explains both experiences clearly."}
             </div>
           </CardContent>
         </Card>
