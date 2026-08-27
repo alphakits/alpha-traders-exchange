@@ -127,4 +127,31 @@ test.describe("Navigation hardening", () => {
 
     await expect(page).toHaveURL(/\/en\/(usdt-exchange|login\?redirectTo=%2Fen%2Fusdt-exchange)$/);
   });
+
+  test("locale switch updates document language and direction without a reload", async ({ page }) => {
+    await page.request.post("/api/auth/logout").catch(() => {});
+    await page.goto("/en");
+
+    const html = page.locator("html");
+    await expect(html).toHaveAttribute("lang", "en");
+    await expect(html).toHaveAttribute("dir", "ltr");
+    await page.evaluate(() => {
+      (window as Window & { __localeSwitchSentinel?: string }).__localeSwitchSentinel = "same-document";
+    });
+
+    await page.getByRole("button", { name: "Switch to Arabic" }).click();
+
+    await expect(page).toHaveURL(/\/ar$/);
+    await expect(html).toHaveAttribute("lang", "ar");
+    await expect(html).toHaveAttribute("dir", "rtl");
+    await expect
+      .poll(() => page.evaluate(() => (window as Window & { __localeSwitchSentinel?: string }).__localeSwitchSentinel))
+      .toBe("same-document");
+
+    await page.getByRole("button", { name: "التبديل إلى الإنجليزية" }).click();
+
+    await expect(page).toHaveURL(/\/en$/);
+    await expect(html).toHaveAttribute("lang", "en");
+    await expect(html).toHaveAttribute("dir", "ltr");
+  });
 });

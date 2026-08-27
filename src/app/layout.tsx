@@ -2,8 +2,6 @@ import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import { getLocale } from "next-intl/server";
 import { GlobalBlockchainBackground } from "@/components/layout/global-blockchain-background";
-import { OfflineBanner } from "@/components/pwa/offline-banner";
-import { PwaInstallPrompt } from "@/components/pwa/pwa-install-prompt";
 import { localeDirection, type AppLocale } from "@/i18n/routing";
 import { buildLocalizedSiteMetadata } from "@/lib/site-metadata";
 
@@ -39,8 +37,6 @@ export default async function RootLayout({
     <html lang={locale} dir={dir} suppressHydrationWarning>
       <body className="relative bg-background text-foreground antialiased" suppressHydrationWarning>
         <GlobalBlockchainBackground />
-        <OfflineBanner locale={locale} />
-        <PwaInstallPrompt locale={locale} />
         <div className="relative z-10">{children}</div>
       </body>
     </html>

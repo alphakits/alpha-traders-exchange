@@ -2,10 +2,9 @@
 import { useEffect } from "react";
 
 /**
- * Sets `lang` and `dir` on the root `<html>` element so each locale gets
- * correct attributes without nesting a second `<html>` inside the root layout.
- * Uses suppressHydrationWarning on the root html/body to suppress the mismatch
- * between the initial render (neutral) and the client-applied attributes.
+ * Keeps `lang` and `dir` on the root `<html>` element synchronized after
+ * client-side locale navigation. The root layout sets the correct values for
+ * the initial server render, but it is preserved when the locale segment changes.
  */
 export function HtmlAttributesSetter({
   lang,

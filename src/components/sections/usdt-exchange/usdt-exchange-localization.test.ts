@@ -10,6 +10,7 @@ vi.mock("@/i18n/navigation", () => ({
 vi.mock("next/image", () => ({ default: () => null }));
 
 import {
+  canCancelBuyerHistoryRequest,
   formatIsraelDateKey,
   formatIsraelMarketTime,
   localizeWalletValidationError,
@@ -22,11 +23,24 @@ import {
   spokenLanguageLabel,
   tradeStatusLabel,
 } from "@/components/sections/usdt-exchange/usdt-exchange-page";
-import type { ListingStatus, PurchaseRequestStatus, TradeTimelineEntry, TradeTimelineEventType } from "@/types/alpha-exchange";
+import type { ListingStatus, PurchaseRequest, PurchaseRequestStatus, TradeTimelineEntry, TradeTimelineEventType } from "@/types/alpha-exchange";
 
 const ARABIC_TEXT = /[\u0600-\u06ff]/;
 
 describe("USDT exchange localized mobile copy", () => {
+  it("only enables buyer-history cancellation before seller acceptance", () => {
+    const pendingRequest = {
+      id: "request-1",
+      buyerId: "buyer-1",
+      sellerId: "seller-1",
+      status: "pending",
+    } as PurchaseRequest;
+
+    expect(canCancelBuyerHistoryRequest(pendingRequest, "buyer-1")).toBe(true);
+    expect(canCancelBuyerHistoryRequest({ ...pendingRequest, status: "accepted" }, "buyer-1")).toBe(false);
+    expect(canCancelBuyerHistoryRequest(pendingRequest, "seller-1")).toBe(false);
+  });
+
   it("keeps public marketing sections out of authenticated workspaces", () => {
     const source = readFileSync(join(process.cwd(), "src/components/sections/usdt-exchange/usdt-exchange-page.tsx"), "utf8");
     expect(source).toContain("showDeferredSections && !sessionUser && !isDashboardWorkspace");

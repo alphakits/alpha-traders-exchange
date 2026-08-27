@@ -32,6 +32,7 @@ import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, finalizeLogin
 import { formatBuyerId, formatListingId, formatSellerId, formatTradeId } from "@/lib/format-id";
 import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
 import { prefetchTradeRoom } from "@/lib/trade-room-client";
+import { canBuyerCancelTrade } from "@/lib/trade-room-actions";
 import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
 import { commissionPaymentDestination, getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
 import { getCommissionWorkspaceAction, sortDashboardActivityNewestFirst } from "@/lib/dashboard-workspace";
@@ -154,6 +155,10 @@ type SellerCommissionStatus = {
 };
 
 export type SessionUser = ClientSessionUser;
+
+export function canCancelBuyerHistoryRequest(request: PurchaseRequest, actorUserId?: string) {
+  return Boolean(actorUserId && canBuyerCancelTrade(request, actorUserId));
+}
 
 type FeatureCard = {
   icon: typeof ShieldCheck;
@@ -7387,7 +7392,7 @@ export function UsdtExchangePage({
                                 <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_sent"} onClick={() => handleBuyerTradeStatus(request, "completed")}>
                                   {isAr ? "تأكيد اكتمال الصفقة" : "Confirm Trade Completed"}
                                 </Button>
-                                <Button type="button" size="sm" variant="secondary" disabled={request.status !== "pending" && request.status !== "accepted"} onClick={() => handleBuyerTradeStatus(request, "cancelled")}>
+                                <Button type="button" size="sm" variant="secondary" disabled={!canCancelBuyerHistoryRequest(request, sessionUser?.id)} onClick={() => handleBuyerTradeStatus(request, "cancelled")}>
                                   {isAr ? "إلغاء" : "Cancel"}
                                 </Button>
                               </div>

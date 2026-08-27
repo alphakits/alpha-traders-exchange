@@ -3,10 +3,13 @@ import { notFound } from "next/navigation";
 import { NextIntlClientProvider, hasLocale } from "next-intl";
 import { getMessages } from "next-intl/server";
 import { Inter, IBM_Plex_Sans_Arabic } from "next/font/google";
-import { routing, type AppLocale } from "@/i18n/routing";
+import { localeDirection, routing, type AppLocale } from "@/i18n/routing";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { MobileBottomNavigation } from "@/components/layout/mobile-bottom-navigation";
+import { HtmlAttributesSetter } from "@/components/layout/html-attributes-setter";
+import { OfflineBanner } from "@/components/pwa/offline-banner";
+import { PwaInstallPrompt } from "@/components/pwa/pwa-install-prompt";
 import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { toClientSessionUser } from "@/lib/client-session-user";
@@ -50,6 +53,9 @@ export default async function LocaleLayout({
 
   return (
     <NextIntlClientProvider messages={messages}>
+      <HtmlAttributesSetter lang={appLocale} dir={localeDirection[appLocale]} />
+      <OfflineBanner locale={appLocale} />
+      <PwaInstallPrompt locale={appLocale} />
       <div
         className={`${inter.variable} ${plexArabic.variable} min-h-screen text-white ${
           appLocale === "ar" ? "font-[var(--font-plex-arabic)]" : "font-[var(--font-inter)]"
