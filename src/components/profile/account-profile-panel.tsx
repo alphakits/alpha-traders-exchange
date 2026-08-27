@@ -602,7 +602,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
       <div className="mx-auto max-w-7xl space-y-5 xl:space-y-6">
         <Card className={cn("overflow-hidden border-white/10 bg-[#0B0B0B]/95 p-0", isSeller && `seller-rank-profile-shell seller-rank-profile-shell--${isOwner ? "legendary" : sellerRankKey}`)}>
           <div className={cn("relative h-44 border-b border-white/10 bg-gradient-to-r md:h-52", theme.coverTone)}>
-            {coverUrl ? <Image src={coverUrl} alt="Cover" fill unoptimized className="object-cover opacity-90" /> : null}
+            {coverUrl ? <Image src={coverUrl} alt={isAr ? "صورة الغلاف" : "Cover"} fill unoptimized className="object-cover opacity-90" /> : null}
             <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-black/75" />
             <div className="absolute end-3 top-3 flex flex-wrap gap-2">
               <Button
@@ -637,7 +637,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
               <div className="flex items-end gap-4">
                 <div className={cn("relative h-24 w-24 overflow-hidden rounded-2xl border bg-black/80 md:h-28 md:w-28", theme.frameClass, isSeller && `seller-rank-avatar-frame seller-rank-avatar-frame--${isOwner ? "legendary" : sellerRankKey}`)}>
                   {avatarUrl ? (
-                    <Image src={avatarUrl} alt="Profile" width={112} height={112} unoptimized className="h-full w-full object-cover" />
+                    <Image src={avatarUrl} alt={isAr ? "الصورة الشخصية" : "Profile"} width={112} height={112} unoptimized className="h-full w-full object-cover" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-2xl font-semibold text-[#F4D87A]">{initials}</div>
                   )}
@@ -646,14 +646,14 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                   <p className={cn("text-2xl font-semibold text-white md:text-3xl", isOwner && "text-[2.05rem] font-extrabold tracking-[0.015em] md:text-[2.2rem]", isSeller && `seller-rank-name seller-rank-name--${sellerRankKey}`, theme.usernameClass)}>{payload.profile.fullName}</p>
                   {isOwner ? (
                     <div className="mt-1">
-                      <p className="text-sm font-semibold text-[#F87171]">Alpha Exchange Owner</p>
-                      <p className="text-xs text-[#9CA3AF]">Full platform access • All permissions</p>
+                      <p className="text-sm font-semibold text-[#F87171]">{isAr ? "مالك Alpha Exchange" : "Alpha Exchange Owner"}</p>
+                      <p className="text-xs text-[#9CA3AF]">{isAr ? "وصول كامل للمنصة • جميع الصلاحيات" : "Full platform access • All permissions"}</p>
                     </div>
                   ) : (
                     <p className="mt-1 text-sm text-[#A6AFBE]">@{payload.profile.username}</p>
                   )}
                   <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <RoleBadge variant={payload.roleBadge} />
+                    <RoleBadge variant={payload.roleBadge} locale={locale} />
                     <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium text-[#D1D5DB]">
                       <span className={cn("h-1.5 w-1.5 rounded-full", onlineNow ? "bg-emerald-400" : "bg-zinc-500")} />
                       {onlineNow ? (isAr ? "متصل الآن" : "Online now") : (isAr ? "غير متصل" : "Offline")}
@@ -666,7 +666,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                     ) : null}
                     {isSeller ? (
                       <span className={cn("seller-rank-pill", `seller-rank-pill--${isOwner ? "legendary" : sellerRankKey}`)}>
-                        {isOwner ? (isAr ? "بائع أسطوري" : "Legendary Seller") : `${tierLabel(sellerLevelForUi, isAr)} Seller`}
+                        {isOwner ? (isAr ? "بائع أسطوري" : "Legendary Seller") : isAr ? `بائع ${tierLabel(sellerLevelForUi, true)}` : `${tierLabel(sellerLevelForUi, false)} Seller`}
                       </span>
                     ) : null}
                   </div>

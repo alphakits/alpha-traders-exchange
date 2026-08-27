@@ -7,6 +7,7 @@ import { getCurrentSessionUser } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Link } from "@/i18n/navigation";
 import { AcademyRoadmap } from "@/components/academy/academy-roadmap";
+import { formatAcademyLevel } from "@/lib/academy-localization";
 
 export async function generateMetadata() {
   const locale = await getLocale();
@@ -71,7 +72,7 @@ export default async function AcademyPage({ params }: { params: Promise<{ locale
             return (
               <Card key={course.id} className="h-full hover:-translate-y-0.5">
                 <CardHeader>
-                  <CardDescription>{course.level.toUpperCase()}</CardDescription>
+                  <CardDescription>{formatAcademyLevel(course.level, isAr ? "ar" : "en")}</CardDescription>
                   <CardTitle>{isAr ? course.titleAr : course.title}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">

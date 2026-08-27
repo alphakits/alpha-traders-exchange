@@ -411,7 +411,7 @@ export function GuestOnboarding({
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
                       {(["Crypto", "Fiat"] as const).map((group) => (
                         <div key={`buyer-${group}`} className="space-y-2">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9CA3AF]">{group}</p>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? (group === "Crypto" ? "عملات رقمية" : "عملات نقدية") : group}</p>
                           <div className="grid gap-2">
                             {SELLER_METHOD_OPTIONS.filter((option) => option.group === group).map((option) => {
                               const selected = seller.preferredNetworks.includes(option.id);
@@ -420,7 +420,7 @@ export function GuestOnboarding({
                                   key={`buyer-${option.id}`}
                                   type="button"
                                   onClick={() => toggleNetwork(option.id)}
-                                  className={`rounded-lg border px-3 py-2 text-left text-xs font-medium transition-colors ${
+                                  className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${isAr ? "text-right" : "text-left"} ${
                                     selected
                                       ? "border-[#C9A227] bg-[#C9A227]/20 text-[#F4D87A]"
                                       : "border-[#374151] bg-black/20 text-[#D1D5DB] hover:border-[#C9A227]/50"
@@ -462,7 +462,7 @@ export function GuestOnboarding({
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
                       {(["Crypto", "Fiat"] as const).map((group) => (
                         <div key={`otp-${group}`} className="space-y-2">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9CA3AF]">{group}</p>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? (group === "Crypto" ? "عملات رقمية" : "عملات نقدية") : group}</p>
                           <div className="grid gap-2">
                             {SELLER_METHOD_OPTIONS.filter((option) => option.group === group).map((option) => {
                               const selected = seller.preferredNetworks.includes(option.id);
@@ -471,7 +471,7 @@ export function GuestOnboarding({
                                   key={`otp-${option.id}`}
                                   type="button"
                                   onClick={() => toggleNetwork(option.id)}
-                                  className={`rounded-lg border px-3 py-2 text-left text-xs font-medium transition-colors ${
+                                  className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${isAr ? "text-right" : "text-left"} ${
                                     selected
                                       ? "border-[#C9A227] bg-[#C9A227]/20 text-[#F4D87A]"
                                       : "border-[#374151] bg-black/20 text-[#D1D5DB] hover:border-[#C9A227]/50"
@@ -531,7 +531,7 @@ export function GuestOnboarding({
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
                       {(["Crypto", "Fiat"] as const).map((group) => (
                         <div key={`idle-${group}`} className="space-y-2">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9CA3AF]">{group}</p>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? (group === "Crypto" ? "عملات رقمية" : "عملات نقدية") : group}</p>
                           <div className="grid gap-2">
                             {SELLER_METHOD_OPTIONS.filter((option) => option.group === group).map((option) => {
                               const selected = seller.preferredNetworks.includes(option.id);
@@ -540,7 +540,7 @@ export function GuestOnboarding({
                                   key={`idle-${option.id}`}
                                   type="button"
                                   onClick={() => toggleNetwork(option.id)}
-                                  className={`rounded-lg border px-3 py-2 text-left text-xs font-medium transition-colors ${
+                                  className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${isAr ? "text-right" : "text-left"} ${
                                     selected
                                       ? "border-[#C9A227] bg-[#C9A227]/20 text-[#F4D87A]"
                                       : "border-[#374151] bg-black/20 text-[#D1D5DB] hover:border-[#C9A227]/50"
@@ -548,7 +548,7 @@ export function GuestOnboarding({
                                 >
                                   <div className="flex items-center justify-between gap-2">
                                     <span>{option.id}</span>
-                                    {option.recommended ? <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#D4AF37]">⭐ Recommended</span> : null}
+                                    {option.recommended ? <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#D4AF37]">⭐ {isAr ? "موصى به" : "Recommended"}</span> : null}
                                   </div>
                                 </button>
                               );
@@ -560,7 +560,7 @@ export function GuestOnboarding({
                   </div>
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
                     <p className="font-semibold text-white">{isAr ? "ماذا يحدث بعد التقديم؟" : "What happens after you apply?"}</p>
-                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                    <ul className="mt-2 list-disc space-y-1 ps-5">
                       <li>{isAr ? "يدخل طلبك في مراجعة يدوية." : "Your application enters manual review."}</li>
                       <li>{isAr
                         ? (phoneVerificationEnabled

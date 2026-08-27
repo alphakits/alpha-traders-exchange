@@ -81,9 +81,9 @@ export default async function RootLayout({
     <html lang={locale} dir={dir} suppressHydrationWarning>
       <body className="relative bg-background text-foreground antialiased" suppressHydrationWarning>
         <GlobalBlockchainBackground />
-        <OfflineBanner />
-        <BrowserPushPrompt />
-        <PwaInstallPrompt />
+        <OfflineBanner locale={locale} />
+        <BrowserPushPrompt locale={locale} />
+        <PwaInstallPrompt locale={locale} />
         <div className="relative z-10">{children}</div>
       </body>
     </html>

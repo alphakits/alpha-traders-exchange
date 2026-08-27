@@ -16,7 +16,7 @@ export function HeaderNav({ items, locale }: { items: HeaderNavItem[]; locale: A
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`));
 
   return (
-    <nav className="hidden items-center gap-1 lg:flex" aria-label="Primary">
+    <nav className="hidden items-center gap-1 lg:flex" aria-label={locale === "ar" ? "التنقل الرئيسي" : "Primary navigation"}>
       {items.map((item) => {
         const active = isActive(item.href);
         if (item.cta) {

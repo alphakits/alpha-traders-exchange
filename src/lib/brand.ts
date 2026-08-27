@@ -1,5 +1,7 @@
 export const BRAND_NAME = "Alpha Traders Academy & Exchange";
 export const BRAND_NAME_HTML = "Alpha Traders Academy &amp; Exchange";
+export const BRAND_PRIMARY_NAME = "Alpha Traders";
+export const BRAND_DESCRIPTOR = "Academy & Exchange";
 
 export function getBrandedEmailFrom(configuredFrom: string) {
   const trimmed = configuredFrom.trim();

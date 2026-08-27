@@ -15,7 +15,7 @@ export function LocaleSwitcher() {
       type="button"
       onClick={() => router.replace(pathname, { locale: locale === "ar" ? "en" : "ar" })}
       aria-label={locale === "ar" ? "Switch to English" : "التبديل إلى العربية"}
-      className="inline-flex h-11 items-center gap-2 rounded-full border border-white/20 px-3 text-sm text-[#9CA3AF] hover:border-[#C9A227] hover:text-[#C9A227]"
+      className="inline-flex h-10 items-center gap-1 rounded-full border border-white/20 px-2 text-xs text-[#9CA3AF] hover:border-[#C9A227] hover:text-[#C9A227] sm:h-11 sm:gap-2 sm:px-3 sm:text-sm"
     >
       <Globe className="h-3.5 w-3.5" />
       {locale === "ar" ? "EN" : "AR"}

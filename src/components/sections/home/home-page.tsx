@@ -60,7 +60,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
           >
             <Image
               src="/images/hero/hero-trading-office.webp"
-              alt="Alpha Traders cinematic workspace"
+              alt={isRtl ? "مساحة عمل التداول في Alpha Traders" : "Alpha Traders cinematic workspace"}
               fill
               priority
               quality={85}
@@ -93,7 +93,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
               <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/20 bg-black/25 px-3 py-1.5 text-[11px] uppercase tracking-[0.2em] text-[#C9A227]">
                 <Image
                   src="/images/brand/alpha-traders-logo.webp"
-                  alt="Alpha Traders Academy & Exchange logo"
+                  alt={isRtl ? "شعار Alpha Traders Academy & Exchange" : "Alpha Traders Academy & Exchange logo"}
                   width={40}
                   height={40}
                   style={{ width: 40, height: 40 }}

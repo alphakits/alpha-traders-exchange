@@ -21,11 +21,11 @@ type MarketplaceEnforcementOwnerPanelProps = {
   initialStatus: EnforcementStatus;
 };
 
-function formatDate(value?: string) {
+function formatDate(value: string | undefined, locale: "ar" | "en") {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("en-IL", { dateStyle: "medium", timeStyle: "short" }).format(date);
+  return new Intl.DateTimeFormat(locale === "ar" ? "ar-IL" : "en-IL", { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
 export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStatus }: MarketplaceEnforcementOwnerPanelProps) {
@@ -35,7 +35,7 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
   const [error, setError] = useState<string | null>(null);
   const [issueFeeOpen, setIssueFeeOpen] = useState(false);
   const [issueFeeAmount, setIssueFeeAmount] = useState("150");
-  const [issueFeeReason, setIssueFeeReason] = useState("Marketplace compliance violation");
+  const [issueFeeReason, setIssueFeeReason] = useState(isAr ? "مخالفة امتثال السوق" : "Marketplace compliance violation");
   const [issueFeeNotes, setIssueFeeNotes] = useState("");
   const [issueFeeEvidenceFiles, setIssueFeeEvidenceFiles] = useState<File[]>([]);
 
@@ -47,9 +47,9 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
           resolve(reader.result);
           return;
         }
-        reject(new Error("Could not read evidence file."));
+        reject(new Error(isAr ? "تعذرت قراءة ملف الإثبات." : "Could not read evidence file."));
       };
-      reader.onerror = () => reject(new Error("Could not read evidence file."));
+      reader.onerror = () => reject(new Error(isAr ? "تعذرت قراءة ملف الإثبات." : "Could not read evidence file."));
       reader.readAsDataURL(file);
     });
   }
@@ -57,7 +57,7 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
   function resetIssueFeeForm() {
     setIssueFeeOpen(false);
     setIssueFeeAmount("150");
-    setIssueFeeReason("Marketplace compliance violation");
+    setIssueFeeReason(isAr ? "مخالفة امتثال السوق" : "Marketplace compliance violation");
     setIssueFeeNotes("");
     setIssueFeeEvidenceFiles([]);
   }
@@ -70,22 +70,22 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
     if (action === "issue_fee") {
       const feeAmount = Number(issueFeeAmount);
       if (!Number.isFinite(feeAmount) || feeAmount <= 0) {
-        setError("Fee amount must be a valid number greater than zero.");
+        setError(isAr ? "يجب أن يكون مبلغ الرسوم رقماً صالحاً أكبر من صفر." : "Fee amount must be a valid number greater than zero.");
         return;
       }
       if (!issueFeeReason.trim()) {
-        setError("Violation reason is required.");
+        setError(isAr ? "سبب المخالفة مطلوب." : "Violation reason is required.");
         return;
       }
       if (!issueFeeNotes.trim()) {
-        setError("Internal admin notes are required.");
+        setError(isAr ? "ملاحظات الإدارة الداخلية مطلوبة." : "Internal admin notes are required.");
         return;
       }
       if (issueFeeEvidenceFiles.length === 0) {
-        setError("At least one screenshot/image/PDF evidence file is required.");
+        setError(isAr ? "يجب رفع لقطة شاشة أو صورة أو ملف PDF واحد على الأقل كإثبات." : "At least one screenshot/image/PDF evidence file is required.");
         return;
       }
-      if (!window.confirm(`Issue Marketplace Compliance Recovery Fee for ${feeAmount.toFixed(2)} USDT and restrict seller actions?`)) return;
+      if (!window.confirm(isAr ? `فرض رسوم استعادة امتثال بقيمة ${feeAmount.toFixed(2)} USDT وتقييد إجراءات البائع؟` : `Issue Marketplace Compliance Recovery Fee for ${feeAmount.toFixed(2)} USDT and restrict seller actions?`)) return;
       const encodedEvidence = await Promise.all(issueFeeEvidenceFiles.map(async (file) => ({
         fileName: file.name,
         mimeType: file.type,
@@ -102,36 +102,36 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
     }
 
     if (action === "mark_paid") {
-      if (!window.confirm("Mark this Marketplace Recovery Fee as paid and restore seller listing permissions?")) return;
-      const reason = window.prompt("Optional reason", "Payment verified");
+      if (!window.confirm(isAr ? "تحديد رسوم الاستعادة كمدفوعة وإعادة صلاحيات عروض البائع؟" : "Mark this Marketplace Recovery Fee as paid and restore seller listing permissions?")) return;
+      const reason = window.prompt(isAr ? "سبب اختياري" : "Optional reason", isAr ? "تم التحقق من الدفع" : "Payment verified");
       payload = { action, reason: reason?.trim() || undefined };
     }
 
     if (action === "confirm_payment") {
-      if (!window.confirm("Confirm seller payment, remove restriction, and restore seller privileges?")) return;
-      payload = { action, reason: "Recovery fee payment verified by owner" };
+      if (!window.confirm(isAr ? "تأكيد دفع البائع وإزالة التقييد وإعادة صلاحياته؟" : "Confirm seller payment, remove restriction, and restore seller privileges?")) return;
+      payload = { action, reason: isAr ? "تحقق المالك من دفع رسوم الاستعادة" : "Recovery fee payment verified by owner" };
     }
 
     if (action === "remove_restriction") {
-      if (!window.confirm("Remove active marketplace restriction without payment?")) return;
-      const reason = window.prompt("Reason for manual removal", "Manual admin resolution");
+      if (!window.confirm(isAr ? "إزالة تقييد السوق النشط دون دفع؟" : "Remove active marketplace restriction without payment?")) return;
+      const reason = window.prompt(isAr ? "سبب الإزالة اليدوية" : "Reason for manual removal", isAr ? "حل يدوي من الإدارة" : "Manual admin resolution");
       if (!reason?.trim()) return;
       payload = { action, reason: reason.trim() };
     }
 
     if (action === "revoke_seller") {
-      if (!window.confirm("Permanently revoke this seller's marketplace privileges? This closes open listings.")) return;
-      const reason = window.prompt("Reason for permanent revoke", "Second confirmed marketplace policy violation");
+      if (!window.confirm(isAr ? "إلغاء صلاحيات هذا البائع في السوق نهائياً؟ سيؤدي ذلك إلى إغلاق عروضه المفتوحة." : "Permanently revoke this seller's marketplace privileges? This closes open listings.")) return;
+      const reason = window.prompt(isAr ? "سبب الإلغاء النهائي" : "Reason for permanent revoke", isAr ? "مخالفة مؤكدة ثانية لسياسة السوق" : "Second confirmed marketplace policy violation");
       if (!reason?.trim()) return;
       payload = { action, reason: reason.trim() };
     }
 
     if (action === "appeal_accept" || action === "appeal_reject") {
       const decision = action === "appeal_accept" ? "accepted" : "rejected";
-      if (!window.confirm(`Confirm appeal decision: ${decision}?`)) return;
-      const notes = window.prompt("Decision notes (required)", decision === "accepted" ? "Appeal accepted by owner" : "Appeal rejected after review");
+      if (!window.confirm(isAr ? `تأكيد قرار الاستئناف: ${decision === "accepted" ? "مقبول" : "مرفوض"}؟` : `Confirm appeal decision: ${decision}?`)) return;
+      const notes = window.prompt(isAr ? "ملاحظات القرار (مطلوبة)" : "Decision notes (required)", decision === "accepted" ? (isAr ? "قبل المالك الاستئناف" : "Appeal accepted by owner") : (isAr ? "رُفض الاستئناف بعد المراجعة" : "Appeal rejected after review"));
       if (!notes?.trim()) {
-        setError("Appeal decision notes are required.");
+        setError(isAr ? "ملاحظات قرار الاستئناف مطلوبة." : "Appeal decision notes are required.");
         return;
       }
       payload = { action: "appeal_decision", decision, notes: notes.trim() };
@@ -146,7 +146,7 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
       });
       const data = await response.json() as { enforcement?: EnforcementStatus; error?: string };
       if (!response.ok || !data.enforcement) {
-        setError(data.error ?? "Failed to apply compliance action.");
+        setError(isAr ? "تعذر تطبيق إجراء الامتثال." : (data.error ?? "Failed to apply compliance action."));
         return;
       }
       setStatus(data.enforcement);
@@ -154,7 +154,7 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
         resetIssueFeeForm();
       }
     } catch {
-      setError("Failed to apply compliance action.");
+      setError(isAr ? "تعذر تطبيق إجراء الامتثال." : "Failed to apply compliance action.");
     } finally {
       setBusy(false);
     }
@@ -176,49 +176,49 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
       <CardContent className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-4">
           <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-            <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">Status</p>
+            <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "الحالة" : "Status"}</p>
             <p className={`mt-1 text-sm font-semibold ${status.restricted ? "text-red-300" : "text-emerald-300"}`}>
-              {status.restricted ? "Restricted" : "Clear"}
+              {status.restricted ? (isAr ? "مقيّد" : "Restricted") : (isAr ? "سليم" : "Clear")}
             </p>
           </div>
           <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-            <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">Violation</p>
+            <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "المخالفة" : "Violation"}</p>
             <p className="mt-1 text-sm font-semibold text-white">#{status.activeRecord?.violationNumber ?? status.latestRecord?.violationNumber ?? 0}</p>
           </div>
           <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-            <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">Recovery Fee</p>
+            <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "رسوم الاستعادة" : "Recovery Fee"}</p>
             <p className="mt-1 text-sm font-semibold text-[#FDE68A]">
               {status.activeRecord ? `${status.activeRecord.feeAmount.toFixed(2)} ${status.activeRecord.feeCurrency}` : "0.00 USDT"}
             </p>
           </div>
           <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-            <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">Total Cases</p>
+            <p className="text-[11px] uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "إجمالي الحالات" : "Total Cases"}</p>
             <p className="mt-1 text-sm font-semibold text-white">{status.totalCases}</p>
           </div>
         </div>
 
         {status.blockReason ? (
           <div className="rounded-xl border border-red-500/25 bg-red-500/10 p-3 text-sm text-red-100">
-            <p className="inline-flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" />Current restriction</p>
+            <p className="inline-flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" />{isAr ? "التقييد الحالي" : "Current restriction"}</p>
             <p className="mt-1">{status.blockReason}</p>
           </div>
         ) : (
           <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3 text-sm text-emerald-100">
-            <p className="inline-flex items-center gap-2 font-semibold"><CheckCircle2 className="h-4 w-4" />No active restriction</p>
+            <p className="inline-flex items-center gap-2 font-semibold"><CheckCircle2 className="h-4 w-4" />{isAr ? "لا يوجد تقييد نشط" : "No active restriction"}</p>
           </div>
         )}
 
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" disabled={busy || status.restricted} onClick={() => setIssueFeeOpen((current) => !current)}>Issue Recovery Fee</Button>
-          <Button type="button" variant="secondary" disabled={busy || status.activeRecord?.recoveryPaymentStatus !== "awaiting_verification"} onClick={() => void runAction("confirm_payment")}>Confirm Payment</Button>
-          <Button type="button" variant="secondary" disabled={busy || !status.restricted} onClick={() => void runAction("mark_paid")}>Mark Paid (Manual)</Button>
-          <Button type="button" variant="secondary" disabled={busy || !status.restricted} onClick={() => void runAction("remove_restriction")}>Remove Restriction</Button>
+          <Button type="button" variant="secondary" disabled={busy || status.restricted} onClick={() => setIssueFeeOpen((current) => !current)}>{isAr ? "فرض رسوم استعادة" : "Issue Recovery Fee"}</Button>
+          <Button type="button" variant="secondary" disabled={busy || status.activeRecord?.recoveryPaymentStatus !== "awaiting_verification"} onClick={() => void runAction("confirm_payment")}>{isAr ? "تأكيد الدفع" : "Confirm Payment"}</Button>
+          <Button type="button" variant="secondary" disabled={busy || !status.restricted} onClick={() => void runAction("mark_paid")}>{isAr ? "تحديد كمدفوع (يدوي)" : "Mark Paid (Manual)"}</Button>
+          <Button type="button" variant="secondary" disabled={busy || !status.restricted} onClick={() => void runAction("remove_restriction")}>{isAr ? "إزالة التقييد" : "Remove Restriction"}</Button>
           <Button type="button" disabled={busy} onClick={() => void runAction("revoke_seller")} className="bg-red-600 text-white hover:bg-red-500">
-            <Gavel className="mr-1.5 h-4 w-4" />
-            Revoke Seller
+            <Gavel className="me-1.5 h-4 w-4" />
+            {isAr ? "إلغاء صلاحيات البائع" : "Revoke Seller"}
           </Button>
-          <Button type="button" variant="secondary" disabled={busy || status.activeRecord?.appealStatus !== "submitted"} onClick={() => void runAction("appeal_accept")}>Accept Appeal</Button>
-          <Button type="button" variant="secondary" disabled={busy || status.activeRecord?.appealStatus !== "submitted"} onClick={() => void runAction("appeal_reject")}>Reject Appeal</Button>
+          <Button type="button" variant="secondary" disabled={busy || status.activeRecord?.appealStatus !== "submitted"} onClick={() => void runAction("appeal_accept")}>{isAr ? "قبول الاستئناف" : "Accept Appeal"}</Button>
+          <Button type="button" variant="secondary" disabled={busy || status.activeRecord?.appealStatus !== "submitted"} onClick={() => void runAction("appeal_reject")}>{isAr ? "رفض الاستئناف" : "Reject Appeal"}</Button>
         </div>
 
         {error ? <p className="text-sm text-red-300">{error}</p> : null}
@@ -226,12 +226,12 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
         {issueFeeOpen ? (
           <div className="space-y-3 rounded-2xl border border-white/10 bg-black/30 p-4">
             <div>
-              <p className="text-sm font-semibold text-white">Issue Marketplace Recovery Fee</p>
-              <p className="mt-1 text-xs text-[#9CA3AF]">Choose the fee amount before issuing the restriction so the seller can see the exact recovery charge.</p>
+              <p className="text-sm font-semibold text-white">{isAr ? "فرض رسوم استعادة السوق" : "Issue Marketplace Recovery Fee"}</p>
+              <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "اختر مبلغ الرسوم قبل فرض التقييد ليتمكن البائع من رؤية رسوم الاستعادة الدقيقة." : "Choose the fee amount before issuing the restriction so the seller can see the exact recovery charge."}</p>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               <label className="space-y-1.5 text-sm text-[#D1D5DB]">
-                <span className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Fee amount in USDT</span>
+                <span className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "مبلغ الرسوم بـ USDT" : "Fee amount in USDT"}</span>
                 <input
                   type="number"
                   min="0.01"
@@ -242,7 +242,7 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
                 />
               </label>
               <label className="space-y-1.5 text-sm text-[#D1D5DB]">
-                <span className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Violation reason</span>
+                <span className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "سبب المخالفة" : "Violation reason"}</span>
                 <input
                   type="text"
                   value={issueFeeReason}
@@ -252,44 +252,44 @@ export function MarketplaceEnforcementOwnerPanel({ locale, sellerId, initialStat
               </label>
             </div>
             <label className="space-y-1.5 text-sm text-[#D1D5DB]">
-              <span className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Internal admin notes</span>
+              <span className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "ملاحظات الإدارة الداخلية" : "Internal admin notes"}</span>
               <textarea
                 value={issueFeeNotes}
                 onChange={(event) => setIssueFeeNotes(event.target.value)}
                 rows={3}
                 className="w-full rounded-xl border border-white/10 bg-[#080808] px-3 py-2 text-white outline-none transition focus:border-[#C9A227]"
-                placeholder="Document the reason for the compliance action"
+                placeholder={isAr ? "وثّق سبب إجراء الامتثال" : "Document the reason for the compliance action"}
               />
             </label>
             <label className="space-y-1.5 text-sm text-[#D1D5DB]">
-              <span className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Evidence files</span>
+              <span className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "ملفات الإثبات" : "Evidence files"}</span>
               <input
                 type="file"
                 multiple
                 accept="image/png,image/jpeg,image/webp,application/pdf"
                 onChange={(event) => setIssueFeeEvidenceFiles(Array.from(event.target.files ?? []))}
-                className="block w-full rounded-xl border border-white/10 bg-[#080808] px-3 py-2 text-sm text-[#D1D5DB] file:mr-3 file:rounded-lg file:border-0 file:bg-[#C9A227] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-black"
+                className="block w-full rounded-xl border border-white/10 bg-[#080808] px-3 py-2 text-sm text-[#D1D5DB] file:me-3 file:rounded-lg file:border-0 file:bg-[#C9A227] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-black"
               />
-              <p className="text-xs text-[#9CA3AF]">{issueFeeEvidenceFiles.length ? `${issueFeeEvidenceFiles.length} file(s) selected` : "Upload at least one screenshot, image, or PDF."}</p>
+              <p className="text-xs text-[#9CA3AF]">{issueFeeEvidenceFiles.length ? `${issueFeeEvidenceFiles.length} ${isAr ? "ملفات محددة" : "file(s) selected"}` : (isAr ? "ارفع لقطة شاشة أو صورة أو ملف PDF واحداً على الأقل." : "Upload at least one screenshot, image, or PDF.")}</p>
             </label>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="secondary" onClick={resetIssueFeeForm}>Cancel</Button>
-              <Button type="button" disabled={busy} onClick={() => void runAction("issue_fee")}>Issue Recovery Fee</Button>
+              <Button type="button" variant="secondary" onClick={resetIssueFeeForm}>{isAr ? "إلغاء" : "Cancel"}</Button>
+              <Button type="button" disabled={busy} onClick={() => void runAction("issue_fee")}>{isAr ? "فرض رسوم الاستعادة" : "Issue Recovery Fee"}</Button>
             </div>
           </div>
         ) : null}
 
         <div className="rounded-xl border border-white/10 bg-black/25 p-3">
-          <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">Recent Compliance Activity</p>
+          <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "أحدث نشاطات الامتثال" : "Recent Compliance Activity"}</p>
           <div className="mt-3 space-y-2">
             {status.recentAuditEntries.length ? status.recentAuditEntries.slice(0, 8).map((entry) => (
               <div key={entry.id} className="rounded-lg border border-white/10 bg-white/[0.02] p-2.5 text-xs text-[#E5E7EB]">
                 <p className="font-semibold text-white">{entry.action.replaceAll("_", " ")}</p>
-                <p className="mt-0.5 text-[#9CA3AF]">{formatDate(entry.createdAt)}</p>
-                {entry.reason ? <p className="mt-1">Reason: {entry.reason}</p> : null}
-                {entry.evidenceReferences?.length ? <p className="mt-1 text-[#C9A227]">Evidence: {entry.evidenceReferences.length} attachment(s)</p> : null}
+                <p className="mt-0.5 text-[#9CA3AF]">{formatDate(entry.createdAt, locale)}</p>
+                {entry.reason ? <p className="mt-1">{isAr ? "السبب" : "Reason"}: {entry.reason}</p> : null}
+                {entry.evidenceReferences?.length ? <p className="mt-1 text-[#C9A227]">{isAr ? "الإثبات" : "Evidence"}: {entry.evidenceReferences.length} {isAr ? "مرفقات" : "attachment(s)"}</p> : null}
               </div>
-            )) : <p className="text-sm text-[#9CA3AF]">No compliance activity yet.</p>}
+            )) : <p className="text-sm text-[#9CA3AF]">{isAr ? "لا يوجد نشاط امتثال حتى الآن." : "No compliance activity yet."}</p>}
           </div>
         </div>
       </CardContent>
