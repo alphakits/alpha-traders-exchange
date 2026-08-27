@@ -6,7 +6,7 @@ import { getMessages } from "next-intl/server";
 import { Inter, IBM_Plex_Sans_Arabic } from "next/font/google";
 import { routing, localeDirection, type AppLocale } from "@/i18n/routing";
 import { Link } from "@/i18n/navigation";
-import { BRAND_NAME } from "@/lib/brand";
+import { BRAND_DESCRIPTOR, BRAND_DESCRIPTOR_AR, BRAND_NAME } from "@/lib/brand";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -53,7 +53,7 @@ export default async function AuthLocaleLayout({
           <Link href="/" locale={appLocale} className="inline-flex items-center gap-3 rounded-2xl border border-[#C9A227]/30 bg-black/45 px-3 py-2 shadow-[0_12px_36px_rgba(0,0,0,0.45)] backdrop-blur">
             <Image
               src="/images/brand/alpha-traders-logo.webp"
-              alt={`${BRAND_NAME} logo`}
+              alt={appLocale === "ar" ? "شعار Alpha Traders" : `${BRAND_NAME} logo`}
               width={64}
               height={64}
               priority
@@ -61,7 +61,7 @@ export default async function AuthLocaleLayout({
             />
             <span className="text-start">
               <span className="block text-base font-semibold tracking-wide text-[#E5C85C]">Alpha Traders</span>
-              <span className="block text-[11px] font-medium uppercase tracking-[0.18em] text-[#D4AF37]">Academy &amp; Exchange</span>
+              <span className="block text-[11px] font-medium uppercase tracking-[0.18em] text-[#D4AF37]">{appLocale === "ar" ? BRAND_DESCRIPTOR_AR : BRAND_DESCRIPTOR}</span>
             </span>
           </Link>
         </header>

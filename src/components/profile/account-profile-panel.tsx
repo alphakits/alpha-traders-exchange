@@ -98,6 +98,15 @@ function roleLabelFromBadge(variant: RoleBadgeVariant): AccountProfilePayload["r
   return "Buyer";
 }
 
+function accountStatusLabel(status: string, isAr: boolean) {
+  if (!isAr) return status;
+  const normalized = status.trim().toLowerCase();
+  if (normalized === "active") return "نشط";
+  if (normalized === "suspended") return "موقوف";
+  if (normalized === "pending seller approval") return "بانتظار الموافقة كبائع";
+  return "حالة الحساب محدّثة";
+}
+
 type ProfileFormState = {
   fullName: string;
   bio: string;
@@ -483,7 +492,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
       });
       const data = (await response.json()) as AccountProfilePayload & { error?: string };
       if (!response.ok) {
-        setMessage(data.error ?? (isAr ? "تعذر تحديث الهوية." : "Failed to update profile."));
+        setMessage(isAr ? "تعذر تحديث الهوية." : (data.error ?? "Failed to update profile."));
         return;
       }
       setPayload(data);
@@ -500,7 +509,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
       const response = await fetch("/api/auth/onboarding/student", { method: "POST" });
       const data = (await response.json()) as OnboardingRoleResponse;
       if (!response.ok) {
-        setMessage(data.error ?? (isAr ? "تعذر تفعيل دور الطالب." : "Failed to activate student role."));
+        setMessage(isAr ? "تعذر تفعيل دور الطالب." : (data.error ?? "Failed to activate student role."));
         return;
       }
       setPayload((prev) => {
@@ -533,7 +542,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
       const response = await fetch("/api/auth/onboarding/guest", { method: "POST" });
       const data = (await response.json()) as OnboardingRoleResponse;
       if (!response.ok) {
-        setMessage(data.error ?? (isAr ? "تعذر تحديث تفضيل الدور." : "Failed to update role preference."));
+        setMessage(isAr ? "تعذر تحديث تفضيل الدور." : (data.error ?? "Failed to update role preference."));
         return;
       }
       setPayload((prev) => {
@@ -589,7 +598,8 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
   const onlineNow = payload.profile.onlineStatus === "online";
   const isSeller = payload.stats.kind === "seller";
   const theme = profileTheme(payload.roleBadge);
-  const statusCopy = isAr ? payload.accountStatuses.join(" • ") : payload.accountStatuses.join(" • ");
+  const statusCopy = payload.accountStatuses.map((status) => accountStatusLabel(status, isAr)).join(" • ");
+  const dateLocale = isAr ? "ar-IL" : "en-IL";
   const { isOwner, hasAdminDashboardAccess } = resolveAdminProfileAccess({
     payload,
     sessionRoles,
@@ -692,12 +702,12 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "عضو منذ" : "Member since"}</p>
-                <p className="mt-2 text-sm font-medium text-white">{new Date(payload.profile.memberSince).toLocaleDateString("en-IL")}</p>
+                <p className="mt-2 text-sm font-medium text-white">{new Date(payload.profile.memberSince).toLocaleDateString(dateLocale)}</p>
                 <p className="mt-1 text-xs text-[#AAB3C2]">{isAr ? "الهوية موثقة عبر Alpha Traders" : "Identity anchored to Alpha Traders account history"}</p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "آخر دخول" : "Last login"}</p>
-                <p className="mt-2 text-sm font-medium text-white">{new Date(payload.profile.lastLogin).toLocaleString("en-IL")}</p>
+                <p className="mt-2 text-sm font-medium text-white">{new Date(payload.profile.lastLogin).toLocaleString(dateLocale)}</p>
                 <p className="mt-1 text-xs text-[#AAB3C2]">{isAr ? "نشاط حساب حديث" : "Recent account activity signal"}</p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
@@ -860,7 +870,7 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                         {(payload.stats.promotionHistory.length ? payload.stats.promotionHistory.slice(0, 4) : [{ id: "start", rank: payload.stats.sellerLevel, promotedAt: payload.profile.memberSince }]).map((entry) => (
                           <p key={entry.id} className="flex items-center gap-1.5">
                             <Trophy className="h-3.5 w-3.5 text-[#C9A227]" />
-                            <span>{tierLabel(entry.rank, isAr)} • {new Date(entry.promotedAt).toLocaleDateString("en-IL")}</span>
+                            <span>{tierLabel(entry.rank, isAr)} • {new Date(entry.promotedAt).toLocaleDateString(dateLocale)}</span>
                           </p>
                         ))}
                       </div>

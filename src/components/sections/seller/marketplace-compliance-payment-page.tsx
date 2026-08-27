@@ -68,10 +68,14 @@ export function MarketplaceCompliancePaymentPage({ locale }: { locale: "ar" | "e
   }, [activeRecord?.recoveryPaymentStatus, isAr]);
 
   async function refresh() {
-    const response = await fetch("/api/alpha-exchange/seller/compliance-payment", { cache: "no-store" });
-    const data = (await response.json()) as Payload & { error?: string };
-    if (!response.ok) throw new Error(data.error ?? "Failed to refresh compliance state.");
-    setStatus(data.enforcement);
+    try {
+      const response = await fetch("/api/alpha-exchange/seller/compliance-payment", { cache: "no-store" });
+      const data = (await response.json()) as Payload & { error?: string };
+      if (!response.ok) throw new Error(data.error ?? "Failed to refresh compliance state.");
+      setStatus(data.enforcement);
+    } catch {
+      setError(isAr ? "تعذر تحديث حالة الامتثال." : "Failed to refresh compliance state.");
+    }
   }
 
   async function handleSubmitPayment() {
@@ -86,11 +90,12 @@ export function MarketplaceCompliancePaymentPage({ locale }: { locale: "ar" | "e
         body: JSON.stringify({ action: "submit_payment", note: "Payment submitted by seller." }),
       });
       const data = (await response.json()) as Payload & { error?: string };
-      if (!response.ok) throw new Error(data.error ?? "Failed to submit payment.");
+      if (!response.ok) throw new Error(isAr ? "تعذر إرسال الدفعة." : (data.error ?? "Failed to submit payment."));
       setStatus(data.enforcement);
       setMessage(isAr ? "تم إرسال الدفع وبانتظار التحقق من المالك." : "Payment submitted. Waiting for owner verification.");
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Failed to submit payment.");
+      const detail = requestError instanceof Error ? requestError.message : "";
+      setError(isAr ? "تعذر إرسال الدفعة." : (detail || "Failed to submit payment."));
     } finally {
       setBusy(false);
     }
@@ -112,12 +117,13 @@ export function MarketplaceCompliancePaymentPage({ locale }: { locale: "ar" | "e
         body: JSON.stringify({ action: "submit_appeal", appealMessage: appeal }),
       });
       const data = (await response.json()) as Payload & { error?: string };
-      if (!response.ok) throw new Error(data.error ?? "Failed to submit appeal.");
+      if (!response.ok) throw new Error(isAr ? "تعذر إرسال الاستئناف." : (data.error ?? "Failed to submit appeal."));
       setStatus(data.enforcement);
       setMessage(isAr ? "تم إرسال الاستئناف للمراجعة." : "Appeal submitted for owner review.");
       setAppealMessage("");
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Failed to submit appeal.");
+      const detail = requestError instanceof Error ? requestError.message : "";
+      setError(isAr ? "تعذر إرسال الاستئناف." : (detail || "Failed to submit appeal."));
     } finally {
       setBusy(false);
     }
@@ -206,7 +212,11 @@ export function MarketplaceCompliancePaymentPage({ locale }: { locale: "ar" | "e
           {status.blockReason ? (
             <div className="rounded-xl border border-red-500/25 bg-red-500/10 p-3 text-sm text-red-100">
               <p className="inline-flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" />{isAr ? "سبب التقييد" : "Restriction Reason"}</p>
-              <p className="mt-1">{status.blockReason}</p>
+              <p className="mt-1">{isAr
+                ? (/[؀-ۿ]/.test(status.blockReason)
+                  ? status.blockReason
+                  : "تم تقييد صلاحيات السوق بسبب مخالفة تتطلب المراجعة.")
+                : status.blockReason}</p>
             </div>
           ) : null}
 

@@ -106,10 +106,13 @@ export function AccountVerificationGate({
         }),
       });
       const payload = (await res.json()) as ApiErrorPayload;
-      if (!res.ok) throw new Error(withSupportDetails(payload, "Failed to send verification code."));
-      setStatus(payload.message ?? (isAr ? "تم إرسال رمز التحقق." : "Verification code sent."));
+      if (!res.ok) throw new Error(withSupportDetails(payload, isAr ? "تعذر إرسال رمز التحقق." : "Failed to send verification code.", isAr));
+      setStatus(isAr ? "تم إرسال رمز التحقق." : (payload.message ?? "Verification code sent."));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send verification code.");
+      const detail = err instanceof Error ? err.message : "";
+      setError(isAr
+        ? (/[؀-ۿ]/.test(detail) ? detail : "تعذر إرسال رمز التحقق.")
+        : (detail || "Failed to send verification code."));
     } finally {
       setSendingOtp(false);
     }
@@ -126,11 +129,12 @@ export function AccountVerificationGate({
         body: JSON.stringify({ phone: phoneForm.phone, token: phoneForm.token }),
       });
       const payload = (await res.json()) as ApiErrorPayload;
-      if (!res.ok) throw new Error(withSupportDetails(payload, "Verification failed."));
+      if (!res.ok) throw new Error(withSupportDetails(payload, isAr ? "فشل التحقق من الرمز." : "Verification failed.", isAr));
       setStatus(isAr ? "تم تفعيل رقم الهاتف بنجاح." : "Phone verification completed.");
       await refresh({ force: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Verification failed.");
+      const detail = err instanceof Error ? err.message : "";
+      setError(isAr ? "فشل التحقق من الرمز." : (detail || "Verification failed."));
     } finally {
       setVerifyingOtp(false);
     }
@@ -147,10 +151,11 @@ export function AccountVerificationGate({
         body: JSON.stringify({ email: user?.email ?? initialEmail }),
       });
       const payload = (await res.json()) as { error?: string; message?: string };
-      if (!res.ok) throw new Error(payload.error ?? "Failed to resend verification email.");
-      setStatus(payload.message ?? (isAr ? "تم إرسال رسالة تحقق جديدة." : "A new verification email has been sent."));
+      if (!res.ok) throw new Error(isAr ? "فشل إرسال بريد التحقق." : (payload.error ?? "Failed to resend verification email."));
+      setStatus(isAr ? "تم إرسال رسالة تحقق جديدة." : (payload.message ?? "A new verification email has been sent."));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to resend verification email.");
+      const detail = err instanceof Error ? err.message : "";
+      setError(isAr ? "فشل إرسال بريد التحقق." : (detail || "Failed to resend verification email."));
     } finally {
       setResendingEmail(false);
     }
@@ -314,8 +319,8 @@ export function AccountVerificationGate({
   );
 }
 
-function withSupportDetails(payload: ApiErrorPayload, fallback: string) {
-  const message = payload.error ?? fallback;
+function withSupportDetails(payload: ApiErrorPayload, fallback: string, isAr: boolean) {
+  const message = isAr ? fallback : (payload.error ?? fallback);
   if (!payload.supportCode && !payload.requestId) return message;
   const suffix = [payload.supportCode, payload.requestId].filter(Boolean).join(" • ");
   return `${message} (${suffix})`;

@@ -7,7 +7,7 @@ import { hasRole } from "@/lib/roles";
 import { HeaderNav } from "@/components/layout/header-nav";
 import { HeaderAuthArea } from "@/components/layout/header-auth-area";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
-import { BRAND_DESCRIPTOR, BRAND_NAME, BRAND_PRIMARY_NAME } from "@/lib/brand";
+import { BRAND_DESCRIPTOR, BRAND_DESCRIPTOR_AR, BRAND_NAME, BRAND_PRIMARY_NAME } from "@/lib/brand";
 
 export async function SiteHeader({
   locale,
@@ -47,7 +47,7 @@ export async function SiteHeader({
         <Link href="/" locale={locale} className="inline-flex shrink-0 items-center gap-1.5 text-lg font-semibold tracking-wide text-white min-[390px]:gap-2 sm:gap-3">
           <Image
             src="/images/brand/alpha-traders-logo.webp"
-            alt={`${BRAND_NAME} logo`}
+            alt={locale === "ar" ? `شعار ${BRAND_PRIMARY_NAME}` : `${BRAND_NAME} logo`}
             width={48}
             height={48}
             priority
@@ -55,7 +55,7 @@ export async function SiteHeader({
           />
           <span className="hidden shrink-0 flex-col min-[360px]:flex" aria-label={brand}>
             <span className="gold-gradient whitespace-nowrap bg-clip-text pb-px text-[0.78rem] leading-[1.15] text-transparent min-[390px]:text-[0.86rem] sm:text-[1.02rem]">{BRAND_PRIMARY_NAME}</span>
-            <span className="whitespace-nowrap text-[0.42rem] font-semibold uppercase leading-tight tracking-[0.09em] text-[#D4AF37] min-[390px]:text-[0.48rem] sm:text-[0.55rem] sm:tracking-[0.16em]">{BRAND_DESCRIPTOR}</span>
+            <span className="whitespace-nowrap text-[0.42rem] font-semibold uppercase leading-tight tracking-[0.09em] text-[#D4AF37] min-[390px]:text-[0.48rem] sm:text-[0.55rem] sm:tracking-[0.16em]">{locale === "ar" ? BRAND_DESCRIPTOR_AR : BRAND_DESCRIPTOR}</span>
           </span>
         </Link>
         <HeaderNav items={nav} locale={locale} />

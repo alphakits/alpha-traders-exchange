@@ -68,7 +68,7 @@ export function deriveBuyerRankSummary(input: {
     label: "Rookie Buyer",
     description: "A fresh buyer who is just getting started on Alpha Exchange.",
     labelAr: "مشتري مبتدئ",
-    descriptionAr: "مشتري جديد appena بدأ رحلته على Alpha Exchange.",
+    descriptionAr: "مشتري جديد بدأ للتو رحلته على Alpha Exchange.",
     progressPercent: 18,
     completedTrades: input.completedTrades,
     reviewsGiven: input.reviewsGiven,

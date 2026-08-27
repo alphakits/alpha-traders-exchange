@@ -526,14 +526,41 @@ function timelineStepForEvent(event: TradeTimelineEntry): StepId {
 }
 
 function timelineEventLabel(event: TradeTimelineEntry, isAr: boolean) {
+  if (isAr) {
+    const labels: Record<TradeTimelineEntry["type"], string> = {
+      request_submitted: "تم إرسال طلب الشراء",
+      request_accepted: "وافق البائع على الطلب",
+      payment_sent: "أكد المشتري إرسال الدفعة",
+      seller_confirmed_funds: "أكد البائع استلام الدفعة",
+      usdt_release_started: "بدأ البائع إرسال USDT",
+      usdt_sent: "أكد البائع إرسال USDT",
+      trade_completed: "اكتملت الصفقة بنجاح",
+      trade_timed_out: "انتهت مهلة الصفقة",
+      trade_locked: "تم إغلاق الصفقة",
+      review_unlocked: "أصبح بإمكانك إضافة تقييم",
+      dispute_opened: "تم فتح نزاع لهذه الصفقة",
+      commission_recorded: "تم تسجيل عمولة الصفقة",
+      commission_paid: "تم دفع عمولة الصفقة",
+      buyer_evidence_uploaded: "رفع المشتري إثبات الدفع",
+      seller_evidence_uploaded: "رفع البائع إثبات إرسال USDT",
+      request_declined: "رفض البائع الطلب",
+      request_cancelled: "تم إلغاء الطلب",
+      buyer_confirmed_receipt: "أكد المشتري استلام USDT",
+      buyer_confirmation_overdue: "تأخر تأكيد المشتري",
+      trade_closed_manually: "تم إغلاق الصفقة يدويًا",
+      trade_inactivity_warning_sent: "تم إرسال تحذير بسبب عدم النشاط في الصفقة",
+      bank_details_revealed: "تم فتح تفاصيل الحساب البنكي داخل غرفة الصفقة",
+    };
+    return labels[event.type];
+  }
   if (event.type === "bank_details_revealed") {
-    return isAr ? "تم فتح تفاصيل الحساب البنكي داخل غرفة الصفقة" : "Trade bank details viewed in the trade room";
+    return "Trade bank details viewed in the trade room";
   }
   if (event.type === "trade_inactivity_warning_sent") {
-    return isAr ? "تم إرسال تحذير بسبب عدم النشاط في الصفقة" : "Inactivity warning was sent for this trade";
+    return "Inactivity warning was sent for this trade";
   }
   if (event.type === "trade_closed_manually") {
-    return isAr ? "تم إغلاق الصفقة يدويًا" : "Trade closed manually";
+    return "Trade closed manually";
   }
   return event.message;
 }
@@ -831,6 +858,7 @@ export function TradeRoomPage({
   actor: ActorSession;
 }) {
   const isAr = locale === "ar";
+  const dateLocale = isAr ? "ar-IL" : "en-IL";
   const router = useRouter();
   const canonicalSession = useOptionalCanonicalSession();
   const hasCanonicalSession = Boolean(canonicalSession);
@@ -1399,7 +1427,7 @@ export function TradeRoomPage({
       .then(async (response) => {
         const payload = await response.json().catch(() => ({})) as { error?: string; bankDetails?: TradeRoomBankDetails };
         if (!response.ok) {
-          throw new Error(payload.error ?? (isAr ? "تعذر تحميل تفاصيل الحساب البنكي." : "Failed to load bank details."));
+          throw new Error(isAr ? "تعذر تحميل تفاصيل الحساب البنكي." : (payload.error ?? "Failed to load bank details."));
         }
         if (!cancelled) setBankDetails(payload.bankDetails ?? null);
       })
@@ -1880,7 +1908,7 @@ export function TradeRoomPage({
       });
       const payload = (await response.json()) as { error?: string };
       if (!response.ok) {
-        setStatusMessage(payload.error ?? (isAr ? "تعذر إلغاء الطلب." : "Failed to cancel the request."));
+        setStatusMessage(isAr ? "تعذر إلغاء الطلب." : (payload.error ?? "Failed to cancel the request."));
         return;
       }
       router.push("/usdt-exchange");
@@ -1919,7 +1947,7 @@ export function TradeRoomPage({
       });
       const payload = (await response.json().catch(() => ({}))) as { error?: string; request?: PurchaseRequest };
       if (!response.ok) {
-        setStatusMessage(payload.error ?? (isAr ? "تعذر إغلاق الصفقة يدويًا." : "Failed to close trade manually."));
+        setStatusMessage(isAr ? "تعذر إغلاق الصفقة يدويًا." : (payload.error ?? "Failed to close trade manually."));
         return;
       }
       if (payload.request && room) {
@@ -2235,7 +2263,7 @@ export function TradeRoomPage({
           </div>
           <p className="mt-2 text-sm text-[#D1D5DB]">
             {selectedStepEvent
-              ? `${new Date(selectedStepEvent.createdAt).toLocaleString("en-IL")} • ${selectedStepEvent.message}`
+              ? `${new Date(selectedStepEvent.createdAt).toLocaleString(dateLocale)} • ${timelineEventLabel(selectedStepEvent, isAr)}`
               : (isAr ? "لا يوجد حدث مسجل لهذه المرحلة بعد." : "No logged event for this step yet.")}
           </p>
         </section>
@@ -2264,7 +2292,7 @@ export function TradeRoomPage({
                 </button>
               ))}
             </div>
-            {selectedStepEvent ? <p className="text-xs text-[#9CA3AF]">{selectedStepEvent.message}</p> : null}
+            {selectedStepEvent ? <p className="text-xs text-[#9CA3AF]">{timelineEventLabel(selectedStepEvent, isAr)}</p> : null}
           </div>
         </details>
 
@@ -2377,8 +2405,8 @@ export function TradeRoomPage({
             <CardContent className="space-y-3 text-sm text-[#D1FAE5]">
               <p>{isAr ? `${toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT تم استلامها.` : `${toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT received.`}</p>
               <p>{isAr ? "البائع أكد الدفع وأرسل USDT، والمشتري أكد الاستلام." : "Seller confirmed payment and released USDT, and buyer confirmed receipt."}</p>
-              <p>{isAr ? `تأكيد البائع: ${request.usdtSentAt ? new Date(request.usdtSentAt).toLocaleString("en-IL") : "تم"}` : `Seller confirmation: ${request.usdtSentAt ? new Date(request.usdtSentAt).toLocaleString("en-IL") : "Confirmed"}`}</p>
-              <p>{isAr ? `تأكيد المشتري: ${request.completedAt ? new Date(request.completedAt).toLocaleString("en-IL") : "تم"}` : `Buyer confirmation: ${request.completedAt ? new Date(request.completedAt).toLocaleString("en-IL") : "Confirmed"}`}</p>
+              <p>{isAr ? `تأكيد البائع: ${request.usdtSentAt ? new Date(request.usdtSentAt).toLocaleString(dateLocale) : "تم"}` : `Seller confirmation: ${request.usdtSentAt ? new Date(request.usdtSentAt).toLocaleString(dateLocale) : "Confirmed"}`}</p>
+              <p>{isAr ? `تأكيد المشتري: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "تم"}` : `Buyer confirmation: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "Confirmed"}`}</p>
               {room.sellerCommissionDueCount > 0 && isSeller ? (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
                   <p className="font-medium">{isAr ? "عمولة مستحقة" : "Commission Due"}</p>
@@ -2562,8 +2590,8 @@ export function TradeRoomPage({
                     <p className="font-medium">{isAr ? "تحذير عدم النشاط" : "Inactivity warning"}</p>
                     <p className="mt-1">
                       {isAr
-                        ? `تم إرسال تحذير بسبب عدم النشاط في ${new Date(request.inactivityWarningSentAt).toLocaleString("en-IL")}. أكمل الخطوة الحالية لتجنب التأخير.`
-                        : `An inactivity warning was sent at ${new Date(request.inactivityWarningSentAt).toLocaleString("en-IL")}. Complete the current step to avoid delays.`}
+                        ? `تم إرسال تحذير بسبب عدم النشاط في ${new Date(request.inactivityWarningSentAt).toLocaleString(dateLocale)}. أكمل الخطوة الحالية لتجنب التأخير.`
+                        : `An inactivity warning was sent at ${new Date(request.inactivityWarningSentAt).toLocaleString(dateLocale)}. Complete the current step to avoid delays.`}
                     </p>
                   </div>
                 ) : null}
@@ -2896,7 +2924,7 @@ export function TradeRoomPage({
                       <div className="mt-1 h-2.5 w-2.5 rounded-full bg-[#C9A227]" />
                       <div>
                         <p className="text-white">{timelineEventLabel(event, isAr)}</p>
-                        <p className="text-xs text-[#9CA3AF]">{new Date(event.createdAt).toLocaleString("en-IL")}</p>
+                        <p className="text-xs text-[#9CA3AF]">{new Date(event.createdAt).toLocaleString(dateLocale)}</p>
                       </div>
                     </div>
                   ))
@@ -2990,7 +3018,7 @@ export function TradeRoomPage({
                                 </a>
                               ) : null}
                               <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-[#9CA3AF]">
-                                <span>{new Date(message.createdAt).toLocaleTimeString("en-IL", { hour: "2-digit", minute: "2-digit" })}</span>
+                                <span>{new Date(message.createdAt).toLocaleTimeString(dateLocale, { hour: "2-digit", minute: "2-digit" })}</span>
                                 <span>{statusIcon}{ownMessage ? ` • ${readByCounterparty ? (isAr ? "مرئية" : "Seen") : (isAr ? "مرسلة" : "Sent")}` : ""}</span>
                               </div>
                             </div>

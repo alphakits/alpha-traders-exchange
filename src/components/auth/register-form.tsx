@@ -55,12 +55,9 @@ export function RegisterForm({ locale }: { locale: "ar" | "en" }) {
         setErrorMessage(localizeRegistrationError(payload.error));
         return;
       }
-      setStatusMessage(
-        payload.message ??
-          (isAr
-            ? "تم إنشاء الحساب. يرجى تأكيد بريدك الإلكتروني قبل تسجيل الدخول."
-            : "Your account has been created. Please verify your email before signing in."),
-      );
+      setStatusMessage(isAr
+        ? "تم إنشاء الحساب. يرجى تأكيد بريدك الإلكتروني قبل تسجيل الدخول."
+        : (payload.message ?? "Your account has been created. Please verify your email before signing in."));
       setForm({
         fullName: "",
         email: "",
