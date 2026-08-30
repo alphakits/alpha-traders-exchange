@@ -67,6 +67,12 @@ type TradeRoomBankDetails = {
   accountLast4: string;
 };
 
+type TradeRoomChatPostPayload = {
+  code?: string;
+  error?: string;
+  message?: TradeChatMessage;
+};
+
 type ActorSession = {
   id: string;
   role: UserRole;
@@ -98,6 +104,7 @@ type TradeRoomDeepLinkTarget = "status-banner" | "action-required" | "evidence" 
 
 const ALLOWED_EVIDENCE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
 const MAX_EVIDENCE_SIZE_BYTES = 8 * 1024 * 1024;
+const CHAT_SEND_TIMEOUT_MS = 12_000;
 const TRADE_ROOM_DEBUG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
 const COMPLETED_TRADE_STATUSES = new Set<PurchaseRequest["status"]>(["review_open", "completed", "locked"]);
 const PERF_LOG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
@@ -140,6 +147,30 @@ function localizedCaughtError(error: unknown, fallback: string, isAr: boolean) {
   if (!(error instanceof Error) || !error.message.trim()) return fallback;
   if (!isAr || /[\u0600-\u06ff]/.test(error.message)) return error.message;
   return fallback;
+}
+
+function createTradeRoomClientMessageId() {
+  const cryptoApi = globalThis.crypto;
+  if (typeof cryptoApi?.randomUUID === "function") return cryptoApi.randomUUID();
+  const bytes = new Uint8Array(16);
+  cryptoApi.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function readTradeRoomChatError(
+  payload: { code?: string; error?: string } | null,
+  isAr: boolean,
+) {
+  if (payload?.code === "DIRECT_CONTACT_BLOCKED") {
+    return isAr
+      ? "لحمايتك، لا يمكن إرسال رقم هاتف أو بريد إلكتروني أو WhatsApp أو بيانات تواصل خارجية. أبقِ المحادثة داخل غرفة الصفقة."
+      : "For your security, phone numbers, email, WhatsApp, and other external contact details cannot be sent. Keep the conversation inside this Trade Room.";
+  }
+  return readApiErrorFallback(payload, isAr ? "تعذر إرسال الرسالة. حاول مرة أخرى." : "Message was not sent. Please try again.", isAr);
+}
+
+function isRetryableChatResponse(status: number) {
+  return status === 408 || status === 425 || status === 502 || status === 503 || status === 504;
 }
 
 function paymentMethodDisplayLabel(method: string, isAr: boolean) {
@@ -939,6 +970,7 @@ export function TradeRoomPage({
   const [completedActionLabel, setCompletedActionLabel] = useState<string | null>(null);
   const [stepPulse, setStepPulse] = useState(false);
   const [chatBusy, setChatBusy] = useState(false);
+  const [chatErrorMessage, setChatErrorMessage] = useState<string | null>(null);
   const [pokeBusy, setPokeBusy] = useState(false);
   const [chatDraft, setChatDraft] = useState("");
   const [chatImage, setChatImage] = useState<File | null>(null);
@@ -1698,10 +1730,12 @@ export function TradeRoomPage({
 
   const handleSendMessage = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (chatMessageInFlightRef.current) return;
     const currentRoom = roomRef.current ?? room;
     if (!currentRoom) return;
     const message = chatDraft.trim();
     if (!message && !chatImage) return;
+    const clientMessageId = createTradeRoomClientMessageId();
     // Optimistically append the message so it appears instantly for the sender.
     const optimisticMsg: TradeChatMessage = {
       id: `optimistic-msg-${Date.now()}`,
@@ -1726,42 +1760,67 @@ export function TradeRoomPage({
     writeTradeRoomCache(requestId, optimisticRoom);
     setRoom(optimisticRoom);
     setChatDraft("");
+    setChatErrorMessage(null);
     setChatBusy(true);
     try {
-      const response = await fetch(`/api/alpha-exchange/purchase-requests/${currentRoom.request.id}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message,
-          imageUrl: chatImage ? await encodeFileToDataUrl(chatImage) : undefined,
-          imageName: chatImage?.name,
-          imageMimeType: chatImage?.type,
-        }),
+      const imageUrl = chatImage ? await encodeFileToDataUrl(chatImage) : undefined;
+      const requestBody = JSON.stringify({
+        message,
+        clientMessageId,
+        imageUrl,
+        imageName: chatImage?.name,
+        imageMimeType: chatImage?.type,
       });
-      const payload = (await response.json()) as { error?: string; message?: TradeChatMessage };
-      if (!response.ok) {
-        // Revert the optimistic message on failure.
-        const failedRoom = roomRef.current;
-        if (failedRoom) {
-          const revertedRoom = {
-            ...failedRoom,
-            messages: failedRoom.messages.filter((candidate) => candidate.id !== optimisticMsg.id),
-          };
-          roomRef.current = revertedRoom;
-          writeTradeRoomCache(requestId, revertedRoom);
-          setRoom(revertedRoom);
+      let response: Response | null = null;
+      let payload: TradeRoomChatPostPayload | null = null;
+      let lastNetworkError: unknown = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        response = null;
+        payload = null;
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), CHAT_SEND_TIMEOUT_MS);
+        try {
+          response = await fetch(`/api/alpha-exchange/purchase-requests/${currentRoom.request.id}/messages`, {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: requestBody,
+            signal: controller.signal,
+          });
+          payload = await response.json().catch(() => null) as TradeRoomChatPostPayload | null;
+          if (response.status === 401 && attempt === 0 && refreshCanonicalSession) {
+            const sessionResult = await refreshCanonicalSession({ force: true });
+            if (sessionResult === "authenticated") continue;
+          }
+          if (isRetryableChatResponse(response.status) && attempt === 0) continue;
+          break;
+        } catch (error) {
+          lastNetworkError = error;
+          if (attempt === 0) continue;
+        } finally {
+          window.clearTimeout(timeout);
         }
-        setChatDraft(message);
-        throw new Error(readApiErrorFallback(payload, isAr ? "تعذر إرسال الرسالة." : "Failed to send message.", isAr));
+      }
+      if (!response) {
+        throw new Error(
+          isAr
+            ? "تعذر الاتصال بالخادم. لم يتم إرسال الرسالة، وتمت إعادتها إلى مربع الكتابة."
+            : "Could not reach the server. Your message was not sent and has been restored in the message box.",
+          { cause: lastNetworkError },
+        );
+      }
+      if (!response.ok) {
+        throw new Error(readTradeRoomChatError(payload, isAr));
       }
       setChatImage(null);
       if (chatImageInputRef.current) chatImageInputRef.current.value = "";
-      if (payload.message) {
+      const confirmedMessage = payload?.message;
+      if (confirmedMessage) {
         const confirmedRoom = roomRef.current;
         if (confirmedRoom) {
           const nextRoom = {
             ...confirmedRoom,
-            messages: mergeTradeRoomMessages(confirmedRoom.messages, payload.message, optimisticMsg.id),
+            messages: mergeTradeRoomMessages(confirmedRoom.messages, confirmedMessage, optimisticMsg.id),
           };
           roomRef.current = nextRoom;
           writeTradeRoomCache(requestId, nextRoom);
@@ -1769,12 +1828,23 @@ export function TradeRoomPage({
         }
       }
     } catch (error) {
-      setStatusMessage(isAr ? "تعذر إرسال الرسالة." : (error instanceof Error ? error.message : "Failed to send message."));
+      const failedRoom = roomRef.current;
+      if (failedRoom) {
+        const revertedRoom = {
+          ...failedRoom,
+          messages: failedRoom.messages.filter((candidate) => candidate.id !== optimisticMsg.id),
+        };
+        roomRef.current = revertedRoom;
+        writeTradeRoomCache(requestId, revertedRoom);
+        setRoom(revertedRoom);
+      }
+      setChatDraft((current) => current.trim() ? `${message}\n${current}` : message);
+      setChatErrorMessage(localizedCaughtError(error, isAr ? "تعذر إرسال الرسالة. حاول مرة أخرى." : "Message was not sent. Please try again.", isAr));
     } finally {
       chatMessageInFlightRef.current = false;
       setChatBusy(false);
     }
-  }, [actor.id, actor.role, chatDraft, chatImage, isAr, requestId, room]);
+  }, [actor.id, actor.role, chatDraft, chatImage, isAr, refreshCanonicalSession, requestId, room]);
 
   const handlePoke = useCallback(async () => {
     if (!request || !room?.poke?.available || pokeBusy) return;
@@ -2188,7 +2258,8 @@ export function TradeRoomPage({
 
   const handleChatDraftChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
     setChatDraft(event.target.value);
-  }, []);
+    if (chatErrorMessage) setChatErrorMessage(null);
+  }, [chatErrorMessage]);
 
   if (isLoading) {
     return (
@@ -3168,7 +3239,28 @@ export function TradeRoomPage({
                   </Button>
                 ) : null}
                 <form className="sticky bottom-2 z-10 space-y-2 rounded-2xl border border-white/10 bg-[#101010]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-xl backdrop-blur-md" onSubmit={handleSendMessage}>
-                  <Textarea value={chatDraft} onChange={handleChatDraftChange} placeholder={isAr ? "اكتب رسالة..." : "Type a message..."} className="min-h-[56px] resize-none sm:min-h-[96px]" />
+                  <Textarea
+                    value={chatDraft}
+                    onChange={handleChatDraftChange}
+                    placeholder={isAr ? "اكتب رسالة..." : "Type a message..."}
+                    className="min-h-[56px] resize-none sm:min-h-[96px]"
+                    aria-invalid={Boolean(chatErrorMessage)}
+                    aria-describedby={chatErrorMessage ? "trade-chat-error trade-chat-safety" : "trade-chat-safety"}
+                  />
+                  <p id="trade-chat-safety" className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs leading-5 text-amber-100">
+                    <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span>
+                      {isAr
+                        ? "لحمايتك، أبقِ المحادثة هنا. لا يمكن إرسال أرقام الهاتف أو البريد الإلكتروني أو WhatsApp أو بيانات التواصل الخارجية."
+                        : "For your security, keep the conversation here. Phone numbers, email, WhatsApp, and other external contact details cannot be sent."}
+                    </span>
+                  </p>
+                  {chatErrorMessage ? (
+                    <div id="trade-chat-error" role="alert" aria-live="assertive" data-testid="trade-chat-error" className="flex items-start gap-2 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm leading-5 text-red-100">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                      <span>{chatErrorMessage}</span>
+                    </div>
+                  ) : null}
                   <Input
                     ref={chatImageInputRef}
                     type="file"
@@ -3196,7 +3288,9 @@ export function TradeRoomPage({
                   {chatImage ? <p className="break-all text-xs text-[#D1D5DB]"><bdi dir="ltr">{chatImage.name}</bdi></p> : null}
                   <div className="flex items-center gap-2">
                     <Button type="submit" className="flex-1" disabled={chatBusy || (!chatDraft.trim() && !chatImage)}>
-                      {chatBusy ? (isAr ? "جاري الإرسال..." : "Sending...") : (isAr ? "إرسال الرسالة" : "Send Message")}
+                      {chatBusy ? (
+                        <span className="inline-flex items-center gap-2"><LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />{isAr ? "جاري الإرسال..." : "Sending..."}</span>
+                      ) : (isAr ? "إرسال الرسالة" : "Send Message")}
                     </Button>
                     <Button type="button" variant="secondary" onClick={() => navigator.clipboard.writeText(chatDraft)}>
                       {isAr ? "نسخ" : "Copy"}

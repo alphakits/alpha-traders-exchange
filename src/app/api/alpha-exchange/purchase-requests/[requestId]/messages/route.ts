@@ -4,6 +4,7 @@ import { getTradeRoomData, postTradeRoomMessage } from "@/lib/alpha-exchange-sto
 import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-auth";
 import { prepareTradeRoomConversationEmail, TRADE_ROOM_MESSAGE_EMAIL_BURST_WINDOW_MS } from "@/lib/marketplace-email-events";
 import { logEvent } from "@/lib/structured-logging";
+import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
 
 type RouteContext = {
   params: Promise<{ requestId: string }>;
@@ -60,11 +61,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   try {
     const { requestId } = await context.params;
-    const body = (await request.json()) as { message?: string; imageUrl?: string; imageName?: string; imageMimeType?: string };
+    const body = (await request.json()) as { message?: string; clientMessageId?: string; imageUrl?: string; imageName?: string; imageMimeType?: string };
     const posted = await postTradeRoomMessage({
       purchaseRequestId: requestId,
       actorUserId: user.id,
       message: String(body.message ?? ""),
+      clientMessageId: typeof body.clientMessageId === "string" ? body.clientMessageId : undefined,
       imageUrl: body.imageUrl,
       imageName: body.imageName,
       imageMimeType: body.imageMimeType,
@@ -74,6 +76,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
     // refresh, another device, or another Vercel instance. Chat and bell/SSE
     // delivery have already committed and never depend on this provider work.
     try {
+      if (!posted.created) {
+        return NextResponse.json(
+          { message: posted.message, created: false, metrics: posted.metrics },
+          { status: 200, headers: { "X-Trade-Message-Replayed": "1" } },
+        );
+      }
       const emailBurst = await checkSharedRateLimit({
         headers: request.headers,
         key: "exchange:trade-room-message-email",
@@ -113,7 +121,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const routeMs = Date.now() - routeStartedAt;
     const queueMs = Math.max(0, routeMs - posted.metrics.totalMs);
     return NextResponse.json(
-      { message: posted.message, metrics: posted.metrics },
+      { message: posted.message, created: true, metrics: posted.metrics },
       {
         status: 201,
         headers: {
@@ -137,7 +145,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
         ? 403
         : 400;
     return NextResponse.json(
-      { error: message },
+      {
+        error: message,
+        code: message === DIRECT_CONTACT_CONTENT_ERROR ? "DIRECT_CONTACT_BLOCKED" : undefined,
+      },
       { status },
     );
   }

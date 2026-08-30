@@ -41,14 +41,15 @@ vi.mock("@/lib/structured-logging", () => ({
 
 import { NextRequest } from "next/server";
 import { POST } from "@/app/api/alpha-exchange/purchase-requests/[requestId]/messages/route";
+import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
 
 const deliverEmail = async () => {};
 
-function createMessageRequest(message = "A private chat message", requestId = "purchase-1") {
+function createMessageRequest(message = "A private chat message", requestId = "purchase-1", clientMessageId = "4f4779eb-cb34-4d4b-b729-69d03d6e1381") {
   return new NextRequest(`http://localhost/api/alpha-exchange/purchase-requests/${requestId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message, clientMessageId }),
   });
 }
 
@@ -65,6 +66,7 @@ describe("Trade Room message email scheduling", () => {
     });
     mocks.postTradeRoomMessage.mockResolvedValue({
       message: { id: "message-1" },
+      created: true,
       notificationRecipientUserId: "seller-1",
       senderParticipantRole: "buyer",
       trade: { id: "purchase-1", tradeId: "TR-100" },
@@ -131,19 +133,19 @@ describe("Trade Room message email scheduling", () => {
     mocks.postTradeRoomMessage
       .mockReset()
       .mockResolvedValueOnce({
-        message: { id: "message-a1" }, notificationRecipientUserId: "seller-1", senderParticipantRole: "buyer",
+        message: { id: "message-a1" }, created: true, notificationRecipientUserId: "seller-1", senderParticipantRole: "buyer",
         trade: { id: "trade-a", tradeId: "TR-A" }, metrics: { totalMs: 1, readDbMs: 0, validationMs: 0, businessMs: 0, writeDbMs: 1, sseMs: 0 },
       })
       .mockResolvedValueOnce({
-        message: { id: "message-a2" }, notificationRecipientUserId: "seller-1", senderParticipantRole: "buyer",
+        message: { id: "message-a2" }, created: true, notificationRecipientUserId: "seller-1", senderParticipantRole: "buyer",
         trade: { id: "trade-a", tradeId: "TR-A" }, metrics: { totalMs: 1, readDbMs: 0, validationMs: 0, businessMs: 0, writeDbMs: 1, sseMs: 0 },
       })
       .mockResolvedValueOnce({
-        message: { id: "message-b1" }, notificationRecipientUserId: "seller-1", senderParticipantRole: "buyer",
+        message: { id: "message-b1" }, created: true, notificationRecipientUserId: "seller-1", senderParticipantRole: "buyer",
         trade: { id: "trade-b", tradeId: "TR-B" }, metrics: { totalMs: 1, readDbMs: 0, validationMs: 0, businessMs: 0, writeDbMs: 1, sseMs: 0 },
       })
       .mockResolvedValueOnce({
-        message: { id: "message-a3" }, notificationRecipientUserId: "buyer-1", senderParticipantRole: "seller",
+        message: { id: "message-a3" }, created: true, notificationRecipientUserId: "buyer-1", senderParticipantRole: "seller",
         trade: { id: "trade-a", tradeId: "TR-A" }, metrics: { totalMs: 1, readDbMs: 0, validationMs: 0, businessMs: 0, writeDbMs: 1, sseMs: 0 },
       });
     let emailBurstAttempt = 0;
@@ -180,5 +182,46 @@ describe("Trade Room message email scheduling", () => {
     const response = await POST(createMessageRequest(), routeContext());
     expect(response.status).toBe(403);
     expect(mocks.postTradeRoomMessage).not.toHaveBeenCalled();
+  });
+
+  it("forwards the stable client message id used for exact-once retries", async () => {
+    mocks.checkSharedRateLimit
+      .mockResolvedValueOnce({ allowed: true, retryAfterSeconds: 0, reason: null })
+      .mockResolvedValueOnce({ allowed: false, retryAfterSeconds: 119, reason: "limit_reached" });
+    const clientMessageId = "ad0bdb49-b5ca-443e-aeda-2318f716c654";
+
+    const response = await POST(createMessageRequest("Still here", "purchase-1", clientMessageId), routeContext());
+
+    expect(response.status).toBe(201);
+    expect(mocks.postTradeRoomMessage).toHaveBeenCalledWith(expect.objectContaining({ clientMessageId }));
+  });
+
+  it("returns a stable policy code so blocked contact details are explained inline", async () => {
+    mocks.checkSharedRateLimit.mockResolvedValueOnce({ allowed: true, retryAfterSeconds: 0, reason: null });
+    mocks.postTradeRoomMessage.mockRejectedValueOnce(new Error(DIRECT_CONTACT_CONTENT_ERROR));
+
+    const response = await POST(createMessageRequest("050-123-4567"), routeContext());
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload).toEqual({ error: DIRECT_CONTACT_CONTENT_ERROR, code: "DIRECT_CONTACT_BLOCKED" });
+  });
+
+  it("does not schedule a second email when a retry replays an already-committed message", async () => {
+    mocks.checkSharedRateLimit.mockResolvedValueOnce({ allowed: true, retryAfterSeconds: 0, reason: null });
+    mocks.postTradeRoomMessage.mockResolvedValueOnce({
+      message: { id: "message-1" },
+      created: false,
+      notificationRecipientUserId: "seller-1",
+      senderParticipantRole: "buyer",
+      trade: { id: "purchase-1", tradeId: "TR-100" },
+      metrics: { totalMs: 1, readDbMs: 0, validationMs: 0, businessMs: 0, writeDbMs: 1, sseMs: 0 },
+    });
+
+    const response = await POST(createMessageRequest(), routeContext());
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("X-Trade-Message-Replayed")).toBe("1");
+    expect(mocks.prepareTradeRoomConversationEmail).not.toHaveBeenCalled();
   });
 });

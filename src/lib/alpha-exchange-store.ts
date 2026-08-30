@@ -8742,6 +8742,7 @@ export async function postTradeRoomMessage(input: {
   purchaseRequestId: string;
   actorUserId: string;
   message: string;
+  clientMessageId?: string;
   imageUrl?: string;
   imageName?: string;
   imageMimeType?: string;
@@ -8754,81 +8755,137 @@ export async function postTradeRoomMessage(input: {
   const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.purchaseRequestId);
   if (requestIndex === -1) throw new Error("Trade not found.");
   const request = db.purchaseRequests[requestIndex];
-  const participantSide = assertTradeRoomParticipant(request, input.actorUserId);
+  assertTradeRoomParticipant(request, input.actorUserId);
 
   const message = input.message.trim();
-  if (!message) throw new Error("Message is required.");
   if (message.length > 1200) throw new Error("Message is too long.");
   assertNoExchangeDirectContact(message, input.imageUrl);
   const image = parseTradeRoomImageDataUrl(input.imageUrl, input.imageMimeType);
+  if (!message && !image) throw new Error("Message or image is required.");
+  const suppliedClientMessageId = String(input.clientMessageId ?? "").trim().toLowerCase();
+  if (suppliedClientMessageId && !/^[a-f0-9]{32}$|^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(suppliedClientMessageId)) {
+    throw new Error("Invalid message request id.");
+  }
+  const clientMessageId = suppliedClientMessageId || randomUUID();
+  const messageId = `trade-msg-${createHash("sha256")
+    .update(`${input.purchaseRequestId}:${input.actorUserId}:${clientMessageId}`)
+    .digest("hex")
+    .slice(0, 32)}`;
   const validationMs = Date.now() - validationStartedAt;
 
   const businessStartedAt = Date.now();
-  const senderRole: UserRole = participantSide === "buyer" ? "buyer" : "approved_seller";
-  const nextMessage: TradeChatMessage = {
-    id: `trade-msg-${randomUUID()}`,
-    purchaseRequestId: request.id,
-    kind: "user",
-    senderUserId: input.actorUserId,
-    senderRole,
-    message,
-    createdAt: nowIso(),
-    sentAt: nowIso(),
-    readByUserIds: [input.actorUserId],
-    imageUrl: image?.dataUrl,
-    // Do not retain client filename metadata: an attachment can be identified
-    // safely by its server-generated message id and verified MIME type.
-    imageName: image ? `trade-room-attachment-${randomUUID().slice(0, 8)}.${extensionForEvidenceMimeType(image.mimeType)}` : undefined,
-    imageMimeType: image?.mimeType,
+  const createdAt = nowIso();
+  type CommittedTradeRoomMessage = {
+    message: TradeChatMessage;
+    recipientUserId: string;
+    participantSide: TradeRoomParticipantSide;
+    trade: { id: string; tradeId?: string };
+    notificationPublication: DeferredNotificationPublication | null;
+    created: boolean;
   };
-  // Store messages in request.messages (persisted inside purchase_requests.payload JSON).
-  // Also keep db.tradeMessages in sync for backward compatibility.
-  request.messages = [nextMessage, ...(request.messages ?? [])];
-  request.updatedAt = nowIso();
-  if (request.status === "accepted") {
-    request.inactivityWarningSentAt = undefined;
-  }
-  db.purchaseRequests[requestIndex] = request;
-  db.tradeMessages = [nextMessage, ...(db.tradeMessages ?? [])];
-  const recipientUserId = participantSide === "buyer" ? request.sellerId : request.buyerId;
-  const notificationPublication = pushNotification(db, {
-    userId: recipientUserId,
-    category: "trade",
-    title: "New Trade Room message",
-    message: "You have a new message in your active Alpha Exchange trade.",
-    relatedRequestId: request.id,
-    relatedTradeId: request.tradeId,
-    relatedListingId: request.listingId,
-    relatedHref: `${requestDetailsHref(request.id)}#chat`,
-    actionLabel: "Open Trade Room",
-    actionHref: `${requestDetailsHref(request.id)}#chat`,
-    reason: "trade_room_message",
-    forceInApp: true,
-    deferRealtime: true,
-  });
+  let committed: CommittedTradeRoomMessage | null = null;
+
+  const applyMessageToCanonicalSnapshot = (snapshot: AlphaExchangeDb) => {
+    const canonicalRequestIndex = snapshot.purchaseRequests.findIndex((item) => item.id === input.purchaseRequestId);
+    if (canonicalRequestIndex === -1) throw new Error("Trade not found.");
+    const canonicalRequest = snapshot.purchaseRequests[canonicalRequestIndex];
+    const canonicalParticipantSide = assertTradeRoomParticipant(canonicalRequest, input.actorUserId);
+    const canonicalRecipientUserId = canonicalParticipantSide === "buyer" ? canonicalRequest.sellerId : canonicalRequest.buyerId;
+    const existingMessage = canonicalRequest.messages?.find((candidate) => candidate.id === messageId);
+    if (existingMessage) {
+      committed = {
+        message: existingMessage,
+        recipientUserId: canonicalRecipientUserId,
+        participantSide: canonicalParticipantSide,
+        trade: { id: canonicalRequest.id, tradeId: canonicalRequest.tradeId },
+        notificationPublication: null,
+        created: false,
+      };
+      return snapshot;
+    }
+
+    const nextMessage: TradeChatMessage = {
+      id: messageId,
+      purchaseRequestId: canonicalRequest.id,
+      kind: "user",
+      senderUserId: input.actorUserId,
+      senderRole: canonicalParticipantSide === "buyer" ? "buyer" : "approved_seller",
+      message,
+      createdAt,
+      sentAt: createdAt,
+      readByUserIds: [input.actorUserId],
+      imageUrl: image?.dataUrl,
+      // Do not retain client filename metadata: an attachment can be identified
+      // safely by its server-generated message id and verified MIME type.
+      imageName: image ? `trade-room-attachment-${messageId.slice(-8)}.${extensionForEvidenceMimeType(image.mimeType)}` : undefined,
+      imageMimeType: image?.mimeType,
+    };
+    canonicalRequest.messages = [nextMessage, ...(canonicalRequest.messages ?? [])];
+    canonicalRequest.updatedAt = createdAt;
+    if (canonicalRequest.status === "accepted") {
+      canonicalRequest.inactivityWarningSentAt = undefined;
+    }
+    snapshot.purchaseRequests[canonicalRequestIndex] = canonicalRequest;
+    snapshot.tradeMessages = [nextMessage, ...(snapshot.tradeMessages ?? [])];
+    const notificationPublication = pushNotification(snapshot, {
+      userId: canonicalRecipientUserId,
+      category: "trade",
+      title: "New Trade Room message",
+      message: "You have a new message in your active Alpha Exchange trade.",
+      relatedRequestId: canonicalRequest.id,
+      relatedTradeId: canonicalRequest.tradeId,
+      relatedListingId: canonicalRequest.listingId,
+      relatedHref: `${requestDetailsHref(canonicalRequest.id)}#chat`,
+      actionLabel: "Open Trade Room",
+      actionHref: `${requestDetailsHref(canonicalRequest.id)}#chat`,
+      reason: "trade_room_message",
+      forceInApp: true,
+      deferRealtime: true,
+    });
+    committed = {
+      message: nextMessage,
+      recipientUserId: canonicalRecipientUserId,
+      participantSide: canonicalParticipantSide,
+      trade: { id: canonicalRequest.id, tradeId: canonicalRequest.tradeId },
+      notificationPublication,
+      created: true,
+    };
+    return snapshot;
+  };
+
+  applyMessageToCanonicalSnapshot(db);
   const businessMs = Date.now() - businessStartedAt;
   const writeStartedAt = Date.now();
-  await writeDb(db, { selectedTables: TRADE_ROOM_INTERACTION_TABLES });
-  const writeMs = Date.now() - writeStartedAt;
-  const sseStartedAt = Date.now();
-  publishRealtimeEvent({
-    type: "trade.message_created",
-    payload: {
-      requestId: request.id,
-      messageId: nextMessage.id,
-    },
+  await writeDb(db, {
+    selectedTables: TRADE_ROOM_INTERACTION_TABLES,
+    // Reapply the exact message operation under the repository's canonical
+    // transaction lock when another Vercel instance wrote first. The stable
+    // client id turns an uncertain response/retry into one durable message and
+    // one notification instead of duplicates or lost chat history.
+    rebaseOnLatest: applyMessageToCanonicalSnapshot,
   });
-  publishNotificationPublication(notificationPublication);
+  const writeMs = Date.now() - writeStartedAt;
+  const committedResult = committed as CommittedTradeRoomMessage | null;
+  if (!committedResult) throw new Error("Failed to save message.");
+  const sseStartedAt = Date.now();
+  if (committedResult.created) {
+    publishRealtimeEvent({
+      type: "trade.message_created",
+      payload: {
+        requestId: committedResult.trade.id,
+        messageId: committedResult.message.id,
+      },
+    });
+    publishNotificationPublication(committedResult.notificationPublication);
+  }
   const sseMs = Date.now() - sseStartedAt;
   return {
-    message: nextMessage,
-    notificationRecipientUserId: recipientUserId,
-    notificationRecipientRole: participantSide === "buyer" ? "seller" as const : "buyer" as const,
-    senderParticipantRole: participantSide,
-    trade: {
-      id: request.id,
-      tradeId: request.tradeId,
-    },
+    message: committedResult.message,
+    created: committedResult.created,
+    notificationRecipientUserId: committedResult.recipientUserId,
+    notificationRecipientRole: committedResult.participantSide === "buyer" ? "seller" as const : "buyer" as const,
+    senderParticipantRole: committedResult.participantSide,
+    trade: committedResult.trade,
     metrics: {
       totalMs: Date.now() - startedAt,
       readDbMs: dbReadMs,

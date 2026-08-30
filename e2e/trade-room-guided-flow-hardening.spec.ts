@@ -808,6 +808,43 @@ test("Trade Room Poke is recipient-only, cooldown-protected, reconnect-safe, and
     await expect(sellerPage.getByText(/Trade status updated|Trade Accepted/i).first()).toBeVisible({ timeout: 20_000 });
 
     await buyerPage.goto(`/en/trade-room/${requestId}`);
+    const buyerChatForm = buyerPage.locator("#chat form");
+    const buyerChatDraft = buyerChatForm.getByPlaceholder("Type a message...");
+    await buyerChatDraft.fill("0532490321 hada rkme");
+    await buyerChatForm.getByRole("button", { name: "Send Message" }).click();
+    const inlineChatError = buyerChatForm.getByTestId("trade-chat-error");
+    await expect(inlineChatError).toContainText("phone numbers", { timeout: 20_000 });
+    await expect(inlineChatError).toContainText("inside this Trade Room");
+    await expect(buyerChatDraft).toHaveValue("0532490321 hada rkme");
+
+    let forcedChatNetworkFailures = 0;
+    let hiddenCommittedChatStatus = 0;
+    await buyerPage.route(`**/api/alpha-exchange/purchase-requests/${requestId}/messages`, async (route) => {
+      if (forcedChatNetworkFailures === 0) {
+        forcedChatNetworkFailures += 1;
+        const committedResponse = await route.fetch();
+        hiddenCommittedChatStatus = committedResponse.status();
+        await route.abort("connectionfailed");
+        return;
+      }
+      await route.continue();
+    });
+    const validChatMessage = `Secure in-room message ${randomUUID()}`;
+    await buyerChatDraft.fill(validChatMessage);
+    await expect(inlineChatError).toBeHidden();
+    await buyerChatForm.getByRole("button", { name: "Send Message" }).click();
+    await expect(buyerPage.getByText(validChatMessage, { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(sellerPage.getByText(validChatMessage, { exact: true })).toBeVisible({ timeout: 20_000 });
+    expect(forcedChatNetworkFailures).toBe(1);
+    expect(hiddenCommittedChatStatus).toBe(201);
+    await buyerPage.unroute(`**/api/alpha-exchange/purchase-requests/${requestId}/messages`);
+    const dbAfterRetriedChat = await readDb(api);
+    const retriedChatRequest = (dbAfterRetriedChat.purchaseRequests as Array<Record<string, unknown>>)
+      .find((item) => item.id === requestId);
+    const retriedChatMessages = (retriedChatRequest?.messages as Array<Record<string, unknown>>)
+      .filter((entry) => entry.message === validChatMessage);
+    expect(retriedChatMessages).toHaveLength(1);
+
     const buyerPoke = buyerPage.getByRole("button", { name: /Poke Seller/i });
     await expect(buyerPoke).toBeVisible({ timeout: 20_000 });
     await buyerPoke.scrollIntoViewIfNeeded();

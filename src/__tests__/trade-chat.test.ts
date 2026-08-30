@@ -19,6 +19,7 @@ vi.mock("@/lib/realtime", () => ({
 }));
 
 import {
+  getMyPurchaseRequests,
   getTradeRoomData,
   invalidateAlphaExchangeStoreCache,
   postTradeRoomMessage,
@@ -178,6 +179,98 @@ describe("Trade Room participant communication", () => {
     expect(snapshot().notifications.some((entry) => entry.userId === SELLER_ID)).toBe(false);
   });
 
+  it("persists one exact message and notification when an uncertain request is retried", async () => {
+    const input = {
+      purchaseRequestId: "trade-1",
+      actorUserId: BUYER_ID,
+      clientMessageId: "3f96c1ce-50a1-4ec8-83ac-4f4138f5d963",
+      message: "Please confirm the bank reference inside this room.",
+    };
+
+    const first = await postTradeRoomMessage(input);
+    const replay = await postTradeRoomMessage(input);
+
+    expect(first.created).toBe(true);
+    expect(replay.created).toBe(false);
+    expect(replay.message.id).toBe(first.message.id);
+    expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(1);
+    expect(snapshot().notifications).toHaveLength(1);
+    expect(mocks.publishRealtimeEvent.mock.calls.map(([event]) => event.type)).toEqual([
+      "trade.message_created",
+      "notification.created",
+    ]);
+  });
+
+  it("keeps simultaneous Buyer and Seller messages without losing either write", async () => {
+    const [buyerMessage, sellerMessage] = await Promise.all([
+      postTradeRoomMessage({
+        purchaseRequestId: "trade-1",
+        actorUserId: BUYER_ID,
+        clientMessageId: "6d096980-8b69-4f5e-9ce0-acb0cc7f7c40",
+        message: "Buyer concurrent message",
+      }),
+      postTradeRoomMessage({
+        purchaseRequestId: "trade-1",
+        actorUserId: SELLER_ID,
+        clientMessageId: "3e7447c4-d75f-4255-9d35-686764154c2f",
+        message: "Seller concurrent message",
+      }),
+    ]);
+
+    expect(buyerMessage.created).toBe(true);
+    expect(sellerMessage.created).toBe(true);
+    expect(snapshot().purchaseRequests[0]?.messages?.map((entry) => entry.message).sort()).toEqual([
+      "Buyer concurrent message",
+      "Seller concurrent message",
+    ]);
+    expect(snapshot().notifications).toHaveLength(2);
+    expect(new Set(snapshot().notifications.map((entry) => entry.userId))).toEqual(new Set([BUYER_ID, SELLER_ID]));
+  });
+
+  it("retains 100 alternating Buyer/Seller messages with unique exact-once deliveries", async () => {
+    for (let index = 0; index < 100; index += 1) {
+      await postTradeRoomMessage({
+        purchaseRequestId: "trade-1",
+        actorUserId: index % 2 === 0 ? BUYER_ID : SELLER_ID,
+        clientMessageId: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+        message: `Durability message ${index + 1}`,
+      });
+    }
+
+    const saved = snapshot();
+    const messages = saved.purchaseRequests[0]?.messages ?? [];
+    expect(messages).toHaveLength(100);
+    expect(new Set(messages.map((entry) => entry.id)).size).toBe(100);
+    expect(new Set(messages.map((entry) => entry.message)).size).toBe(100);
+    // Rapid chat alerts intentionally coalesce into one current notification
+    // per recipient, while every durable message and realtime update remains.
+    expect(saved.notifications).toHaveLength(2);
+    expect(new Set(saved.notifications.map((entry) => entry.userId))).toEqual(new Set([BUYER_ID, SELLER_ID]));
+    expect(mocks.publishRealtimeEvent.mock.calls
+      .map(([event]) => event.type)
+      .filter((type) => type === "notification.created" || type === "notification.updated")).toHaveLength(100);
+  });
+
+  it("keeps 100 completed trades accessible to both the Buyer and Seller", async () => {
+    const completedTrades = Array.from({ length: 100 }, (_, index) => ({
+      ...trade(`completed-${index + 1}`, "completed"),
+      completedAt: new Date(Date.now() - index * 1_000).toISOString(),
+    }));
+    globalThis.__alphaExchangeMemorySnapshot = seedDb(completedTrades) as never;
+    globalThis.__alphaExchangeRepositoryPromise = undefined as never;
+    invalidateAlphaExchangeStoreCache();
+
+    const [buyerHistory, sellerHistory] = await Promise.all([
+      getMyPurchaseRequests(BUYER_ID, "buyer"),
+      getMyPurchaseRequests(SELLER_ID, "approved_seller"),
+    ]);
+
+    expect(buyerHistory).toHaveLength(100);
+    expect(sellerHistory).toHaveLength(100);
+    expect(new Set(buyerHistory.map((entry) => entry.id)).size).toBe(100);
+    expect(new Set(sellerHistory.map((entry) => entry.id)).size).toBe(100);
+  });
+
   it("rejects an outsider and a nonparticipant admin from posting Trade Room messages", async () => {
     await expect(postTradeRoomMessage({ purchaseRequestId: "trade-1", actorUserId: OUTSIDER_ID, message: "spoof" }))
       .rejects.toThrow("not allowed");
@@ -248,6 +341,26 @@ describe("Trade Room participant communication", () => {
       imageMimeType: "image/png",
     })).rejects.toThrow(DIRECT_CONTACT_CONTENT_ERROR);
     expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(1);
+  });
+
+  it("accepts an image-only Trade Room message exactly as the composer allows", async () => {
+    const posted = await postTradeRoomMessage({
+      purchaseRequestId: "trade-1",
+      actorUserId: BUYER_ID,
+      clientMessageId: "9815ff47-e44e-4fc5-81d1-e33f04a32fab",
+      message: "",
+      imageUrl: `data:image/png;base64,${TINY_PNG_BASE64}`,
+      imageName: "receipt.png",
+      imageMimeType: "image/png",
+    });
+
+    expect(posted.message).toMatchObject({
+      message: "",
+      imageMimeType: "image/png",
+    });
+    expect(posted.message.imageName).toMatch(/^trade-room-attachment-[a-f0-9]{8}\.png$/);
+    expect(snapshot().purchaseRequests[0]?.messages).toHaveLength(1);
+    expect(snapshot().notifications).toHaveLength(1);
   });
 
   it("redacts legacy counterparty chat text and suppresses unsafe legacy attachment metadata", async () => {
