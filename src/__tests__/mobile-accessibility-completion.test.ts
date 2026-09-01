@@ -9,11 +9,13 @@ function source(path: string) {
 describe("mobile accessibility completion", () => {
   it("labels the footer newsletter field and keeps mobile footer targets usable", () => {
     const footer = source("src/components/layout/site-footer.tsx");
+    const newsletter = source("src/components/layout/footer-newsletter-signup.tsx");
 
-    expect(footer).toContain('htmlFor="footer-newsletter-email"');
-    expect(footer).toContain('id="footer-newsletter-email"');
-    expect(footer).toContain('name="email"');
-    expect(footer).toContain('autoComplete="email"');
+    expect(footer).toContain('<FooterNewsletterSignup locale={locale} />');
+    expect(newsletter).toContain('htmlFor="footer-newsletter-email"');
+    expect(newsletter).toContain('id="footer-newsletter-email"');
+    expect(newsletter).toContain('name="email"');
+    expect(newsletter).toContain('autoComplete="email"');
     expect(footer).toContain('<summary className="flex min-h-11');
     expect(footer).toContain('inline-flex min-h-11 items-center gap-2');
   });

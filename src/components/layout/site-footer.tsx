@@ -22,6 +22,7 @@ import { Link } from "@/i18n/navigation";
 import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
 import { BRAND_DESCRIPTOR, BRAND_DESCRIPTOR_AR, BRAND_NAME, BRAND_PRIMARY_NAME } from "@/lib/brand";
 import { FooterMarketOverview } from "@/components/layout/footer-market-overview";
+import { FooterNewsletterSignup } from "@/components/layout/footer-newsletter-signup";
 
 type FooterItem = {
   href: string;
@@ -299,26 +300,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
               <p>• {isAr ? "إطلاقات المنتج" : "Product Releases"}</p>
               <p>• {isAr ? "أخبار المجتمع" : "Community News"}</p>
             </div>
-            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-              <label htmlFor="footer-newsletter-email" className="sr-only">
-                {isAr ? "البريد الإلكتروني للنشرة البريدية" : "Newsletter email address"}
-              </label>
-              <input
-                id="footer-newsletter-email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                placeholder={isAr ? "البريد الإلكتروني" : "Email Address"}
-                className="h-11 w-full rounded-xl border border-white/15 bg-black/40 px-3 text-sm text-white outline-none transition focus:border-[#C9A227]/55 focus:ring-1 focus:ring-[#C9A227]/40"
-              />
-              <button
-                type="button"
-                className="group relative inline-flex h-11 items-center justify-center overflow-hidden rounded-xl border border-[#D4AF37]/45 bg-gradient-to-r from-[#B78C1E] via-[#D4AF37] to-[#C79C2A] px-5 text-sm font-semibold text-black shadow-[0_10px_20px_rgba(201,162,39,0.35)] transition hover:-translate-y-0.5"
-              >
-                <span className="pointer-events-none absolute inset-y-0 -left-1/2 w-1/2 -skew-x-12 bg-white/35 opacity-0 transition-all duration-700 group-hover:left-[120%] group-hover:opacity-100" />
-                {isAr ? "اشترك" : "Subscribe"}
-              </button>
-            </div>
+            <FooterNewsletterSignup locale={locale} />
           </div>
 
           <FooterMarketOverview locale={locale} />
