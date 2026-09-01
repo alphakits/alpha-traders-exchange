@@ -144,7 +144,7 @@ function FooterNavSection({ section, locale }: { section: FooterSection; locale:
               <Link
                 href={item.href}
                 locale={locale}
-                className="group inline-flex items-center gap-2 text-sm text-[#B9C0CD] transition-colors hover:text-white"
+                className="group inline-flex min-h-11 items-center gap-2 text-sm text-[#B9C0CD] transition-colors hover:text-white md:min-h-0"
               >
                 <Icon className="h-3.5 w-3.5 text-[#C9A227]/80 transition-transform duration-200 group-hover:translate-x-0.5" />
                 <span className="relative">
@@ -228,7 +228,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
 
           {NAV_SECTIONS.map((section) => (
             <details key={`mobile-${section.id}`} className="group rounded-2xl border border-white/10 bg-black/30 p-4">
-              <summary className="cursor-pointer list-none text-sm font-semibold text-white">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A227]">
                 <span className="inline-flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-[#D4AF37]" />
                   {isAr ? section.ar : section.en}
@@ -300,8 +300,14 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
               <p>• {isAr ? "أخبار المجتمع" : "Community News"}</p>
             </div>
             <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <label htmlFor="footer-newsletter-email" className="sr-only">
+                {isAr ? "البريد الإلكتروني للنشرة البريدية" : "Newsletter email address"}
+              </label>
               <input
+                id="footer-newsletter-email"
+                name="email"
                 type="email"
+                autoComplete="email"
                 placeholder={isAr ? "البريد الإلكتروني" : "Email Address"}
                 className="h-11 w-full rounded-xl border border-white/15 bg-black/40 px-3 text-sm text-white outline-none transition focus:border-[#C9A227]/55 focus:ring-1 focus:ring-[#C9A227]/40"
               />
@@ -337,7 +343,7 @@ export async function SiteFooter({ locale }: { locale: AppLocale }) {
                     href={item.href}
                     target="_blank"
                     rel="noreferrer"
-                    className="group inline-flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 text-sm text-[#D6DCE8] transition hover:border-[#D4AF37]/55 hover:bg-[#D4AF37]/10"
+                    className="group inline-flex min-h-11 items-center justify-between rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 text-sm text-[#D6DCE8] transition hover:border-[#D4AF37]/55 hover:bg-[#D4AF37]/10"
                   >
                     <span>{item.label}</span>
                     <Icon className="h-3.5 w-3.5 text-[#D4AF37] transition-transform duration-200 group-hover:translate-x-0.5" />

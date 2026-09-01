@@ -2003,6 +2003,12 @@ html[lang="ar"] :where(body, body *) {
     min-height: 2.75rem;
     font-size: 1rem;
   }
+
+  :where(input[type="checkbox"], input[type="radio"]) {
+    min-width: 1.5rem;
+    min-height: 1.5rem;
+    touch-action: manipulation;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
