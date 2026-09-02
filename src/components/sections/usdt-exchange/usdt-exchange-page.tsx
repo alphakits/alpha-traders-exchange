@@ -1492,13 +1492,18 @@ export function UsdtExchangePage({
   // Escape closes the open Buy or removal dialog (keyboard accessibility).
   useEffect(() => {
     if (!selectedListing && !removalListing) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (removalListing) setRemovalListing(null);
       else if (selectedListing) closeListingModal();
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
   }, [selectedListing, removalListing, closeListingModal]);
 
   const goToVerificationGate = useCallback(() => {

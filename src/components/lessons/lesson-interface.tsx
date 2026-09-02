@@ -121,6 +121,22 @@ export function LessonInterface({
     }
   }, [progressState.lessonCompleted]);
 
+  useEffect(() => {
+    if (!showCelebration) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowCelebration(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [showCelebration]);
+
   const updateProgress = useCallback(
     async (
       eventType: Parameters<typeof updateLessonProgress>[0]["eventType"],
@@ -609,10 +625,15 @@ export function LessonInterface({
 
       {showCelebration && progressState.lessonCompleted ? (
           <div className="alpha-modal-backdrop fixed inset-0 z-50 grid place-items-center bg-black/70 p-4">
-            <div className="alpha-modal-panel modal-panel w-full max-w-xl border-[#C9A227]/40 p-7 text-center shadow-[0_30px_90px_rgba(0,0,0,0.65)]">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="lesson-completion-dialog-title"
+              className="alpha-modal-panel modal-panel w-full max-w-xl border-[#C9A227]/40 p-7 text-center shadow-[0_30px_90px_rgba(0,0,0,0.65)]"
+            >
               <Sparkles className="mx-auto mb-3 h-8 w-8 text-[#C9A227]" />
               <p className="text-sm uppercase tracking-[0.2em] text-[#C9A227]">{isAr ? "ممتاز" : "Excellent work"}</p>
-              <h3 className="mt-2 text-2xl font-semibold">{isAr ? `أكملت درس ${lesson.titleAr}` : `You've completed ${lesson.title}`}</h3>
+              <h3 id="lesson-completion-dialog-title" className="mt-2 text-2xl font-semibold">{isAr ? `أكملت درس ${lesson.titleAr}` : `You've completed ${lesson.title}`}</h3>
               <p className="mt-3 text-sm text-[#9CA3AF]">{isAr ? "نقاط الخبرة" : "XP Progress"} +{lesson.xpReward ?? 120}</p>
               <div className="mx-auto mt-3 max-w-sm">
                 <Progress value={Math.min(100, courseProgress + 8)} />

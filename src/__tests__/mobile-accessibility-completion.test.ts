@@ -41,4 +41,28 @@ describe("mobile accessibility completion", () => {
     expect(coarsePointerRules).toContain('min-width: 1.5rem');
     expect(coarsePointerRules).toContain('min-height: 1.5rem');
   });
+
+  it("renders final homepage statistics immediately instead of exposing zero-value placeholders", () => {
+    const stats = source("src/components/sections/home/homepage-stats.tsx");
+
+    expect(stats).toContain('numericValue: 20');
+    expect(stats).toContain('numericValue: 2');
+    expect(stats).toContain('numericValue: 100');
+    expect(stats).toContain('{displayValue}');
+    expect(stats).not.toContain('useInView');
+    expect(stats).not.toContain('setDisplayValue');
+  });
+
+  it("keeps optimized dialogs keyboard-dismissible, screen-reader labeled, and scroll locked", () => {
+    const marketplace = source("src/components/sections/usdt-exchange/usdt-exchange-page.tsx");
+    const lesson = source("src/components/lessons/lesson-interface.tsx");
+    const admin = source("src/components/admin/alpha-exchange-admin-dashboard.tsx");
+
+    for (const dialogSource of [marketplace, lesson, admin]) {
+      expect(dialogSource).toContain('role="dialog"');
+      expect(dialogSource).toContain('aria-modal="true"');
+      expect(dialogSource).toContain('"Escape"');
+      expect(dialogSource).toContain('document.body.style.overflow = "hidden"');
+    }
+  });
 });

@@ -554,6 +554,30 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
   const [complianceWalletNetwork, setComplianceWalletNetwork] = useState<SupportedNetwork>("TRC20");
   const [complianceWalletAddress, setComplianceWalletAddress] = useState("");
 
+  useEffect(() => {
+    if (!selectedSeller && !selectedRequest && !rankConfirmPending) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (rankConfirmPending) {
+        setRankConfirmPending(null);
+        setRankConfirmReason("");
+      } else if (selectedRequest) {
+        setSelectedRequest(null);
+      } else {
+        setSelectedSeller(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [rankConfirmPending, selectedRequest, selectedSeller]);
+
   const sectionItemsByKey = useMemo(() => new Map(sectionItems.map((item) => [item.key, item])), []);
 
   const fetchData = useCallback(async () => {
@@ -3538,9 +3562,14 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
 
       {selectedSeller ? (
           <div className="alpha-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-            <div className="alpha-modal-panel modal-panel max-h-[90vh] w-full max-w-5xl overflow-y-auto">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="admin-seller-dialog-title"
+              className="alpha-modal-panel modal-panel max-h-[90vh] w-full max-w-5xl overflow-y-auto"
+            >
               <div className="flex items-center justify-between">
-                <h3 className="text-xl font-semibold">{selectedSeller.fullName}</h3>
+                <h3 id="admin-seller-dialog-title" className="text-xl font-semibold">{selectedSeller.fullName}</h3>
                 <button type="button" aria-label={t("Close seller profile", "إغلاق ملف البائع")} onClick={() => setSelectedSeller(null)} className="rounded-full border border-white/15 p-2 text-[#9CA3AF] transition hover:text-white">
                   <X className="h-4 w-4" />
                 </button>
@@ -3645,9 +3674,14 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
 
       {selectedRequest ? (
           <div className="alpha-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-            <div className="alpha-modal-panel modal-panel max-h-[90vh] w-full max-w-xl overflow-y-auto">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="admin-request-dialog-title"
+              className="alpha-modal-panel modal-panel max-h-[90vh] w-full max-w-xl overflow-y-auto"
+            >
               <div className="flex items-center justify-between">
-                <h3 className="text-xl font-semibold">{t("Purchase Request Details", "تفاصيل طلب الشراء")}</h3>
+                <h3 id="admin-request-dialog-title" className="text-xl font-semibold">{t("Purchase Request Details", "تفاصيل طلب الشراء")}</h3>
                 <button type="button" aria-label={t("Close request details", "إغلاق تفاصيل الطلب")} onClick={() => setSelectedRequest(null)} className="rounded-full border border-white/15 p-2 text-[#9CA3AF] transition hover:text-white">
                   <X className="h-4 w-4" />
                 </button>
@@ -3751,6 +3785,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
             onClick={() => { setRankConfirmPending(null); setRankConfirmReason(""); }}
           >
             <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="admin-rank-dialog-title"
               className="alpha-modal-panel w-full max-w-md rounded-2xl border border-white/15 bg-[#0D0D0D] p-6 shadow-[0_24px_60px_rgba(0,0,0,0.7)]"
               onClick={(e) => e.stopPropagation()}
             >
@@ -3758,7 +3795,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
               <div className="mb-5">
                 <div className="flex items-center gap-3 mb-1">
                   <Trophy className="h-5 w-5 text-[#C9A227]" />
-                  <h3 className="text-base font-semibold text-white">{t("Change Seller Rank?", "تغيير رتبة البائع؟")}</h3>
+                  <h3 id="admin-rank-dialog-title" className="text-base font-semibold text-white">{t("Change Seller Rank?", "تغيير رتبة البائع؟")}</h3>
                 </div>
                 <p className={`text-xs text-[#9CA3AF] ${isArabic ? "pr-8" : "pl-8"}`}>{t("This will immediately update the seller’s public marketplace appearance.", "سيُحدّث ذلك مظهر البائع في السوق فورًا.")}</p>
               </div>

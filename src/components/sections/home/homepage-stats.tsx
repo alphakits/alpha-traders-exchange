@@ -12,13 +12,13 @@ type StatItem = {
   titleAr: string;
   subtitleEn: string;
   subtitleAr: string;
-  /** Numeric portion that counts up */
+  /** Numeric portion rendered immediately for reliable first paint and indexing */
   numericValue: number;
   /** Static suffix appended after the number, e.g. "+" or "%" */
   suffix?: string;
   /** Static prefix shown before the number, e.g. nothing here */
   prefix?: string;
-  /** Override the entire display value with a static string (no count animation) */
+  /** Override the entire display value with a static string */
   staticDisplay?: string;
 };
 
