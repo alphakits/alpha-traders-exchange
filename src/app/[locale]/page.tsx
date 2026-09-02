@@ -21,6 +21,10 @@ export async function generateMetadata() {
 }
 
 export default async function LocalizedHomePage() {
-  const user = await getCurrentSessionUser();
-  return <HomePage isAuthenticated={Boolean(user)} />;
+  const [user, locale] = await Promise.all([
+    getCurrentSessionUser(),
+    getLocale(),
+  ]);
+
+  return <HomePage isAuthenticated={Boolean(user)} locale={locale as "ar" | "en"} />;
 }

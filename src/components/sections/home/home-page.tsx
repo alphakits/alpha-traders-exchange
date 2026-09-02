@@ -1,8 +1,6 @@
-"use client";
-
 import Image from "next/image";
 import { ArrowDown, ArrowLeft, ArrowRight, Brain, CheckCircle2, Coins, Play, PlayCircle, ShieldCheck, Target } from "lucide-react";
-import { useLocale, useTranslations } from "next-intl";
+import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 import { courseSource } from "@/data/course-source";
@@ -15,9 +13,14 @@ import { FounderPreview } from "@/components/sections/home/founder-preview";
 import { AlphaMarketCenter } from "@/components/market/alpha-market-center";
 import { formatAcademyLevel } from "@/lib/academy-localization";
 
-export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
-  const t = useTranslations("home");
-  const locale = useLocale();
+export async function HomePage({
+  isAuthenticated,
+  locale,
+}: {
+  isAuthenticated: boolean;
+  locale: "ar" | "en";
+}) {
+  const t = await getTranslations({ locale, namespace: "home" });
   const isRtl = locale === "ar";
   const academyHref = isAuthenticated ? "/academy" : `/login?redirectTo=${encodeURIComponent(`/${locale}/academy`)}`;
   const exchangeHref = isAuthenticated ? "/usdt-exchange" : `/login?redirectTo=${encodeURIComponent(`/${locale}/usdt-exchange`)}`;
