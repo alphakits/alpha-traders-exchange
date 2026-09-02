@@ -3,11 +3,14 @@ import { getSiteUrl } from "@/lib/site-url";
 
 const PRIVATE_ROUTE_NAMES = [
   "admin",
+  "academy",
   "dashboard",
+  "lessons",
   "profile",
   "settings",
   "notifications",
   "trade-room",
+  "usdt-exchange",
   "seller",
   "onboarding",
   "login",

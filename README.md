@@ -19,7 +19,7 @@ Role hierarchy is multi-role and additive:
 
 ### Permission model
 
-- **Guest**: browse public marketplace/academy content and manage profile basics.
+- **Guest**: browse public company, trust, legal, and community pages and manage profile basics.
 - **Student**: academy premium access.
 - **Buyer**: marketplace purchase actions and seller contact.
 - **Approved seller**: listing management and seller workspace.
@@ -31,10 +31,10 @@ All API authorization is server-side and derived from the authenticated session 
 ### Buyer verification flow
 
 1. Guest chooses **Become a Buyer** in onboarding.
-2. User submits profile fields + Israeli phone.
-3. OTP is sent through provider abstraction (`src/lib/sms-provider.ts`).
-4. OTP verify grants `buyer` role only after successful provider verification.
-5. Duplicate verified phone usage is blocked.
+2. User verifies the account email address.
+3. User submits first and last name (display name is optional).
+4. Server-side activation grants the `buyer` role.
+5. Phone verification remains optional and never blocks Buyer marketplace or Trade Room access.
 
 ### Seller approval flow
 
@@ -50,7 +50,7 @@ All API authorization is server-side and derived from the authenticated session 
 
 ### Security and observability
 
-- Structured server logs are emitted for permission denials, buyer OTP send/verify, and seller admin actions.
+- Structured server logs are emitted for permission denials, optional phone OTP send/verify, and seller admin actions.
 - Sensitive values (passwords/tokens/OTP/secrets) are redacted from structured logs.
 
 ## First install
