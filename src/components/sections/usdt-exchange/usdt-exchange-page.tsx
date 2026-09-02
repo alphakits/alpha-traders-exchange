@@ -2,31 +2,26 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, ArrowRight, BadgePercent, BellRing, Building2, CheckCircle2, Check, ChevronDown, ChevronRight, Clock3, Copy, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Upload, Users, Wallet, WalletCards, X, Zap } from "lucide-react";
+import dynamic from "next/dynamic";
+import { AlertTriangle, ArrowRight, BadgePercent, BellRing, CheckCircle2, ChevronDown, Clock3, Copy, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, ShieldCheck, Sparkles, Star, Store, TrendingUp, Trophy, Upload, Users, Wallet, WalletCards, X, Zap } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { FieldLabel, requiredFieldClasses } from "@/components/ui/field";
 import { RoleBadge } from "@/components/ui/role-badge";
-import { LogoutButton } from "@/components/auth/logout-button";
 import { AlphaMarketCenterView } from "@/components/market/alpha-market-center";
 import { useMarketFeed } from "@/components/market/use-market-feed";
-import {
-  DiscordShareAction,
-  type DiscordListingSharingStatus,
-} from "@/components/sections/usdt-exchange/discord-share-action";
+import type { DiscordListingSharingStatus } from "@/components/sections/usdt-exchange/discord-share-action";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
 import { hasRole } from "@/lib/roles";
 import { getSellerApplicationEligibility } from "@/lib/seller-application-eligibility";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
-import { sellerListingWorkspaceAnchor } from "@/lib/action-destinations";
 import type { ClientSessionUser } from "@/lib/client-session-user";
-import { getIsraeliBankDisplayName, MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
-import { MARKETPLACE_PAYMENT_METHODS, MAX_LISTING_PAYMENT_METHODS, isCardlessAtmPaymentMethod, isBankTransferPaymentMethod, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
-import { CLIENT_COMMISSION_WALLETS, COMMISSION_NETWORKS, type CommissionNetworkId, type CommissionWalletConfiguration } from "@/lib/commission-config";
+import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
+import { MAX_LISTING_PAYMENT_METHODS, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
+import { CLIENT_COMMISSION_WALLETS, type CommissionNetworkId, type CommissionWalletConfiguration } from "@/lib/commission-config";
 import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, finalizeLoginJourneyRedirectEnd, incrementLoginJourneyApiCall, isLoginJourneyTraceEnabled } from "@/lib/login-journey-trace";
 import { formatBuyerId, formatListingId, formatSellerId, formatTradeId } from "@/lib/format-id";
 import { replaceExchangeEntityIdsWithHints } from "@/lib/alpha-exchange-display";
@@ -36,7 +31,6 @@ import { getTradeRoomConversationDestination } from "@/lib/trade-room-notificati
 import { commissionPaymentDestination, getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
 import { getCommissionWorkspaceAction, sortDashboardActivityNewestFirst } from "@/lib/dashboard-workspace";
 import { getExplicitNonTradeRoomNotificationDestination } from "@/lib/notification-action-destination";
-import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 import { getWalletAddressValidationError, normalizeWalletAddress } from "@/lib/wallet-address";
 import { deriveListingCountdown, deriveSellerPresence } from "@/lib/seller-presence";
 import { LISTING_CHANGE_REASONS, listingEditRequiresReason, validateListingChangeReason } from "@/lib/listing-change-reasons";
@@ -52,6 +46,53 @@ import { deriveBuyerRankSummary, type BuyerRankSummary } from "@/lib/buyer-rank"
 import { navigateAfterSuccess, navigateOrRevealResult } from "@/lib/client-success-navigation";
 import { ensurePayoutBankIsSupported, isPayoutBankSupported } from "@/lib/seller-listing-bank-selection";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, AuditAction, ListingStatus, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, TradeTimelineEntry } from "@/types/alpha-exchange";
+import type { SellerApplicationForm, SellerApplicationMethod } from "@/components/sections/usdt-exchange/seller-application-section";
+
+const PurchaseListingDialog = dynamic(
+  () => import("@/components/sections/usdt-exchange/purchase-listing-dialog").then((module) => module.PurchaseListingDialog),
+  { ssr: false, loading: PurchaseDialogLoading },
+);
+
+const SellerApplicationSection = dynamic(
+  () => import("@/components/sections/usdt-exchange/seller-application-section").then((module) => module.SellerApplicationSection),
+  { ssr: false, loading: DeferredSectionLoading },
+);
+
+const SellerWorkspaceSection = dynamic(
+  () => import("@/components/sections/usdt-exchange/seller-workspace-section").then((module) => module.SellerWorkspaceSection),
+  { ssr: false, loading: WorkspaceSectionLoading },
+);
+
+const BuyerWorkspaceSection = dynamic(
+  () => import("@/components/sections/usdt-exchange/buyer-workspace-section").then((module) => module.BuyerWorkspaceSection),
+  { ssr: false, loading: WorkspaceSectionLoading },
+);
+
+const SellerListingsWorkspacePortal = dynamic(
+  () => import("@/components/sections/usdt-exchange/seller-listings-workspace-portal").then((module) => module.SellerListingsWorkspacePortal),
+  { ssr: false },
+);
+
+function DeferredSectionLoading() {
+  return <div className="mt-10 h-64 animate-pulse rounded-3xl border border-white/10 bg-white/[0.03]" aria-label="Loading" />;
+}
+
+function WorkspaceSectionLoading() {
+  return (
+    <div className="mt-6 grid gap-4" aria-label="Loading workspace">
+      <div className="h-32 animate-pulse rounded-3xl border border-white/10 bg-white/[0.03]" />
+      <div className="h-48 animate-pulse rounded-3xl border border-white/10 bg-white/[0.03]" />
+    </div>
+  );
+}
+
+function PurchaseDialogLoading() {
+  return (
+    <div className="alpha-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" role="status" aria-label="Loading purchase form">
+      <div className="h-72 w-full max-w-[700px] animate-pulse rounded-3xl border border-white/10 bg-[#0B0B0B]/95" />
+    </div>
+  );
+}
 
 const WHATSAPP_URL = getOfficialOwnerWhatsAppUrl();
 const MAX_EVIDENCE_SIZE_BYTES = 8 * 1024 * 1024;
@@ -63,9 +104,9 @@ const MAX_NOTIFICATION_ITEMS = 60;
 const MAX_PRICE_MARKUP_ILS = 0.35;
 const DEFAULT_MARKET_PRICE_PER_USDT = 3.05;
 const DEFAULT_RESPONSE_TIME = "5 min";
-const BUYER_TRADE_HISTORY_SECTION_ID = "my-trade-requests-section";
+export const BUYER_TRADE_HISTORY_SECTION_ID = "my-trade-requests-section";
 
-const ISRAELI_BANKS = [
+export const ISRAELI_BANKS = [
   { id: "hapoalim", name: "Bank Hapoalim", code: "בנק הפועלים", brandPrimary: "#E31C23", brandSecondary: "#B01016", accent: "#FCA5A5" },
   { id: "leumi", name: "Bank Leumi", code: "בנק לאומי", brandPrimary: "#2458A6", brandSecondary: "#1D4B8F", accent: "#93C5FD" },
   { id: "mizrahi-tefahot", name: "Mizrahi-Tefahot", code: "מזרחי טפחות", brandPrimary: "#F58220", brandSecondary: "#C8600E", accent: "#FDBA74" },
@@ -81,25 +122,6 @@ const PAYMENT_METHOD_META: Record<string, { emoji: string; shortLabel: string }>
   "Face-to-Face (Meet in Person)": { emoji: "🤝", shortLabel: "Meet in Person" },
   "Cardless ATM Withdrawal": { emoji: "🏧", shortLabel: "Cardless ATM" },
 };
-
-const SELLER_APPLICATION_METHOD_OPTIONS = [
-  { id: "USDT (ERC20 / Ethereum)", group: "Crypto", recommended: true },
-  { id: "USDT (Polygon)", group: "Crypto", recommended: false },
-  { id: "USDT (Solana SPL / Phantom)", group: "Crypto", recommended: false },
-  { id: "Face-to-Face", group: "Fiat", recommended: false },
-  { id: "Cardless Withdrawal", group: "Fiat", recommended: false },
-  { id: "Bank Transfer", group: "Fiat", recommended: false },
-] as const;
-
-type SellerApplicationMethod = (typeof SELLER_APPLICATION_METHOD_OPTIONS)[number]["id"];
-
-function sellerApplicationMethodLabel(method: SellerApplicationMethod, isAr: boolean) {
-  if (!isAr) return method;
-  if (method === "Face-to-Face") return "لقاء شخصي";
-  if (method === "Cardless Withdrawal") return "سحب بلا بطاقة";
-  if (method === "Bank Transfer") return "تحويل بنكي";
-  return method;
-}
 
 export function spokenLanguageLabel(language: string, isAr: boolean) {
   if (!isAr) return language;
@@ -126,12 +148,12 @@ type Locale = "ar" | "en";
 
 type WorkspaceMode = "buyer" | "seller";
 
-type ListingCreateResult = {
+export type ListingCreateResult = {
   tone: "success" | "error";
   message: string;
 };
 
-type SellerCommissionStatus = {
+export type SellerCommissionStatus = {
   status: "clear" | "pending" | "overdue";
   pendingCount: number;
   amountDue: number;
@@ -170,7 +192,7 @@ type TimelineStep = {
   body: string;
 };
 
-type SellerBankAccount = {
+export type SellerBankAccount = {
   id: string;
   accountHolderName: string;
   bankName: string;
@@ -182,7 +204,7 @@ type SellerBankAccount = {
   updatedAt: string;
 };
 
-function toNumber(value: string | number | null | undefined) {
+export function toNumber(value: string | number | null | undefined) {
   const normalized = String(value ?? "");
   return Number(normalized.replace(/[^\d.]/g, "")) || 0;
 }
@@ -202,7 +224,7 @@ function parseMinutes(value: string | number | null | undefined) {
   return number;
 }
 
-function safeText(value: unknown, fallback = "—") {
+export function safeText(value: unknown, fallback = "—") {
   if (typeof value === "string" && value.trim()) return value;
   return fallback;
 }
@@ -340,7 +362,7 @@ export function marketTrendAriaLabel(pairLabel: string, isAr: boolean) {
     : `${pairLabel} price trend chart`;
 }
 
-function CompactTradeTimeline({ events, isAr }: { events: TradeTimelineEntry[]; isAr: boolean }) {
+export function CompactTradeTimeline({ events, isAr }: { events: TradeTimelineEntry[]; isAr: boolean }) {
   const compactEvents = [...events]
     .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime())
     .reduce<Array<{ event: TradeTimelineEntry; count: number; message: string }>>((items, event) => {
@@ -387,7 +409,7 @@ function CompactTradeTimeline({ events, isAr }: { events: TradeTimelineEntry[]; 
   );
 }
 
-function LocalizedEvidenceFileInput({
+export function LocalizedEvidenceFileInput({
   id,
   isAr,
   selectedFile,
@@ -424,11 +446,11 @@ function LocalizedEvidenceFileInput({
   );
 }
 
-function formatIls(value: number) {
+export function formatIls(value: number) {
   return `₪${value.toFixed(2)}`;
 }
 
-function formatUsdt(value: number) {
+export function formatUsdt(value: number) {
   return `${value.toFixed(2)} USDT`;
 }
 
@@ -465,20 +487,20 @@ function groupActivityEntriesByDay(entries: AlphaExchangeActivityLogEntry[], loc
   }));
 }
 
-function formatIntegerForInput(value: string | number | null | undefined) {
+export function formatIntegerForInput(value: string | number | null | undefined) {
   const raw = String(value ?? "").replace(/[^\d]/g, "");
   if (!raw) return "";
   return Number(raw).toLocaleString("en-IL");
 }
 
-function normalizeDecimalInput(value: string | number | null | undefined) {
+export function normalizeDecimalInput(value: string | number | null | undefined) {
   const raw = String(value ?? "").replace(/[^\d.]/g, "");
   const firstDot = raw.indexOf(".");
   if (firstDot === -1) return raw;
   return `${raw.slice(0, firstDot + 1)}${raw.slice(firstDot + 1).replace(/\./g, "")}`;
 }
 
-function renderBankLogo(bank: (typeof ISRAELI_BANKS)[number]) {
+export function renderBankLogo(bank: (typeof ISRAELI_BANKS)[number]) {
   const wordmark = (() => {
     if (bank.id === "hapoalim") return { top: "POALIM", bottom: "BANK" };
     if (bank.id === "leumi") return { top: "LEUMI", bottom: "BANK" };
@@ -510,11 +532,11 @@ function renderBankLogo(bank: (typeof ISRAELI_BANKS)[number]) {
   );
 }
 
-function shortListingRef(listing: Pick<MarketplaceListing, "displayNumber" | "id">) {
+export function shortListingRef(listing: Pick<MarketplaceListing, "displayNumber" | "id">) {
   return formatListingId(listing.displayNumber, listing.id);
 }
 
-function shortTradeRef(request: Pick<PurchaseRequest, "displayNumber" | "tradeId" | "id">, isAr = false) {
+export function shortTradeRef(request: Pick<PurchaseRequest, "displayNumber" | "tradeId" | "id">, isAr = false) {
   return `${isAr ? "الصفقة" : "Trade"} ${formatTradeId(request.displayNumber, request.tradeId ?? request.id)}`;
 }
 
@@ -687,10 +709,10 @@ export function tradeStatusLabel(status: PurchaseRequest["status"], isAr = false
   return isAr ? TRADE_STATUS_LABELS_AR[status] : TRADE_STATUS_LABELS_EN[status];
 }
 
-type TradeQueueSectionKey = "action" | "active" | "waiting" | "completed" | "cancelled";
+export type TradeQueueSectionKey = "action" | "active" | "waiting" | "completed" | "cancelled";
 type TradePerspective = "buyer" | "seller";
 
-function getTradeQueuePresentation(request: PurchaseRequest, perspective: TradePerspective, isAr = false) {
+export function getTradeQueuePresentation(request: PurchaseRequest, perspective: TradePerspective, isAr = false) {
   if (request.status === "declined" || request.status === "cancelled") {
     return { section: "cancelled" as const, badge: isAr ? "ملغاة" : "CANCELLED", badgeTone: "border-white/20 bg-white/5 text-[#9CA3AF]", rank: 4 };
   }
@@ -746,7 +768,7 @@ function groupTradeRequests(requests: PurchaseRequest[], perspective: TradePersp
   return grouped;
 }
 
-function formatRelativeMinutesLabel(value?: string, isAr = false) {
+export function formatRelativeMinutesLabel(value?: string, isAr = false) {
   if (!value) return isAr ? "غير معروف" : "Unknown";
   const ms = new Date(value).getTime();
   if (!ms) return isAr ? "غير معروف" : "Unknown";
@@ -759,7 +781,7 @@ function formatRelativeMinutesLabel(value?: string, isAr = false) {
   return isAr ? `قبل ${days} يوم` : `${days}d ago`;
 }
 
-function sellerLevelLabel(level?: SellerLevel, isAr = false) {
+export function sellerLevelLabel(level?: SellerLevel, isAr = false) {
   const rank = String(level ?? "bronze");
   if (isAr) {
     if (rank === "elite") return "نخبة Alpha";
@@ -804,7 +826,7 @@ function formatWholeNumber(value: number) {
   return Math.round(Math.max(0, value)).toLocaleString("en-IL");
 }
 
-function sellerBadgeLabel(badge: SellerBadge, isAr = false) {
+export function sellerBadgeLabel(badge: SellerBadge, isAr = false) {
   if (isAr) {
     if (badge === "elite_seller") return "بائع من النخبة";
     if (badge === "top_rated") return "الأعلى تقييماً";
@@ -857,7 +879,7 @@ export function listingStatusLabel(status: string | null | undefined, isAr = fal
   return isAr && !containsArabicText(value) ? "غير معروف" : value;
 }
 
-function listingChangeReasonLabel(reason: string, isAr = false) {
+export function listingChangeReasonLabel(reason: string, isAr = false) {
   if (!isAr) return reason;
   const labels: Record<string, string> = {
     "Changed available balance": "تغيير الرصيد المتاح",
@@ -874,7 +896,7 @@ function keepLatestItems<T>(items: T[], limit: number) {
   return items.slice(0, limit);
 }
 
-function roleBadgeVariantFromSession(user: SessionUser) {
+export function roleBadgeVariantFromSession(user: SessionUser) {
   if (user.role === "admin" && isAlphaExchangeOwnerEmail(user.email)) return "owner" as const;
   if (user.role === "admin") return "administrator" as const;
   if (hasRole(user, "approved_seller")) return "approved_seller" as const;
@@ -885,19 +907,15 @@ function listingRequiresFaceToFaceSafetyNotice(method: string | null | undefined
   return normalizeMarketplacePaymentMethod(method) === "Face-to-Face (Meet in Person)";
 }
 
-function normalizePaymentMethodList(methods: string[] | undefined, fallback: string | undefined) {
+export function normalizePaymentMethodList(methods: string[] | undefined, fallback: string | undefined) {
   return resolveListingPaymentMethods(methods, fallback).slice(0, MAX_LISTING_PAYMENT_METHODS);
 }
 
-function requiresBankSelection(methods: string[] | undefined, fallback?: string) {
+export function requiresBankSelection(methods: string[] | undefined, fallback?: string) {
   return requiresIsraeliBankSelection(methods, fallback);
 }
 
-function selectedMethodUsesBanks(method: string | null | undefined) {
-  return isBankTransferPaymentMethod(method) || isCardlessAtmPaymentMethod(method);
-}
-
-function toggleSelection(values: string[], nextValue: string, maxSelections: number) {
+export function toggleSelection(values: string[], nextValue: string, maxSelections: number) {
   const nextSet = new Set(values);
   if (nextSet.has(nextValue)) {
     if (nextSet.size === 1) return values;
@@ -909,7 +927,7 @@ function toggleSelection(values: string[], nextValue: string, maxSelections: num
   return Array.from(nextSet);
 }
 
-function paymentMethodLabel(method: string, isAr = false) {
+export function paymentMethodLabel(method: string, isAr = false) {
   const normalized = normalizeMarketplacePaymentMethod(method) ?? method;
   if (isAr) {
     if (normalized === "Bank Transfer") return "تحويل بنكي";
@@ -919,12 +937,12 @@ function paymentMethodLabel(method: string, isAr = false) {
   return PAYMENT_METHOD_META[normalized]?.shortLabel ?? normalized;
 }
 
-function paymentMethodEmoji(method: string) {
+export function paymentMethodEmoji(method: string) {
   const normalized = normalizeMarketplacePaymentMethod(method) ?? method;
   return PAYMENT_METHOD_META[normalized]?.emoji ?? "💳";
 }
 
-function paymentMethodTradeInstruction(method: string, actor: "buyer" | "seller", isAr = false) {
+export function paymentMethodTradeInstruction(method: string, actor: "buyer" | "seller", isAr = false) {
   const normalized = normalizeMarketplacePaymentMethod(method);
   if (normalized === "Bank Transfer") {
     if (isAr) return actor === "seller"
@@ -1572,7 +1590,7 @@ export function UsdtExchangePage({
   }, []);
 
   const [buyerInfo, setBuyerInfo] = useState({ usdtAmount: "", receivingWalletAddress: "" });
-  const [sellerForm, setSellerForm] = useState(() => ({
+  const [sellerForm, setSellerForm] = useState<SellerApplicationForm>(() => ({
     firstName: initialSessionUser?.fullName?.split(" ")[0] ?? "",
     lastName: initialSessionUser?.fullName?.split(" ").slice(1).join(" ") ?? "",
     email: initialSessionUser?.email ?? "",
@@ -4990,418 +5008,70 @@ export function UsdtExchangePage({
           </div>
         </div>
 
-        {isApprovedSeller && showSellerWorkspace ? (() => {
-          const sellerListingsWorkspace = (
-          <Card
-            id="my-listings-section"
-            tabIndex={-1}
-            className="scroll-mt-24 border-white/10 bg-[#0B0B0B]/90"
-          >
-            <CardHeader>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <CardTitle>{isAr ? "قائمتي" : "My Listings"}</CardTitle>
-                  <CardDescription>{isAr ? "إدارة جميع عروضك كبائع معتمد." : "Manage all of your approved seller listings."}</CardDescription>
-                </div>
-                {sortedDashboardListings.length ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    className="h-9 w-full sm:w-auto"
-                    onClick={() => {
-                      const newestListing = sortedDashboardListings[0];
-                      setSellerListingsExpanded(true);
-                      setSellerExpandedListingId(newestListing?.id ?? null);
-                      window.requestAnimationFrame(() => {
-                        if (!newestListing) return;
-                        document.getElementById(sellerListingWorkspaceAnchor(newestListing))?.focus({ preventScroll: true });
-                      });
-                    }}
-                  >
-                    {isAr ? "إدارة العروض" : "Manage Listings"}
-                  </Button>
-                ) : null}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {isWorkspaceWidgetsLoading ? (
-                Array.from({ length: 2 }).map((_, index) => (
-                  <div key={`my-listings-skeleton-${index}`} className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <div className="h-3 w-32 animate-pulse rounded bg-white/10" />
-                    <div className="mt-3 h-4 w-full animate-pulse rounded bg-white/10" />
-                    <div className="mt-2 h-4 w-4/5 animate-pulse rounded bg-white/10" />
-                  </div>
-                ))
-              ) : null}
-              {!isWorkspaceWidgetsLoading && myListings.length === 0 ? (
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center shadow-[0_8px_24px_rgba(2,6,23,0.35)]">
-                  <Store className="mx-auto h-5 w-5 text-[#C9A227]" />
-                  <p className="mt-2 text-sm font-medium text-white">{isAr ? "ليس لديك عروض نشطة حتى الآن" : "You don’t have any active listings yet."}</p>
-                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "أنشئ أول عرضك الآن ليبدأ المشترون بطلب الشراء." : "Create your first listing now and start receiving buyer requests."}</p>
-                  <Button type="button" size="sm" className="mt-3 h-9" onClick={() => { void scrollToCreateListingSection(); }}>
-                    {isAr ? "إنشاء عرض" : "Create Listing"}
-                  </Button>
-                </div>
-              ) : null}
-              {(sellerListingsExpanded
-                ? sortedDashboardListings
-                : sortedDashboardListings.slice(0, isMobileViewport ? 1 : 2)
-              ).map((listing) => {
-                const requestsCount = sellerRequests.filter((request) => request.listingId === listing.id).length;
-                const listingBusy = isListingActionBusy(listing.id);
-                const isDashboardListingExpanded = sellerExpandedListingId === listing.id;
-                const isAwaitingApproval = listing.status === "draft" && listing.approvalStatus === "pending";
-                const isLockedForActiveTrade = Boolean(listing.activeTradeRequestId)
-                  || listing.status === "matched"
-                  || listing.status === "in_trade";
-                const listingPaymentMethods = normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod)
-                  .map((method) => paymentMethodLabel(method, isAr))
-                  .join(isAr ? "، " : ", ") || (isAr ? "غير محدد" : "Not set");
-                const listingAttention = isAwaitingApproval
-                  ? (isAr ? "بانتظار موافقة الإدارة" : "Awaiting admin approval")
-                  : isLockedForActiveTrade
-                    ? (isAr ? "مقفل بسبب صفقة نشطة" : "Active trade lock")
-                    : listing.status === "paused"
-                      ? (isAr ? "متوقف مؤقتاً" : "Paused")
-                      : listing.status === "active"
-                        ? (isAr ? "مباشر" : "Live")
-                        : listingStatusLabel(listing.status, isAr);
-                const listingRequiredAction = isAwaitingApproval
-                  ? (isAr ? "انتظر موافقة Alpha Traders" : "Wait for Alpha Traders approval")
-                  : isLockedForActiveTrade
-                    ? (isAr ? "أكمل الصفقة النشطة" : "Complete the active trade")
-                    : listing.status === "paused"
-                      ? (isAr ? "استأنف عندما تكون جاهزاً" : "Resume when ready")
-                      : listing.status === "active"
-                        ? (isAr ? "راقب طلبات الشراء" : "Monitor purchase requests")
-                        : (isAr ? "راجع حالة العرض" : "Review listing status");
-                return (
-                  <div
-                    id={sellerListingWorkspaceAnchor(listing)}
-                    key={listing.id}
-                    tabIndex={-1}
-                    data-seller-compact-listing="true"
-                    data-listing-id={listing.id}
-                    className="scroll-mt-24 overflow-hidden rounded-2xl border border-white/10 bg-black/20 transition-all duration-200 hover:border-[#C9A227]/30"
-                  >
-                    <button
-                      type="button"
-                      className="grid w-full gap-2 px-3 py-3 text-start transition hover:bg-white/[0.03] sm:grid-cols-[1.15fr_0.8fr_0.7fr_1fr_1fr_auto] sm:items-center"
-                      aria-expanded={isDashboardListingExpanded}
-                      aria-controls={`seller-listing-details-${listing.id}`}
-                      onClick={() => setSellerExpandedListingId((current) => current === listing.id ? null : listing.id)}
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-white">{isAr ? "العرض" : "Listing"} {shortListingRef(listing)}</p>
-                        <p className="mt-0.5 text-xs text-[#9CA3AF]">{listingAttention}</p>
-                      </div>
-                      <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{isAr ? "الكمية " : "Amount "}</span>{toNumber(listing.availableAmount).toLocaleString("en-IL")} USDT</p>
-                      <p className="text-xs text-[#D1D5DB]"><span className="text-[#9CA3AF]">{isAr ? "السعر " : "Price "}</span>{formatIls(toNumber(listing.price))}</p>
-                      <p className="min-w-0 truncate text-xs text-[#D1D5DB]" title={listingPaymentMethods}><span className="text-[#9CA3AF]">{isAr ? "الدفع " : "Payment "}</span>{listingPaymentMethods}</p>
-                      <p className={cn("text-xs font-medium", isAwaitingApproval || isLockedForActiveTrade ? "text-amber-200" : "text-[#BFDBFE]")}>{listingRequiredAction}</p>
-                      <ChevronDown className={cn("h-4 w-4 text-[#9CA3AF] transition-transform", isDashboardListingExpanded && "rotate-180")} />
-                    </button>
-                    <div
-                      id={`seller-listing-details-${listing.id}`}
-                      className={cn(
-                        "border-t border-white/10 px-3 pb-3 pt-3",
-                        !isDashboardListingExpanded && "hidden",
-                      )}
-                    >
-                    {listing.status === "draft" && listing.approvalStatus === "pending" ? (
-                      <p className="mb-3 rounded-lg border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-100">
-                        {isAr ? "بانتظار موافقة إدارة Alpha Traders — هذا العرض غير ظاهر للمشترين بعد." : "Awaiting Alpha Traders admin approval — this listing is not visible to buyers yet."}
-                      </p>
-                    ) : null}
-                    <div className="grid gap-2 rounded-xl border border-white/10 bg-black/20 p-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
-                      <p>{isAr ? "الحالة" : "Status"}: <span className="text-white">{listingStatusLabel(listing.status, isAr)}</span></p>
-                      <p>{isAr ? "الإجراء المطلوب" : "Required action"}: <span className="text-white">{listingRequiredAction}</span></p>
-                      <p>{isAr ? "طلبات الشراء" : "Purchase requests"}: <span className="text-white">{requestsCount}</span></p>
-                      <p>{isAr ? "آخر نشاط" : "Last activity"}: <span className="text-white">{new Date(listing.updatedAt || listing.createdAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</span></p>
-                    </div>
-                    <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-start">
-                      <DiscordShareAction
-                        listing={listing}
-                        sharing={discordSharing}
-                        busy={discordShareActionKey === listing.id}
-                        locale={locale}
-                        onShare={(selected) => {
-                          void handleDiscordListingShare(selected);
-                        }}
-                      />
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        className="h-9"
-                        disabled={listingBusy}
-                        onClick={() => {
-                          setEditingListingId(listing.id);
-                          setListingEditForm({
-                            availableAmount: listing.availableAmount,
-                            price: listing.price,
-                            currency: listing.currency,
-                            network: listing.network,
-                            paymentMethods: normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod),
-                            bankAccountId: listing.bankAccountId ?? (sellerBankAccounts.find((account) => account.isDefault)?.id ?? sellerBankAccounts[0]?.id ?? ""),
-                            bankName: listing.bankName ?? "",
-                            minimumTrade: listing.minimumTrade ?? "0",
-                            maximumTrade: listing.maximumTrade ?? listing.availableAmount,
-                            sellerDescription: listing.sellerDescription ?? "",
-                            changeReason: "",
-                            changeExplanation: "",
-                          });
-                          setListingEditOriginal({
-                            availableAmount: listing.availableAmount,
-                            price: listing.price,
-                            minimumTrade: listing.minimumTrade ?? "0",
-                            maximumTrade: listing.maximumTrade ?? listing.availableAmount,
-                          });
-                        }}
-                      >
-                        <Edit3 className="h-4 w-4" />
-                        {isAr ? "تعديل" : "Edit"}
-                      </Button>
-                      {listing.status === "paused" ? (
-                        <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingStatus(listing, "active")}>
-                          <PlayCircle className="h-4 w-4" />
-                          {listingActionKey === `${listing.id}:resume` ? (isAr ? "جارٍ الاستئناف..." : "Resuming...") : (isAr ? "استئناف" : "Resume")}
-                        </Button>
-                      ) : listing.status === "active" ? (
-                        <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingStatus(listing, "paused")}>
-                          <PauseCircle className="h-4 w-4" />
-                          {listingActionKey === `${listing.id}:pause` ? (isAr ? "جارٍ الإيقاف..." : "Pausing...") : (isAr ? "إيقاف مؤقت" : "Pause")}
-                        </Button>
-                      ) : null}
-                      {listing.status !== "draft" ? (
-                        <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingRenew(listing)}>
-                          <Clock3 className="h-4 w-4" />
-                          {listingActionKey === `${listing.id}:renew` ? (isAr ? "جارٍ التجديد..." : "Renewing...") : (isAr ? "تجديد" : "Renew")}
-                        </Button>
-                      ) : null}
-                      <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingDelete(listing)}>
-                        <Trash2 className="h-4 w-4" />
-                        {listingActionKey === `${listing.id}:delete` ? (isAr ? "جارٍ الحذف..." : "Deleting...") : (isAr ? "حذف" : "Delete")}
-                      </Button>
-                      <Button type="button" size="sm" variant="secondary" className="h-9" disabled={listingBusy} onClick={() => void handleSellerListingDuplicate(listing)}>
-                        <Copy className="h-4 w-4" />
-                        {listingActionKey === `${listing.id}:duplicate` ? (isAr ? "جارٍ النسخ..." : "Duplicating...") : (isAr ? "نسخ العرض" : "Duplicate Listing")}
-                      </Button>
-                    </div>
-                    {editingListingId === listing.id ? (
-                      <form className="mt-3 grid gap-2 md:grid-cols-4" onSubmit={handleSellerListingEditSubmit}>
-                        <Input value={listingEditForm.availableAmount} onChange={(event) => setListingEditForm((prev) => ({ ...prev, availableAmount: formatIntegerForInput(event.target.value) }))} placeholder={isAr ? "الكمية المتاحة" : "Available Amount"} />
-                        <div className="space-y-2">
-                          <Input
-                            value={listingEditForm.price}
-                            onChange={(event) => setListingEditForm((prev) => ({ ...prev, price: normalizeDecimalInput(event.target.value) }))}
-                            placeholder={isAr ? "السعر" : "Price"}
-                            className={`transition-all duration-200 ${
-                              listingEditPriceInvalid
-                                ? "border-red-500/85 shadow-[0_0_0_3px_rgba(239,68,68,0.2)]"
-                                : listingEditPriceValid
-                                  ? "border-emerald-500/80 shadow-[0_0_0_3px_rgba(16,185,129,0.16)]"
-                                  : ""
-                            }`}
-                          />
-                          <p className={`text-xs transition-colors duration-200 ${
-                            listingEditPriceInvalid ? "text-red-300" : listingEditPriceValid ? "text-emerald-300" : "text-[#9CA3AF]"
-                          }`}>
-                            {listingEditPriceInvalid
-                              ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)}).` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)}).`)
-                              : listingEditPriceValid
-                                ? (isAr ? `السعر صالح. الحد الأقصى المسموح هو ${formatIls(maxAllowedListingPrice)}.` : `Valid price. Maximum allowed is ${formatIls(maxAllowedListingPrice)}.`)
-                                : (isAr ? `أدخل سعراً لا يتجاوز ${formatIls(maxAllowedListingPrice)}.` : `Enter a price up to ${formatIls(maxAllowedListingPrice)}.`)}
-                          </p>
-                        </div>
-                        <Input value={listingEditForm.currency} onChange={(event) => setListingEditForm((prev) => ({ ...prev, currency: event.target.value }))} placeholder={isAr ? "العملة" : "Currency"} />
-                        <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={listingEditForm.network} onChange={(event) => setListingEditForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
-                          <option value="TRC20">TRC20</option>
-                          <option value="ERC20">ERC20</option>
-                          <option value="BEP20">BEP20</option>
-                          <option value="SOL">SOL</option>
-                        </select>
-                        <Input value={listingEditForm.minimumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, minimumTrade: formatIntegerForInput(event.target.value) }))} placeholder={isAr ? "الحد الأدنى للصفقة" : "Minimum Trade"} />
-                        <Input value={listingEditForm.maximumTrade} onChange={(event) => setListingEditForm((prev) => ({ ...prev, maximumTrade: formatIntegerForInput(event.target.value) }))} placeholder={isAr ? "الحد الأقصى للصفقة" : "Maximum Trade"} />
-                        <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
-                          <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "طريقة الدفع" : "Payment Method"} *</p>
-                          <div className="mt-2 grid gap-2 md:grid-cols-3">
-                            {MARKETPLACE_PAYMENT_METHODS.map((method) => {
-                              const selected = listingEditSelectedMethods.includes(method);
-                              return (
-                                <button
-                                  key={`${listing.id}-method-${method}`}
-                                  type="button"
-                                  onClick={() => setListingEditForm((prev) => {
-                                    const nextMethods = toggleSelection(prev.paymentMethods, method, MAX_LISTING_PAYMENT_METHODS);
-                                    return {
-                                      ...prev,
-                                      paymentMethods: nextMethods,
-                                      bankName: requiresBankSelection(nextMethods) ? prev.bankName : "",
-                                    };
-                                  })}
-                                  className={`rounded-xl border p-2.5 text-start transition-all duration-200 ${
-                                    selected
-                                      ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]"
-                                      : "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]"
-                                  }`}
-                                >
-                                  <p className="text-xs font-medium text-white">{paymentMethodEmoji(method)} {paymentMethodLabel(method, isAr)}</p>
-                                </button>
-                              );
-                            })}
-                          </div>
-                          <p className="mt-2 text-xs text-[#9CA3AF]">{isAr ? `اختر حتى ${MAX_LISTING_PAYMENT_METHODS} طرق.` : `Select up to ${MAX_LISTING_PAYMENT_METHODS} methods.`}</p>
-                        </div>
-                        <Textarea className="md:col-span-2" value={listingEditForm.sellerDescription} onChange={(event) => setListingEditForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} aria-label={isAr ? "وصف البائع" : "Seller description"} placeholder={isAr ? "وصف البائع" : "Seller Description"} />
-                        {listingEditRequiresBank ? (
-                        <div className="md:col-span-4 rounded-2xl border border-white/10 bg-black/20 p-3">
-                          <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "البنوك المدعومة" : "Supported banks"} *</p>
-                          <p className="mt-1 text-xs text-[#D1D5DB]">{isAr ? `اختر حتى ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} بنوك للتحويل البنكي أو السحب بلا بطاقة.` : `Select up to ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks for bank transfer or cardless ATM listings.`}</p>
-                          <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-                            {ISRAELI_BANKS.map((bank) => {
-                              const selected = listingEditSelectedBanks.includes(bank.name);
-                              return (
-                                <button
-                                  key={`${listing.id}-${bank.id}`}
-                                  type="button"
-                                  onClick={() => setListingEditForm((prev) => {
-                                    const nextBanks = toggleSelection(parseIsraeliBankSelection(prev.bankName), bank.name, MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS);
-                                    return { ...prev, bankName: serializeIsraeliBankSelection(nextBanks) };
-                                  })}
-                                  className={`rounded-xl border p-2 text-start transition-all duration-200 ${
-                                    selected
-                                      ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]"
-                                      : "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]"
-                                  }`}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/15 bg-black/35">
-                                      {renderBankLogo(bank)}
-                                    </span>
-                                    <div>
-                                      <p className="text-xs font-medium text-white">{getIsraeliBankDisplayName(bank.name, locale)}</p>
-                                      <p className="text-[10px] text-[#9CA3AF]">{bank.code}</p>
-                                    </div>
-                                  </div>
-                                  {selected ? <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#93C5FD]">{isAr ? "محدد" : "Selected"}</p> : null}
-                                </button>
-                              );
-                            })}
-                          </div>
-                          {listingEditSelectedBanks.length ? <p className="mt-2 text-xs text-[#93C5FD]">{isAr ? "المحدد" : "Selected"}: {listingEditSelectedBanks.map((bankName) => getIsraeliBankDisplayName(bankName, locale)).join(isAr ? "، " : ", ")}</p> : null}
-                        </div>
-                        ) : null}
-                        {listingEditRequiresBankAccount ? (
-                        <div className="md:col-span-4 rounded-2xl border border-white/10 bg-black/20 p-3">
-                          <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "الحساب البنكي لاستلام الدفعات" : "Payout bank account"} *</p>
-                          {sellerBankAccountsLoading ? (
-                            <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? "جارٍ تحميل حساباتك البنكية المحفوظة..." : "Loading your saved bank accounts..."}</p>
-                          ) : sellerBankAccounts.length === 0 ? (
-                            <p className="mt-2 text-xs text-amber-300">
-                              {isAr ? <>لم يتم العثور على حسابات بنكية محفوظة. أضف حساباً في <a href={`/${locale}/settings?tab=profile#seller-bank-accounts`} className="text-[#93C5FD] underline underline-offset-2">الإعدادات</a> قبل حفظ العرض.</> : <>No saved bank accounts found. Add one in <a href={`/${locale}/settings?tab=profile#seller-bank-accounts`} className="text-[#93C5FD] underline underline-offset-2">Settings</a> before saving this listing.</>}
-                            </p>
-                          ) : (
-                            <>
-                              <select
-                                className="mt-2 flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white"
-                                value={listingEditForm.bankAccountId}
-                                onChange={(event) => setListingEditForm((prev) => ({ ...prev, bankAccountId: event.target.value }))}
-                              >
-                                <option value="">{isAr ? "اختر حساباً بنكياً" : "Select bank account"}</option>
-                                {sellerBankAccounts.map((account) => (
-                                  <option key={account.id} value={account.id}>
-                                    {`${getIsraeliBankDisplayName(account.bankName, locale)} • ${account.maskedAccountNumber ?? `****${account.accountLast4}`}${account.isDefault ? (isAr ? " (افتراضي)" : " (Default)") : ""}`}
-                                  </option>
-                                ))}
-                              </select>
-                              <p className="mt-2 text-xs text-[#9CA3AF]">{isAr ? "لن يرى المشترون رقم حسابك الكامل أبداً." : "Buyers never see your full account number."}</p>
-                            </>
-                          )}
-                        </div>
-                        ) : null}
-                        {listingEditNeedsReason ? (
-                          <div className="md:col-span-4 rounded-2xl border border-amber-500/35 bg-amber-500/[0.06] p-3">
-                            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#FDE68A]">{isAr ? "سبب التغيير" : "Reason for change"} <span className="text-red-300">*</span></p>
-                            <p className="mt-1 text-xs text-[#D1D5DB]">{isAr ? "يتم تسجيل تعديل الكمية أو السعر أو التوفر لضمان الشفافية في السوق." : "Editing amount, price, or availability is recorded for marketplace accountability."}</p>
-                            <div className="mt-2 grid gap-2 md:grid-cols-2">
-                              <select
-                                aria-label={isAr ? "سبب تغيير العرض" : "Reason for listing change"}
-                                className={cn(
-                                  "flex h-11 w-full rounded-xl border bg-[#101010] px-3 py-2 text-sm text-white",
-                                  listingEditForm.changeReason ? "border-emerald-500/60" : "border-red-500/70",
-                                )}
-                                value={listingEditForm.changeReason}
-                                onChange={(event) => setListingEditForm((prev) => ({ ...prev, changeReason: event.target.value }))}
-                              >
-                                <option value="">{isAr ? "اختر سبباً…" : "Select a reason…"}</option>
-                                {LISTING_CHANGE_REASONS.map((reason) => (
-                                  <option key={reason} value={reason}>{listingChangeReasonLabel(reason, isAr)}</option>
-                                ))}
-                              </select>
-                              <Input
-                                aria-label={isAr ? "شرح التغيير" : "Change explanation"}
-                                placeholder={isAr ? "اشرح هذا التغيير باختصار" : "Briefly explain this change"}
-                                value={listingEditForm.changeExplanation}
-                                onChange={(event) => setListingEditForm((prev) => ({ ...prev, changeExplanation: event.target.value }))}
-                                className={listingEditForm.changeExplanation.trim().length >= 5 ? "border-emerald-500/60" : "border-red-500/70"}
-                              />
-                            </div>
-                            {!listingEditReasonValid ? (
-                              <p className="mt-2 text-xs text-red-300">{isAr ? "اختر سبباً وأضف شرحاً قصيراً (5 أحرف على الأقل)." : "Choose a reason and add a short explanation (at least 5 characters)."}</p>
-                            ) : null}
-                          </div>
-                        ) : null}
-                        <div className={`md:col-span-4 rounded-2xl border p-3 text-xs transition-all duration-200 ${listingEditGuardTone}`}>
-                          <div className="flex items-start gap-2">
-                            {listingEditPriceInvalid ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
-                            <div className="space-y-1">
-                              <p className="font-medium">
-                                {listingEditPriceInvalid ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)})` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)})`) : (isAr ? "حماية سعر السوق مفعلة" : "Market guard active")}
-                              </p>
-                              <p>{isAr ? "سعر السوق الحالي" : "Current market"}: {formatIls(marketPricePerUsdt)} {isAr ? "لكل 1 USDT" : "per 1 USDT"}</p>
-                              <p>{isAr ? "الحد الأقصى المسموح" : "Maximum allowed"}: {formatIls(maxAllowedListingPrice)}</p>
-                              {listingEditTradeRangeInvalid ? <p className="text-amber-200">{isAr ? "يجب أن يكون الحد الأقصى للصفقة أكبر من الحد الأدنى وألا يتجاوز كمية USDT المتاحة." : "Maximum trade must be greater than minimum trade and less than or equal to available USDT."}</p> : null}
-                              {listingEditRequiresBank && !listingEditSelectedBanks.length ? <p className="text-amber-200">{isAr ? "اختر بنكاً واحداً أو بنكين مدعومين قبل الحفظ." : "Select one or two supported banks before saving."}</p> : null}
-                              {listingEditRequiresBankAccount && !listingEditForm.bankAccountId ? <p className="text-amber-200">{isAr ? "اختر حساباً بنكياً واحداً لاستلام الدفعات قبل الحفظ." : "Select one payout bank account before saving."}</p> : null}
-                              {listingEditAmount > 0 ? <p>{listingEditAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingEditAmount * marketPricePerUsdt)}</p> : null}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="md:col-span-4 flex gap-2">
-                          <Button type="submit" size="sm" disabled={isListingEditSubmitDisabled || !listingEditReasonValid || listingActionKey === `${listing.id}:save`}>
-                            {listingActionKey === `${listing.id}:save` ? (isAr ? "جارٍ الحفظ..." : "Saving...") : (isAr ? "حفظ" : "Save")}
-                          </Button>
-                          <Button type="button" size="sm" variant="secondary" onClick={() => { setEditingListingId(null); setListingEditOriginal(null); }}>{isAr ? "إلغاء" : "Cancel"}</Button>
-                        </div>
-                      </form>
-                    ) : null}
-                    </div>
-                  </div>
-                );
-              })}
-              {sortedDashboardListings.length > (isMobileViewport ? 1 : 2) ? (
-                <div className="flex justify-start">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => setSellerListingsExpanded((current) => !current)}
-                  >
-                    {sellerListingsExpanded
-                      ? (isAr ? "عرض عدد أقل من العروض" : "Show fewer listings")
-                      : (isAr ? `عرض جميع العروض (${sortedDashboardListings.length - (isMobileViewport ? 1 : 2)})` : `View All Listings (${sortedDashboardListings.length - (isMobileViewport ? 1 : 2)})`)}
-                  </Button>
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
-          );
-          return sellerDashboardListingsTarget ? createPortal(sellerListingsWorkspace, sellerDashboardListingsTarget) : null;
-        })() : null}
+        {isApprovedSeller && showSellerWorkspace ? (
+          <SellerListingsWorkspacePortal
+            {...{
+              discordShareActionKey,
+              discordSharing,
+              editingListingId,
+              handleDiscordListingShare,
+              handleSellerListingDelete,
+              handleSellerListingDuplicate,
+              handleSellerListingEditSubmit,
+              handleSellerListingRenew,
+              handleSellerListingStatus,
+              isAr,
+              isListingActionBusy,
+              isListingEditSubmitDisabled,
+              isMobileViewport,
+              isWorkspaceWidgetsLoading,
+              listingActionKey,
+              listingEditAmount,
+              listingEditForm,
+              listingEditGuardTone,
+              listingEditNeedsReason,
+              listingEditPriceInvalid,
+              listingEditPriceValid,
+              listingEditReasonValid,
+              listingEditRequiresBank,
+              listingEditRequiresBankAccount,
+              listingEditSelectedBanks,
+              listingEditSelectedMethods,
+              listingEditTradeRangeInvalid,
+              locale,
+              marketPricePerUsdt,
+              maxAllowedListingPrice,
+              myListings,
+              scrollToCreateListingSection,
+              sellerBankAccounts,
+              sellerBankAccountsLoading,
+              sellerDashboardListingsTarget,
+              sellerExpandedListingId,
+              sellerListingsExpanded,
+              sellerRequests,
+              setEditingListingId,
+              setListingEditForm,
+              setListingEditOriginal,
+              setSellerExpandedListingId,
+              setSellerListingsExpanded,
+              shortListingRef,
+              sortedDashboardListings,
+              ISRAELI_BANKS,
+              formatIls,
+              formatIntegerForInput,
+              listingChangeReasonLabel,
+              listingStatusLabel,
+              normalizeDecimalInput,
+              normalizePaymentMethodList,
+              paymentMethodEmoji,
+              paymentMethodLabel,
+              renderBankLogo,
+              requiresBankSelection,
+              toNumber,
+              toggleSelection,
+            }}
+          />
+        ) : null}
 
         {/* Recent completed trades — visible to all to signal activity */}
         {recentCompletedTrades.length ? (
@@ -5576,1618 +5246,167 @@ export function UsdtExchangePage({
       ) : null}
 
       {showDeferredSections && !isApprovedSeller && !isDashboardWorkspace ? (
-      <div className="mt-10 grid gap-6 xl:grid-cols-2">
-        {/* Seller Application */}
-        <Card id="seller-application" className="border-white/10 bg-[#0B0B0B]/90">
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#C9A227]/35 bg-[#C9A227]/10 text-[#C9A227]">
-                <ShieldCheck className="h-5 w-5" />
-              </div>
-              <div>
-                <CardTitle className="text-lg">{isAr ? "انضم كبائع معتمد" : "Become an Approved Seller"}</CardTitle>
-                <CardDescription className="mt-0.5 text-xs">
-                  {isAr ? "يتم مراجعة الطلبات يدويًا قبل منح صلاحية النشر." : "Applications are reviewed manually before marketplace access is granted."}
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {shouldCondenseSellerApplication && !isSellerApplicationExpanded ? (
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
-                <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">
-                  {isAr ? "خيار إضافي" : "Optional Next Step"}
-                </p>
-                <p className="mt-2 text-base font-semibold text-white">
-                  {isAr ? "هل تريد البيع أيضًا؟" : "Want to sell USDT too?"}
-                </p>
-                <p className="mt-2 text-sm text-[#9CA3AF]">
-                  {isAr
-                    ? "أبقينا هذه الصفحة مركزة على المشتري. افتح طلب البائع فقط إذا كنت تريد التقديم لبدء البيع أيضًا."
-                    : "This page stays focused on the buyer workflow. Open the seller application only if you want to start selling too."}
-                </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <Button type="button" onClick={() => setIsSellerApplicationExpanded(true)}>
-                    {isAr ? "فتح طلب البائع" : "Open Seller Application"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => {
-                      const target = document.getElementById("marketplace");
-                      if (target) {
-                        target.scrollIntoView({ behavior: "smooth", block: "start" });
-                      }
-                    }}
-                  >
-                    {isAr ? "العودة إلى السوق" : "Back to Marketplace"}
-                  </Button>
-                </div>
-              </div>
-            ) : isSellerApplicationLoading && isApprovedSellerSession ? (
-              <div className="space-y-3">
-                <div className="h-4 w-44 animate-pulse rounded bg-white/10" />
-                <div className="h-20 w-full animate-pulse rounded-2xl bg-white/10" />
-                <div className="h-20 w-full animate-pulse rounded-2xl bg-white/10" />
-              </div>
-            ) : (
-            /* ── State 1: buyer role required ── */
-            sellerApplicationEligibility === "loading" ? (
-              <div className="space-y-3" aria-label={isAr ? "جارٍ تحميل حالة الحساب" : "Loading account status"}>
-                <div className="h-4 w-44 animate-pulse rounded bg-white/10" />
-                <div className="h-20 w-full animate-pulse rounded-2xl bg-white/10" />
-              </div>
-            ) : sellerApplicationEligibility === "retry" ? (
-              <div className="rounded-2xl border border-amber-500/35 bg-amber-500/10 p-5">
-                <p className="font-semibold text-white">{isAr ? "تعذر تحديث حالة الحساب" : "Unable to refresh account status"}</p>
-                <Button type="button" className="mt-4" onClick={() => window.location.reload()}>{isAr ? "إعادة المحاولة" : "Retry"}</Button>
-              </div>
-            ) : sellerApplicationEligibility === "buyer_setup_required" ? (
-              <div className="rounded-2xl border border-amber-500/35 bg-amber-500/10 p-5">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
-                  <div>
-                    <p className="font-semibold text-white">{isAr ? "أكمل إعداد حساب المشتري أولاً" : "Complete Buyer Setup First"}</p>
-                    <p className="mt-2 text-sm text-[#E5E7EB]">
-                      {isAr
-                        ? "يجب أن يكون لديك حساب مشترٍ قبل التقديم كبائع. ستتم مراجعة طلبات البائعين يدويًا وقد يُطلب تحقق إضافي."
-                        : "You need a buyer account before applying as a seller. Seller applications are reviewed manually and may require additional verification."}
-                    </p>
-                    <Button
-                      type="button"
-                      className="mt-4 w-full"
-                      onClick={() => router.push("/onboarding")}
-                    >
-                      {isAr ? "إعداد حساب مشترٍ" : "Set Up Buyer Account"}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ) : sellerApplicationEligibility === "application_pending" ? (
-              /* ── State 2: Application pending ── */
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-[#C9A227]/35 bg-[#C9A227]/10 p-5">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[#C9A227]/50 bg-[#C9A227]/20">
-                      <Clock3 className="h-5 w-5 text-[#F4D87A]" />
-                    </div>
-                    <div>
-                      <p className="font-semibold text-white">{isAr ? "الطلب قيد المراجعة" : "Application Pending Review"}</p>
-                      <p className="mt-0.5 text-xs text-[#D1D5DB]">
-                        {sellerApplication?.createdAt
-                          ? `${isAr ? "تاريخ التقديم" : "Submitted"}: ${new Date(sellerApplication.createdAt).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}`
-                          : (isAr ? "تم إرسال الطلب" : "Application submitted")}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-black/25 p-4 text-sm text-[#D1D5DB]">
-                  <p className="mb-3 text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "ماذا يحدث بعد ذلك" : "What Happens Next"}</p>
-                  <div className="space-y-2">
-                    {[
-                      isAr ? "سيراجع فريق Alpha Traders طلبك." : "The Alpha Traders team will review your application.",
-                      isAr ? "سيتواصل معك المالك عبر WhatsApp باستخدام الرقم الذي قدمته في الطلب." : "The owner will contact you via WhatsApp using the number in your application.",
-                      isAr ? "قد تُطلب منك معلومات أو تحقق إضافي." : "Additional verification or information may be requested.",
-                      isAr ? "بعد الموافقة ستحصل على شارة البائع المعتمد." : "Upon approval, you receive the Approved Seller badge and marketplace access.",
-                    ].map((step, index) => (
-                      <div key={index} className="flex items-start gap-2">
-                        <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[#C9A227]/40 bg-[#C9A227]/10 text-[10px] font-semibold text-[#F4D87A]">{index + 1}</span>
-                        <p>{step}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <p className="rounded-xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-4 py-3 text-xs text-[#BFDBFE]">
-                  {isAr ? "سنتواصل معك عبر WhatsApp باستخدام الرقم الذي قدمته في الطلب." : "We'll contact you via WhatsApp using the number in your application."}
-                </p>
-              </div>
-            ) : (
-              /* ── State 3: Application form ── */
-              <>
-                {/* Approval process info panel */}
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
-                  <p className="mb-3 text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "عملية الموافقة" : "Approval Process"}</p>
-                  <div className="space-y-2">
-                    {[
-                      isAr ? "يدخل طلبك في مراجعة يدوية." : "Your application enters manual review.",
-                      isAr ? "سيتواصل معك مالك Alpha Traders عبر WhatsApp باستخدام الرقم الذي تقدمه في الطلب." : "The Alpha Traders owner will contact you via WhatsApp using the number you provide in your application.",
-                      isAr ? "قد تُطلب منك معلومات إضافية." : "Additional verification or information may be requested.",
-                      isAr ? "بعد الموافقة تحصل على شارة البائع المعتمد وصلاحيات النشر." : "Once approved, you receive the Approved Seller badge and marketplace selling privileges.",
-                    ].map((step, index) => (
-                      <div key={index} className="flex items-start gap-2">
-                        <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 text-[10px] font-semibold text-[#F4D87A]">{index + 1}</span>
-                        <p>{step}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {statusMessage ? (
-                  <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-[#FDE68A]">
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                    <span>{statusMessage}</span>
-                  </div>
-                ) : null}
-
-                <form className="space-y-3" onSubmit={handleSellerApplicationSubmit}>
-                  {/* Personal Information */}
-                  <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "المعلومات الشخصية" : "Personal Information"}</p>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-1.5">
-                      <FieldLabel htmlFor="seller-first-name" required>{isAr ? "الاسم الأول" : "First Name"}</FieldLabel>
-                      <Input
-                        id="seller-first-name"
-                        placeholder={isAr ? "الاسم الأول" : "First name"}
-                        value={sellerForm.firstName}
-                        required
-                        aria-required
-                        onChange={(event) => { sellerFormTouchedRef.current = true; setSellerForm((prev) => ({ ...prev, firstName: event.target.value })); }}
-                        className={requiredFieldClasses({ value: sellerForm.firstName, required: true })}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <FieldLabel htmlFor="seller-last-name" required>{isAr ? "اسم العائلة" : "Last Name"}</FieldLabel>
-                      <Input
-                        id="seller-last-name"
-                        placeholder={isAr ? "اسم العائلة" : "Last name"}
-                        value={sellerForm.lastName}
-                        required
-                        aria-required
-                        onChange={(event) => { sellerFormTouchedRef.current = true; setSellerForm((prev) => ({ ...prev, lastName: event.target.value })); }}
-                        className={requiredFieldClasses({ value: sellerForm.lastName, required: true })}
-                      />
-                    </div>
-                  </div>
-                  <div className="relative">
-                    <FieldLabel htmlFor="seller-email" className="mb-1.5">{isAr ? "البريد الإلكتروني" : "Email"}</FieldLabel>
-                    <Input
-                      id="seller-email"
-                      type="email"
-                      value={sellerForm.email || (sessionUser?.email ?? "")}
-                      readOnly
-                      aria-label={isAr ? "البريد الإلكتروني" : "Email"}
-                      className="cursor-default opacity-75"
-                    />
-                    <span className="pointer-events-none absolute end-3 top-[2.35rem] rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-2 py-0.5 text-[10px] font-medium text-[#D4AF37]">
-                      {isAr ? "من الحساب" : "From account"}
-                    </span>
-                  </div>
-                  <div className="space-y-1.5">
-                    <FieldLabel htmlFor="seller-whatsapp" required>{isAr ? "رقم الهاتف / WhatsApp" : "WhatsApp / Phone Number"}</FieldLabel>
-                    <Input
-                      id="seller-whatsapp"
-                      placeholder={isAr ? "رقم الهاتف / WhatsApp" : "WhatsApp / phone number"}
-                      value={sellerForm.whatsappNumber}
-                      required
-                      aria-required
-                      onChange={(event) => { sellerFormTouchedRef.current = true; setSellerForm((prev) => ({ ...prev, whatsappNumber: event.target.value })); }}
-                      className={requiredFieldClasses({ value: sellerForm.whatsappNumber, required: true })}
-                    />
-                  </div>
-
-                  {/* Selling methods */}
-                  <p className="pt-1 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "طرق البيع المدعومة" : "Supported Selling Methods"}</p>
-                  <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                    <p className="mb-3 text-xs text-[#9CA3AF]">
-                      {isAr ? "اختر طريقة أو أكثر." : "Select one or more methods."}
-                    </p>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      {(["Crypto", "Fiat"] as const).map((group) => (
-                        <div key={group} className="space-y-2">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? (group === "Crypto" ? "عملات رقمية" : "عملات تقليدية") : group}</p>
-                          <div className="grid gap-2">
-                            {SELLER_APPLICATION_METHOD_OPTIONS.filter((m) => m.group === group).map((method) => {
-                              const selected = sellerApplicationMethods.includes(method.id);
-                              return (
-                                <button
-                                  key={method.id}
-                                  type="button"
-                                  onClick={() => setSellerApplicationMethods((prev) => prev.includes(method.id) ? prev.filter((item) => item !== method.id) : [...prev, method.id])}
-                                  className={`rounded-xl border px-3 py-2.5 text-start text-sm transition ${
-                                    selected
-                                      ? "border-[#C9A227]/60 bg-[#C9A227]/10 text-white ring-1 ring-[#C9A227]/30"
-                                      : "border-white/10 bg-black/25 text-[#D1D5DB] hover:border-[#C9A227]/30 hover:text-white"
-                                  }`}
-                                >
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span>{sellerApplicationMethodLabel(method.id, isAr)}</span>
-                                    <span className="flex items-center gap-1.5">
-                                      {method.recommended ? <span className="rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-1.5 py-0.5 text-[10px] font-semibold text-[#D4AF37]">⭐ {isAr ? "موصى به" : "Recommended"}</span> : null}
-                                      {selected ? <CheckCircle2 className="h-4 w-4 text-[#C9A227]" /> : <div className="h-4 w-4 rounded-full border border-white/20" />}
-                                    </span>
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Expected Monthly Volume */}
-                  <p className="pt-1 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "التداول الشهري المتوقع" : "Expected Monthly Trading Volume"}</p>
-                  <Input
-                    placeholder={isAr ? "مثال: 5,000 USDT شهريًا" : "e.g. 5,000 USDT per month"}
-                    value={sellerForm.expectedMonthlyTradingVolume}
-                    onChange={(event) => { sellerFormTouchedRef.current = true; setSellerForm((prev) => ({ ...prev, expectedMonthlyTradingVolume: event.target.value })); }}
-                  />
-
-                  {/* Additional notes */}
-                  <Textarea
-                    placeholder={isAr ? "ملاحظات إضافية (اختياري)" : "Additional notes (optional)"}
-                    value={sellerForm.additionalNotes}
-                    onChange={(event) => { sellerFormTouchedRef.current = true; setSellerForm((prev) => ({ ...prev, additionalNotes: event.target.value })); }}
-                  />
-
-                  <Button type="submit" className="w-full" disabled={!sellerForm.firstName || !sellerForm.lastName || !sellerForm.whatsappNumber || sellerApplicationMethods.length === 0}>
-                    {isAr ? "قدّم طلب الاعتماد" : "Apply for Approval"}
-                  </Button>
-                </form>
-
-                {/* Trust notice */}
-                <p className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-xs text-[#9CA3AF]">
-                  {isAr
-                    ? "تتم الموافقة على البائعين يدويًا لحماية المشترين والحفاظ على سوق موثوق. تُراجَع الطلبات بشكل فردي وقد يُطلب تحقق إضافي."
-                    : "Seller approval is performed manually to protect buyers and maintain a trusted marketplace. Applications are reviewed individually and additional verification may be requested before approval."}
-                </p>
-                {shouldCondenseSellerApplication ? (
-                  <Button type="button" variant="secondary" onClick={() => setIsSellerApplicationExpanded(false)}>
-                    {isAr ? "إخفاء طلب البائع" : "Hide Seller Application"}
-                  </Button>
-                ) : null}
-              </>
-            ))}
-          </CardContent>
-        </Card>
-
-        {/* ── Find a Seller ── */}
-        <Card className="border-white/10 bg-[#0B0B0B]/90">
-          <CardHeader>
-            <CardTitle>{isAr ? "ابحث عن بائع معتمد" : "Find an Approved Seller"}</CardTitle>
-            <CardDescription>
-              {isAr
-                ? "تصفح البائعين المعتمدين وابدأ صفقة USDT آمنة ومُنسَّقة من خلال Alpha Exchange."
-                : "Browse verified sellers and start a secure USDT trade coordinated through Alpha Exchange."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
-                <p className="mb-2 font-medium text-white">{isAr ? "كيف تشتري USDT:" : "How to buy USDT:"}</p>
-                <ol className="list-inside list-decimal space-y-2">
-                  <li>{isAr ? "تصفح" : "Browse the"} <a href="#marketplace" className="text-[#93C5FD] hover:underline">{isAr ? "السوق المباشر" : "Live Marketplace"}</a> {isAr ? "أعلاه" : "above"}</li>
-                  <li>{isAr ? "اختر بائعًا موثقًا يناسب احتياجاتك" : "Choose a verified seller that fits your needs"}</li>
-                  <li>{isAr ? "اضغط" : "Click"} <strong className="text-white">{isAr ? "شراء USDT" : "Buy USDT"}</strong> {isAr ? "على عرضه" : "on their listing"}</li>
-                  <li>{isAr ? "أدخل تفاصيل الصفقة وأرسلها" : "Fill in your trade details and submit"}</li>
-                  <li>{isAr ? "Alpha Traders تنسق الباقي" : "Alpha Traders coordinates the rest"}</li>
-                </ol>
-              </div>
-              <a href="#marketplace">
-                <Button className="w-full">{isAr ? "تصفح البائعين" : "Browse Sellers"}</Button>
-              </a>
-              <p className="text-center text-xs text-[#9CA3AF]">
-                {isAr ? "هل تحتاج مساعدة؟" : "Need help?"}{" "}
-                {WHATSAPP_URL ? <a href={WHATSAPP_URL} target="_blank" rel="noreferrer" className="text-[#93C5FD] hover:underline">
-                  {isAr ? "تواصل مع Alpha Traders على WhatsApp" : "Contact Alpha Traders on WhatsApp"}
-                </a> : null}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+        <SellerApplicationSection
+          isAr={isAr}
+          isLoading={isSellerApplicationLoading}
+          isApprovedSellerSession={isApprovedSellerSession}
+          shouldCondense={shouldCondenseSellerApplication}
+          isExpanded={isSellerApplicationExpanded}
+          eligibility={sellerApplicationEligibility}
+          application={sellerApplication}
+          statusMessage={statusMessage}
+          form={sellerForm}
+          sessionEmail={sessionUser?.email ?? ""}
+          methods={sellerApplicationMethods}
+          onExpandedChange={setIsSellerApplicationExpanded}
+          onSetUpBuyer={() => router.push("/onboarding")}
+          onFormChange={(field, value) => {
+            sellerFormTouchedRef.current = true;
+            setSellerForm((prev) => ({ ...prev, [field]: value }));
+          }}
+          onMethodToggle={(method) => {
+            setSellerApplicationMethods((prev) => prev.includes(method)
+              ? prev.filter((item) => item !== method)
+              : [...prev, method]);
+          }}
+          onSubmit={handleSellerApplicationSubmit}
+        />
       ) : null}
-
       {isApprovedSeller && showSellerWorkspace ? (
-        <div className="mt-6 flex flex-col gap-5 xl:gap-6">
-          {/* Seller Dashboard Hero */}
-          <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#0D0D0D] via-[#0A0A0A] to-[#111827]/60 p-5 shadow-[0_24px_60px_rgba(0,0,0,0.4)]">
-            <div className="pointer-events-none absolute inset-0 opacity-30">
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_20%,rgba(201,162,39,0.18),transparent_40%),radial-gradient(circle_at_90%_80%,rgba(147,197,253,0.1),transparent_40%)]" />
-            </div>
-            <div className="relative z-10 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <div className="inline-flex flex-wrap items-center gap-2 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-1.5 text-xs text-[#F4D87A]">
-                  <span className="font-semibold uppercase tracking-[0.12em]">{isAr ? "حالة البائع" : "Seller Status"}</span>
-                  <RoleBadge variant="approved_seller" locale={isAr ? "ar" : "en"} />
-                  <span className="text-[#E5E7EB]">{isAr ? "بائع معتمد" : "Approved Seller"}</span>
-                </div>
-                <h2 className="mt-2 text-2xl font-semibold text-white">
-                  {isAr ? `مرحباً بعودتك، ${sessionUser?.fullName?.split(" ")[0] ?? "البائع"}` : `Welcome back, ${sessionUser?.fullName?.split(" ")[0] ?? "Seller"}`}
-                </h2>
-                <p className="mt-1 text-xs text-[#9CA3AF]">
-                  {isAr ? "تاريخ الموافقة" : "Approval Date"}: {new Date((sellerApplication?.updatedAt ?? sessionUser?.createdAt) || Date.now()).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}
-                </p>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[#C9A227]/40 bg-[#C9A227]/10 px-3 py-1 text-xs font-medium text-[#F4D87A]">
-                    <Trophy className="h-3 w-3" />
-                    {isAr ? `بائع ${sellerLevelLabel(sellerOverviewStats.reputation?.level, true)}` : `${sellerLevelLabel(sellerOverviewStats.reputation?.level)} Seller`}
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[#93C5FD]/30 bg-[#93C5FD]/10 px-3 py-1 text-xs text-[#93C5FD]">
-                    <ShieldCheck className="h-3 w-3" />
-                    {isAr ? "الثقة" : "Trust"} {(sellerOverviewStats.reputation?.trustScore ?? 0).toFixed(1)}
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[#22C55E]/25 bg-[#22C55E]/10 px-3 py-1 text-xs text-[#86EFAC]">
-                    <Star className="h-3 w-3" />
-                    {(sellerOverviewStats.reputation?.rating ?? 0).toFixed(2)} {isAr ? "تقييم" : "Rating"}
-                  </span>
-                </div>
-              </div>
-              <div className="rounded-xl border border-white/10 bg-black/25 p-3.5 text-xs text-[#D1D5DB] sm:min-w-[180px]">
-                <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "سوق اليوم" : "Today’s Market"}</p>
-                <p className="mt-1 text-base font-semibold text-white">USDT/ILS {formatIls(marketPricePerUsdt)}</p>
-                <div className="mt-2 space-y-0.5">
-                  {sellerOverviewStats.activeListings > 0 && <p>• {sellerOverviewStats.activeListings} {isAr ? "عروض نشطة" : `Active Listing${sellerOverviewStats.activeListings !== 1 ? "s" : ""}`}</p>}
-                  {sellerOverviewStats.pendingRequests > 0 && <p>• {sellerOverviewStats.pendingRequests} {isAr ? "طلبات شراء" : `Purchase Request${sellerOverviewStats.pendingRequests !== 1 ? "s" : ""}`}</p>}
-                  {sellerOverviewStats.reputation?.completedTrades !== undefined && <p className="text-[#9CA3AF]">• {sellerOverviewStats.reputation.completedTrades} {isAr ? "إجمالي الصفقات" : "Total Trades"}</p>}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-            {isWorkspaceWidgetsLoading
-              ? Array.from({ length: 6 }).map((_, index) => (
-                  <Card key={`seller-stat-skeleton-${index}`} className="border-white/10 bg-[#0B0B0B]/90">
-                    <CardContent className="space-y-2.5 p-5">
-                      <div className="h-3 w-24 animate-pulse rounded bg-white/10" />
-                      <div className="h-8 w-36 animate-pulse rounded bg-white/10" />
-                    </CardContent>
-                  </Card>
-                ))
-              : null}
-            {!isWorkspaceWidgetsLoading
-              ? [
-              { label: isAr ? "العروض النشطة" : "Active Listings", value: sellerOverviewStats.activeListings.toLocaleString("en-IL"), icon: TrendingUp },
-              { label: isAr ? "الصفقات المعلقة" : "Pending Trades", value: sellerOverviewStats.pendingRequests.toLocaleString("en-IL"), icon: MessageCircle },
-              { label: isAr ? "مستوى البائع" : "Seller Level", value: sellerLevelLabel(sellerOverviewStats.reputation?.level, isAr), icon: Trophy },
-              { label: isAr ? "درجة الثقة" : "Trust Score", value: (sellerOverviewStats.reputation?.trustScore ?? 0).toFixed(1), icon: ShieldCheck },
-              { label: isAr ? "التقييم" : "Rating", value: (sellerOverviewStats.reputation?.rating ?? 0).toFixed(2), icon: Star },
-              { label: isAr ? "حجم التداول الكلي" : "Lifetime Volume", value: `₪${sellerOverviewStats.revenueGenerated.toFixed(2)}`, icon: WalletCards },
-              { label: isAr ? "متوسط وقت الاستجابة" : "Average Response Time", value: sellerOverviewStats.averageResponseTime, icon: Clock3 },
-              { label: isAr ? "مشاهدات الملف" : "Profile Views", value: (sellerOverviewStats.reputation?.profileViews ?? 0).toLocaleString("en-IL"), icon: Users },
-            ].map((stat) => (
-              <Card key={stat.label} className="border-white/10 bg-[#0B0B0B]/90">
-                <CardHeader className="pb-1.5">
-                  <CardDescription className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.15em]">
-                    <stat.icon className="h-3.5 w-3.5 text-[#C9A227]" />
-                    {stat.label}
-                  </CardDescription>
-                  <CardTitle className="text-xl tracking-tight">{stat.value}</CardTitle>
-                </CardHeader>
-              </Card>
-            )) : null}
-          </div>
-
-          <Card id="commission-status" tabIndex={-1} className={`order-15 scroll-mt-24 border-white/10 bg-[#0B0B0B]/90 ${sellerCommissionStatus?.status === "overdue" || sellerCommissionStatus?.status === "pending" ? "border-red-600/60" : ""}`}>
-            <CardHeader>
-              <CardTitle className="inline-flex items-center gap-2">
-                <LockKeyhole className="h-4 w-4 text-[#C9A227]" />
-                {isAr ? "حالة العمولة" : "Commission Status"}
-              </CardTitle>
-              <CardDescription>
-                {isAr ? "تتقاضى Alpha Traders عمولة بنسبة 1% على الصفقات المكتملة. تمنع العمولات غير المدفوعة إنشاء عروض جديدة أو تجديدها." : "Alpha Traders charges a 1% commission on completed trades. Pending commission payments block new listing creation and renewals."}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {sellerCommissionStatus?.status === "overdue" || sellerCommissionStatus?.status === "pending" ? (
-                <div className="rounded-2xl border border-red-600/60 bg-red-950/60 p-4 text-sm text-red-100">
-                  <div className="flex items-start gap-3">
-                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
-                    <div className="flex-1 space-y-2">
-                      <p className="font-semibold text-base">{sellerCommissionStatus.status === "overdue" ? (isAr ? "العمولة متأخرة" : "Commission Overdue") : (isAr ? "عمولة مستحقة" : "Commission Due")}</p>
-                      <div className="space-y-1 text-xs">
-                        <div className="flex justify-between">
-                          <span className="text-red-300">{isAr ? "المبلغ المستحق" : "Amount outstanding"}</span>
-                          <span className="font-bold text-white text-sm">{formatUsdt(commissionTotalAmountDue)}</span>
-                        </div>
-                        {sellerCommissionStatus.relatedTradeDisplayNumber ? (
-                          <div className="flex justify-between">
-                            <span className="text-red-300">{isAr ? "مرجع الصفقة" : "Trade reference"}</span>
-                            <span className="font-medium text-white">{isAr ? "الصفقة" : "Trade"} #{sellerCommissionStatus.relatedTradeDisplayNumber}</span>
-                          </div>
-                        ) : null}
-                        {sellerCommissionStatus.dueAt ? (
-                          <div className="flex justify-between">
-                            <span className="text-red-300">{isAr ? "تاريخ الاستحقاق" : "Due date"}</span>
-                            <span className="font-medium text-white">{new Date(sellerCommissionStatus.dueAt).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}</span>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-emerald-500/40 bg-emerald-950/30 p-4 text-sm text-emerald-100">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                    <span className="font-medium">{isAr ? "لا توجد عمولة مستحقة — حسابك سليم." : "No commission due — you’re all clear."}</span>
-                  </div>
-                </div>
-              )}
-              {sellerWorkspaceSummary?.blockedReason ? (
-                <p className="rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-xs text-red-100">⚠ {isAr && !containsArabicText(sellerWorkspaceSummary.blockedReason) ? "مساحة عمل البائع مقيدة حالياً. راجع حالة العمولة أو الامتثال." : sellerWorkspaceSummary.blockedReason}</p>
-              ) : null}
-              {commissionWorkspaceAction.kind === "pay-one" ? (
-                <Button
-                  type="button"
-                  onClick={() => openCommissionPayment(commissionWorkspaceAction.commissionId)}
-                  className="h-10 px-4 bg-red-600 hover:bg-red-700 text-white border-red-600"
-                >
-                  {isAr ? "ادفع الآن" : "Pay Now"}
-                </Button>
-              ) : null}
-              {commissionWorkspaceAction.kind === "review-unpaid" ? (
-                <div className="space-y-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3">
-                  <p className="text-sm font-medium text-amber-100">{isAr ? "اختر عمولة غير مدفوعة لتسديدها." : "Choose one unpaid commission to pay."}</p>
-                  <div className="grid gap-2">
-                    {(sellerCommissionStatus?.payableRecords ?? []).map((record) => (
-                      <Button
-                        key={record.commissionId}
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        className="h-auto min-h-10 justify-between px-3 text-start"
-                        onClick={() => openCommissionPayment(record.commissionId)}
-                      >
-                        <span>
-                          {record.relatedTradeDisplayNumber ? `${isAr ? "الصفقة" : "Trade"} #${record.relatedTradeDisplayNumber}` : (isAr ? "سجل العمولة" : "Commission record")}
-                        </span>
-                        <span className="text-[#FDE68A]">{formatUsdt(record.amountDue)}</span>
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              {sellerCommissionStatus?.selectionError ? (
-                <p className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-xs text-amber-100">
-                  {isAr && !containsArabicText(sellerCommissionStatus.selectionError) ? "تعذّر تحديد العمولة. اختر سجلاً غير مدفوع وحاول مرة أخرى." : sellerCommissionStatus.selectionError}
-                </p>
-              ) : null}
-            </CardContent>
-          </Card>
-          {commissionPayOpen ? (
-            <Card id="commission-payment" className="order-16 border-[#C9A227]/30 bg-[#0B0B0B]/98">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <LockKeyhole className="h-4 w-4 text-[#C9A227]" />
-                    {isAr ? "دفع العمولة" : "Commission Payment"}
-                  </CardTitle>
-                  <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0 text-[#6B7280] hover:text-white" onClick={() => setCommissionPayOpen(false)}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-                {/* Amount badge */}
-                <div className="flex items-center gap-3 rounded-xl border border-[#C9A227]/20 bg-[#C9A227]/5 px-4 py-3 mt-1">
-                  <div className="flex-1">
-                    <p className="text-xs text-[#9CA3AF]">{isAr ? "ادفع هذه العمولة" : "Pay this commission"}</p>
-                    <p className="text-2xl font-bold text-white">{formatUsdt(commissionPayableAmountDue)}</p>
-                  </div>
-                  {sellerCommissionStatus?.relatedTradeDisplayNumber ? (
-                    <div className="text-end">
-                      <p className="text-xs text-[#9CA3AF]">{isAr ? "الصفقة" : "Trade"}</p>
-                      <p className="text-sm font-medium text-[#C9A227]">#{sellerCommissionStatus.relatedTradeDisplayNumber}</p>
-                    </div>
-                  ) : null}
-                </div>
-                {sellerCommissionStatus && sellerCommissionStatus.pendingCount > 1 ? (
-                  <p className="text-xs text-[#D1D5DB]">
-                    {isAr ? `إجمالي المستحق ${formatUsdt(commissionTotalAmountDue)} موزع على ${sellerCommissionStatus.pendingCount} عمولات. هذه الدفعة تسدد الصفقة المحددة أعلاه فقط.` : `Total outstanding: ${formatUsdt(commissionTotalAmountDue)} across ${sellerCommissionStatus.pendingCount} commissions. This payment settles only the selected trade above.`}
-                  </p>
-                ) : null}
-              </CardHeader>
-              <CardContent className="space-y-5">
-
-                {/* ── Step 0: Payer type selection ── */}
-                {!commissionPayerType ? (
-                  <div className="space-y-4">
-                    <p className="text-sm font-medium text-white">{isAr ? "كيف ستدفع العمولة؟" : "How are you paying your commission?"}</p>
-                    <div className="grid gap-3">
-                      {/* Personal Wallet */}
-                      <button
-                        type="button"
-                        onClick={() => { setCommissionPayerType("personal"); setCommissionAdvancedOpen(false); }}
-                        className="group flex w-full items-start gap-4 rounded-2xl border border-white/12 bg-white/[0.03] px-4 py-4 text-start transition-all hover:border-[#C9A227]/50 hover:bg-[#C9A227]/5"
-                      >
-                        <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-950/40 group-hover:border-emerald-400/60">
-                          <Wallet className="h-5 w-5 text-emerald-400" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-white text-sm">{isAr ? "محفظة شخصية" : "Personal Wallet"}</p>
-                          <p className="text-xs text-[#6B7280] mt-0.5">MetaMask · Phantom · Trust Wallet · Rabby · Ledger · Trezor</p>
-                          <p className="text-xs text-[#9CA3AF] mt-2 leading-relaxed">{isAr ? "أرسل مباشرةً من محفظتك. ستحاول Alpha Traders اكتشاف دفعتك تلقائياً." : "Send directly from your wallet. Alpha Traders will attempt to detect your payment automatically."}</p>
-                        </div>
-                        <ChevronRight className="mt-3 h-4 w-4 shrink-0 text-[#6B7280] group-hover:text-[#C9A227]" />
-                      </button>
-                      {/* Exchange / Broker */}
-                      <button
-                        type="button"
-                        onClick={() => { setCommissionPayerType("exchange"); setCommissionAdvancedOpen(false); }}
-                        className="group flex w-full items-start gap-4 rounded-2xl border border-white/12 bg-white/[0.03] px-4 py-4 text-start transition-all hover:border-[#C9A227]/50 hover:bg-[#C9A227]/5"
-                      >
-                        <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-blue-500/30 bg-blue-950/40 group-hover:border-blue-400/60">
-                          <Building2 className="h-5 w-5 text-blue-400" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-white text-sm">{isAr ? "منصة تداول أو وسيط" : "Crypto Exchange or Broker"}</p>
-                          <p className="text-xs text-[#6B7280] mt-0.5">Binance · Bybit · OKX · Coinbase · Kraken · Bitget · MEXC</p>
-                          <p className="text-xs text-[#9CA3AF] mt-2 leading-relaxed">{isAr ? "بعد الإرسال، الصق رمز معاملة السحب للتحقق من دفعتك." : "After sending, paste the withdrawal transaction hash to verify your payment."}</p>
-                        </div>
-                        <ChevronRight className="mt-3 h-4 w-4 shrink-0 text-[#6B7280] group-hover:text-[#C9A227]" />
-                      </button>
-                    </div>
-                    <Button type="button" variant="ghost" className="w-full text-[#6B7280] hover:text-white text-xs" onClick={() => setCommissionPayOpen(false)}>
-                      {isAr ? "إلغاء" : "Cancel"}
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {/* ── Back + payer type badge ── */}
-                    <div className="flex items-center gap-2">
-                      <button type="button" onClick={() => { setCommissionPayerType(null); setCommissionPayMessage(null); }} className="flex items-center gap-1 text-xs text-[#6B7280] hover:text-white transition-colors">
-                        <ChevronRight className="h-3.5 w-3.5 rotate-180" />
-                        {isAr ? "رجوع" : "Back"}
-                      </button>
-                      <span className="text-[#6B7280]">·</span>
-                      <span className="flex items-center gap-1.5 text-xs text-[#9CA3AF]">
-                        {commissionPayerType === "personal" ? <><Wallet className="h-3.5 w-3.5 text-emerald-400" />{isAr ? "محفظة شخصية" : "Personal Wallet"}</> : <><Building2 className="h-3.5 w-3.5 text-blue-400" />{isAr ? "منصة / وسيط" : "Exchange / Broker"}</>}
-                      </span>
-                    </div>
-
-                    {/* ── Network selector ── */}
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">{isAr ? "شبكة الدفع" : "Payment Network"}</p>
-                      <div className="grid gap-2">
-                        {COMMISSION_NETWORKS.map((net) => {
-                          const selected = commissionNetwork === net.id;
-                          const networkAvailable = Boolean(commissionWalletConfiguration?.[net.id]?.available && CLIENT_COMMISSION_WALLETS[net.id]);
-                          return (
-                            <button
-                              key={net.id}
-                              type="button"
-                              disabled={!networkAvailable}
-                              onClick={() => setCommissionNetwork(net.id)}
-                              className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-start transition-all ${networkAvailable ? (selected ? "border-[#C9A227] bg-[#C9A227]/10 text-white" : "border-white/12 bg-black/20 text-[#9CA3AF] hover:border-white/25 hover:text-white") : "cursor-not-allowed border-red-500/30 bg-red-950/20 text-red-200 opacity-75"}`}
-                            >
-                              <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${selected ? "border-[#C9A227]" : "border-white/30"}`}>
-                                {selected ? <div className="h-2 w-2 rounded-full bg-[#C9A227]" /> : null}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <span className="text-sm font-medium">{net.label}</span>
-                                {net.recommended ? <span className="ms-2 text-xs text-[#C9A227]">⭐ {isAr ? "موصى بها" : "Recommended"}</span> : null}
-                                {!networkAvailable ? <span className="ms-2 text-xs text-red-200">{isAr ? "غير متاحة" : "Unavailable"}</span> : null}
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* ── Recipient address + QR ── */}
-                    {selectedCommissionWalletAvailable ? (
-                      <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
-                        <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">
-                          {isAr ? "إرسال إلى" : "Send To"} · {COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.sublabel ?? commissionNetwork}
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <code dir="ltr" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-left text-xs font-mono text-white break-all select-all">
-                            {selectedCommissionWallet}
-                          </code>
-                          <Button
-                            type="button" size="sm" variant="secondary"
-                            className="shrink-0 h-8 w-8 p-0"
-                            onClick={() => { void navigator.clipboard.writeText(selectedCommissionWallet); setCommissionCopied(true); window.setTimeout(() => setCommissionCopied(false), 2000); }}
-                          >
-                            {commissionCopied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-                          </Button>
-                        </div>
-                        {commissionQrDataUrl ? (
-                          <div className="flex justify-center pt-1">
-                            <div className="rounded-xl bg-white p-3 shadow-lg">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={commissionQrDataUrl} alt={isAr ? `رمز QR لعنوان USDT على شبكة ${commissionNetwork}` : `QR code for ${commissionNetwork} USDT address`} className="h-36 w-36" />
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex justify-center">
-                            <div className="flex h-[168px] w-[168px] items-center justify-center rounded-xl border border-white/10 bg-black/30">
-                              <Loader2 className="h-6 w-6 animate-spin text-[#C9A227]" />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="rounded-xl border border-amber-500/30 bg-amber-950/30 p-3 text-xs text-amber-300">
-                        {selectedCommissionWalletError}
-                      </p>
-                    )}
-
-                    {/* ── Instructions panel ── */}
-                    {commissionPayerType === "personal" ? (
-                      <div className="rounded-2xl border border-emerald-500/20 bg-emerald-950/20 p-4 space-y-3">
-                        <p className="flex items-center gap-2 text-xs font-semibold text-emerald-300 uppercase tracking-wider">
-                          <Wallet className="h-3.5 w-3.5" />
-                          {isAr ? "الإرسال من محفظة شخصية" : "Sending from a Personal Wallet"}
-                        </p>
-                        <ol className="space-y-2">
-                          {[
-                            isAr ? "افتح محفظتك واضغط على إرسال أو تحويل." : "Open your wallet and tap Send or Transfer.",
-                            isAr ? `اختر شبكة ${COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.sublabel ?? commissionNetwork}.` : `Select the ${COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.sublabel ?? commissionNetwork} network.`,
-                            isAr ? "اختر USDT كعملة الإرسال." : "Select USDT as the token.",
-                            isAr ? "الصق عنوان عمولة Alpha Traders الظاهر أعلاه." : "Paste the Alpha Traders commission address above.",
-                            isAr ? `أدخل المبلغ الدقيق: ${formatUsdt(commissionPayableAmountDue)}.` : `Enter the exact amount: ${formatUsdt(commissionPayableAmountDue)}.`,
-                            isAr ? "أكد الإرسال وانتظر تأكيد المعاملة." : "Confirm and send. Wait for the transaction to be confirmed.",
-                          ].map((step, i) => (
-                            <li key={i} className="flex items-start gap-2.5 text-xs text-[#D1D5DB]">
-                              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-emerald-500/40 bg-emerald-950/60 text-emerald-400 text-[10px] font-bold">
-                                {i + 1}
-                              </span>
-                              {step}
-                            </li>
-                          ))}
-                        </ol>
-                        <p className="text-xs text-[#6B7280] pt-1">
-                          {isAr ? "⚠️ تأكد أن المعاملة إرسال USDT وليست مبادلة أو إيداعاً أو تفاعلاً آخر مع عقد." : "⚠️ Make sure the transaction is a USDT send — not a swap, deposit, or any other contract interaction."}
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="rounded-2xl border border-blue-500/20 bg-blue-950/20 p-4 space-y-3">
-                        <p className="flex items-center gap-2 text-xs font-semibold text-blue-300 uppercase tracking-wider">
-                          <Building2 className="h-3.5 w-3.5" />
-                          {isAr ? "الإرسال من منصة تداول أو وسيط" : "Sending from an Exchange or Broker"}
-                        </p>
-                        <ol className="space-y-2">
-                          {[
-                            isAr ? `انتقل إلى صفحة السحب أو الإرسال في المنصة واختر USDT على شبكة ${COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.sublabel ?? commissionNetwork}.` : `Go to your exchange's Withdraw or Send page and select USDT on ${COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.sublabel ?? commissionNetwork}.`,
-                            isAr ? "الصق عنوان عمولة Alpha Traders كمستلم." : "Paste the Alpha Traders commission address as the recipient.",
-                            isAr ? `أدخل المبلغ الدقيق: ${formatUsdt(commissionPayableAmountDue)}.` : `Enter the exact amount: ${formatUsdt(commissionPayableAmountDue)}.`,
-                            isAr ? "أكد السحب وانتظر تأكيد شبكة البلوك تشين." : "Confirm the withdrawal and wait for blockchain confirmation.",
-                            isAr ? "انسخ رمز معاملة السحب من سجل المنصة." : "Copy the withdrawal transaction hash from your exchange history.",
-                            isAr ? "الصقه أدناه واضغط على التحقق." : "Paste it below and click Verify.",
-                          ].map((step, i) => (
-                            <li key={i} className="flex items-start gap-2.5 text-xs text-[#D1D5DB]">
-                              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-blue-500/40 bg-blue-950/60 text-blue-400 text-[10px] font-bold">
-                                {i + 1}
-                              </span>
-                              {step}
-                            </li>
-                          ))}
-                        </ol>
-                      </div>
-                    )}
-
-                    {/* ── Transaction hash ── */}
-                    {commissionPayerType === "personal" ? (
-                      <div>
-                        <button
-                          type="button"
-                          onClick={() => setCommissionAdvancedOpen((v) => !v)}
-                          className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-xs text-[#9CA3AF] hover:text-white transition-colors"
-                        >
-                          <span className="font-medium">{isAr ? "تحقق يدوي — الصق رمز المعاملة" : "Manual Verification — paste transaction hash"}</span>
-                          {commissionAdvancedOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                        </button>
-                        {commissionAdvancedOpen ? (
-                          <div className="mt-2 space-y-1 rounded-xl border border-white/8 bg-black/20 px-4 py-3">
-                            <Input
-                              dir="ltr"
-                              placeholder={isAr ? "0x… أو توقيع Solana" : "0x… or Solana signature"}
-                              value={commissionTxSignature}
-                              onChange={(event) => setCommissionTxSignature(event.target.value)}
-                             onPaste={(event) => {
-                               event.preventDefault();
-                               setCommissionTxSignature(normalizeTransactionHash(event.clipboardData.getData("text")));
-                             }}
-                             className="text-left font-mono text-xs"
-                           />
-                           <p className="text-xs text-[#6B7280]">
-                             {isAr ? "ستجده في نشاط المحفظة أو سجل المعاملات. يجب أن يكون معاملة إرسال USDT، وليس مبادلة أو صفقة أو تفاعلاً آخر." : "Find this in your wallet’s Activity or Transaction History. It must be the USDT send transaction — not a swap, trade, or other interaction."}
-                           </p>
-                         </div>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <div className="space-y-1">
-                        <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">{isAr ? "رمز المعاملة" : "Transaction Hash"}</p>
-                        <Input
-                         dir="ltr"
-                         placeholder={isAr ? "0x… أو توقيع Solana" : "0x… or Solana signature"}
-                         value={commissionTxSignature}
-                         onChange={(event) => setCommissionTxSignature(event.target.value)}
-                         onPaste={(event) => {
-                           event.preventDefault();
-                           setCommissionTxSignature(normalizeTransactionHash(event.clipboardData.getData("text")));
-                         }}
-                         className="text-left font-mono text-xs"
-                        />
-                        <p className="text-xs text-[#6B7280]">{isAr ? "انسخ هذا الرمز من سجل السحب في المنصة بعد تأكيد المعاملة." : "Copy this from your exchange withdrawal history after the transaction is confirmed."}</p>
-                      </div>
-                    )}
-
-                    {/* ── Error / success message ── */}
-                    {commissionPayMessage ? (
-                      (() => {
-                        const msg = commissionPayMessage;
-                        if (msg.startsWith("✅")) {
-                          return (
-                            <div className="flex items-start gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-950/30 p-3 text-xs text-emerald-200">
-                              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
-                              <span>{isAr && !containsArabicText(msg) ? "تم التحقق من دفع العمولة بنجاح." : msg.replace("✅ ", "")}</span>
-                            </div>
-                          );
-                        }
-                        const wrongNetwork = msg.match(/found on (\w+), not (\w+)/i);
-                        if (wrongNetwork) {
-                          return (
-                            <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 p-3 text-xs space-y-1 text-amber-100">
-                              <p className="flex items-center gap-1.5 font-semibold text-amber-300">
-                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                                {isAr ? `تم العثور على المعاملة على شبكة ${wrongNetwork[1]}` : `Transaction found on ${wrongNetwork[1]}`}
-                              </p>
-                              <p>{isAr ? <>اختر <strong>{wrongNetwork[1]}</strong> كشبكة الدفع ثم أرسل المعاملة مرة أخرى.</> : <>Please select <strong>{wrongNetwork[1]}</strong> as your payment network and submit the transaction again.</>}</p>
-                            </div>
-                          );
-                        }
-                        if (msg.includes("but not the supported USDT contract") || msg.includes("send USDT (not USDC")) {
-                          return (
-                            <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 p-3 text-xs space-y-1 text-amber-100">
-                              <p className="flex items-center gap-1.5 font-semibold text-amber-300">
-                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                                {isAr ? "تم اكتشاف عملة غير صحيحة" : "Wrong token detected"}
-                              </p>
-                              <p>{isAr ? "نقلت هذه المعاملة عملة مختلفة. يجب دفع العمولة بعملة USDT." : "This transaction transferred a different token. Commission must be paid in USDT."}</p>
-                            </div>
-                          );
-                        }
-                        if (msg.includes("does not include any transfer to or from the Alpha Traders commission wallet") || msg.includes("Please verify you submitted the correct transaction hash")) {
-                          return (
-                            <div className="rounded-xl border border-red-500/30 bg-red-950/30 p-3 text-xs space-y-1 text-red-100">
-                              <p className="flex items-center gap-1.5 font-semibold text-red-300">
-                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                                {isAr ? "هذه المعاملة ليست دفعة العمولة" : "Transaction is not your commission payment"}
-                              </p>
-                              <p>{isAr ? "تم العثور على المعاملة، لكنها لا تتضمن تحويلاً إلى محفظة عمولات Alpha Traders. أرسل رمز المعاملة الدقيق لدفعة USDT الموضحة أعلاه." : "We found this transaction, but it does not include a transfer to the Alpha Traders commission wallet. Please submit the exact transaction hash from when you sent the USDT payment above."}</p>
-                            </div>
-                          );
-                        }
-                        return (
-                          <div className="flex items-start gap-2.5 rounded-xl border border-red-500/30 bg-red-950/30 p-3 text-xs text-red-200">
-                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
-                            <span>{isAr && !containsArabicText(msg) ? "تعذّر التحقق من الدفعة. تأكد من التفاصيل وحاول مرة أخرى." : msg}</span>
-                          </div>
-                        );
-                      })()
-                    ) : null}
-
-                    {/* ── Actions ── */}
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      <Button
-                        type="button"
-                        disabled={commissionPayBusy || !commissionTxSignature.trim() || !selectedCommissionWalletAvailable}
-                        onClick={() => void handleCommissionPayNow()}
-                        className="bg-[#C9A227] hover:bg-[#B8911F] text-black font-semibold border-[#C9A227]"
-                      >
-                        {commissionPayBusy ? <><Loader2 className="me-2 h-3.5 w-3.5 animate-spin" />{isAr ? "جارٍ التحقق…" : "Verifying…"}</> : (isAr ? "التحقق من الدفع" : "Verify Payment")}
-                      </Button>
-                      <Button type="button" variant="secondary" onClick={() => setCommissionPayOpen(false)}>
-                        {isAr ? "إلغاء" : "Cancel"}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-              </CardContent>
-            </Card>
-          ) : null}
-
-          <Card id="create-listing" className="order-30 border-white/10 bg-[#0B0B0B]/90">
-            <CardHeader>
-              <CardTitle>{isAr ? "إنشاء عرض جديد" : "Create Listing"}</CardTitle>
-              <CardDescription>
-                {isAr ? "يتم إرسال العرض للمراجعة أولًا قبل نشره في السوق." : "Listings are submitted to owner review before publishing live."}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {listingCreationBlocked ? (
-                <div className="mb-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100">
-                  <p className="font-semibold">{isAr ? "إنشاء العروض متوقف حالياً" : "Listing creation is currently blocked"}</p>
-                  <p className="mt-1 text-xs text-[#FDE68A]">{isAr && !containsArabicText(listingCreationBlockedReason) ? "راجع العروض النشطة أو العمولات أو حالة الامتثال لمعرفة الإجراء المطلوب." : listingCreationBlockedReason}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {listingBlockedByActiveLimit ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => {
-                          void scrollToMyListingsSection();
-                        }}
-                      >
-                        {isAr ? "إدارة العروض" : "Manage Listings"}
-                      </Button>
-                    ) : null}
-                    {listingBlockedByCommission && commissionWorkspaceAction.kind === "pay-one" ? (
-                      <Button type="button" size="sm" variant="secondary" onClick={() => openCommissionPayment(commissionWorkspaceAction.commissionId)}>
-                        {isAr ? "ادفع الآن" : "Pay Now"}
-                      </Button>
-                    ) : null}
-                    {listingBlockedByCommission && commissionWorkspaceAction.kind === "review-unpaid" ? (
-                      <Button type="button" size="sm" variant="secondary" onClick={reviewPayableCommissions}>
-                        {isAr ? "مراجعة العمولات غير المدفوعة" : "Review Unpaid Commissions"}
-                      </Button>
-                    ) : null}
-                    {listingBlockedByMarketplaceEnforcement ? (
-                      <Button type="button" size="sm" variant="secondary" onClick={openMarketplaceCompliancePayment}>
-                        {isAr ? "فتح امتثال السوق" : "Open Marketplace Compliance"}
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-              <div className={`mb-4 rounded-2xl border p-4 text-sm text-[#E5E7EB] transition-all duration-200 ${listingCreateGuardCardTone}`}>
-                <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">{isAr ? "حماية سعر السوق المباشر" : "Live Market Price Guard"}</p>
-                <p className={`mt-1 text-xs ${marketSnapshot?.status === "live" ? "text-emerald-300" : "text-amber-200"}`}>
-                  {marketSnapshot?.status === "live" ? (isAr ? "مباشر" : "LIVE") : (isAr ? "السوق غير متاح مؤقتاً — يتم استخدام آخر سعر معروف." : "Market temporarily unavailable — using last known price.")}
-                </p>
-                <div className="mt-2 space-y-1">
-                  <p>1 USDT = <span className="font-semibold text-white">{formatIls(marketPricePerUsdt)}</span></p>
-                  <p>{isAr ? "أقصى سعر للعرض" : "Maximum listing price"}: <span className="font-semibold text-white">{formatIls(maxAllowedListingPrice)}</span></p>
-                  {listingCreateAmount > 0 ? <p>{listingCreateAmount.toLocaleString("en-IL")} USDT ≈ <span className="font-semibold text-white">{formatIls(listingCreateAmount * marketPricePerUsdt)}</span></p> : null}
-                </div>
-              </div>
-              <form className="grid gap-4 md:grid-cols-2" onSubmit={handleSellerListingCreateSubmit}>
-                <div className="space-y-2">
-                  <FieldLabel htmlFor="create-available" required>{isAr ? "USDT المتاح" : "Available USDT"}</FieldLabel>
-                  <Input
-                    id="create-available"
-                    placeholder={isAr ? "مثال: 25,000" : "e.g. 25,000"}
-                    value={listingCreateForm.availableAmount}
-                    onChange={(event) => {
-                      const nextAmount = formatIntegerForInput(event.target.value);
-                      setListingCreateForm((prev) => ({ ...prev, availableAmount: nextAmount, maximumTrade: nextAmount }));
-                    }}
-                    aria-required
-                    className={cn("h-11", requiredFieldClasses({ value: listingCreateForm.availableAmount, required: true }))}
-                  />
-                  <p className="text-xs text-[#9CA3AF]">{isAr ? "يتم التنسيق تلقائيًا أثناء الكتابة." : "Amount is auto-formatted while typing (e.g. 25,000)."}</p>
-                </div>
-                <div className="space-y-2">
-                  <FieldLabel htmlFor="create-price" required>{isAr ? "السعر" : "Price"}</FieldLabel>
-                  <Input
-                    id="create-price"
-                    placeholder={isAr ? "السعر لكل USDT" : "Price per USDT"}
-                    value={listingCreateForm.price}
-                    onChange={(event) => setListingCreateForm((prev) => ({ ...prev, price: normalizeDecimalInput(event.target.value) }))}
-                    aria-required
-                    aria-invalid={listingCreatePriceInvalid || undefined}
-                    className={cn("h-11 transition-all duration-200", requiredFieldClasses({ value: listingCreateForm.price, required: true, invalid: listingCreatePriceInvalid }))}
-                  />
-                  <p className={`text-xs transition-colors duration-200 ${
-                    listingCreatePriceInvalid ? "text-red-300" : listingCreatePriceValid ? "text-emerald-300" : "text-[#9CA3AF]"
-                  }`}>
-                    {listingCreatePriceInvalid
-                      ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)}).` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)}).`)
-                      : listingCreatePriceValid
-                        ? (isAr ? `السعر صالح. الحد الأقصى المسموح هو ${formatIls(maxAllowedListingPrice)}.` : `Valid price. Maximum allowed is ${formatIls(maxAllowedListingPrice)}.`)
-                        : (isAr ? `أدخل سعراً لا يتجاوز ${formatIls(maxAllowedListingPrice)}.` : `Enter a price up to ${formatIls(maxAllowedListingPrice)}.`)}
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <FieldLabel htmlFor="create-currency" required>{isAr ? "العملة" : "Currency"}</FieldLabel>
-                  <Input
-                    id="create-currency"
-                    placeholder="ILS"
-                    value={listingCreateForm.currency}
-                    onChange={(event) => {
-                      setListingCreateCurrencyManualOverride(true);
-                      setListingCreateForm((prev) => ({ ...prev, currency: formatIntegerForInput(event.target.value) }));
-                    }}
-                    className="h-11"
-                  />
-                  <p className={`text-xs ${listingCreateCurrencyManualOverride ? "text-amber-300" : "text-emerald-300"}`}>
-                    {listingCreateCurrencyManualOverride ? (isAr ? "إدخال يدوي" : "Manual Override") : (isAr ? "محسوب تلقائياً" : "Auto Calculated")}
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <FieldLabel htmlFor="create-network" required>{isAr ? "الشبكة" : "Network"}</FieldLabel>
-                  <select id="create-network" className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white transition focus:border-[#C9A227]/60 focus:outline-none focus:ring-2 focus:ring-[#C9A227]/30" value={listingCreateForm.network} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, network: event.target.value as SupportedNetwork }))}>
-                    <option value="TRC20">TRC20</option>
-                    <option value="ERC20">ERC20</option>
-                    <option value="BEP20">BEP20</option>
-                    <option value="SOL">SOL</option>
-                  </select>
-                </div>
-                <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
-                  <FieldLabel required>{isAr ? "طريقة الدفع" : "Payment Method"}</FieldLabel>
-                  <div className="mt-3 grid gap-2 md:grid-cols-3">
-                    {MARKETPLACE_PAYMENT_METHODS.map((method) => {
-                      const selected = listingCreateSelectedMethods.includes(method);
-                      return (
-                        <button
-                          key={`create-method-${method}`}
-                          type="button"
-                          onClick={() => setListingCreateForm((prev) => {
-                            const nextMethods = toggleSelection(prev.paymentMethods, method, MAX_LISTING_PAYMENT_METHODS);
-                            return {
-                              ...prev,
-                              paymentMethods: nextMethods,
-                              bankName: requiresBankSelection(nextMethods) ? prev.bankName : "",
-                            };
-                          })}
-                          className={`rounded-xl border p-3 text-start transition-all duration-200 ${
-                            selected
-                              ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]"
-                              : "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]"
-                          }`}
-                        >
-                          <p className="text-sm font-medium text-white">{paymentMethodEmoji(method)} {paymentMethodLabel(method, isAr)}</p>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="mt-2 text-xs text-[#9CA3AF]">{isAr ? `اختر حتى ${MAX_LISTING_PAYMENT_METHODS} طرق. يختار المشتري طريقة واحدة عند فتح الصفقة.` : `Select up to ${MAX_LISTING_PAYMENT_METHODS} methods. Buyers choose one method when they open the trade.`}</p>
-                  <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? <>راجع إرشادات أمان الدفع في <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">مركز الأمان والثقة</Link>.</> : <>Review payment safety guidance in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</>}</p>
-                </div>
-                <div className="space-y-2">
-                  <FieldLabel htmlFor="create-min-trade" required>{isAr ? "أدنى صفقة" : "Minimum Trade"}</FieldLabel>
-                  <Input
-                    id="create-min-trade"
-                    placeholder={isAr ? "أدنى مبلغ" : "Smallest amount"}
-                    value={listingCreateForm.minimumTrade}
-                    onChange={(event) => setListingCreateForm((prev) => ({ ...prev, minimumTrade: formatIntegerForInput(event.target.value) }))}
-                    aria-required
-                    className={cn("h-11", requiredFieldClasses({ value: listingCreateForm.minimumTrade, required: true }))}
-                  />
-                  <p className="text-xs text-[#9CA3AF]">{isAr ? "أصغر مبلغ صفقة تقبله." : "The smallest trade amount you are willing to accept."}</p>
-                </div>
-                <div className="space-y-2">
-                  <FieldLabel htmlFor="create-max-trade" required>{isAr ? "أقصى صفقة" : "Maximum Trade"}</FieldLabel>
-                  <Input
-                    id="create-max-trade"
-                    placeholder={isAr ? "أكبر مبلغ" : "Largest amount"}
-                    value={listingCreateForm.maximumTrade}
-                    onChange={(event) => setListingCreateForm((prev) => {
-                      const listedAmount = toNumber(prev.availableAmount);
-                      if (listedAmount <= 0) {
-                        return { ...prev, maximumTrade: "" };
-                      }
-                      const requestedMax = toNumber(formatIntegerForInput(event.target.value));
-                      const clampedMax = Math.min(requestedMax || 0, listedAmount);
-                      return { ...prev, maximumTrade: clampedMax > 0 ? formatIntegerForInput(clampedMax) : "" };
-                    })}
-                    aria-required
-                    aria-invalid={listingCreateTradeRangeInvalid || undefined}
-                    className={cn("h-11", requiredFieldClasses({ value: listingCreateForm.maximumTrade, required: true, invalid: listingCreateTradeRangeInvalid }))}
-                  />
-                  <p className="text-xs text-[#9CA3AF]">{isAr ? "لا يمكن أن يتجاوز مبلغ USDT المعروض." : "Maximum trade cannot exceed your listed USDT amount."}</p>
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <FieldLabel htmlFor="create-description" optional optionalLabel={isAr ? "اختياري" : "optional"}>{isAr ? "وصف البائع" : "Seller Description"}</FieldLabel>
-                  <Textarea id="create-description" className="min-h-[96px]" placeholder={isAr ? "أخبر المشترين عن شروطك" : "Tell buyers about your terms"} value={listingCreateForm.sellerDescription} onChange={(event) => setListingCreateForm((prev) => ({ ...prev, sellerDescription: event.target.value }))} />
-                </div>
-                {listingCreateRequiresBank ? (
-                <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
-                  <FieldLabel required>{isAr ? "البنوك المدعومة" : "Supported banks"}</FieldLabel>
-                  <p className="mt-1 text-xs text-[#D1D5DB]">{isAr ? `اختر حتى ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} بنوك للتحويل البنكي أو السحب بلا بطاقة.` : `Select up to ${MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS} banks for bank transfer or cardless ATM listings.`}</p>
-                  <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-                    {ISRAELI_BANKS.map((bank) => {
-                      const selected = listingCreateSelectedBanks.includes(bank.name);
-                      return (
-                        <button
-                          key={bank.id}
-                          type="button"
-                          onClick={() => setListingCreateForm((prev) => {
-                            const nextBanks = toggleSelection(parseIsraeliBankSelection(prev.bankName), bank.name, MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS);
-                            return { ...prev, bankName: serializeIsraeliBankSelection(nextBanks) };
-                          })}
-                          className={`rounded-xl border p-3 text-start transition-all duration-200 ${
-                            selected
-                              ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]"
-                              : "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-black/35">
-                              {renderBankLogo(bank)}
-                            </span>
-                            <div>
-                              <p className="text-sm font-medium text-white">{getIsraeliBankDisplayName(bank.name, locale)}</p>
-                              <p className="text-[11px] text-[#9CA3AF]">{bank.code}</p>
-                            </div>
-                          </div>
-                          {selected ? <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#93C5FD]">{isAr ? "محدد" : "Selected"}</p> : null}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {listingCreateSelectedBanks.length ? <p className="mt-2 text-xs text-[#93C5FD]">{isAr ? "المحدد" : "Selected"}: {listingCreateSelectedBanks.map((bankName) => getIsraeliBankDisplayName(bankName, locale)).join(isAr ? "، " : ", ")}</p> : null}
-                </div>
-                ) : null}
-                {listingCreateRequiresBankAccount ? (
-                <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 p-3">
-                  <FieldLabel required>{isAr ? "حساب البنك لاستلام الدفع" : "Payout bank account"}</FieldLabel>
-                  {sellerBankAccountsLoading ? (
-                    <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? "جارٍ تحميل الحسابات البنكية..." : "Loading saved bank accounts..."}</p>
-                  ) : sellerBankAccounts.length === 0 ? (
-                    <p className="mt-2 text-xs text-amber-300">
-                      {isAr ? "لا توجد حسابات بنكية محفوظة. أضف حسابًا في" : "No saved bank accounts found. Add one in"} <a href={`/${locale}/settings?tab=profile#seller-bank-accounts`} className="text-[#93C5FD] underline underline-offset-2">{isAr ? "الإعدادات" : "Settings"}</a>.
-                    </p>
-                  ) : (
-                    <>
-                      <select
-                        className="mt-2 flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white"
-                        value={listingCreateForm.bankAccountId}
-                        onChange={(event) => setListingCreateForm((prev) => {
-                          const bankAccountId = event.target.value;
-                          const selectedAccount = sellerBankAccounts.find((account) => account.id === bankAccountId);
-                          const nextBanks = ensurePayoutBankIsSupported(
-                            parseIsraeliBankSelection(prev.bankName),
-                            selectedAccount?.bankName,
-                            MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS,
-                          );
-                          return {
-                            ...prev,
-                            bankAccountId,
-                            bankName: serializeIsraeliBankSelection(nextBanks),
-                          };
-                        })}
-                      >
-                        <option value="">{isAr ? "اختر الحساب البنكي" : "Select bank account"}</option>
-                        {sellerBankAccounts.map((account) => (
-                          <option key={account.id} value={account.id}>
-                            {`${getIsraeliBankDisplayName(account.bankName, locale)} • ${account.maskedAccountNumber ?? `****${account.accountLast4}`}${account.isDefault ? (isAr ? " (افتراضي)" : " (Default)") : ""}`}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="mt-2 text-xs text-[#9CA3AF]">{isAr ? "رقم الحساب الكامل يظل مخفيًا عن المشترين حتى بداية الصفقة." : "Your full account number stays hidden from buyers until the trade starts."}</p>
-                    </>
-                  )}
-                </div>
-                ) : null}
-                <div className="md:col-span-2 rounded-2xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-4 text-sm text-[#E5E7EB]">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#93C5FD]">{isAr ? "القيمة الإجمالية المباشرة" : "Live total value"}</p>
-                  <p className="mt-1">{listingCreateAmount.toLocaleString("en-IL")} USDT</p>
-                  <p className="mt-1">× {formatIls(listingCreatePrice || 0)} = <span className="font-semibold text-white">{formatIls(listingCreateTotalIls)}</span></p>
-                </div>
-                <div className="md:col-span-2 rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-4 text-sm text-[#F3F4F6]">
-                  <p className="text-xs uppercase tracking-[0.12em] text-[#F4D87A]">{isAr ? "عمولة المنصة" : "Platform Commission"}</p>
-                  <p className="mt-1">{isAr ? "تتقاضى Alpha Traders عمولة بنسبة 1% على الصفقات المكتملة. بنشر هذا العرض، توافق على دفع عمولة المنصة بعد نجاح الصفقة." : "Alpha Traders charges a 1% commission on completed trades. By publishing this listing, you agree to pay the platform commission after a successful trade."}</p>
-                  <label className="mt-3 inline-flex cursor-pointer items-start gap-2 text-xs text-[#E5E7EB]">
-                    <input
-                      type="checkbox"
-                      checked={listingCommissionAgreement}
-                      onChange={(event) => setListingCommissionAgreement(event.target.checked)}
-                      className="mt-0.5 h-4 w-4 rounded border-white/25 bg-black/40 text-[#C9A227] focus:ring-[#C9A227]"
-                    />
-                    <span>{isAr ? "أفهم وأوافق على سياسة عمولة Alpha Traders البالغة 1%." : "I understand and agree to Alpha Traders’ 1% commission policy."}</span>
-                  </label>
-                  <p className="mt-2 text-xs text-[#D1D5DB]">{isAr ? <>اقرأ السياسة كاملة في <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">مركز الأمان والثقة</Link>.</> : <>Read full policy in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</>}</p>
-                </div>
-                <div className={`md:col-span-2 rounded-2xl border p-4 transition-all duration-200 ${listingCreateGuardTone}`}>
-                  <div className="flex items-start gap-2">
-                    {listingCreatePriceInvalid ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
-                    <div className="space-y-1 text-sm">
-                      <p className="font-medium">
-                        {listingCreatePriceInvalid ? (isAr ? `السعر يتجاوز الحد الأقصى المسموح (${formatIls(maxAllowedListingPrice)})` : `Price exceeds maximum allowed (${formatIls(maxAllowedListingPrice)})`) : (isAr ? "حماية سعر السوق مفعلة" : "Market guard active")}
-                      </p>
-                      <p>{isAr ? "سعر السوق الحالي" : "Current market"}: {formatIls(marketPricePerUsdt)} {isAr ? "لكل 1 USDT" : "per 1 USDT"}</p>
-                      <p>{isAr ? "الحد الأقصى المسموح" : "Maximum allowed"}: {formatIls(maxAllowedListingPrice)}</p>
-                      {listingCreateTradeRangeInvalid ? <p className="text-amber-200">{isAr ? "يجب أن يكون الحد الأقصى للصفقة أكبر من الحد الأدنى وألا يتجاوز كمية USDT المتاحة." : "Maximum trade must be greater than minimum trade and less than or equal to available USDT."}</p> : null}
-                      {listingCreateRequiresBank && !listingCreateSelectedBanks.length ? <p className="text-amber-200">{isAr ? "اختر بنكاً واحداً أو بنكين مدعومين قبل الإرسال." : "Select one or two supported banks before submitting."}</p> : null}
-                      {listingCreateRequiresBankAccount && !listingCreateForm.bankAccountId ? <p className="text-amber-200">{isAr ? "اختر حساباً بنكياً واحداً لاستلام الدفعات قبل الإرسال." : "Select one payout bank account before submitting."}</p> : null}
-                      {listingCreateBankAccountMismatch ? (
-                        <p className="text-red-200">
-                          {listingCreateSelectedBankAccount
-                            ? (isAr ? `يجب أن تشمل البنوك المدعومة بنك استلام الدفعات (${getIsraeliBankDisplayName(listingCreateSelectedBankAccount.bankName, "ar")}).` : `Supported banks must include your payout bank (${getIsraeliBankDisplayName(listingCreateSelectedBankAccount.bankName, "en")}).`)
-                            : (isAr ? "حساب استلام الدفعات المحدد لم يعد متاحاً. اختر حساباً بنكياً محفوظاً مرة أخرى." : "Your selected payout bank account is no longer available. Choose a saved bank account again.")}
-                        </p>
-                      ) : null}
-                      {!listingCommissionAgreement ? <p className="text-amber-200">{isAr ? "يجب الموافقة على سياسة العمولة بنسبة 1% قبل النشر." : "You must accept the 1% commission policy before publishing."}</p> : null}
-                      {listingCreateAmount > 0 ? <p>{listingCreateAmount.toLocaleString("en-IL")} USDT ≈ {formatIls(listingCreateAmount * marketPricePerUsdt)}</p> : null}
-                    </div>
-                  </div>
-                </div>
-                {listingCreateResult ? (
-                  <div
-                    id="listing-publish-result"
-                    tabIndex={-1}
-                    role={listingCreateResult.tone === "error" ? "alert" : "status"}
-                    aria-live={listingCreateResult.tone === "error" ? "assertive" : "polite"}
-                    className={cn(
-                      "md:col-span-2 flex items-start justify-between gap-3 rounded-xl border p-4 text-sm shadow-[0_0_0_1px_rgba(255,255,255,0.03)] animate-in fade-in-0 slide-in-from-top-1 duration-300",
-                      listingCreateResult.tone === "error"
-                        ? "border-red-500/45 bg-red-950/35 text-red-100"
-                        : "border-emerald-500/30 bg-emerald-500/10 text-emerald-100",
-                    )}
-                  >
-                    <span className="flex items-start gap-2">
-                      {listingCreateResult.tone === "error" ? (
-                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-300" />
-                      ) : (
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
-                      )}
-                      <span>{isAr && !containsArabicText(listingCreateResult.message) ? (listingCreateResult.tone === "error" ? "تعذّر نشر العرض. راجع الحقول وحاول مرة أخرى." : "تم إرسال العرض للمراجعة بنجاح.") : listingCreateResult.message}</span>
-                    </span>
-                    <button
-                      type="button"
-                      aria-label={isAr ? "إغلاق نتيجة نشر العرض" : "Dismiss listing result"}
-                      onClick={() => setListingCreateResult(null)}
-                      className={cn(
-                        "shrink-0 rounded-full p-0.5 transition hover:text-white",
-                        listingCreateResult.tone === "error" ? "text-red-300" : "text-emerald-300",
-                      )}
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                ) : null}
-                <div className="md:col-span-2">
-                  <Button type="submit" className="h-11 w-full sm:w-auto" disabled={isListingCreateSubmitDisabled || listingActionKey === "create:new"}>
-                    {listingActionKey === "create:new" ? (isAr ? "جارٍ النشر..." : "Publishing...") : (isAr ? "إرسال العرض" : "Submit Listing")}
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-
-          {sellerWorkspaceMessage ? (
-            <div id="listing-publish-result" tabIndex={-1} role="status" aria-live="polite" className="order-25 flex items-start justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-100 shadow-[0_0_0_1px_rgba(16,185,129,0.08)] animate-in fade-in-0 slide-in-from-top-1 duration-300">
-              <span>{isAr && !containsArabicText(sellerWorkspaceMessage) ? "تم تحديث مساحة عمل البائع بنجاح." : sellerWorkspaceMessage}</span>
-              <button
-                type="button"
-                aria-label={isAr ? "إغلاق" : "Dismiss"}
-                onClick={() => setSellerWorkspaceMessage(null)}
-                className="shrink-0 rounded-full p-0.5 text-emerald-300 transition hover:text-white"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          ) : null}
-
-          <Card id="purchase-requests-section" tabIndex={-1} className="order-5 scroll-mt-24 border-white/10 bg-[#0B0B0B]/90">
-            <CardHeader>
-              <CardTitle>{isAr ? "طلبات الشراء" : "Purchase Requests"}</CardTitle>
-              <CardDescription>{isAr ? "إدارة طلبات المشترين الواردة لك." : "Manage incoming buyer purchase requests."}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid gap-3 md:grid-cols-2">
-                <Input placeholder={isAr ? "ابحث بمعرّف الصفقة أو المشتري أو العرض..." : "Search by trade ID, buyer, listing..."} value={sellerTradeQuery} onChange={(event) => setSellerTradeQuery(event.target.value)} />
-                <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={sellerTradeStatus} onChange={(event) => setSellerTradeStatus(event.target.value as typeof sellerTradeStatus)}>
-                  <option value="all">{isAr ? "الحالة: الكل" : "Status: All"}</option>
-                  <option value="pending">{tradeStatusLabel("pending", isAr)}</option>
-                  <option value="accepted">{tradeStatusLabel("accepted", isAr)}</option>
-                  <option value="payment_sent">{tradeStatusLabel("payment_sent", isAr)}</option>
-                  <option value="funds_received">{tradeStatusLabel("funds_received", isAr)}</option>
-                  <option value="usdt_release_pending">{tradeStatusLabel("usdt_release_pending", isAr)}</option>
-                  <option value="usdt_sent">{tradeStatusLabel("usdt_sent", isAr)}</option>
-                  <option value="review_open">{tradeStatusLabel("review_open", isAr)}</option>
-                  <option value="declined">{tradeStatusLabel("declined", isAr)}</option>
-                  <option value="cancelled">{tradeStatusLabel("cancelled", isAr)}</option>
-                </select>
-              </div>
-              {isWorkspaceWidgetsLoading ? (
-                Array.from({ length: 2 }).map((_, index) => (
-                  <div key={`seller-requests-skeleton-${index}`} className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <div className="h-3 w-28 animate-pulse rounded bg-white/10" />
-                    <div className="mt-3 h-4 w-full animate-pulse rounded bg-white/10" />
-                    <div className="mt-2 h-4 w-3/4 animate-pulse rounded bg-white/10" />
-                  </div>
-                ))
-              ) : null}
-              {!isWorkspaceWidgetsLoading && sellerRequests.length === 0 ? (
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-5 text-center">
-                  <MessageCircle className="mx-auto h-5 w-5 text-[#C9A227]" />
-                  <p className="mt-2 text-sm font-medium text-white">{isAr ? "لا توجد طلبات شراء قيد الانتظار" : "No purchase requests yet."}</p>
-                  <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "عند استلام أول طلب شراء، ستتمكن من الرد عليه فورًا من هنا." : "Your next buyer request will appear here with quick actions to accept, decline, or continue the trade."}</p>
-                </div>
-              ) : null}
-              {(sellerRequestSections.action.length || sellerRequestSections.active.length || sellerRequestSections.waiting.length) ? (
-                <div className="space-y-3">
-                  {sellerRequestSections.action.length ? (
-                    <div className="rounded-xl border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-2 text-xs font-medium text-[#FDE68A]">
-                      {isAr ? "تحتاج إلى إجراء منك" : "Requires Your Action"} · {sellerRequestSections.action.length}
-                    </div>
-                  ) : null}
-                  {sellerRequestSections.active.length ? (
-                    <div className="rounded-xl border border-white/15 bg-black/25 px-3 py-2 text-xs font-medium text-white">
-                      {isAr ? "صفقات نشطة" : "Active Trades"} · {sellerRequestSections.active.length}
-                    </div>
-                  ) : null}
-                  {sellerRequestSections.waiting.length ? (
-                    <div className="rounded-xl border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 px-3 py-2 text-xs font-medium text-[#BFDBFE]">
-                      {isAr ? "قيد الانتظار" : "Waiting"} · {sellerRequestSections.waiting.length}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-              {(sellerPrimaryRequestsExpanded
-                ? sortedSellerRequests
-                : sortedSellerRequests.slice(0, isMobileViewport ? 1 : 2)
-              ).map((request) => {
-                const presentation = getTradeQueuePresentation(request, "seller", isAr);
-                const isExpanded = sellerExpandedTradeId === request.id;
-                return (
-                  <div id={`trade-${request.id}`} key={request.id} className="overflow-hidden rounded-2xl border border-white/10 bg-black/20">
-                    <button
-                      type="button"
-                      className="grid w-full gap-3 px-4 py-3 text-start transition hover:bg-white/[0.03] md:grid-cols-[1.1fr_0.9fr_0.9fr_0.9fr_auto] md:items-center"
-                      aria-expanded={isExpanded}
-                      aria-controls={`seller-trade-details-${request.id}`}
-                      onClick={() => setSellerExpandedTradeId((previous) => previous === request.id ? null : request.id)}
-                    >
-                      <div>
-                        <p className="text-sm font-medium text-white">{shortTradeRef(request, isAr)}</p>
-                        <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "المشتري" : "Buyer"} {safeText(request.buyerName, isAr ? "مشتري" : "Buyer")}</p>
-                      </div>
-                      <div className="text-xs">
-                        <span className={`rounded-full border px-2.5 py-1 font-semibold tracking-[0.08em] ${presentation.badgeTone}`}>{presentation.badge}</span>
-                      </div>
-                      <div className="text-sm text-[#D1D5DB]">
-                        <p>{toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT</p>
-                        <p className="mt-1 text-xs text-[#9CA3AF]">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</p>
-                      </div>
-                      <p className="text-xs text-[#9CA3AF]">{new Date(request.updatedAt || request.createdAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</p>
-                      <p className="text-sm text-[#C9A227] md:text-end">{isExpanded ? (isAr ? "إخفاء" : "Hide") : (isAr ? "عرض" : "View")}</p>
-                    </button>
-                    {isExpanded ? (
-                    <div id={`seller-trade-details-${request.id}`} className="border-t border-white/10 bg-black/25 px-4 py-4">
-                    <div className="grid gap-2 text-sm md:grid-cols-3">
-                      <p>{isAr ? "مرجع الصفقة" : "Trade Ref"}: <span className="text-white">{shortTradeRef(request, isAr)}</span></p>
-                      <p>{isAr ? "اسم المشتري" : "Buyer Name"}: <span className="text-white">{request.buyerName}</span></p>
-                      <p>{isAr ? "كمية USDT" : "USDT Amount"}: <span className="text-white">{toNumber(request.usdtAmount).toLocaleString("en-IL")}</span></p>
-                      <p>{isAr ? "المبلغ بالعملة التقليدية" : "Fiat Amount"}: <span className="text-white">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</span></p>
-                      <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{request.network}</span></p>
-                      <p>{isAr ? "طريقة الدفع" : "Payment Method"}: <span className="text-white">{paymentMethodEmoji(request.paymentMethod)} {paymentMethodLabel(request.paymentMethod, isAr)}</span></p>
-                      <p>{isAr ? "العرض" : "Listing"}: <span className="text-white">{shortListingRef({ id: request.listingId, displayNumber: myListingsById.get(request.listingId)?.displayNumber })}</span></p>
-                      <p>{isAr ? "تاريخ الإرسال" : "Submitted"}: <span className="text-white">{new Date(request.createdAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</span></p>
-                      <p>{isAr ? "الحالة" : "Status"}: <span className="text-white">{tradeStatusLabel(request.status, isAr)}</span></p>
-                      {request.completedAt ? <p>{isAr ? "اكتملت" : "Completed"}: <span className="text-white">{new Date(request.completedAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</span></p> : null}
-                      {request.reviewUnlockedAt ? <p>{isAr ? "تم فتح التقييم" : "Review Unlocked"}: <span className="text-white">{new Date(request.reviewUnlockedAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</span></p> : null}
-                    </div>
-                    <div className="mt-3 rounded-xl border border-[#6CAEFF]/25 bg-[#6CAEFF]/10 p-3 text-xs text-[#D1D5DB]">
-                      <p className="font-medium text-white">{paymentMethodEmoji(request.paymentMethod)} {isAr ? "تعليمات الصفقة" : "Trade Instructions"}</p>
-                      <p className="mt-1">{paymentMethodTradeInstruction(request.paymentMethod, "seller", isAr)}</p>
-                    </div>
-                    {normalizeMarketplacePaymentMethod(request.paymentMethod) === "Face-to-Face (Meet in Person)" && request.status === "pending" ? (
-                      <div className="mt-3 rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-xs text-amber-100">
-                        <p className="font-semibold text-[#FDE68A]">{isAr ? "إرشادات الأمان" : "Safety Guidelines"}</p>
-                        <p className="mt-1 text-[#E5E7EB]">{isAr ? "التقيا في أماكن عامة فقط، ويفضل الأماكن المزودة بكاميرات، ولا تشارك معلومات شخصية غير ضرورية، وتأكد من تحويل USDT قبل المغادرة." : "Meet only in public places, prefer camera-covered locations, avoid sharing unnecessary personal details, and confirm USDT transfer before leaving."}</p>
-                        <label className="mt-2 inline-flex cursor-pointer items-start gap-2 text-[#E5E7EB]">
-                          <input
-                            type="checkbox"
-                            checked={sellerSafetyAcknowledgements[request.id] ?? false}
-                            onChange={(event) => setSellerSafetyAcknowledgements((prev) => ({ ...prev, [request.id]: event.target.checked }))}
-                            className="mt-0.5 h-4 w-4 rounded border-white/25 bg-black/40 text-[#C9A227] focus:ring-[#C9A227]"
-                          />
-                          <span>{isAr ? "قرأت إرشادات الأمان هذه وأوافق عليها." : "I have read and agree to these safety guidelines."}</span>
-                        </label>
-                        <p className="mt-1 text-[#D1D5DB]">{isAr ? <>اقرأ الإرشادات كاملة في <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">مركز الأمان والثقة</Link>.</> : <>Read full guidance in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</>}</p>
-                      </div>
-                    ) : null}
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        onMouseEnter={() => handlePrefetchTradeRoom(request.id)}
-                        onFocus={() => handlePrefetchTradeRoom(request.id)}
-                        onClick={() => handleOpenTradeRoom(request.id)}
-                      >
-                        {isAr ? "فتح غرفة التداول" : "Open Trade Room"}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        disabled={
-                          request.status !== "pending"
-                          || Boolean(sellerWorkspaceSummary?.pendingCommissionCount)
-                          || requestActionKey === `${request.id}:accepted`
-                          || (normalizeMarketplacePaymentMethod(request.paymentMethod) === "Face-to-Face (Meet in Person)" && !(sellerSafetyAcknowledgements[request.id] ?? false))
-                        }
-                        onClick={() => handleSellerRequestAction(request.id, "accepted", { safetyAcknowledged: sellerSafetyAcknowledgements[request.id] ?? false })}
-                      >
-                        {requestActionKey === `${request.id}:accepted` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : (isAr ? "قبول" : "Accept")}
-                      </Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "pending" || requestActionKey === `${request.id}:declined`} onClick={() => handleSellerRequestAction(request.id, "declined")}>
-                        {requestActionKey === `${request.id}:declined` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : (isAr ? "رفض" : "Decline")}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        disabled={request.status !== "payment_sent" || requestActionKey === `${request.id}:funds_received`}
-                        onClick={() => handleSellerRequestAction(request.id, "funds_received")}
-                      >
-                        {requestActionKey === `${request.id}:funds_received`
-                          ? (isAr ? "جارٍ التنفيذ..." : "Processing...")
-                          : normalizeMarketplacePaymentMethod(request.paymentMethod) === "Cardless ATM Withdrawal" ? (isAr ? "تأكيد استلام النقد" : "Confirm Cash Collected") : (isAr ? "تأكيد استلام الأموال" : "Confirm Funds Received")}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        disabled={request.status !== "funds_received" || requestActionKey === `${request.id}:usdt_release_pending`}
-                        onClick={() => handleSellerRequestAction(request.id, "usdt_release_pending")}
-                      >
-                        {requestActionKey === `${request.id}:usdt_release_pending` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : (isAr ? "بدء إرسال USDT" : "Start USDT Release")}
-                      </Button>
-                      <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_release_pending" || !request.sellerEvidence || requestActionKey === `${request.id}:usdt_sent`} onClick={() => handleSellerRequestAction(request.id, "usdt_sent")}>
-                        {requestActionKey === `${request.id}:usdt_sent` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : (isAr ? "تحديد USDT كمُرسل" : "Mark USDT Sent")}
-                      </Button>
-                    </div>
-                    <div className="mt-3 grid gap-2 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB] md:grid-cols-2">
-                      <div>
-                        <p className="font-medium text-white">{isAr ? "إثبات المشتري" : "Buyer Evidence"}</p>
-                        {request.buyerEvidence ? (
-                          <a
-                            href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.buyerEvidence.id}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="mt-1 inline-block text-[#C9A227] underline-offset-2 hover:underline"
-                          >
-                            {request.buyerEvidence.fileName}
-                          </a>
-                        ) : (
-                          <p className="mt-1 text-[#9CA3AF]">{isAr ? "لم يتم الرفع بعد." : "Not uploaded yet."}</p>
-                        )}
-                      </div>
-                      <div>
-                        <p className="font-medium text-white">{isAr ? "إثبات البائع" : "Seller Evidence"}</p>
-                        {request.sellerEvidence ? (
-                          <a
-                            href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.sellerEvidence.id}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="mt-1 inline-block text-[#C9A227] underline-offset-2 hover:underline"
-                          >
-                            {request.sellerEvidence.fileName}
-                          </a>
-                        ) : (
-                          <p className="mt-1 text-[#9CA3AF]">{isAr ? "يجب رفع الإثبات قبل تحديد USDT كمُرسل." : "Upload required before marking USDT sent."}</p>
-                        )}
-                      </div>
-                      {!request.sellerEvidence ? (
-                        <div className="md:col-span-2">
-                          <p className="text-sm font-semibold text-white">{isAr ? "رفع إثبات البائع" : "Upload seller evidence"}</p>
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <LocalizedEvidenceFileInput
-                              id={`seller-evidence-file-${request.id}`}
-                              isAr={isAr}
-                              selectedFile={sellerEvidenceFiles[request.id] ?? null}
-                              onSelect={(file) => {
-                                setSellerEvidenceFiles((prev) => ({ ...prev, [request.id]: file }));
-                              }}
-                            />
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              disabled={!sellerEvidenceFiles[request.id] || evidenceUploading[`${request.id}:seller`]}
-                              onClick={() => {
-                                const file = sellerEvidenceFiles[request.id];
-                                if (!file) return;
-                                void uploadTradeEvidenceFile(request.id, "seller", file);
-                              }}
-                            >
-                              {evidenceUploading[`${request.id}:seller`] ? (isAr ? "جارٍ الرفع..." : "Uploading...") : (isAr ? "رفع الإثبات" : "Upload Evidence")}
-                            </Button>
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                    <div className="mt-4">
-                      <CompactTradeTimeline events={request.timeline ?? []} isAr={isAr} />
-                    </div>
-                    {request.buyerReview ? (
-                      <div className="mt-3 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
-                        <p className="font-medium text-white">{isAr ? "تقييم المشتري" : "Buyer Review"}</p>
-                        <p className="mt-1">{request.buyerReview.comment}</p>
-                      </div>
-                    ) : null}
-                    {request.buyerReview && !request.sellerResponse ? (
-                      <form
-                        className="mt-3 grid gap-2"
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          void handleSubmitSellerResponse(request);
-                        }}
-                      >
-                        <Textarea aria-label={isAr ? "الرد على تقييم المشتري" : "Respond to buyer review"} placeholder={isAr ? "اكتب ردك على تقييم المشتري" : "Respond to buyer review"} value={sellerResponseDrafts[request.id] ?? ""} onChange={(event) => setSellerResponseDrafts((prev) => ({ ...prev, [request.id]: event.target.value }))} />
-                        <div>
-                          <Button type="submit" size="sm" variant="secondary">{isAr ? "إرسال رد البائع" : "Submit Seller Response"}</Button>
-                        </div>
-                      </form>
-                    ) : null}
-                    {request.sellerResponse ? (
-                      <div className="mt-3 rounded-xl border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 p-3 text-xs text-[#D1D5DB]">
-                        <p className="font-medium text-white">{isAr ? "رد البائع" : "Seller Response"}</p>
-                        <p className="mt-1">{request.sellerResponse.message}</p>
-                      </div>
-                    ) : null}
-                    </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-              {sortedSellerRequests.length > (isMobileViewport ? 1 : 2) ? (
-                <div className="flex justify-start">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => setSellerPrimaryRequestsExpanded((prev) => !prev)}
-                  >
-                    {sellerPrimaryRequestsExpanded
-                      ? (isAr ? "عرض أقل" : "Show less")
-                      : (isAr ? `عرض الكل (${sortedSellerRequests.length - (isMobileViewport ? 1 : 2)})` : `View All (${sortedSellerRequests.length - (isMobileViewport ? 1 : 2)})`)}
-                  </Button>
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
-          <div ref={setSellerDashboardListingsTarget} className="order-5" />
-
-          <div className="order-6">
-            {renderNotificationCenterCard("notification-center-section")}
-          </div>
-
-          <div ref={sellerDeferredPanelsSentinelRef} className="order-39 h-px w-full" aria-hidden />
-          {deferredSellerPanelsReady ? (
-            <div className="order-40 grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
-              <Card className="order-50 border-white/10 bg-[#0B0B0B]/90">
-                <CardHeader>
-                  <CardTitle>{isAr ? "ملف البائع" : "Seller Profile"}</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2 text-sm text-[#D1D5DB]">
-                  <div className="flex items-center gap-3">
-                    {sessionUser?.profilePhotoUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={sessionUser.profilePhotoUrl} alt={isAr ? `صورة ${sessionUser.fullName}` : `${sessionUser.fullName} profile`} className="h-13 w-13 rounded-full border border-white/15 object-cover" />
-                    ) : (
-                      <div className="inline-flex h-13 w-13 items-center justify-center rounded-full border border-white/15 bg-white/[0.04] text-sm font-semibold text-[#D1D5DB]">
-                        {safeText(sessionUser?.fullName, isAr ? "بائع" : "Seller")
-                          .split(" ")
-                          .map((part) => part[0])
-                          .join("")
-                          .slice(0, 2)}
-                      </div>
-                    )}
-                    <div>
-                      <p className="text-base font-semibold text-white"><bdi dir="auto">{safeText(sessionUser?.fullName, isAr ? "بائع" : "Seller")}</bdi></p>
-                      <RoleBadge variant="approved_seller" locale={isAr ? "ar" : "en"} />
-                    </div>
-                  </div>
-                  <p>{isAr ? "عضو منذ" : "Member Since"}: <span className="text-white"><bdi dir="ltr">{sessionUser?.createdAt ? new Date(sessionUser.createdAt).toLocaleDateString(isAr ? "ar-IL-u-nu-latn" : "en-IL") : "—"}</bdi></span></p>
-                  <p>{isAr ? "اللغات" : "Languages"}: <span className="text-white"><bdi dir="auto">{sessionUser?.languages?.length ? sessionUser.languages.map((language) => spokenLanguageLabel(language, isAr)).join(isAr ? "، " : ", ") : (isAr ? "العربية" : "English")}</bdi></span></p>
-                  <p>{isAr ? "الشبكات المفضلة" : "Preferred Networks"}: <span className="text-white"><bdi dir="ltr">{sessionUser?.preferredNetworks?.join(", ") || "TRC20"}</bdi></span></p>
-                  <p>{isAr ? "التقييم" : "Rating"}: <span className="text-white"><bdi dir="ltr">{(sellerOverviewStats.reputation?.rating ?? 4.5).toFixed(2)}</bdi></span></p>
-                  <p>{isAr ? "نسبة النجاح" : "Success Rate"}: <span className="text-white"><bdi dir="ltr">{sellerOverviewStats.successRate.toFixed(1)}{isAr ? "٪" : "%"}</bdi></span></p>
-                  <p>{isAr ? "الصفقات المكتملة" : "Completed Trades"}: <span className="text-white"><bdi dir="ltr">{sellerOverviewStats.completedTrades}</bdi></span></p>
-                  <p>{isAr ? "إجمالي حجم USDT" : "Total USDT Volume"}: <span className="text-white"><bdi dir="ltr">{sellerOverviewStats.totalUsdtSold.toLocaleString("en-IL")} USDT</bdi></span></p>
-                  <p>{isAr ? "العروض الحالية" : "Current Listings"}: <span className="text-white"><bdi dir="ltr">{sellerOverviewStats.activeListings}</bdi></span></p>
-                  <p>{isAr ? "متوسط وقت الاستجابة" : "Average Response Time"}: <span className="text-white">{sellerOverviewStats.averageResponseTime}</span></p>
-                  <p>{isAr ? "الحالة" : "Status"}: <span className="text-white">{sessionUser?.onlineStatus === "online" ? (isAr ? "متصل" : "Online") : (isAr ? "غير متصل" : "Offline")}</span></p>
-                  <p>{isAr ? "آخر نشاط" : "Last Active"}: <span className="text-white">{formatRelativeMinutesLabel(sessionUser?.lastActiveAt, isAr)}</span></p>
-                  <p>{isAr ? "نبذة" : "Bio"}: <span className="text-white"><bdi dir="auto">{safeText(sessionUser?.bio, isAr ? "بائع USDT محترف على Alpha Exchange." : "Professional USDT seller on Alpha Exchange.")}</bdi></span></p>
-                  <p>{isAr ? "خبرة التداول" : "Trading Experience"}: <span className="text-white"><bdi dir="auto">{safeText(sessionUser?.tradingExperience, isAr ? "خبرة احترافية في التداول" : "Professional trading experience")}</bdi></span></p>
-                  <p>{isAr ? "ساعات العمل" : "Working Hours"}: <span className="text-white"><bdi dir="auto">{safeText(sessionUser?.workingHours, isAr ? "الأحد-الخميس، 09:00-21:00" : "Sun-Thu, 09:00-21:00")}</bdi></span></p>
-                  <p>{isAr ? "حالة الحساب" : "Account Status"}: <span className="text-white">{sellerAccountStatusLabel(sessionUser?.sellerStatus, isAr)}</span></p>
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {(sellerOverviewStats.reputation?.badges ?? []).map((badge) => (
-                      <span key={badge} className="rounded-full border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 px-2 py-1 text-[11px] text-[#93C5FD]">
-                        {sellerBadgeLabel(badge, isAr)}
-                      </span>
-                    ))}
-                  </div>
-                  {sellerOverviewStats.completedTrades === 0 ? (
-                    <div className="mt-2 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#9CA3AF]">
-                      {isAr ? "لا توجد صفقات مكتملة بعد. أكمل أول صفقة لبناء سجل ثقة قوي." : "No Trades Yet. Complete your first trade to start building trust history."}
-                    </div>
-                  ) : null}
-                </CardContent>
-              </Card>
-
-              {marketInsightsCard}
-
-              <Card className="border-white/10 bg-[#0B0B0B]/90">
-                <CardHeader>
-                  <CardTitle>{isAr ? "لوحة البائع" : "Seller Command Center"}</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                      <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "حجم التداول الكلي" : "Lifetime Trade Volume"}</p>
-                      <p className="mt-1 text-lg font-semibold text-white">{sellerOverviewStats.totalUsdtSold.toLocaleString("en-IL")} USDT</p>
-                    </div>
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                      <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "متوسط التقييم" : "Average Rating"}</p>
-                      <p className="mt-1 text-lg font-semibold text-white">{(sellerOverviewStats.reputation?.rating ?? 4.5).toFixed(2)}★</p>
-                    </div>
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                      <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "الصفقات المكتملة" : "Completed Trades"}</p>
-                      <p className="mt-1 text-lg font-semibold text-white">{sellerOverviewStats.completedTrades.toLocaleString("en-IL")}</p>
-                    </div>
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                      <p className="uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "مستوى البائع" : "Seller Level"}</p>
-                      <p className="mt-1 text-lg font-semibold text-white">{sellerLevelLabel(sellerOverviewStats.reputation?.level, isAr)}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-              <Card className="border-white/10 bg-[#0B0B0B]/90 xl:col-span-2">
-                <CardHeader>
-                  <CardTitle>{isAr ? "الخط الزمني للنشاط" : "Activity Timeline"}</CardTitle>
-                  <CardDescription>{isAr ? "الأحدث أولاً، مجمّع حسب التاريخ، في بطاقات نشاط مختصرة." : "Newest first, grouped by date, with compact activity cards."}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {!activityHistory.length ? (
-                    <p className="text-xs text-[#9CA3AF]">{isAr ? "يتم تحديث الخط الزمني تلقائياً عند التداول والتقييم وإدارة العروض." : "Your timeline updates automatically as you trade, review, and manage listings."}</p>
-                  ) : (
-                    groupedActivityHistory.map((group) => (
-                      <div key={group.dayKey} className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                        <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{group.label}</p>
-                        <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
-                          {group.items.slice(0, 3).map((entry) => {
-                            const copy = localizeActivityCopy(entry, locale);
-                            return (
-                              <div key={entry.id} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
-                                <div className="flex items-start justify-between gap-3">
-                                  <p className="font-medium text-white"><bdi dir="auto">{copy.title}</bdi></p>
-                                  <p className="shrink-0 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleTimeString(isAr ? "ar-IL-u-nu-latn" : "en-IL", { hour: "2-digit", minute: "2-digit" })}</p>
-                                </div>
-                                <p className="mt-1 line-clamp-2 text-[#9CA3AF]"><bdi dir="auto">{copy.details}</bdi></p>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          ) : (
-            <Card className="order-40 border-white/10 bg-[#0B0B0B]/90">
-              <CardHeader>
-                <CardTitle>{isAr ? "جاري تحميل الرؤى المتقدمة" : "Advanced insights load on demand"}</CardTitle>
-                <CardDescription>
-                  {isAr
-                    ? "تظهر الإشعارات، التحليلات، والملفات الثانوية عند فتح هذا الجزء لتسريع التفاعل الأولي."
-                    : "Notifications, analytics, and secondary reputation widgets hydrate when this section comes into view so the shell stays fast."}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {Array.from({ length: 3 }).map((_, index) => (
-                  <div key={`deferred-seller-panel-${index}`} className="rounded-xl border border-white/10 bg-black/20 p-4">
-                    <div className="h-3 w-44 animate-pulse rounded bg-white/10" />
-                    <div className="mt-3 h-4 w-full animate-pulse rounded bg-white/10" />
-                    <div className="mt-2 h-4 w-4/5 animate-pulse rounded bg-white/10" />
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-        </div>
+<SellerWorkspaceSection
+          {...{
+            activityHistory,
+            commissionAdvancedOpen,
+            commissionCopied,
+            commissionNetwork,
+            commissionPayBusy,
+            commissionPayMessage,
+            commissionPayOpen,
+            commissionPayableAmountDue,
+            commissionPayerType,
+            commissionQrDataUrl,
+            commissionTotalAmountDue,
+            commissionTxSignature,
+            commissionWalletConfiguration,
+            commissionWorkspaceAction,
+            deferredSellerPanelsReady,
+            evidenceUploading,
+            groupedActivityHistory,
+            handleCommissionPayNow,
+            handleOpenTradeRoom,
+            handlePrefetchTradeRoom,
+            handleSellerListingCreateSubmit,
+            handleSellerRequestAction,
+            handleSubmitSellerResponse,
+            isAr,
+            isListingCreateSubmitDisabled,
+            isMobileViewport,
+            isWorkspaceWidgetsLoading,
+            listingActionKey,
+            listingBlockedByActiveLimit,
+            listingBlockedByCommission,
+            listingBlockedByMarketplaceEnforcement,
+            listingCommissionAgreement,
+            listingCreateAmount,
+            listingCreateBankAccountMismatch,
+            listingCreateCurrencyManualOverride,
+            listingCreateForm,
+            listingCreateGuardCardTone,
+            listingCreateGuardTone,
+            listingCreatePrice,
+            listingCreatePriceInvalid,
+            listingCreatePriceValid,
+            listingCreateRequiresBank,
+            listingCreateRequiresBankAccount,
+            listingCreateResult,
+            listingCreateSelectedBankAccount,
+            listingCreateSelectedBanks,
+            listingCreateSelectedMethods,
+            listingCreateTotalIls,
+            listingCreateTradeRangeInvalid,
+            listingCreationBlocked,
+            listingCreationBlockedReason,
+            locale,
+            marketInsightsCard,
+            marketPricePerUsdt,
+            marketSnapshot,
+            maxAllowedListingPrice,
+            myListingsById,
+            openCommissionPayment,
+            openMarketplaceCompliancePayment,
+            renderNotificationCenterCard,
+            requestActionKey,
+            reviewPayableCommissions,
+            scrollToMyListingsSection,
+            selectedCommissionWallet,
+            selectedCommissionWalletAvailable,
+            selectedCommissionWalletError,
+            sellerApplication,
+            sellerBankAccounts,
+            sellerBankAccountsLoading,
+            sellerCommissionStatus,
+            sellerDeferredPanelsSentinelRef,
+            sellerEvidenceFiles,
+            sellerExpandedTradeId,
+            sellerOverviewStats,
+            sellerPrimaryRequestsExpanded,
+            sellerRequestSections,
+            sellerRequests,
+            sellerResponseDrafts,
+            sellerSafetyAcknowledgements,
+            sellerTradeQuery,
+            sellerTradeStatus,
+            sellerWorkspaceMessage,
+            sellerWorkspaceSummary,
+            sessionUser,
+            setCommissionAdvancedOpen,
+            setCommissionCopied,
+            setCommissionNetwork,
+            setCommissionPayMessage,
+            setCommissionPayOpen,
+            setCommissionPayerType,
+            setCommissionTxSignature,
+            setListingCommissionAgreement,
+            setListingCreateCurrencyManualOverride,
+            setListingCreateForm,
+            setListingCreateResult,
+            setSellerDashboardListingsTarget,
+            setSellerEvidenceFiles,
+            setSellerExpandedTradeId,
+            setSellerPrimaryRequestsExpanded,
+            setSellerResponseDrafts,
+            setSellerSafetyAcknowledgements,
+            setSellerTradeQuery,
+            setSellerTradeStatus,
+            setSellerWorkspaceMessage,
+            sortedSellerRequests,
+            uploadTradeEvidenceFile,
+            ISRAELI_BANKS,
+            CompactTradeTimeline,
+            LocalizedEvidenceFileInput,
+            formatIls,
+            formatUsdt,
+            formatIntegerForInput,
+            normalizeDecimalInput,
+            renderBankLogo,
+            shortListingRef,
+            shortTradeRef,
+            getTradeQueuePresentation,
+            formatRelativeMinutesLabel,
+            sellerLevelLabel,
+            sellerBadgeLabel,
+            requiresBankSelection,
+            toggleSelection,
+            paymentMethodLabel,
+            paymentMethodEmoji,
+            paymentMethodTradeInstruction,
+            safeText,
+            sellerAccountStatusLabel,
+            spokenLanguageLabel,
+            toNumber,
+            tradeStatusLabel,
+          }}
+        />
       ) : isApprovedSeller ? (
         <div className="mt-8 md:hidden">
           <Card className="border-white/10 bg-[#0B0B0B]/90">
@@ -7198,353 +5417,59 @@ export function UsdtExchangePage({
           </Card>
         </div>
       ) : (
-        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)] xl:items-start">
-          {pendingBuyerReviewTrade ? (
-            <Card className="md:col-span-2 border-[#C9A227]/40 bg-[#C9A227]/10">
-              <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-start gap-3">
-                  <span className="text-2xl">?</span>
-                  <div>
-                    <p className="font-semibold text-[#FDE68A]">{isAr ? "أكمل صفقتك السابقة أولاً" : "Complete your previous trade first"}</p>
-                    <p className="mt-0.5 text-sm text-[#E5E7EB]">
-                      {isAr
-                        ? "قبل بدء صفقة جديدة، قيّم البائع في صفقتك السابقة."
-                        : "Before starting another trade, please rate your previous seller."}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
-                  <Link href={`/trade-room/${pendingBuyerReviewTrade.id}`}>
-                    <Button size="sm" className="w-full sm:w-auto">
-                      {isAr ? "إضافة تقييم" : "Leave Feedback"}
-                    </Button>
-                  </Link>
-                  <Link href={`/trade-room/${pendingBuyerReviewTrade.id}`}>
-                    <Button size="sm" variant="secondary" className="w-full sm:w-auto">
-                      {isAr ? "عرض الصفقة السابقة" : "View Previous Trade"}
-                    </Button>
-                  </Link>
-                </div>
-              </CardContent>
-            </Card>
-          ) : archivedConfirmationTrade ? (
-            <Card className="md:col-span-2 border-[#C9A227]/40 bg-[#C9A227]/10">
-              <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-start gap-3">
-                  <span className="text-2xl">⏰</span>
-                  <div>
-                    <p className="font-semibold text-[#FDE68A]">{isAr ? "إجراء مطلوب — تأكيد استلام USDT" : "Action Required — Confirm USDT Receipt"}</p>
-                    <p className="mt-0.5 text-sm text-[#E5E7EB]">
-                      {isAr
-                        ? "لديك صفقة تنتظر تأكيد استلام USDT. يرجى التأكيد لإكمال صفقتك والسماح بعمليات الشراء الجديدة."
-                        : "You have a trade waiting for your USDT receipt confirmation. Please confirm receipt to complete your trade and unblock new purchases."}
-                    </p>
-                  </div>
-                </div>
-                <Link href={`/trade-room/${archivedConfirmationTrade.id}`} className="shrink-0">
-                  <Button size="sm" className="w-full sm:w-auto">
-                    {isAr ? "تأكيد الاستلام" : "Confirm Receipt"}
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-          ) : null}
-          {buyerOverviewCard}
-          <Card className="border-white/10 bg-[#0B0B0B]/85">
-            <CardHeader>
-              <CardTitle>{isAr ? "جلسة المستخدم" : "Session"}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <p className="text-[#D1D5DB]">
-                {sessionUser ? sessionUser.fullName : (isAr ? "غير مسجل الدخول" : "Not logged in")}
-              </p>
-              {sessionUser ? <RoleBadge variant={roleBadgeVariantFromSession(sessionUser)} locale={isAr ? "ar" : "en"} /> : <RoleBadge variant="guest" locale={isAr ? "ar" : "en"} />}
-              <div className="flex flex-wrap gap-2">
-                {!sessionUser ? (
-                  <>
-                    <Link href="/login">
-                      <Button variant="secondary">{isAr ? "تسجيل الدخول" : "Login"}</Button>
-                    </Link>
-                    <Link href="/register">
-                      <Button variant="secondary">{isAr ? "إنشاء حساب" : "Register"}</Button>
-                    </Link>
-                  </>
-                ) : (
-                  <>
-                    <Link href="/profile">
-                      <Button variant="secondary">{isAr ? "الملف الشخصي" : "Profile"}</Button>
-                    </Link>
-                    <LogoutButton
-                      locale={locale}
-                      variant="secondary"
-                      idleLabel={isAr ? "تسجيل الخروج" : "Logout"}
-                      pendingLabel={isAr ? "جارٍ تسجيل الخروج..." : "Signing out..."}
-                      onSignedOut={() => setSessionUser(null)}
-                    />
-                  </>
-                )}
-              </div>
-              {sessionUser ? (
-                <form className="grid gap-2 border-t border-white/10 pt-3" onSubmit={handleNotificationPreferencesSave}>
-                  <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "تفضيلات الإشعارات" : "Notification Preferences"}</p>
-                  <label className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-[#D1D5DB]">
-                    <span>{isAr ? "داخل التطبيق" : "In-app"}</span>
-                    <input type="checkbox" checked={notificationPreferences.inApp} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, inApp: event.target.checked }))} />
-                  </label>
-                  <label className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-[#D1D5DB]">
-                    <span>{isAr ? "البريد الإلكتروني (قريباً)" : "Email (future-ready)"}</span>
-                    <input type="checkbox" checked={notificationPreferences.email} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, email: event.target.checked }))} />
-                  </label>
-                  <label className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-[#D1D5DB]">
-                    <span>{isAr ? "رسائل SMS (قريباً)" : "SMS (future-ready)"}</span>
-                    <input type="checkbox" checked={notificationPreferences.sms} onChange={(event) => setNotificationPreferences((prev) => ({ ...prev, sms: event.target.checked }))} />
-                  </label>
-                  <Button type="submit" size="sm" variant="secondary">{isAr ? "حفظ التفضيلات" : "Save Preferences"}</Button>
-                </form>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          {sessionUser ? (
-            <Card id={BUYER_TRADE_HISTORY_SECTION_ID} tabIndex={-1} className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
-              <CardHeader>
-                <CardTitle>{isAr ? "سجل صفقاتي" : "My Trade History"}</CardTitle>
-                <CardDescription>{isAr ? "الأحدث أولاً، مع صفوف مختصرة وتفاصيل قابلة للتوسيع لكل صفقة." : "Newest first, compact rows, and expandable details for each trade."}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid gap-3 md:grid-cols-2">
-                  <Input placeholder={isAr ? "ابحث بمعرّف الصفقة أو العرض..." : "Search by trade ID or listing..."} value={buyerTradeQuery} onChange={(event) => setBuyerTradeQuery(event.target.value)} />
-                  <select className="flex h-11 w-full rounded-xl border border-white/15 bg-[#101010] px-3 py-2 text-sm text-white" value={buyerTradeStatus} onChange={(event) => setBuyerTradeStatus(event.target.value as typeof buyerTradeStatus)}>
-                    <option value="all">{isAr ? "الحالة: الكل" : "Status: All"}</option>
-                    <option value="pending">{tradeStatusLabel("pending", isAr)}</option>
-                    <option value="accepted">{tradeStatusLabel("accepted", isAr)}</option>
-                    <option value="payment_sent">{tradeStatusLabel("payment_sent", isAr)}</option>
-                    <option value="funds_received">{tradeStatusLabel("funds_received", isAr)}</option>
-                    <option value="usdt_release_pending">{tradeStatusLabel("usdt_release_pending", isAr)}</option>
-                    <option value="usdt_sent">{tradeStatusLabel("usdt_sent", isAr)}</option>
-                    <option value="review_open">{tradeStatusLabel("review_open", isAr)}</option>
-                    <option value="declined">{tradeStatusLabel("declined", isAr)}</option>
-                    <option value="cancelled">{tradeStatusLabel("cancelled", isAr)}</option>
-                  </select>
-                </div>
-                {!filteredBuyerRequests.length ? (
-                  buyerRequests.length === 0 ? (
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-5 text-center">
-                      <HandCoins className="mx-auto h-5 w-5 text-[#C9A227]" />
-                      <p className="mt-2 text-sm font-medium text-white">{isAr ? "لا توجد صفقات بعد" : "No trades yet"}</p>
-                      <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "تصفح البائعين الموثقين وابدأ صفقتك الأولى." : "Browse verified sellers and start your first trade."}</p>
-                      <Link href="/usdt-exchange#marketplace" locale={locale} className="mt-3 inline-flex items-center gap-1 text-xs text-[#93C5FD] hover:underline">
-                        {isAr ? "تصفح السوق ←" : "Browse Marketplace →"}
-                      </Link>
-                    </div>
-                  ) : (
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-[#9CA3AF]">{isAr ? "لا توجد صفقات مطابقة للفلاتر الحالية." : "No trades found for current filters."}</div>
-                  )
-                ) : null}
-                {sortedBuyerRequests.length ? (
-                  <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/20">
-                    <div className="hidden grid-cols-[1.1fr_0.9fr_0.9fr_0.9fr_0.9fr_auto] gap-3 border-b border-white/10 px-4 py-3 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF] md:grid">
-                      <span>{isAr ? "الصفقة" : "Trade"}</span>
-                      <span>{isAr ? "الحالة" : "Status"}</span>
-                      <span>{isAr ? "الكمية" : "Amount"}</span>
-                      <span>{isAr ? "الطريقة" : "Method"}</span>
-                      <span>{isAr ? "آخر تحديث" : "Updated"}</span>
-                      <span className="text-end">{isAr ? "التفاصيل" : "Details"}</span>
-                    </div>
-                    {sortedBuyerRequests.slice(0, buyerTradeVisibleCount).map((request) => {
-                      const presentation = getTradeQueuePresentation(request, "buyer", isAr);
-                      const isExpanded = buyerExpandedTradeId === request.id;
-                      return (
-                        <div key={request.id} className="border-t border-white/10 first:border-t-0">
-                          <button
-                            type="button"
-                            className="grid w-full gap-3 px-4 py-3 text-start transition hover:bg-white/[0.03] md:grid-cols-[1.1fr_0.9fr_0.9fr_0.9fr_0.9fr_auto] md:items-center"
-                            aria-expanded={isExpanded}
-                            aria-controls={`buyer-trade-details-${request.id}`}
-                            onClick={() => setBuyerExpandedTradeId((prev) => prev === request.id ? null : request.id)}
-                          >
-                            <div>
-                              <p className="text-sm font-medium text-white">{shortTradeRef(request, isAr)}</p>
-                              <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "العرض" : "Listing"} {shortListingRef({ id: request.listingId, displayNumber: listingsById.get(request.listingId)?.displayNumber })}</p>
-                            </div>
-                            <div className="text-xs">
-                              <span className={`rounded-full border px-2.5 py-1 font-semibold tracking-[0.08em] ${presentation.badgeTone}`}>{presentation.badge}</span>
-                            </div>
-                            <div className="text-sm text-[#D1D5DB]">
-                              <p>{toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT</p>
-                              <p className="mt-1 text-xs text-[#9CA3AF]">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</p>
-                            </div>
-                            <p className="text-sm text-[#D1D5DB]">{paymentMethodEmoji(request.paymentMethod)} {paymentMethodLabel(request.paymentMethod, isAr)}</p>
-                            <p className="text-sm text-[#D1D5DB]">{new Date(request.completedAt ?? request.updatedAt).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}</p>
-                            <p className="text-sm text-[#C9A227] md:text-end">{isExpanded ? (isAr ? "إخفاء" : "Hide") : (isAr ? "توسيع" : "Expand")}</p>
-                          </button>
-                          {isExpanded ? (
-                            <div id={`buyer-trade-details-${request.id}`} className="space-y-3 border-t border-white/10 bg-black/25 px-4 py-4">
-                              <div className="grid gap-2 text-sm md:grid-cols-3">
-                                <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{request.network}</span></p>
-                                <p>{isAr ? "تاريخ الإرسال" : "Submitted"}: <span className="text-white">{new Date(request.createdAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</span></p>
-                                {request.completedAt ? <p>{isAr ? "اكتملت" : "Completed"}: <span className="text-white">{new Date(request.completedAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</span></p> : null}
-                              </div>
-                              <div className="rounded-xl border border-[#6CAEFF]/25 bg-[#6CAEFF]/10 p-3 text-xs text-[#D1D5DB]">
-                                <p className="font-medium text-white">{paymentMethodEmoji(request.paymentMethod)} {isAr ? "تعليمات الصفقة" : "Trade Instructions"}</p>
-                                <p className="mt-1">{paymentMethodTradeInstruction(request.paymentMethod, "buyer", isAr)}</p>
-                                <p className="mt-1">{isAr ? <>راجع التفاصيل في <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">مركز الأمان والثقة</Link>.</> : <>Review details in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</>}</p>
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                <Button type="button" size="sm" variant="secondary" onMouseEnter={() => handlePrefetchTradeRoom(request.id)} onFocus={() => handlePrefetchTradeRoom(request.id)} onClick={() => handleOpenTradeRoom(request.id)}>
-                                  {isAr ? "فتح غرفة التداول" : "Open Trade Room"}
-                                </Button>
-                                <Button type="button" size="sm" disabled={request.status !== "accepted" || !request.buyerEvidence} onClick={() => handleBuyerTradeStatus(request, "payment_sent")}>
-                                  {normalizeMarketplacePaymentMethod(request.paymentMethod) === "Cardless ATM Withdrawal" ? (isAr ? "تحديد السحب كجاهز" : "Mark Withdrawal Ready") : (isAr ? "تحديد الدفعة كمُرسلة" : "Mark Payment Sent")}
-                                </Button>
-                                <Button type="button" size="sm" variant="secondary" disabled={request.status !== "usdt_sent"} onClick={() => handleBuyerTradeStatus(request, "completed")}>
-                                  {isAr ? "تأكيد اكتمال الصفقة" : "Confirm Trade Completed"}
-                                </Button>
-                                <Button type="button" size="sm" variant="secondary" disabled={!canCancelBuyerHistoryRequest(request, sessionUser?.id)} onClick={() => handleBuyerTradeStatus(request, "cancelled")}>
-                                  {isAr ? "إلغاء" : "Cancel"}
-                                </Button>
-                              </div>
-                              <div className="grid gap-2 rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB] md:grid-cols-2">
-                                <div>
-                                  <p className="font-medium text-white">{isAr ? "إثبات المشتري" : "Buyer Evidence"}</p>
-                                  {request.buyerEvidence ? (
-                                    <a href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.buyerEvidence.id}`} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[#C9A227] underline-offset-2 hover:underline">
-                                      {request.buyerEvidence.fileName}
-                                    </a>
-                                  ) : (
-                                    <p className="mt-1 text-[#9CA3AF]">{isAr ? "يجب رفع الإثبات قبل تحديد الدفعة كمُرسلة." : "Upload required before marking payment sent."}</p>
-                                  )}
-                                </div>
-                                <div>
-                                  <p className="font-medium text-white">{isAr ? "إثبات البائع" : "Seller Evidence"}</p>
-                                  {request.sellerEvidence ? (
-                                    <a href={`/api/alpha-exchange/purchase-requests/${request.id}/evidence/${request.sellerEvidence.id}`} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[#C9A227] underline-offset-2 hover:underline">
-                                      {request.sellerEvidence.fileName}
-                                    </a>
-                                  ) : (
-                                    <p className="mt-1 text-[#9CA3AF]">{isAr ? "بانتظار إثبات البائع." : "Waiting for seller evidence."}</p>
-                                  )}
-                                </div>
-                                {!request.buyerEvidence ? (
-                                  <div className="md:col-span-2">
-                                    <p className="text-sm font-semibold text-white">{isAr ? "رفع إثبات الدفع" : "Upload payment evidence"}</p>
-                                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                                      <LocalizedEvidenceFileInput
-                                        id={`buyer-evidence-file-${request.id}`}
-                                        isAr={isAr}
-                                        selectedFile={buyerEvidenceFiles[request.id] ?? null}
-                                        onSelect={(file) => {
-                                          setBuyerEvidenceFiles((prev) => ({ ...prev, [request.id]: file }));
-                                        }}
-                                      />
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="secondary"
-                                        disabled={!buyerEvidenceFiles[request.id] || evidenceUploading[`${request.id}:buyer`]}
-                                        onClick={() => {
-                                          const file = buyerEvidenceFiles[request.id];
-                                          if (!file) return;
-                                          void uploadTradeEvidenceFile(request.id, "buyer", file);
-                                        }}
-                                      >
-                                        {evidenceUploading[`${request.id}:buyer`] ? (isAr ? "جارٍ الرفع..." : "Uploading...") : (isAr ? "رفع الإثبات" : "Upload Evidence")}
-                                      </Button>
-                                    </div>
-                                  </div>
-                                ) : null}
-                              </div>
-                              <CompactTradeTimeline events={request.timeline ?? []} isAr={isAr} />
-                              {request.status === "review_open" && !request.buyerReview ? (
-                                <form
-                                  className="grid gap-2"
-                                  onSubmit={(event) => {
-                                    event.preventDefault();
-                                    void handleSubmitBuyerReview(request);
-                                  }}
-                                >
-                                  <Textarea aria-label={isAr ? "إضافة تقييم للصفقة" : "Leave trade review"} placeholder={isAr ? "أضف تقييماً واحداً بعد اكتمال الصفقة" : "Leave one review after completed trade"} value={tradeReviewDrafts[request.id] ?? ""} onChange={(event) => setTradeReviewDrafts((prev) => ({ ...prev, [request.id]: event.target.value }))} />
-                                  <div>
-                                    <Button type="submit" size="sm" variant="secondary">{isAr ? "إرسال تقييم المشتري" : "Submit Buyer Review"}</Button>
-                                  </div>
-                                </form>
-                              ) : null}
-                              {request.buyerReview ? (
-                                <div className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
-                                  <p className="font-medium text-white">{isAr ? "تقييم المشتري" : "Buyer Review"}</p>
-                                  <p className="mt-1">{request.buyerReview.comment}</p>
-                                </div>
-                              ) : null}
-                              {request.sellerResponse ? (
-                                <div className="rounded-xl border border-[#6CAEFF]/35 bg-[#6CAEFF]/10 p-3 text-xs text-[#D1D5DB]">
-                                  <p className="font-medium text-white">{isAr ? "رد البائع" : "Seller Response"}</p>
-                                  <p className="mt-1">{request.sellerResponse.message}</p>
-                                </div>
-                              ) : null}
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : null}
-                {sortedBuyerRequests.length > buyerTradeVisibleCount ? (
-                  <div className="flex justify-center">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => setBuyerTradeVisibleCount((value) => (
-                        value >= sortedBuyerRequests.length ? (isMobileViewport ? 1 : 2) : sortedBuyerRequests.length
-                      ))}
-                    >
-                      {isAr ? "عرض المزيد" : "View more"}
-                    </Button>
-                  </div>
-                ) : buyerTradeVisibleCount > (isMobileViewport ? 1 : 2) ? (
-                  <div className="flex justify-center">
-                    <Button type="button" variant="secondary" onClick={() => setBuyerTradeVisibleCount(isMobileViewport ? 1 : 2)}>
-                      {isAr ? "عرض أقل" : "Show less"}
-                    </Button>
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
-          ) : null}
-          {sessionUser ? renderNotificationCenterCard("notification-center-section", "md:col-span-2") : null}
-          {sessionUser ? (
-            <Card className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
-              <CardHeader>
-                <CardTitle>{isAr ? "الخط الزمني للنشاط" : "Activity Timeline"}</CardTitle>
-                <CardDescription>{isAr ? "الأحدث أولاً، مجمّع حسب التاريخ، في بطاقات نشاط مختصرة." : "Newest first, grouped by date, with compact activity cards."}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {!activityHistory.length ? (
-                  <p className="text-xs text-[#9CA3AF]">{isAr ? "يتم تحديث الخط الزمني تلقائياً عند التداول والتقييم وإدارة العروض." : "Your timeline updates automatically as you trade, review, and manage listings."}</p>
-                ) : (
-                  groupedActivityHistory.map((group) => (
-                    <div key={group.dayKey} className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{group.label}</p>
-                      <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
-                        {group.items.slice(0, 3).map((entry) => {
-                          const copy = localizeActivityCopy(entry, locale);
-                          return (
-                            <div key={entry.id} className="rounded-xl border border-white/10 bg-black/25 p-3 text-xs text-[#D1D5DB]">
-                              <div className="flex items-start justify-between gap-3">
-                                <p className="font-medium text-white"><bdi dir="auto">{copy.title}</bdi></p>
-                                <p className="shrink-0 text-[#9CA3AF]">{new Date(entry.createdAt).toLocaleTimeString(isAr ? "ar-IL-u-nu-latn" : "en-IL", { hour: "2-digit", minute: "2-digit" })}</p>
-                              </div>
-                              <p className="mt-1 line-clamp-2 text-[#9CA3AF]"><bdi dir="auto">{copy.details}</bdi></p>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-          ) : null}
-        </div>
+<BuyerWorkspaceSection
+          {...{
+            activityHistory,
+            archivedConfirmationTrade,
+            buyerEvidenceFiles,
+            buyerExpandedTradeId,
+            buyerOverviewCard,
+            buyerRequests,
+            buyerTradeQuery,
+            buyerTradeStatus,
+            buyerTradeVisibleCount,
+            evidenceUploading,
+            filteredBuyerRequests,
+            groupedActivityHistory,
+            handleBuyerTradeStatus,
+            handleNotificationPreferencesSave,
+            handleOpenTradeRoom,
+            handlePrefetchTradeRoom,
+            handleSubmitBuyerReview,
+            isAr,
+            isMobileViewport,
+            listingsById,
+            locale,
+            notificationPreferences,
+            pendingBuyerReviewTrade,
+            renderNotificationCenterCard,
+            sessionUser,
+            setBuyerEvidenceFiles,
+            setBuyerExpandedTradeId,
+            setBuyerTradeQuery,
+            setBuyerTradeStatus,
+            setBuyerTradeVisibleCount,
+            setNotificationPreferences,
+            setSessionUser,
+            setTradeReviewDrafts,
+            sortedBuyerRequests,
+            tradeReviewDrafts,
+            uploadTradeEvidenceFile,
+            BUYER_TRADE_HISTORY_SECTION_ID,
+            CompactTradeTimeline,
+            LocalizedEvidenceFileInput,
+            canCancelBuyerHistoryRequest,
+            getTradeQueuePresentation,
+            paymentMethodEmoji,
+            paymentMethodLabel,
+            paymentMethodTradeInstruction,
+            roleBadgeVariantFromSession,
+            shortListingRef,
+            shortTradeRef,
+            toNumber,
+            tradeStatusLabel,
+          }}
+        />
       )}
 
       {showDeepDeferredSections && !sessionUser && !isDashboardWorkspace ? (
@@ -7681,321 +5606,59 @@ export function UsdtExchangePage({
 
       <Portal>
       {selectedListing ? (
-         <div className="alpha-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-            <div role="dialog" aria-modal="true" aria-label={isAr ? "شراء USDT" : "Buy USDT"} className="alpha-modal-panel flex max-h-[92vh] w-full max-w-[700px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0B]/95 shadow-[0_24px_80px_rgba(0,0,0,0.5)]">
-              <div className={`flex shrink-0 items-start justify-between gap-3 px-5 pt-5 sm:px-6 ${isAr ? "flex-row-reverse" : ""}`}>
-                <div>
-                  <h3 className="text-2xl font-semibold">{isAr ? "شراء USDT" : "Buy USDT"}</h3>
-                  <p className={`mt-1 inline-flex items-center gap-1.5 text-xs text-[#C9A227] ${isAr ? "flex-row-reverse" : ""}`}>
-                    <ShieldCheck className="h-3.5 w-3.5" />
-                    <span>{isAr ? "صفقة منظّمة · تسوية مباشرة" : "Structured trade · direct settlement"}</span>
-                  </p>
-                </div>
-                <button type="button" aria-label={isAr ? "إغلاق نافذة شراء USDT" : "Close Buy USDT sheet"} onClick={closeListingModal} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227]">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              {!purchaseSubmitted ? (
-                <>
-                <div className="flex-1 min-h-0 space-y-4 overflow-y-auto px-5 pb-4 pt-4 sm:px-6">
-                  {(() => {
-                    const modalPresence = deriveSellerPresence({
-                      onlineStatus: (sellerProfileData?.profile ?? selectedListing.sellerProfile)?.onlineStatus,
-                      lastActiveAt: (sellerProfileData?.profile ?? selectedListing.sellerProfile)?.lastActiveAt,
-                    });
-                    const modalName = sellerProfileData?.profile.sellerName ?? selectedListing.sellerDisplayName;
-                    const modalLevel = sellerProfileData?.sellerLevel ?? selectedListing.sellerReputation?.level;
-                    const modalToneKey = selectedListing.sellerProfile?.isOwner ? "legendary" : sellerLevelToneKey(modalLevel);
-                    const modalTrust = sellerProfileData?.trustScore ?? selectedListing.sellerReputation?.trustScore ?? 0;
-                    const modalResponse = sellerProfileData?.responseTimeMinutes ?? selectedListing.sellerReputation?.responseTimeMinutes ?? 0;
-                    const modalCompleted = sellerProfileData?.completedTrades ?? selectedListing.sellerReputation?.completedTrades ?? 0;
-                    const modalRating = sellerProfileData?.averageRating ?? selectedListing.sellerReputation?.rating ?? 0;
-                    const modalPhoto = sellerProfileData?.profile.profilePhotoUrl ?? selectedListing.sellerProfile?.profilePhotoUrl;
-                    return (
-                      <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
-                        <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
-                          {modalPhoto ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={modalPhoto} alt={isAr ? `صورة ${safeText(modalName, "البائع")}` : `${safeText(modalName, "Seller")} profile`} className="h-12 w-12 shrink-0 rounded-full border border-white/15 object-cover" />
-                          ) : (
-                            <div className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] text-sm font-semibold text-white">
-                              {safeText(modalName, isAr ? "بائع" : "Seller").split(" ").map((part) => part[0]).join("").slice(0, 2)}
-                            </div>
-                          )}
-                          <div className={`min-w-0 flex-1 ${isAr ? "text-right" : ""}`}>
-                            <div className={`flex flex-wrap items-center gap-2 ${isAr ? "flex-row-reverse" : ""}`}>
-                              <p className={cn("truncate text-base font-semibold", selectedListing.sellerProfile?.isOwner ? "profile-identity-name--owner" : `seller-rank-name seller-rank-name--${modalToneKey}`)}>{safeText(modalName, isAr ? "بائع" : "Seller")}</p>
-                              <RoleBadge variant="approved_seller" locale={isAr ? "ar" : "en"} className={cn("seller-rank-badge", `seller-rank-badge--${modalToneKey}`)} />
-                              <span className={cn("seller-rank-pill", `seller-rank-pill--${modalToneKey}`)}>
-                                {selectedListing.sellerProfile?.isOwner ? (isAr ? "بائع أسطوري" : "Legendary Seller") : (isAr ? `بائع ${sellerLevelLabel(modalLevel, true)}` : `${sellerLevelLabel(modalLevel)} Seller`)}
-                              </span>
-                            </div>
-                            <div className={`mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#9CA3AF] ${isAr ? "flex-row-reverse" : ""}`}>
-                              <span className={cn("inline-flex items-center gap-1", `seller-presence--${modalPresence.tone}`)}>
-                                <span className={cn("seller-presence-dot", `seller-presence-dot--${modalPresence.tone}`)} aria-hidden="true" />
-                                {isAr ? modalPresence.labelAr : modalPresence.label}
-                              </span>
-                              <span><ShieldCheck className="mr-0.5 inline h-3 w-3 text-[#93C5FD]" />{modalTrust.toFixed(1)}</span>
-                              <span><Zap className="me-0.5 inline h-3 w-3 text-[#F4D87A]" />{modalResponse.toFixed(0)} {isAr ? "دقائق" : "min"}</span>
-                              <span><HandCoins className="me-0.5 inline h-3 w-3" />{modalCompleted.toLocaleString("en-IL")} {isAr ? "صفقات" : "trades"}</span>
-                              <span><Star className="mr-0.5 inline h-3 w-3 text-[#F4D87A]" />{modalRating.toFixed(2)}</span>
-                              {isSellerProfileLoading && !sellerProfileData ? <span className="text-[10px] italic text-[#9CA3AF]">{isAr ? "جارٍ التحديث…" : "refreshing…"}</span> : null}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  <div className="rounded-2xl border border-[#C9A227]/25 bg-gradient-to-r from-emerald-500/10 via-black/50 to-[#C9A227]/12 p-3">
-                    <div className={`flex items-end justify-between gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
-                      <div className={isAr ? "text-right" : ""}>
-                        <p className="text-2xl font-bold leading-none text-white">{selectedAmount.toLocaleString("en-IL")}</p>
-                        <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-emerald-200/90">{isAr ? "USDT متاح" : "USDT Available"}</p>
-                      </div>
-                      <div className={isAr ? "text-left" : "text-right"}>
-                        <p className="text-2xl font-bold leading-none text-[#C9A227]">{formatIls(selectedPrice)}</p>
-                        <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#D1D5DB]">ILS / USDT · {selectedListing.network}</p>
-                      </div>
-                    </div>
-                    <p className={`mt-2 text-[11px] text-[#9CA3AF] ${isAr ? "text-right" : ""}`}>
-                      {isAr ? "العمولة (1%)" : "Commission (1%)"}: <span className="text-white">₪{commission.toFixed(2)}</span> · {isAr ? "الإجمالي التقديري" : "Estimated total"}: <span className="text-[#C9A227]">₪{estimatedTotal.toFixed(2)}</span>
-                    </p>
-                  </div>
-
-                  {isOwnerViewer && sellerProfileData ? (
-                    <div className="rounded-2xl border border-[#C9A227]/25 bg-black/25 p-4 text-sm text-[#D1D5DB]">
-                      <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "أدوات المالك" : "Owner Tools"}</p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Button type="button" size="sm" variant="secondary" disabled={isOwnerProfileActionLoading} onClick={() => void handleOwnerSellerProfileState(sellerProfileData.sellerId, { feature: !sellerProfileData.profile.isFeaturedSeller }, sellerProfileData.profile.isFeaturedSeller ? (isAr ? "تمت إزالة البائع من المميزين." : "Seller unfeatured.") : (isAr ? "تم تمييز البائع." : "Seller featured."))}>
-                          {sellerProfileData.profile.isFeaturedSeller ? (isAr ? "إلغاء تمييز البائع" : "Unfeature Seller") : (isAr ? "تمييز البائع" : "Feature Seller")}
-                        </Button>
-                        <Button type="button" size="sm" variant="secondary" disabled={isOwnerProfileActionLoading} onClick={() => void handleOwnerSellerProfileState(sellerProfileData.sellerId, { hidden: !sellerProfileData.profile.isProfileHidden }, sellerProfileData.profile.isProfileHidden ? (isAr ? "تم إظهار ملف البائع." : "Seller profile unhidden.") : (isAr ? "تم إخفاء ملف البائع." : "Seller profile hidden."))}>
-                          {sellerProfileData.profile.isProfileHidden ? (isAr ? "إظهار البائع" : "Unhide Seller") : (isAr ? "إخفاء البائع" : "Hide Seller")}
-                        </Button>
-                        <Button type="button" size="sm" variant="secondary" disabled={isOwnerProfileActionLoading} onClick={() => void handleOwnerSuspendSeller(sellerProfileData.sellerId)}>
-                          {isAr ? "تعليق البائع" : "Suspend Seller"}
-                        </Button>
-                      </div>
-                      <div className="mt-4 grid gap-3 md:grid-cols-3">
-                        <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs">
-                          <p className="font-medium text-white">{isAr ? "سجل التدقيق" : "Audit History"}</p>
-                          <p className="mt-1">{sellerProfileData.ownerTools?.auditHistory.length ?? 0} {isAr ? "سجلات" : "records"}</p>
-                        </div>
-                        <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs">
-                          <p className="font-medium text-white">{isAr ? "سجل العمولات" : "Commission History"}</p>
-                          <p className="mt-1">{sellerProfileData.ownerTools?.commissionHistory.length ?? 0} {isAr ? "سجلات" : "records"}</p>
-                        </div>
-                        <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs">
-                          <p className="font-medium text-white">{isAr ? "سجل الصفقات" : "Trade History"}</p>
-                          <p className="mt-1">{sellerProfileData.ownerTools?.tradeHistory.length ?? 0} {isAr ? "سجلات" : "records"}</p>
-                        </div>
-                      </div>
-                      <div className="mt-3 grid gap-3 md:grid-cols-3">
-                        <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                          <p className="font-medium text-white">{isAr ? "أحدث عمليات التدقيق" : "Recent Audit"}</p>
-                          {(sellerProfileData.ownerTools?.auditHistory ?? []).slice(0, 3).map((entry) => (
-                            <p key={entry.id} className="mt-1">{localizedAuditAction(entry.action, isAr)} • {new Date(entry.createdAt).toLocaleDateString(isAr ? "ar-IL-u-nu-latn" : "en-IL")}</p>
-                          ))}
-                        </div>
-                        <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                          <p className="font-medium text-white">{isAr ? "أحدث العمولات" : "Recent Commission"}</p>
-                          {(sellerProfileData.ownerTools?.commissionHistory ?? []).slice(0, 3).map((entry) => (
-                            <p key={entry.id} className="mt-1">{entry.commissionAmount.toFixed(2)} USDT • {new Date(entry.createdAt).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}</p>
-                          ))}
-                        </div>
-                        <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
-                          <p className="font-medium text-white">{isAr ? "أحدث الصفقات" : "Recent Trades"}</p>
-                          {(sellerProfileData.ownerTools?.tradeHistory ?? []).slice(0, 3).map((entry) => (
-                            <p key={entry.id} className="mt-1">{shortTradeRef(entry)} • {tradeStatusLabel(entry.status, isAr)}</p>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  <form id="buy-usdt-form" className="grid gap-3" onSubmit={handlePurchaseSubmit}>
-                    <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
-                      <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "اختر طريقة الدفع" : "Choose payment method"}</p>
-                      <div className="mt-3 grid gap-2 md:grid-cols-3">
-                        {selectedListingPaymentMethods.map((method) => {
-                          const selected = selectedListingPaymentMethod === method;
-                          return (
-                            <button
-                              key={`purchase-method-${selectedListing.id}-${method}`}
-                              type="button"
-                              onClick={() => {
-                                setSelectedPurchasePaymentMethod(method);
-                                setFaceToFaceSafetyAcknowledged(false);
-                              }}
-                              className={`rounded-xl border p-3 transition-all duration-200 ${isAr ? "text-right" : "text-left"} ${
-                                selected
-                                  ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]"
-                                  : "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]"
-                              }`}
-                            >
-                              <p className="text-sm font-medium text-white">{paymentMethodEmoji(method)} {paymentMethodLabel(method, isAr)}</p>
-                              {selected ? <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#93C5FD]">{isAr ? "مختارة لهذه الصفقة" : "Selected for this trade"}</p> : null}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {selectedMethodUsesBanks(selectedListingPaymentMethod) && parseIsraeliBankSelection(selectedListing.bankName).length ? (
-                        <p className="mt-3 text-xs text-[#D1D5DB]">{isAr ? "البنوك المدعومة" : "Supported banks"}: <span className="text-white">{parseIsraeliBankSelection(selectedListing.bankName).map((bankName) => getIsraeliBankDisplayName(bankName, locale)).join(isAr ? "، " : ", ")}</span></p>
-                      ) : null}
-                    </div>
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <div className="space-y-2 md:col-span-3">
-                        <label htmlFor="buyer-usdt-amount" className="text-sm font-medium text-white">
-                          {isAr ? "كمية USDT" : "USDT Amount"} <span className="text-red-300">*</span>
-                        </label>
-                        <Input
-                          id="buyer-usdt-amount"
-                          dir="ltr"
-                          inputMode="numeric"
-                          placeholder={isAr ? "أدخل الكمية" : "Enter amount"}
-                          value={buyerInfo.usdtAmount}
-                          onChange={(event) => setBuyerInfo((prev) => ({ ...prev, usdtAmount: formatIntegerForInput(event.target.value) }))}
-                          className={`text-left ${buyerTradeAmountInvalid ? "border-red-500/80" : buyerTradeAmount > 0 ? "border-emerald-500/70" : ""}`}
-                          aria-invalid={buyerTradeAmountInvalid || undefined}
-                          aria-describedby="buyer-amount-help"
-                        />
-                        <p id="buyer-amount-help" className={`text-xs ${buyerTradeAmountInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>
-                          {buyerTradeAmountInvalid ? "⚠ " : ""}{isAr ? "حدود الصفقة" : "Trade limits"}: {selectedMinTrade.toLocaleString("en-IL")} - {selectedMaxTrade.toLocaleString("en-IL")} USDT
-                        </p>
-                      </div>
-                      <div className="space-y-2 md:col-span-3">
-                        <label htmlFor="buyer-receiving-wallet" className="text-sm font-medium text-white">
-                          {isAr ? "عنوان محفظة الاستلام" : "Receiving Wallet Address"} <span className="text-red-300">*</span>
-                        </label>
-                        <Input
-                          id="buyer-receiving-wallet"
-                          dir="ltr"
-                          required
-                          autoComplete="off"
-                          spellCheck={false}
-                          placeholder={isAr ? `عنوان محفظة ${selectedListing.network}` : `${selectedListing.network} wallet address`}
-                          value={buyerInfo.receivingWalletAddress}
-                          onChange={(event) => setBuyerInfo((prev) => ({ ...prev, receivingWalletAddress: event.target.value }))}
-                          className={`text-left font-mono ${buyerInfo.receivingWalletAddress && buyerWalletInvalid ? "border-red-500/80" : ""}`}
-                          aria-describedby="buyer-wallet-guidance"
-                          aria-invalid={buyerInfo.receivingWalletAddress ? buyerWalletInvalid : undefined}
-                        />
-                        <p
-                          id="buyer-wallet-guidance"
-                          className={`text-xs ${buyerInfo.receivingWalletAddress && buyerWalletInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}
-                        >
-                          {buyerInfo.receivingWalletAddress && buyerWalletValidationError
-                            ? buyerWalletValidationError
-                            : isAr
-                              ? `أدخل العنوان الذي تريد استلام USDT عليه عبر شبكة ${selectedListing.network}. سيبقى مخفياً عن البائع حتى تحدد أن الدفع تم إرساله.`
-                              : `Enter the address where you want to receive USDT on ${selectedListing.network}. It stays hidden from the seller until you mark payment as sent.`}
-                        </p>
-                      </div>
-                    </div>
-                    {selectedListingRequiresSafetyNotice ? (
-                      <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-xs text-amber-100">
-                        <p className="font-semibold text-[#FDE68A]">{isAr ? "إرشادات الأمان" : "Safety Guidelines"}</p>
-                        <ul className="mt-1 list-disc space-y-1 ps-4 text-[#E5E7EB]">
-                          <li>{isAr ? "التقِ في الأماكن العامة فقط." : "Meet only in public places."}</li>
-                          <li>{isAr ? "اختر مكاناً توجد فيه كاميرات مراقبة." : "Prefer locations with security cameras."}</li>
-                          <li>{isAr ? "التقِ خلال النهار قدر الإمكان." : "Meet during daylight when possible."}</li>
-                          <li>{isAr ? "لا تكشف معلومات شخصية غير ضرورية." : "Do not reveal unnecessary personal information."}</li>
-                          <li>{isAr ? "تأكد من تحويل USDT قبل المغادرة." : "Confirm the USDT transfer before leaving."}</li>
-                          <li>{isAr ? "أبلغ فوراً عن أي سلوك مشبوه." : "Report suspicious behavior immediately."}</li>
-                        </ul>
-                        <label className="mt-2 inline-flex cursor-pointer items-start gap-2 text-[#E5E7EB]">
-                          <input
-                            type="checkbox"
-                            checked={faceToFaceSafetyAcknowledged}
-                            onChange={(event) => setFaceToFaceSafetyAcknowledged(event.target.checked)}
-                            className="mt-0.5 h-4 w-4 rounded border-white/25 bg-black/40 text-[#C9A227] focus:ring-[#C9A227]"
-                          />
-                          <span>{isAr ? "قرأت إرشادات الخصوصية والأمان وفهمتها." : "I have read and understand the privacy and safety guidelines."}</span>
-                        </label>
-                        <p className="mt-1 text-[#D1D5DB]">{isAr ? "يجب على المشتري والبائع تأكيد هذه الإرشادات قبل بدء الصفقة." : "Both buyer and seller must acknowledge these guidelines before the trade can begin."}</p>
-                        <p className="mt-1 text-[#D1D5DB]">{isAr ? <>اقرأ الإرشادات كاملة في <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">مركز الأمان والثقة</Link>.</> : <>Read full guidance in the <Link href="/safety-trust" locale={locale} className="text-[#93C5FD] underline underline-offset-2">Safety & Trust Center</Link>.</>}</p>
-                      </div>
-                    ) : null}
-                    {showVerificationCta ? (
-                      <Card className="border-[#C9A227]/50 bg-gradient-to-br from-amber-500/15 via-black/60 to-[#C9A227]/10 shadow-[0_0_26px_rgba(201,162,39,0.22)]">
-                        <CardContent className="space-y-3 p-4">
-                          <div className="flex items-start gap-2">
-                            <AlertTriangle className="mt-0.5 h-4 w-4 text-[#FDE68A]" />
-                            <div>
-                              <p className="text-sm font-semibold text-[#FDE68A]">{isAr ? "⚠️ توثيق المشتري مطلوب" : "⚠️ Buyer Verification Required"}</p>
-                              <p className="mt-1 text-xs text-[#E5E7EB]">
-                                {isAr ? "أكمل التوثيق لبدء التداول بأمان على Alpha Exchange. تستغرق العملية أقل من دقيقة." : "Complete your verification to begin trading safely on Alpha Exchange. The verification takes less than one minute."}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex flex-col gap-2 sm:flex-row">
-                            <Button
-                              type="button"
-                              className="w-full sm:w-auto"
-                              onClick={goToVerificationGate}
-                              disabled={isRedirectingToVerification}
-                            >
-                              {isRedirectingToVerification ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}
-                              {isRedirectingToVerification ? (isAr ? "جارٍ الانتقال إلى التوثيق..." : "Redirecting to verification...") : (isAr ? "✅ وثّق الآن" : "✅ Verify Now")}
-                            </Button>
-                            <button
-                              type="button"
-                              onClick={goToVerificationGate}
-                              disabled={isRedirectingToVerification}
-                              className={`${isAr ? "text-right" : "text-left"} text-xs text-[#FDE68A] underline underline-offset-2 transition hover:text-[#FFE8A3] disabled:cursor-not-allowed disabled:opacity-70`}
-                            >
-                              {isAr ? "الانتقال إلى التوثيق ←" : "Go to Verification →"}
-                            </button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ) : null}
-                    {statusMessage && !showVerificationCta ? (
-                      <Card className="border-amber-500/30 bg-black/30">
-                        <CardContent className="flex items-center gap-2 p-3 text-xs text-[#FDE68A]">
-                          <AlertTriangle className="h-3.5 w-3.5" />
-                          <span>{statusMessage}</span>
-                        </CardContent>
-                      </Card>
-                    ) : null}
-                  </form>
-                </div>
-                <div className="shrink-0 border-t border-white/10 bg-[#0B0B0B]/95 px-5 py-3 sm:px-6 [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))]">
-                  <div className="grid gap-2 md:grid-cols-2">
-                    <Button type="submit" form="buy-usdt-form" className="w-full" disabled={isSubmittingPurchase || buyerTradeAmountInvalid || buyerWalletInvalid || (selectedListingRequiresSafetyNotice && !faceToFaceSafetyAcknowledged)}>
-                      {isSubmittingPurchase ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}
-                      {isSubmittingPurchase ? (isAr ? "جارٍ بدء الصفقة..." : "Starting trade...") : (isAr ? "بدء الصفقة" : "Start Trade")}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      className="w-full"
-                      disabled={isSubmittingPurchase || buyerTradeAmountInvalid || buyerWalletInvalid || (selectedListingRequiresSafetyNotice && !faceToFaceSafetyAcknowledged)}
-                      onClick={() => void submitPurchaseRequest()}
-                    >
-                      {isSubmittingPurchase ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}
-                      {isSubmittingPurchase ? (isAr ? "جارٍ الإرسال..." : "Submitting...") : (isAr ? "شراء سريع" : "Quick Buy")}
-                    </Button>
-                  </div>
-                </div>
-                </>
-              ) : (
-                <div className="px-5 pb-5 pt-4 sm:px-6">
-                <div className="rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-4 text-sm">
-                  <p className="text-base font-semibold text-white">{isAr ? "تم إرسال الطلب" : "Request Submitted"}</p>
-                  <p className="mt-2 text-[#D1D5DB]">{isAr ? "استلمت Alpha Traders طلبك. سنربطك بالبائع المعتمد قريباً." : "Alpha Traders has received your request. We will connect you with the Approved Seller shortly."}</p>
-                  <div className="mt-4">
-                    <Button onClick={() => {
-                      closeListingModal();
-                    }}>{isAr ? "إغلاق" : "Close"}</Button>
-                  </div>
-                </div>
-                </div>
-              )}
-            </div>
-          </div>
+        <PurchaseListingDialog
+          locale={locale}
+          listing={selectedListing}
+          sellerProfileData={sellerProfileData}
+          isSellerProfileLoading={isSellerProfileLoading}
+          selectedAmount={selectedAmount}
+          selectedPrice={selectedPrice}
+          commission={commission}
+          estimatedTotal={estimatedTotal}
+          isOwnerViewer={isOwnerViewer}
+          isOwnerProfileActionLoading={isOwnerProfileActionLoading}
+          purchaseSubmitted={purchaseSubmitted}
+          buyerInfo={buyerInfo}
+          selectedPaymentMethods={selectedListingPaymentMethods}
+          selectedPaymentMethod={selectedListingPaymentMethod}
+          buyerTradeAmount={buyerTradeAmount}
+          selectedMinTrade={selectedMinTrade}
+          selectedMaxTrade={selectedMaxTrade}
+          buyerTradeAmountInvalid={buyerTradeAmountInvalid}
+          buyerWalletValidationError={buyerWalletValidationError}
+          buyerWalletInvalid={buyerWalletInvalid}
+          requiresSafetyNotice={selectedListingRequiresSafetyNotice}
+          safetyAcknowledged={faceToFaceSafetyAcknowledged}
+          showVerificationCta={showVerificationCta}
+          isRedirectingToVerification={isRedirectingToVerification}
+          statusMessage={statusMessage}
+          isSubmittingPurchase={isSubmittingPurchase}
+          onClose={closeListingModal}
+          onSubmit={handlePurchaseSubmit}
+          onQuickBuy={() => void submitPurchaseRequest()}
+          onPaymentMethodChange={(method) => {
+            setSelectedPurchasePaymentMethod(method);
+            setFaceToFaceSafetyAcknowledged(false);
+          }}
+          onBuyerAmountChange={(value) => setBuyerInfo((prev) => ({ ...prev, usdtAmount: value }))}
+          onBuyerWalletChange={(value) => setBuyerInfo((prev) => ({ ...prev, receivingWalletAddress: value }))}
+          onSafetyAcknowledgedChange={setFaceToFaceSafetyAcknowledged}
+          onGoToVerification={goToVerificationGate}
+          onOwnerSellerProfileState={(sellerId, state, successMessage) => {
+            void handleOwnerSellerProfileState(sellerId, state, successMessage);
+          }}
+          onOwnerSuspendSeller={(sellerId) => {
+            void handleOwnerSuspendSeller(sellerId);
+          }}
+          formatIls={formatIls}
+          formatIntegerForInput={formatIntegerForInput}
+          localizedAuditAction={localizedAuditAction}
+          paymentMethodEmoji={paymentMethodEmoji}
+          paymentMethodLabel={paymentMethodLabel}
+          sellerLevelLabel={sellerLevelLabel}
+          sellerLevelToneKey={sellerLevelToneKey}
+          tradeStatusLabel={tradeStatusLabel}
+        />
       ) : null}
       </Portal>
     </section>

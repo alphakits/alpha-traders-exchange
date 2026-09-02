@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import robots from "@/app/robots";
@@ -12,6 +12,14 @@ function publicFile(path: string) {
 
 function sourceFile(path: string) {
   return readFileSync(resolve(process.cwd(), "src", path), "utf8");
+}
+
+function sourceDirectory(path: string) {
+  const directory = resolve(process.cwd(), "src", path);
+  return readdirSync(directory)
+    .filter((fileName) => fileName.endsWith(".tsx"))
+    .map((fileName) => readFileSync(resolve(directory, fileName), "utf8"))
+    .join("\n");
 }
 
 describe("public trust and AI discovery", () => {
@@ -96,7 +104,7 @@ describe("public trust and AI discovery", () => {
 
   it("keeps marketplace and Trade Room wording consistent with direct settlement", () => {
     const userFacingTradeSources = [
-      sourceFile("components/sections/usdt-exchange/usdt-exchange-page.tsx"),
+      sourceDirectory("components/sections/usdt-exchange"),
       sourceFile("components/sections/seller/premium-seller-profile-page.tsx"),
       sourceFile("components/sections/trade-room/trade-room-page.tsx"),
     ].join("\n");

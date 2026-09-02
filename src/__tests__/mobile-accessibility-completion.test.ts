@@ -64,6 +64,7 @@ describe("mobile accessibility completion", () => {
 
   it("keeps optimized dialogs keyboard-dismissible, screen-reader labeled, and scroll locked", () => {
     const marketplace = source("src/components/sections/usdt-exchange/usdt-exchange-page.tsx");
+    const purchaseDialog = source("src/components/sections/usdt-exchange/purchase-listing-dialog.tsx");
     const lesson = source("src/components/lessons/lesson-interface.tsx");
     const admin = source("src/components/admin/alpha-exchange-admin-dashboard.tsx");
 
@@ -73,5 +74,29 @@ describe("mobile accessibility completion", () => {
       expect(dialogSource).toContain('"Escape"');
       expect(dialogSource).toContain('document.body.style.overflow = "hidden"');
     }
+
+    expect(purchaseDialog).toContain('role="dialog"');
+    expect(purchaseDialog).toContain('aria-modal="true"');
+    expect(purchaseDialog).toContain('aria-label={isAr ? "شراء USDT" : "Buy USDT"}');
+  });
+
+  it("keeps optional exchange workflows out of the initial route bundle", () => {
+    const marketplace = source("src/components/sections/usdt-exchange/usdt-exchange-page.tsx");
+    const purchaseDialog = source("src/components/sections/usdt-exchange/purchase-listing-dialog.tsx");
+    const buyerWorkspace = source("src/components/sections/usdt-exchange/buyer-workspace-section.tsx");
+    const sellerWorkspace = source("src/components/sections/usdt-exchange/seller-workspace-section.tsx");
+    const sellerListings = source("src/components/sections/usdt-exchange/seller-listings-workspace-portal.tsx");
+
+    expect(marketplace).toContain('import("@/components/sections/usdt-exchange/purchase-listing-dialog")');
+    expect(marketplace).toContain('import("@/components/sections/usdt-exchange/buyer-workspace-section")');
+    expect(marketplace).toContain('import("@/components/sections/usdt-exchange/seller-workspace-section")');
+    expect(marketplace).toContain('import("@/components/sections/usdt-exchange/seller-listings-workspace-portal")');
+    expect(marketplace).not.toContain('id="buy-usdt-form"');
+    expect(marketplace).not.toContain("Seller Dashboard Hero");
+    expect(marketplace).not.toContain('CardTitle>{isAr ? "سجل صفقاتي" : "My Trade History"}');
+    expect(purchaseDialog).toContain('id="buy-usdt-form"');
+    expect(buyerWorkspace).toContain('CardTitle>{isAr ? "سجل صفقاتي" : "My Trade History"}');
+    expect(sellerWorkspace).toContain("Seller Dashboard Hero");
+    expect(sellerListings).toContain('id="my-listings-section"');
   });
 });
