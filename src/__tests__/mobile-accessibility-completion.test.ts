@@ -53,6 +53,15 @@ describe("mobile accessibility completion", () => {
     expect(stats).not.toContain('setDisplayValue');
   });
 
+  it("keeps the static homepage shell server-rendered to protect the mobile JavaScript budget", () => {
+    const home = source("src/components/sections/home/home-page.tsx");
+
+    expect(home).not.toContain('"use client"');
+    expect(home).not.toContain("useTranslations(");
+    expect(home).not.toContain("useLocale(");
+    expect(home).toContain('getTranslations({ locale, namespace: "home" })');
+  });
+
   it("keeps optimized dialogs keyboard-dismissible, screen-reader labeled, and scroll locked", () => {
     const marketplace = source("src/components/sections/usdt-exchange/usdt-exchange-page.tsx");
     const lesson = source("src/components/lessons/lesson-interface.tsx");
