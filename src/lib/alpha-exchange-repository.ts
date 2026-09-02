@@ -2,7 +2,7 @@ import { Pool, type PoolClient } from "pg";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import path from "path";
 import { tmpdir } from "os";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import alphaExchangeSeed from "../../data/alpha-exchange-db.json";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { isProductionSecurityRuntime, allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
@@ -41,7 +41,7 @@ type Queryable = Pool | PoolClient;
 type EvidenceWriteMap = Map<string, Buffer>;
 
 const TEST_FALLBACK_DIR_SUFFIX = process.env.NODE_ENV === "test"
-  ? `-${process.env.VITEST_WORKER_ID ?? "single"}-${process.pid}`
+  ? `-${process.env.VITEST_WORKER_ID ?? "single"}-${process.pid}-${randomUUID()}`
   : "";
 const WORKSPACE_FALLBACK_KEY = createHash("sha1").update(process.cwd()).digest("hex").slice(0, 12);
 const NON_TEST_FALLBACK_DIR = path.join(tmpdir(), "alpha-exchange-runtime", WORKSPACE_FALLBACK_KEY);
@@ -1855,6 +1855,13 @@ export class AlphaExchangeRepository {
        */
       validateBeforeCommit?: (snapshot: AlphaExchangeDb) => void;
       /**
+       * Runs only when the caller's snapshot became stale, against the latest
+       * canonical snapshot before the incoming mutation is merged or rebased.
+       * Callers can reject a stale business decision and retry it from fresh
+       * state instead of allowing status-rank merging to choose a winner.
+       */
+      validateLatestBeforeCommit?: (snapshot: AlphaExchangeDb) => void;
+      /**
        * For a narrowly scoped security-sensitive mutation, rebuilds the
        * candidate from the latest canonical snapshot while the advisory lock
        * is held. This avoids stale whole-table replacement when two instances
@@ -1880,6 +1887,7 @@ export class AlphaExchangeRepository {
         });
         const latestSnapshot = cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion);
         latestSnapshot.authSessions = cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion).authSessions;
+        options?.validateLatestBeforeCommit?.(cloneSnapshot(latestSnapshot));
         const nextSnapshot = options?.rebaseOnLatest
           ? pruneOrphanAuthSessions(await options.rebaseOnLatest(cloneSnapshot(latestSnapshot)))
           : pruneOrphanAuthSessions(cloneSnapshot(db));
@@ -2006,6 +2014,7 @@ export class AlphaExchangeRepository {
               currentResults.push({ tableName: tables[i]!.name as SnapshotTableName, rows: parallelResults[i]!.rows });
             }
             const latestSnapshot = attachVersion(snapshotFromTableRows(currentResults), currentVersion);
+            options?.validateLatestBeforeCommit?.(cloneSnapshot(latestSnapshot));
             const incomingSnapshot = options?.rebaseOnLatest
               ? pruneOrphanAuthSessions(await options.rebaseOnLatest(cloneSnapshot(latestSnapshot)))
               : pruneOrphanAuthSessions(db);

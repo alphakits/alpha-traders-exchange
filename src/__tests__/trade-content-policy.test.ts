@@ -264,6 +264,61 @@ describe("Trade content policy", () => {
     expect(downloaded.evidence.fileName).toBe("buyer-payment-evidence.png");
   });
 
+  it("commits simultaneous identical buyer review submissions exactly once", async () => {
+    const completed = snapshot().purchaseRequests[0]!;
+    snapshot().users.find((entry) => entry.id === SELLER_ID)!.notificationPreferences = { inApp: true, email: false, sms: false };
+    completed.status = "review_open";
+    completed.completedAt = new Date().toISOString();
+    reloadStoreFromSnapshot();
+
+    const submit = () => submitBuyerTradeReview({
+      requestId: REQUEST_ID,
+      buyerUserId: BUYER_ID,
+      rating: 5,
+      comment: "Fast and professional trade",
+    });
+    const [first, replay] = await Promise.all([submit(), submit()]);
+
+    expect(replay.review.id).toBe(first.review.id);
+    const saved = snapshot();
+    expect(saved.purchaseRequests[0]?.buyerReview).toMatchObject({
+      rating: 5,
+      comment: "Fast and professional trade",
+    });
+    expect(saved.auditLogs.filter((entry) => entry.action === "trade_review_submitted")).toHaveLength(1);
+    expect(saved.notifications.filter((entry) => entry.title === "Buyer left a review")).toHaveLength(1);
+    expect(saved.activityLog.filter((entry) => entry.title === "Review submitted")).toHaveLength(1);
+  });
+
+  it("commits simultaneous identical seller review responses exactly once", async () => {
+    const completed = snapshot().purchaseRequests[0]!;
+    snapshot().users.find((entry) => entry.id === BUYER_ID)!.notificationPreferences = { inApp: true, email: false, sms: false };
+    completed.status = "review_open";
+    completed.completedAt = new Date().toISOString();
+    completed.buyerReview = {
+      reviewerUserId: BUYER_ID,
+      rating: 5,
+      comment: "Fast and professional trade",
+      createdAt: new Date().toISOString(),
+      hidden: false,
+    };
+    reloadStoreFromSnapshot();
+
+    const submit = () => submitSellerReviewResponse({
+      requestId: REQUEST_ID,
+      sellerUserId: SELLER_ID,
+      message: "Thank you for the smooth trade",
+    });
+    const [first, replay] = await Promise.all([submit(), submit()]);
+
+    expect(replay.sellerReply).toBe(first.sellerReply);
+    const saved = snapshot();
+    expect(saved.purchaseRequests[0]?.sellerResponse?.message).toBe("Thank you for the smooth trade");
+    expect(saved.auditLogs.filter((entry) => entry.action === "trade_review_responded")).toHaveLength(1);
+    expect(saved.notifications.filter((entry) => entry.title === "Seller replied to your review")).toHaveLength(1);
+    expect(saved.activityLog.filter((entry) => entry.title === "Review response sent")).toHaveLength(1);
+  });
+
   it("redacts legacy close and review content in counterparty workspace, Trade Room, and public seller profile", async () => {
     const legacy = snapshot().purchaseRequests[0]!;
     legacy.status = "review_open";
