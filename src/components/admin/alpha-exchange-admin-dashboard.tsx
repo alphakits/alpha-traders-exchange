@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, BarChart3, CheckCircle2, Coins, FileClock, FileSearch, ListChecks, Megaphone, MessageSquareText, Search, Settings, ShieldCheck, Star, Store, TrendingUp, Trophy, Users, Users2, WalletCards, X, Zap } from "lucide-react";
 import { AdminAnnouncementsPanel } from "@/components/admin/admin-announcements-panel";
 import { MarketplaceEnforcementOwnerPanel } from "@/components/sections/seller/marketplace-enforcement-owner-panel";
@@ -554,6 +553,30 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
   const [rankConfirmReason, setRankConfirmReason] = useState("");
   const [complianceWalletNetwork, setComplianceWalletNetwork] = useState<SupportedNetwork>("TRC20");
   const [complianceWalletAddress, setComplianceWalletAddress] = useState("");
+
+  useEffect(() => {
+    if (!selectedSeller && !selectedRequest && !rankConfirmPending) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (rankConfirmPending) {
+        setRankConfirmPending(null);
+        setRankConfirmReason("");
+      } else if (selectedRequest) {
+        setSelectedRequest(null);
+      } else {
+        setSelectedSeller(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [rankConfirmPending, selectedRequest, selectedSeller]);
 
   const sectionItemsByKey = useMemo(() => new Map(sectionItems.map((item) => [item.key, item])), []);
 
@@ -1377,8 +1400,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
         </aside>
 
         <div className="admin-main-panel min-w-0">
-          <AnimatePresence mode="wait">
-            <motion.div key={activeSection} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.2 }}>
+          <div key={activeSection} className="alpha-reveal-rise">
               {loading ? (
                 <Card className="border-white/10 bg-[#0B0B0B]/90">
                   <CardContent className="space-y-3 p-8">
@@ -3534,17 +3556,20 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
                   ) : null}
                 </>
               ) : null}
-            </motion.div>
-          </AnimatePresence>
+          </div>
         </div>
       </div>
 
-      <AnimatePresence>
-        {selectedSeller ? (
-          <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 10, opacity: 0 }} className="modal-panel max-h-[90vh] w-full max-w-5xl overflow-y-auto">
+      {selectedSeller ? (
+          <div className="alpha-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="admin-seller-dialog-title"
+              className="alpha-modal-panel modal-panel max-h-[90vh] w-full max-w-5xl overflow-y-auto"
+            >
               <div className="flex items-center justify-between">
-                <h3 className="text-xl font-semibold">{selectedSeller.fullName}</h3>
+                <h3 id="admin-seller-dialog-title" className="text-xl font-semibold">{selectedSeller.fullName}</h3>
                 <button type="button" aria-label={t("Close seller profile", "إغلاق ملف البائع")} onClick={() => setSelectedSeller(null)} className="rounded-full border border-white/15 p-2 text-[#9CA3AF] transition hover:text-white">
                   <X className="h-4 w-4" />
                 </button>
@@ -3643,17 +3668,20 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
                   </Card>
                 )}
               </div>
-            </motion.div>
-          </motion.div>
+            </div>
+          </div>
         ) : null}
-      </AnimatePresence>
 
-      <AnimatePresence>
-        {selectedRequest ? (
-          <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 10, opacity: 0 }} className="modal-panel max-h-[90vh] w-full max-w-xl overflow-y-auto">
+      {selectedRequest ? (
+          <div className="alpha-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="admin-request-dialog-title"
+              className="alpha-modal-panel modal-panel max-h-[90vh] w-full max-w-xl overflow-y-auto"
+            >
               <div className="flex items-center justify-between">
-                <h3 className="text-xl font-semibold">{t("Purchase Request Details", "تفاصيل طلب الشراء")}</h3>
+                <h3 id="admin-request-dialog-title" className="text-xl font-semibold">{t("Purchase Request Details", "تفاصيل طلب الشراء")}</h3>
                 <button type="button" aria-label={t("Close request details", "إغلاق تفاصيل الطلب")} onClick={() => setSelectedRequest(null)} className="rounded-full border border-white/15 p-2 text-[#9CA3AF] transition hover:text-white">
                   <X className="h-4 w-4" />
                 </button>
@@ -3747,33 +3775,27 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
                   </div>
                 </div>
               ) : null}
-            </motion.div>
-          </motion.div>
+            </div>
+          </div>
         ) : null}
-      </AnimatePresence>
 
-      <AnimatePresence>
-        {rankConfirmPending ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      {rankConfirmPending ? (
+          <div
+            className="alpha-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
             onClick={() => { setRankConfirmPending(null); setRankConfirmReason(""); }}
           >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 8 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 8 }}
-              transition={{ duration: 0.18 }}
-              className="w-full max-w-md rounded-2xl border border-white/15 bg-[#0D0D0D] p-6 shadow-[0_24px_60px_rgba(0,0,0,0.7)]"
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="admin-rank-dialog-title"
+              className="alpha-modal-panel w-full max-w-md rounded-2xl border border-white/15 bg-[#0D0D0D] p-6 shadow-[0_24px_60px_rgba(0,0,0,0.7)]"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Header */}
               <div className="mb-5">
                 <div className="flex items-center gap-3 mb-1">
                   <Trophy className="h-5 w-5 text-[#C9A227]" />
-                  <h3 className="text-base font-semibold text-white">{t("Change Seller Rank?", "تغيير رتبة البائع؟")}</h3>
+                  <h3 id="admin-rank-dialog-title" className="text-base font-semibold text-white">{t("Change Seller Rank?", "تغيير رتبة البائع؟")}</h3>
                 </div>
                 <p className={`text-xs text-[#9CA3AF] ${isArabic ? "pr-8" : "pl-8"}`}>{t("This will immediately update the seller’s public marketplace appearance.", "سيُحدّث ذلك مظهر البائع في السوق فورًا.")}</p>
               </div>
@@ -3829,18 +3851,15 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
                   {t("Confirm", "تأكيد")}
                 </Button>
               </div>
-            </motion.div>
-          </motion.div>
+            </div>
+          </div>
         ) : null}
-      </AnimatePresence>
 
-      <AnimatePresence>
-        {toast ? (
-          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} className="fixed bottom-5 end-5 z-50 rounded-full border border-[#C9A227]/35 bg-[#0B0B0B]/95 px-4 py-2 text-sm text-white shadow-[0_14px_34px_rgba(0,0,0,0.4)]">
+      {toast ? (
+          <div className="alpha-reveal-rise fixed bottom-5 end-5 z-50 rounded-full border border-[#C9A227]/35 bg-[#0B0B0B]/95 px-4 py-2 text-sm text-white shadow-[0_14px_34px_rgba(0,0,0,0.4)]">
             {toast}
-          </motion.div>
+          </div>
         ) : null}
-      </AnimatePresence>
     </section>
   );
 }

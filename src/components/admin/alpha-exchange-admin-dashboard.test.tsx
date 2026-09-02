@@ -9,25 +9,6 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(navigationState.search),
 }));
 
-vi.mock("framer-motion", () => ({
-  AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  motion: {
-    div: (input: React.HTMLAttributes<HTMLDivElement> & {
-      initial?: unknown;
-      animate?: unknown;
-      exit?: unknown;
-      transition?: unknown;
-    }) => {
-      const { children, ...props } = input;
-      delete props.initial;
-      delete props.animate;
-      delete props.exit;
-      delete props.transition;
-      return <div {...props}>{children}</div>;
-    },
-  },
-}));
-
 const listing = {
   id: "listing-123",
   sellerDisplayName: "Verified Seller",

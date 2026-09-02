@@ -1914,6 +1914,85 @@ html[lang="ar"] :where(body, body *) {
   }
 }
 
+/* Lightweight route transitions for critical marketplace and error paths.
+   These replace a client animation runtime with compositor-only CSS. */
+@keyframes alpha-reveal-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 0.75rem, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes alpha-reveal-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes alpha-reveal-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes alpha-reveal-scale-x {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes alpha-modal-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes alpha-modal-panel-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 1.25rem, 0) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes alpha-home-particle-float {
+  0%,
+  100% {
+    opacity: 0.12;
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    opacity: 0.35;
+    transform: translate3d(0, -0.5rem, 0);
+  }
+}
+
+.alpha-modal-backdrop,
+.alpha-modal-panel {
+  will-change: opacity, transform;
+}
+
+.alpha-reveal-rise { animation: alpha-reveal-rise 420ms ease-out both; }
+.alpha-reveal-pop { animation: alpha-reveal-pop 380ms ease-out both; }
+.alpha-reveal-fade { animation: alpha-reveal-fade 320ms ease-out both; }
+.alpha-reveal-scale-x { animation: alpha-reveal-scale-x 360ms ease-out both; }
+.alpha-modal-backdrop { animation: alpha-modal-backdrop-in 160ms ease-out both; }
+.alpha-modal-panel { animation: alpha-modal-panel-in 200ms ease-out both; }
+.alpha-home-particle { animation: alpha-home-particle-float 4s ease-in-out infinite; }
+.alpha-delay-1 { animation-delay: 80ms; }
+.alpha-delay-2 { animation-delay: 150ms; }
+.alpha-delay-3 { animation-delay: 220ms; }
+.alpha-delay-4 { animation-delay: 290ms; }
+
 @media (max-width: 1024px) {
   .global-chain-bg__crypto-coin:nth-child(n + 6) {
     display: none;

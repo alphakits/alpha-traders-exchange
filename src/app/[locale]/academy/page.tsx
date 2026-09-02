@@ -6,7 +6,7 @@ import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Link } from "@/i18n/navigation";
-import { AcademyRoadmap } from "@/components/academy/academy-roadmap";
+import { AcademyRoadmap, type AcademyRoadmapCourse } from "@/components/academy/academy-roadmap";
 import { formatAcademyLevel } from "@/lib/academy-localization";
 
 export async function generateMetadata() {
@@ -27,6 +27,20 @@ export default async function AcademyPage({ params }: { params: Promise<{ locale
     redirect(`/${locale}/login?redirectTo=/${locale}/academy`);
   }
   const isAr = locale === "ar";
+  const roadmapCourses: AcademyRoadmapCourse[] = courses.map((course) => ({
+    id: course.id,
+    slug: course.slug,
+    title: course.title,
+    titleAr: course.titleAr,
+    level: course.level,
+    summary: course.summary,
+    summaryAr: course.summaryAr,
+    lessons: getLessonsByCourse(course.id).map((lesson) => ({
+      id: lesson.id,
+      title: lesson.title,
+      titleAr: lesson.titleAr,
+    })),
+  }));
 
   return (
     <section className="section-container page-shell">
@@ -41,7 +55,7 @@ export default async function AcademyPage({ params }: { params: Promise<{ locale
       <div className="grid gap-6 xl:grid-cols-[1.1fr_1fr]">
         <div className="space-y-4">
           <h2 className="text-2xl font-semibold">{isAr ? "خارطة التعلم التفاعلية" : "Interactive Learning Roadmap"}</h2>
-          <AcademyRoadmap />
+          <AcademyRoadmap courses={roadmapCourses} />
           <Card className="border-[#6CAEFF]/30 bg-[#0B0B0B]/95">
             <CardHeader>
               <CardDescription className="text-[#93C5FD]">{isAr ? "Alpha Exchange" : "Alpha Exchange"}</CardDescription>

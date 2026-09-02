@@ -2,7 +2,6 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, ArrowRight, BadgePercent, BellRing, Building2, CheckCircle2, Check, ChevronDown, ChevronRight, Clock3, Copy, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, PauseCircle, PlayCircle, ShieldCheck, Sparkles, Star, Store, Trash2, TrendingUp, Trophy, Upload, Users, Wallet, WalletCards, X, Zap } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
@@ -1256,8 +1255,8 @@ const ListingCountdownBadge = memo(function ListingCountdownBadge({ expiresAt, i
   );
 });
 
-// Renders children into document.body so fixed-position overlays escape any
-// transformed ancestor (framer-motion) and center against the real viewport.
+// Renders children into document.body so fixed-position overlays stay centered
+// against the real viewport even if a future ancestor establishes a containing block.
 function Portal({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -1493,13 +1492,18 @@ export function UsdtExchangePage({
   // Escape closes the open Buy or removal dialog (keyboard accessibility).
   useEffect(() => {
     if (!selectedListing && !removalListing) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (removalListing) setRemovalListing(null);
       else if (selectedListing) closeListingModal();
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
   }, [selectedListing, removalListing, closeListingModal]);
 
   const goToVerificationGate = useCallback(() => {
@@ -4486,14 +4490,12 @@ export function UsdtExchangePage({
             </div>
             <div className="mt-3">
               <div className="h-2.5 overflow-hidden rounded-full bg-black/35 ring-1 ring-white/10">
-                <motion.div
-                  className="relative h-full rounded-full bg-gradient-to-r from-[#B8860B] via-[#D4AF37] to-[#F7E7A6] shadow-[0_0_22px_rgba(212,175,55,0.6)]"
-                  initial={{ width: 0 }}
-                  animate={{ width: `${sellerLevelProgressPercent}%` }}
-                  transition={{ type: "spring", stiffness: 90, damping: 20, mass: 0.7 }}
+                <div
+                  className="relative h-full rounded-full bg-gradient-to-r from-[#B8860B] via-[#D4AF37] to-[#F7E7A6] shadow-[0_0_22px_rgba(212,175,55,0.6)] transition-[width] duration-700 ease-out"
+                  style={{ width: `${sellerLevelProgressPercent}%` }}
                 >
                   <span className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-r from-transparent to-white/30" />
-                </motion.div>
+                </div>
               </div>
               <p className="mt-2 text-base font-semibold text-[#FDE68A]">
                 {sellerNextTier
@@ -4618,11 +4620,9 @@ export function UsdtExchangePage({
                         <span>{buyerProfileSummary?.progressPercent ?? 18}%</span>
                       </div>
                       <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-white/10">
-                        <motion.div
-                          className={cn("relative h-full rounded-full", `buyer-rank-progress buyer-rank-progress--${buyerProfileSummary?.key ?? "rookie"}`)}
-                          initial={{ width: 0 }}
-                          animate={{ width: `${buyerProfileSummary?.progressPercent ?? 18}%` }}
-                          transition={{ type: "spring", stiffness: 90, damping: 20, mass: 0.7 }}
+                        <div
+                          className={cn("relative h-full rounded-full transition-[width] duration-700 ease-out", `buyer-rank-progress buyer-rank-progress--${buyerProfileSummary?.key ?? "rookie"}`)}
+                          style={{ width: `${buyerProfileSummary?.progressPercent ?? 18}%` }}
                         />
                       </div>
                       <div className="mt-3 grid gap-2 sm:grid-cols-3">
@@ -7608,18 +7608,13 @@ export function UsdtExchangePage({
       ) : null}
 
       <Portal>
-      <AnimatePresence>
-        {removalListing ? (
-          <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div
+      {removalListing ? (
+          <div className="alpha-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+            <div
               role="dialog"
               aria-modal="true"
               aria-label={isAr ? "إزالة العرض" : "Remove listing"}
-              className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0B0B0B]/95 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.5)]"
-              initial={{ opacity: 0, y: 24, scale: 0.97 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.97 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="alpha-modal-panel w-full max-w-md rounded-3xl border border-white/10 bg-[#0B0B0B]/95 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.5)]"
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -7671,17 +7666,15 @@ export function UsdtExchangePage({
                   <Button type="button" variant="secondary" className="w-full" onClick={() => setRemovalListing(null)}>{isAr ? "إلغاء" : "Cancel"}</Button>
                 </div>
               </div>
-            </motion.div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+            </div>
+          </div>
+      ) : null}
       </Portal>
 
       <Portal>
-      <AnimatePresence>
-        {selectedListing ? (
-         <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.div role="dialog" aria-modal="true" aria-label={isAr ? "شراء USDT" : "Buy USDT"} className="flex max-h-[92vh] w-full max-w-[700px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0B]/95 shadow-[0_24px_80px_rgba(0,0,0,0.5)]" initial={{ opacity: 0, y: 24, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.97 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+      {selectedListing ? (
+         <div className="alpha-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+            <div role="dialog" aria-modal="true" aria-label={isAr ? "شراء USDT" : "Buy USDT"} className="alpha-modal-panel flex max-h-[92vh] w-full max-w-[700px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0B]/95 shadow-[0_24px_80px_rgba(0,0,0,0.5)]">
               <div className={`flex shrink-0 items-start justify-between gap-3 px-5 pt-5 sm:px-6 ${isAr ? "flex-row-reverse" : ""}`}>
                 <div>
                   <h3 className="text-2xl font-semibold">{isAr ? "شراء USDT" : "Buy USDT"}</h3>
@@ -7993,10 +7986,9 @@ export function UsdtExchangePage({
                 </div>
                 </div>
               )}
-            </motion.div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+            </div>
+          </div>
+      ) : null}
       </Portal>
     </section>
   );

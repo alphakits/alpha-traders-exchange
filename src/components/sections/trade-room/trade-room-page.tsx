@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { motion } from "framer-motion";
 import { AlertTriangle, BellRing, CheckCircle2, Clock3, Copy, LoaderCircle, MessageCircle, Paperclip, ShieldCheck, Upload, WalletCards } from "lucide-react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
@@ -2489,10 +2488,8 @@ export function TradeRoomPage({
 
         {showSuccessScreen ? (
           isActorBuyer && buyerCompletionSuccessActive ? (
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: buyerSuccessFadingOut ? 0 : 1, y: buyerSuccessFadingOut ? -6 : 0 }}
-              transition={{ duration: 0.25, ease: "easeOut" }}
+            <div
+              className={`transition-[opacity,transform] duration-300 ease-out ${buyerSuccessFadingOut ? "-translate-y-1.5 opacity-0" : "translate-y-0 opacity-100"}`}
             >
               <Card className="border-emerald-500/35 bg-emerald-500/10">
                 <CardHeader>
@@ -2525,7 +2522,7 @@ export function TradeRoomPage({
                   </div>
                 </CardContent>
               </Card>
-            </motion.div>
+            </div>
           ) : (
           <Card className="border-emerald-500/35 bg-emerald-500/10">
             <CardHeader>
