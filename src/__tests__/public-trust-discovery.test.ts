@@ -43,7 +43,7 @@ describe("public trust and AI discovery", () => {
     expect(config.sitemap).toBe("https://www.alphatraders.co.il/sitemap.xml");
   });
 
-  it("indexes public safety and legal pages but excludes auth and private application pages", () => {
+  it("indexes public safety and legal pages but excludes every authenticated route", () => {
     const urls = sitemap().map((entry) => entry.url);
 
     for (const locale of ["en", "ar"]) {
@@ -56,7 +56,28 @@ describe("public trust and AI discovery", () => {
       ]));
     }
 
-    expect(urls.some((url) => /\/(login|register|dashboard|admin)(?:\/|$)/.test(url))).toBe(false);
+    expect(urls.some((url) => /\/(academy|lessons|usdt-exchange|trade-room|dashboard|profile|settings|admin|login|register)(?:\/|$)/.test(url))).toBe(false);
+  });
+
+  it("tells crawlers not to enter routes that middleware requires a session for", () => {
+    const config = robots();
+    const rules = Array.isArray(config.rules) ? config.rules : [config.rules];
+
+    for (const rule of rules) {
+      const disallowed = Array.isArray(rule.disallow) ? rule.disallow : [rule.disallow];
+      for (const locale of ["en", "ar"]) {
+        expect(disallowed).toEqual(expect.arrayContaining([
+          `/${locale}/academy`,
+          `/${locale}/lessons`,
+          `/${locale}/usdt-exchange`,
+          `/${locale}/trade-room`,
+          `/${locale}/dashboard`,
+          `/${locale}/profile`,
+          `/${locale}/settings`,
+          `/${locale}/admin`,
+        ]));
+      }
+    }
   });
 
   it("publishes restrained Organization and WebSite schema without invented legal credentials", () => {
