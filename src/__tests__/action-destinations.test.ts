@@ -69,6 +69,9 @@ describe("canonical action destinations", () => {
     expect(parseAdminDashboardDestination(new URLSearchParams("section=marketplace-enforcement"))).toEqual({
       section: "marketplace-enforcement",
     });
+    expect(parseAdminDashboardDestination(new URLSearchParams("section=system-health"))).toEqual({
+      section: "system-health",
+    });
     expect(parseAdminDashboardDestination(new URLSearchParams("tab=listings&status=draft"))).toEqual({
       section: "marketplace-listings",
       listingStatus: "draft",

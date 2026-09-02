@@ -13,6 +13,7 @@ vi.mock("@/i18n/navigation", () => ({
 import {
   isTradeRoomChatNearBottom,
   groupTradeTimelineEntries,
+  getTradeRoomReconnectDelayMs,
   mergeTradeRoomSnapshotPreservingOptimisticMessages,
   mergeTradeRoomMessages,
   revealTradeRoomDeepLinkTarget,
@@ -178,6 +179,15 @@ describe("Trade Room client stability helpers", () => {
   it("restarts a Trade Room stream only when a BFCache page is restored", () => {
     expect(shouldRestartTradeRoomStreamAfterPageShow({ persisted: true })).toBe(true);
     expect(shouldRestartTradeRoomStreamAfterPageShow({ persisted: false })).toBe(false);
+  });
+
+  it("keeps reconnecting with bounded backoff during long mobile network interruptions", () => {
+    expect(getTradeRoomReconnectDelayMs(1)).toBe(1_000);
+    expect(getTradeRoomReconnectDelayMs(2)).toBe(2_000);
+    expect(getTradeRoomReconnectDelayMs(3)).toBe(4_000);
+    expect(getTradeRoomReconnectDelayMs(4)).toBe(8_000);
+    expect(getTradeRoomReconnectDelayMs(5)).toBe(15_000);
+    expect(getTradeRoomReconnectDelayMs(50)).toBe(15_000);
   });
 
   it("preserves a reader's older chat position while still revealing their own send", () => {

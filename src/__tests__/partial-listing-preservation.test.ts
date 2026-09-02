@@ -1035,6 +1035,52 @@ describe("partial listing preservation", () => {
     }
   });
 
+  it("commits exactly one request when the same buyer double-submits a listing concurrently", async () => {
+    const firstListing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "700",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "700",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+    await approveListing(firstListing.id);
+
+    const submit = (listingId: string) => createPurchaseRequest({
+      buyerId: BUYER_ONE_ID,
+      listingId,
+      usdtAmount: "100",
+      buyerName: "Concurrent Buyer",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      actorUserId: BUYER_ONE_ID,
+    });
+
+    const results = await Promise.allSettled([submit(firstListing.id), submit(firstListing.id)]);
+    const fulfilled = results.filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof createPurchaseRequest>>> => result.status === "fulfilled");
+    const rejected = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]?.reason).toBeInstanceOf(TradeBlockedError);
+    expect((rejected[0]?.reason as TradeBlockedError).code).toBe("PURCHASE_REQUEST_ALREADY_SUBMITTED");
+    expect((rejected[0]?.reason as TradeBlockedError).purchaseRequestId).toBe(fulfilled[0]?.value.request.id);
+
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    const activeBuyerTrades = snapshot.purchaseRequests.filter(
+      (candidate) => candidate.buyerId === BUYER_ONE_ID
+        && candidate.listingId === firstListing.id
+        && ["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(candidate.status),
+    );
+    expect(activeBuyerTrades).toHaveLength(1);
+  });
+
   it("redirects buyer but not seller for a pending (pre-acceptance) trade", async () => {
     const listing = await createMarketplaceListing({
       sellerId: SELLER_ID,
