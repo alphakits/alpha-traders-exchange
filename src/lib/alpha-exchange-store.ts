@@ -13079,94 +13079,120 @@ export async function openTradeDispute(input: {
   openedByUserId: string;
   reason: string;
 }) {
-  const db = await readDb();
-  const priorSmsCount = db.smsDeliveries?.length ?? 0;
-  const request = db.purchaseRequests.find((item) => item.id === input.purchaseRequestId);
-  if (!request) throw new Error("Trade not found.");
-  const isParticipant = request.buyerId === input.openedByUserId || request.sellerId === input.openedByUserId;
-  if (!isParticipant) throw new Error("Only trade participants can open a dispute.");
-  if (request.status === "pending" || request.status === "declined" || request.status === "cancelled") {
-    throw new Error("Dispute can be opened only after trade is accepted.");
-  }
-  const existingOpen = db.disputes.find((item) => item.purchaseRequestId === request.id && item.status === "open");
-  if (existingOpen) throw new Error("An open dispute already exists for this trade.");
   const reason = String(input.reason ?? "").trim();
   if (!reason) throw new Error("Dispute reason is required.");
   if (reason.length > 500) throw new Error("Dispute reason is too long.");
   assertNoExchangeDirectContact(reason);
+  const db = await readDb();
+  const priorSmsCount = db.smsDeliveries?.length ?? 0;
+  let committed: { dispute: TradeDisputeCase; request: PurchaseRequest; created: boolean } | null = null;
 
-  const dispute: TradeDisputeCase = {
-    id: `dispute-${randomUUID()}`,
-    tradeId: request.tradeId ?? request.id,
-    purchaseRequestId: request.id,
-    openedByUserId: input.openedByUserId,
-    sellerId: request.sellerId,
-    buyerId: request.buyerId,
-    reason,
-    buyerEvidenceId: getTradeEvidenceFile(db, request.id, "buyer")?.id,
-    sellerEvidenceId: getTradeEvidenceFile(db, request.id, "seller")?.id,
-    status: "open",
-    createdAt: nowIso(),
-    updatedAt: nowIso(),
-  };
-  db.disputes.unshift(dispute);
-  appendTradeTimelineEntry(request, {
-    type: "dispute_opened",
-    actorUserId: input.openedByUserId,
-    actorRole: resolveActorRole(db, input.openedByUserId),
-    message: "Dispute opened for this trade.",
-    createdAt: dispute.createdAt,
-  });
+  const applyDisputeToCanonicalSnapshot = async (snapshot: AlphaExchangeDb) => {
+    const request = snapshot.purchaseRequests.find((item) => item.id === input.purchaseRequestId);
+    if (!request) throw new Error("Trade not found.");
+    const isParticipant = request.buyerId === input.openedByUserId || request.sellerId === input.openedByUserId;
+    if (!isParticipant) throw new Error("Only trade participants can open a dispute.");
+    if (request.status === "pending" || request.status === "declined" || request.status === "cancelled") {
+      throw new Error("Dispute can be opened only after trade is accepted.");
+    }
 
-  for (const adminUser of getAdminNotificationRecipients(db)) {
-    pushNotification(db, {
-      userId: adminUser.id,
+    const existingOpen = snapshot.disputes.find((item) => item.purchaseRequestId === request.id && item.status === "open");
+    if (existingOpen) {
+      if (existingOpen.openedByUserId !== input.openedByUserId || existingOpen.reason !== reason) {
+        throw new Error("An open dispute already exists for this trade.");
+      }
+      committed = { dispute: existingOpen, request, created: false };
+      return snapshot;
+    }
+
+    const dispute: TradeDisputeCase = {
+      id: `dispute-${randomUUID()}`,
+      tradeId: request.tradeId ?? request.id,
+      purchaseRequestId: request.id,
+      openedByUserId: input.openedByUserId,
+      sellerId: request.sellerId,
+      buyerId: request.buyerId,
+      reason,
+      buyerEvidenceId: getTradeEvidenceFile(snapshot, request.id, "buyer")?.id,
+      sellerEvidenceId: getTradeEvidenceFile(snapshot, request.id, "seller")?.id,
+      status: "open",
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    snapshot.disputes.unshift(dispute);
+    appendTradeTimelineEntry(request, {
+      type: "dispute_opened",
+      actorUserId: input.openedByUserId,
+      actorRole: resolveActorRole(snapshot, input.openedByUserId),
+      message: "Dispute opened for this trade.",
+      createdAt: dispute.createdAt,
+    });
+
+    for (const adminUser of getAdminNotificationRecipients(snapshot)) {
+      pushNotification(snapshot, {
+        userId: adminUser.id,
+        category: "dispute",
+        title: "Dispute opened",
+        message: `Dispute opened for trade ${dispute.tradeId}.`,
+        relatedTradeId: dispute.tradeId,
+        relatedHref: adminPurchaseRequestsDestination(request.id),
+        actionHref: adminPurchaseRequestsDestination(request.id),
+        actionLabel: "Review Trade",
+        priority: "critical",
+        forceInApp: true,
+      });
+      queueSmsDelivery(snapshot, {
+        eventType: "trade_requires_admin_review",
+        eventKey: `trade:${request.id}:admin-review:${adminUser.id}`,
+        recipientUserId: adminUser.id,
+        destinationPath: adminPurchaseRequestsDestination(request.id),
+      });
+    }
+    pushNotification(snapshot, {
+      userId: request.buyerId,
       category: "dispute",
       title: "Dispute opened",
-      message: `Dispute opened for trade ${dispute.tradeId}.`,
+      message: `A dispute was opened for trade ${dispute.tradeId}.`,
       relatedTradeId: dispute.tradeId,
-      relatedHref: adminPurchaseRequestsDestination(request.id),
-      actionHref: adminPurchaseRequestsDestination(request.id),
-      actionLabel: "Review Trade",
-      priority: "critical",
-      forceInApp: true,
+      relatedHref: requestDetailsHref(request.id),
     });
-    queueSmsDelivery(db, {
-      eventType: "trade_requires_admin_review",
-      eventKey: `trade:${request.id}:admin-review:${adminUser.id}`,
-      recipientUserId: adminUser.id,
-      destinationPath: adminPurchaseRequestsDestination(request.id),
+    pushNotification(snapshot, {
+      userId: request.sellerId,
+      category: "dispute",
+      title: "Dispute opened",
+      message: `A dispute was opened for trade ${dispute.tradeId}.`,
+      relatedTradeId: dispute.tradeId,
+      relatedHref: requestDetailsHref(request.id),
     });
+    pushActivityLog(snapshot, {
+      userId: input.openedByUserId,
+      category: "dispute",
+      title: "Dispute opened",
+      details: `Dispute opened for trade ${dispute.tradeId}.`,
+    });
+    committed = { dispute, request, created: true };
+    return snapshot;
+  };
+
+  await applyDisputeToCanonicalSnapshot(db);
+  let result = committed as { dispute: TradeDisputeCase; request: PurchaseRequest; created: boolean } | null;
+  if (!result) throw new Error("Failed to prepare trade dispute.");
+  if (result.created) {
+    await writeDb(db, {
+      selectedTables: DISPUTE_WRITE_TABLES,
+      rebaseOnLatest: applyDisputeToCanonicalSnapshot,
+    });
+    result = committed as { dispute: TradeDisputeCase; request: PurchaseRequest; created: boolean } | null;
+    if (!result) throw new Error("Failed to save trade dispute.");
   }
-  pushNotification(db, {
-    userId: request.buyerId,
-    category: "dispute",
-    title: "Dispute opened",
-    message: `A dispute was opened for trade ${dispute.tradeId}.`,
-    relatedTradeId: dispute.tradeId,
-    relatedHref: requestDetailsHref(request.id),
-  });
-  pushNotification(db, {
-    userId: request.sellerId,
-    category: "dispute",
-    title: "Dispute opened",
-    message: `A dispute was opened for trade ${dispute.tradeId}.`,
-    relatedTradeId: dispute.tradeId,
-    relatedHref: requestDetailsHref(request.id),
-  });
-  pushActivityLog(db, {
-    userId: input.openedByUserId,
-    category: "dispute",
-    title: "Dispute opened",
-    details: `Dispute opened for trade ${dispute.tradeId}.`,
-  });
-  publishRealtimeEvent({
-    type: "trade.status_changed",
-    payload: { request: enrichRequestWithEvidence(db, request) },
-  });
-  await writeDb(db, { selectedTables: DISPUTE_WRITE_TABLES });
-  await dispatchCommittedSms(db, priorSmsCount);
-  return dispute;
+  if (result.created) {
+    publishRealtimeEvent({
+      type: "trade.status_changed",
+      payload: { request: enrichRequestWithEvidence(db, result.request) },
+    });
+    await dispatchCommittedSms(db, priorSmsCount);
+  }
+  return result.dispute;
 }
 
 export async function reportSeller(input: {
