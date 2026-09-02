@@ -153,7 +153,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
     const routeMs = Date.now() - startedAt;
     const responseRequest = sanitizePurchaseRequestForActor(updated, user.id, user.role);
-    const responseBody = { request: responseRequest, metrics, destination: tradeDestination(responseRequest, user.id) };
+    const responseBody = { request: responseRequest, metrics, statusChanged, destination: tradeDestination(responseRequest, user.id) };
     const queueMs = Math.max(0, routeMs - metrics.totalMs);
     // Always log server-side timings so production performance is visible in Vercel logs.
     if (routeDebug) {
@@ -186,6 +186,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         "X-Trade-Sse-Ms": String(metrics.sseMs ?? 0),
         "X-Trade-Write-Ms": String(metrics.writeDbMs),
         "X-Trade-Trust-Ms": String(metrics.trustMs),
+        "X-Trade-Status-Replayed": statusChanged ? "0" : "1",
         "Server-Timing": `route;dur=${routeMs}, queue;dur=${queueMs}, db;dur=${metrics.totalMs}, read;dur=${metrics.readDbMs}, timeline;dur=${metrics.timelineMs ?? 0}, chat;dur=${metrics.chatMs ?? 0}, notify;dur=${metrics.notificationMs ?? 0}, sse;dur=${metrics.sseMs ?? 0}, write;dur=${metrics.writeDbMs}, trust;dur=${metrics.trustMs}`,
       },
     });

@@ -113,6 +113,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
           "X-Trade-Evidence-Storage-Ms": String(uploaded.metrics.storageMs),
           "X-Trade-Evidence-Write-Ms": String(uploaded.metrics.dbWriteMs),
           "X-Trade-Evidence-Route-Ms": String(routeMs),
+          "X-Trade-Evidence-Replayed": uploaded.metrics.replayed ? "1" : "0",
           "Server-Timing": `route;dur=${routeMs}, read;dur=${uploaded.metrics.dbReadMs}, validate;dur=${uploaded.metrics.validationMs}, storage;dur=${uploaded.metrics.storageMs}, write;dur=${uploaded.metrics.dbWriteMs}`,
         },
       },

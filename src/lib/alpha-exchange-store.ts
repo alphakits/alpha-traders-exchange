@@ -299,6 +299,13 @@ export class TradeBlockedError extends Error {
   }
 }
 
+class ConcurrentTradeMutationError extends Error {
+  constructor() {
+    super("Trade state changed while this action was being committed.");
+    this.name = "ConcurrentTradeMutationError";
+  }
+}
+
 function syncCachedAuthSessions(nextAuthSessions: AuthSession[]) {
   if (!dbCache) return;
   dbCache = {
@@ -2979,6 +2986,7 @@ async function writeDb(
     traceTag?: string;
     selectedTables?: readonly SnapshotTableName[];
     validateBeforeCommit?: (snapshot: AlphaExchangeDb) => void;
+    validateLatestBeforeCommit?: (snapshot: AlphaExchangeDb) => void;
     rebaseOnLatest?: (snapshot: AlphaExchangeDb) => AlphaExchangeDb | Promise<AlphaExchangeDb>;
   },
 ) {
@@ -2997,6 +3005,7 @@ async function writeDb(
       traceTag: options?.traceTag,
       selectedTables: options?.selectedTables,
       validateBeforeCommit: options?.validateBeforeCommit,
+      validateLatestBeforeCommit: options?.validateLatestBeforeCommit,
       rebaseOnLatest: options?.rebaseOnLatest
         ? async (persistedSnapshot) => {
           const rebased = normalizeDb(await options.rebaseOnLatest!(structuredClone(persistedSnapshot)));
@@ -8681,13 +8690,22 @@ export async function getTradeRoomBankDetails(input: {
   };
 }
 
-export async function closePurchaseRequestManually(input: {
+type ClosePurchaseRequestInput = {
   requestId: string;
   actorUserId: string;
   actorRole: UserRole;
   reason: string;
   explanation?: string;
-}) {
+};
+
+export async function closePurchaseRequestManually(input: ClosePurchaseRequestInput): Promise<PurchaseRequest> {
+  return closePurchaseRequestManuallyAttempt(input, 0);
+}
+
+async function closePurchaseRequestManuallyAttempt(
+  input: ClosePurchaseRequestInput,
+  concurrencyRetryCount: number,
+): Promise<PurchaseRequest> {
   const db = await readDb({ bypassCache: true });
   const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.requestId);
   if (requestIndex === -1) throw new Error("Trade not found.");
@@ -8752,6 +8770,15 @@ export async function closePurchaseRequestManually(input: {
   });
 
   const listing = db.marketplaceListings.find((item) => item.id === request.listingId);
+  const listingCommitBasis = listing
+    ? {
+        id: listing.id,
+        status: listing.status,
+        activeTradeRequestId: listing.activeTradeRequestId,
+        availableAmount: listing.availableAmount,
+        updatedAt: listing.updatedAt,
+      }
+    : null;
   if (listing && listing.activeTradeRequestId === request.id) {
     await unlockListingAfterCancelledTrade(db, listing, input.actorUserId, request, closeReason);
   }
@@ -8790,7 +8817,41 @@ export async function closePurchaseRequestManually(input: {
     relatedHref: requestDetailsHref(request.id),
   });
 
-  await writeDb(db, { selectedTables: TRADE_STATUS_BASE_TABLES });
+  try {
+    await writeDb(db, {
+      selectedTables: TRADE_STATUS_BASE_TABLES,
+      validateLatestBeforeCommit: (canonicalSnapshot) => {
+        const canonicalRequest = canonicalSnapshot.purchaseRequests.find((candidate) => candidate.id === request.id);
+        if (!canonicalRequest || canonicalRequest.status !== request.status || canonicalRequest.closedAt !== request.closedAt) {
+          throw new ConcurrentTradeMutationError();
+        }
+        const canonicalListing = canonicalSnapshot.marketplaceListings.find((candidate) => candidate.id === request.listingId);
+        const listingChanged = listingCommitBasis
+          ? !canonicalListing
+            || canonicalListing.status !== listingCommitBasis.status
+            || canonicalListing.activeTradeRequestId !== listingCommitBasis.activeTradeRequestId
+            || canonicalListing.availableAmount !== listingCommitBasis.availableAmount
+            || canonicalListing.updatedAt !== listingCommitBasis.updatedAt
+          : Boolean(canonicalListing);
+        if (listingChanged) {
+          throw new ConcurrentTradeMutationError();
+        }
+      },
+    });
+  } catch (error) {
+    if (error instanceof ConcurrentTradeMutationError && concurrencyRetryCount < 2) {
+      return closePurchaseRequestManuallyAttempt(input, concurrencyRetryCount + 1);
+    }
+    if (error instanceof ConcurrentTradeMutationError) {
+      throw new TradeBlockedError(
+        "concurrent-close-change",
+        "This trade changed while it was being closed. Refresh the Trade Room and try again.",
+        input.requestId,
+        { guard: "canonical-close-retry" },
+      );
+    }
+    throw error;
+  }
   const enriched = enrichRequestWithEvidence(db, db.purchaseRequests[requestIndex]);
   publishRealtimeEvent({
     type: "trade.status_changed",
@@ -9311,7 +9372,7 @@ function assertTradeParticipantOrAdmin(request: PurchaseRequest, userId: string,
   throw new Error("You are not allowed to access trade evidence.");
 }
 
-export async function uploadTradeEvidence(input: {
+type UploadTradeEvidenceInput = {
   purchaseRequestId: string;
   actorUserId: string;
   actorRole: UserRole;
@@ -9320,7 +9381,30 @@ export async function uploadTradeEvidence(input: {
   mimeType: string;
   sizeBytes: number;
   contentBase64: string;
-}) {
+};
+
+type UploadTradeEvidenceResult = {
+  request: PurchaseRequest;
+  metrics: {
+    dbReadMs: number;
+    validationMs: number;
+    storageMs: number;
+    dbWriteMs: number;
+    routeMs: number;
+    autoAdvancedToPaymentSent: boolean;
+    autoAdvancedToUsdtSent: boolean;
+    replayed: boolean;
+  };
+};
+
+export async function uploadTradeEvidence(input: UploadTradeEvidenceInput): Promise<UploadTradeEvidenceResult> {
+  return uploadTradeEvidenceAttempt(input, 0);
+}
+
+async function uploadTradeEvidenceAttempt(
+  input: UploadTradeEvidenceInput,
+  concurrencyRetryCount: number,
+): Promise<UploadTradeEvidenceResult> {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
   const db = await readDb({ bypassCache: true });
@@ -9395,7 +9479,14 @@ export async function uploadTradeEvidence(input: {
   const validationMs = Date.now() - validationStartedAt;
 
   const extension = extensionForEvidenceMimeType(mimeType);
-  const evidenceId = `evidence-${randomUUID()}`;
+  // A mobile retry of the exact same upload must address the same durable
+  // evidence object. Content-derived identity avoids duplicate timeline,
+  // notification, and auto-advance effects without trusting a client token.
+  const evidenceId = `evidence-${createHash("sha256")
+    .update(`${request.id}\0${input.actorUserId}\0${input.side}\0${mimeType}\0`)
+    .update(raw)
+    .digest("hex")
+    .slice(0, 32)}`;
   // Never expose user-supplied filenames to the counterparty. The content and
   // storage path remain intact; only display/download metadata is neutral.
   const baseName = evidenceDisplayFileName(input.side, mimeType);
@@ -9404,6 +9495,28 @@ export async function uploadTradeEvidence(input: {
 
   const existingIndex = db.tradeEvidenceFiles.findIndex((item) => item.purchaseRequestId === request.id && item.side === input.side);
   const existing = existingIndex >= 0 ? db.tradeEvidenceFiles[existingIndex] : undefined;
+
+  if (existing?.id === evidenceId) {
+    return {
+      request: sanitizePurchaseRequestForActor(
+        enrichRequestWithEvidence(db, request),
+        input.actorUserId,
+        input.actorRole,
+      ),
+      metrics: {
+        dbReadMs,
+        validationMs,
+        storageMs: 0,
+        dbWriteMs: 0,
+        routeMs: Date.now() - startedAt,
+        autoAdvancedToPaymentSent: false,
+        autoAdvancedToUsdtSent: false,
+        replayed: true,
+      },
+    };
+  }
+  const existingEvidenceIdAtRead = existing?.id ?? null;
+  const requestStatusAtRead = request.status;
 
   const evidence: TradeEvidenceFile = {
     id: evidenceId,
@@ -9426,6 +9539,17 @@ export async function uploadTradeEvidence(input: {
   const isBankTransferTrade = isBankTransferPaymentMethod(requestPaymentMethod);
   const shouldAutoSubmitPayment = input.side === "buyer" && request.status === "accepted";
   const shouldAutoConfirmUsdtSent = input.side === "seller" && request.status === "usdt_release_pending";
+  const evidenceListing = shouldAutoSubmitPayment
+    ? db.marketplaceListings.find((candidate) => candidate.id === request.listingId)
+    : undefined;
+  const evidenceListingBasis = evidenceListing
+    ? {
+        id: evidenceListing.id,
+        status: evidenceListing.status,
+        activeTradeRequestId: evidenceListing.activeTradeRequestId,
+        updatedAt: evidenceListing.updatedAt,
+      }
+    : null;
 
   const nextRequest: PurchaseRequest = {
     ...request,
@@ -9534,10 +9658,49 @@ export async function uploadTradeEvidence(input: {
   });
   const storageStartedAt = Date.now();
   const dbWriteStartedAt = Date.now();
-  await writeDb(db, {
-    evidenceOverrides: new Map([[evidenceId, raw]]),
-    selectedTables: shouldAutoSubmitPayment || shouldAutoConfirmUsdtSent ? TRADE_EVIDENCE_PAYMENT_TABLES : TRADE_EVIDENCE_BASE_TABLES,
-  });
+  try {
+    await writeDb(db, {
+      evidenceOverrides: new Map([[evidenceId, raw]]),
+      selectedTables: shouldAutoSubmitPayment || shouldAutoConfirmUsdtSent ? TRADE_EVIDENCE_PAYMENT_TABLES : TRADE_EVIDENCE_BASE_TABLES,
+      validateLatestBeforeCommit: (canonicalSnapshot) => {
+        const canonicalRequest = canonicalSnapshot.purchaseRequests.find((candidate) => candidate.id === request.id);
+        const canonicalEvidence = canonicalSnapshot.tradeEvidenceFiles.find(
+          (candidate) => candidate.purchaseRequestId === request.id && candidate.side === input.side,
+        );
+        if (
+          !canonicalRequest
+          || canonicalRequest.status !== requestStatusAtRead
+          || (canonicalEvidence?.id ?? null) !== existingEvidenceIdAtRead
+        ) {
+          throw new ConcurrentTradeMutationError();
+        }
+        if (evidenceListingBasis) {
+          const canonicalListing = canonicalSnapshot.marketplaceListings.find((candidate) => candidate.id === evidenceListingBasis.id);
+          if (
+            !canonicalListing
+            || canonicalListing.status !== evidenceListingBasis.status
+            || canonicalListing.activeTradeRequestId !== evidenceListingBasis.activeTradeRequestId
+            || canonicalListing.updatedAt !== evidenceListingBasis.updatedAt
+          ) {
+            throw new ConcurrentTradeMutationError();
+          }
+        }
+      },
+    });
+  } catch (error) {
+    if (error instanceof ConcurrentTradeMutationError && concurrencyRetryCount < 2) {
+      return uploadTradeEvidenceAttempt(input, concurrencyRetryCount + 1);
+    }
+    if (error instanceof ConcurrentTradeMutationError) {
+      throw new TradeBlockedError(
+        "concurrent-evidence-change",
+        "This trade changed while your evidence was being saved. Refresh the Trade Room and try again.",
+        input.purchaseRequestId,
+        { guard: "canonical-evidence-retry", side: input.side },
+      );
+    }
+    throw error;
+  }
   const dbWriteMs = Date.now() - dbWriteStartedAt;
   const storageMs = Date.now() - storageStartedAt;
   publishRealtimeEvent({
@@ -9564,6 +9727,7 @@ export async function uploadTradeEvidence(input: {
       routeMs: Date.now() - startedAt,
       autoAdvancedToPaymentSent: shouldAutoSubmitPayment,
       autoAdvancedToUsdtSent: shouldAutoConfirmUsdtSent,
+      replayed: false,
     },
   };
 }
@@ -9711,80 +9875,132 @@ export async function submitBuyerTradeReview(input: {
   comment: string;
 }) {
   const db = await readDb();
-  const requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.requestId);
-  if (requestIndex === -1) throw new Error("Trade not found.");
-  const request = db.purchaseRequests[requestIndex];
-  if (request.buyerId !== input.buyerUserId) throw new Error("Only the buyer can submit this review.");
-  if (!request.completedAt && request.status !== "review_open" && request.status !== "locked" && request.status !== "completed") {
-    throw new Error("Review unlocks only after trade completion.");
-  }
-  if (hasBuyerReviewSubmitted(db, request)) throw new Error("Buyer review already submitted.");
-
   const rating = Math.max(1, Math.min(5, Math.round(input.rating)));
   const comment = String(input.comment ?? "").trim();
   if (!comment) throw new Error("Review comment is required.");
   if (comment.length > 500) throw new Error("Review comment is too long.");
   assertNoExchangeDirectContact(comment);
-
-  const review = buildSellerReviewFromTrade(request, { buyerUserId: input.buyerUserId, rating, comment });
-  db.purchaseRequests[requestIndex] = {
-    ...request,
-    buyerReview: {
-      reviewerUserId: input.buyerUserId,
-      rating,
-      comment,
-      createdAt: review.createdAt,
-      hidden: false,
-      hiddenReason: undefined,
-    },
-    updatedAt: nowIso(),
-  };
-
-  await appendAuditLog(db, {
-    action: "trade_review_submitted",
-    actorUserId: input.buyerUserId,
-    targetUserId: request.sellerId,
-    purchaseRequestId: request.id,
-    listingId: request.listingId,
-    details: `Buyer review submitted for trade ${request.tradeId ?? request.id}`,
-  });
-  pushNotification(db, {
-    userId: request.sellerId,
-    category: "review",
-    title: "Buyer left a review",
-    message: "A buyer submitted a review for a completed trade.",
-    relatedTradeId: request.tradeId ?? request.id,
-    relatedListingId: request.listingId,
-    relatedHref: "/usdt-exchange",
-  });
-  pushActivityLog(db, {
-    userId: input.buyerUserId,
-    category: "trade",
-    title: "Review submitted",
-    details: `Review submitted for trade ${request.tradeId ?? request.id}.`,
-  });
-
-  const sellerSnapshotBefore = computeSellerReputationSnapshot(db, request.sellerId);
-  const sellerSnapshotAfter = computeSellerReputationSnapshot(db, request.sellerId);
-  await writeDb(db, { selectedTables: TRADE_REVIEW_TABLES });
-  publishRealtimeEvent({
-    type: "review.count_changed",
-    payload: {
-      sellerId: request.sellerId,
-      reviewCount: db.purchaseRequests.filter((item) => item.sellerId === request.sellerId && item.buyerReview && item.buyerReview.hidden !== true).length,
-    },
-  });
-  return {
-    review,
+  type CommittedBuyerReview = {
+    review: SellerReviewRecord;
     sellerProgress: {
-      previousRank: sellerSnapshotBefore.level,
-      newRank: sellerSnapshotAfter.level,
-      nextRank: sellerSnapshotAfter.nextRank,
-      remainingVolumeToNextRank: sellerSnapshotAfter.remainingVolumeToNextRank ?? 0,
-      progressPercent: sellerSnapshotAfter.prestigeProgressPercent ?? 0,
-      promoted: sellerSnapshotBefore.level !== sellerSnapshotAfter.level,
-    },
+      previousRank: SellerLevel;
+      newRank: SellerLevel;
+      nextRank?: SellerLevel;
+      remainingVolumeToNextRank: number;
+      progressPercent: number;
+      promoted: boolean;
+    };
+    sellerId: string;
+    reviewCount: number;
+    created: boolean;
   };
+  let committed: CommittedBuyerReview | null = null;
+
+  const applyReviewToCanonicalSnapshot = async (snapshot: AlphaExchangeDb) => {
+    const requestIndex = snapshot.purchaseRequests.findIndex((item) => item.id === input.requestId);
+    if (requestIndex === -1) throw new Error("Trade not found.");
+    const request = snapshot.purchaseRequests[requestIndex];
+    if (request.buyerId !== input.buyerUserId) throw new Error("Only the buyer can submit this review.");
+    if (!request.completedAt && request.status !== "review_open" && request.status !== "locked" && request.status !== "completed") {
+      throw new Error("Review unlocks only after trade completion.");
+    }
+    const existingReview = buildSellerReviewRecordFromRequest(request);
+    if (hasBuyerReviewSubmitted(snapshot, request)) {
+      if (!existingReview || existingReview.rating !== rating || existingReview.comment !== comment) {
+        throw new Error("Buyer review already submitted.");
+      }
+      const currentSnapshot = computeSellerReputationSnapshot(snapshot, request.sellerId);
+      committed = {
+        review: existingReview,
+        sellerProgress: {
+          previousRank: currentSnapshot.level,
+          newRank: currentSnapshot.level,
+          nextRank: currentSnapshot.nextRank,
+          remainingVolumeToNextRank: currentSnapshot.remainingVolumeToNextRank ?? 0,
+          progressPercent: currentSnapshot.prestigeProgressPercent ?? 0,
+          promoted: false,
+        },
+        sellerId: request.sellerId,
+        reviewCount: snapshot.purchaseRequests.filter((item) => item.sellerId === request.sellerId && item.buyerReview && item.buyerReview.hidden !== true).length,
+        created: false,
+      };
+      return snapshot;
+    }
+
+    const sellerSnapshotBefore = computeSellerReputationSnapshot(snapshot, request.sellerId);
+    const review = buildSellerReviewFromTrade(request, { buyerUserId: input.buyerUserId, rating, comment });
+    snapshot.purchaseRequests[requestIndex] = {
+      ...request,
+      buyerReview: {
+        reviewerUserId: input.buyerUserId,
+        rating,
+        comment,
+        createdAt: review.createdAt,
+        hidden: false,
+        hiddenReason: undefined,
+      },
+      updatedAt: nowIso(),
+    };
+
+    await appendAuditLog(snapshot, {
+      action: "trade_review_submitted",
+      actorUserId: input.buyerUserId,
+      targetUserId: request.sellerId,
+      purchaseRequestId: request.id,
+      listingId: request.listingId,
+      details: `Buyer review submitted for trade ${request.tradeId ?? request.id}`,
+    });
+    pushNotification(snapshot, {
+      userId: request.sellerId,
+      category: "review",
+      title: "Buyer left a review",
+      message: "A buyer submitted a review for a completed trade.",
+      relatedTradeId: request.tradeId ?? request.id,
+      relatedListingId: request.listingId,
+      relatedHref: "/usdt-exchange",
+    });
+    pushActivityLog(snapshot, {
+      userId: input.buyerUserId,
+      category: "trade",
+      title: "Review submitted",
+      details: `Review submitted for trade ${request.tradeId ?? request.id}.`,
+    });
+    const sellerSnapshotAfter = computeSellerReputationSnapshot(snapshot, request.sellerId);
+    committed = {
+      review,
+      sellerProgress: {
+        previousRank: sellerSnapshotBefore.level,
+        newRank: sellerSnapshotAfter.level,
+        nextRank: sellerSnapshotAfter.nextRank,
+        remainingVolumeToNextRank: sellerSnapshotAfter.remainingVolumeToNextRank ?? 0,
+        progressPercent: sellerSnapshotAfter.prestigeProgressPercent ?? 0,
+        promoted: sellerSnapshotBefore.level !== sellerSnapshotAfter.level,
+      },
+      sellerId: request.sellerId,
+      reviewCount: snapshot.purchaseRequests.filter((item) => item.sellerId === request.sellerId && item.buyerReview && item.buyerReview.hidden !== true).length,
+      created: true,
+    };
+    return snapshot;
+  };
+
+  await applyReviewToCanonicalSnapshot(db);
+  let result = committed as CommittedBuyerReview | null;
+  if (!result) throw new Error("Failed to prepare buyer review.");
+  if (result.created) {
+    await writeDb(db, {
+      selectedTables: TRADE_REVIEW_TABLES,
+      rebaseOnLatest: applyReviewToCanonicalSnapshot,
+    });
+    result = committed as CommittedBuyerReview | null;
+    if (!result) throw new Error("Failed to save buyer review.");
+  }
+  if (result.created) {
+    publishRealtimeEvent({
+      type: "review.count_changed",
+      payload: { sellerId: result.sellerId, reviewCount: result.reviewCount },
+    });
+  }
+  return { review: result.review, sellerProgress: result.sellerProgress };
 }
 
 export async function submitSellerReviewResponse(input: {
@@ -9794,59 +10010,78 @@ export async function submitSellerReviewResponse(input: {
   message: string;
 }) {
   const db = await readDb();
-  const requestIndex = input.reviewId
-    ? db.purchaseRequests.findIndex((item) => `review-${item.id}` === input.reviewId || (item.tradeId ? `review-${item.tradeId}` === input.reviewId : false))
-    : db.purchaseRequests.findIndex((item) => item.id === input.requestId);
-  if (requestIndex === -1) throw new Error("Trade not found.");
-  const request = db.purchaseRequests[requestIndex];
-  const reviewRecord = buildSellerReviewRecordFromRequest(request);
-  if (!reviewRecord) throw new Error("Seller response is available only after buyer review.");
-  if (request.sellerId !== input.sellerUserId) throw new Error("Only the seller can respond.");
-  if (reviewRecord.hidden) throw new Error("Cannot reply to a hidden review.");
-  if (reviewRecord.sellerReply) throw new Error("Seller response already submitted.");
   const message = String(input.message ?? "").trim();
   if (!message) throw new Error("Response message is required.");
   if (message.length > 500) throw new Error("Response message is too long.");
   assertNoExchangeDirectContact(message);
+  let committed: { review: SellerReviewRecord; created: boolean } | null = null;
+  const applyResponseToCanonicalSnapshot = async (snapshot: AlphaExchangeDb) => {
+    const requestIndex = input.reviewId
+      ? snapshot.purchaseRequests.findIndex((item) => `review-${item.id}` === input.reviewId || (item.tradeId ? `review-${item.tradeId}` === input.reviewId : false))
+      : snapshot.purchaseRequests.findIndex((item) => item.id === input.requestId);
+    if (requestIndex === -1) throw new Error("Trade not found.");
+    const request = snapshot.purchaseRequests[requestIndex];
+    const reviewRecord = buildSellerReviewRecordFromRequest(request);
+    if (!reviewRecord) throw new Error("Seller response is available only after buyer review.");
+    if (request.sellerId !== input.sellerUserId) throw new Error("Only the seller can respond.");
+    if (reviewRecord.hidden) throw new Error("Cannot reply to a hidden review.");
+    if (reviewRecord.sellerReply) {
+      if (reviewRecord.sellerReply !== message) throw new Error("Seller response already submitted.");
+      committed = { review: reviewRecord, created: false };
+      return snapshot;
+    }
 
-  db.purchaseRequests[requestIndex] = {
-    ...request,
-    sellerResponse: {
-      responderUserId: input.sellerUserId,
-      message,
-      createdAt: nowIso(),
-    },
-    updatedAt: nowIso(),
+    snapshot.purchaseRequests[requestIndex] = {
+      ...request,
+      sellerResponse: {
+        responderUserId: input.sellerUserId,
+        message,
+        createdAt: nowIso(),
+      },
+      updatedAt: nowIso(),
+    };
+    const updatedReview = buildSellerReviewRecordFromRequest(snapshot.purchaseRequests[requestIndex]);
+    if (!updatedReview) throw new Error("Updated review could not be built.");
+
+    await appendAuditLog(snapshot, {
+      action: "trade_review_responded",
+      actorUserId: input.sellerUserId,
+      targetUserId: request.buyerId,
+      purchaseRequestId: request.id,
+      listingId: request.listingId,
+      details: `Seller response submitted for trade ${request.tradeId ?? request.id}`,
+    });
+    pushNotification(snapshot, {
+      userId: request.buyerId,
+      category: "trade",
+      title: "Seller replied to your review",
+      message: "The seller responded to your completed trade review.",
+      relatedTradeId: request.tradeId ?? request.id,
+      relatedListingId: request.listingId,
+      relatedHref: "/usdt-exchange",
+    });
+    pushActivityLog(snapshot, {
+      userId: input.sellerUserId,
+      category: "trade",
+      title: "Review response sent",
+      details: `Response sent for trade ${request.tradeId ?? request.id}.`,
+    });
+    committed = { review: updatedReview, created: true };
+    return snapshot;
   };
-  const updatedReview = buildSellerReviewRecordFromRequest(db.purchaseRequests[requestIndex]);
-  if (!updatedReview) throw new Error("Updated review could not be built.");
 
-  await appendAuditLog(db, {
-    action: "trade_review_responded",
-    actorUserId: input.sellerUserId,
-    targetUserId: request.buyerId,
-    purchaseRequestId: request.id,
-    listingId: request.listingId,
-    details: `Seller response submitted for trade ${request.tradeId ?? request.id}`,
-  });
-  pushNotification(db, {
-    userId: request.buyerId,
-    category: "trade",
-    title: "Seller replied to your review",
-    message: "The seller responded to your completed trade review.",
-    relatedTradeId: request.tradeId ?? request.id,
-    relatedListingId: request.listingId,
-    relatedHref: "/usdt-exchange",
-  });
-  pushActivityLog(db, {
-    userId: input.sellerUserId,
-    category: "trade",
-    title: "Review response sent",
-    details: `Response sent for trade ${request.tradeId ?? request.id}.`,
-  });
-
-  await writeDb(db, { selectedTables: TRADE_REVIEW_TABLES });
-  return updatedReview;
+  await applyResponseToCanonicalSnapshot(db);
+  let result = committed as { review: SellerReviewRecord; created: boolean } | null;
+  if (!result) throw new Error("Failed to prepare seller response.");
+  if (result.created) {
+    await writeDb(db, {
+      selectedTables: TRADE_REVIEW_TABLES,
+      rebaseOnLatest: applyResponseToCanonicalSnapshot,
+    });
+    result = committed as { review: SellerReviewRecord; created: boolean } | null;
+    if (!result) throw new Error("Failed to save seller response.");
+  }
+  return result.review;
 }
 
 export async function getSellerReviews(input: {
@@ -9901,14 +10136,40 @@ export async function moderateSellerReview(input: {
   return nextReview;
 }
 
-export async function updatePurchaseRequestStatus(input: {
+type UpdatePurchaseRequestStatusInput = {
   requestId: string;
   actorUserId: string;
   actorRole: UserRole;
   nextStatus: PurchaseRequestStatus;
   safetyAcknowledged?: boolean;
   traceId?: string;
-}) {
+};
+
+type UpdatePurchaseRequestStatusResult = {
+  request: PurchaseRequest;
+  statusChanged: boolean;
+  additionallyDeclinedRequests?: PurchaseRequest[];
+  deferredTrustWrite?: () => Promise<void>;
+  metrics: {
+    totalMs: number;
+    readDbMs: number;
+    timelineMs: number;
+    chatMs: number;
+    notificationMs: number;
+    writeDbMs: number;
+    sseMs: number;
+    trustMs: number;
+  };
+};
+
+export async function updatePurchaseRequestStatus(input: UpdatePurchaseRequestStatusInput): Promise<UpdatePurchaseRequestStatusResult> {
+  return updatePurchaseRequestStatusAttempt(input, 0);
+}
+
+async function updatePurchaseRequestStatusAttempt(
+  input: UpdatePurchaseRequestStatusInput,
+  concurrencyRetryCount: number,
+): Promise<UpdatePurchaseRequestStatusResult> {
   const startedAt = Date.now();
   const debugTradeRoom = allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
   const isUsdtSentTrace = input.nextStatus === "usdt_sent";
@@ -9974,6 +10235,22 @@ export async function updatePurchaseRequestStatus(input: {
   }
 
   let currentStatus = request.status;
+  if (currentStatus === input.nextStatus) {
+    return {
+      request: enrichRequestWithEvidence(db, request),
+      statusChanged: false,
+      metrics: {
+        totalMs: Date.now() - startedAt,
+        readDbMs,
+        timelineMs,
+        chatMs,
+        notificationMs,
+        writeDbMs: 0,
+        sseMs: 0,
+        trustMs: 0,
+      },
+    };
+  }
   if (input.nextStatus === "completed" && (currentStatus === "review_open" || currentStatus === "completed" || currentStatus === "locked")) {
     const enriched = enrichRequestWithEvidence(db, request);
     return {
@@ -10038,6 +10315,24 @@ export async function updatePurchaseRequestStatus(input: {
   const isFaceToFaceTrade = isFaceToFacePaymentMethod(requestPaymentMethod);
   const isAtmTrade = isCardlessAtmPaymentMethod(requestPaymentMethod);
   const isBankTransferTrade = isBankTransferPaymentMethod(requestPaymentMethod);
+  const listingCommitBasis = listing
+    ? {
+        id: listing.id,
+        status: listing.status,
+        activeTradeRequestId: listing.activeTradeRequestId,
+        availableAmount: listing.availableAmount,
+        updatedAt: listing.updatedAt,
+      }
+    : null;
+  const pendingCommissionCountAtRead = input.nextStatus === "accepted"
+    ? getSellerPendingCommissionCount(db, request.sellerId)
+    : null;
+  const pendingSiblingRequestIdsAtRead = input.nextStatus === "accepted"
+    ? db.purchaseRequests
+        .filter((candidate) => candidate.id !== request.id && candidate.listingId === request.listingId && candidate.status === "pending")
+        .map((candidate) => candidate.id)
+        .sort()
+    : [];
   const allowedByStatus: Record<PurchaseRequestStatus, PurchaseRequestStatus[]> = {
     pending: ["accepted", "declined", "cancelled"],
     accepted: ["payment_sent"],
@@ -10583,10 +10878,64 @@ export async function updatePurchaseRequestStatus(input: {
   // For trust-affecting transitions, write only the core trade tables synchronously so the
   // response returns quickly (≤5s target). Trust-related tables (user profiles, snapshots,
   // activity logs) are written in a deferred task via after() in the route handler.
-  await writeDb(db, {
-    traceTag: debugTradeRoom && isUsdtSentTrace ? input.traceId : undefined,
-    selectedTables: shouldRecalculateTrust ? TRADE_COMPLETION_CORE_TABLES : TRADE_STATUS_BASE_TABLES,
-  });
+  try {
+    await writeDb(db, {
+      traceTag: debugTradeRoom && isUsdtSentTrace ? input.traceId : undefined,
+      selectedTables: shouldRecalculateTrust ? TRADE_COMPLETION_CORE_TABLES : TRADE_STATUS_BASE_TABLES,
+      // A snapshot can become stale between validation and the repository's
+      // cross-instance advisory lock. Reject only relevant stale state here,
+      // then rerun the whole business transition from the canonical snapshot.
+      // This prevents Accept-vs-Cancel races, duplicate lifecycle effects, and
+      // accepting two buyers for one listing while preserving unrelated writes.
+      validateLatestBeforeCommit: (canonicalSnapshot) => {
+        const canonicalRequest = canonicalSnapshot.purchaseRequests.find((candidate) => candidate.id === request.id);
+        if (!canonicalRequest || canonicalRequest.status !== stateBefore) {
+          throw new ConcurrentTradeMutationError();
+        }
+
+        const canonicalListing = canonicalSnapshot.marketplaceListings.find((candidate) => candidate.id === request.listingId);
+        const listingChanged = listingCommitBasis
+          ? !canonicalListing
+            || canonicalListing.id !== listingCommitBasis.id
+            || canonicalListing.status !== listingCommitBasis.status
+            || canonicalListing.activeTradeRequestId !== listingCommitBasis.activeTradeRequestId
+            || canonicalListing.availableAmount !== listingCommitBasis.availableAmount
+            || canonicalListing.updatedAt !== listingCommitBasis.updatedAt
+          : Boolean(canonicalListing);
+        if (listingChanged) {
+          throw new ConcurrentTradeMutationError();
+        }
+
+        if (input.nextStatus === "accepted") {
+          const canonicalPendingCommissionCount = getSellerPendingCommissionCount(canonicalSnapshot, request.sellerId);
+          const canonicalPendingSiblingIds = canonicalSnapshot.purchaseRequests
+            .filter((candidate) => candidate.id !== request.id && candidate.listingId === request.listingId && candidate.status === "pending")
+            .map((candidate) => candidate.id)
+            .sort();
+          if (
+            canonicalPendingCommissionCount !== pendingCommissionCountAtRead
+            || canonicalPendingSiblingIds.length !== pendingSiblingRequestIdsAtRead.length
+            || canonicalPendingSiblingIds.some((id, index) => id !== pendingSiblingRequestIdsAtRead[index])
+          ) {
+            throw new ConcurrentTradeMutationError();
+          }
+        }
+      },
+    });
+  } catch (error) {
+    if (error instanceof ConcurrentTradeMutationError && concurrencyRetryCount < 2) {
+      return updatePurchaseRequestStatusAttempt(input, concurrencyRetryCount + 1);
+    }
+    if (error instanceof ConcurrentTradeMutationError) {
+      throw new TradeBlockedError(
+        "concurrent-status-change",
+        "This trade changed while your action was being saved. Refresh the Trade Room and try again.",
+        input.requestId,
+        { guard: "canonical-transition-retry", nextStatus: input.nextStatus },
+      );
+    }
+    throw error;
+  }
   const writeDbMs = Date.now() - beforeWriteMs;
   await dispatchCommittedSms(db, priorSmsCount);
   logLocalMarketplaceDiagnostic("info", "[trade-consistency] mutation commit-complete", {
