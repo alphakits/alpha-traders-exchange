@@ -104,6 +104,8 @@ type TradeRoomDeepLinkTarget = "status-banner" | "action-required" | "evidence" 
 const ALLOWED_EVIDENCE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
 const MAX_EVIDENCE_SIZE_BYTES = 8 * 1024 * 1024;
 const CHAT_SEND_TIMEOUT_MS = 12_000;
+const TRADE_ROOM_RECONNECT_BASE_MS = 1_000;
+const TRADE_ROOM_RECONNECT_MAX_MS = 15_000;
 const TRADE_ROOM_DEBUG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
 const COMPLETED_TRADE_STATUSES = new Set<PurchaseRequest["status"]>(["review_open", "completed", "locked"]);
 const PERF_LOG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
@@ -903,6 +905,14 @@ export function shouldRestartTradeRoomStreamAfterPageShow(event: Pick<PageTransi
   return event.persisted;
 }
 
+export function getTradeRoomReconnectDelayMs(attempt: number) {
+  const safeAttempt = Math.max(1, Math.floor(attempt));
+  return Math.min(
+    TRADE_ROOM_RECONNECT_BASE_MS * (2 ** Math.min(safeAttempt - 1, 4)),
+    TRADE_ROOM_RECONNECT_MAX_MS,
+  );
+}
+
 export function revealTradeRoomDeepLinkTarget(target: HTMLElement) {
   const header = document.querySelector<HTMLElement>("header");
   const headerHeight = header?.getBoundingClientRect().height ?? 0;
@@ -1285,10 +1295,19 @@ export function TradeRoomPage({
   }, [room?.poke?.cooldownUntil, room?.releaseDeadlineActive]);
 
   useEffect(() => {
-    if (!canonicalSessionReady || streamReconnectAttemptsRef.current > 3) return;
+    if (!canonicalSessionReady) return;
     const stream = new EventSource(`/api/alpha-exchange/trade-room/${requestId}/stream`);
     let closed = false;
     setStreamConnected(false);
+
+    const scheduleReconnect = () => {
+      if (closed || reconnectTimeoutRef.current !== null) return;
+      const delayMs = getTradeRoomReconnectDelayMs(streamReconnectAttemptsRef.current);
+      reconnectTimeoutRef.current = window.setTimeout(() => {
+        reconnectTimeoutRef.current = null;
+        if (!closed) setStreamCycle((value) => value + 1);
+      }, delayMs);
+    };
 
     const onTradeRoom = (event: Event) => {
       const messageEvent = event as MessageEvent<string>;
@@ -1347,13 +1366,12 @@ export function TradeRoomPage({
       streamReconnectAttemptsRef.current += 1;
       if (refreshCanonicalSession) {
         void refreshCanonicalSession({ force: true });
-        return;
       }
-      if (streamReconnectAttemptsRef.current <= 3) {
-        reconnectTimeoutRef.current = window.setTimeout(() => {
-          setStreamCycle((value) => value + 1);
-        }, 2000);
-      }
+      // Keep retrying with a bounded backoff. A phone can move between Wi-Fi
+      // and mobile data more than three times during a long trade, so a fixed
+      // retry cap can silently leave chat updates offline for the rest of the
+      // session.
+      scheduleReconnect();
     };
 
     stream.addEventListener("trade-room", onTradeRoom);
@@ -1369,9 +1387,24 @@ export function TradeRoomPage({
         setStreamCycle((value) => value + 1);
       }
     };
+    const handleOffline = () => {
+      stream.close();
+      setStreamConnected(false);
+    };
+    const handleOnline = () => {
+      streamReconnectAttemptsRef.current = 0;
+      if (reconnectTimeoutRef.current !== null) {
+        window.clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      void fetchRoom(true);
+      setStreamCycle((value) => value + 1);
+    };
     window.addEventListener("pagehide", handlePageExit);
     window.addEventListener("beforeunload", handlePageExit);
     window.addEventListener("pageshow", handlePageShow);
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
 
     return () => {
       closed = true;
@@ -1383,8 +1416,10 @@ export function TradeRoomPage({
       window.removeEventListener("pagehide", handlePageExit);
       window.removeEventListener("beforeunload", handlePageExit);
       window.removeEventListener("pageshow", handlePageShow);
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
     };
-  }, [canonicalSessionReady, refreshCanonicalSession, requestId, streamCycle]);
+  }, [canonicalSessionReady, fetchRoom, refreshCanonicalSession, requestId, streamCycle]);
 
   useEffect(() => {
     if (!canonicalSessionReady || streamConnected) return;

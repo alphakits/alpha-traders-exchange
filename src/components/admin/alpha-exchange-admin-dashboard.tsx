@@ -145,6 +145,21 @@ type AdminSmsDelivery = Omit<SmsDeliveryRecord, "recipientPhone" | "body"> & {
   recipientPhoneMasked: string;
 };
 
+type SystemHealthSnapshot = {
+  status: "healthy" | "degraded";
+  checkedAt: string;
+  durationMs: number;
+  release: string;
+  environment: string;
+  checks: Array<{
+    key: "application" | "database" | "authentication" | "trade_room" | "notifications" | "email";
+    label: string;
+    status: "healthy" | "degraded";
+    detail: string;
+    latencyMs?: number;
+  }>;
+};
+
 type SectionKey = AdminDashboardSection;
 
 const pageSize = 8;
@@ -166,6 +181,7 @@ const sectionItems: Array<{ key: SectionKey; label: string; labelAr: string; ico
   { key: "analytics", label: "Analytics", labelAr: "التحليلات", icon: TrendingUp },
   { key: "users", label: "User Management", labelAr: "إدارة المستخدمين", icon: Users2 },
   { key: "reviews", label: "Reviews", labelAr: "التقييمات", icon: Star },
+  { key: "system-health", label: "Website Health", labelAr: "حالة الموقع", icon: ShieldCheck },
   { key: "emergency", label: "Emergency", labelAr: "الطوارئ", icon: Zap },
   { key: "settings", label: "Settings", labelAr: "الإعدادات", icon: Settings },
 ];
@@ -178,7 +194,7 @@ const sectionGroups: Array<{ title: string; titleAr: string; keys: SectionKey[] 
   { title: "Notifications", titleAr: "الإشعارات", keys: ["sms-deliveries"] },
   { title: "Discord", titleAr: "Discord", keys: ["announcements"] },
   { title: "Wallet", titleAr: "المحفظة", keys: ["settings"] },
-  { title: "Platform", titleAr: "المنصة", keys: ["emergency"] },
+  { title: "Platform", titleAr: "المنصة", keys: ["system-health", "emergency"] },
 ];
 
 function formatDateForLocale(value: string, locale: "ar" | "en") {
@@ -440,6 +456,9 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [data, setData] = useState<AdminPayload | null>(null);
+  const [systemHealth, setSystemHealth] = useState<SystemHealthSnapshot | null>(null);
+  const [systemHealthLoading, setSystemHealthLoading] = useState(false);
+  const [systemHealthError, setSystemHealthError] = useState<string | null>(null);
 
   const [applicationsQuery, setApplicationsQuery] = useState("");
   const [applicationsStatus, setApplicationsStatus] = useState<"all" | "pending" | "approved" | "rejected">("all");
@@ -602,6 +621,32 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
   useEffect(() => {
     void fetchData();
   }, [fetchData]);
+
+  const fetchSystemHealth = useCallback(async () => {
+    setSystemHealthLoading(true);
+    setSystemHealthError(null);
+    try {
+      const response = await fetch("/api/admin/system-health", { cache: "no-store" });
+      const payload = await response.json() as SystemHealthSnapshot & { error?: string };
+      if (!response.ok || !Array.isArray(payload.checks)) {
+        throw new Error("health_check_failed");
+      }
+      setSystemHealth(payload);
+    } catch {
+      setSystemHealthError(t("Website health could not be loaded. Try again.", "تعذر تحميل حالة الموقع. حاول مرة أخرى."));
+    } finally {
+      setSystemHealthLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    if (activeSection !== "system-health") return;
+    void fetchSystemHealth();
+    const intervalId = window.setInterval(() => {
+      void fetchSystemHealth();
+    }, 30_000);
+    return () => window.clearInterval(intervalId);
+  }, [activeSection, fetchSystemHealth]);
 
   useEffect(() => {
     if (!data?.complianceSettings?.recoveryWallet) return;
@@ -3369,6 +3414,88 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
                         {renderPagination(reviewsRows.safePage, reviewsRows.totalPages, setReviewsPage)}
                       </CardContent>
                     </Card>
+                  ) : null}
+
+                  {activeSection === "system-health" ? (
+                    <div className="space-y-5" aria-live="polite">
+                      <Card className={`bg-[#0B0B0B]/90 ${systemHealth?.status === "degraded" ? "border-amber-500/35" : "border-emerald-500/30"}`}>
+                        <CardHeader>
+                          <div className="flex flex-wrap items-start justify-between gap-4">
+                            <div>
+                              <CardTitle className="flex items-center gap-2">
+                                <ShieldCheck className={`h-5 w-5 ${systemHealth?.status === "degraded" ? "text-amber-300" : "text-emerald-300"}`} aria-hidden="true" />
+                                {t("Website Health", "حالة الموقع")}
+                              </CardTitle>
+                              <CardDescription className="mt-2">
+                                {t(
+                                  "Live checks for the services required by buyers, sellers, chat, and notifications.",
+                                  "فحوصات مباشرة للخدمات التي يحتاجها المشترون والبائعون والمحادثة والإشعارات.",
+                                )}
+                              </CardDescription>
+                            </div>
+                            <Button type="button" variant="secondary" onClick={() => void fetchSystemHealth()} disabled={systemHealthLoading}>
+                              {systemHealthLoading ? t("Checking...", "جارٍ الفحص...") : t("Check Now", "فحص الآن")}
+                            </Button>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          {systemHealthError ? (
+                            <p role="alert" className="rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-sm text-red-200">{systemHealthError}</p>
+                          ) : null}
+                          {systemHealth ? (
+                            <div className="flex flex-wrap items-center gap-3 text-sm text-[#D1D5DB]">
+                              <span className={`rounded-full border px-3 py-1 font-medium ${systemHealth.status === "healthy" ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : "border-amber-500/35 bg-amber-500/10 text-amber-300"}`}>
+                                {systemHealth.status === "healthy" ? t("All systems healthy", "جميع الأنظمة تعمل") : t("Attention required", "تحتاج إلى مراجعة")}
+                              </span>
+                              <span>{t("Last checked", "آخر فحص")}: {formatDate(systemHealth.checkedAt)}</span>
+                              <span>{t("Release", "الإصدار")}: <bdi dir="ltr">{systemHealth.release}</bdi></span>
+                              <span>{t("Check time", "مدة الفحص")}: {systemHealth.durationMs} ms</span>
+                            </div>
+                          ) : systemHealthLoading ? (
+                            <p className="text-sm text-[#D1D5DB]">{t("Running live service checks...", "جارٍ فحص الخدمات مباشرة...")}</p>
+                          ) : null}
+                        </CardContent>
+                      </Card>
+
+                      {systemHealth ? (
+                        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                          {systemHealth.checks.map((check) => {
+                            const arabicLabels: Record<SystemHealthSnapshot["checks"][number]["key"], string> = {
+                              application: "تطبيق الموقع",
+                              database: "قاعدة البيانات",
+                              authentication: "تسجيل الدخول والمصادقة",
+                              trade_room: "التحديثات المباشرة لغرفة الصفقة",
+                              notifications: "الإشعارات داخل الموقع",
+                              email: "البريد الإلكتروني للمعاملات",
+                            };
+                            const healthy = check.status === "healthy";
+                            return (
+                              <Card key={check.key} className={`bg-black/20 ${healthy ? "border-emerald-500/20" : "border-amber-500/35"}`}>
+                                <CardHeader className="pb-3">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <CardTitle className="text-base">{isArabic ? arabicLabels[check.key] : check.label}</CardTitle>
+                                    <span className={`rounded-full border px-2.5 py-1 text-xs ${healthy ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : "border-amber-500/35 bg-amber-500/10 text-amber-300"}`}>
+                                      {healthy ? t("Healthy", "يعمل") : t("Review", "مراجعة")}
+                                    </span>
+                                  </div>
+                                </CardHeader>
+                                <CardContent className="space-y-2 pt-0 text-sm text-[#D1D5DB]">
+                                  <p>{isArabic ? (healthy ? "الخدمة متاحة وتعمل بشكل طبيعي." : "الخدمة تحتاج إلى مراجعة من المالك.") : check.detail}</p>
+                                  {typeof check.latencyMs === "number" ? <p className="text-xs text-[#9CA3AF]">{t("Latency", "زمن الاستجابة")}: {check.latencyMs} ms</p> : null}
+                                </CardContent>
+                              </Card>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+
+                      <p className="text-xs leading-5 text-[#9CA3AF]">
+                        {t(
+                          "This screen refreshes every 30 seconds while open. Provider configuration checks confirm readiness without exposing credentials.",
+                          "تتجدد هذه الشاشة كل 30 ثانية أثناء فتحها. تتحقق فحوصات الإعداد من الجاهزية من دون إظهار بيانات الدخول السرية.",
+                        )}
+                      </p>
+                    </div>
                   ) : null}
 
                   {activeSection === "emergency" ? (

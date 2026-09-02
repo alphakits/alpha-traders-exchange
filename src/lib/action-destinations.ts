@@ -20,6 +20,7 @@ export const ADMIN_DASHBOARD_SECTIONS = [
   "users",
   "reviews",
   "analytics",
+  "system-health",
   "emergency",
 ] as const;
 

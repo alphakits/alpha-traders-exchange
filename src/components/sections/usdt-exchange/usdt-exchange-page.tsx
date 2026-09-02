@@ -2740,7 +2740,15 @@ export function UsdtExchangePage({
             prev.map((r) => r.id === blockingId ? { ...r, buyerConfirmationArchivedAt: new Date().toISOString() } : r),
           );
         }
-        if (errorCode === "PENDING_BUYER_FEEDBACK" && blockingId) {
+        if (
+          blockingId
+          && (
+            errorCode === "ACTIVE_TRADE_EXISTS"
+            || errorCode === "PURCHASE_REQUEST_ALREADY_SUBMITTED"
+            || errorCode === "AWAITING_BUYER_CONFIRMATION"
+            || errorCode === "PENDING_BUYER_FEEDBACK"
+          )
+        ) {
           closeListingModal();
           router.push(`/trade-room/${blockingId}`);
           return;

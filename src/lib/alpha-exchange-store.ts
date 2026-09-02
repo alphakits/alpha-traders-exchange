@@ -2946,6 +2946,7 @@ const SELLER_STATUS_NOTIFICATION_TABLES = [...USER_PROFILE_TABLES, "notification
 const SELLER_PROFILE_STATE_TABLES = [...USER_PROFILE_TABLES, "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const SELLER_PRESTIGE_TABLES = [...USER_PROFILE_TABLES, "notifications", "audit_logs", "trust_snapshots", "trust_score_history"] as const satisfies readonly SnapshotTableName[];
 const PURCHASE_REQUEST_CREATE_TABLES = ["purchase_requests", "notifications", "audit_logs", "activity_logs", "sms_deliveries"] as const satisfies readonly SnapshotTableName[];
+const PASSWORD_RESET_TABLES = ["password_reset_tokens"] as const satisfies readonly SnapshotTableName[];
 const TRADE_STATUS_BASE_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "sms_deliveries"] as const satisfies readonly SnapshotTableName[];
 // For completed/declined/cancelled: core trade state written synchronously (critical path).
 const TRADE_COMPLETION_CORE_TABLES = ["purchase_requests", "listings", "notifications", "audit_logs", "commissions", "sms_deliveries"] as const satisfies readonly SnapshotTableName[];
@@ -5450,7 +5451,7 @@ export async function createPasswordResetToken(userId: string, rawToken: string,
   };
   db.passwordResetTokens = db.passwordResetTokens.filter((item) => item.userId !== userId);
   db.passwordResetTokens.push(reset);
-  await writeDb(db, { selectedTables: LISTING_WRITE_TABLES });
+  await writeDb(db, { selectedTables: PASSWORD_RESET_TABLES });
   return reset;
 }
 
@@ -5461,11 +5462,11 @@ export async function consumePasswordResetToken(rawToken: string) {
   if (!token) return null;
   if (new Date(token.expiresAt) < new Date()) {
     db.passwordResetTokens = db.passwordResetTokens.filter((item) => item.tokenHash !== hashed);
-    await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
+    await writeDb(db, { selectedTables: PASSWORD_RESET_TABLES });
     return null;
   }
   db.passwordResetTokens = db.passwordResetTokens.filter((item) => item.tokenHash !== hashed);
-  await writeDb(db, { selectedTables: PURCHASE_REQUEST_CREATE_TABLES });
+  await writeDb(db, { selectedTables: PASSWORD_RESET_TABLES });
   return token;
 }
 
@@ -7886,6 +7887,19 @@ export async function createPurchaseRequest(input: {
       activeBuyerTrade.id,
     );
   }
+  const existingRequestForListing = db.purchaseRequests.find(
+    (r) => r.buyerId === input.buyerId
+      && r.listingId === input.listingId
+      && isActionableTradeStatus(r.status)
+      && !r.buyerConfirmationArchivedAt,
+  );
+  if (existingRequestForListing) {
+    throw new TradeBlockedError(
+      "PURCHASE_REQUEST_ALREADY_SUBMITTED",
+      "You already submitted a request for this listing. Continue in the existing Trade Room.",
+      existingRequestForListing.id,
+    );
+  }
   const pendingFeedbackTrade = getBuyerPendingFeedbackTrade(db, input.buyerId);
   if (pendingFeedbackTrade) {
     throw new TradeBlockedError(
@@ -8032,7 +8046,60 @@ export async function createPurchaseRequest(input: {
   });
   const businessMs = Date.now() - businessStartedAt;
   const writeStartedAt = Date.now();
-  await writeDb(db, { selectedTables: PURCHASE_REQUEST_CREATE_TABLES });
+  await writeDb(db, {
+    selectedTables: PURCHASE_REQUEST_CREATE_TABLES,
+    // Two tabs, a mobile-network retry, or two Vercel instances can validate
+    // the same buyer snapshot before either request commits. Re-check the
+    // invariant while the repository's cross-instance advisory lock is held
+    // so only one active trade can ever be persisted for a buyer.
+    validateBeforeCommit: (snapshot) => {
+      const duplicateRequest = snapshot.purchaseRequests.find(
+        (candidate) => candidate.id !== request.id
+          && candidate.buyerId === input.buyerId
+          && candidate.listingId === input.listingId
+          && isActionableTradeStatus(candidate.status)
+          && !candidate.buyerConfirmationArchivedAt,
+      );
+      if (duplicateRequest) {
+        throw new TradeBlockedError(
+          "PURCHASE_REQUEST_ALREADY_SUBMITTED",
+          "You already submitted a request for this listing. Continue in the existing Trade Room.",
+          duplicateRequest.id,
+          { guard: "single-buyer-request-per-listing-at-commit" },
+        );
+      }
+
+      const awaitingConfirmation = snapshot.purchaseRequests.find(
+        (candidate) => candidate.id !== request.id
+          && candidate.buyerId === input.buyerId
+          && candidate.status === "usdt_sent"
+          && candidate.buyerConfirmationArchivedAt,
+      );
+      if (awaitingConfirmation) {
+        throw new TradeBlockedError(
+          "AWAITING_BUYER_CONFIRMATION",
+          "You have an outstanding trade awaiting your confirmation. Please confirm that you received your USDT before starting another purchase.",
+          awaitingConfirmation.id,
+          { guard: "single-active-buyer-trade-at-commit" },
+        );
+      }
+
+      const concurrentActiveTrade = snapshot.purchaseRequests.find(
+        (candidate) => candidate.id !== request.id
+          && candidate.buyerId === input.buyerId
+          && isActiveTradeStatus(candidate.status)
+          && !candidate.buyerConfirmationArchivedAt,
+      );
+      if (concurrentActiveTrade) {
+        throw new TradeBlockedError(
+          "ACTIVE_TRADE_EXISTS",
+          "You already have an active trade in progress. Complete or cancel it before starting another purchase.",
+          concurrentActiveTrade.id,
+          { guard: "single-active-buyer-trade-at-commit" },
+        );
+      }
+    },
+  });
   const writeMs = Date.now() - writeStartedAt;
   await dispatchCommittedSms(db, priorSmsCount);
   const sseStartedAt = Date.now();
