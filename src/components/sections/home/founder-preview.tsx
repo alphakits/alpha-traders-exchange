@@ -1,25 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import { motion } from "framer-motion";
 import { CheckCircle2, Play, UserRound } from "lucide-react";
 import { useLocale } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
-
-// ---------------------------------------------------------------------------
-// Animation variants
-// ---------------------------------------------------------------------------
-const wrapperVariants: import("framer-motion").Variants = {
-  hidden: {},
-  visible: { transition: { staggerChildren: 0.1 } },
-};
-
-const fadeUp: import("framer-motion").Variants = {
-  hidden: { opacity: 0, y: 22 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" as const } },
-};
 
 // ---------------------------------------------------------------------------
 // Feature bullets
@@ -42,11 +28,7 @@ export function FounderPreview() {
       className="section-container"
       aria-label={isRtl ? "تعرف على مؤسس Alpha Traders" : "Meet the Founder of Alpha Traders"}
     >
-      <motion.div
-        variants={wrapperVariants}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, amount: 0.15 }}
+      <div
         className={`relative overflow-hidden rounded-3xl border border-white/10 bg-[#0a0a0a] ${
           isRtl ? "md:flex-row-reverse" : ""
         } flex flex-col md:flex-row`}
@@ -60,10 +42,7 @@ export function FounderPreview() {
         {/* ----------------------------------------------------------------
             Left / top — image panel
         ---------------------------------------------------------------- */}
-        <motion.div
-          variants={fadeUp}
-          className="relative min-h-[260px] flex-shrink-0 overflow-hidden md:min-h-[420px] md:w-[46%]"
-        >
+        <div className="relative min-h-[260px] flex-shrink-0 overflow-hidden md:min-h-[420px] md:w-[46%]">
           <Image
             src="/images/hero/hero-trading-office.webp"
             alt={isRtl ? "مكتب Alpha Traders" : "Alpha Traders workspace"}
@@ -85,7 +64,7 @@ export function FounderPreview() {
               <Play className="ms-0.5 h-7 w-7 fill-current" aria-hidden="true" />
             </span>
           </Link>
-        </motion.div>
+        </div>
 
         {/* ----------------------------------------------------------------
             Right / bottom — content panel
@@ -96,36 +75,29 @@ export function FounderPreview() {
           }`}
         >
           {/* Badge */}
-          <motion.div variants={fadeUp}>
+          <div>
             <span className="inline-flex items-center gap-2 rounded-full border border-[#C9A227]/30 bg-[#C9A227]/10 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[#C9A227]">
               <UserRound className="h-3.5 w-3.5" aria-hidden="true" />
               {isRtl ? "المؤسس" : "Founder"}
             </span>
-          </motion.div>
+          </div>
 
           {/* Headline */}
-          <motion.h2
-            variants={fadeUp}
-            className="text-2xl font-semibold leading-snug text-white md:text-3xl"
-          >
+          <h2 className="text-2xl font-semibold leading-snug text-white md:text-3xl">
             {isRtl
               ? "تعرف على مؤسس Alpha Traders"
               : "Meet the Founder of Alpha Traders"}
-          </motion.h2>
+          </h2>
 
           {/* Paragraph */}
-          <motion.p
-            variants={fadeUp}
-            className="max-w-lg text-sm leading-7 text-[#9CA3AF]"
-          >
+          <p className="max-w-lg text-sm leading-7 text-[#9CA3AF]">
             {isRtl
               ? "تم إنشاء Alpha Traders لمساعدة المتداولين على التعلم باحتراف واستخدام سوق منظم يركز على الشفافية والتعليم والنمو على المدى الطويل."
               : "Alpha Traders was created to help traders learn professionally and use a structured marketplace focused on transparency, education, and long-term growth."}
-          </motion.p>
+          </p>
 
           {/* Bullets */}
-          <motion.ul
-            variants={fadeUp}
+          <ul
             className={`flex flex-col gap-2.5 ${isRtl ? "items-end" : "items-start"}`}
             aria-label={isRtl ? "مزايا رئيسية" : "Key features"}
           >
@@ -141,10 +113,10 @@ export function FounderPreview() {
                 {isRtl ? b.ar : b.en}
               </li>
             ))}
-          </motion.ul>
+          </ul>
 
           {/* CTA */}
-          <motion.div variants={fadeUp}>
+          <div>
             <Link
               href="/founder#founder-video"
               className={cn(buttonVariants({ variant: "secondary" }), "gap-2 border-[#C9A227]/40 bg-[#C9A227]/8 text-[#C9A227] hover:border-[#C9A227]/70 hover:bg-[#C9A227]/15 hover:text-[#C9A227]")}
@@ -152,9 +124,9 @@ export function FounderPreview() {
               <Play className="h-4 w-4 fill-current" aria-hidden="true" />
               {isRtl ? "شاهد قصتي" : "Watch My Story"}
             </Link>
-          </motion.div>
+          </div>
         </div>
-      </motion.div>
+      </div>
     </section>
   );
 }

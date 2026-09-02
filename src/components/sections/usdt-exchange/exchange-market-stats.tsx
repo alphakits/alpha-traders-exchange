@@ -1,6 +1,5 @@
 "use client";
 
-import { motion } from "framer-motion";
 import { CircleDot, Clock3, LayoutGrid, Users } from "lucide-react";
 import { useLocale } from "next-intl";
 
@@ -19,23 +18,6 @@ export type ExchangeMarketStatsProps = {
 };
 
 // ---------------------------------------------------------------------------
-// Animation
-// ---------------------------------------------------------------------------
-const containerVariants: import("framer-motion").Variants = {
-  hidden: {},
-  visible: { transition: { staggerChildren: 0.09 } },
-};
-
-const cardVariants: import("framer-motion").Variants = {
-  hidden: { opacity: 0, y: 18 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.45, ease: "easeOut" as const },
-  },
-};
-
-// ---------------------------------------------------------------------------
 // Individual stat card
 // ---------------------------------------------------------------------------
 type StatDef = {
@@ -49,10 +31,8 @@ type StatDef = {
 
 function StatCard({ stat, isRtl }: { stat: StatDef; isRtl: boolean }) {
   return (
-    <motion.div
-      variants={cardVariants}
-      whileHover={{ y: -4, transition: { duration: 0.18 } }}
-      className={`group relative flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-5 backdrop-blur-sm transition-shadow duration-300 hover:border-[#C9A227]/35 hover:bg-white/[0.055] hover:shadow-[0_8px_32px_rgba(201,162,39,0.13)] ${
+    <div
+      className={`group relative flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-5 backdrop-blur-sm transition duration-300 hover:-translate-y-1 hover:border-[#C9A227]/35 hover:bg-white/[0.055] hover:shadow-[0_8px_32px_rgba(201,162,39,0.13)] ${
         isRtl ? "items-end text-right" : "items-start text-left"
       }`}
       aria-label={`${isRtl ? stat.titleAr : stat.titleEn}: ${stat.value}`}
@@ -82,7 +62,7 @@ function StatCard({ stat, isRtl }: { stat: StatDef; isRtl: boolean }) {
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100 [background:radial-gradient(ellipse_at_top,rgba(201,162,39,0.07),transparent_70%)]"
       />
-    </motion.div>
+    </div>
   );
 }
 
@@ -137,17 +117,11 @@ export function ExchangeMarketStats({
     <section
       aria-label={isRtl ? "إحصاءات Alpha Exchange" : "Alpha Exchange market statistics"}
     >
-      <motion.div
-        variants={containerVariants}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, amount: 0.15 }}
-        className="grid grid-cols-2 gap-3 lg:grid-cols-4"
-      >
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {stats.map((stat) => (
           <StatCard key={stat.titleEn} stat={stat} isRtl={isRtl} />
         ))}
-      </motion.div>
+      </div>
     </section>
   );
 }

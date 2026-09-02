@@ -1,14 +1,12 @@
 ﻿"use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { useCallback, useEffect, useState } from "react";
 import { AlertCircle, Bookmark, CheckCircle2, Clock3, FileText, PlayCircle, Sparkles } from "lucide-react";
 import { useLocale } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import type { Lesson } from "@/types/academy";
-import { lessonNarratives } from "@/data/course-source";
-import { getLessonsByCourse } from "@/lib/content";
+import type { LessonNarrative } from "@/data/course-source";
 import { resolveLessonPdfSource } from "@/lib/lesson-pdf";
 import { resolveLessonResourceUrl } from "@/lib/lesson-video";
 import {
@@ -65,10 +63,14 @@ type SyncState = "idle" | "saving" | "saved";
 
 export function LessonInterface({
   lesson,
+  courseLessons,
+  lessonNarrative,
   previousSlug,
   nextSlug,
 }: {
   lesson: Lesson;
+  courseLessons: Array<Pick<Lesson, "id" | "slug" | "title" | "titleAr" | "lessonNumber" | "order">>;
+  lessonNarrative?: LessonNarrative | null;
   previousSlug?: string;
   nextSlug?: string;
 }) {
@@ -80,7 +82,6 @@ export function LessonInterface({
   const [showCelebration, setShowCelebration] = useState(false);
   const [selfHostedVideoErrored, setSelfHostedVideoErrored] = useState(false);
 
-  const courseLessons = useMemo(() => getLessonsByCourse(lesson.courseId), [lesson.courseId]);
   const courseProgress = getCourseProgressPercent(
     lesson.courseId,
     courseLessons.map((entry) => entry.id),
@@ -102,7 +103,7 @@ export function LessonInterface({
   const shouldShowResume = progressState.videoPositionSeconds > 0 || progressState.pdfReadProgress > 0 || progressState.notes.length > 0;
   const isEmbeddedFallbackProvider = lesson.assets.videoProvider !== "self-hosted";
   const lessonDuration = lesson.estimatedDurationMinutes || lesson.durationMinutes;
-  const narrative = lessonNarratives[lesson.slug];
+  const narrative = lessonNarrative ?? undefined;
 
   useEffect(() => {
     markLessonAsCurrent(lesson);
@@ -606,20 +607,9 @@ export function LessonInterface({
         </aside>
       </div>
 
-      <AnimatePresence>
-        {showCelebration && progressState.lessonCompleted ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 24, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 16 }}
-              className="modal-panel w-full max-w-xl border-[#C9A227]/40 p-7 text-center shadow-[0_30px_90px_rgba(0,0,0,0.65)]"
-            >
+      {showCelebration && progressState.lessonCompleted ? (
+          <div className="alpha-modal-backdrop fixed inset-0 z-50 grid place-items-center bg-black/70 p-4">
+            <div className="alpha-modal-panel modal-panel w-full max-w-xl border-[#C9A227]/40 p-7 text-center shadow-[0_30px_90px_rgba(0,0,0,0.65)]">
               <Sparkles className="mx-auto mb-3 h-8 w-8 text-[#C9A227]" />
               <p className="text-sm uppercase tracking-[0.2em] text-[#C9A227]">{isAr ? "ممتاز" : "Excellent work"}</p>
               <h3 className="mt-2 text-2xl font-semibold">{isAr ? `أكملت درس ${lesson.titleAr}` : `You've completed ${lesson.title}`}</h3>
@@ -637,10 +627,9 @@ export function LessonInterface({
                   {isAr ? "إغلاق" : "Close"}
                 </Button>
               </div>
-            </motion.div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+            </div>
+          </div>
+      ) : null}
     </div>
   );
 }

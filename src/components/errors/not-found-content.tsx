@@ -1,6 +1,5 @@
 "use client";
 
-import { motion } from "framer-motion";
 import { FileSearch, Home, BookOpen, BarChart2 } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { buttonVariants } from "@/components/ui/button";
@@ -35,12 +34,7 @@ export function NotFoundContent({ locale }: { locale: Locale }) {
       className="section-container page-shell flex min-h-[65vh] items-center justify-center"
       dir={isRtl ? "rtl" : "ltr"}
     >
-      <motion.div
-        initial={{ opacity: 0, y: 28 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: "easeOut" }}
-        className="w-full max-w-lg"
-      >
+      <div className="alpha-reveal-rise w-full max-w-lg">
         <div className="surface-panel-subtle relative overflow-hidden p-8 shadow-2xl backdrop-blur-sm md:p-10">
           {/* Radial glow */}
           <div
@@ -49,61 +43,43 @@ export function NotFoundContent({ locale }: { locale: Locale }) {
           />
 
           {/* Icon */}
-          <motion.div
-            initial={{ scale: 0.65, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ delay: 0.1, duration: 0.45, ease: "easeOut" }}
-            className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl border border-[#C9A227]/25 bg-[#C9A227]/10"
+          <div
+            className="alpha-reveal-pop alpha-delay-1 mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl border border-[#C9A227]/25 bg-[#C9A227]/10"
             aria-hidden="true"
           >
             <FileSearch className="h-10 w-10 text-[#C9A227]" />
-          </motion.div>
+          </div>
 
           {/* Badge */}
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.2 }}
-            className="text-center text-xs font-bold uppercase tracking-[0.35em] text-[#C9A227]"
+          <p
+            className="alpha-reveal-fade alpha-delay-2 text-center text-xs font-bold uppercase tracking-[0.35em] text-[#C9A227]"
           >
             {t.code}
-          </motion.p>
+          </p>
 
           {/* Title */}
-          <motion.h1
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.25 }}
-            className="mt-2 text-center text-2xl font-semibold leading-tight text-white md:text-3xl"
+          <h1
+            className="alpha-reveal-rise alpha-delay-2 mt-2 text-center text-2xl font-semibold leading-tight text-white md:text-3xl"
           >
             {t.title}
-          </motion.h1>
+          </h1>
 
           {/* Description */}
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.32 }}
-            className="mx-auto mt-3 max-w-sm text-center text-sm leading-relaxed text-white/50"
+          <p
+            className="alpha-reveal-fade alpha-delay-3 mx-auto mt-3 max-w-sm text-center text-sm leading-relaxed text-white/50"
           >
             {t.desc}
-          </motion.p>
+          </p>
 
           {/* Divider */}
-          <motion.div
-            initial={{ scaleX: 0 }}
-            animate={{ scaleX: 1 }}
-            transition={{ delay: 0.38, duration: 0.4 }}
-            className="mx-auto my-6 h-px w-24 bg-[#C9A227]/20"
+          <div
+            className="alpha-reveal-scale-x alpha-delay-3 mx-auto my-6 h-px w-24 bg-[#C9A227]/20"
             aria-hidden="true"
           />
 
           {/* Buttons */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.42 }}
-            className="flex flex-wrap justify-center gap-2"
+          <div
+            className="alpha-reveal-rise alpha-delay-4 flex flex-wrap justify-center gap-2"
           >
             <Link href="/" className={buttonVariants()}>
               <Home className="h-4 w-4" aria-hidden="true" />
@@ -117,9 +93,9 @@ export function NotFoundContent({ locale }: { locale: Locale }) {
               <BarChart2 className="h-4 w-4" aria-hidden="true" />
               {t.exchange}
             </Link>
-          </motion.div>
+          </div>
         </div>
-      </motion.div>
+      </div>
     </section>
   );
 }

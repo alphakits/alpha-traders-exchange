@@ -1,27 +1,7 @@
 "use client";
 
-import { animate, motion, useInView } from "framer-motion";
 import { GraduationCap, Globe, ShieldCheck, Sparkles } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
 import { useLocale } from "next-intl";
-
-// ---------------------------------------------------------------------------
-// CountUp hook — animates from 0 → `to` once the ref enters the viewport.
-// `start` controls when animation fires (tied to inView).
-// ---------------------------------------------------------------------------
-function useCountUp(to: number, start: boolean, duration = 1.6) {
-  const [display, setDisplay] = useState(0);
-  useEffect(() => {
-    if (!start) return;
-    const controls = animate(0, to, {
-      duration,
-      ease: "easeOut",
-      onUpdate: (v) => setDisplay(Math.round(v)),
-    });
-    return () => controls.stop();
-  }, [start, to, duration]);
-  return display;
-}
 
 // ---------------------------------------------------------------------------
 // Stat card data
@@ -81,42 +61,16 @@ const STATS: StatItem[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Animation variants
-// ---------------------------------------------------------------------------
-const containerVariants: import("framer-motion").Variants = {
-  hidden: {},
-  visible: {
-    transition: { staggerChildren: 0.1 },
-  },
-};
-
-const cardVariants: import("framer-motion").Variants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.5, ease: "easeOut" as const },
-  },
-};
-
-// ---------------------------------------------------------------------------
 // Individual stat card
 // ---------------------------------------------------------------------------
 function StatCard({ stat, isRtl }: { stat: StatItem; isRtl: boolean }) {
-  const cardRef = useRef<HTMLDivElement>(null);
-  const inView = useInView(cardRef, { once: true, amount: 0.4 });
-  const count = useCountUp(stat.numericValue, inView && !stat.staticDisplay);
-
   const displayValue = stat.staticDisplay
     ? stat.staticDisplay
-    : `${stat.prefix ?? ""}${count}${stat.suffix ?? ""}`;
+    : `${stat.prefix ?? ""}${stat.numericValue}${stat.suffix ?? ""}`;
 
   return (
-    <motion.div
-      ref={cardRef}
-      variants={cardVariants}
-      whileHover={{ y: -5, transition: { duration: 0.2 } }}
-      className={`group relative flex flex-col gap-4 rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-6 backdrop-blur-sm transition-shadow duration-300 hover:border-[#C9A227]/35 hover:bg-white/[0.055] hover:shadow-[0_8px_32px_rgba(201,162,39,0.14)] ${
+    <div
+      className={`group relative flex flex-col gap-4 rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-6 backdrop-blur-sm transition-[transform,box-shadow,border-color,background-color] duration-300 hover:-translate-y-1 hover:border-[#C9A227]/35 hover:bg-white/[0.055] hover:shadow-[0_8px_32px_rgba(201,162,39,0.14)] ${
         isRtl ? "items-end text-right" : "items-start text-left"
       }`}
     >
@@ -149,7 +103,7 @@ function StatCard({ stat, isRtl }: { stat: StatItem; isRtl: boolean }) {
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100 [background:radial-gradient(ellipse_at_top,rgba(201,162,39,0.07),transparent_70%)]"
       />
-    </motion.div>
+    </div>
   );
 }
 
@@ -165,17 +119,11 @@ export function HomepageStats() {
       className="section-container"
       aria-label={isRtl ? "إحصاءات Alpha Traders" : "Alpha Traders statistics"}
     >
-      <motion.div
-        variants={containerVariants}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, amount: 0.1 }}
-        className="grid grid-cols-2 gap-4 lg:grid-cols-4"
-      >
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {STATS.map((stat) => (
           <StatCard key={stat.titleEn} stat={stat} isRtl={isRtl} />
         ))}
-      </motion.div>
+      </div>
     </section>
   );
 }

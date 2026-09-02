@@ -1,6 +1,5 @@
 "use client";
 
-import { motion } from "framer-motion";
 import { Globe, GraduationCap, ShieldCheck, Users, Zap } from "lucide-react";
 import { useLocale } from "next-intl";
 
@@ -50,20 +49,6 @@ const ITEMS: TrustItem[] = [
   },
 ];
 
-const containerVariants = {
-  hidden: {},
-  visible: {
-    transition: {
-      staggerChildren: 0.09,
-    },
-  },
-};
-
-const itemVariants: import("framer-motion").Variants = {
-  hidden: { opacity: 0, y: 18 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.45, ease: "easeOut" as const } },
-};
-
 export function TrustBar() {
   const locale = useLocale();
   const isRtl = locale === "ar";
@@ -73,19 +58,11 @@ export function TrustBar() {
       className="section-container"
       aria-label={isRtl ? "مزايا Alpha Traders" : "Alpha Traders trust indicators"}
     >
-      <motion.div
-        variants={containerVariants}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, amount: 0.15 }}
-        className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
-      >
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {ITEMS.map((item) => (
-          <motion.div
+          <div
             key={item.titleEn}
-            variants={itemVariants}
-            whileHover={{ y: -4, transition: { duration: 0.2 } }}
-            className={`group relative flex flex-col items-center gap-2.5 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-5 text-center backdrop-blur-sm transition-shadow duration-300 hover:border-[#C9A227]/35 hover:bg-white/[0.055] hover:shadow-[0_6px_28px_rgba(201,162,39,0.14)] focus-within:outline-none focus-within:ring-2 focus-within:ring-[#C9A227]/50 ${
+            className={`group relative flex flex-col items-center gap-2.5 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-5 text-center backdrop-blur-sm transition-[transform,box-shadow,border-color,background-color] duration-300 hover:-translate-y-1 hover:border-[#C9A227]/35 hover:bg-white/[0.055] hover:shadow-[0_6px_28px_rgba(201,162,39,0.14)] focus-within:outline-none focus-within:ring-2 focus-within:ring-[#C9A227]/50 ${
               isRtl ? "text-right items-end" : "text-left items-start"
             } sm:items-center sm:text-center`}
           >
@@ -108,9 +85,9 @@ export function TrustBar() {
               aria-hidden="true"
               className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100 [background:radial-gradient(ellipse_at_top,rgba(201,162,39,0.07),transparent_70%)]"
             />
-          </motion.div>
+          </div>
         ))}
-      </motion.div>
+      </div>
     </section>
   );
 }

@@ -1,7 +1,6 @@
 ﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
-import { motion, useScroll, useTransform } from "framer-motion";
 import { BookOpen, Compass, Crown, Gem, Loader2, PlayCircle, Target, TrendingUp } from "lucide-react";
 import { useLocale } from "next-intl";
 import { Link } from "@/i18n/navigation";
@@ -38,8 +37,6 @@ const timeline = [
 export function FounderPage() {
   const locale = useLocale();
   const isAr = locale === "ar";
-  const { scrollYProgress } = useScroll();
-  const timelineProgress = useTransform(scrollYProgress, [0.2, 0.8], [0, 1]);
   const videoSectionRef = useRef<HTMLElement | null>(null);
   const [videoLoading, setVideoLoading] = useState(true);
   const [videoError, setVideoError] = useState(false);
@@ -73,7 +70,7 @@ export function FounderPage() {
     <div className="section-container page-shell space-y-14">
       <section className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#0a0a0a] p-8 md:p-12">
         <div className="pointer-events-none absolute inset-0 opacity-30 [background:radial-gradient(circle_at_20%_20%,#C9A227_0,transparent_40%)]" />
-        <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55, ease: "easeOut" }} className="relative max-w-4xl">
+        <div className="alpha-reveal-rise relative max-w-4xl">
           <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs tracking-[0.2em] text-[#C9A227]">
             <BookOpen className="h-3.5 w-3.5" />
             {isAr ? "مقدمة المؤسس" : "Founder Introduction"}
@@ -85,7 +82,7 @@ export function FounderPage() {
               : "Before your learning journey starts, I want to share my story, why Alpha Traders was built, and why this content is free for everyone."}
           </p>
           <p className="mt-4 max-w-3xl text-sm leading-7 text-[#D1D5DB]">{isAr ? courseSource.founder.philosophyAr : courseSource.founder.philosophy}</p>
-        </motion.div>
+        </div>
       </section>
 
       <section id="founder-video" ref={videoSectionRef} tabIndex={-1} className="scroll-mt-24 space-y-4 outline-none">
@@ -172,10 +169,10 @@ export function FounderPage() {
           <p className="mt-2 text-sm text-[#9CA3AF]">{isAr ? "نقاط أساسية قبل دخولك المسار التعليمي." : "Key points before entering the learning path."}</p>
         </div>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {highlights.map((item, index) => {
+          {highlights.map((item) => {
             const Icon = item.icon;
             return (
-              <motion.div key={item.titleAr} initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, amount: 0.35 }} transition={{ duration: 0.45, delay: index * 0.06 }}>
+              <div key={item.titleAr}>
                 <Card className="h-full">
                   <CardHeader>
                     <CardDescription className="inline-flex items-center gap-2 text-[#C9A227]">
@@ -185,7 +182,7 @@ export function FounderPage() {
                     <CardTitle>{isAr ? item.titleAr : item.title}</CardTitle>
                   </CardHeader>
                 </Card>
-              </motion.div>
+              </div>
             );
           })}
         </div>
@@ -203,15 +200,11 @@ export function FounderPage() {
       <section>
         <h2 className="text-3xl font-semibold">{isAr ? "رحلتي" : "My Journey"}</h2>
         <div className="relative mt-8 ps-6">
-          <motion.div style={{ scaleY: timelineProgress }} className="absolute inset-y-0 start-1.5 w-px origin-top bg-[#C9A227]" />
+          <div className="absolute inset-y-0 start-1.5 w-px bg-[#C9A227]" />
           <div className="space-y-5">
-            {timeline.map((step, index) => (
-              <motion.div
+            {timeline.map((step) => (
+              <div
                 key={step.titleAr}
-                initial={{ opacity: 0, x: isAr ? 16 : -16 }}
-                whileInView={{ opacity: 1, x: 0 }}
-                viewport={{ once: true, amount: 0.35 }}
-                transition={{ duration: 0.45, delay: index * 0.05 }}
                 className="relative"
               >
                 <span className="absolute -start-[1.05rem] top-5 h-3 w-3 rounded-full border border-[#C9A227] bg-[#050505]" />
@@ -220,7 +213,7 @@ export function FounderPage() {
                     <p className="font-medium">{isAr ? step.titleAr : step.title}</p>
                   </CardContent>
                 </Card>
-              </motion.div>
+              </div>
             ))}
           </div>
         </div>

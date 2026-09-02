@@ -1,8 +1,6 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
-import { motion, useScroll, useTransform } from "framer-motion";
 import { ArrowDown, ArrowLeft, ArrowRight, Brain, CheckCircle2, Coins, Play, PlayCircle, ShieldCheck, Target } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
@@ -28,18 +26,6 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
   const primaryCourseValue = primaryCourse ? courseSource.courseBySlug[primaryCourse.slug as keyof typeof courseSource.courseBySlug] : null;
   const learningCards = courseSource.homepage.learnCards;
   const visualShowcase = courseSource.homepage.visualShowcase;
-  const { scrollY } = useScroll();
-  const parallaxY = useTransform(scrollY, [0, 700], [0, 28]);
-  const [isDesktop, setIsDesktop] = useState(false);
-
-  useEffect(() => {
-    const media = window.matchMedia("(min-width: 1024px)");
-    const apply = () => setIsDesktop(media.matches);
-    apply();
-    media.addEventListener("change", apply);
-    return () => media.removeEventListener("change", apply);
-  }, []);
-
   const getLessonIcon = (slug: string) => {
     if (slug.includes("support")) return <ShieldCheck className="h-4 w-4 text-[#C9A227]" />;
     if (slug.includes("chart-patterns")) return <Brain className="h-4 w-4 text-[#C9A227]" />;
@@ -52,13 +38,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
     <div className="space-y-16 py-10 md:space-y-20 md:py-14">
       <section className="section-container">
         <div className="relative min-h-[430px] overflow-hidden rounded-3xl border border-white/10 bg-[#0a0a0a] md:min-h-[520px]">
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.8, ease: "easeOut" }}
-            className="absolute inset-0"
-            style={isDesktop ? { y: parallaxY, willChange: "transform" } : undefined}
-          >
+          <div className="alpha-reveal-fade absolute inset-0">
             <Image
               src="/images/hero/hero-trading-office.webp"
               alt={isRtl ? "مساحة عمل التداول في Alpha Traders" : "Alpha Traders cinematic workspace"}
@@ -68,29 +48,22 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
               sizes="(min-width: 1280px) 1280px, 100vw"
               className="object-cover object-[30%_center] md:object-center"
             />
-          </motion.div>
+          </div>
           <div className="pointer-events-none absolute inset-0 bg-[rgba(0,0,0,0.5)]" />
           <div className="pointer-events-none absolute inset-0 [background:radial-gradient(circle_at_left_center,rgba(0,0,0,0.12),rgba(0,0,0,0.48),rgba(0,0,0,0.72))]" />
           <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_120px_rgba(0,0,0,0.38)]" />
           <div className="pointer-events-none absolute inset-0 hidden md:block">
             {[12, 30, 48, 64, 80].map((left, index) => (
-              <motion.span
+              <span
                 key={left}
-                className="absolute h-1 w-1 rounded-full bg-[#C9A227]/40"
-                style={{ left: `${left}%`, top: `${26 + index * 10}%` }}
-                animate={{ opacity: [0.12, 0.35, 0.12], y: [0, -8, 0] }}
-                transition={{ duration: 4 + index * 0.45, repeat: Infinity, ease: "easeInOut", delay: index * 0.3 }}
+                className="alpha-home-particle absolute h-1 w-1 rounded-full bg-[#C9A227]/40"
+                style={{ left: `${left}%`, top: `${26 + index * 10}%`, animationDuration: `${4 + index * 0.45}s`, animationDelay: `${index * 0.3}s` }}
               />
             ))}
           </div>
           <div className="relative z-10 grid min-h-[430px] content-start gap-8 p-7 md:min-h-[520px] md:grid-cols-2 md:p-12">
             <div className="hidden md:block" />
-            <motion.div
-              initial={{ opacity: 0, y: 22 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, ease: "easeOut" }}
-              className={`max-w-3xl self-start pt-4 md:pt-8 ${isRtl ? "md:ms-auto md:text-right" : "md:me-auto md:text-left"}`}
-            >
+            <div className={`alpha-reveal-rise max-w-3xl self-start pt-4 md:pt-8 ${isRtl ? "md:ms-auto md:text-right" : "md:me-auto md:text-left"}`}>
               <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/20 bg-black/25 px-3 py-1.5 text-[11px] uppercase tracking-[0.2em] text-[#C9A227]">
                 <Image
                   src="/images/brand/alpha-traders-logo.webp"
@@ -108,12 +81,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                 {t("headlineLine2")}
               </h1>
               <p className={`mt-4 max-w-xl text-base leading-relaxed text-white/85 md:text-lg ${isRtl ? "md:ms-auto" : ""}`}>{t("subheadline")}</p>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.45, delay: 0.2, ease: "easeOut" }}
-                className={`mt-8 flex flex-wrap gap-3 ${isRtl ? "md:justify-end" : "md:justify-start"}`}
-              >
+              <div className={`alpha-reveal-fade alpha-delay-2 mt-8 flex flex-wrap gap-3 ${isRtl ? "md:justify-end" : "md:justify-start"}`}>
                 <Link href={academyHref} className={cn(buttonVariants(), "gap-2")}>
                     {t("startLearning")}
                     {isRtl ? <ArrowLeft className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
@@ -135,8 +103,8 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                   <span className="relative z-10">{t("exploreExchange")}</span>
                   <span className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 transition duration-700 group-hover:left-[120%] group-hover:opacity-100" />
                 </Link>
-              </motion.div>
-            </motion.div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -167,7 +135,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
             </div>
 
             <div className="mt-6 grid gap-4 lg:grid-cols-2">
-              <motion.div initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, amount: 0.2 }} transition={{ duration: 0.35, ease: "easeOut" }}>
+              <div>
                 <Card className="h-full border-white/10 bg-[#0B0B0B]/95 transition duration-300 hover:-translate-y-1 hover:border-[#C9A227]/30 hover:shadow-[0_22px_60px_rgba(0,0,0,0.35)]">
                   <CardHeader>
                     <CardDescription className="text-[#C9A227]">🎓 Alpha Academy</CardDescription>
@@ -195,9 +163,9 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                       </Link>
                   </CardContent>
                 </Card>
-              </motion.div>
+              </div>
 
-              <motion.div initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, amount: 0.2 }} transition={{ duration: 0.35, delay: 0.06, ease: "easeOut" }}>
+              <div>
                 <Card className="h-full border-[#6CAEFF]/30 bg-[#0B0B0B]/95 transition duration-300 hover:-translate-y-1 hover:border-[#6CAEFF]/50 hover:shadow-[0_22px_60px_rgba(17,87,188,0.25)]">
                   <CardHeader>
                     <CardDescription className="text-[#93C5FD]">💵 Alpha Exchange</CardDescription>
@@ -228,7 +196,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                       </Link>
                   </CardContent>
                 </Card>
-              </motion.div>
+              </div>
             </div>
 
             <div className="mt-6 grid gap-3 md:grid-cols-3">
@@ -363,14 +331,8 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-2">
-          {visualShowcase.map((item, index) => (
-            <motion.div
-              key={item.src}
-              initial={{ opacity: 0, y: 18 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, amount: 0.2 }}
-              transition={{ duration: 0.4, delay: index * 0.08, ease: "easeOut" }}
-            >
+          {visualShowcase.map((item) => (
+            <div key={item.src}>
               <Link href={item.href} className="group block h-full">
                 <Card className="h-full overflow-hidden border-white/10 bg-[#0B0B0B]/90 transition duration-300 group-hover:-translate-y-1 group-hover:border-[#C9A227]/30 group-hover:shadow-[0_22px_60px_rgba(0,0,0,0.35)]">
                   <div className="relative aspect-[16/10] overflow-hidden border-b border-white/10 bg-black/30">
@@ -391,7 +353,7 @@ export function HomePage({ isAuthenticated }: { isAuthenticated: boolean }) {
                   </CardContent>
                 </Card>
               </Link>
-            </motion.div>
+            </div>
           ))}
         </div>
       </section>

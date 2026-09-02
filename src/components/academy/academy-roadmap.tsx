@@ -4,7 +4,6 @@ import { useMemo } from "react";
 import { CheckCircle2, Circle, Lock, PlayCircle } from "lucide-react";
 import { useLocale } from "next-intl";
 import { Link } from "@/i18n/navigation";
-import { courses, getLessonsByCourse } from "@/lib/content";
 import { getAllLessonProgress, getCourseProgressPercent } from "@/lib/learning-progress";
 import type { AcademyLevel } from "@/types/academy";
 import { formatAcademyLevel } from "@/lib/academy-localization";
@@ -17,13 +16,28 @@ const ROADMAP_SETTINGS = {
 
 type RoadmapSection = "beginner" | "intermediate" | "advanced";
 
+export type AcademyRoadmapCourse = {
+  id: string;
+  slug: string;
+  title: string;
+  titleAr: string;
+  level: AcademyLevel;
+  summary: string;
+  summaryAr: string;
+  lessons: Array<{
+    id: string;
+    title: string;
+    titleAr: string;
+  }>;
+};
+
 function resolveRoadmapSection(level: AcademyLevel): RoadmapSection {
   if (level === "beginner") return "beginner";
   if (level === "intermediate" || level === "risk-management") return "intermediate";
   return "advanced";
 }
 
-export function AcademyRoadmap() {
+export function AcademyRoadmap({ courses }: { courses: AcademyRoadmapCourse[] }) {
   const locale = useLocale();
   const isAr = locale === "ar";
 
@@ -34,9 +48,9 @@ export function AcademyRoadmap() {
 
   const sections = useMemo(() => {
     const grouped = {
-      beginner: [] as typeof courses,
-      intermediate: [] as typeof courses,
-      advanced: [] as typeof courses,
+      beginner: [] as AcademyRoadmapCourse[],
+      intermediate: [] as AcademyRoadmapCourse[],
+      advanced: [] as AcademyRoadmapCourse[],
     };
 
     courses.forEach((course) => {
@@ -44,7 +58,7 @@ export function AcademyRoadmap() {
     });
 
     return grouped;
-  }, []);
+  }, [courses]);
 
   return (
     <div className="space-y-6">
@@ -55,7 +69,7 @@ export function AcademyRoadmap() {
           </h3>
           <div className="space-y-4">
             {sections[sectionKey].map((course) => {
-              const courseLessons = getLessonsByCourse(course.id);
+              const courseLessons = course.lessons;
               const percent = getCourseProgressPercent(
                 course.id,
                 courseLessons.map((lesson) => lesson.id),
