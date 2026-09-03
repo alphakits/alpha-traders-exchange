@@ -14,6 +14,8 @@
     "test:watch": "node ./node_modules/vitest/vitest.mjs",
     "test:e2e": "node ./node_modules/playwright/cli.js test",
     "test:coverage": "node ./node_modules/vitest/vitest.mjs run --coverage",
+    "verify:release": "node scripts/release-safety-gate.mjs",
+    "verify:release:full": "node scripts/release-safety-gate.mjs --with-e2e",
     "discord:inspect": "node scripts/discord/inspect-alpha-discord.mjs",
     "discord:verify": "node scripts/discord/verify-alpha-discord-auth.mjs",
     "discord:post-setup": "npm run discord:verify && npm run discord:inspect",
