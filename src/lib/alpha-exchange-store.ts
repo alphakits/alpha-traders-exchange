@@ -3985,12 +3985,16 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
   }
 
   for (const requestId of buyerConfirmationTimeoutRequestIds) {
-    await updatePurchaseRequestStatus({
+    const completion = await updatePurchaseRequestStatus({
       requestId,
       actorUserId: SYSTEM_ACTOR_USER_ID,
       actorRole: "admin",
       nextStatus: "completed",
     });
+    // HTTP-triggered completions schedule this write with Next.js after().
+    // Maintenance has no response lifecycle, so it must persist the same
+    // recalculated seller trust, activity, and profile state itself.
+    await completion.deferredTrustWrite?.();
   }
   if (buyerConfirmationTimeoutRequestIds.length > 0) {
     const refreshed = await readDb({ bypassCache: true });

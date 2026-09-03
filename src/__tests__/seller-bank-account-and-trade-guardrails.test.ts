@@ -17,6 +17,7 @@ import {
   runAlphaExchangeMaintenance,
   updatePurchaseRequestStatus,
 } from "@/lib/alpha-exchange-store";
+import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
 
 const SELLER_ID = "seller-1";
 const BUYER_ID = "buyer-1";
@@ -529,14 +530,26 @@ describe("seller bank accounts and trade guardrails", () => {
       updatedAt: sentAt,
     } as never);
 
+    const repository = await getAlphaExchangeRepository();
+    const saveSnapshot = vi.spyOn(repository, "saveSnapshot");
+
     await runAlphaExchangeMaintenance();
     const completed = currentSnapshot().purchaseRequests.find((item) => item.id === "req-expired-receipt");
     expect(completed?.status).toBe("review_open");
     expect(completed?.completedAt).toBeTruthy();
     expect(currentSnapshot().commissionRecords.filter((item) => item.purchaseRequestId === "req-expired-receipt")).toHaveLength(1);
     expect(currentSnapshot().marketplaceListings.find((item) => item.id === "listing-expired-receipt")?.activeTradeRequestId).toBeUndefined();
+    expect(saveSnapshot.mock.calls.some(([, options]) => {
+      const tables = new Set(options?.selectedTables ?? []);
+      return tables.has("users")
+        && tables.has("activity_logs")
+        && tables.has("trust_snapshots")
+        && tables.has("trust_score_history");
+    })).toBe(true);
 
+    saveSnapshot.mockClear();
     await runAlphaExchangeMaintenance();
     expect(currentSnapshot().commissionRecords.filter((item) => item.purchaseRequestId === "req-expired-receipt")).toHaveLength(1);
+    expect(saveSnapshot.mock.calls.some(([, options]) => options?.selectedTables?.includes("trust_snapshots"))).toBe(false);
   });
 });
