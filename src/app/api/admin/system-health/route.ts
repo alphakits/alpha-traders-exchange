@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 
 import { requireApiAdmin } from "@/lib/api-auth";
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
+import {
+  buildMarketplaceOperationalSnapshot,
+  type MarketplaceOperationalSnapshot,
+} from "@/lib/marketplace-operational-health";
 import { logEvent } from "@/lib/structured-logging";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +14,7 @@ export const runtime = "nodejs";
 type HealthState = "healthy" | "degraded";
 
 type HealthCheck = {
-  key: "application" | "database" | "authentication" | "trade_room" | "notifications" | "email";
+  key: "application" | "database" | "authentication" | "trade_room" | "notifications" | "email" | "marketplace_operations";
   label: string;
   status: HealthState;
   detail: string;
@@ -60,12 +64,66 @@ async function checkDatabase(): Promise<HealthCheck> {
   }
 }
 
+async function checkMarketplaceOperations(): Promise<{
+  check: HealthCheck;
+  snapshot: MarketplaceOperationalSnapshot | null;
+}> {
+  const startedAt = Date.now();
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const repository = await getAlphaExchangeRepository();
+    const operationalData = await Promise.race([
+      repository.loadOperationalHealthData(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error("marketplace_operations_timeout")), DATABASE_TIMEOUT_MS);
+      }),
+    ]);
+    const snapshot = buildMarketplaceOperationalSnapshot(operationalData);
+    const status = snapshot.status === "healthy" ? "healthy" : "degraded";
+    const detail = snapshot.status === "healthy"
+      ? "No stuck trades, stale offers, overdue releases, or listing-lock inconsistencies were detected."
+      : `${snapshot.incidents.length} marketplace item${snapshot.incidents.length === 1 ? " requires" : "s require"} owner attention.`;
+    return {
+      check: {
+        key: "marketplace_operations",
+        label: "Marketplace operations",
+        status,
+        detail,
+        latencyMs: Date.now() - startedAt,
+      },
+      snapshot,
+    };
+  } catch (error) {
+    logEvent("error", {
+      event: "system_health_marketplace_operations",
+      outcome: "failed",
+      reason: "operational_snapshot_unavailable",
+      metadata: { errorName: error instanceof Error ? error.name : typeof error },
+    });
+    return {
+      check: {
+        key: "marketplace_operations",
+        label: "Marketplace operations",
+        status: "degraded",
+        detail: "Operational trade and listing checks could not be completed.",
+        latencyMs: Date.now() - startedAt,
+      },
+      snapshot: null,
+    };
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 export async function GET() {
   const { user, unauthorized } = await requireApiAdmin();
   if (!user) return unauthorized;
 
   const startedAt = Date.now();
-  const database = await checkDatabase();
+  const [database, marketplaceOperations] = await Promise.all([
+    checkDatabase(),
+    checkMarketplaceOperations(),
+  ]);
   const authConfigured = hasEnvironmentValues([
     "NEXT_PUBLIC_SUPABASE_URL",
     "NEXT_PUBLIC_SUPABASE_ANON_KEY",
@@ -114,6 +172,7 @@ export async function GET() {
         ? "The transactional email provider is configured."
         : "The transactional email provider is not fully configured.",
     },
+    marketplaceOperations.check,
   ];
   const status: HealthState = checks.every((check) => check.status === "healthy") ? "healthy" : "degraded";
   const release = (process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GITHUB_SHA ?? "local").slice(0, 12);
@@ -126,6 +185,7 @@ export async function GET() {
       release,
       environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "unknown",
       checks,
+      operations: marketplaceOperations.snapshot,
     },
     {
       status: 200,

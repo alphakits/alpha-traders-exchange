@@ -1664,6 +1664,31 @@ export class AlphaExchangeRepository {
     return "ok" as const;
   }
 
+  async loadOperationalHealthData(): Promise<{
+    marketplaceListings: MarketplaceListing[];
+    purchaseRequests: PurchaseRequest[];
+  }> {
+    await this.ensureReady();
+    const pool = this.pool;
+    if (this.usesMemoryFallback || !pool) {
+      const snapshot = getLatestAvailableFallbackSnapshot();
+      return {
+        marketplaceListings: cloneSnapshot(snapshot.marketplaceListings),
+        purchaseRequests: cloneSnapshot(snapshot.purchaseRequests),
+      };
+    }
+
+    const [listingsResult, purchaseRequestsResult] = await Promise.all([
+      pool.query<{ payload: MarketplaceListing }>("select payload from alpha_exchange.listings order by sort_index asc"),
+      pool.query<{ payload: PurchaseRequest }>("select payload from alpha_exchange.purchase_requests order by sort_index asc"),
+    ]);
+
+    return {
+      marketplaceListings: fromPayloadRows(listingsResult.rows),
+      purchaseRequests: fromPayloadRows(purchaseRequestsResult.rows),
+    };
+  }
+
   async acquireAdminAnnouncementBatchLock(input: {
     run: AdminAnnouncementRun;
     staleBefore: string;

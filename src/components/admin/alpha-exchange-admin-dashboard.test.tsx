@@ -43,6 +43,43 @@ function adminPayload(listings = [listing]) {
   };
 }
 
+function systemHealthPayload() {
+  return {
+    status: "degraded",
+    checkedAt: "2026-09-03T20:00:00.000Z",
+    durationMs: 24,
+    release: "7d3dada9e916",
+    environment: "production",
+    checks: [{
+      key: "marketplace_operations",
+      label: "Marketplace operations",
+      status: "degraded",
+      detail: "One marketplace item requires owner attention.",
+      latencyMs: 12,
+    }],
+    operations: {
+      status: "attention",
+      generatedAt: "2026-09-03T20:00:00.000Z",
+      activeTrades: 2,
+      pendingPriceOffers: 3,
+      stalePriceOffers: 1,
+      stalledTrades: 0,
+      overdueUsdtReleases: 0,
+      dataIntegrityIssues: 0,
+      incidents: [{
+        id: "stale-price-offer:request-1",
+        kind: "stale_price_offer",
+        severity: "warning",
+        requestId: "request-1",
+        tradeId: "trade-1",
+        listingId: "listing-123",
+        status: "pending",
+        ageMinutes: 42,
+      }],
+    },
+  };
+}
+
 describe("AlphaExchangeAdminDashboard admin destinations", () => {
   const scrollIntoView = vi.fn();
 
@@ -202,5 +239,41 @@ describe("AlphaExchangeAdminDashboard admin destinations", () => {
         reason: "Operational notice",
       });
     });
+  });
+
+  it("shows live marketplace incidents and opens the exact trade for review", async () => {
+    navigationState.search = "section=system-health";
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input).includes("sms-deliveries")) return Response.json({ deliveries: [] });
+      if (String(input).includes("/api/admin/system-health")) return Response.json(systemHealthPayload());
+      return Response.json(adminPayload());
+    });
+
+    render(<AlphaExchangeAdminDashboard />);
+
+    expect(await screen.findByText("Marketplace Operational Guard")).toBeTruthy();
+    expect(screen.getByText("Price offer waiting for seller response")).toBeTruthy();
+    expect(screen.getByText("Stale offers")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open Trade" }));
+
+    expect(await screen.findByRole("heading", { name: "Purchase Requests" })).toBeTruthy();
+    expect((screen.getByPlaceholderText("Search buyer, seller, listing...") as HTMLInputElement).value).toBe("request-1");
+  });
+
+  it("renders the operational guard completely in Arabic", async () => {
+    navigationState.search = "section=system-health";
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input).includes("sms-deliveries")) return Response.json({ deliveries: [] });
+      if (String(input).includes("/api/admin/system-health")) return Response.json(systemHealthPayload());
+      return Response.json(adminPayload());
+    });
+
+    render(<AlphaExchangeAdminDashboard locale="ar" />);
+
+    expect(await screen.findByText("مراقبة عمليات السوق")).toBeTruthy();
+    expect(screen.getByText("عرض سعر بانتظار رد البائع")).toBeTruthy();
+    expect(screen.getByText("عروض بلا رد")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "فتح الصفقة" })).toBeTruthy();
+    expect(screen.queryByText("Marketplace Operational Guard")).toBeNull();
   });
 });
