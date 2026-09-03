@@ -19,6 +19,7 @@ import {
   invalidateAlphaExchangeStoreCache,
   renewMarketplaceListing,
   reviewMarketplaceListingByOwner,
+  submitBuyerTradeReview,
   TradeBlockedError,
   updateCommissionPaymentStatus,
   updateMarketplaceListingForSeller,
@@ -613,6 +614,80 @@ describe("partial listing preservation", () => {
       availableAmount: "0",
     });
   });
+
+  it("completes 100 repeated Buyer-Seller trades without stale locks, lost history, or inventory drift", async () => {
+    const listing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "10000",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "100",
+      maximumTrade: "10000",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+    await approveListing(listing.id);
+
+    const requestIds: string[] = [];
+    for (let index = 0; index < 100; index += 1) {
+      const requestId = await completeTrade({
+        listingId: listing.id,
+        buyerId: BUYER_ONE_ID,
+        buyerName: "Buyer One",
+        amount: "100",
+        runDeferredTrustWrite: true,
+      });
+      requestIds.push(requestId);
+
+      await submitBuyerTradeReview({
+        requestId,
+        buyerUserId: BUYER_ONE_ID,
+        rating: 5,
+        comment: `Completed repeated trade ${index + 1}.`,
+      });
+
+      if (index < 99) {
+        await markCommissionPaid(requestId);
+      }
+    }
+
+    invalidateAlphaExchangeStoreCache();
+    const [buyerHistory, sellerHistory, sellerListings, activeBuyerTrade, activeSellerTrade] = await Promise.all([
+      getMyPurchaseRequests(BUYER_ONE_ID, "buyer"),
+      getMyPurchaseRequests(SELLER_ID, "approved_seller"),
+      getMyMarketplaceListings(SELLER_ID),
+      getFirstActiveTradeForUser(BUYER_ONE_ID, "buyer"),
+      getFirstActiveTradeForUser(SELLER_ID, "approved_seller"),
+    ]);
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb & { __runtimeVersion: number };
+    const completedRequests = snapshot.purchaseRequests.filter((request) => request.listingId === listing.id);
+    const commissionRecords = snapshot.commissionRecords.filter((record) => record.listingId === listing.id);
+    const evidenceRecords = snapshot.tradeEvidenceFiles.filter((record) => requestIds.includes(record.purchaseRequestId));
+
+    expect(requestIds).toHaveLength(100);
+    expect(new Set(requestIds).size).toBe(100);
+    expect(completedRequests).toHaveLength(100);
+    expect(new Set(completedRequests.map((request) => request.tradeId)).size).toBe(100);
+    expect(completedRequests.every((request) => request.status === "review_open" && Boolean(request.buyerReview))).toBe(true);
+    expect(buyerHistory).toHaveLength(100);
+    expect(sellerHistory).toHaveLength(100);
+    expect(activeBuyerTrade).toBeNull();
+    expect(activeSellerTrade).toBeNull();
+    expect(evidenceRecords).toHaveLength(200);
+    expect(commissionRecords).toHaveLength(100);
+    expect(commissionRecords.filter((record) => record.paymentStatus === "paid")).toHaveLength(99);
+    expect(commissionRecords.filter((record) => record.paymentStatus === "pending")).toHaveLength(1);
+    expect(sellerListings.find((entry) => entry.id === listing.id)).toMatchObject({
+      status: "completed",
+      availableAmount: "0",
+      activeTradeRequestId: undefined,
+    });
+  }, 120_000);
 
   it("covers full trade lifecycle transitions, notifications, and commission record creation", async () => {
     const listing = await createMarketplaceListing({
