@@ -30,6 +30,17 @@ const currentExactMessages = [
 ] as const;
 
 describe("localizeTradeRoomSystemMessage", () => {
+  it("localizes a negotiated price acceptance without losing the exact ILS price", () => {
+    const localized = localizeTradeRoomSystemMessage(
+      "Seller accepted the price offer of ₪2.95 per USDT. Buyer can now upload the payment receipt.",
+      "ar",
+    );
+
+    expect(localized.matched).toBe(true);
+    expect(localized.text).toContain("₪2.95");
+    expect(localized.text).toContain("وافق البائع");
+  });
+
   it.each(currentExactMessages)("localizes the current system message %s", (source, expectedArabic) => {
     const localized = localizeTradeRoomSystemMessage(source, "ar");
 

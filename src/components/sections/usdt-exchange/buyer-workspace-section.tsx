@@ -290,6 +290,7 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                             <div>
                               <p className="text-sm font-medium text-white">{shortTradeRef(request, isAr)}</p>
                               <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "العرض" : "Listing"} {shortListingRef({ id: request.listingId, displayNumber: listingsById.get(request.listingId)?.displayNumber })}</p>
+                              {request.priceMode === "buyer_offer" ? <span className="mt-1.5 inline-flex rounded-full border border-[#C9A227]/40 bg-[#C9A227]/10 px-2 py-0.5 text-[11px] font-semibold text-[#F4D87A]">{isAr ? "عرض سعر" : "Price Offer"}</span> : null}
                             </div>
                             <div className="text-xs">
                               <span className={`rounded-full border px-2.5 py-1 font-semibold tracking-[0.08em] ${presentation.badgeTone}`}>{presentation.badge}</span>
@@ -306,6 +307,8 @@ export function BuyerWorkspaceSection(props: BuyerWorkspaceSectionProps) {
                             <div id={`buyer-trade-details-${request.id}`} className="space-y-3 border-t border-white/10 bg-black/25 px-4 py-4">
                               <div className="grid gap-2 text-sm md:grid-cols-3">
                                 <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{request.network}</span></p>
+                                <p>{request.priceMode === "buyer_offer" ? (isAr ? "سعرك المقترح" : "Your Offered Price") : (isAr ? "السعر لكل USDT" : "Price per USDT")}: <span className={request.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>₪{(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}</span></p>
+                                {request.priceMode === "buyer_offer" ? <p>{isAr ? "سعر البائع الأصلي" : "Original Seller Price"}: <span className="text-white">₪{toNumber(request.listingPriceAtRequest).toFixed(2)}</span></p> : null}
                                 <p>{isAr ? "تاريخ الإرسال" : "Submitted"}: <span className="text-white">{new Date(request.createdAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</span></p>
                                 {request.completedAt ? <p>{isAr ? "اكتملت" : "Completed"}: <span className="text-white">{new Date(request.completedAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</span></p> : null}
                               </div>

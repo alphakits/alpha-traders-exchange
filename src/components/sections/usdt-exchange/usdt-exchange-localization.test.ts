@@ -63,7 +63,9 @@ describe("USDT exchange localized mobile copy", () => {
   it("provides Arabic copy for every inline trade timeline event", () => {
     const eventTypes: TradeTimelineEventType[] = [
       "request_submitted",
+      "price_offer_submitted",
       "request_accepted",
+      "price_offer_accepted",
       "payment_sent",
       "seller_confirmed_funds",
       "usdt_release_started",
@@ -78,6 +80,7 @@ describe("USDT exchange localized mobile copy", () => {
       "buyer_evidence_uploaded",
       "seller_evidence_uploaded",
       "request_declined",
+      "price_offer_declined",
       "request_cancelled",
       "buyer_confirmed_receipt",
       "buyer_confirmation_overdue",
@@ -111,6 +114,30 @@ describe("USDT exchange localized mobile copy", () => {
     expect(timelineEnd).toBeGreaterThan(timelineStart);
     expect(timelineSource).toContain('<summary className="flex min-h-11');
     expect(timelineSource).not.toContain('<summary className="flex min-h-8');
+  });
+
+  it("exposes both purchase paths with bilingual price-offer copy and a mobile-safe dialog", () => {
+    const marketplace = readFileSync(join(process.cwd(), "src/components/sections/usdt-exchange/usdt-exchange-page.tsx"), "utf8");
+    const purchaseDialog = readFileSync(join(process.cwd(), "src/components/sections/usdt-exchange/purchase-listing-dialog.tsx"), "utf8");
+    const tradeRoom = readFileSync(join(process.cwd(), "src/components/sections/trade-room/trade-room-page.tsx"), "utf8");
+
+    expect(marketplace).toContain('onOpen(listing, "listing_price")');
+    expect(marketplace).toContain('onOpen(listing, "buyer_offer")');
+    expect(marketplace).toContain('"Make a Price Offer"');
+    expect(marketplace).toContain('"قدّم عرض سعر"');
+    expect(marketplace).toContain('"Up to ₪0.35 lower"');
+    expect(marketplace).toContain('"خصم حتى ₪0.35"');
+    expect(marketplace).toContain('listing.currency.trim().toUpperCase() === "ILS"');
+    expect(marketplace).toContain('seller-marketplace-action--offer');
+    expect(purchaseDialog).toContain('id="buyer-offered-price"');
+    expect(purchaseDialog).toContain('type="number"');
+    expect(purchaseDialog).toContain('step="0.01"');
+    expect(purchaseDialog).toContain('"Submit Price Offer"');
+    expect(purchaseDialog).toContain('"إرسال عرض السعر"');
+    expect(purchaseDialog).toContain('className="min-h-11 w-full"');
+    expect(tradeRoom).toContain('"Price Offer Submitted"');
+    expect(tradeRoom).toContain('"تم إرسال عرض السعر"');
+    expect(tradeRoom).toContain('<summary className="flex min-h-11');
   });
 
   it("localizes audit codes instead of exposing internal English slugs", () => {

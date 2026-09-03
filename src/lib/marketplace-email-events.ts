@@ -93,6 +93,16 @@ function tradeEmailContent(
     referenceLabel,
   };
   if (event === "new_buy_request") {
+    if (request.priceMode === "buyer_offer") {
+      return {
+        ...common,
+        title: { ar: "عرض سعر جديد", en: "New Price Offer" },
+        message: {
+          ar: `قدّم ${request.buyerName} عرضًا لشراء ${request.usdtAmount} USDT بسعر ₪${request.pricePerUsdt} لكل USDT. وافق على العرض أو ارفضه في غرفة الصفقة.`,
+          en: `${request.buyerName} offered ₪${request.pricePerUsdt} per USDT for ${request.usdtAmount} USDT. Accept or decline the offer in the Trade Room.`,
+        },
+      };
+    }
     return {
       ...common,
       title: { ar: "طلب شراء جديد", en: "New Buy Request" },
@@ -103,6 +113,16 @@ function tradeEmailContent(
     };
   }
   if (event === "trade_accepted") {
+    if (request.priceMode === "buyer_offer") {
+      return {
+        ...common,
+        title: { ar: "تم قبول عرض السعر", en: "Price Offer Accepted" },
+        message: {
+          ar: `وافق البائع على سعرك البالغ ₪${request.pricePerUsdt} لكل USDT. تابع الصفقة بالسعر المتفق عليه في غرفة التداول.`,
+          en: `The seller accepted your ₪${request.pricePerUsdt} per USDT offer. Continue the trade at the agreed price in the Trade Room.`,
+        },
+      };
+    }
     return {
       ...common,
       title: { ar: "تم قبول الصفقة", en: "Trade Accepted" },
@@ -113,6 +133,16 @@ function tradeEmailContent(
     };
   }
   if (event === "trade_rejected") {
+    if (request.priceMode === "buyer_offer") {
+      return {
+        ...common,
+        title: { ar: "تم رفض عرض السعر", en: "Price Offer Declined" },
+        message: {
+          ar: `رفض البائع عرضك البالغ ₪${request.pricePerUsdt} لكل USDT. لا يلزم إجراء أي دفع.`,
+          en: `The seller declined your ₪${request.pricePerUsdt} per USDT offer. No payment is required.`,
+        },
+      };
+    }
     return {
       ...common,
       title: { ar: "تم رفض الصفقة", en: "Trade Rejected" },

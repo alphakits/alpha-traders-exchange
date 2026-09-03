@@ -456,7 +456,9 @@ export type PurchaseRequestStatus =
 
 export type TradeTimelineEventType =
   | "request_submitted"
+  | "price_offer_submitted"
   | "request_accepted"
+  | "price_offer_accepted"
   | "payment_sent"
   | "seller_confirmed_funds"
   | "usdt_release_started"
@@ -471,6 +473,7 @@ export type TradeTimelineEventType =
   | "buyer_evidence_uploaded"
   | "seller_evidence_uploaded"
   | "request_declined"
+  | "price_offer_declined"
   | "request_cancelled"
   | "buyer_confirmed_receipt"
   | "buyer_confirmation_overdue"
@@ -768,6 +771,13 @@ export interface PurchaseRequest {
   buyerNotes?: string;
   usdtAmount: string;
   fiatAmount: string;
+  /** Unit price frozen when the buyer submits the request. */
+  pricePerUsdt?: string;
+  /** Public listing price at submission time, retained for an auditable comparison. */
+  listingPriceAtRequest?: string;
+  priceMode?: "listing_price" | "buyer_offer";
+  priceOfferDiscount?: string;
+  priceOfferAcceptedAt?: string;
   currency: string;
   network: SupportedNetwork;
   buyerReceivingWalletAddress?: string;

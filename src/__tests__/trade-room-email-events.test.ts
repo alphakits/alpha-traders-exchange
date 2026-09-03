@@ -161,6 +161,38 @@ describe("Trade Room email events", () => {
     }));
   });
 
+  it("sends exact bilingual price-offer terms for submission, acceptance, and decline", async () => {
+    const priceOffer = {
+      ...createRequest(),
+      priceMode: "buyer_offer" as const,
+      listingPriceAtRequest: "3.30",
+      pricePerUsdt: "2.95",
+      priceOfferDiscount: "0.35",
+      fiatAmount: "368.75",
+    };
+
+    for (const event of ["new_buy_request", "trade_accepted", "trade_rejected"] as const) {
+      const deliver = await prepareTradeEventEmails({ event, request: priceOffer });
+      await deliver();
+    }
+
+    expect(sendMarketplaceEmailMock).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      to: "seller-1@example.test",
+      title: { ar: "عرض سعر جديد", en: "New Price Offer" },
+      message: expect.objectContaining({ en: expect.stringContaining("₪2.95 per USDT") }),
+    }));
+    expect(sendMarketplaceEmailMock).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      to: "buyer-1@example.test",
+      title: { ar: "تم قبول عرض السعر", en: "Price Offer Accepted" },
+      message: expect.objectContaining({ ar: expect.stringContaining("₪2.95") }),
+    }));
+    expect(sendMarketplaceEmailMock).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      to: "buyer-1@example.test",
+      title: { ar: "تم رفض عرض السعر", en: "Price Offer Declined" },
+      message: expect.objectContaining({ en: expect.stringContaining("No payment is required") }),
+    }));
+  });
+
   it("sends a generic Buyer-to-Seller message email with an exact canonical Trade Room link", async () => {
     const deliver = await prepareTradeRoomConversationEmail({
       event: "trade_room_message",

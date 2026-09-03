@@ -1267,6 +1267,11 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       <div>
                         <p className="text-sm font-medium text-white">{shortTradeRef(request, isAr)}</p>
                         <p className="mt-1 text-xs text-[#9CA3AF]">{isAr ? "المشتري" : "Buyer"} {safeText(request.buyerName, isAr ? "مشتري" : "Buyer")}</p>
+                        {request.priceMode === "buyer_offer" ? (
+                          <span className="mt-1.5 inline-flex rounded-full border border-[#C9A227]/40 bg-[#C9A227]/10 px-2 py-0.5 text-[11px] font-semibold text-[#F4D87A]">
+                            {isAr ? "عرض سعر" : "Price Offer"} · ₪{toNumber(request.pricePerUsdt).toFixed(2)}/USDT
+                          </span>
+                        ) : null}
                       </div>
                       <div className="text-xs">
                         <span className={`rounded-full border px-2.5 py-1 font-semibold tracking-[0.08em] ${presentation.badgeTone}`}>{presentation.badge}</span>
@@ -1285,6 +1290,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       <p>{isAr ? "اسم المشتري" : "Buyer Name"}: <span className="text-white">{request.buyerName}</span></p>
                       <p>{isAr ? "كمية USDT" : "USDT Amount"}: <span className="text-white">{toNumber(request.usdtAmount).toLocaleString("en-IL")}</span></p>
                       <p>{isAr ? "المبلغ بالعملة التقليدية" : "Fiat Amount"}: <span className="text-white">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</span></p>
+                      <p>{request.priceMode === "buyer_offer" ? (isAr ? "سعر المشتري المقترح" : "Buyer Offered Price") : (isAr ? "السعر لكل USDT" : "Price per USDT")}: <span className={request.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>₪{(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}</span></p>
+                      {request.priceMode === "buyer_offer" ? <p>{isAr ? "سعر العرض الأصلي" : "Original Listing Price"}: <span className="text-white">₪{toNumber(request.listingPriceAtRequest).toFixed(2)}</span></p> : null}
                       <p>{isAr ? "الشبكة" : "Network"}: <span className="text-white">{request.network}</span></p>
                       <p>{isAr ? "طريقة الدفع" : "Payment Method"}: <span className="text-white">{paymentMethodEmoji(request.paymentMethod)} {paymentMethodLabel(request.paymentMethod, isAr)}</span></p>
                       <p>{isAr ? "العرض" : "Listing"}: <span className="text-white">{shortListingRef({ id: request.listingId, displayNumber: myListingsById.get(request.listingId)?.displayNumber })}</span></p>
@@ -1335,10 +1342,10 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         }
                         onClick={() => handleSellerRequestAction(request.id, "accepted", { safetyAcknowledged: sellerSafetyAcknowledgements[request.id] ?? false })}
                       >
-                        {requestActionKey === `${request.id}:accepted` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : (isAr ? "قبول" : "Accept")}
+                        {requestActionKey === `${request.id}:accepted` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : request.priceMode === "buyer_offer" ? (isAr ? "قبول عرض السعر" : "Accept Price Offer") : (isAr ? "قبول" : "Accept")}
                       </Button>
                       <Button type="button" size="sm" variant="secondary" disabled={request.status !== "pending" || requestActionKey === `${request.id}:declined`} onClick={() => handleSellerRequestAction(request.id, "declined")}>
-                        {requestActionKey === `${request.id}:declined` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : (isAr ? "رفض" : "Decline")}
+                        {requestActionKey === `${request.id}:declined` ? (isAr ? "جارٍ التنفيذ..." : "Processing...") : request.priceMode === "buyer_offer" ? (isAr ? "رفض عرض السعر" : "Decline Price Offer") : (isAr ? "رفض" : "Decline")}
                       </Button>
                       <Button
                         type="button"

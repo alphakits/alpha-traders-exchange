@@ -23,6 +23,7 @@ async function writeRuntimeDb(request: APIRequestContext, db: Record<string, unk
 }
 
 async function seedSellerAndListing(request: APIRequestContext) {
+  await cleanupModalFixtureState(request);
   const now = new Date().toISOString();
   const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
   const db = await readRuntimeDb(request);
@@ -202,6 +203,60 @@ test.describe("Direct Buy USDT modal", () => {
     await expect(page.getByRole("heading", { name: /^Buy USDT$/ })).toBeVisible();
     await expect(page.getByLabel(/USDT Amount/i)).toBeVisible();
     await expect(page.getByLabel(/WhatsApp/i)).toHaveCount(0);
+
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+  });
+
+  test("submits the minimum valid price offer on desktop and freezes the negotiated totals", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/en/usdt-exchange");
+
+    const offerButton = page.getByRole("button", { name: /Make a price offer to E2E Modal Seller/i }).first();
+    await offerButton.scrollIntoViewIfNeeded();
+    await offerButton.click();
+
+    await expect(page.getByRole("heading", { name: /^Make a Price Offer$/ })).toBeVisible();
+    const priceInput = page.getByLabel(/Your Price per USDT/i);
+    await expect(priceInput).toHaveAttribute("min", "3.25");
+    await expect(priceInput).toHaveAttribute("max", "3.59");
+    await expect(priceInput).toHaveAttribute("step", "0.01");
+    await priceInput.fill("3.25");
+    await page.getByLabel(/Receiving Wallet Address/i).fill("TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE");
+
+    await Promise.all([
+      page.waitForURL(new RegExp(`/en/trade-room/`)),
+      page.getByRole("button", { name: /^Submit Price Offer$/i }).click(),
+    ]);
+
+    const db = await readRuntimeDb(page.request);
+    const requests = Array.isArray(db.purchaseRequests) ? db.purchaseRequests : [];
+    const submitted = requests.find((entry) => entry && typeof entry === "object" && (entry as Record<string, unknown>).listingId === listingId) as Record<string, unknown> | undefined;
+    expect(submitted).toMatchObject({
+      listingPriceAtRequest: "3.60",
+      pricePerUsdt: "3.25",
+      priceMode: "buyer_offer",
+      priceOfferDiscount: "0.35",
+      fiatAmount: "3250.00",
+      status: "pending",
+    });
+  });
+
+  test("keeps the Arabic price-offer dialog valid and overflow-free at 320px", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 720 });
+    await page.goto("/ar/usdt-exchange");
+
+    const offerButton = page.getByRole("button", { name: /تقديم عرض سعر/ }).first();
+    await offerButton.scrollIntoViewIfNeeded();
+    await offerButton.click();
+
+    await expect(page.getByRole("heading", { name: /^قدّم عرض سعر$/ })).toBeVisible();
+    const priceInput = page.getByLabel(/سعرك لكل USDT/);
+    await priceInput.fill("3.24");
+    await expect(priceInput).toHaveAttribute("aria-invalid", "true");
+    await priceInput.fill("3.25");
+    await expect(priceInput).not.toHaveAttribute("aria-invalid", "true");
+    await expect(page.getByRole("button", { name: /^إرسال عرض السعر$/ })).toBeVisible();
 
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);

@@ -162,6 +162,10 @@ describe("notification localization", () => {
     ["Listing #LS-000321 is not available for a new buyer right now.", "العرض #LS-000321 غير متاح لمشترٍ جديد في الوقت الحالي."],
     ["The seller is currently unavailable for listing #LS-000321.", "البائع غير متاح حاليًا للعرض #LS-000321."],
     ["محمد submitted a Bank Transfer trade request.", "قدّم محمد طلب صفقة بطريقة تحويل بنكي."],
+    ["Layla offered ₪2.95 per USDT for 1,000 USDT.", "قدّم Layla عرض سعر بقيمة ₪2.95 لكل USDT لشراء 1,000 USDT."],
+    ["Layla offered ₪2.95 per USDT for 1,000 USDT from Saleh.", "قدّم Layla إلى Saleh عرض سعر بقيمة ₪2.95 لكل USDT لشراء 1,000 USDT."],
+    ["Seller accepted your price offer of ₪2.95 per USDT. You can now continue in the Trade Room.", "وافق البائع على عرضك بسعر ₪2.95 لكل USDT. يمكنك الآن المتابعة في غرفة التداول."],
+    ["The seller declined your price offer of ₪2.95 per USDT.", "رفض البائع عرضك بسعر ₪2.95 لكل USDT."],
     ["Noor requested 125.75 USDT from Saleh A.", "طلب Noor شراء 125.75 USDT من Saleh A."],
     ["The trade was closed manually. Reason: Safety concern. Evidence mismatch", "أُغلقت الصفقة يدويًا. السبب: Safety concern. Evidence mismatch"],
     ["The trade was closed manually. Reason: Duplicate request.", "أُغلقت الصفقة يدويًا. السبب: Duplicate request."],
@@ -239,6 +243,9 @@ describe("notification localization", () => {
     ["Buyer marked payment sent", "أكد المشتري إرسال الدفعة"],
     ["Seller confirmed cash collected", "أكد البائع استلام النقد"],
     ["Seller confirmed funds received", "أكد البائع استلام الأموال"],
+    ["New price offer", "عرض سعر جديد"],
+    ["Price offer accepted", "تم قبول عرض السعر"],
+    ["Price offer declined", "تم رفض عرض السعر"],
   ] as const)("translates store title: %s", (source, expected) => {
     expect(localizeNotificationCopy(notification({ title: source, message: "Unknown system detail" }), "ar").title).toBe(expected);
   });
@@ -246,7 +253,9 @@ describe("notification localization", () => {
   it.each([
     ["View Trade", "عرض الصفقة"],
     ["Accept or decline this request", "قبول الطلب أو رفضه"],
+    ["Accept or decline this price offer", "قبول عرض السعر أو رفضه"],
     ["Wait for seller response", "انتظار رد البائع"],
+    ["Wait for seller response to your price offer", "انتظار رد البائع على عرض سعرك"],
     ["Wait for buyer payment proof", "انتظار إثبات دفع المشتري"],
     ["Upload payment proof and mark Payment Sent", "رفع إثبات الدفع وتأكيد الإرسال"],
     ["Verify payment, upload proof, then mark USDT Sent", "التحقق من الدفع ورفع الإثبات ثم تأكيد إرسال USDT"],
@@ -302,6 +311,7 @@ describe("notification localization", () => {
     ["Listing rejected", "Reason: Missing bank proof", "تم رفض العرض", "السبب: Missing bank proof"],
     ["Listing changes requested", "Reason: حدّث صورة البنك", "طُلبت تعديلات على العرض", "السبب: حدّث صورة البنك"],
     ["Trade request submitted", "Trade #TR-000777 was submitted.", "تم إرسال طلب الصفقة", "تم إرسال طلب الصفقة #TR-000777."],
+    ["Price offer submitted", "Offer for trade #TR-000778 was submitted at ₪2.95 per USDT.", "تم إرسال عرض السعر", "تم إرسال عرض السعر للصفقة #TR-000778 بقيمة ₪2.95 لكل USDT."],
     ["Trade evidence uploaded", "Payment evidence uploaded for trade Trade #TR-000777.", "تم رفع إثبات للصفقة", "تم رفع إثبات الدفع للصفقة #TR-000777."],
     ["Trade evidence uploaded", "USDT evidence uploaded for trade #TR-000777.", "تم رفع إثبات للصفقة", "تم رفع إثبات إرسال USDT للصفقة #TR-000777."],
     ["Review submitted", "Review submitted for trade #TR-000777.", "تم إرسال التقييم", "تم إرسال التقييم للصفقة #TR-000777."],

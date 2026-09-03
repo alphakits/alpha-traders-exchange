@@ -119,6 +119,12 @@ const STEP_ORDER: Array<{ id: StepId; icon: string; label: { en: string; ar: str
   { id: "completed", icon: "⭐", label: { en: "Trade Completed", ar: "اكتملت الصفقة" } },
 ];
 
+function tradeStepLabel(step: (typeof STEP_ORDER)[number] | undefined, isAr: boolean, isPriceOffer: boolean) {
+  if (!step) return "";
+  if (step.id === "request" && isPriceOffer) return isAr ? "تم إرسال عرض السعر" : "Price Offer Submitted";
+  return isAr ? step.label.ar : step.label.en;
+}
+
 function toNumber(value: string | number | null | undefined) {
   const normalized = String(value ?? "");
   return Number(normalized.replace(/[^\d.]/g, "")) || 0;
@@ -220,8 +226,8 @@ function getStepIndex(status: PurchaseRequest["status"]) {
 function getPrimaryAction(request: PurchaseRequest, isSeller: boolean, isAr: boolean, sellerEvidenceRequired: boolean): PrimaryAction | null {
   if (request.status === "pending" && isSeller) {
     return {
-      label: isAr ? "قبول الطلب" : "Accept Trade",
-      successLabel: isAr ? "تم قبول الطلب" : "Trade Accepted",
+      label: request.priceMode === "buyer_offer" ? (isAr ? "قبول عرض السعر" : "Accept Price Offer") : (isAr ? "قبول الطلب" : "Accept Trade"),
+      successLabel: request.priceMode === "buyer_offer" ? (isAr ? "تم قبول عرض السعر" : "Price Offer Accepted") : (isAr ? "تم قبول الطلب" : "Trade Accepted"),
       mode: "status",
       nextStatus: "accepted",
     };
@@ -574,8 +580,8 @@ function getTurnPanel(request: PurchaseRequest, isSeller: boolean, isAr: boolean
 }
 
 function timelineStepForEvent(event: TradeTimelineEntry): StepId {
-  if (event.type === "request_submitted") return "request";
-  if (event.type === "request_accepted") return "accepted";
+  if (event.type === "request_submitted" || event.type === "price_offer_submitted") return "request";
+  if (event.type === "request_accepted" || event.type === "price_offer_accepted") return "accepted";
   if (event.type === "payment_sent" || event.type === "buyer_evidence_uploaded") return "payment";
   if (event.type === "bank_details_revealed" || event.type === "trade_inactivity_warning_sent") return "payment";
   if (event.type === "seller_confirmed_funds") return "verifying";
@@ -588,7 +594,9 @@ function timelineEventLabel(event: TradeTimelineEntry, isAr: boolean) {
   if (isAr) {
     const labels: Record<TradeTimelineEntry["type"], string> = {
       request_submitted: "تم إرسال طلب الشراء",
+      price_offer_submitted: "تم إرسال عرض السعر",
       request_accepted: "وافق البائع على الطلب",
+      price_offer_accepted: "وافق البائع على عرض السعر",
       payment_sent: "أكد المشتري إرسال الدفعة",
       seller_confirmed_funds: "أكد البائع استلام الدفعة",
       usdt_release_started: "بدأ البائع إرسال USDT",
@@ -603,6 +611,7 @@ function timelineEventLabel(event: TradeTimelineEntry, isAr: boolean) {
       buyer_evidence_uploaded: "رفع المشتري إثبات الدفع",
       seller_evidence_uploaded: "رفع البائع إثبات إرسال USDT",
       request_declined: "رفض البائع الطلب",
+      price_offer_declined: "رفض البائع عرض السعر",
       request_cancelled: "تم إلغاء الطلب",
       buyer_confirmed_receipt: "أكد المشتري استلام USDT",
       buyer_confirmation_overdue: "تأخر تأكيد المشتري",
@@ -2357,6 +2366,14 @@ export function TradeRoomPage({
                   {" • "}
                   <bdi dir="ltr">{toNumber(request.fiatAmount).toLocaleString("en-IL")} {request.currency}</bdi>
                 </p>
+                <p className="mt-1 text-sm text-[#9CA3AF]">
+                  {request.priceMode === "buyer_offer"
+                    ? (request.priceOfferAcceptedAt ? (isAr ? "السعر المتفاوض عليه" : "Negotiated price") : (isAr ? "السعر المقترح" : "Offered price"))
+                    : (isAr ? "السعر لكل USDT" : "Price per USDT")}: {" "}
+                  <bdi dir="ltr" className={request.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>
+                    ₪{(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)} / USDT
+                  </bdi>
+                </p>
                 <p className="text-sm text-[#9CA3AF]">
                   {isSeller ? (isAr ? "المشتري" : "Buyer") : (isAr ? "البائع" : "Seller")}: <span className="text-white">{counterpartName}</span>
                 </p>
@@ -2415,7 +2432,7 @@ export function TradeRoomPage({
                       {isCompleted ? "✓" : step.icon}
                     </button>
                     <div className="text-xs">
-                      <p className="font-medium text-white">{isAr ? step.label.ar : step.label.en}</p>
+                      <p className="font-medium text-white">{tradeStepLabel(step, isAr, request.priceMode === "buyer_offer")}</p>
                       {isCurrent ? <p className="text-[#C9A227]">{isAr ? "المرحلة الحالية" : "Current step"}</p> : null}
                     </div>
                     {index < STEP_ORDER.length - 1 ? <div className={`h-0.5 w-10 ${index < currentStepIndex ? "bg-emerald-400" : "bg-white/15"}`} /> : null}
@@ -2432,10 +2449,10 @@ export function TradeRoomPage({
         </section>
 
         <details className="rounded-2xl border border-white/10 bg-black/65 p-3 backdrop-blur-md md:hidden">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm text-white">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm text-white">
             <span className="min-w-0 truncate">
               <span className="text-[#9CA3AF]">{isAr ? "الخطوة الحالية" : "Current step"}: </span>
-              <span className="font-semibold text-[#FDE68A]">{isAr ? STEP_ORDER[currentStepIndex]?.label.ar : STEP_ORDER[currentStepIndex]?.label.en}</span>
+              <span className="font-semibold text-[#FDE68A]">{tradeStepLabel(STEP_ORDER[currentStepIndex], isAr, request.priceMode === "buyer_offer")}</span>
             </span>
             <span className="shrink-0 text-xs text-[#C9A227]"><bdi dir="ltr">{progressPercent}{isAr ? "٪" : "%"}</bdi></span>
           </summary>
@@ -2449,9 +2466,9 @@ export function TradeRoomPage({
                   key={step.id}
                   type="button"
                   onClick={() => setSelectedStep(step.id)}
-                  className={`rounded-lg border px-1.5 py-1.5 text-center ${index === currentStepIndex ? "border-[#C9A227]/60 bg-[#C9A227]/15 text-[#FDE68A]" : index < currentStepIndex ? "border-emerald-400/30 text-emerald-300" : "border-white/10"}`}
+                  className={`min-h-11 rounded-lg border px-1.5 py-1.5 text-center ${index === currentStepIndex ? "border-[#C9A227]/60 bg-[#C9A227]/15 text-[#FDE68A]" : index < currentStepIndex ? "border-emerald-400/30 text-emerald-300" : "border-white/10"}`}
                 >
-                  {isAr ? step.label.ar : step.label.en}
+                  {tradeStepLabel(step, isAr, request.priceMode === "buyer_offer")}
                 </button>
               ))}
             </div>
@@ -2701,6 +2718,20 @@ export function TradeRoomPage({
                       ? `المبلغ المطلوب ${toNumber(request.fiatAmount).toLocaleString("en-IL")} ${request.currency} مقابل ${toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT.`
                       : `Required amount is ${toNumber(request.fiatAmount).toLocaleString("en-IL")} ${request.currency} for ${toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT.`}
                   </p>
+                  {request.priceMode === "buyer_offer" ? (
+                    <div className="mt-3 rounded-xl border border-[#C9A227]/35 bg-[#C9A227]/10 p-3 text-sm text-[#F4D87A]">
+                      <p className="font-semibold">{request.priceOfferAcceptedAt ? (isAr ? "صفقة بسعر متفاوض عليه" : "Negotiated-price trade") : (isAr ? "عرض السعر" : "Price offer")}</p>
+                      <p className="mt-1 text-[#E5E7EB]">
+                        {request.priceOfferAcceptedAt
+                          ? (isAr
+                            ? `وافق البائع على سعر ₪${toNumber(request.pricePerUsdt).toFixed(2)} لكل USDT بدلاً من سعر العرض الأصلي ₪${toNumber(request.listingPriceAtRequest).toFixed(2)}.`
+                            : `The seller accepted ₪${toNumber(request.pricePerUsdt).toFixed(2)} per USDT instead of the original ₪${toNumber(request.listingPriceAtRequest).toFixed(2)} listing price.`)
+                          : (isAr
+                            ? `اقترح المشتري سعر ₪${toNumber(request.pricePerUsdt).toFixed(2)} لكل USDT. سعر العرض الأصلي هو ₪${toNumber(request.listingPriceAtRequest).toFixed(2)}.`
+                            : `The buyer offered ₪${toNumber(request.pricePerUsdt).toFixed(2)} per USDT. The original listing price is ₪${toNumber(request.listingPriceAtRequest).toFixed(2)}.`)}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
 
                 {completedActionLabel ? (
@@ -2777,7 +2808,9 @@ export function TradeRoomPage({
                   </div>
                 ) : !isSeller && request.status === "pending" ? (
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-[#9CA3AF]">
-                    {isAr ? "تفاصيل الحساب البنكي ستكون متاحة بعد قبول البائع للصفقة." : "Bank details become available after the seller accepts the trade."}
+                    {request.priceMode === "buyer_offer"
+                      ? (isAr ? "عرض السعر بانتظار قرار البائع. ستظهر تفاصيل الحساب البنكي بعد موافقته." : "Your price offer is waiting for the seller. Bank details appear after acceptance.")
+                      : (isAr ? "تفاصيل الحساب البنكي ستكون متاحة بعد قبول البائع للصفقة." : "Bank details become available after the seller accepts the trade.")}
                   </div>
                 ) : null}
 
@@ -2819,7 +2852,7 @@ export function TradeRoomPage({
                     disabled={actionBusy}
                     onClick={() => void handleDeclineTrade()}
                   >
-                    {isAr ? "رفض الطلب" : "Decline Request"}
+                    {request.priceMode === "buyer_offer" ? (isAr ? "رفض عرض السعر" : "Decline Price Offer") : (isAr ? "رفض الطلب" : "Decline Request")}
                   </Button>
                 ) : null}
 
@@ -2828,8 +2861,8 @@ export function TradeRoomPage({
                     <p className="text-sm text-[#9CA3AF]">
                       {request.status === "pending"
                         ? (isAr
-                            ? "لم يقبل البائع الطلب بعد. يمكنك إلغاء الطلب إذا كنت لا تريد الانتظار."
-                            : "The seller has not accepted yet. You can cancel if you no longer wish to wait.")
+                            ? (request.priceMode === "buyer_offer" ? "لم يرد البائع على عرض السعر بعد. يمكنك إلغاء العرض إذا كنت لا تريد الانتظار." : "لم يقبل البائع الطلب بعد. يمكنك إلغاء الطلب إذا كنت لا تريد الانتظار.")
+                            : (request.priceMode === "buyer_offer" ? "The seller has not responded to your price offer yet. You can cancel the offer if you no longer wish to wait." : "The seller has not accepted yet. You can cancel if you no longer wish to wait."))
                         : (isAr
                             ? "يمكنك إلغاء الصفقة قبل إرسال إثبات الدفع."
                             : "You can cancel this trade before submitting payment evidence.")}
@@ -2845,7 +2878,7 @@ export function TradeRoomPage({
                       {cancelBusy
                         ? (isAr ? "جاري الإلغاء..." : "Cancelling...")
                         : request.status === "pending"
-                          ? (isAr ? "إلغاء الطلب" : "Cancel Request")
+                          ? (request.priceMode === "buyer_offer" ? (isAr ? "إلغاء عرض السعر" : "Cancel Price Offer") : (isAr ? "إلغاء الطلب" : "Cancel Request"))
                           : (isAr ? "إلغاء الصفقة" : "Cancel Trade")}
                     </Button>
                   </div>

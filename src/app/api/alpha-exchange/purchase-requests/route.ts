@@ -122,6 +122,11 @@ export async function POST(request: NextRequest) {
     }
     const bankName = String(body.bankName ?? "").trim();
     const safetyAcknowledged = body.safetyAcknowledged === true;
+    const rawPriceMode = String(body.priceMode ?? "listing_price").trim();
+    if (rawPriceMode !== "listing_price" && rawPriceMode !== "buyer_offer") {
+      return denied("Invalid price mode.", 400, "PRICE_MODE_INVALID");
+    }
+    const offeredPrice = rawPriceMode === "buyer_offer" ? String(body.offeredPrice ?? "").trim() : undefined;
 
     const created = await createPurchaseRequest({
       buyerId: user.id,
@@ -132,6 +137,8 @@ export async function POST(request: NextRequest) {
       paymentMethod: paymentMethod || undefined,
       bankName: bankName || undefined,
       safetyAcknowledged,
+      priceMode: rawPriceMode,
+      offeredPrice,
       actorUserId: user.id,
     });
     const { request: purchase, metrics } = created;

@@ -437,12 +437,12 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
   const timelineEventLabel = useCallback((event: PurchaseRequest["timeline"][number]) => {
     if (!isArabic) return event.message;
     const labels: Record<PurchaseRequest["timeline"][number]["type"], string> = {
-      request_submitted: "تم إرسال طلب الشراء", request_accepted: "وافق البائع على الطلب", payment_sent: "أكد المشتري إرسال الدفعة",
+      request_submitted: "تم إرسال طلب الشراء", price_offer_submitted: "تم إرسال عرض السعر", request_accepted: "وافق البائع على الطلب", price_offer_accepted: "وافق البائع على عرض السعر", payment_sent: "أكد المشتري إرسال الدفعة",
       seller_confirmed_funds: "أكد البائع استلام الدفعة", usdt_release_started: "بدأ البائع إرسال USDT", usdt_sent: "أكد البائع إرسال USDT",
       trade_completed: "اكتملت الصفقة بنجاح", trade_timed_out: "انتهت مهلة الصفقة", trade_locked: "تم إغلاق الصفقة",
       review_unlocked: "أصبح التقييم متاحًا", dispute_opened: "تم فتح نزاع للصفقة", commission_recorded: "تم تسجيل عمولة الصفقة",
       commission_paid: "تم دفع عمولة الصفقة", buyer_evidence_uploaded: "رفع المشتري إثبات الدفع", seller_evidence_uploaded: "رفع البائع إثبات إرسال USDT",
-      request_declined: "رفض البائع الطلب", request_cancelled: "تم إلغاء الطلب", buyer_confirmed_receipt: "أكد المشتري استلام USDT",
+      request_declined: "رفض البائع الطلب", price_offer_declined: "رفض البائع عرض السعر", request_cancelled: "تم إلغاء الطلب", buyer_confirmed_receipt: "أكد المشتري استلام USDT",
       buyer_confirmation_overdue: "تأخر تأكيد المشتري", trade_closed_manually: "تم إغلاق الصفقة يدويًا",
       trade_inactivity_warning_sent: "تم إرسال تحذير بسبب عدم النشاط", bank_details_revealed: "أصبحت تفاصيل الحساب البنكي متاحة داخل غرفة الصفقة",
     };
@@ -2618,7 +2618,12 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
                                     <td className="w-[11rem] px-4 py-3 text-center font-mono font-medium whitespace-nowrap text-[#D1D5DB]">{displayTradeId(request)}</td>
                                     <td className="px-4 py-3 text-white">{request.buyerName}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{seller?.fullName ?? request.sellerId}</td>
-                                    <td className="px-4 py-3 text-[#D1D5DB]">{request.usdtAmount ?? listing?.availableAmount ?? "—"}</td>
+                                    <td className="px-4 py-3 text-[#D1D5DB]">
+                                      <p>{request.usdtAmount ?? listing?.availableAmount ?? "—"} USDT</p>
+                                      <p className={`mt-1 text-xs ${request.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-[#9CA3AF]"}`}>
+                                        {request.priceMode === "buyer_offer" ? t("Offer", "عرض سعر") : t("Price", "السعر")} ₪{(toNumber(request.pricePerUsdt) || (toNumber(request.fiatAmount) / Math.max(1, toNumber(request.usdtAmount)))).toFixed(2)}
+                                      </p>
+                                    </td>
                                     <td className="px-4 py-3 font-mono font-medium whitespace-nowrap text-[#D1D5DB]">{displayListingId(listing, request.listingId)}</td>
                                     <td className="px-4 py-3 text-[#D1D5DB]">{request.bankName ?? listing?.bankName ?? "—"}</td>
                                     <td className="px-4 py-3">
@@ -3823,6 +3828,8 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
                 <p>{t("Status:", "الحالة:")} <span className="text-white">{statusLabel(selectedRequest.status)}</span></p>
                 <p>{t("USDT Amount:", "كمية USDT:")} <span className="text-white">{selectedRequest.usdtAmount}</span></p>
                 <p>{t("Fiat Amount:", "المبلغ النقدي:")} <span className="text-white">{selectedRequest.fiatAmount} {selectedRequest.currency}</span></p>
+                <p>{selectedRequest.priceMode === "buyer_offer" ? t("Buyer Offered Price:", "سعر المشتري المقترح:") : t("Price per USDT:", "السعر لكل USDT:")} <span className={selectedRequest.priceMode === "buyer_offer" ? "font-semibold text-[#F4D87A]" : "text-white"}>₪{(toNumber(selectedRequest.pricePerUsdt) || (toNumber(selectedRequest.fiatAmount) / Math.max(1, toNumber(selectedRequest.usdtAmount)))).toFixed(2)}</span></p>
+                {selectedRequest.priceMode === "buyer_offer" ? <p>{t("Original Listing Price:", "سعر العرض الأصلي:")} <span className="text-white">₪{selectedRequest.listingPriceAtRequest ?? "—"}</span></p> : null}
                 <p>{t("Network:", "الشبكة:")} <span className="text-white">{selectedRequest.network}</span></p>
                 <p>{t("Payment Method:", "طريقة الدفع:")} <span className="text-white">{marketplacePaymentMethodLabelForLocale(selectedRequest.paymentMethod, locale)}</span></p>
                 <p>{t("Receiving Bank:", "البنك المستلم:")} <span className="text-white">{selectedRequest.bankName ?? "—"}</span></p>
