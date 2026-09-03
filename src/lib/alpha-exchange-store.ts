@@ -306,6 +306,13 @@ class ConcurrentTradeMutationError extends Error {
   }
 }
 
+class ConcurrentListingMutationError extends Error {
+  constructor() {
+    super("Marketplace state changed while this listing action was being committed.");
+    this.name = "ConcurrentListingMutationError";
+  }
+}
+
 function syncCachedAuthSessions(nextAuthSessions: AuthSession[]) {
   if (!dbCache) return;
   dbCache = {
@@ -7127,7 +7134,7 @@ export async function updateMarketplaceListingForSeller(input: {
   status?: ListingStatus;
   changeReason?: string;
   changeExplanation?: string;
-}) {
+}, concurrencyRetryCount = 0): Promise<MarketplaceListing> {
   assertNoExchangeDirectContact(
     input.notes,
     input.sellerDescription,
@@ -7135,7 +7142,7 @@ export async function updateMarketplaceListingForSeller(input: {
     input.changeExplanation,
     ...(input.photos ?? []),
   );
-  const db = await readDb();
+  const db = await readDb(concurrencyRetryCount > 0 ? { bypassCache: true } : undefined);
   const index = db.marketplaceListings.findIndex((listing) => listing.id === input.listingId);
   if (index === -1) throw new Error("Listing not found.");
   const current = db.marketplaceListings[index];
@@ -7294,7 +7301,27 @@ export async function updateMarketplaceListingForSeller(input: {
     });
   }
   await recalculateTrustEngine(db, { reason: "Seller listing updated", triggeredBy: input.actorUserId });
-  await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
+  try {
+    await writeDb(db, {
+      selectedTables: LISTING_TRUST_WRITE_TABLES,
+      // Listing snapshots contain every listing and several additive audit /
+      // trust collections. Never merge a stale seller snapshot over a newer
+      // marketplace version: reload it, re-run all lock checks, and rebuild the
+      // mutation instead. This preserves simultaneous edits to other listings
+      // and prevents an edit from erasing a newly committed trade lock.
+      validateLatestBeforeCommit: () => {
+        throw new ConcurrentListingMutationError();
+      },
+    });
+  } catch (error) {
+    if (error instanceof ConcurrentListingMutationError && concurrencyRetryCount < 2) {
+      return updateMarketplaceListingForSeller(input, concurrencyRetryCount + 1);
+    }
+    if (error instanceof ConcurrentListingMutationError) {
+      throw new Error("This listing changed while your update was being saved. Refresh the seller workspace and try again.");
+    }
+    throw error;
+  }
   if (reviewDestination) {
     await dispatchOwnerActionRequiredEmails(db, {
       event: "owner_listing_review_required",
@@ -7324,8 +7351,8 @@ export async function renewMarketplaceListing(input: {
   sellerId?: string;
   expirationHours?: number | string;
   reason?: string;
-}) {
-  const db = await readDb();
+}, concurrencyRetryCount = 0): Promise<MarketplaceListing> {
+  const db = await readDb(concurrencyRetryCount > 0 ? { bypassCache: true } : undefined);
   const index = db.marketplaceListings.findIndex((listing) => listing.id === input.listingId);
   if (index === -1) throw new Error("Listing not found.");
   const listing = db.marketplaceListings[index];
@@ -7386,7 +7413,22 @@ export async function renewMarketplaceListing(input: {
     relatedHref: sellerListingWorkspaceDestination(listing),
     actionLabel: "Manage Listing",
   });
-  await writeDb(db, { selectedTables: LISTING_WRITE_TABLES });
+  try {
+    await writeDb(db, {
+      selectedTables: LISTING_WRITE_TABLES,
+      validateLatestBeforeCommit: () => {
+        throw new ConcurrentListingMutationError();
+      },
+    });
+  } catch (error) {
+    if (error instanceof ConcurrentListingMutationError && concurrencyRetryCount < 2) {
+      return renewMarketplaceListing(input, concurrencyRetryCount + 1);
+    }
+    if (error instanceof ConcurrentListingMutationError) {
+      throw new Error("This listing changed while it was being renewed. Refresh the seller workspace and try again.");
+    }
+    throw error;
+  }
   await sendListingOwnerLifecycleEmail(db, listing, {
     event: "listing_renewed",
     title: { ar: "تم تجديد الإعلان", en: "Listing Renewed" },
@@ -7688,9 +7730,9 @@ export async function deleteMarketplaceListingForSeller(input: {
   actorUserId: string;
   changeReason?: string;
   changeExplanation?: string;
-}) {
+}, concurrencyRetryCount = 0): Promise<void> {
   assertNoExchangeDirectContact(input.changeReason, input.changeExplanation);
-  const db = await readDb();
+  const db = await readDb(concurrencyRetryCount > 0 ? { bypassCache: true } : undefined);
   const listing = db.marketplaceListings.find((item) => item.id === input.listingId);
   if (!listing) throw new Error("Listing not found.");
   if (listing.sellerId !== input.sellerId) throw new Error("You can remove only your own listings.");
@@ -7719,7 +7761,22 @@ export async function deleteMarketplaceListingForSeller(input: {
       : `Closed listing ${input.listingId}`,
   });
   await recalculateTrustEngine(db, { reason: "Listing removed", triggeredBy: input.actorUserId });
-  await writeDb(db, { selectedTables: LISTING_TRUST_WRITE_TABLES });
+  try {
+    await writeDb(db, {
+      selectedTables: LISTING_TRUST_WRITE_TABLES,
+      validateLatestBeforeCommit: () => {
+        throw new ConcurrentListingMutationError();
+      },
+    });
+  } catch (error) {
+    if (error instanceof ConcurrentListingMutationError && concurrencyRetryCount < 2) {
+      return deleteMarketplaceListingForSeller(input, concurrencyRetryCount + 1);
+    }
+    if (error instanceof ConcurrentListingMutationError) {
+      throw new Error("This listing changed while it was being closed. Refresh the seller workspace and try again.");
+    }
+    throw error;
+  }
   publishRealtimeEvent({ type: "listing.removed", payload: { listingId: input.listingId } });
 }
 

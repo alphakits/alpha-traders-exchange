@@ -17,6 +17,7 @@ import {
   getMyMarketplaceListings,
   getMyPurchaseRequests,
   invalidateAlphaExchangeStoreCache,
+  renewMarketplaceListing,
   reviewMarketplaceListingByOwner,
   TradeBlockedError,
   updateCommissionPaymentStatus,
@@ -1287,6 +1288,172 @@ describe("partial listing preservation", () => {
         && ["pending", "accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"].includes(candidate.status),
     );
     expect(activeBuyerTrades).toHaveLength(1);
+  });
+
+  it("preserves edits to different listings when sellers save concurrently", async () => {
+    const firstListing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "700",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "700",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+    const secondListing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "800",
+      price: "3.21",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "800",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+
+    await Promise.all([
+      updateMarketplaceListingForSeller({
+        listingId: firstListing.id,
+        sellerId: SELLER_ID,
+        actorUserId: SELLER_ID,
+        price: "3.30",
+        changeReason: "market_change",
+        changeExplanation: "Updated the first listing price.",
+      }),
+      updateMarketplaceListingForSeller({
+        listingId: secondListing.id,
+        sellerId: SELLER_ID,
+        actorUserId: SELLER_ID,
+        price: "3.31",
+        changeReason: "market_change",
+        changeExplanation: "Updated the second listing price.",
+      }),
+    ]);
+
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    expect(snapshot.marketplaceListings.find((listing) => listing.id === firstListing.id)?.price).toBe("3.30");
+    expect(snapshot.marketplaceListings.find((listing) => listing.id === secondListing.id)?.price).toBe("3.31");
+  });
+
+  it("preserves renewals to different listings when sellers renew concurrently", async () => {
+    const firstListing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "700",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "700",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+    const secondListing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "800",
+      price: "3.21",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "800",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+    await approveListing(firstListing.id);
+    await approveListing(secondListing.id);
+
+    await Promise.all([
+      renewMarketplaceListing({
+        listingId: firstListing.id,
+        sellerId: SELLER_ID,
+        actorUserId: SELLER_ID,
+        expirationHours: 6,
+      }),
+      renewMarketplaceListing({
+        listingId: secondListing.id,
+        sellerId: SELLER_ID,
+        actorUserId: SELLER_ID,
+        expirationHours: 12,
+      }),
+    ]);
+
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    const renewedFirst = snapshot.marketplaceListings.find((listing) => listing.id === firstListing.id);
+    const renewedSecond = snapshot.marketplaceListings.find((listing) => listing.id === secondListing.id);
+    const firstLifetimeHours = (new Date(renewedFirst?.expiresAt ?? 0).getTime() - new Date(renewedFirst?.lastRenewedAt ?? 0).getTime()) / 3_600_000;
+    const secondLifetimeHours = (new Date(renewedSecond?.expiresAt ?? 0).getTime() - new Date(renewedSecond?.lastRenewedAt ?? 0).getTime()) / 3_600_000;
+    expect(firstLifetimeHours).toBe(6);
+    expect(secondLifetimeHours).toBe(12);
+  });
+
+  it("never lets a stale seller edit erase a concurrently accepted trade lock", async () => {
+    const listing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "700",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "700",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+    await approveListing(listing.id);
+    const created = await createPurchaseRequest({
+      buyerId: BUYER_ONE_ID,
+      listingId: listing.id,
+      usdtAmount: "100",
+      buyerName: "Concurrent Buyer",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      actorUserId: BUYER_ONE_ID,
+    });
+
+    const results = await Promise.allSettled([
+      updateMarketplaceListingForSeller({
+        listingId: listing.id,
+        sellerId: SELLER_ID,
+        actorUserId: SELLER_ID,
+        price: "3.30",
+        changeReason: "market_change",
+        changeExplanation: "Concurrent listing edit.",
+      }),
+      updatePurchaseRequestStatus({
+        requestId: created.request.id,
+        actorUserId: SELLER_ID,
+        actorRole: "approved_seller",
+        nextStatus: "accepted",
+      }),
+    ]);
+
+    expect(results[1]?.status).toBe("fulfilled");
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    expect(snapshot.purchaseRequests.find((request) => request.id === created.request.id)?.status).toBe("accepted");
+    expect(snapshot.marketplaceListings.find((candidate) => candidate.id === listing.id)).toMatchObject({
+      status: "matched",
+      activeTradeRequestId: created.request.id,
+    });
   });
 
   it("redirects buyer but not seller for a pending (pre-acceptance) trade", async () => {
