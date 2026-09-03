@@ -46,6 +46,7 @@ import { deriveBuyerRankSummary, type BuyerRankSummary } from "@/lib/buyer-rank"
 import { navigateAfterSuccess, navigateOrRevealResult } from "@/lib/client-success-navigation";
 import { ensurePayoutBankIsSupported, isPayoutBankSupported } from "@/lib/seller-listing-bank-selection";
 import { getPriceOfferBounds, normalizePriceOfferInput, validatePriceOffer } from "@/lib/price-offer";
+import { ISRAEL_TIME_ZONE } from "@/lib/israel-calendar";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, AuditAction, ListingStatus, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, TradeTimelineEntry } from "@/types/alpha-exchange";
 import type { SellerApplicationForm, SellerApplicationMethod } from "@/components/sections/usdt-exchange/seller-application-section";
 
@@ -360,7 +361,7 @@ export function formatIsraelMarketTime(value: string | null | undefined, isAr: b
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-    timeZone: "Asia/Jerusalem",
+    timeZone: ISRAEL_TIME_ZONE,
   });
 }
 
@@ -391,7 +392,7 @@ export function CompactTradeTimeline({ events, isAr }: { events: TradeTimelineEn
       <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-[#C9A227]" />
       <span className="min-w-0 text-[#D1D5DB]">
         <span className="me-1 text-xs text-[#9CA3AF]">
-          {new Date(event.createdAt).toLocaleTimeString(isAr ? "ar-IL-u-nu-latn" : "en-IL", { hour: "2-digit", minute: "2-digit" })}
+          {new Date(event.createdAt).toLocaleTimeString(isAr ? "ar-IL-u-nu-latn" : "en-IL", { hour: "2-digit", minute: "2-digit", timeZone: ISRAEL_TIME_ZONE })}
         </span>
         {message}
         {count > 1 ? <span className="ms-1 text-xs text-[#9CA3AF]">×{count}</span> : null}
@@ -469,7 +470,7 @@ export function formatIsraelDateKey(value: string | number | Date) {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-    timeZone: "Asia/Jerusalem",
+    timeZone: ISRAEL_TIME_ZONE,
   }).formatToParts(parsed);
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
   return `${part("year")}-${part("month")}-${part("day")}`;
@@ -489,7 +490,7 @@ function groupActivityEntriesByDay(entries: AlphaExchangeActivityLogEntry[], loc
       weekday: "short",
       month: "short",
       day: "numeric",
-      timeZone: "Asia/Jerusalem",
+      timeZone: ISRAEL_TIME_ZONE,
     }).format(new Date(items[0]?.createdAt ?? `${dayKey}T12:00:00.000Z`)),
     items,
   }));
@@ -564,8 +565,14 @@ function notificationCategoryLabel(category: AlphaExchangeNotification["category
   return labels[category];
 }
 
-function greetingByTime(isAr: boolean) {
-  const hour = new Date().getHours();
+export function greetingByTime(isAr: boolean, value: string | number | Date = Date.now()) {
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) return isAr ? "مرحباً" : "Welcome";
+  const hour = Number(new Intl.DateTimeFormat("en-US", {
+    timeZone: ISRAEL_TIME_ZONE,
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).format(parsed));
   if (hour < 12) return isAr ? "صباح الخير" : "Good morning";
   if (hour < 18) return isAr ? "مساء الخير" : "Good afternoon";
   return isAr ? "مساء النور" : "Good evening";
@@ -3259,7 +3266,14 @@ export function UsdtExchangePage({
     };
   }, [filteredListings, isAr, listings]);
 
-  const greetingLabel = greetingByTime(isAr);
+  const [greetingLabel, setGreetingLabel] = useState(isAr ? "مرحباً" : "Welcome");
+  useEffect(() => {
+    const updateGreeting = () => setGreetingLabel(greetingByTime(isAr));
+    updateGreeting();
+    const interval = window.setInterval(updateGreeting, 15 * 60 * 1000);
+    return () => window.clearInterval(interval);
+  }, [isAr]);
+  const sellerApprovalDate = sellerApplication?.updatedAt ?? sessionUser?.createdAt;
   const workspaceDisplayId = toWorkspaceDisplayId(sessionUser, isApprovedSeller);
   const workspacePrimaryName = safeText(sessionUser?.fullName, isAr ? "المتداول" : "Trader").split(" ")[0] || (isAr ? "المتداول" : "Trader");
   const workspacePositiveMessage = isApprovedSeller
@@ -4732,7 +4746,9 @@ export function UsdtExchangePage({
               {isApprovedSeller ? (
                 <>
                   <p className="mt-2 text-xs text-[#9CA3AF]">
-                    {isAr ? "تاريخ الموافقة" : "Approval Date"}: {new Date((sellerApplication?.updatedAt ?? sessionUser?.createdAt) || Date.now()).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}
+                    {isAr ? "تاريخ الموافقة" : "Approval Date"}: {sellerApprovalDate
+                      ? new Date(sellerApprovalDate).toLocaleDateString(isAr ? "ar-IL" : "en-IL", { timeZone: ISRAEL_TIME_ZONE })
+                      : "—"}
                   </p>
                   <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-[#D4AF37]">{greetingLabel}</p>
                 </>
@@ -5147,7 +5163,7 @@ export function UsdtExchangePage({
                     <div>
                       <p className="font-medium text-white">{shortTradeRef(trade, isAr)}</p>
                       <p className="mt-0.5">{toNumber(trade.usdtAmount).toLocaleString("en-IL")} USDT • {toNumber(trade.fiatAmount).toLocaleString("en-IL")} {trade.currency}</p>
-                      <p className="mt-0.5 text-[#9CA3AF]">{new Date(trade.completedAt ?? trade.updatedAt).toLocaleString(isAr ? "ar-IL" : "en-IL")}</p>
+                      <p className="mt-0.5 text-[#9CA3AF]">{new Date(trade.completedAt ?? trade.updatedAt).toLocaleString(isAr ? "ar-IL" : "en-IL", { timeZone: ISRAEL_TIME_ZONE })}</p>
                     </div>
                   </div>
                 ))}
