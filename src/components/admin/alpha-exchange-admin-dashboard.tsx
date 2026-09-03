@@ -21,6 +21,11 @@ import {
   marketplacePaymentMethodLabelForLocale,
   trustFlagReasonLabelForLocale,
 } from "@/lib/marketplace-display-localization";
+import type {
+  MarketplaceOperationalIncident,
+  MarketplaceOperationalIncidentKind,
+  MarketplaceOperationalSnapshot,
+} from "@/lib/marketplace-operational-health";
 
 const RANK_BADGE_COLOR: Record<SellerLevel, string> = {
   bronze: "border-[#CD7F32]/30 bg-[#CD7F32]/10 text-[#E8A96A]",
@@ -152,12 +157,13 @@ type SystemHealthSnapshot = {
   release: string;
   environment: string;
   checks: Array<{
-    key: "application" | "database" | "authentication" | "trade_room" | "notifications" | "email";
+    key: "application" | "database" | "authentication" | "trade_room" | "notifications" | "email" | "marketplace_operations";
     label: string;
     status: "healthy" | "degraded";
     detail: string;
     latencyMs?: number;
   }>;
+  operations: MarketplaceOperationalSnapshot | null;
 };
 
 type SectionKey = AdminDashboardSection;
@@ -217,6 +223,17 @@ function formatUsdt(value: number) {
 
 function formatPercent(value: number) {
   return `${value.toLocaleString("en-IL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+}
+
+function operationalIncidentLabel(kind: MarketplaceOperationalIncidentKind, isArabic: boolean) {
+  const labels: Record<MarketplaceOperationalIncidentKind, { en: string; ar: string }> = {
+    overdue_usdt_release: { en: "USDT release deadline exceeded", ar: "تم تجاوز مهلة إرسال USDT" },
+    stale_price_offer: { en: "Price offer waiting for seller response", ar: "عرض سعر بانتظار رد البائع" },
+    stalled_trade: { en: "Trade still idle after buyer reminder", ar: "الصفقة ما زالت متوقفة بعد تذكير المشتري" },
+    orphaned_listing_lock: { en: "Listing lock has no active trade", ar: "قفل العرض غير مرتبط بصفقة نشطة" },
+    unlinked_active_trade: { en: "Active trade is not linked to its listing", ar: "الصفقة النشطة غير مرتبطة بعرضها" },
+  };
+  return isArabic ? labels[kind].ar : labels[kind].en;
 }
 
 function displayTradeId(request: Pick<PurchaseRequest, "displayNumber" | "tradeId" | "id"> | null | undefined, fallbackId?: string | null) {
@@ -638,6 +655,22 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
       setSystemHealthLoading(false);
     }
   }, [t]);
+
+  const openOperationalIncident = useCallback((incident: MarketplaceOperationalIncident) => {
+    if (incident.requestId) {
+      setRequestsQuery(incident.requestId);
+      setRequestsStatus("all");
+      setRequestsPage(1);
+      setActiveSection("purchase-requests");
+      return;
+    }
+    if (incident.listingId) {
+      setListingsQuery(incident.listingId);
+      setListingsStatus("all");
+      setListingsPage(1);
+      setActiveSection("marketplace-listings");
+    }
+  }, []);
 
   useEffect(() => {
     if (activeSection !== "system-health") return;
@@ -3462,6 +3495,75 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
                         </CardContent>
                       </Card>
 
+                      {systemHealth?.operations ? (
+                        <Card className={`bg-[#0B0B0B]/90 ${systemHealth.operations.status === "critical" ? "border-red-500/40" : systemHealth.operations.status === "attention" ? "border-amber-500/35" : "border-emerald-500/25"}`}>
+                          <CardHeader>
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <CardTitle className="flex items-center gap-2">
+                                  {systemHealth.operations.status === "healthy" ? <CheckCircle2 className="h-5 w-5 text-emerald-300" aria-hidden="true" /> : <AlertTriangle className={`h-5 w-5 ${systemHealth.operations.status === "critical" ? "text-red-300" : "text-amber-300"}`} aria-hidden="true" />}
+                                  {t("Marketplace Operational Guard", "مراقبة عمليات السوق")}
+                                </CardTitle>
+                                <CardDescription className="mt-2">
+                                  {t(
+                                    "Detects stuck trades, unanswered price offers, overdue USDT releases, and broken listing locks.",
+                                    "يرصد الصفقات المتوقفة وعروض الأسعار بلا رد وتأخر إرسال USDT وأقفال العروض غير السليمة.",
+                                  )}
+                                </CardDescription>
+                              </div>
+                              <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${systemHealth.operations.status === "critical" ? "border-red-500/40 bg-red-500/10 text-red-200" : systemHealth.operations.status === "attention" ? "border-amber-500/40 bg-amber-500/10 text-amber-200" : "border-emerald-500/35 bg-emerald-500/10 text-emerald-200"}`}>
+                                {systemHealth.operations.status === "critical"
+                                  ? t("Immediate review", "مراجعة فورية")
+                                  : systemHealth.operations.status === "attention"
+                                    ? t("Attention needed", "تحتاج إلى متابعة")
+                                    : t("No operational issues", "لا توجد مشاكل تشغيلية")}
+                              </span>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="space-y-4">
+                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+                              {[
+                                { key: "active", label: t("Active trades", "صفقات نشطة"), value: systemHealth.operations.activeTrades, alert: false },
+                                { key: "pending-offers", label: t("Pending offers", "عروض معلّقة"), value: systemHealth.operations.pendingPriceOffers, alert: false },
+                                { key: "stale-offers", label: t("Stale offers", "عروض بلا رد"), value: systemHealth.operations.stalePriceOffers, alert: systemHealth.operations.stalePriceOffers > 0 },
+                                { key: "stalled-trades", label: t("Stalled trades", "صفقات متوقفة"), value: systemHealth.operations.stalledTrades, alert: systemHealth.operations.stalledTrades > 0 },
+                                { key: "overdue-releases", label: t("Overdue releases", "إرسال متأخر"), value: systemHealth.operations.overdueUsdtReleases, alert: systemHealth.operations.overdueUsdtReleases > 0 },
+                                { key: "integrity", label: t("Data issues", "مشاكل الربط"), value: systemHealth.operations.dataIntegrityIssues, alert: systemHealth.operations.dataIntegrityIssues > 0 },
+                              ].map((metric) => (
+                                <div key={metric.key} className={`rounded-2xl border p-3 ${metric.alert ? "border-amber-500/35 bg-amber-500/10" : "border-white/10 bg-black/20"}`}>
+                                  <p className={`text-2xl font-semibold ${metric.alert ? "text-amber-200" : "text-white"}`}>{metric.value}</p>
+                                  <p className="mt-1 text-xs leading-5 text-[#B7BDC8]">{metric.label}</p>
+                                </div>
+                              ))}
+                            </div>
+
+                            {systemHealth.operations.incidents.length > 0 ? (
+                              <div className="space-y-2">
+                                <p className="text-sm font-semibold text-white">{t("Items requiring review", "عناصر تحتاج إلى مراجعة")}</p>
+                                {systemHealth.operations.incidents.map((incident) => (
+                                  <div key={incident.id} className={`flex flex-col gap-3 rounded-2xl border p-3 sm:flex-row sm:items-center sm:justify-between ${incident.severity === "critical" ? "border-red-500/30 bg-red-500/10" : "border-amber-500/25 bg-amber-500/10"}`}>
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-medium text-white">{operationalIncidentLabel(incident.kind, isArabic)}</p>
+                                      <p className="mt-1 text-xs text-[#D1D5DB]">
+                                        {incident.requestId ? <><span>{t("Request", "الطلب")}: </span><bdi dir="ltr">{formatRequestId(incident.requestId)}</bdi></> : <><span>{t("Listing", "العرض")}: </span><bdi dir="ltr">{formatListingId(incident.listingId ?? "")}</bdi></>}
+                                        <span> · {incident.ageMinutes} {t("min", "دقيقة")}</span>
+                                      </p>
+                                    </div>
+                                    <Button type="button" size="sm" variant="secondary" onClick={() => openOperationalIncident(incident)}>
+                                      {incident.requestId ? t("Open Trade", "فتح الصفقة") : t("Open Listing", "فتح العرض")}
+                                    </Button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+                                {t("All marketplace workflows are consistent and no intervention is required.", "جميع مسارات السوق سليمة ولا تحتاج إلى تدخل.")}
+                              </p>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ) : null}
+
                       {systemHealth ? (
                         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                           {systemHealth.checks.map((check) => {
@@ -3472,6 +3574,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
                               trade_room: "التحديثات المباشرة لغرفة الصفقة",
                               notifications: "الإشعارات داخل الموقع",
                               email: "البريد الإلكتروني للمعاملات",
+                              marketplace_operations: "عمليات السوق",
                             };
                             const healthy = check.status === "healthy";
                             return (
