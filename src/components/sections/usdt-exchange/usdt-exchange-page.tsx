@@ -1249,7 +1249,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
             >
               <span className="inline-flex items-center gap-2">
                 {isBuying ? <Loader2 className="h-4 w-4 animate-spin" /> : <LockKeyhole className="h-4 w-4" />}
-                {isBuying ? (isAr ? "جارٍ بدء الصفقة..." : "Starting trade...") : (isAr ? "شراء USDT الآن" : "Buy USDT")}
+                {isBuying ? (isAr ? "جارٍ بدء الصفقة..." : "Starting trade...") : (isAr ? "اشترِ الآن" : "Buy Now")}
               </span>
               <ArrowRight className="h-4 w-4" />
             </Button>
@@ -1265,7 +1265,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
             >
               <span className="inline-flex items-center gap-2">
                 <BadgePercent className="h-4 w-4" />
-                {isAr ? "قدّم عرض سعر" : "Make a Price Offer"}
+                {isAr ? "قدّم عرض سعر" : "Make an Offer"}
               </span>
               <span className="text-[11px] font-medium text-[#D1D5DB]">
                 {isAr ? "خصم حتى ₪0.35" : "Up to ₪0.35 lower"}
