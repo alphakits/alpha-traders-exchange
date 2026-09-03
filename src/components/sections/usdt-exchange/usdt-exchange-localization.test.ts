@@ -123,7 +123,9 @@ describe("USDT exchange localized mobile copy", () => {
 
     expect(marketplace).toContain('onOpen(listing, "listing_price")');
     expect(marketplace).toContain('onOpen(listing, "buyer_offer")');
-    expect(marketplace).toContain('"Make a Price Offer"');
+    expect(marketplace).toContain('"Seller Profile"');
+    expect(marketplace).toContain('"Buy Now"');
+    expect(marketplace).toContain('"Make an Offer"');
     expect(marketplace).toContain('"قدّم عرض سعر"');
     expect(marketplace).toContain('"Up to ₪0.35 lower"');
     expect(marketplace).toContain('"خصم حتى ₪0.35"');
