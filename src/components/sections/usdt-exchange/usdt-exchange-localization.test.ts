@@ -13,6 +13,7 @@ import {
   canCancelBuyerHistoryRequest,
   formatIsraelDateKey,
   formatIsraelMarketTime,
+  greetingByTime,
   localizeWalletValidationError,
   listingStatusLabel,
   localizedAuditAction,
@@ -28,6 +29,13 @@ import type { ListingStatus, PurchaseRequest, PurchaseRequestStatus, TradeTimeli
 const ARABIC_TEXT = /[\u0600-\u06ff]/;
 
 describe("USDT exchange localized mobile copy", () => {
+  it("renders time-based greetings from one deterministic Israel timezone", () => {
+    expect(greetingByTime(false, "2026-09-03T22:30:00.000Z")).toBe("Good morning");
+    expect(greetingByTime(true, "2026-09-03T10:00:00.000Z")).toBe("مساء الخير");
+    expect(greetingByTime(false, "2026-09-03T17:00:00.000Z")).toBe("Good evening");
+    expect(greetingByTime(true, "not-a-date")).toBe("مرحباً");
+  });
+
   it("only enables buyer-history cancellation before seller acceptance", () => {
     const pendingRequest = {
       id: "request-1",
