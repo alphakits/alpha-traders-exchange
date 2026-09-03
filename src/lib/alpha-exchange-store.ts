@@ -12009,67 +12009,121 @@ export async function updateCommissionPaymentStatus(input: {
   reason?: string;
 }) {
   const db = await readDb();
-  const index = db.commissionRecords.findIndex((record) => record.id === input.commissionId);
-  if (index === -1) throw new Error("Commission record not found.");
-  const now = nowIso();
-  const current = db.commissionRecords[index];
-  const amountDueUsdt = getCommissionAmountDueUsdt(db, current);
-  const request = db.purchaseRequests.find((item) => item.id === current.purchaseRequestId);
-  db.commissionRecords[index] = {
-    ...current,
-    paymentStatus: input.paymentStatus,
-    paymentVerificationStatus:
-      input.paymentVerificationStatus
-      ?? (input.paymentStatus === "paid"
-        ? "verified"
-        : input.paymentStatus === "pending"
-          ? current.paymentVerificationStatus
-          : current.paymentVerificationStatus),
-    paymentVerificationNotes:
-      input.paymentVerificationNotes !== undefined
-        ? input.paymentVerificationNotes.trim() || undefined
-        : current.paymentVerificationNotes,
-    paidAt: input.paymentStatus === "paid" ? now : undefined,
-    overdueNotifiedAt: input.paymentStatus === "overdue" ? current.overdueNotifiedAt ?? now : undefined,
-    updatedAt: now,
+  const loadedRecord = db.commissionRecords.find((record) => record.id === input.commissionId);
+  if (!loadedRecord) throw new Error("Commission record not found.");
+  type CommittedCommissionStatus = {
+    commission: CommissionRecord;
+    request?: PurchaseRequest;
+    notificationPublications: DeferredNotificationPublication[];
+    changed: boolean;
   };
-  await appendAuditLog(db, {
-    action: input.paymentStatus === "paid" ? "commission_paid" : input.paymentStatus === "overdue" ? "commission_overdue" : "commission_recorded",
-    actorUserId: input.actorUserId,
-    targetUserId: current.sellerId,
-    listingId: current.listingId,
-    purchaseRequestId: current.purchaseRequestId,
-    details: `Commission ${current.id} marked ${input.paymentStatus}.`,
-    reason: input.reason?.trim() || undefined,
-  });
-  if (input.paymentStatus === "paid") {
-    if (request) {
-      appendTradeTimelineEntry(request, {
-        type: "commission_paid",
-        actorUserId: input.actorUserId,
-        actorRole: resolveActorRole(db, input.actorUserId),
-        message: `Commission marked paid (${amountDueUsdt.toFixed(2)} USDT).`,
-        createdAt: now,
-      });
+  let committed: CommittedCommissionStatus | null = null;
+
+  const applyCommissionStatusToCanonicalSnapshot = async (snapshot: AlphaExchangeDb) => {
+    const index = snapshot.commissionRecords.findIndex((record) => record.id === input.commissionId);
+    if (index === -1) throw new Error("Commission record not found.");
+    const current = snapshot.commissionRecords[index];
+    const request = snapshot.purchaseRequests.find((item) => item.id === current.purchaseRequestId);
+    const paymentVerificationStatus = input.paymentVerificationStatus
+      ?? (input.paymentStatus === "paid" ? "verified" : current.paymentVerificationStatus);
+    const paymentVerificationNotes = input.paymentVerificationNotes !== undefined
+      ? input.paymentVerificationNotes.trim() || undefined
+      : current.paymentVerificationNotes;
+
+    if (
+      current.paymentStatus === input.paymentStatus
+      && current.paymentVerificationStatus === paymentVerificationStatus
+      && current.paymentVerificationNotes === paymentVerificationNotes
+    ) {
+      committed = { commission: current, request, notificationPublications: [], changed: false };
+      return snapshot;
     }
-    pushNotification(db, {
-      userId: current.sellerId,
-      category: "trade",
-      title: "Commission marked paid",
-      message: `Commission for trade ${current.purchaseRequestId} has been marked paid.`,
-      relatedTradeId: current.purchaseRequestId,
-      relatedListingId: current.listingId,
-      relatedHref: "/usdt-exchange",
+
+    // A stale owner action must never downgrade a settlement that completed
+    // after the admin page was loaded. A deliberate correction remains
+    // possible after refreshing, because loadedRecord will then already be paid.
+    if (
+      normalizeCommissionPaymentStatus(loadedRecord.paymentStatus, loadedRecord.dueAt) !== "paid"
+      && normalizeCommissionPaymentStatus(current.paymentStatus, current.dueAt) === "paid"
+      && input.paymentStatus !== "paid"
+    ) {
+      throw new Error("This commission was settled while your update was being saved. Refresh and review its latest status.");
+    }
+
+    const now = nowIso();
+    const amountDueUsdt = getCommissionAmountDueUsdt(snapshot, current);
+    const wasPaid = normalizeCommissionPaymentStatus(current.paymentStatus, current.dueAt) === "paid";
+    const nextRecord: CommissionRecord = {
+      ...current,
+      paymentStatus: input.paymentStatus,
+      paymentVerificationStatus,
+      paymentVerificationNotes,
+      paidAt: input.paymentStatus === "paid" ? current.paidAt ?? now : undefined,
+      overdueNotifiedAt: input.paymentStatus === "overdue" ? current.overdueNotifiedAt ?? now : undefined,
+      updatedAt: now,
+    };
+    snapshot.commissionRecords[index] = nextRecord;
+    await appendAuditLog(snapshot, {
+      action: input.paymentStatus === "paid" ? "commission_paid" : input.paymentStatus === "overdue" ? "commission_overdue" : "commission_recorded",
+      actorUserId: input.actorUserId,
+      targetUserId: current.sellerId,
+      listingId: current.listingId,
+      purchaseRequestId: current.purchaseRequestId,
+      details: `Commission ${current.id} marked ${input.paymentStatus}.`,
+      reason: input.reason?.trim() || undefined,
     });
+
+    const notificationPublications: DeferredNotificationPublication[] = [];
+    if (input.paymentStatus === "paid" && !wasPaid) {
+      if (request) {
+        appendTradeTimelineEntry(request, {
+          type: "commission_paid",
+          actorUserId: input.actorUserId,
+          actorRole: resolveActorRole(snapshot, input.actorUserId),
+          message: `Commission marked paid (${amountDueUsdt.toFixed(2)} USDT).`,
+          createdAt: now,
+        });
+      }
+      const publication = pushNotification(snapshot, {
+        userId: current.sellerId,
+        category: "trade",
+        title: "Commission marked paid",
+        message: `Commission for trade ${current.purchaseRequestId} has been marked paid.`,
+        relatedTradeId: current.purchaseRequestId,
+        relatedListingId: current.listingId,
+        relatedHref: "/usdt-exchange",
+        deferRealtime: true,
+      });
+      if (publication) notificationPublications.push(publication);
+    }
+    committed = { commission: nextRecord, request, notificationPublications, changed: true };
+    return snapshot;
+  };
+
+  await applyCommissionStatusToCanonicalSnapshot(db);
+  let result = committed as CommittedCommissionStatus | null;
+  if (!result) throw new Error("Failed to prepare commission status update.");
+  if (result.changed) {
+    await writeDb(db, {
+      selectedTables: COMMISSION_STATUS_TABLES,
+      rebaseOnLatest: async (persistedSnapshot) => {
+        await applyCommissionStatusToCanonicalSnapshot(persistedSnapshot);
+        return persistedSnapshot;
+      },
+    });
+    result = committed as CommittedCommissionStatus | null;
+    if (!result) throw new Error("Failed to save commission status update.");
   }
-  if (request) {
+  if (result.changed && result.request) {
     publishRealtimeEvent({
       type: "trade.status_changed",
-      payload: { request: enrichRequestWithEvidence(db, request) },
+      payload: { request: enrichRequestWithEvidence(db, result.request) },
     });
   }
-  await writeDb(db, { selectedTables: COMMISSION_STATUS_TABLES });
-  return db.commissionRecords[index];
+  for (const publication of result.notificationPublications) {
+    publishNotificationPublication(publication);
+  }
+  return result.commission;
 }
 
 export async function getAuditLogsForAdmin(dbInput?: AlphaExchangeDb) {
