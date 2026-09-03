@@ -77,7 +77,11 @@ describe("mobile accessibility completion", () => {
 
     expect(purchaseDialog).toContain('role="dialog"');
     expect(purchaseDialog).toContain('aria-modal="true"');
-    expect(purchaseDialog).toContain('aria-label={isAr ? "شراء USDT" : "Buy USDT"}');
+    expect(purchaseDialog).toContain('aria-label={priceMode === "buyer_offer"');
+    expect(purchaseDialog).toContain('"Make a Price Offer"');
+    expect(purchaseDialog).toContain('"تقديم عرض سعر"');
+    expect(purchaseDialog).toContain('"Buy USDT"');
+    expect(purchaseDialog).toContain('"شراء USDT"');
   });
 
   it("keeps optional exchange workflows out of the initial route bundle", () => {

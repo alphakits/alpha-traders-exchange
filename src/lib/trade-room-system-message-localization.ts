@@ -209,6 +209,12 @@ type DynamicTemplate = {
 
 const DYNAMIC_SYSTEM_MESSAGES: DynamicTemplate[] = [
   {
+    pattern: /^Seller accepted the price offer of ₪(.+?) per USDT\. Buyer can now upload the payment receipt\.$/,
+    render: (locale, [price]) => locale === "ar"
+      ? [plain("وافق البائع على عرض السعر بقيمة ₪"), isolated(price), plain(" لكل USDT. يمكن للمشتري الآن رفع إيصال الدفع.")]
+      : [plain("Seller accepted the price offer of ₪"), isolated(price), plain(" per USDT. Buyer can now upload the payment receipt.")],
+  },
+  {
     pattern: /^Trade closed manually: ([\s\S]+)$/,
     render: (locale, [reason]) => locale === "ar"
       ? [plain("تم إغلاق الصفقة يدويًا: "), isolated(reason)]

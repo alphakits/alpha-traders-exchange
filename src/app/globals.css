@@ -1314,6 +1314,16 @@ html[lang="ar"] :where(body, body *) {
   text-decoration: none;
 }
 
+@media (max-width: 639px) {
+  .seller-marketplace-action--offer {
+    align-items: flex-start;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.2rem;
+    padding-block: 0.7rem;
+  }
+}
+
 .seller-marketplace-action:hover {
   filter: brightness(1.02);
 }

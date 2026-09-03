@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEventHandler } from "react";
-import { AlertTriangle, HandCoins, Loader2, ShieldCheck, Star, X, Zap } from "lucide-react";
+import { AlertTriangle, BadgePercent, HandCoins, Loader2, ShieldCheck, Star, X, Zap } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -42,6 +42,11 @@ type PurchaseListingDialogProps = {
   buyerTradeAmountInvalid: boolean;
   buyerWalletValidationError: string | null;
   buyerWalletInvalid: boolean;
+  priceMode: "listing_price" | "buyer_offer";
+  offeredPrice: string;
+  minimumOfferedPrice: string;
+  offerPriceInvalid: boolean;
+  offeredTradePrice: number;
   requiresSafetyNotice: boolean;
   safetyAcknowledged: boolean;
   showVerificationCta: boolean;
@@ -54,6 +59,7 @@ type PurchaseListingDialogProps = {
   onPaymentMethodChange: (method: string) => void;
   onBuyerAmountChange: (value: string) => void;
   onBuyerWalletChange: (value: string) => void;
+  onOfferedPriceChange: (value: string) => void;
   onSafetyAcknowledgedChange: (value: boolean) => void;
   onGoToVerification: () => void;
   onOwnerSellerProfileState: (
@@ -106,6 +112,11 @@ export function PurchaseListingDialog({
   buyerTradeAmountInvalid,
   buyerWalletValidationError,
   buyerWalletInvalid,
+  priceMode,
+  offeredPrice,
+  minimumOfferedPrice,
+  offerPriceInvalid,
+  offeredTradePrice,
   requiresSafetyNotice,
   safetyAcknowledged,
   showVerificationCta,
@@ -118,6 +129,7 @@ export function PurchaseListingDialog({
   onPaymentMethodChange,
   onBuyerAmountChange,
   onBuyerWalletChange,
+  onOfferedPriceChange,
   onSafetyAcknowledgedChange,
   onGoToVerification,
   onOwnerSellerProfileState,
@@ -135,6 +147,7 @@ export function PurchaseListingDialog({
   const purchaseDisabled = isSubmittingPurchase
     || buyerTradeAmountInvalid
     || buyerWalletInvalid
+    || (priceMode === "buyer_offer" && offerPriceInvalid)
     || (requiresSafetyNotice && !safetyAcknowledged);
 
   const modalPresence = deriveSellerPresence({
@@ -152,16 +165,16 @@ export function PurchaseListingDialog({
 
   return (
     <div className="alpha-modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-      <div role="dialog" aria-modal="true" aria-label={isAr ? "شراء USDT" : "Buy USDT"} className="alpha-modal-panel flex max-h-[92vh] w-full max-w-[700px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0B]/95 shadow-[0_24px_80px_rgba(0,0,0,0.5)]">
+      <div role="dialog" aria-modal="true" aria-label={priceMode === "buyer_offer" ? (isAr ? "تقديم عرض سعر" : "Make a Price Offer") : (isAr ? "شراء USDT" : "Buy USDT")} className="alpha-modal-panel flex max-h-[92vh] w-full max-w-[700px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0B]/95 shadow-[0_24px_80px_rgba(0,0,0,0.5)]">
         <div className={`flex shrink-0 items-start justify-between gap-3 px-5 pt-5 sm:px-6 ${isAr ? "flex-row-reverse" : ""}`}>
           <div>
-            <h3 className="text-2xl font-semibold">{isAr ? "شراء USDT" : "Buy USDT"}</h3>
+            <h3 className="text-2xl font-semibold">{priceMode === "buyer_offer" ? (isAr ? "قدّم عرض سعر" : "Make a Price Offer") : (isAr ? "شراء USDT" : "Buy USDT")}</h3>
             <p className={`mt-1 inline-flex items-center gap-1.5 text-xs text-[#C9A227] ${isAr ? "flex-row-reverse" : ""}`}>
               <ShieldCheck className="h-3.5 w-3.5" />
-              <span>{isAr ? "صفقة منظّمة · تسوية مباشرة" : "Structured trade · direct settlement"}</span>
+              <span>{priceMode === "buyer_offer" ? (isAr ? "اختر سعرك · قبول البائع مطلوب" : "Choose your price · seller approval required") : (isAr ? "صفقة منظّمة · تسوية مباشرة" : "Structured trade · direct settlement")}</span>
             </p>
           </div>
-          <button type="button" aria-label={isAr ? "إغلاق نافذة شراء USDT" : "Close Buy USDT sheet"} onClick={onClose} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227]">
+          <button type="button" aria-label={priceMode === "buyer_offer" ? (isAr ? "إغلاق نافذة عرض السعر" : "Close price offer sheet") : (isAr ? "إغلاق نافذة شراء USDT" : "Close Buy USDT sheet")} onClick={onClose} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/20 text-[#D1D5DB] transition hover:border-[#C9A227] hover:text-[#C9A227]">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -209,8 +222,9 @@ export function PurchaseListingDialog({
                     <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-emerald-200/90">{isAr ? "USDT متاح" : "USDT Available"}</p>
                   </div>
                   <div className={isAr ? "text-left" : "text-right"}>
-                    <p className="text-2xl font-bold leading-none text-[#C9A227]">{formatIls(selectedPrice)}</p>
-                    <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#D1D5DB]">ILS / USDT · {listing.network}</p>
+                    <p className="text-2xl font-bold leading-none text-[#C9A227]">{priceMode === "buyer_offer" && offeredTradePrice <= 0 ? "—" : formatIls(priceMode === "buyer_offer" ? offeredTradePrice : selectedPrice)}</p>
+                    <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#D1D5DB]">{priceMode === "buyer_offer" ? (isAr ? "سعرك المقترح" : "Your offered price") : (isAr ? "سعر العرض" : "Listing price")} · ILS / USDT</p>
+                    {priceMode === "buyer_offer" ? <p className="mt-1 text-[10px] text-[#9CA3AF]">{isAr ? "سعر البائع" : "Seller price"}: {formatIls(selectedPrice)}</p> : null}
                   </div>
                 </div>
                 <p className={`mt-2 text-[11px] text-[#9CA3AF] ${isAr ? "text-right" : ""}`}>
@@ -278,6 +292,38 @@ export function PurchaseListingDialog({
                     <Input id="buyer-usdt-amount" dir="ltr" inputMode="numeric" placeholder={isAr ? "أدخل الكمية" : "Enter amount"} value={buyerInfo.usdtAmount} onChange={(event) => onBuyerAmountChange(formatIntegerForInput(event.target.value))} className={`text-left ${buyerTradeAmountInvalid ? "border-red-500/80" : buyerTradeAmount > 0 ? "border-emerald-500/70" : ""}`} aria-invalid={buyerTradeAmountInvalid || undefined} aria-describedby="buyer-amount-help" />
                     <p id="buyer-amount-help" className={`text-xs ${buyerTradeAmountInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>{buyerTradeAmountInvalid ? "⚠ " : ""}{isAr ? "حدود الصفقة" : "Trade limits"}: {selectedMinTrade.toLocaleString("en-IL")} - {selectedMaxTrade.toLocaleString("en-IL")} USDT</p>
                   </div>
+                  {priceMode === "buyer_offer" ? (
+                    <div className="space-y-2 md:col-span-3">
+                      <label htmlFor="buyer-offered-price" className="inline-flex items-center gap-2 text-sm font-medium text-white">
+                        <BadgePercent className="h-4 w-4 text-[#F4D87A]" />
+                        {isAr ? "سعرك لكل USDT" : "Your Price per USDT"} <span className="text-red-300">*</span>
+                      </label>
+                      <div className="relative">
+                        <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-[#F4D87A]">₪</span>
+                        <Input
+                          id="buyer-offered-price"
+                          dir="ltr"
+                          type="number"
+                          inputMode="decimal"
+                          min={minimumOfferedPrice}
+                          max={Math.max(0.01, selectedPrice - 0.01).toFixed(2)}
+                          step="0.01"
+                          autoComplete="off"
+                          placeholder={minimumOfferedPrice || "0.00"}
+                          value={offeredPrice}
+                          onChange={(event) => onOfferedPriceChange(event.target.value)}
+                          className={`pl-7 text-left ${offerPriceInvalid ? "border-red-500/80" : offeredPrice ? "border-emerald-500/70" : ""}`}
+                          aria-invalid={offerPriceInvalid || undefined}
+                          aria-describedby="buyer-offer-price-help"
+                        />
+                      </div>
+                      <p id="buyer-offer-price-help" className={`text-xs ${offerPriceInvalid ? "text-red-300" : "text-[#9CA3AF]"}`}>
+                        {offerPriceInvalid ? "⚠ " : ""}{isAr
+                          ? `اختر سعراً من ₪${minimumOfferedPrice} إلى أقل من ₪${selectedPrice.toFixed(2)}. الحد الأقصى للخصم هو ₪0.35.`
+                          : `Choose from ₪${minimumOfferedPrice} to below ₪${selectedPrice.toFixed(2)}. Maximum discount is ₪0.35.`}
+                      </p>
+                    </div>
+                  ) : null}
                   <div className="space-y-2 md:col-span-3">
                     <label htmlFor="buyer-receiving-wallet" className="text-sm font-medium text-white">{isAr ? "عنوان محفظة الاستلام" : "Receiving Wallet Address"} <span className="text-red-300">*</span></label>
                     <Input id="buyer-receiving-wallet" dir="ltr" required autoComplete="off" spellCheck={false} placeholder={isAr ? `عنوان محفظة ${listing.network}` : `${listing.network} wallet address`} value={buyerInfo.receivingWalletAddress} onChange={(event) => onBuyerWalletChange(event.target.value)} className={`text-left font-mono ${buyerInfo.receivingWalletAddress && buyerWalletInvalid ? "border-red-500/80" : ""}`} aria-describedby="buyer-wallet-guidance" aria-invalid={buyerInfo.receivingWalletAddress ? buyerWalletInvalid : undefined} />
@@ -304,14 +350,14 @@ export function PurchaseListingDialog({
               </form>
             </div>
             <div className="shrink-0 border-t border-white/10 bg-[#0B0B0B]/95 px-5 py-3 sm:px-6 [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))]">
-              <div className="grid gap-2 md:grid-cols-2">
-                <Button type="submit" form="buy-usdt-form" className="w-full" disabled={purchaseDisabled}>{isSubmittingPurchase ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}{isSubmittingPurchase ? (isAr ? "جارٍ بدء الصفقة..." : "Starting trade...") : (isAr ? "بدء الصفقة" : "Start Trade")}</Button>
-                <Button type="button" variant="secondary" className="w-full" disabled={purchaseDisabled} onClick={onQuickBuy}>{isSubmittingPurchase ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}{isSubmittingPurchase ? (isAr ? "جارٍ الإرسال..." : "Submitting...") : (isAr ? "شراء سريع" : "Quick Buy")}</Button>
+              <div className={`grid gap-2 ${priceMode === "buyer_offer" ? "" : "md:grid-cols-2"}`}>
+                <Button type="submit" form="buy-usdt-form" className="min-h-11 w-full" disabled={purchaseDisabled}>{isSubmittingPurchase ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}{isSubmittingPurchase ? (isAr ? "جارٍ الإرسال..." : "Submitting...") : priceMode === "buyer_offer" ? (isAr ? "إرسال عرض السعر" : "Submit Price Offer") : (isAr ? "بدء الصفقة" : "Start Trade")}</Button>
+                {priceMode !== "buyer_offer" ? <Button type="button" variant="secondary" className="min-h-11 w-full" disabled={purchaseDisabled} onClick={onQuickBuy}>{isSubmittingPurchase ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}{isSubmittingPurchase ? (isAr ? "جارٍ الإرسال..." : "Submitting...") : (isAr ? "شراء سريع" : "Quick Buy")}</Button> : null}
               </div>
             </div>
           </>
         ) : (
-          <div className="px-5 pb-5 pt-4 sm:px-6"><div className="rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-4 text-sm"><p className="text-base font-semibold text-white">{isAr ? "تم إرسال الطلب" : "Request Submitted"}</p><p className="mt-2 text-[#D1D5DB]">{isAr ? "استلمت Alpha Traders طلبك. سنربطك بالبائع المعتمد قريباً." : "Alpha Traders has received your request. We will connect you with the Approved Seller shortly."}</p><div className="mt-4"><Button onClick={onClose}>{isAr ? "إغلاق" : "Close"}</Button></div></div></div>
+          <div className="px-5 pb-5 pt-4 sm:px-6"><div className="rounded-2xl border border-[#C9A227]/30 bg-[#C9A227]/10 p-4 text-sm"><p className="text-base font-semibold text-white">{priceMode === "buyer_offer" ? (isAr ? "تم إرسال عرض السعر" : "Price Offer Submitted") : (isAr ? "تم إرسال الطلب" : "Request Submitted")}</p><p className="mt-2 text-[#D1D5DB]">{priceMode === "buyer_offer" ? (isAr ? "تم إرسال سعرك إلى البائع. ستبدأ الصفقة بالسعر المتفق عليه إذا وافق البائع." : "Your price was sent to the seller. If accepted, the trade will continue at the agreed price.") : (isAr ? "استلمت Alpha Traders طلبك. سنربطك بالبائع المعتمد قريباً." : "Alpha Traders has received your request. We will connect you with the Approved Seller shortly.")}</p><div className="mt-4"><Button onClick={onClose}>{isAr ? "إغلاق" : "Close"}</Button></div></div></div>
         )}
       </div>
     </div>

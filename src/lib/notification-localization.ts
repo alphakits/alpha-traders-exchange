@@ -54,6 +54,9 @@ const ARABIC_TITLE_BY_ENGLISH: Record<string, string> = {
   "🟢 new usdt listing available": "🟢 عرض USDT جديد متاح",
   "listing unavailable": "العرض غير متاح",
   "new trade request": "طلب صفقة جديد",
+  "new price offer": "عرض سعر جديد",
+  "new price offer submitted": "تم إرسال عرض سعر جديد",
+  "price offer submitted": "تم إرسال عرض السعر",
   "new trade request submitted": "تم إرسال طلب صفقة جديد",
   "trade request submitted": "تم إرسال طلب الصفقة",
   "feedback required": "مطلوب تقييم",
@@ -72,6 +75,8 @@ const ARABIC_TITLE_BY_ENGLISH: Record<string, string> = {
   "seller replied to your review": "رد البائع على تقييمك",
   "review response sent": "تم إرسال الرد على التقييم",
   "trade request accepted": "تم قبول طلب الصفقة",
+  "price offer accepted": "تم قبول عرض السعر",
+  "price offer declined": "تم رفض عرض السعر",
   "usdt release pending": "إرسال USDT قيد الانتظار",
   "trade completed": "اكتملت الصفقة",
   "review available": "التقييم متاح الآن",
@@ -108,7 +113,9 @@ const ARABIC_ACTION_BY_ENGLISH: Record<string, string> = {
   "leave review": "إضافة تقييم",
   "continue trade": "متابعة الصفقة",
   "accept or decline this request": "قبول الطلب أو رفضه",
+  "accept or decline this price offer": "قبول عرض السعر أو رفضه",
   "wait for seller response": "انتظار رد البائع",
+  "wait for seller response to your price offer": "انتظار رد البائع على عرض سعرك",
   "wait for buyer payment proof": "انتظار إثبات دفع المشتري",
   "upload payment proof and mark payment sent": "رفع إثبات الدفع وتأكيد الإرسال",
   "verify payment, upload proof, then mark usdt sent": "التحقق من الدفع ورفع الإثبات ثم تأكيد إرسال USDT",
@@ -381,6 +388,22 @@ const ARABIC_MESSAGE_TEMPLATES: NotificationMessageTemplate[] = [
     translate: ([buyer, method]) => `قدّم ${buyer} طلب صفقة بطريقة ${arabicPaymentMethod(method)}.`,
   },
   {
+    pattern: /^(.+?) offered ₪(.+?) per USDT for (.+?) USDT\.$/i,
+    translate: ([buyer, price, amount]) => `قدّم ${buyer} عرض سعر بقيمة ₪${price} لكل USDT لشراء ${amount} USDT.`,
+  },
+  {
+    pattern: /^(.+?) offered ₪(.+?) per USDT for (.+?) USDT from (.+?)\.$/i,
+    translate: ([buyer, price, amount, seller]) => `قدّم ${buyer} إلى ${seller} عرض سعر بقيمة ₪${price} لكل USDT لشراء ${amount} USDT.`,
+  },
+  {
+    pattern: /^Seller accepted your price offer of ₪(.+?) per USDT\. You can now continue in the Trade Room\.$/i,
+    translate: ([price]) => `وافق البائع على عرضك بسعر ₪${price} لكل USDT. يمكنك الآن المتابعة في غرفة التداول.`,
+  },
+  {
+    pattern: /^The seller declined your price offer of ₪(.+?) per USDT\.$/i,
+    translate: ([price]) => `رفض البائع عرضك بسعر ₪${price} لكل USDT.`,
+  },
+  {
     pattern: /^(.+?) requested (.+?) USDT from (.+?)\.$/i,
     translate: ([buyer, amount, seller]) => `طلب ${buyer} شراء ${amount} USDT من ${seller}.`,
   },
@@ -403,6 +426,10 @@ const ARABIC_MESSAGE_TEMPLATES: NotificationMessageTemplate[] = [
   {
     pattern: /^Seller accepted (.+?)'s (.+?) USDT request\. The trade is now active\.$/i,
     translate: ([buyer, amount]) => `قبل البائع طلب ${buyer} لشراء ${amount} USDT. الصفقة نشطة الآن.`,
+  },
+  {
+    pattern: /^Seller accepted (.+?)'s offer of ₪(.+?) per USDT for (.+?) USDT\. The trade is now active\.$/i,
+    translate: ([buyer, price, amount]) => `وافق البائع على عرض ${buyer} بسعر ₪${price} لكل USDT لشراء ${amount} USDT. الصفقة نشطة الآن.`,
   },
   {
     pattern: /^Trade (.+?) completed at (.+?) (.+?) \(threshold (.+?)\)\.$/i,
@@ -447,6 +474,10 @@ const ARABIC_ACTIVITY_DETAILS_BY_ENGLISH: Record<string, string> = {
 };
 
 const ARABIC_ACTIVITY_DETAILS_TEMPLATES: NotificationMessageTemplate[] = [
+  {
+    pattern: /^Offer for trade (.+?) was submitted at ₪(.+?) per USDT\.$/i,
+    translate: ([trade, price]) => `تم إرسال عرض السعر للصفقة ${entityReference(trade)} بقيمة ₪${price} لكل USDT.`,
+  },
   {
     pattern: /^Trust score improved to (.+?)\.$/i,
     translate: ([score]) => `تحسّنت درجة الثقة إلى ${score}.`,

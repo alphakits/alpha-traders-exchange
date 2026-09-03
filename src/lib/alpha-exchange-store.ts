@@ -146,6 +146,7 @@ import {
 } from "@/lib/action-destinations";
 import { COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON, commissionPaymentDestination } from "@/lib/commission-payment-destination";
 import { normalizePreferredLocale } from "@/lib/preferred-locale";
+import { getPriceOfferBounds, validatePriceOffer } from "@/lib/price-offer";
 
 const SELLER_EVIDENCE_TRACE_PATH = path.join(process.cwd(), "tmp", "seller-evidence-server.log");
 
@@ -443,6 +444,9 @@ function resolveNotificationPriority(notification: Pick<AlphaExchangeNotificatio
 
 function resolveTradeRequiredAction(request: PurchaseRequest, recipientIsSeller: boolean) {
   if (request.status === "pending") {
+    if (request.priceMode === "buyer_offer") {
+      return recipientIsSeller ? "Accept or decline this price offer" : "Wait for seller response to your price offer";
+    }
     return recipientIsSeller ? "Accept or decline this request" : "Wait for seller response";
   }
   if (request.status === "accepted") {
@@ -7924,6 +7928,8 @@ export async function createPurchaseRequest(input: {
   paymentMethod?: string;
   bankName?: string;
   safetyAcknowledged?: boolean;
+  priceMode?: "listing_price" | "buyer_offer";
+  offeredPrice?: string;
   actorUserId: string;
 }) {
   const startedAt = Date.now();
@@ -8027,6 +8033,26 @@ export async function createPurchaseRequest(input: {
   if (requestedAmount < minimumTrade) throw new Error(`Minimum trade for this listing is ${listing.minimumTrade} USDT.`);
   if (requestedAmount > maximumTrade) throw new Error(`Maximum trade for this listing is ${listing.maximumTrade} USDT.`);
   if (requestedAmount > remainingAmount) throw new Error("Requested amount exceeds the remaining listing quantity.");
+  const priceBounds = getPriceOfferBounds(listing.price);
+  if (!priceBounds) throw new Error("Listing price is invalid.");
+  const isPriceOffer = input.priceMode === "buyer_offer";
+  if (isPriceOffer && listing.currency.trim().toUpperCase() !== "ILS") {
+    throw new TradeBlockedError(
+      "PRICE_OFFERS_ILS_ONLY",
+      "Price offers are available only for ILS listings.",
+      undefined,
+      { listingId: listing.id, currency: listing.currency },
+    );
+  }
+  const priceOffer = isPriceOffer ? validatePriceOffer(priceBounds.listingPrice, input.offeredPrice) : null;
+  if (priceOffer && !priceOffer.ok) {
+    throw new TradeBlockedError(priceOffer.code, priceOffer.message, undefined, {
+      listingId: listing.id,
+      minimumPrice: priceOffer.minimumPrice,
+      listingPrice: priceOffer.listingPrice ?? priceBounds.listingPrice,
+    });
+  }
+  const pricePerUsdt = priceOffer?.ok ? priceOffer.offeredPrice : priceBounds.listingPrice;
   const validationMs = Date.now() - validationStartedAt;
   const businessStartedAt = Date.now();
   const sellerId = listing.sellerId;
@@ -8034,7 +8060,7 @@ export async function createPurchaseRequest(input: {
     ? getSellerBankAccountById(seller, listing.bankAccountId)
     : undefined;
   const usdtAmount = requestedUsdtAmount;
-  const fiatAmount = (requestedAmount * toNumber(listing.price)).toFixed(2);
+  const fiatAmount = (requestedAmount * toNumber(pricePerUsdt)).toFixed(2);
   const tradeId = `trade-${randomUUID()}`;
   const request: PurchaseRequest = {
     id: `purchase-${randomUUID()}`,
@@ -8045,6 +8071,10 @@ export async function createPurchaseRequest(input: {
     buyerName: input.buyerName.trim(),
     usdtAmount,
     fiatAmount,
+    pricePerUsdt,
+    listingPriceAtRequest: priceBounds.listingPrice,
+    priceMode: isPriceOffer ? "buyer_offer" : "listing_price",
+    priceOfferDiscount: priceOffer?.ok ? priceOffer.discount : undefined,
     currency: listing.currency,
     network: listing.network,
     buyerReceivingWalletAddress,
@@ -8058,10 +8088,12 @@ export async function createPurchaseRequest(input: {
     timeline: [
       {
         id: `timeline-purchase-${randomUUID()}-1`,
-        type: "request_submitted",
+        type: isPriceOffer ? "price_offer_submitted" : "request_submitted",
         actorUserId: input.actorUserId,
         actorRole: resolveActorRole(db, input.actorUserId),
-        message: "Buyer submitted request",
+        message: isPriceOffer
+          ? `Buyer submitted a price offer of ₪${pricePerUsdt} per USDT`
+          : "Buyer submitted request",
         createdAt: now,
       },
     ],
@@ -8084,21 +8116,27 @@ export async function createPurchaseRequest(input: {
     targetUserId: sellerId,
     listingId: input.listingId,
     purchaseRequestId: request.id,
-    details: `Submitted trade ${request.tradeId}`,
+    details: isPriceOffer
+      ? `Submitted price offer for trade ${request.tradeId} at ₪${pricePerUsdt} per USDT (listing price ₪${priceBounds.listingPrice}).`
+      : `Submitted trade ${request.tradeId}`,
   });
   pushNotification(db, {
     userId: sellerId,
     category: "trade",
-    title: "New trade request",
-    message: `${request.buyerName} submitted a ${primaryPaymentMethod} trade request.`,
+    title: isPriceOffer ? "New price offer" : "New trade request",
+    message: isPriceOffer
+      ? `${request.buyerName} offered ₪${pricePerUsdt} per USDT for ${request.usdtAmount} USDT.`
+      : `${request.buyerName} submitted a ${primaryPaymentMethod} trade request.`,
     relatedRequestId: request.id,
     relatedTradeId: request.tradeId,
     relatedListingId: request.listingId,
     relatedHref: requestDetailsHref(request.id),
   });
   pushAdminTradeActivityNotifications(db, {
-    title: "New Trade Request Submitted",
-    message: `${request.buyerName} requested ${request.usdtAmount} USDT from ${seller.fullName}.`,
+    title: isPriceOffer ? "New Price Offer Submitted" : "New Trade Request Submitted",
+    message: isPriceOffer
+      ? `${request.buyerName} offered ₪${pricePerUsdt} per USDT for ${request.usdtAmount} USDT from ${seller.fullName}.`
+      : `${request.buyerName} requested ${request.usdtAmount} USDT from ${seller.fullName}.`,
     request,
     actionLabel: "Monitor Request",
     actorUserId: input.actorUserId,
@@ -8107,8 +8145,10 @@ export async function createPurchaseRequest(input: {
   pushActivityLog(db, {
     userId: input.buyerId,
     category: "trade",
-    title: "Trade request submitted",
-    details: `Trade ${request.tradeId} was submitted.`,
+    title: isPriceOffer ? "Price offer submitted" : "Trade request submitted",
+    details: isPriceOffer
+      ? `Offer for trade ${request.tradeId} was submitted at ₪${pricePerUsdt} per USDT.`
+      : `Trade ${request.tradeId} was submitted.`,
   });
   const businessMs = Date.now() - businessStartedAt;
   const writeStartedAt = Date.now();
@@ -10502,6 +10542,10 @@ async function updatePurchaseRequestStatusAttempt(
       });
     }
     next.status = "accepted";
+    const isPriceOffer = next.priceMode === "buyer_offer";
+    if (isPriceOffer) {
+      next.priceOfferAcceptedAt = now;
+    }
     if (isFaceToFaceTrade) {
       next.sellerSafetyAcknowledged = true;
     }
@@ -10511,11 +10555,21 @@ async function updatePurchaseRequestStatusAttempt(
     listing.activeTradeRequestId = request.id;
     listing.lockedAt = now;
     listing.updatedAt = now;
-    appendTradeTimelineEntry(next, { type: "request_accepted", actorUserId: input.actorUserId, actorRole, message: "Seller accepted request", createdAt: now });
+    appendTradeTimelineEntry(next, {
+      type: isPriceOffer ? "price_offer_accepted" : "request_accepted",
+      actorUserId: input.actorUserId,
+      actorRole,
+      message: isPriceOffer
+        ? `Seller accepted the price offer of ₪${next.pricePerUsdt ?? next.listingPriceAtRequest} per USDT`
+        : "Seller accepted request",
+      createdAt: now,
+    });
     appendSystemTradeMessage(db, next, {
       senderUserId: input.actorUserId,
       senderRole: actorRole,
-      message: "Seller accepted the trade request. Buyer can now upload the payment receipt.",
+      message: isPriceOffer
+        ? `Seller accepted the price offer of ₪${next.pricePerUsdt ?? next.listingPriceAtRequest} per USDT. Buyer can now upload the payment receipt.`
+        : "Seller accepted the trade request. Buyer can now upload the payment receipt.",
       createdAt: now,
     });
     for (let siblingIndex = 0; siblingIndex < db.purchaseRequests.length; siblingIndex += 1) {
@@ -10528,7 +10582,7 @@ async function updatePurchaseRequestStatusAttempt(
         timeline: [...(sibling.timeline ?? [])],
       };
       appendTradeTimelineEntry(declinedSibling, {
-        type: "request_declined",
+        type: declinedSibling.priceMode === "buyer_offer" ? "price_offer_declined" : "request_declined",
         actorUserId: input.actorUserId,
         actorRole,
         message: "Seller matched another buyer for this listing",
@@ -10557,17 +10611,21 @@ async function updatePurchaseRequestStatusAttempt(
     pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
-      title: "Trade request accepted",
-      message: isFaceToFaceTrade
-        ? "Your meeting is ready. Review the safety guidelines before meeting."
-        : "Seller accepted your trade request. You can now upload your payment receipt.",
+      title: isPriceOffer ? "Price offer accepted" : "Trade request accepted",
+      message: isPriceOffer
+        ? `Seller accepted your price offer of ₪${next.pricePerUsdt ?? next.listingPriceAtRequest} per USDT. You can now continue in the Trade Room.`
+        : isFaceToFaceTrade
+          ? "Your meeting is ready. Review the safety guidelines before meeting."
+          : "Seller accepted your trade request. You can now upload your payment receipt.",
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
     });
     pushAdminTradeActivityNotifications(db, {
-      title: "Trade Request Accepted",
-      message: `Seller accepted ${request.buyerName}'s ${request.usdtAmount} USDT request. The trade is now active.`,
+      title: isPriceOffer ? "Price Offer Accepted" : "Trade Request Accepted",
+      message: isPriceOffer
+        ? `Seller accepted ${request.buyerName}'s offer of ₪${next.pricePerUsdt ?? next.listingPriceAtRequest} per USDT for ${request.usdtAmount} USDT. The trade is now active.`
+        : `Seller accepted ${request.buyerName}'s ${request.usdtAmount} USDT request. The trade is now active.`,
       request: next,
       actionLabel: "Monitor Trade",
       actorUserId: input.actorUserId,
@@ -10575,12 +10633,23 @@ async function updatePurchaseRequestStatusAttempt(
     queueSmsDelivery(db, { eventType: "trade_accepted", eventKey: `trade:${request.id}:accepted:buyer:${request.buyerId}`, recipientUserId: request.buyerId, destinationPath: requestDetailsHref(request.id) });
   } else if (input.nextStatus === "declined") {
     next.status = "declined";
-    appendTradeTimelineEntry(next, { type: "request_declined", actorUserId: input.actorUserId, actorRole, message: "Seller declined request", createdAt: now });
+    const isPriceOffer = next.priceMode === "buyer_offer";
+    appendTradeTimelineEntry(next, {
+      type: isPriceOffer ? "price_offer_declined" : "request_declined",
+      actorUserId: input.actorUserId,
+      actorRole,
+      message: isPriceOffer
+        ? `Seller declined the price offer of ₪${next.pricePerUsdt ?? next.listingPriceAtRequest} per USDT`
+        : "Seller declined request",
+      createdAt: now,
+    });
     pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
-      title: "Trade cancelled",
-      message: `Your trade request was declined by the seller.`,
+      title: isPriceOffer ? "Price offer declined" : "Trade cancelled",
+      message: isPriceOffer
+        ? `The seller declined your price offer of ₪${next.pricePerUsdt ?? next.listingPriceAtRequest} per USDT.`
+        : "Your trade request was declined by the seller.",
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),

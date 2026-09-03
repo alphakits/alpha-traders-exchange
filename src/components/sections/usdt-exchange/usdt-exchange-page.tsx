@@ -45,6 +45,7 @@ import { getOfficialOwnerWhatsAppUrl } from "@/lib/official-contact";
 import { deriveBuyerRankSummary, type BuyerRankSummary } from "@/lib/buyer-rank";
 import { navigateAfterSuccess, navigateOrRevealResult } from "@/lib/client-success-navigation";
 import { ensurePayoutBankIsSupported, isPayoutBankSupported } from "@/lib/seller-listing-bank-selection";
+import { getPriceOfferBounds, normalizePriceOfferInput, validatePriceOffer } from "@/lib/price-offer";
 import type { AlphaExchangeActivityLogEntry, AlphaExchangeNotification, AuditAction, ListingStatus, MarketplaceListing, NotificationCategory, PremiumSellerProfileData, PurchaseRequest, SellerApplication, SellerBadge, SellerLevel, SellerStatus, SupportedNetwork, TradeTimelineEntry } from "@/types/alpha-exchange";
 import type { SellerApplicationForm, SellerApplicationMethod } from "@/components/sections/usdt-exchange/seller-application-section";
 
@@ -246,9 +247,15 @@ export function marketReferenceLabel(reference: string | null | undefined, sourc
 export function localizedTimelineMessage(event: TradeTimelineEntry, isAr: boolean) {
   if (!isAr) return event.message;
   if (containsArabicText(event.message)) return event.message;
+  const offeredPrice = event.message.match(/₪(\d+(?:\.\d{1,2})?)/)?.[1];
+  if (event.type === "price_offer_submitted") return offeredPrice ? `قدّم المشتري عرض سعر بقيمة ₪${offeredPrice} لكل USDT.` : "قدّم المشتري عرض سعر.";
+  if (event.type === "price_offer_accepted") return offeredPrice ? `وافق البائع على عرض السعر بقيمة ₪${offeredPrice} لكل USDT.` : "وافق البائع على عرض السعر.";
+  if (event.type === "price_offer_declined") return offeredPrice ? `رفض البائع عرض السعر بقيمة ₪${offeredPrice} لكل USDT.` : "رفض البائع عرض السعر.";
   const labels: Record<TradeTimelineEntry["type"], string> = {
     request_submitted: "أرسل المشتري طلب الصفقة.",
+    price_offer_submitted: "قدّم المشتري عرض سعر.",
     request_accepted: "وافق البائع على طلب الصفقة.",
+    price_offer_accepted: "وافق البائع على عرض السعر.",
     payment_sent: "أكد المشتري إرسال الدفعة.",
     seller_confirmed_funds: "أكد البائع استلام الدفعة.",
     usdt_release_started: "بدأت مرحلة إرسال USDT.",
@@ -263,6 +270,7 @@ export function localizedTimelineMessage(event: TradeTimelineEntry, isAr: boolea
     buyer_evidence_uploaded: "رفع المشتري إثبات الدفع.",
     seller_evidence_uploaded: "رفع البائع إثبات إرسال USDT.",
     request_declined: "رفض البائع طلب الصفقة.",
+    price_offer_declined: "رفض البائع عرض السعر.",
     request_cancelled: "تم إلغاء طلب الصفقة.",
     buyer_confirmed_receipt: "أكد المشتري استلام USDT.",
     buyer_confirmation_overdue: "تأخر تأكيد المشتري للاستلام.",
@@ -640,6 +648,11 @@ function purchaseRequestErrorMessage(code: string, isAr: boolean, englishMessage
   if (code === "RECEIVING_WALLET_REQUIRED") return "عنوان محفظة استلام USDT مطلوب.";
   if (code === "RECEIVING_WALLET_INVALID") return "عنوان محفظة الاستلام غير صالح.";
   if (code === "TRADE_AMOUNT_REQUIRED") return "مبلغ الصفقة مطلوب.";
+  if (code === "PRICE_MODE_INVALID") return "نوع السعر المحدد غير صالح.";
+  if (code === "PRICE_OFFERS_ILS_ONLY") return "عروض الأسعار متاحة فقط للعروض المسعّرة بالشيكل.";
+  if (code === "PRICE_OFFER_INVALID_FORMAT") return "أدخل سعرًا صالحًا بالشيكل، بحد أقصى منزلتين عشريتين.";
+  if (code === "PRICE_OFFER_NOT_LOWER") return "يجب أن يكون عرض السعر أقل من سعر البائع الحالي.";
+  if (code === "PRICE_OFFER_BELOW_MINIMUM") return "لا يمكن أن يقل عرضك بأكثر من ₪0.35 عن سعر البائع.";
   return safeErrorMessage("purchase", true);
 }
 
@@ -975,7 +988,7 @@ type ListingCardProps = {
   isOwnerListing: boolean;
   isOwnListing: boolean;
   isBuying: boolean;
-  onOpen: (listing: MarketplaceListing) => void;
+  onOpen: (listing: MarketplaceListing, priceMode: "listing_price" | "buyer_offer") => void;
   onManageListing: (listing: MarketplaceListing) => void;
 };
 
@@ -1189,7 +1202,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
             <p>{isAr ? "المنطقة" : "Region"}: <span className="text-white">{safeText(listing.sellerProfile?.country, isAr ? "إسرائيل" : "Israel")}</span></p>
           </div>
         </div>
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2">
           <Link
             href={`/exchange/seller/${normalizePublicProfileUsername(listing.sellerProfile?.publicTradingName || listing.sellerDisplayName)}`}
             className={cn(
@@ -1231,7 +1244,7 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
                   : `seller-rank-cta seller-rank-cta--${sellerRankKey}`,
               )}
               disabled={isBuying}
-              onClick={() => onOpen(listing)}
+              onClick={() => onOpen(listing, "listing_price")}
               aria-label={isAr ? `شراء USDT من ${safeText(listing.sellerDisplayName, "البائع")}` : `Buy USDT from ${safeText(listing.sellerDisplayName, "seller")}`}
             >
               <span className="inline-flex items-center gap-2">
@@ -1241,6 +1254,24 @@ const ListingCard = memo(function ListingCard({ listing, isAr, marketPricePerUsd
               <ArrowRight className="h-4 w-4" />
             </Button>
           )}
+          {!isOwnListing && listing.currency.trim().toUpperCase() === "ILS" ? (
+            <Button
+              type="button"
+              variant="secondary"
+              className="seller-marketplace-action seller-marketplace-action--offer w-full justify-between rounded-2xl border-[#C9A227]/45 bg-[#C9A227]/10 px-5 text-sm font-semibold text-[#F4D87A] transition duration-300 hover:border-[#F4D87A]/70 hover:bg-[#C9A227]/15 sm:col-span-2"
+              disabled={isBuying}
+              onClick={() => onOpen(listing, "buyer_offer")}
+              aria-label={isAr ? `تقديم عرض سعر إلى ${safeText(listing.sellerDisplayName, "البائع")}` : `Make a price offer to ${safeText(listing.sellerDisplayName, "seller")}`}
+            >
+              <span className="inline-flex items-center gap-2">
+                <BadgePercent className="h-4 w-4" />
+                {isAr ? "قدّم عرض سعر" : "Make a Price Offer"}
+              </span>
+              <span className="text-[11px] font-medium text-[#D1D5DB]">
+                {isAr ? "خصم حتى ₪0.35" : "Up to ₪0.35 lower"}
+              </span>
+            </Button>
+          ) : null}
         </div>
       </CardContent>
     </Card>
@@ -1324,6 +1355,8 @@ export function UsdtExchangePage({
   const [purchaseSubmitted, setPurchaseSubmitted] = useState(false);
   const [isSubmittingPurchase, setIsSubmittingPurchase] = useState(false);
   const [selectedListing, setSelectedListing] = useState<MarketplaceListing | null>(null);
+  const [purchasePriceMode, setPurchasePriceMode] = useState<"listing_price" | "buyer_offer">("listing_price");
+  const [buyerOfferedPrice, setBuyerOfferedPrice] = useState("");
   const [sellerProfileData, setSellerProfileData] = useState<PremiumSellerProfileData | null>(null);
   const [isSellerProfileLoading, setIsSellerProfileLoading] = useState(false);
   const sellerProfileRequestIdRef = useRef(0);
@@ -1504,6 +1537,8 @@ export function UsdtExchangePage({
     setShowVerificationCta(false);
     setIsRedirectingToVerification(false);
     setFaceToFaceSafetyAcknowledged(false);
+    setPurchasePriceMode("listing_price");
+    setBuyerOfferedPrice("");
     updateListingSelectionQuery(null);
   }, [updateListingSelectionQuery]);
 
@@ -2328,6 +2363,8 @@ export function UsdtExchangePage({
       return;
     }
     setSelectedListing(listing);
+    setPurchasePriceMode("listing_price");
+    setBuyerOfferedPrice("");
     setSelectedPurchasePaymentMethod(normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod)[0] ?? "Bank Transfer");
     setSellerProfileData(null);
     setPurchaseSubmitted(false);
@@ -2616,10 +2653,12 @@ export function UsdtExchangePage({
     }
   }
 
-  const openListingModal = useCallback((listing: MarketplaceListing) => {
+  const openListingModal = useCallback((listing: MarketplaceListing, priceMode: "listing_price" | "buyer_offer" = "listing_price") => {
     if (!requireAuth()) return;
     const supportedMethods = normalizePaymentMethodList(listing.paymentMethods, listing.paymentMethod);
     setSelectedListing(listing);
+    setPurchasePriceMode(priceMode);
+    setBuyerOfferedPrice("");
     setSelectedPurchasePaymentMethod(supportedMethods[0] ?? "Bank Transfer");
     setSellerProfileData(null);
     setPurchaseSubmitted(false);
@@ -2706,6 +2745,13 @@ export function UsdtExchangePage({
         : `Trade amount must be between ${minTrade.toLocaleString("en-IL")} and ${maxTrade.toLocaleString("en-IL")} USDT.`);
       return;
     }
+    if (purchasePriceMode === "buyer_offer") {
+      const offerValidation = validatePriceOffer(selectedListing.price, buyerOfferedPrice);
+      if (!offerValidation.ok) {
+        setStatusMessage(purchaseRequestErrorMessage(offerValidation.code, isAr, offerValidation.message));
+        return;
+      }
+    }
     const walletValidationError = getWalletAddressValidationError(selectedListing.network, buyerInfo.receivingWalletAddress);
     if (walletValidationError) {
       setStatusMessage(localizeWalletValidationError(walletValidationError, selectedListing.network, isAr));
@@ -2725,6 +2771,8 @@ export function UsdtExchangePage({
           buyerReceivingWalletAddress: normalizeWalletAddress(buyerInfo.receivingWalletAddress),
           paymentMethod: selectedListingPaymentMethod ?? undefined,
           safetyAcknowledged: faceToFaceSafetyAcknowledged,
+          priceMode: purchasePriceMode,
+          offeredPrice: purchasePriceMode === "buyer_offer" ? buyerOfferedPrice : undefined,
         }),
       });
       if (!response.ok) {
@@ -2803,8 +2851,16 @@ export function UsdtExchangePage({
 
   const selectedAmount = selectedListing ? toNumber(selectedListing.availableAmount) : 0;
   const selectedPrice = selectedListing ? toNumber(selectedListing.price) : 0;
-  const commission = selectedAmount * selectedPrice * 0.01;
-  const estimatedTotal = selectedAmount * selectedPrice + commission;
+  const selectedOfferBounds = selectedListing ? getPriceOfferBounds(selectedListing.price) : null;
+  const selectedOfferValidation = selectedListing && purchasePriceMode === "buyer_offer"
+    ? validatePriceOffer(selectedListing.price, buyerOfferedPrice)
+    : null;
+  const selectedTradePrice = purchasePriceMode === "buyer_offer"
+    ? (selectedOfferValidation?.ok ? toNumber(selectedOfferValidation.offeredPrice) : 0)
+    : selectedPrice;
+  const selectedTradeAmount = toNumber(buyerInfo.usdtAmount);
+  const commission = selectedTradeAmount * selectedTradePrice * 0.01;
+  const estimatedTotal = selectedTradeAmount * selectedTradePrice + commission;
 
   const isApprovedSeller = isApprovedSellerSession;
   const hasBuyerRole = Boolean(sessionUser && hasRole(sessionUser, "buyer"));
@@ -4203,6 +4259,8 @@ export function UsdtExchangePage({
   ) {
     const actionKey = `${requestId}:${nextStatus}`;
     if (requestActionKey) return;
+    const targetRequest = myRequests.find((request) => request.id === requestId);
+    const isPriceOffer = targetRequest?.priceMode === "buyer_offer";
     setRequestActionKey(actionKey);
     const safetyAcknowledged = nextStatus === "accepted"
       ? true
@@ -4218,11 +4276,13 @@ export function UsdtExchangePage({
         setSellerWorkspaceMessage(isAr ? safeErrorMessage("request", true) : (payload.error ?? safeErrorMessage("request", false)));
         return;
       }
-      if (nextStatus === "accepted") setSellerWorkspaceMessage(isAr ? "تم قبول الطلب وإنشاء الصفقة." : "Request accepted and trade created.");
+      if (nextStatus === "accepted") setSellerWorkspaceMessage(isPriceOffer
+        ? (isAr ? "تم قبول عرض السعر وإنشاء الصفقة بالسعر المتفق عليه." : "Price offer accepted. The trade was created at the agreed price.")
+        : (isAr ? "تم قبول الطلب وإنشاء الصفقة." : "Request accepted and trade created."));
       else if (nextStatus === "funds_received") setSellerWorkspaceMessage(isAr ? "تم تأكيد استلام الأموال." : "Funds received confirmed.");
       else if (nextStatus === "usdt_release_pending") setSellerWorkspaceMessage(isAr ? "بدأ إرسال USDT." : "USDT release started.");
       else if (nextStatus === "usdt_sent") setSellerWorkspaceMessage(isAr ? "تم تحديد USDT كمُرسل." : "USDT sent marked.");
-      else setSellerWorkspaceMessage(isAr ? "تم رفض الطلب." : "Request declined.");
+      else setSellerWorkspaceMessage(isPriceOffer ? (isAr ? "تم رفض عرض السعر." : "Price offer declined.") : (isAr ? "تم رفض الطلب." : "Request declined."));
       await refreshSellerWorkspace();
     } finally {
       setRequestActionKey(null);
@@ -5627,6 +5687,11 @@ export function UsdtExchangePage({
           buyerTradeAmountInvalid={buyerTradeAmountInvalid}
           buyerWalletValidationError={buyerWalletValidationError}
           buyerWalletInvalid={buyerWalletInvalid}
+          priceMode={purchasePriceMode}
+          offeredPrice={buyerOfferedPrice}
+          minimumOfferedPrice={selectedOfferBounds?.minimumPrice ?? ""}
+          offerPriceInvalid={Boolean(selectedOfferValidation && !selectedOfferValidation.ok)}
+          offeredTradePrice={selectedTradePrice}
           requiresSafetyNotice={selectedListingRequiresSafetyNotice}
           safetyAcknowledged={faceToFaceSafetyAcknowledged}
           showVerificationCta={showVerificationCta}
@@ -5642,6 +5707,7 @@ export function UsdtExchangePage({
           }}
           onBuyerAmountChange={(value) => setBuyerInfo((prev) => ({ ...prev, usdtAmount: value }))}
           onBuyerWalletChange={(value) => setBuyerInfo((prev) => ({ ...prev, receivingWalletAddress: value }))}
+          onOfferedPriceChange={(value) => setBuyerOfferedPrice(normalizePriceOfferInput(value))}
           onSafetyAcknowledgedChange={setFaceToFaceSafetyAcknowledged}
           onGoToVerification={goToVerificationGate}
           onOwnerSellerProfileState={(sellerId, state, successMessage) => {
