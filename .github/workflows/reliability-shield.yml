@@ -40,14 +40,8 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Run unit and integration tests
-        run: npm test
-
-      - name: Run code-quality checks
-        run: npm run lint
-
-      - name: Build the production application
-        run: npm run build
+      - name: Run the release safety gate
+        run: npm run verify:release
 
   critical-browser-flows:
     name: Mobile and desktop critical flows
