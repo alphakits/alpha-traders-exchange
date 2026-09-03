@@ -11,6 +11,7 @@ import {
   invalidateAlphaExchangeStoreCache,
   reverifyCommissionByAdmin,
   submitSellerCommissionWalletPayment,
+  updateCommissionPaymentStatus,
 } from "@/lib/alpha-exchange-store";
 import { commissionPaymentDestination, getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
 
@@ -513,6 +514,80 @@ describe("commission wallet payment routing", () => {
     expect(snapshot.purchaseRequests[0]?.timeline.filter((entry) => entry.type === "commission_paid")).toHaveLength(1);
     expect(snapshot.auditLogs.filter((entry) => entry.action === "commission_paid")).toHaveLength(1);
     expect(snapshot.notifications.filter((notification) => notification.title === "Commission payment verified")).toHaveLength(1);
+  });
+
+  it("commits simultaneous identical admin-paid updates exactly once", async () => {
+    const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    addCommissionRequest(db, "request-1", "listing-1");
+
+    const update = () => updateCommissionPaymentStatus({
+      commissionId: COMMISSION_ID,
+      actorUserId: "owner-1",
+      paymentStatus: "paid",
+      reason: "Owner verified the commission payment.",
+    });
+    const results = await Promise.all([update(), update()]);
+
+    expect(results.every((record) => record.paymentStatus === "paid")).toBe(true);
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    expect(snapshot.commissionRecords.filter((record) => record.paymentStatus === "paid")).toHaveLength(1);
+    expect(snapshot.purchaseRequests[0]?.timeline.filter((entry) => entry.type === "commission_paid")).toHaveLength(1);
+    expect(snapshot.auditLogs.filter((entry) => entry.action === "commission_paid")).toHaveLength(1);
+    expect(snapshot.notifications.filter((notification) => notification.title === "Commission marked paid")).toHaveLength(1);
+  });
+
+  it("preserves simultaneous admin-paid updates to different commissions", async () => {
+    const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    addCommissionRequest(db, "request-1", "listing-1");
+    addCommissionRequest(db, "request-2", "listing-2");
+    addCommission(db, "commission-2", "request-2", "listing-2");
+
+    await Promise.all([
+      updateCommissionPaymentStatus({
+        commissionId: COMMISSION_ID,
+        actorUserId: "owner-1",
+        paymentStatus: "paid",
+        reason: "Owner verified the first commission.",
+      }),
+      updateCommissionPaymentStatus({
+        commissionId: "commission-2",
+        actorUserId: "owner-1",
+        paymentStatus: "paid",
+        reason: "Owner verified the second commission.",
+      }),
+    ]);
+
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    expect(snapshot.commissionRecords.filter((record) => record.paymentStatus === "paid")).toHaveLength(2);
+    expect(snapshot.purchaseRequests.every((request) => request.timeline.filter((entry) => entry.type === "commission_paid").length === 1)).toBe(true);
+    expect(snapshot.auditLogs.filter((entry) => entry.action === "commission_paid")).toHaveLength(2);
+    expect(snapshot.notifications.filter((notification) => notification.title === "Commission marked paid")).toHaveLength(2);
+  });
+
+  it("never lets a stale overdue update overwrite a concurrently paid commission", async () => {
+    const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    addCommissionRequest(db, "request-1", "listing-1");
+
+    await Promise.allSettled([
+      updateCommissionPaymentStatus({
+        commissionId: COMMISSION_ID,
+        actorUserId: "owner-1",
+        paymentStatus: "paid",
+        reason: "Owner verified the commission payment.",
+      }),
+      updateCommissionPaymentStatus({
+        commissionId: COMMISSION_ID,
+        actorUserId: "owner-1",
+        paymentStatus: "overdue",
+        reason: "Owner marked the commission overdue.",
+      }),
+    ]);
+
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    expect(snapshot.commissionRecords[0]?.paymentStatus).toBe("paid");
+    expect(snapshot.purchaseRequests[0]?.timeline.filter((entry) => entry.type === "commission_paid")).toHaveLength(1);
+    expect(snapshot.auditLogs.filter((entry) => entry.action === "commission_paid")).toHaveLength(1);
+    expect(snapshot.notifications.filter((notification) => notification.title === "Commission marked paid")).toHaveLength(1);
   });
 
   it("preserves two distinct verified settlements that race from stale snapshots", async () => {
