@@ -1,6 +1,7 @@
 import { test, expect, request as pwRequest, type APIRequestContext, type Page } from "@playwright/test";
 import { randomBytes, randomUUID, scrypt as scryptCallback } from "node:crypto";
 import { promisify } from "node:util";
+import { E2E_BASE_URL } from "./support/base-url";
 
 const scrypt = promisify(scryptCallback);
 const SUPPORT_HEADERS = {
@@ -208,19 +209,28 @@ async function logout(request: APIRequestContext) {
   await request.post("/api/auth/logout").catch(() => {});
 }
 
+function purchaseRequestPayload(usdtAmount = "300") {
+  return {
+    listingId: ids.listing,
+    usdtAmount,
+    buyerName: "Guided Buyer",
+    buyerWhatsapp: "+972500000101",
+    buyerNotes: "Guided hardening flow",
+    buyerReceivingWalletAddress: BUYER_WALLET,
+    safetyAcknowledged: true,
+  };
+}
+
 async function createTradeRequest(request: APIRequestContext, usdtAmount = "300") {
   const response = await request.post("/api/alpha-exchange/purchase-requests", {
-    data: {
-      listingId: ids.listing,
-      usdtAmount,
-      buyerName: "Guided Buyer",
-      buyerWhatsapp: "+972500000101",
-      buyerNotes: "Guided hardening flow",
-      buyerReceivingWalletAddress: BUYER_WALLET,
-      safetyAcknowledged: true,
-    },
+    data: purchaseRequestPayload(usdtAmount),
   });
-  expect(response.ok()).toBeTruthy();
+  if (!response.ok()) {
+    const responseBody = await response.text().catch(() => "");
+    throw new Error(
+      `createTradeRequest failed with HTTP ${response.status()}: ${responseBody || "empty response body"}`,
+    );
+  }
   const payload = (await response.json()) as { purchase?: { id?: string } };
   const requestId = payload.purchase?.id;
   expect(requestId).toBeTruthy();
@@ -513,22 +523,77 @@ async function uploadEvidenceInUi(page: Page, side: "buyer" | "seller") {
 test.describe.configure({ mode: "serial" });
 
 test.beforeEach(async () => {
-  const api = await pwRequest.newContext({ baseURL: "http://localhost:3000" });
+  const api = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
   await cleanupState(api);
   await provisionState(api);
   await api.dispose();
 });
 
 test.afterAll(async () => {
-  const api = await pwRequest.newContext({ baseURL: "http://localhost:3000" });
+  const api = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
   await cleanupState(api);
   await api.dispose();
+});
+
+test("authenticated purchase creation is durable and duplicate-safe before UI navigation", async ({ request }) => {
+  const api = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
+
+  try {
+    await logout(request);
+    await login(request, buyerEmail, buyerPassword);
+    const requestId = await createTradeRequest(request, "300");
+
+    const roomResponse = await request.get(`/api/alpha-exchange/trade-room/${requestId}`);
+    expect(roomResponse.status()).toBe(200);
+    await expect(roomResponse.json()).resolves.toMatchObject({
+      request: {
+        id: requestId,
+        listingId: ids.listing,
+        buyerId: ids.buyer,
+        sellerId: ids.seller,
+        usdtAmount: "300",
+        paymentMethod: "Face-to-Face (Meet in Person)",
+        status: "pending",
+      },
+    });
+
+    const duplicateResponse = await request.post("/api/alpha-exchange/purchase-requests", {
+      data: purchaseRequestPayload("300"),
+    });
+    expect(duplicateResponse.status()).toBe(400);
+    await expect(duplicateResponse.json()).resolves.toMatchObject({
+      code: "PURCHASE_REQUEST_ALREADY_SUBMITTED",
+      details: { purchaseRequestId: requestId },
+    });
+
+    const db = await readDb(api);
+    const requests = Array.isArray(db.purchaseRequests) ? db.purchaseRequests : [];
+    const matchingRequests = requests.filter((row) => (
+      row
+      && typeof row === "object"
+      && (row as { buyerId?: unknown }).buyerId === ids.buyer
+      && (row as { listingId?: unknown }).listingId === ids.listing
+    ));
+    expect(matchingRequests).toHaveLength(1);
+
+    const notifications = Array.isArray(db.notifications) ? db.notifications : [];
+    const matchingSellerNotifications = notifications.filter((row) => (
+      row
+      && typeof row === "object"
+      && (row as { userId?: unknown }).userId === ids.seller
+      && (row as { relatedRequestId?: unknown }).relatedRequestId === requestId
+      && (row as { title?: unknown }).title === "New trade request"
+    ));
+    expect(matchingSellerNotifications).toHaveLength(1);
+  } finally {
+    await api.dispose();
+  }
 });
 
 test("mobile guided flow: notifications, payment/evidence, live updates, and security gate", async ({ page }) => {
   test.setTimeout(240_000);
   const viewport = { width: 390, height: 844 };
-  const api = await pwRequest.newContext({ baseURL: "http://localhost:3000" });
+  const api = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
 
   await logout(page.request);
   await login(page.request, buyerEmail, buyerPassword);
@@ -623,7 +688,7 @@ test("mobile guided flow: notifications, payment/evidence, live updates, and sec
 
 test("trade-room Pay Now opens the canonical commission flow without an external generic-wallet destination", async ({ page }) => {
   test.setTimeout(120_000);
-  const api = await pwRequest.newContext({ baseURL: "http://localhost:3000" });
+  const api = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
   const requestId = await seedActiveTradeWithPendingCommission(api);
   const popupUrls: string[] = [];
   const onPopup = (popup: Page) => popupUrls.push(popup.url());
@@ -652,7 +717,7 @@ test("trade-room Pay Now opens the canonical commission flow without an external
 
 test("action transition matrix: destination query/hash + focused section + CTA across required states", async ({ page }) => {
   test.setTimeout(300_000);
-  const api = await pwRequest.newContext({ baseURL: "http://localhost:3000" });
+  const api = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
 
   await logout(page.request);
   await login(page.request, buyerEmail, buyerPassword);
@@ -767,7 +832,7 @@ test("action transition matrix: destination query/hash + focused section + CTA a
 
 test("mobile targeted notification open keeps correct section and CTA without overflow", async ({ page }) => {
   test.setTimeout(180_000);
-  const api = await pwRequest.newContext({ baseURL: "http://localhost:3000" });
+  const api = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
 
   await logout(page.request);
   await login(page.request, buyerEmail, buyerPassword);
@@ -792,7 +857,7 @@ test("mobile targeted notification open keeps correct section and CTA without ov
 
 test("Trade Room Poke is recipient-only, cooldown-protected, reconnect-safe, and mobile-visible", async ({ browser }) => {
   test.setTimeout(180_000);
-  const api = await pwRequest.newContext({ baseURL: "http://localhost:3000" });
+  const api = await pwRequest.newContext({ baseURL: E2E_BASE_URL });
   const buyerContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const sellerContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const buyerPage = await buyerContext.newPage();
