@@ -1,5 +1,6 @@
 const TRADE_ROOM_CACHE_PREFIX = "alpha.trade-room.cache.";
 const TRADE_ROOM_CACHE_TTL_MS = 90_000;
+const inFlightTradeRoomPrefetches = new Map<string, Promise<void>>();
 
 type CachedTradeRoomPayload<T> = {
   cachedAt: number;
@@ -38,12 +39,19 @@ export function readTradeRoomCache<T>(requestId: string): T | null {
 }
 
 export function prefetchTradeRoom(router: { prefetch?: (href: string) => Promise<void> | void }, requestId: string) {
+  const existingPrefetch = inFlightTradeRoomPrefetches.get(requestId);
+  if (existingPrefetch) return existingPrefetch;
+
   const href = buildTradeRoomHref(requestId);
-  if (router.prefetch) {
-    void router.prefetch(href);
-  }
-  void fetch(`/api/alpha-exchange/trade-room/${encodeURIComponent(requestId)}`, { cache: "no-store" })
-    .then(async (response) => {
+  const routePrefetch = Promise.resolve()
+    .then(() => router.prefetch?.(href))
+    .catch(() => {
+      // Navigation remains authoritative when a framework prefetch fails.
+    });
+  const dataPrefetch = Promise.resolve()
+    .then(async () => {
+      if (readTradeRoomCache(requestId)) return;
+      const response = await fetch(`/api/alpha-exchange/trade-room/${encodeURIComponent(requestId)}`, { cache: "no-store" });
       if (!response.ok) return;
       const payload = await response.json();
       writeTradeRoomCache(requestId, payload);
@@ -51,5 +59,14 @@ export function prefetchTradeRoom(router: { prefetch?: (href: string) => Promise
     .catch(() => {
       // Ignore prefetch failures; navigation will still fetch live data.
     });
-}
+  const prefetch = Promise.all([routePrefetch, dataPrefetch])
+    .then(() => undefined)
+    .finally(() => {
+      if (inFlightTradeRoomPrefetches.get(requestId) === prefetch) {
+        inFlightTradeRoomPrefetches.delete(requestId);
+      }
+    });
 
+  inFlightTradeRoomPrefetches.set(requestId, prefetch);
+  return prefetch;
+}
