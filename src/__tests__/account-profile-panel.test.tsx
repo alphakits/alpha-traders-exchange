@@ -77,6 +77,12 @@ function makePayload(role: TestRole) {
     },
     stats: {
       kind: "buyer" as const,
+      buyerLevel: "bronze" as const,
+      nextLevel: "silver" as const,
+      progressToNextLevelPercent: 13.33,
+      amountToNextLevelUsdt: 13_000,
+      requiredVolumeUsdt: 15_000,
+      lifetimeCompletedVolumeUsdt: 2_000,
       activeTrades: 1,
       completedTrades: 2,
       reviewsGiven: 3,
@@ -201,7 +207,8 @@ describe("AccountProfilePanel", () => {
 
     await waitFor(() => expect(screen.getByText("Public trading identity")).toBeTruthy());
     expect(screen.queryByText("Administration")).toBeNull();
-    expect(screen.queryByRole("link", { name: /dashboard/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: /admin dashboard/i })).toBeNull();
+    expect(screen.getByRole("link", { name: /open buyer dashboard/i })).toBeTruthy();
   });
 
   it("shows an error message when profile loading fails", async () => {
@@ -377,6 +384,12 @@ describe("AccountProfilePanel", () => {
             },
             stats: {
               kind: "buyer" as const,
+              buyerLevel: "gold" as const,
+              nextLevel: "diamond" as const,
+              progressToNextLevelPercent: 2.5,
+              amountToNextLevelUsdt: 97_500,
+              requiredVolumeUsdt: 150_000,
+              lifetimeCompletedVolumeUsdt: 52_500,
               activeTrades: 2,
               completedTrades: 8,
               reviewsGiven: 4,
@@ -410,9 +423,9 @@ describe("AccountProfilePanel", () => {
 
     render(<UsdtExchangePage locale="en" initialSessionUser={{ id: "buyer-1", fullName: "Buyer User", email: "buyer@example.com", role: "approved_seller", roles: ["approved_seller", "buyer"], sellerStatus: "buyer", whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: ["English"], bio: "", country: "", city: "", onlineStatus: "online" as const, createdAt: "2026-01-01T00:00:00.000Z" }} />);
 
-    await waitFor(() => expect(screen.getByText("Trusted Buyer")).toBeTruthy());
-    expect(screen.getByText("Buyer level")).toBeTruthy();
-    expect(screen.getByText("4")).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByText("Gold Buyer").length).toBeGreaterThan(0));
+    expect(screen.getAllByText("Buyer rank").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/52,500/).length).toBeGreaterThan(0);
   });
 
   it("renders a buyer rank card on the exchange landing using live profile stats", async () => {
@@ -449,6 +462,12 @@ describe("AccountProfilePanel", () => {
             },
             stats: {
               kind: "buyer" as const,
+              buyerLevel: "gold" as const,
+              nextLevel: "diamond" as const,
+              progressToNextLevelPercent: 2.5,
+              amountToNextLevelUsdt: 97_500,
+              requiredVolumeUsdt: 150_000,
+              lifetimeCompletedVolumeUsdt: 52_500,
               activeTrades: 2,
               completedTrades: 8,
               reviewsGiven: 4,
@@ -482,8 +501,8 @@ describe("AccountProfilePanel", () => {
 
     render(<UsdtExchangePage locale="en" initialSessionUser={{ id: "buyer-1", fullName: "Buyer User", email: "buyer@example.com", role: "buyer", roles: ["buyer"], sellerStatus: "buyer", whatsappNumber: "", preferredNetworks: [], profilePhotoUrl: "", languages: ["English"], bio: "", country: "", city: "", onlineStatus: "online" as const, createdAt: "2026-01-01T00:00:00.000Z" }} />);
 
-    await waitFor(() => expect(screen.getByText("Trusted Buyer")).toBeTruthy());
-    expect(screen.getByText("Buyer level")).toBeTruthy();
-    expect(screen.getByText("4")).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByText("Gold Buyer").length).toBeGreaterThan(0));
+    expect(screen.getAllByText("Buyer rank").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/52,500/).length).toBeGreaterThan(0);
   });
 });

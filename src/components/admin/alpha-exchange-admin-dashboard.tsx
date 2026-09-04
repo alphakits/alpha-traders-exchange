@@ -308,7 +308,7 @@ function paginate<T>(items: T[], page: number) {
   };
 }
 
-export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" | "en" }) {
+export function AlphaExchangeAdminDashboard({ locale = "en", isOwner = false }: { locale?: "ar" | "en"; isOwner?: boolean }) {
   const searchParams = useSearchParams();
   const isArabic = locale === "ar";
   const t = useCallback((english: string, arabic: string) => isArabic ? arabic : english, [isArabic]);
@@ -1447,7 +1447,7 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
         <aside className="h-fit rounded-2xl border border-white/10 bg-[#0B0B0B]/90 p-5 backdrop-blur-sm xl:sticky xl:top-4">
           <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-[#C9A227]">
             <ShieldCheck className="h-3.5 w-3.5" />
-            {t("Alpha Exchange Admin", "إدارة Alpha Exchange")}
+            {isOwner ? t("Owner Control Center", "مركز تحكم المالك") : t("Alpha Exchange Admin", "إدارة Alpha Exchange")}
           </p>
           <nav className="space-y-3">
             {sectionGroups.map((group) => (
@@ -1504,8 +1504,10 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
                     <div className="space-y-6 xl:space-y-8">
                       <Card className="border-white/10 bg-[#0B0B0B]/90">
                         <CardHeader>
-                          <CardTitle className="text-xl md:text-2xl">{t("Owner Business Dashboard", "لوحة أعمال المالك")}</CardTitle>
-                          <CardDescription>{t("Business health at a glance for Alpha Exchange.", "ملخص سريع لحالة أعمال Alpha Exchange.")}</CardDescription>
+                          <CardTitle className="text-xl md:text-2xl">{isOwner ? t("Owner Business Dashboard", "لوحة أعمال المالك") : t("Admin Operations Dashboard", "لوحة عمليات الإدارة")}</CardTitle>
+                          <CardDescription>{isOwner
+                            ? t("Full business health, platform control, and marketplace oversight.", "الصحة الكاملة للأعمال والتحكم بالمنصة والإشراف على السوق.")
+                            : t("Marketplace operations, reviews, and account administration at a glance.", "ملخص عمليات السوق والمراجعات وإدارة الحسابات.")}</CardDescription>
                         </CardHeader>
                         <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                           {[

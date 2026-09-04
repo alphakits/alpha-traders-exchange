@@ -5,6 +5,7 @@ const ARABIC_TITLE_BY_ENGLISH: Record<string, string> = {
   "listing expired": "انتهت صلاحية العرض",
   "congratulations on your new seller rank": "تهانينا على رتبة البائع الجديدة",
   "commission overdue": "عمولة متأخرة",
+  "commission payment required": "مطلوب دفع العمولة",
   "action required on your trade": "مطلوب إجراء في صفقتك",
   "buyer inactivity warning sent": "تم إرسال تنبيه لعدم نشاط المشتري",
   "action required: trade still waiting": "مطلوب إجراء: الصفقة ما زالت معلقة",
@@ -239,6 +240,10 @@ function entityReference(value: string) {
 }
 
 const ARABIC_MESSAGE_TEMPLATES: NotificationMessageTemplate[] = [
+  {
+    pattern: /^Pay (.+?) USDT commission before accepting, publishing, renewing, or starting another trade\.$/i,
+    translate: ([amount]) => `ادفع عمولة بقيمة ${amount} USDT قبل قبول صفقة أخرى أو نشر عرض أو تجديده أو بدء عملية شراء جديدة.`,
+  },
   {
     pattern: /^Listing (.+?) expired and is no longer visible to buyers\. Open My Listings to renew it when you are ready\.$/i,
     translate: ([listing]) => `انتهت صلاحية العرض ${entityReference(listing)} ولم يعد ظاهرًا للمشترين. افتح «عروضي» لتجديده عندما تكون جاهزًا.`,

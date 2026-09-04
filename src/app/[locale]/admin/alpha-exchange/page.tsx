@@ -57,5 +57,5 @@ export default async function AlphaExchangeAdminPage({
     redirect(`/${locale}/usdt-exchange`);
   }
 
-  return <AlphaExchangeAdminDashboard locale={locale === "ar" ? "ar" : "en"} />;
+  return <AlphaExchangeAdminDashboard locale={locale === "ar" ? "ar" : "en"} isOwner={hasRole(user, "owner")} />;
 }

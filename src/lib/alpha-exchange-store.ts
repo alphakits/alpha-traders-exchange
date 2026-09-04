@@ -8,6 +8,7 @@ import { createExchangeDisplayLookup, normalizeDisplayNumber, replaceExchangeEnt
 import { calculateSellerTrustSnapshot, rankTrustSnapshots } from "@/lib/trust-engine";
 import { computeListingReliability, RELIABILITY_NEUTRAL_BASELINE, type ListingReliability } from "@/lib/listing-reliability";
 import { getSellerPrestigeProgress, getSellerPublicVolumeLabel, resolveSellerPrestigeRank, resolveSellerPrestigeRankWithFloor, sellerPrestigeRankWeight } from "@/lib/seller-prestige";
+import { getBuyerPrestigeProgress } from "@/lib/buyer-rank";
 import {
   ALLOWED_LISTING_EXPIRATION_HOURS,
   BUYER_CONFIRMATION_TIMEOUT_MINUTES,
@@ -1005,6 +1006,13 @@ function getBuyerPendingFeedbackTrade(db: AlphaExchangeDb, buyerId: string) {
   return db.purchaseRequests
     .filter((request) => request.buyerId === buyerId && completedStatuses.has(request.status) && !hasBuyerReviewSubmitted(db, request))
     .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0];
+}
+
+function getSellerPurchaseCommissionBlock(db: AlphaExchangeDb, buyerId: string) {
+  // A commission remains payable even if a seller is later suspended or has
+  // their role changed. The debt record, not the current badge, is the source
+  // of truth for whether this user can begin another purchase.
+  return getUnpaidSellerCommissionRecords(db, buyerId)[0];
 }
 
 function getSellerOpenListingCount(db: AlphaExchangeDb, sellerId: string) {
@@ -8011,6 +8019,19 @@ export async function createPurchaseRequest(input: {
       pendingFeedbackTrade.id,
     );
   }
+  const pendingSellerCommission = getSellerPurchaseCommissionBlock(db, input.buyerId);
+  if (pendingSellerCommission) {
+    throw new TradeBlockedError(
+      "SELLER_COMMISSION_DUE",
+      "Pay your pending seller commission before starting another purchase.",
+      pendingSellerCommission.purchaseRequestId,
+      {
+        guard: "seller-buyer-commission-clear",
+        commissionId: pendingSellerCommission.id,
+        actionHref: commissionPaymentDestination(pendingSellerCommission.id),
+      },
+    );
+  }
   const listing = db.marketplaceListings.find((item) => item.id === input.listingId);
   if (!listing) throw new Error("Listing not found.");
   const buyerReceivingWalletAddress = normalizeWalletAddress(input.buyerReceivingWalletAddress);
@@ -8233,6 +8254,30 @@ export async function createPurchaseRequest(input: {
           "You already have an active trade in progress. Complete or cancel it before starting another purchase.",
           concurrentActiveTrade.id,
           { guard: "single-active-buyer-trade-at-commit" },
+        );
+      }
+
+      const concurrentPendingFeedback = getBuyerPendingFeedbackTrade(snapshot, input.buyerId);
+      if (concurrentPendingFeedback) {
+        throw new TradeBlockedError(
+          "PENDING_BUYER_FEEDBACK",
+          "Please complete your feedback for your previous trade before starting a new one.",
+          concurrentPendingFeedback.id,
+          { guard: "buyer-feedback-required-at-commit" },
+        );
+      }
+
+      const concurrentPendingCommission = getSellerPurchaseCommissionBlock(snapshot, input.buyerId);
+      if (concurrentPendingCommission) {
+        throw new TradeBlockedError(
+          "SELLER_COMMISSION_DUE",
+          "Pay your pending seller commission before starting another purchase.",
+          concurrentPendingCommission.purchaseRequestId,
+          {
+            guard: "seller-buyer-commission-clear-at-commit",
+            commissionId: concurrentPendingCommission.id,
+            actionHref: commissionPaymentDestination(concurrentPendingCommission.id),
+          },
         );
       }
     },
@@ -9353,6 +9398,21 @@ export interface AccountProfileSummary {
   showEmailPublic: boolean;
 }
 
+export interface BuyerAccountStats {
+  kind: "buyer";
+  buyerLevel: SellerLevel;
+  nextLevel?: SellerLevel;
+  progressToNextLevelPercent: number;
+  amountToNextLevelUsdt: number;
+  requiredVolumeUsdt: number;
+  lifetimeCompletedVolumeUsdt: number;
+  activeTrades: number;
+  completedTrades: number;
+  reviewsGiven: number;
+}
+
+type BuyerActivityStats = Omit<BuyerAccountStats, "kind">;
+
 export interface SellerAccountStats {
   kind: "seller";
   sellerLevel: SellerLevel;
@@ -9368,13 +9428,31 @@ export interface SellerAccountStats {
   activeListings: number;
   pendingListings: number;
   averageRating: number;
+  buyerActivity: BuyerActivityStats;
 }
 
-export interface BuyerAccountStats {
-  kind: "buyer";
-  activeTrades: number;
-  completedTrades: number;
-  reviewsGiven: number;
+function buildBuyerActivityStats(db: AlphaExchangeDb, userId: string): BuyerActivityStats {
+  const buyerRequests = db.purchaseRequests.filter((request) => request.buyerId === userId);
+  const completedBuyerRequests = buyerRequests.filter(
+    (request) => request.status === "completed" || request.status === "review_open" || request.status === "locked" || Boolean(request.completedAt),
+  );
+  const lifetimeCompletedVolumeUsdt = roundUsdt(
+    completedBuyerRequests.reduce((total, request) => total + toNumber(request.usdtAmount), 0),
+  );
+  const buyerProgress = getBuyerPrestigeProgress(lifetimeCompletedVolumeUsdt);
+  return {
+    buyerLevel: buyerProgress.rank,
+    nextLevel: buyerProgress.nextRank,
+    progressToNextLevelPercent: Number(buyerProgress.progressPercent.toFixed(2)),
+    amountToNextLevelUsdt: roundUsdt(buyerProgress.remainingVolumeUsdt),
+    requiredVolumeUsdt: roundUsdt(buyerProgress.requiredVolumeUsdt),
+    lifetimeCompletedVolumeUsdt,
+    activeTrades: buyerRequests.filter(
+      (request) => !["completed", "review_open", "locked", "declined", "cancelled"].includes(request.status),
+    ).length,
+    completedTrades: completedBuyerRequests.length,
+    reviewsGiven: completedBuyerRequests.filter((request) => hasBuyerReviewSubmitted(db, request)).length,
+  };
 }
 
 export async function getAccountProfileData(userId: string): Promise<{
@@ -9437,23 +9515,12 @@ export async function getAccountProfileData(userId: string): Promise<{
       activeListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && listing.status === "active").length,
       pendingListings: db.marketplaceListings.filter((listing) => listing.sellerId === user.id && isListingPendingApproval(listing)).length,
       averageRating: reputation.rating,
+      buyerActivity: buildBuyerActivityStats(db, user.id),
     };
     return { profile, stats };
   }
 
-  const buyerRequests = db.purchaseRequests.filter((request) => request.buyerId === user.id);
-  const stats: BuyerAccountStats = {
-    kind: "buyer",
-    activeTrades: buyerRequests.filter(
-      (request) =>
-        request.status !== "completed"
-        && request.status !== "review_open"
-        && request.status !== "declined"
-        && request.status !== "cancelled",
-    ).length,
-    completedTrades: buyerRequests.filter((request) => request.status === "completed" || Boolean(request.completedAt)).length,
-    reviewsGiven: buyerRequests.filter((request) => Boolean(request.buyerReview)).length,
-  };
+  const stats: BuyerAccountStats = { kind: "buyer", ...buildBuyerActivityStats(db, user.id) };
   return { profile, stats };
 }
 
@@ -10963,6 +11030,21 @@ async function updatePurchaseRequestStatusAttempt(
       actionLabel: commission ? "Pay Commission" : undefined,
       reason: commission ? COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON : undefined,
     });
+    if (commission) {
+      pushNotification(db, {
+        userId: request.sellerId,
+        category: "trade",
+        title: "Commission payment required",
+        message: `Pay ${commission.commissionAmount.toFixed(2)} USDT commission before accepting, publishing, renewing, or starting another trade.`,
+        relatedTradeId: next.tradeId,
+        relatedRequestId: request.id,
+        relatedListingId: request.listingId,
+        relatedHref: commissionPaymentDestination(commission.id),
+        actionHref: commissionPaymentDestination(commission.id),
+        actionLabel: "Pay Commission",
+        reason: COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+      });
+    }
     queueSmsDelivery(db, { eventType: "trade_completed", eventKey: `trade:${request.id}:completed:seller:${request.sellerId}`, recipientUserId: request.sellerId, destinationPath: requestDetailsHref(request.id) });
     const owner = getOwnerUser(db);
     const largeTradeThreshold = getLargeTradeThreshold();
