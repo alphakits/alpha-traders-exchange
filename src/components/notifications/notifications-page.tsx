@@ -254,6 +254,18 @@ function extractRequestIdFromTradeRoomHref(href: string | null) {
   }
 }
 
+function canResolveNotificationDestination(notification: AlphaExchangeNotification) {
+  if (getCommissionPaymentNotificationDestination(notification)) return true;
+  if (getTradeRoomConversationDestination(notification)) return true;
+  if (getExplicitNonTradeRoomNotificationDestination(notification)) return true;
+  if (notification.category !== "trade") return false;
+  return Boolean(
+    notification.relatedRequestId?.trim()
+    || (notification.tradeSnapshot as TradeSnapshotPayload | undefined)?.requestId?.trim()
+    || extractTradeRoomHrefFromRelatedHref(notification.relatedHref ?? notification.actionHref),
+  );
+}
+
 function formatNotificationTitle(notification: AlphaExchangeNotification, locale: AppLocale) {
   return replaceExchangeEntityIdsWithHints(localizeNotificationCopy(notification, locale).title, notification);
 }
@@ -565,7 +577,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
       prefetchTradeRoom(router, requestId);
     }
     if (!notification.isRead) {
-      void handleMarkOneRead(notification.id);
+      await handleMarkOneRead(notification.id);
     }
     router.push(destination);
   }
@@ -574,7 +586,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
     const applicationId = extractSellerApplicationId(notification);
     if (!applicationId) return;
     const actionKey = `${decision}:${notification.id}`;
-    if (itemLoading[actionKey]) return;
+    if (itemLoading[`approve:${notification.id}`] || itemLoading[`reject:${notification.id}`]) return;
     setItemLoading((prev) => ({ ...prev, [actionKey]: true }));
     try {
       const reason = decision === "approve" ? "Approved from notification workflow" : "Rejected from notification workflow";
@@ -590,6 +602,8 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
       // A completed decision archives the matching owner/admin action alert on
       // the server. Reload it instead of marking it read and resurrecting it.
       await loadNotifications();
+    } catch {
+      setError(isAr ? "تعذر تحديث طلب البائع." : "Failed to update seller application.");
     } finally {
       setItemLoading((prev) => ({ ...prev, [actionKey]: false }));
     }
@@ -802,6 +816,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                 {group.items.map((notification) => {
                   const Icon = notificationIcon(notification);
                   const actionRequired = notificationNeedsUserAction(notification);
+                  const hasPrimaryDestination = canResolveNotificationDestination(notification);
                   return (
                     <article
                       key={notification.id}
@@ -829,27 +844,29 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                             {notification.tradeSnapshot?.counterpartyName ? <span className="rounded-full border border-white/15 px-2.5 py-1 text-[#D1D5DB]"><bdi dir="auto">{notification.tradeSnapshot.counterpartyName}</bdi></span> : null}
                           </div>
                           <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant={actionRequired && notification.category !== "application" ? "default" : "secondary"}
-                              className="col-span-2 h-auto min-h-11 px-4 py-2 text-sm sm:col-auto md:min-h-9"
-                              onMouseEnter={() => {
-                                if (!isTradeNotification(notification)) return;
-                                const href = resolveTradeRoomHref(notification);
-                                const requestId = extractRequestIdFromTradeRoomHref(href);
-                                if (requestId) prefetchTradeRoom(router, requestId);
-                              }}
-                              onFocus={() => {
-                                if (!isTradeNotification(notification)) return;
-                                const href = resolveTradeRoomHref(notification);
-                                const requestId = extractRequestIdFromTradeRoomHref(href);
-                                if (requestId) prefetchTradeRoom(router, requestId);
-                              }}
-                              onClick={() => void openNotificationDestination(notification)}
-                            >
-                              {resolveNotificationActionLabel(notification)}
-                            </Button>
+                            {hasPrimaryDestination ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant={actionRequired && notification.category !== "application" ? "default" : "secondary"}
+                                className="col-span-2 h-auto min-h-11 px-4 py-2 text-sm sm:col-auto md:min-h-9"
+                                onMouseEnter={() => {
+                                  if (!isTradeNotification(notification)) return;
+                                  const href = resolveTradeRoomHref(notification);
+                                  const requestId = extractRequestIdFromTradeRoomHref(href);
+                                  if (requestId) prefetchTradeRoom(router, requestId);
+                                }}
+                                onFocus={() => {
+                                  if (!isTradeNotification(notification)) return;
+                                  const href = resolveTradeRoomHref(notification);
+                                  const requestId = extractRequestIdFromTradeRoomHref(href);
+                                  if (requestId) prefetchTradeRoom(router, requestId);
+                                }}
+                                onClick={() => void openNotificationDestination(notification)}
+                              >
+                                {resolveNotificationActionLabel(notification)}
+                              </Button>
+                            ) : null}
                             {notification.category === "application" && extractSellerApplicationId(notification) ? (
                               <>
                                 <Button
@@ -857,6 +874,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                                   size="sm"
                                   variant="default"
                                   className="h-auto min-h-11 px-4 py-2 text-sm md:min-h-9"
+                                  disabled={Boolean(itemLoading[`approve:${notification.id}`] || itemLoading[`reject:${notification.id}`])}
                                   loading={Boolean(itemLoading[`approve:${notification.id}`])}
                                   loadingLabel={isAr ? "جاري القبول..." : "Approving..."}
                                   onClick={() => void handleSellerApplicationDecision(notification, "approve")}
@@ -868,6 +886,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                                   size="sm"
                                   variant="destructive"
                                   className="h-auto min-h-11 px-4 py-2 text-sm md:min-h-9"
+                                  disabled={Boolean(itemLoading[`approve:${notification.id}`] || itemLoading[`reject:${notification.id}`])}
                                   loading={Boolean(itemLoading[`reject:${notification.id}`])}
                                   loadingLabel={isAr ? "جاري الرفض..." : "Rejecting..."}
                                   onClick={() => void handleSellerApplicationDecision(notification, "reject")}

@@ -315,12 +315,11 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
 
     const requestId = extractRequestIdFromTradeRoomHref(destination);
     if (requestId) prefetchTradeRoom(router, requestId);
+    if (!notification.isRead) {
+      await handleMarkOneRead(notification.id);
+    }
     setIsOpen(false);
     router.push(destination);
-
-    if (!notification.isRead) {
-      void handleMarkOneRead(notification.id);
-    }
   }
 
   function isTradeNotification(notification: AlphaExchangeNotification) {
@@ -358,7 +357,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
     const applicationId = extractSellerApplicationId(notification);
     if (!applicationId) return;
     const actionKey = `${notification.id}:${decision}`;
-    if (actionLoading[actionKey]) return;
+    if (actionLoading[`${notification.id}:approve`] || actionLoading[`${notification.id}:reject`]) return;
     setActionLoading((prev) => ({ ...prev, [actionKey]: true }));
     try {
       const reason = decision === "approve" ? "Approved from notification workflow" : "Rejected from notification workflow";
@@ -367,12 +366,16 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason }),
       });
-      if (response.ok) {
-        // The server archives every matching admin action notification after a
-        // decision. Reload instead of marking this item read, which would
-        // otherwise turn an archived action back into a visible read item.
-        await loadNotifications(20);
+      if (!response.ok) {
+        setError(isAr ? "تعذر تحديث طلب البائع." : "Failed to update seller application.");
+        return;
       }
+      // The server archives every matching admin action notification after a
+      // decision. Reload instead of marking this item read, which would
+      // otherwise turn an archived action back into a visible read item.
+      await loadNotifications(20);
+    } catch {
+      setError(isAr ? "تعذر تحديث طلب البائع." : "Failed to update seller application.");
     } finally {
       setActionLoading((prev) => ({ ...prev, [actionKey]: false }));
     }
@@ -381,10 +384,10 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   function resolveNotificationActionLabel(notification: AlphaExchangeNotification) {
     const label = getCommissionPaymentNotificationDestination(notification)
       ? "Pay Commission"
-      : isTradeNotification(notification)
-        ? "Continue Trade"
-        : notification.actionLabel?.trim()
-          ? notification.actionLabel.trim()
+      : notification.actionLabel?.trim()
+        ? notification.actionLabel.trim()
+        : isTradeNotification(notification)
+          ? "Continue Trade"
           : notification.category === "application"
             ? "Review Application"
             : notification.category === "listing"
@@ -500,7 +503,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                           ) : null}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
-                          {isTradeNotification(notification) ? (
+                          {isTradeNotification(notification) && destination ? (
                             <Button
                               type="button"
                               size="sm"
@@ -539,7 +542,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                                 size="sm"
                                 variant="secondary"
                                 className="h-7 px-2.5 text-[11px]"
-                                disabled={Boolean(actionLoading[`${notification.id}:approve`])}
+                                disabled={Boolean(actionLoading[`${notification.id}:approve`] || actionLoading[`${notification.id}:reject`])}
                                 onClick={() => void handleSellerApplicationDecision(notification, "approve")}
                               >
                                 {isAr ? "موافقة" : "Approve"}
@@ -549,7 +552,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                                 size="sm"
                                 variant="secondary"
                                 className="h-7 px-2.5 text-[11px]"
-                                disabled={Boolean(actionLoading[`${notification.id}:reject`])}
+                                disabled={Boolean(actionLoading[`${notification.id}:approve`] || actionLoading[`${notification.id}:reject`])}
                                 onClick={() => void handleSellerApplicationDecision(notification, "reject")}
                               >
                                 {isAr ? "رفض" : "Reject"}

@@ -124,6 +124,7 @@ describe("NotificationsPage mobile hierarchy", () => {
     expect(screen.getByRole("heading", { name: "Yesterday" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Earlier" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Review Listing" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
 
     const content = container.textContent ?? "";
     expect(content.indexOf("Needs your action")).toBeLessThan(content.indexOf("Today"));
@@ -233,13 +234,17 @@ describe("NotificationsPage mobile hierarchy", () => {
       actionHref: "/usdt-exchange?listing=listing-1#my-listings",
       actionLabel: "Manage Listing",
     });
+    let confirmRead: ((value: { ok: boolean; status: number; json: () => Promise<object> }) => void) | undefined;
+    const readResponse = new Promise<{ ok: boolean; status: number; json: () => Promise<object> }>((resolve) => {
+      confirmRead = resolve;
+    });
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes("/api/alpha-exchange/notifications?") && !init?.method) {
         return Promise.resolve(notificationsResponse([item]));
       }
       if (url.endsWith("/api/alpha-exchange/notifications/listing-route") && init?.method === "PATCH") {
-        return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+        return readResponse;
       }
       throw new Error(`Unexpected request: ${url}`);
     });
@@ -248,11 +253,55 @@ describe("NotificationsPage mobile hierarchy", () => {
     render(<NotificationsPage locale="en" />);
     fireEvent.click(await screen.findByRole("button", { name: "Manage Listing" }));
 
-    await waitFor(() => expect(routerPush).toHaveBeenCalledWith("/usdt-exchange?listing=listing-1#my-listings"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       "/api/alpha-exchange/notifications/listing-route",
       expect.objectContaining({ method: "PATCH" }),
     ));
+    expect(routerPush).not.toHaveBeenCalled();
+    confirmRead?.({ ok: true, status: 200, json: async () => ({}) });
+    await waitFor(() => expect(routerPush).toHaveBeenCalledWith("/usdt-exchange?listing=listing-1#my-listings"));
+  });
+
+  it("serializes owner seller-application decisions and surfaces a failed action", async () => {
+    const item = notification({
+      id: "seller-application-action",
+      createdAt: "2026-08-27T10:00:00.000Z",
+      category: "application",
+      title: "Seller application pending",
+      message: "Review this seller application.",
+      actionHref: "/admin/alpha-exchange?section=seller-applications&sellerApplication=application-1",
+      actionLabel: "Review Application",
+    });
+    let finishDecision: ((value: { ok: boolean; status: number }) => void) | undefined;
+    const decisionResponse = new Promise<{ ok: boolean; status: number }>((resolve) => {
+      finishDecision = resolve;
+    });
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/alpha-exchange/notifications?") && !init?.method) {
+        return Promise.resolve(notificationsResponse([item]));
+      }
+      if (url.endsWith("/api/alpha-exchange/admin/seller-applications/application-1/approve") && init?.method === "POST") {
+        return decisionResponse;
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<NotificationsPage locale="en" />);
+    const approve = await screen.findByRole("button", { name: "Approve application" }) as HTMLButtonElement;
+    const reject = screen.getByRole("button", { name: "Reject application" }) as HTMLButtonElement;
+    fireEvent.click(approve);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/alpha-exchange/admin/seller-applications/application-1/approve",
+      expect.objectContaining({ method: "POST" }),
+    ));
+    expect(approve.disabled).toBe(true);
+    expect(reject.disabled).toBe(true);
+
+    finishDecision?.({ ok: false, status: 500 });
+    expect(await screen.findByText("Failed to update seller application.")).toBeTruthy();
   });
 
   it("reconciles streamed unread items and preserves mark-all-read behavior", async () => {

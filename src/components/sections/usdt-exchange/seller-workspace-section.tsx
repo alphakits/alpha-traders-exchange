@@ -415,7 +415,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                 {isAr ? "حالة العمولة" : "Commission Status"}
               </CardTitle>
               <CardDescription>
-                {isAr ? "تتقاضى Alpha Traders عمولة بنسبة 1% على الصفقات المكتملة. تمنع العمولات غير المدفوعة إنشاء عروض جديدة أو تجديدها." : "Alpha Traders charges a 1% commission on completed trades. Pending commission payments block new listing creation and renewals."}
+                {isAr ? "تتقاضى Alpha Traders عمولة بنسبة 1% على الصفقات المكتملة. تُخفي أي عمولة غير مدفوعة جميع عروضك وتمنع البيع والشراء وطلبات الصفقات الجديدة حتى يتم الدفع." : "Alpha Traders charges a 1% commission on completed trades. Any unpaid commission hides all your listings and blocks selling, buying, and new trade requests until it is paid."}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">

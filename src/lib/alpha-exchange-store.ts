@@ -1106,7 +1106,7 @@ function getSellerListingBlockReason(db: AlphaExchangeDb, sellerId: string) {
   }
   const pendingCommissionCount = getSellerPendingCommissionCount(db, sellerId);
   if (pendingCommissionCount > 0) {
-    return "You have commission payments pending. Clear them before creating or renewing listings.";
+    return "Your listings are hidden and all new marketplace trading is locked until every pending commission is paid.";
   }
   const openListingCount = getSellerOpenListingCount(db, sellerId);
   if (openListingCount >= MAX_ACTIVE_LISTINGS_PER_SELLER) {
@@ -6548,17 +6548,24 @@ export async function getMarketplaceListings(status?: string, dbInput?: AlphaExc
       .filter((record) => normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid")
       .map((record) => record.sellerId),
   );
+  const sellersBlockedByEnforcement = new Set(
+    getMarketplaceEnforcementRecords(db)
+      .filter((record) => record.status === "active")
+      .map((record) => record.sellerId),
+  );
   const hiddenSellerIds = new Set(
     db.users
       .filter((user) => user.isProfileHidden === true || user.sellerStatus === "suspended")
       .map((user) => user.id),
   );
+  const isPublicFeed = !status || status === "all" || status === "active";
   const rawListings =
-    !status || status === "all"
+    isPublicFeed
       ? db.marketplaceListings.filter((listing) => {
           if (!canListingReceiveRequests(listing)) return false;
           if (hiddenSellerIds.has(listing.sellerId)) return false;
           if (sellersBlockedByCommission.has(listing.sellerId)) return false;
+          if (sellersBlockedByEnforcement.has(listing.sellerId)) return false;
           const seller = sellerById.get(listing.sellerId);
           if (!seller || seller.sellerStatus !== "approved_seller") return false;
           if (isSellerUnavailableForNewBuyers(seller.availabilityStatus)) return false;
@@ -6699,10 +6706,16 @@ export async function getMarketplacePulse(dbInput?: AlphaExchangeDb): Promise<Ma
       .filter((record) => normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid")
       .map((record) => record.sellerId),
   );
+  const blockedByEnforcement = new Set(
+    getMarketplaceEnforcementRecords(db)
+      .filter((record) => record.status === "active")
+      .map((record) => record.sellerId),
+  );
   const activeListings: MarketplaceListing[] = db.marketplaceListings.filter((listing) => {
     if (!canListingReceiveRequests(listing)) return false;
     if (hiddenOrSuspended.has(listing.sellerId)) return false;
     if (blockedByCommission.has(listing.sellerId)) return false;
+    if (blockedByEnforcement.has(listing.sellerId)) return false;
     const seller = sellerById.get(listing.sellerId);
     if (!seller || seller.sellerStatus !== "approved_seller") return false;
     if (isSellerUnavailableForNewBuyers(seller.availabilityStatus)) return false;
@@ -7206,6 +7219,9 @@ export async function updateMarketplaceListingForSeller(input: {
   if (current.status === "draft" && input.status === "active") {
     throw new Error("Pending approval listings cannot be activated by sellers.");
   }
+  if (input.status === "active" && getSellerPendingCommissionCount(db, input.sellerId) > 0) {
+    throw new Error("Your listings remain hidden until every pending commission is paid.");
+  }
   const shouldResubmitForApproval = current.status === "draft" && (
     current.approvalStatus === "rejected" || current.approvalStatus === "changes_requested"
   );
@@ -7409,7 +7425,7 @@ export async function renewMarketplaceListing(input: {
   if (input.sellerId) {
     const pendingCommissionCount = getSellerPendingCommissionCount(db, input.sellerId);
     if (pendingCommissionCount > 0) {
-      throw new Error("You have commission payments pending. Clear them before renewing this listing.");
+      throw new Error("Your listings remain hidden until every pending commission is paid.");
     }
   }
   if (isListingLocked(listing.status)) throw new Error("This listing is locked by an active trade and cannot be renewed.");
@@ -8076,6 +8092,33 @@ export async function createPurchaseRequest(input: {
     await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
     throw new Error("Seller is currently unavailable for new buyer matches.");
   }
+  const sellerCommissionBlock = getUnpaidSellerCommissionRecords(db, listing.sellerId)[0];
+  if (sellerCommissionBlock) {
+    throw new TradeBlockedError(
+      "LISTING_SELLER_LOCKED",
+      "This listing is temporarily unavailable for new purchases. Choose another seller.",
+      undefined,
+      {
+        guard: "listing-seller-commission-clear",
+        listingId: listing.id,
+      },
+    );
+  }
+  if (
+    seller.sellerStatus !== "approved_seller"
+    || seller.isProfileHidden === true
+    || Boolean(getSellerActiveEnforcementRecord(db, seller.id))
+  ) {
+    throw new TradeBlockedError(
+      "LISTING_SELLER_LOCKED",
+      "This listing is temporarily unavailable for new purchases. Choose another seller.",
+      undefined,
+      {
+        guard: "listing-seller-eligible",
+        listingId: listing.id,
+      },
+    );
+  }
   const requestedUsdtAmount = String(input.usdtAmount ?? "").trim();
   const requestedAmount = toNumber(requestedUsdtAmount);
   const minimumTrade = Math.max(0, toNumber(listing.minimumTrade));
@@ -8277,6 +8320,38 @@ export async function createPurchaseRequest(input: {
             guard: "seller-buyer-commission-clear-at-commit",
             commissionId: concurrentPendingCommission.id,
             actionHref: commissionPaymentDestination(concurrentPendingCommission.id),
+          },
+        );
+      }
+
+      const canonicalSellerCommission = getUnpaidSellerCommissionRecords(snapshot, sellerId)[0];
+      if (canonicalSellerCommission) {
+        throw new TradeBlockedError(
+          "LISTING_SELLER_LOCKED",
+          "This listing is temporarily unavailable for new purchases. Choose another seller.",
+          undefined,
+          {
+            guard: "listing-seller-commission-clear-at-commit",
+            listingId: input.listingId,
+          },
+        );
+      }
+
+      const canonicalSeller = snapshot.users.find((candidate) => candidate.id === sellerId);
+      if (
+        !canonicalSeller
+        || canonicalSeller.sellerStatus !== "approved_seller"
+        || canonicalSeller.isProfileHidden === true
+        || isSellerUnavailableForNewBuyers(canonicalSeller.availabilityStatus)
+        || Boolean(getSellerActiveEnforcementRecord(snapshot, sellerId))
+      ) {
+        throw new TradeBlockedError(
+          "LISTING_SELLER_LOCKED",
+          "This listing is temporarily unavailable for new purchases. Choose another seller.",
+          undefined,
+          {
+            guard: "listing-seller-eligible-at-commit",
+            listingId: input.listingId,
           },
         );
       }
@@ -11044,6 +11119,32 @@ async function updatePurchaseRequestStatusAttempt(
         actionLabel: "Pay Commission",
         reason: COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
       });
+      const completedTradeSeller = db.users.find((user) => user.id === request.sellerId);
+      for (const adminUser of getAdminNotificationRecipients(db)) {
+        pushNotification(db, {
+          userId: adminUser.id,
+          category: "trade",
+          title: "Seller commission created",
+          message: `${completedTradeSeller?.fullName?.trim() || "A seller"} owes ${commission.commissionAmount.toFixed(2)} USDT commission for the completed trade.`,
+          relatedTradeId: next.tradeId,
+          relatedRequestId: request.id,
+          relatedListingId: request.listingId,
+          relatedSellerName: completedTradeSeller?.fullName,
+          relatedSellerUsername: completedTradeSeller
+            ? derivePublicProfileUsername({
+                id: completedTradeSeller.id,
+                fullName: completedTradeSeller.fullName,
+                email: completedTradeSeller.email,
+                publicTradingName: completedTradeSeller.buyerDisplayName,
+              })
+            : undefined,
+          relatedHref: adminCommissionDestination(commission.id),
+          actionHref: adminCommissionDestination(commission.id),
+          actionLabel: "Review Commission",
+          priority: "high",
+          forceInApp: true,
+        });
+      }
     }
     queueSmsDelivery(db, { eventType: "trade_completed", eventKey: `trade:${request.id}:completed:seller:${request.sellerId}`, recipientUserId: request.sellerId, destinationPath: requestDetailsHref(request.id) });
     const owner = getOwnerUser(db);
