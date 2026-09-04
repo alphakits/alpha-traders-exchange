@@ -660,6 +660,7 @@ function purchaseRequestErrorMessage(code: string, isAr: boolean, englishMessage
   if (code === "PRICE_OFFER_INVALID_FORMAT") return "أدخل سعرًا صالحًا بالشيكل، بحد أقصى منزلتين عشريتين.";
   if (code === "PRICE_OFFER_NOT_LOWER") return "يجب أن يكون عرض السعر أقل من سعر البائع الحالي.";
   if (code === "PRICE_OFFER_BELOW_MINIMUM") return "لا يمكن أن يقل عرضك بأكثر من ₪0.35 عن سعر البائع.";
+  if (code === "SELLER_COMMISSION_DUE") return "يجب دفع عمولة البائع المستحقة قبل بدء عملية شراء جديدة.";
   return safeErrorMessage("purchase", true);
 }
 
@@ -1679,6 +1680,7 @@ export function UsdtExchangePage({
           activeTrades?: number;
           completedTrades?: number;
           reviewsGiven?: number;
+          lifetimeCompletedVolumeUsdt?: number;
         };
       };
       if (payload.stats?.kind !== "buyer") return;
@@ -1686,6 +1688,7 @@ export function UsdtExchangePage({
         activeTrades: Number(payload.stats.activeTrades ?? 0),
         completedTrades: Number(payload.stats.completedTrades ?? 0),
         reviewsGiven: Number(payload.stats.reviewsGiven ?? 0),
+        lifetimeCompletedVolumeUsdt: Number(payload.stats.lifetimeCompletedVolumeUsdt ?? 0),
       }));
     } catch {
       // Preserve current state if the profile payload is temporarily unavailable.
@@ -2826,6 +2829,14 @@ export function UsdtExchangePage({
           router.push(`/trade-room/${blockingId}`);
           return;
         }
+        const commissionActionHref = typeof errorDetails.actionHref === "string" && errorDetails.actionHref.startsWith("/")
+          ? errorDetails.actionHref
+          : null;
+        if (errorCode === "SELLER_COMMISSION_DUE" && commissionActionHref) {
+          closeListingModal();
+          router.push(commissionActionHref);
+          return;
+        }
         setStatusMessage(purchaseRequestErrorMessage(errorCode, isAr, errorMessage));
         return;
       }
@@ -2874,12 +2885,9 @@ export function UsdtExchangePage({
   const sellerApplicationEligibility = getSellerApplicationEligibility({ isCanonicalUserLoading: isSessionResolving, canonicalUserError: sessionResolutionError, canonicalUser: sessionUser, application: sellerApplication, applicationSubmitted });
   const canAccessListingCreation = isApprovedSeller || isAdminSession;
   const isOwnerViewer = sessionUser?.role === "admin" && isAlphaExchangeOwnerEmail(sessionUser.email);
-  const archivedConfirmationTrade = !isApprovedSeller
-    ? myRequests.find((r) => r.status === "usdt_sent" && r.buyerConfirmationArchivedAt)
-    : undefined;
-  const pendingBuyerReviewTrade = !isApprovedSeller
-    ? myRequests.find((r) => r.status === "review_open" && !r.buyerReview)
-    : undefined;
+  const buyerRequests = useMemo(() => myRequests.filter((request) => request.buyerId === sessionUser?.id), [myRequests, sessionUser?.id]);
+  const archivedConfirmationTrade = buyerRequests.find((request) => request.status === "usdt_sent" && request.buyerConfirmationArchivedAt);
+  const pendingBuyerReviewTrade = buyerRequests.find((request) => ["review_open", "locked", "completed"].includes(request.status) && !request.buyerReview);
   useEffect(() => {
     if (!sessionUser) return;
     if (typeof window === "undefined") return;
@@ -2999,7 +3007,6 @@ export function UsdtExchangePage({
   const todayDateKey = useMemo(() => formatIsraelDateKey(new Date()), []);
 
   const sellerRequests = useMemo(() => myRequests.filter((request) => request.sellerId === sessionUser?.id), [myRequests, sessionUser?.id]);
-  const buyerRequests = useMemo(() => myRequests.filter((request) => request.buyerId === sessionUser?.id), [myRequests, sessionUser?.id]);
   const showSellerWorkspace = !isMobileViewport || showDeepDeferredSections;
   const filteredBuyerRequests = useMemo(() => {
     return buyerRequests.filter((request) => {
@@ -3328,6 +3335,14 @@ export function UsdtExchangePage({
     : null;
   const needsAttentionItems: AttentionItem[] = isApprovedSeller
     ? [
+        pendingBuyerReviewTrade
+          ? {
+              title: isAr ? "تقييم الشراء مطلوب" : "Purchase review required",
+              body: isAr ? "قيّم آخر عملية شراء قبل تقديم طلب أو عرض سعر جديد." : "Review your last purchase before submitting another request or price offer.",
+              action: isAr ? "إضافة التقييم" : "Leave review",
+              onClick: () => router.push(`/trade-room/${pendingBuyerReviewTrade.id}`),
+            }
+          : null,
         marketplaceComplianceActive
           ? {
               title: isAr ? "امتثال السوق" : "Marketplace Compliance",
@@ -3526,11 +3541,11 @@ export function UsdtExchangePage({
       },
       {
         key: "public-profile",
-        title: isAr ? "الملف العام" : "Public Profile",
-        subtitle: isAr ? "عرض ملف البائع" : "View seller profile",
+        title: isAr ? "ملفي وإنجازاتي" : "My Profile & Achievements",
+        subtitle: isAr ? "مستوى البائع ورتبة المشتري" : "Seller level and buyer rank",
         stat: isAr ? "عرض الملف" : "View profile",
         onClick: () => router.push("/profile"),
-        icon: Users,
+        icon: Trophy,
         tone: "blue",
       },
       {
@@ -3618,6 +3633,15 @@ export function UsdtExchangePage({
         },
         icon: TrendingUp,
         tone: "amber",
+      },
+      {
+        key: "buyer-profile",
+        title: isAr ? "ملفي وإنجازاتي" : "My Profile & Achievements",
+        subtitle: isAr ? "عرض رتبتك وسجل تقدمك" : "View your rank and progress history",
+        stat: isAr ? "فتح الملف" : "Open profile",
+        onClick: () => router.push("/profile"),
+        icon: Trophy,
+        tone: "blue",
       },
     ];
   if (standardCommissionDueActive) {
@@ -4671,6 +4695,34 @@ export function UsdtExchangePage({
       </CardContent>
     </Card>
   ) : null;
+  const sellerApplicationPanel = showDeferredSections && !isApprovedSeller ? (
+    <SellerApplicationSection
+      isAr={isAr}
+      prominent={isDashboardWorkspace && workspaceMode === "buyer"}
+      isLoading={isSellerApplicationLoading}
+      isApprovedSellerSession={isApprovedSellerSession}
+      shouldCondense={shouldCondenseSellerApplication}
+      isExpanded={isSellerApplicationExpanded}
+      eligibility={sellerApplicationEligibility}
+      application={sellerApplication}
+      statusMessage={statusMessage}
+      form={sellerForm}
+      sessionEmail={sessionUser?.email ?? ""}
+      methods={sellerApplicationMethods}
+      onExpandedChange={setIsSellerApplicationExpanded}
+      onSetUpBuyer={() => router.push("/onboarding")}
+      onFormChange={(field, value) => {
+        sellerFormTouchedRef.current = true;
+        setSellerForm((prev) => ({ ...prev, [field]: value }));
+      }}
+      onMethodToggle={(method) => {
+        setSellerApplicationMethods((prev) => prev.includes(method)
+          ? prev.filter((item) => item !== method)
+          : [...prev, method]);
+      }}
+      onSubmit={handleSellerApplicationSubmit}
+    />
+  ) : null;
 
   return (
     <section className="section-container page-shell exchange-marketplace-shell overflow-x-clip">
@@ -4704,41 +4756,48 @@ export function UsdtExchangePage({
                       <div>
                         <p className="text-[11px] uppercase tracking-[0.18em] text-[#93C5FD]">{isAr ? "هوية المشتري" : "Buyer identity"}</p>
                         <div className="mt-1 flex flex-wrap items-center gap-2">
-                          <h2 className={cn("text-[1.35rem] font-semibold text-white md:text-[1.6rem]", "profile-identity-name--buyer")}>{isAr ? (buyerProfileSummary?.labelAr ?? "مشتري مبتدئ") : (buyerProfileSummary?.label ?? "Rookie Buyer")}</h2>
-                          <span className={cn("buyer-rank-pill", `buyer-rank-pill--${buyerProfileSummary?.key ?? "rookie"}`)}>
-                            {isAr ? "مستوى المشتري" : "Buyer level"}
+                          <h2 className={cn("text-[1.35rem] font-semibold text-white md:text-[1.6rem]", "profile-identity-name--buyer")}>{isAr ? (buyerProfileSummary?.labelAr ?? "مشتري برونزي") : (buyerProfileSummary?.label ?? "Bronze Buyer")}</h2>
+                          <span className={cn("buyer-rank-pill", `buyer-rank-pill--${buyerProfileSummary?.key ?? "bronze"}`)}>
+                            {isAr ? "رتبة المشتري" : "Buyer rank"}
                           </span>
                         </div>
                         <p className="mt-2 max-w-2xl text-sm text-[#D1D5DB]">
-                          {isAr ? (buyerProfileSummary?.descriptionAr ?? "يبدأ التقدم مع كل صفقة ومراجعة جديدة.") : (buyerProfileSummary?.description ?? "Your standing grows with every completed trade and review.")}
+                          {isAr ? (buyerProfileSummary?.descriptionAr ?? "تُحتسب رتبتك من إجمالي مشتريات USDT المكتملة.") : (buyerProfileSummary?.description ?? "Your rank is calculated from your lifetime completed USDT purchases.")}
                         </p>
                       </div>
                     </div>
                     <div className="min-w-[min(18rem,100%)] rounded-2xl border border-white/10 bg-black/35 p-4 backdrop-blur">
                       <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.14em] text-[#94A3B8]">
-                        <span>{isAr ? "التقدم" : "Progress"}</span>
-                        <span>{buyerProfileSummary?.progressPercent ?? 18}%</span>
+                        <span>{isAr ? "التقدم نحو الرتبة التالية" : "Progress to next rank"}</span>
+                        <span>{Math.round(buyerProfileSummary?.progressPercent ?? 0)}%</span>
                       </div>
                       <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-white/10">
                         <div
-                          className={cn("relative h-full rounded-full transition-[width] duration-700 ease-out", `buyer-rank-progress buyer-rank-progress--${buyerProfileSummary?.key ?? "rookie"}`)}
-                          style={{ width: `${buyerProfileSummary?.progressPercent ?? 18}%` }}
+                          className={cn("relative h-full rounded-full transition-[width] duration-700 ease-out", `buyer-rank-progress buyer-rank-progress--${buyerProfileSummary?.key ?? "bronze"}`)}
+                          style={{ width: `${buyerProfileSummary?.progressPercent ?? 0}%` }}
                         />
                       </div>
                       <div className="mt-3 grid gap-2 sm:grid-cols-3">
                         <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-center">
-                          <p className="text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">{isAr ? "المكتملة" : "Completed"}</p>
-                          <p className="mt-1 text-sm font-semibold text-white">{buyerProfileSummary?.completedTrades ?? 0}</p>
+                          <p className="text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">{isAr ? "تم شراؤه" : "Purchased"}</p>
+                          <p className="mt-1 text-sm font-semibold text-white"><bdi dir="ltr">{formatWholeNumber(buyerProfileSummary?.lifetimeCompletedVolumeUsdt ?? 0)} USDT</bdi></p>
                         </div>
                         <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-center">
-                          <p className="text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">{isAr ? "المراجعات" : "Reviews"}</p>
-                          <p className="mt-1 text-sm font-semibold text-white">{buyerProfileSummary?.reviewsGiven ?? 0}</p>
+                          <p className="text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">{isAr ? "الرتبة التالية" : "Next rank"}</p>
+                          <p className="mt-1 text-sm font-semibold text-white">{buyerProfileSummary?.nextRank ? (isAr ? buyerProfileSummary.nextRankLabelAr : buyerProfileSummary.nextRankLabel) : (isAr ? "أعلى رتبة" : "Top tier")}</p>
                         </div>
                         <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-center">
-                          <p className="text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">{isAr ? "النشطة" : "Active"}</p>
-                          <p className="mt-1 text-sm font-semibold text-white">{buyerProfileSummary?.activeTrades ?? 0}</p>
+                          <p className="text-[10px] uppercase tracking-[0.14em] text-[#94A3B8]">{isAr ? "المتبقي" : "Remaining"}</p>
+                          <p className="mt-1 text-sm font-semibold text-white"><bdi dir="ltr">{formatWholeNumber(buyerProfileSummary?.remainingVolumeUsdt ?? 15_000)} USDT</bdi></p>
                         </div>
                       </div>
+                      <p className="mt-3 text-center text-xs font-medium text-[#BFDBFE]">
+                        {buyerProfileSummary?.nextRank
+                          ? (isAr
+                            ? `${formatWholeNumber(buyerProfileSummary.lifetimeCompletedVolumeUsdt)} / ${formatWholeNumber(buyerProfileSummary.requiredVolumeUsdt)} USDT مكتمل`
+                            : `${formatWholeNumber(buyerProfileSummary.lifetimeCompletedVolumeUsdt)} / ${formatWholeNumber(buyerProfileSummary.requiredVolumeUsdt)} USDT completed`)
+                          : (isAr ? "لقد وصلت إلى أعلى رتبة للمشترين." : "You reached the highest buyer rank.")}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -4774,8 +4833,8 @@ export function UsdtExchangePage({
                   <p className="mt-1 text-sm font-semibold text-white">{safeText(sessionUser.fullName, isAr ? "المتداول" : "Trader")}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
-                  <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "مستوى البائع" : "Seller Level"}</p>
-                  <p className="mt-1 text-sm font-semibold text-white">{sellerLevelLabel(sellerOverviewStats.reputation?.level, isAr)}</p>
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isApprovedSeller ? (isAr ? "مستوى البائع" : "Seller Level") : (isAr ? "رتبة المشتري" : "Buyer Rank")}</p>
+                  <p className="mt-1 text-sm font-semibold text-white">{isApprovedSeller ? sellerLevelLabel(sellerOverviewStats.reputation?.level, isAr) : (isAr ? (buyerProfileSummary?.labelAr ?? "مشتري برونزي") : (buyerProfileSummary?.label ?? "Bronze Buyer"))}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "معرّف AT" : "AT ID"}</p>
@@ -4806,13 +4865,15 @@ export function UsdtExchangePage({
             </div>
           </div>
 
+          {isDashboardWorkspace && workspaceMode === "buyer" ? sellerApplicationPanel : null}
+
           <div id="workspace-summary" className="mt-5 scroll-mt-24">
             <h2 className="text-lg font-semibold text-white md:text-xl">{isAr ? "مساحة العمل" : "Your workspace"}</h2>
             <p className="mt-1 text-sm leading-6 text-[#B6BDC8]">{isAr ? "اختر المهمة التي تريد تنفيذها الآن." : "Choose what you want to do next."}</p>
             <div className="mt-3 grid gap-2 min-[360px]:grid-cols-2 xl:grid-cols-4">
               {workspaceCards.map((card) => {
                 const Icon = card.icon;
-                const statIsAction = ["create-listing", "public-profile", "account-settings", "marketplace-compliance"].includes(card.key);
+                const statIsAction = ["create-listing", "public-profile", "buyer-profile", "account-settings", "marketplace-compliance"].includes(card.key);
                 const toneClass = card.tone === "gold"
                   ? "border-[#C9A227]/35 bg-[#C9A227]/10"
                   : card.tone === "blue"
@@ -5321,33 +5382,7 @@ export function UsdtExchangePage({
       </div>
       ) : null}
 
-      {showDeferredSections && !isApprovedSeller && !isDashboardWorkspace ? (
-        <SellerApplicationSection
-          isAr={isAr}
-          isLoading={isSellerApplicationLoading}
-          isApprovedSellerSession={isApprovedSellerSession}
-          shouldCondense={shouldCondenseSellerApplication}
-          isExpanded={isSellerApplicationExpanded}
-          eligibility={sellerApplicationEligibility}
-          application={sellerApplication}
-          statusMessage={statusMessage}
-          form={sellerForm}
-          sessionEmail={sessionUser?.email ?? ""}
-          methods={sellerApplicationMethods}
-          onExpandedChange={setIsSellerApplicationExpanded}
-          onSetUpBuyer={() => router.push("/onboarding")}
-          onFormChange={(field, value) => {
-            sellerFormTouchedRef.current = true;
-            setSellerForm((prev) => ({ ...prev, [field]: value }));
-          }}
-          onMethodToggle={(method) => {
-            setSellerApplicationMethods((prev) => prev.includes(method)
-              ? prev.filter((item) => item !== method)
-              : [...prev, method]);
-          }}
-          onSubmit={handleSellerApplicationSubmit}
-        />
-      ) : null}
+      {!isDashboardWorkspace ? sellerApplicationPanel : null}
       {isApprovedSeller && showSellerWorkspace ? (
 <SellerWorkspaceSection
           {...{

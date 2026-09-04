@@ -35,6 +35,7 @@ export type SellerApplicationForm = {
 
 type SellerApplicationSectionProps = {
   isAr: boolean;
+  prominent?: boolean;
   isLoading: boolean;
   isApprovedSellerSession: boolean;
   shouldCondense: boolean;
@@ -62,6 +63,7 @@ function sellerApplicationMethodLabel(method: SellerApplicationMethod, isAr: boo
 
 export function SellerApplicationSection({
   isAr,
+  prominent = false,
   isLoading,
   isApprovedSellerSession,
   shouldCondense,
@@ -79,8 +81,8 @@ export function SellerApplicationSection({
   onSubmit,
 }: SellerApplicationSectionProps) {
   return (
-    <div className="mt-10 grid gap-6 xl:grid-cols-2">
-      <Card id="seller-application" className="border-white/10 bg-[#0B0B0B]/90">
+    <div className={`${prominent ? "mt-5" : "mt-10"} grid gap-6 xl:grid-cols-2`}>
+      <Card id="seller-application" className={prominent ? "border-[#C9A227]/45 bg-[linear-gradient(145deg,rgba(201,162,39,0.13),rgba(11,11,11,0.96)_48%)] shadow-[0_18px_65px_rgba(201,162,39,0.12)]" : "border-white/10 bg-[#0B0B0B]/90"}>
         <CardHeader className="pb-3">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#C9A227]/35 bg-[#C9A227]/10 text-[#C9A227]">
@@ -89,7 +91,9 @@ export function SellerApplicationSection({
             <div>
               <CardTitle className="text-lg">{isAr ? "انضم كبائع معتمد" : "Become an Approved Seller"}</CardTitle>
               <CardDescription className="mt-0.5 text-xs">
-                {isAr ? "يتم مراجعة الطلبات يدويًا قبل منح صلاحية النشر." : "Applications are reviewed manually before marketplace access is granted."}
+                {prominent
+                  ? (isAr ? "افتح مصدر دخل جديد — قدّم طلبك للوصول إلى أدوات البيع." : "Unlock a new earning path—apply for access to the seller tools.")
+                  : (isAr ? "يتم مراجعة الطلبات يدويًا قبل منح صلاحية النشر." : "Applications are reviewed manually before marketplace access is granted.")}
               </CardDescription>
             </div>
           </div>
@@ -97,9 +101,11 @@ export function SellerApplicationSection({
         <CardContent className="space-y-4">
           {shouldCondense && !isExpanded ? (
             <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
-              <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "خيار إضافي" : "Optional Next Step"}</p>
+              <p className="text-xs uppercase tracking-[0.14em] text-[#D4AF37]">{prominent ? (isAr ? "بع USDT على Alpha Exchange" : "Sell on Alpha Exchange") : (isAr ? "خيار إضافي" : "Optional Next Step")}</p>
               <p className="mt-2 text-base font-semibold text-white">{isAr ? "هل تريد البيع أيضًا؟" : "Want to sell USDT too?"}</p>
-              <p className="mt-2 text-sm text-[#9CA3AF]">{isAr ? "أبقينا هذه الصفحة مركزة على المشتري. افتح طلب البائع فقط إذا كنت تريد التقديم لبدء البيع أيضًا." : "This page stays focused on the buyer workflow. Open the seller application only if you want to start selling too."}</p>
+              <p className="mt-2 text-sm text-[#9CA3AF]">{prominent
+                ? (isAr ? "قدّم طلب اعتماد البائع ليتمكن حسابك من نشر العروض وبناء مستوى البائع إلى جانب رتبة المشتري." : "Apply for seller approval to publish offers and build your seller level alongside your buyer rank.")
+                : (isAr ? "أبقينا هذه الصفحة مركزة على المشتري. افتح طلب البائع فقط إذا كنت تريد التقديم لبدء البيع أيضًا." : "This page stays focused on the buyer workflow. Open the seller application only if you want to start selling too.")}</p>
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button type="button" onClick={() => onExpandedChange(true)}>{isAr ? "فتح طلب البائع" : "Open Seller Application"}</Button>
                 <Button type="button" variant="secondary" onClick={() => document.getElementById("marketplace")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{isAr ? "العودة إلى السوق" : "Back to Marketplace"}</Button>

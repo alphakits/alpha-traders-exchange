@@ -1649,6 +1649,39 @@ html[lang="ar"] :where(body, body *) {
   box-shadow: 0 0 20px rgba(96, 165, 250, 0.12);
 }
 
+.buyer-rank-pill--bronze {
+  border-color: rgba(201, 122, 69, 0.42);
+  background: linear-gradient(120deg, rgba(91, 48, 28, 0.94), rgba(201, 122, 69, 0.78));
+  color: #ffe4d2;
+}
+
+.buyer-rank-pill--silver {
+  border-color: rgba(203, 213, 225, 0.42);
+  background: linear-gradient(120deg, rgba(51, 65, 85, 0.96), rgba(148, 163, 184, 0.82));
+  color: #f8fafc;
+}
+
+.buyer-rank-pill--gold {
+  border-color: rgba(253, 224, 71, 0.46);
+  background: linear-gradient(120deg, rgba(133, 77, 14, 0.96), rgba(212, 175, 55, 0.84));
+  color: #fff7cc;
+  box-shadow: 0 0 20px rgba(212, 175, 55, 0.12);
+}
+
+.buyer-rank-pill--diamond {
+  border-color: rgba(125, 211, 252, 0.48);
+  background: linear-gradient(120deg, rgba(30, 64, 175, 0.96), rgba(56, 189, 248, 0.78));
+  color: #effaff;
+  box-shadow: 0 0 22px rgba(56, 189, 248, 0.14);
+}
+
+.buyer-rank-pill--elite {
+  border-color: rgba(253, 230, 138, 0.5);
+  background: linear-gradient(120deg, rgba(49, 46, 129, 0.96), rgba(212, 175, 55, 0.82), rgba(30, 64, 175, 0.9));
+  color: #fffbea;
+  box-shadow: 0 0 24px rgba(212, 175, 55, 0.16);
+}
+
 .buyer-rank-progress {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 0 20px rgba(96, 165, 250, 0.16);
 }
@@ -1657,6 +1690,11 @@ html[lang="ar"] :where(body, body *) {
 .buyer-rank-progress--growing { background: linear-gradient(90deg, #2563eb, #60a5fa); }
 .buyer-rank-progress--trusted { background: linear-gradient(90deg, #1d4ed8, #93c5fd); }
 .buyer-rank-progress--premium { background: linear-gradient(90deg, #2563eb, #bfdbfe, #60a5fa); }
+.buyer-rank-progress--bronze { background: linear-gradient(90deg, #9b562f, #d08a52); }
+.buyer-rank-progress--silver { background: linear-gradient(90deg, #64748b, #d7dfec); }
+.buyer-rank-progress--gold { background: linear-gradient(90deg, #b88416, #f4d66d); }
+.buyer-rank-progress--diamond { background: linear-gradient(90deg, #2563eb, #7dd3fc); }
+.buyer-rank-progress--elite { background: linear-gradient(90deg, #312e81, #d4af37, #2563eb); }
 
 @keyframes page-fade-up {
   from {

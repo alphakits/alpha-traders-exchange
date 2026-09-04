@@ -615,6 +615,163 @@ describe("partial listing preservation", () => {
     });
   });
 
+  it("blocks an approved seller acting as buyer from a new purchase or price offer until the last review is submitted", async () => {
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb & { __runtimeVersion: number };
+    snapshot.users.push(createUser(SELLER_TWO_ID, "seller-two@example.com", "approved_seller"));
+    const listing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "1000",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "1000",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+    await approveListing(listing.id);
+
+    const completedRequestId = await completeTrade({
+      listingId: listing.id,
+      buyerId: SELLER_TWO_ID,
+      buyerName: "Seller Two",
+      amount: "150",
+    });
+
+    await expect(createPurchaseRequest({
+      buyerId: SELLER_TWO_ID,
+      listingId: listing.id,
+      usdtAmount: "100",
+      buyerName: "Seller Two",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      paymentMethod: "Bank Transfer",
+      priceMode: "buyer_offer",
+      offeredPrice: "3.18",
+      actorUserId: SELLER_TWO_ID,
+    })).rejects.toMatchObject({
+      name: "TradeBlockedError",
+      code: "PENDING_BUYER_FEEDBACK",
+      purchaseRequestId: completedRequestId,
+    });
+
+    await submitBuyerTradeReview({
+      requestId: completedRequestId,
+      buyerUserId: SELLER_TWO_ID,
+      rating: 5,
+      comment: "Fast and reliable completed trade.",
+    });
+
+    const sellerProfile = await getAccountProfileData(SELLER_TWO_ID);
+    expect(sellerProfile.stats).toMatchObject({
+      kind: "seller",
+      buyerActivity: {
+        buyerLevel: "bronze",
+        lifetimeCompletedVolumeUsdt: 150,
+        completedTrades: 1,
+        reviewsGiven: 1,
+        amountToNextLevelUsdt: 14_850,
+      },
+    });
+
+    const nextPurchase = await createPurchaseRequest({
+      buyerId: SELLER_TWO_ID,
+      listingId: listing.id,
+      usdtAmount: "100",
+      buyerName: "Seller Two",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      paymentMethod: "Bank Transfer",
+      priceMode: "buyer_offer",
+      offeredPrice: "3.18",
+      actorUserId: SELLER_TWO_ID,
+    });
+    expect(nextPurchase.request.priceMode).toBe("buyer_offer");
+  });
+
+  it("notifies a seller about commission and blocks that seller from buying until the commission is paid", async () => {
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb & { __runtimeVersion: number };
+    snapshot.users.push(createUser(SELLER_TWO_ID, "seller-two@example.com", "approved_seller"));
+    const sellerOneListing = await createMarketplaceListing({
+      sellerId: SELLER_ID,
+      sellerDisplayName: "Seller One",
+      availableAmount: "500",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Hapoalim",
+      minimumTrade: "50",
+      maximumTrade: "500",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_ID,
+    });
+    const sellerTwoListing = await createMarketplaceListing({
+      sellerId: SELLER_TWO_ID,
+      sellerDisplayName: "Seller Two",
+      availableAmount: "500",
+      price: "3.21",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      bankName: "Bank Leumi",
+      minimumTrade: "50",
+      maximumTrade: "500",
+      responseTime: "5 min",
+      acceptedCommissionPolicy: true,
+      actorUserId: SELLER_TWO_ID,
+    });
+    await approveListing(sellerOneListing.id);
+    await approveListing(sellerTwoListing.id);
+
+    const completedSaleId = await completeTrade({
+      listingId: sellerOneListing.id,
+      buyerId: BUYER_ONE_ID,
+      buyerName: "Buyer One",
+      amount: "100",
+    });
+    const sellerNotifications = await getNotificationsForUser({ userId: SELLER_ID });
+    expect(sellerNotifications.notifications).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        title: "Commission payment required",
+        relatedRequestId: completedSaleId,
+        actionLabel: "Pay Commission",
+      }),
+    ]));
+
+    await expect(createPurchaseRequest({
+      buyerId: SELLER_ID,
+      listingId: sellerTwoListing.id,
+      usdtAmount: "100",
+      buyerName: "Seller One",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      paymentMethod: "Bank Transfer",
+      actorUserId: SELLER_ID,
+    })).rejects.toMatchObject({
+      name: "TradeBlockedError",
+      code: "SELLER_COMMISSION_DUE",
+      purchaseRequestId: completedSaleId,
+      details: expect.objectContaining({
+        guard: "seller-buyer-commission-clear",
+      }),
+    });
+
+    await markCommissionPaid(completedSaleId);
+    const purchaseAfterPayment = await createPurchaseRequest({
+      buyerId: SELLER_ID,
+      listingId: sellerTwoListing.id,
+      usdtAmount: "100",
+      buyerName: "Seller One",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      paymentMethod: "Bank Transfer",
+      actorUserId: SELLER_ID,
+    });
+    expect(purchaseAfterPayment.request.buyerId).toBe(SELLER_ID);
+  });
+
   it("completes 100 repeated Buyer-Seller trades without stale locks, lost history, or inventory drift", async () => {
     const listing = await createMarketplaceListing({
       sellerId: SELLER_ID,

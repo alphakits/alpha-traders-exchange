@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
+import { deriveBuyerRankSummary } from "@/lib/buyer-rank";
 
 type AccountProfilePayload = {
   profile: {
@@ -55,9 +56,26 @@ type AccountProfilePayload = {
         activeListings: number;
         pendingListings: number;
         averageRating: number;
+        buyerActivity?: {
+          buyerLevel: "bronze" | "silver" | "gold" | "diamond" | "elite";
+          nextLevel?: "bronze" | "silver" | "gold" | "diamond" | "elite";
+          progressToNextLevelPercent: number;
+          amountToNextLevelUsdt: number;
+          requiredVolumeUsdt: number;
+          lifetimeCompletedVolumeUsdt: number;
+          activeTrades: number;
+          completedTrades: number;
+          reviewsGiven: number;
+        };
       }
     | {
         kind: "buyer";
+        buyerLevel: "bronze" | "silver" | "gold" | "diamond" | "elite";
+        nextLevel?: "bronze" | "silver" | "gold" | "diamond" | "elite";
+        progressToNextLevelPercent: number;
+        amountToNextLevelUsdt: number;
+        requiredVolumeUsdt: number;
+        lifetimeCompletedVolumeUsdt: number;
         activeTrades: number;
         completedTrades: number;
         reviewsGiven: number;
@@ -746,6 +764,25 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
   });
   const sellerRankKey = payload.stats.kind === "seller" ? tierVisualKey(payload.stats.sellerLevel) : "bronze";
   const sellerLevelForUi = payload.stats.kind === "seller" ? payload.stats.sellerLevel : "bronze";
+  const buyerActivityStats = payload.stats.kind === "buyer" ? payload.stats : payload.stats.buyerActivity;
+  const buyerRankSummary = buyerActivityStats
+    ? deriveBuyerRankSummary({
+      activeTrades: buyerActivityStats.activeTrades,
+      completedTrades: buyerActivityStats.completedTrades,
+      reviewsGiven: buyerActivityStats.reviewsGiven,
+      lifetimeCompletedVolumeUsdt: buyerActivityStats.lifetimeCompletedVolumeUsdt,
+    })
+    : null;
+  const buyerAchievements = buyerActivityStats
+    ? [
+      buyerActivityStats.completedTrades >= 1 ? (isAr ? "أول عملية شراء ناجحة" : "First successful purchase") : null,
+      buyerActivityStats.completedTrades >= 5 ? (isAr ? "5 عمليات شراء مكتملة" : "5 completed purchases") : null,
+      buyerActivityStats.completedTrades >= 10 ? (isAr ? "10 عمليات شراء مكتملة" : "10 completed purchases") : null,
+      buyerActivityStats.reviewsGiven >= 1 ? (isAr ? "أول تقييم مكتوب" : "First review submitted") : null,
+      buyerActivityStats.reviewsGiven >= 5 ? (isAr ? "5 تقييمات مكتوبة" : "5 reviews submitted") : null,
+      buyerRankSummary && buyerRankSummary.key !== "bronze" ? (isAr ? `تم الوصول إلى رتبة ${buyerRankSummary.labelAr}` : `${buyerRankSummary.label} reached`) : null,
+    ].filter((achievement): achievement is string => Boolean(achievement))
+    : [];
 
   return (
     <section className="section-container page-shell">
@@ -1017,24 +1054,107 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
                         ))}
                       </div>
                     </div>
+
+                    <div className={cn("rounded-2xl border p-4", `buyer-rank-card buyer-rank-card--${buyerRankSummary?.key ?? "bronze"}`)}>
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.14em] text-[#93C5FD]">{isAr ? "نشاطك كمشترٍ" : "Your buyer activity"}</p>
+                          <p className="mt-1 text-lg font-semibold text-white">{buyerRankSummary ? (isAr ? buyerRankSummary.labelAr : buyerRankSummary.label) : (isAr ? "مشتري برونزي" : "Bronze Buyer")}</p>
+                          <p className="mt-1 text-xs text-[#D1D5DB]">{isAr ? "مستوى البائع ورتبة المشتري يُحسبان بشكل مستقل." : "Your seller level and buyer rank are tracked independently."}</p>
+                        </div>
+                        <span className={cn("buyer-rank-pill", `buyer-rank-pill--${buyerRankSummary?.key ?? "bronze"}`)}>
+                          <Trophy className="h-3.5 w-3.5" />
+                          {(buyerRankSummary?.key ?? "bronze").toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
+                        <div className="rounded-xl border border-white/10 bg-black/25 p-3"><p className="text-[#9CA3AF]">{isAr ? "إجمالي المشتريات" : "Purchased"}</p><p className="mt-1 font-semibold text-white">{(buyerRankSummary?.lifetimeCompletedVolumeUsdt ?? 0).toLocaleString("en-IL")} USDT</p></div>
+                        <div className="rounded-xl border border-white/10 bg-black/25 p-3"><p className="text-[#9CA3AF]">{isAr ? "المشتريات المكتملة" : "Completed purchases"}</p><p className="mt-1 font-semibold text-white">{(buyerActivityStats?.completedTrades ?? 0).toLocaleString("en-IL")}</p></div>
+                        <div className="rounded-xl border border-white/10 bg-black/25 p-3"><p className="text-[#9CA3AF]">{isAr ? "التقييمات المكتوبة" : "Reviews written"}</p><p className="mt-1 font-semibold text-white">{(buyerActivityStats?.reviewsGiven ?? 0).toLocaleString("en-IL")}</p></div>
+                      </div>
+                      <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-black/40">
+                        <div className={cn("h-full rounded-full", `buyer-rank-progress buyer-rank-progress--${buyerRankSummary?.key ?? "bronze"}`)} style={{ width: `${Math.max(3, Math.min(100, buyerRankSummary?.progressPercent ?? 0))}%` }} />
+                      </div>
+                      <p className="mt-2 text-xs text-[#D1D5DB]">
+                        {buyerRankSummary?.nextRank
+                          ? (isAr
+                            ? `${buyerRankSummary.remainingVolumeUsdt.toLocaleString("en-IL")} USDT متبقية للوصول إلى ${buyerRankSummary.nextRankLabelAr}`
+                            : `${buyerRankSummary.remainingVolumeUsdt.toLocaleString("en-IL")} USDT remaining to reach ${buyerRankSummary.nextRankLabel}`)
+                          : (isAr ? "وصلت إلى أعلى رتبة للمشترين." : "You reached the highest buyer rank.")}
+                      </p>
+                    </div>
                   </>
                 ) : (
                   <>
-                    <div className="rounded-2xl border border-[#6CAEFF]/25 bg-[#6CAEFF]/10 p-4">
-                      <p className="text-xs uppercase tracking-[0.14em] text-[#93C5FD]">{isAr ? "مسار المشتري" : "Buyer path"}</p>
-                      <p className="mt-2 text-base font-semibold text-white">{isAr ? "نمُ نحو بائع موثوق" : "Grow toward verified seller status"}</p>
-                      <p className="mt-1 text-xs text-[#D1D5DB]">
-                        {isAr
-                          ? "أكمل الصفقات، اكتب تقييمات ذات جودة، وابنِ سجل ثقة قوي للترقية."
-                          : "Complete trades, leave quality reviews, and build trust momentum to unlock seller progression."}
+                    <div className={cn("rounded-2xl border p-4", `buyer-rank-card buyer-rank-card--${buyerRankSummary?.key ?? "bronze"}`)}>
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.14em] text-[#93C5FD]">{isAr ? "رتبة المشتري" : "Buyer rank"}</p>
+                          <p className="mt-2 text-xl font-semibold text-white">
+                            {buyerRankSummary ? (isAr ? buyerRankSummary.labelAr : buyerRankSummary.label) : (isAr ? "مشتري برونزي" : "Bronze Buyer")}
+                          </p>
+                        </div>
+                        <span className={cn("buyer-rank-pill", `buyer-rank-pill--${buyerRankSummary?.key ?? "bronze"}`)}>
+                          <Trophy className="h-3.5 w-3.5" />
+                          {(buyerRankSummary?.key ?? "bronze").toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+                        <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+                          <p className="text-[#9CA3AF]">{isAr ? "إجمالي ما اشتريته" : "Lifetime purchases"}</p>
+                          <p className="mt-1 font-semibold text-white">{(buyerRankSummary?.lifetimeCompletedVolumeUsdt ?? 0).toLocaleString("en-IL")} USDT</p>
+                        </div>
+                        <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+                          <p className="text-[#9CA3AF]">{isAr ? "الرتبة التالية" : "Next rank"}</p>
+                          <p className="mt-1 font-semibold text-white">
+                            {buyerRankSummary?.nextRank
+                              ? (isAr ? buyerRankSummary.nextRankLabelAr : buyerRankSummary.nextRankLabel)
+                              : (isAr ? "أعلى رتبة" : "Top rank")}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-black/40">
+                        <div
+                          className={cn("h-full rounded-full", `buyer-rank-progress buyer-rank-progress--${buyerRankSummary?.key ?? "bronze"}`)}
+                          style={{ width: `${Math.max(3, Math.min(100, buyerRankSummary?.progressPercent ?? 0))}%` }}
+                        />
+                      </div>
+                      <p className="mt-2 text-xs text-[#D1D5DB]">
+                        {buyerRankSummary?.nextRank
+                          ? (isAr
+                            ? `${buyerRankSummary.remainingVolumeUsdt.toLocaleString("en-IL")} USDT متبقية للوصول إلى ${buyerRankSummary.nextRankLabelAr}`
+                            : `${buyerRankSummary.remainingVolumeUsdt.toLocaleString("en-IL")} USDT remaining to reach ${buyerRankSummary.nextRankLabel}`)
+                          : (isAr ? "وصلت إلى أعلى رتبة للمشترين." : "You reached the highest buyer rank.")}
                       </p>
                     </div>
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "صفقات نشطة" : "Active trades"}</p><p className="mt-1 font-semibold text-white">{payload.stats.activeTrades}</p></div>
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "صفقات مكتملة" : "Completed trades"}</p><p className="mt-1 font-semibold text-white">{payload.stats.completedTrades}</p></div>
-                    <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "تقييمات مكتوبة" : "Reviews written"}</p><p className="mt-1 font-semibold text-white">{payload.stats.reviewsGiven}</p></div>
-                    <Link href="/onboarding?mode=manage" className={buttonVariants({ variant: "outline", size: "sm" })}>
-                      {isAr ? "ابدأ مسار البائع" : "Start seller path"}
-                    </Link>
+                    <div className="grid gap-2 text-sm sm:grid-cols-3">
+                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "صفقات نشطة" : "Active trades"}</p><p className="mt-1 font-semibold text-white">{payload.stats.activeTrades.toLocaleString("en-IL")}</p></div>
+                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "صفقات مكتملة" : "Completed trades"}</p><p className="mt-1 font-semibold text-white">{payload.stats.completedTrades.toLocaleString("en-IL")}</p></div>
+                      <div className="rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[#9CA3AF]">{isAr ? "تقييمات مكتوبة" : "Reviews written"}</p><p className="mt-1 font-semibold text-white">{payload.stats.reviewsGiven.toLocaleString("en-IL")}</p></div>
+                    </div>
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                      <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "إنجازات المشتري" : "Buyer achievements"}</p>
+                      {buyerAchievements.length ? (
+                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                          {buyerAchievements.map((achievement) => (
+                            <p key={achievement} className="flex items-center gap-2 rounded-lg border border-[#C9A227]/15 bg-[#C9A227]/5 px-3 py-2 text-xs text-[#E5E7EB]">
+                              <Trophy className="h-3.5 w-3.5 shrink-0 text-[#C9A227]" />
+                              <span>{achievement}</span>
+                            </p>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-xs text-[#9CA3AF]">{isAr ? "أكمل أول عملية شراء لفتح إنجازك الأول." : "Complete your first purchase to unlock your first achievement."}</p>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Link href="/dashboard" className={buttonVariants({ size: "sm" })}>
+                        {isAr ? "فتح لوحة المشتري" : "Open buyer dashboard"}
+                      </Link>
+                      <Link href="/dashboard#seller-application" className={buttonVariants({ variant: "outline", size: "sm" })}>
+                        {isAr ? "التقديم كبائع معتمد" : "Apply as approved seller"}
+                      </Link>
+                    </div>
                   </>
                 )}
               </CardContent>
