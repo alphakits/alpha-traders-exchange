@@ -2885,6 +2885,12 @@ export function UsdtExchangePage({
   const sellerApplicationEligibility = getSellerApplicationEligibility({ isCanonicalUserLoading: isSessionResolving, canonicalUserError: sessionResolutionError, canonicalUser: sessionUser, application: sellerApplication, applicationSubmitted });
   const canAccessListingCreation = isApprovedSeller || isAdminSession;
   const isOwnerViewer = sessionUser?.role === "admin" && isAlphaExchangeOwnerEmail(sessionUser.email);
+  const showBuyerSellerApplicationUpFront = Boolean(
+    sessionUser
+    && hasBuyerRole
+    && !isApprovedSeller
+    && !isAdminSession,
+  );
   const buyerRequests = useMemo(() => myRequests.filter((request) => request.buyerId === sessionUser?.id), [myRequests, sessionUser?.id]);
   const archivedConfirmationTrade = buyerRequests.find((request) => request.status === "usdt_sent" && request.buyerConfirmationArchivedAt);
   const pendingBuyerReviewTrade = buyerRequests.find((request) => ["review_open", "locked", "completed"].includes(request.status) && !request.buyerReview);
@@ -4695,10 +4701,10 @@ export function UsdtExchangePage({
       </CardContent>
     </Card>
   ) : null;
-  const sellerApplicationPanel = showDeferredSections && !isApprovedSeller ? (
+  const sellerApplicationPanel = showDeferredSections && !isApprovedSeller && !isAdminSession ? (
     <SellerApplicationSection
       isAr={isAr}
-      prominent={isDashboardWorkspace && workspaceMode === "buyer"}
+      prominent={showBuyerSellerApplicationUpFront}
       isLoading={isSellerApplicationLoading}
       isApprovedSellerSession={isApprovedSellerSession}
       shouldCondense={shouldCondenseSellerApplication}
@@ -4865,7 +4871,7 @@ export function UsdtExchangePage({
             </div>
           </div>
 
-          {isDashboardWorkspace && workspaceMode === "buyer" ? sellerApplicationPanel : null}
+          {showBuyerSellerApplicationUpFront ? sellerApplicationPanel : null}
 
           <div id="workspace-summary" className="mt-5 scroll-mt-24">
             <h2 className="text-lg font-semibold text-white md:text-xl">{isAr ? "مساحة العمل" : "Your workspace"}</h2>
@@ -5382,7 +5388,7 @@ export function UsdtExchangePage({
       </div>
       ) : null}
 
-      {!isDashboardWorkspace ? sellerApplicationPanel : null}
+      {!isDashboardWorkspace && !showBuyerSellerApplicationUpFront ? sellerApplicationPanel : null}
       {isApprovedSeller && showSellerWorkspace ? (
 <SellerWorkspaceSection
           {...{

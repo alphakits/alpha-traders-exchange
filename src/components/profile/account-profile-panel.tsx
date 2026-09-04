@@ -762,6 +762,20 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
     payload,
     sessionRoles,
   });
+  const establishedAccountRoles = normalizeRoleValues([
+    ...(payload.profile.roles ?? []),
+    payload.profile.role,
+    ...sessionRoles,
+  ]);
+  const showAccountPathManager = ![
+    "buyer",
+    "pending_seller_approval",
+    "approved_seller",
+    "admin",
+    "administrator",
+    "owner",
+  ].some((role) => establishedAccountRoles.includes(role))
+    && !["buyer", "pending_seller", "approved_seller", "administrator", "owner"].includes(payload.roleBadge);
   const sellerRankKey = payload.stats.kind === "seller" ? tierVisualKey(payload.stats.sellerLevel) : "bronze";
   const sellerLevelForUi = payload.stats.kind === "seller" ? payload.stats.sellerLevel : "bronze";
   const buyerActivityStats = payload.stats.kind === "buyer" ? payload.stats : payload.stats.buyerActivity;
@@ -935,22 +949,24 @@ export function AccountProfilePanel({ locale, initialSessionRoles = [] }: { loca
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="mb-4 rounded-2xl border border-[#C9A227]/25 bg-black/30 p-4">
-                <p className="text-sm text-[#D1D5DB]">
-                  {isAr ? "إدارة مسار حسابك:" : "Manage your account path:"}
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Button type="button" variant="secondary" loading={roleActionLoading === "student"} loadingLabel={isAr ? "جاري التفعيل..." : "Activating..."} onClick={() => void activateStudentRole()}>
-                    {isAr ? "تفعيل دور الطالب" : "Join Alpha Academy"}
-                  </Button>
-                  <Link href="/onboarding?mode=manage" className={buttonVariants({ variant: "secondary" })}>
-                    {isAr ? "اختيار دور المشتري" : "Become a Buyer"}
-                  </Link>
-                  <Button type="button" variant="secondary" loading={roleActionLoading === "guest"} loadingLabel={isAr ? "جاري التحديث..." : "Updating..."} onClick={() => void continueAsGuest()}>
-                    {isAr ? "المتابعة كضيف" : "Continue as Guest"}
-                  </Button>
+              {showAccountPathManager ? (
+                <div className="mb-4 rounded-2xl border border-[#C9A227]/25 bg-black/30 p-4">
+                  <p className="text-sm text-[#D1D5DB]">
+                    {isAr ? "إدارة مسار حسابك:" : "Manage your account path:"}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button type="button" variant="secondary" loading={roleActionLoading === "student"} loadingLabel={isAr ? "جاري التفعيل..." : "Activating..."} onClick={() => void activateStudentRole()}>
+                      {isAr ? "تفعيل دور الطالب" : "Join Alpha Academy"}
+                    </Button>
+                    <Link href="/onboarding?mode=manage" className={buttonVariants({ variant: "secondary" })}>
+                      {isAr ? "اختيار دور المشتري" : "Become a Buyer"}
+                    </Link>
+                    <Button type="button" variant="secondary" loading={roleActionLoading === "guest"} loadingLabel={isAr ? "جاري التحديث..." : "Updating..."} onClick={() => void continueAsGuest()}>
+                      {isAr ? "المتابعة كضيف" : "Continue as Guest"}
+                    </Button>
+                  </div>
                 </div>
-              </div>
+              ) : null}
               <form className="grid gap-3 md:grid-cols-2 xl:gap-4" onSubmit={(event) => void handleSave(event)}>
                 <Input value={form.fullName} onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))} aria-label={isAr ? "الاسم الكامل" : "Full name"} placeholder={isAr ? "الاسم الكامل" : "Full name"} />
                 <Input value={form.country} onChange={(event) => setForm((prev) => ({ ...prev, country: event.target.value }))} aria-label={isAr ? "الدولة" : "Country"} placeholder={isAr ? "الدولة" : "Country"} />
