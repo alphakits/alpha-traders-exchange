@@ -1370,6 +1370,49 @@ function mergeMatchingPurchaseRequest(latest: PurchaseRequest, incoming: Purchas
   };
 }
 
+type IdentifiedSnapshotRecord = {
+  id: string;
+  createdAt?: string;
+  updatedAt?: string;
+  uploadedAt?: string;
+};
+
+function snapshotRecordTimestamp(record: IdentifiedSnapshotRecord) {
+  const raw = record.updatedAt ?? record.uploadedAt ?? record.createdAt;
+  const timestamp = raw ? new Date(raw).getTime() : 0;
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+/**
+ * Combines snapshots record-by-record so a stale whole-table writer cannot
+ * roll back a newer mutation to a different entity in that same table.
+ */
+function mergeTimestampedRecords<T extends IdentifiedSnapshotRecord>(latest: T[], incoming: T[]) {
+  const merged = new Map(latest.map((record) => [record.id, record]));
+  for (const record of incoming) {
+    const current = merged.get(record.id);
+    if (!current || snapshotRecordTimestamp(record) > snapshotRecordTimestamp(current)) {
+      merged.set(record.id, record);
+    }
+  }
+
+  const incomingIds = new Set(incoming.map((record) => record.id));
+  const orderedIds = [
+    ...incoming.map((record) => record.id),
+    ...latest.map((record) => record.id).filter((id) => !incomingIds.has(id)),
+  ];
+  return orderedIds.map((id) => merged.get(id)).filter((record): record is T => Boolean(record));
+}
+
+function mergeAppendOnlyRecords<T extends IdentifiedSnapshotRecord>(latest: T[], incoming: T[]) {
+  const merged = new Map(latest.map((record) => [record.id, record]));
+  for (const record of incoming) merged.set(record.id, record);
+  return [...merged.values()].sort((left, right) => {
+    const timestampDifference = snapshotRecordTimestamp(right) - snapshotRecordTimestamp(left);
+    return timestampDifference || right.id.localeCompare(left.id);
+  });
+}
+
 function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchangeDb): AlphaExchangeDb {
   const latestById = new Map<string, unknown>();
   for (const item of latest.purchaseRequests) {
@@ -1418,6 +1461,26 @@ function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchang
     return right.id.localeCompare(left.id);
   });
   const getCollection = <T>(value: T[] | undefined, fallback: T[]) => Array.isArray(value) ? value : fallback;
+  const mergedMarketplaceListings = mergeTimestampedRecords(
+    getCollection(latest.marketplaceListings, []),
+    getCollection(incoming.marketplaceListings, []),
+  );
+  const mergedCommissionRecords = mergeTimestampedRecords(
+    getCollection(latest.commissionRecords, []),
+    getCollection(incoming.commissionRecords, []),
+  );
+  const mergedAuditLogs = mergeAppendOnlyRecords(
+    getCollection(latest.auditLogs, []),
+    getCollection(incoming.auditLogs, []),
+  );
+  const mergedActivityLog = mergeAppendOnlyRecords(
+    getCollection(latest.activityLog, []),
+    getCollection(incoming.activityLog, []),
+  );
+  const mergedTradeEvidenceFiles = mergeTimestampedRecords(
+    getCollection(latest.tradeEvidenceFiles, []),
+    getCollection(incoming.tradeEvidenceFiles, []),
+  );
   const mergedAnnouncementRuns = new Map(
     getCollection(latest.adminAnnouncementRuns, []).map((run) => [run.id, run]),
   );
@@ -1452,19 +1515,19 @@ function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchang
     ...incoming,
     users: getCollection(incoming.users, latest.users),
     sellerApplications: getCollection(incoming.sellerApplications, latest.sellerApplications),
-    marketplaceListings: getCollection(incoming.marketplaceListings, latest.marketplaceListings),
+    marketplaceListings: mergedMarketplaceListings,
     purchaseRequests: mergedPurchaseRequests,
-    commissionRecords: getCollection(incoming.commissionRecords, latest.commissionRecords),
-    auditLogs: getCollection(incoming.auditLogs, latest.auditLogs),
+    commissionRecords: mergedCommissionRecords,
+    auditLogs: mergedAuditLogs,
     authSessions: pruneOrphanAuthSessions(latest).authSessions,
     passwordResetTokens: getCollection(incoming.passwordResetTokens, latest.passwordResetTokens),
     notifications: mergedNotifications,
-    activityLog: getCollection(incoming.activityLog, latest.activityLog),
+    activityLog: mergedActivityLog,
     disputes: getCollection(incoming.disputes, latest.disputes),
     sellerReports: getCollection(incoming.sellerReports, latest.sellerReports),
     trustSnapshots: getCollection(incoming.trustSnapshots, latest.trustSnapshots),
     trustScoreHistory: getCollection(incoming.trustScoreHistory, latest.trustScoreHistory),
-    tradeEvidenceFiles: getCollection(incoming.tradeEvidenceFiles, latest.tradeEvidenceFiles),
+    tradeEvidenceFiles: mergedTradeEvidenceFiles,
     privateBetaInvites: getCollection(incoming.privateBetaInvites, latest.privateBetaInvites),
     privateBetaInviteUses: getCollection(incoming.privateBetaInviteUses, latest.privateBetaInviteUses),
     betaFeedback: getCollection(incoming.betaFeedback, latest.betaFeedback),
@@ -1930,6 +1993,7 @@ export class AlphaExchangeRepository {
           );
         }
         syncMemoryFallbackSnapshot(next, getVersion(next));
+        Object.assign(db, cloneSnapshot(next));
         globalThis.__alphaExchangeMemoryEvidenceContent = nextEvidence;
         logRepoVersionFlow("save:memory:merged", {
           loadedVersion,
@@ -2087,6 +2151,7 @@ export class AlphaExchangeRepository {
               writtenVersion: nextVersion,
               purchaseRequests: persistedSnapshot.purchaseRequests.length,
             });
+            Object.assign(db, cloneSnapshot(persistedSnapshot));
             attachVersion(db, nextVersion);
             syncMemoryFallbackSnapshot(persistedSnapshot, nextVersion);
             await client.query("commit");

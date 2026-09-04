@@ -3,19 +3,29 @@
 import { useEffect, useRef, useState } from "react";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 
-const MAX_RECONNECT_ATTEMPTS = 3;
+const NOTIFICATION_STREAM_RECONNECT_BASE_MS = 1_000;
+const NOTIFICATION_STREAM_RECONNECT_MAX_MS = 30_000;
 
 type Options = {
   enabled?: boolean;
   onNotifications: (event: Event) => void;
 };
 
+export function getNotificationStreamReconnectDelayMs(attempt: number) {
+  const safeAttempt = Math.max(1, Math.floor(attempt));
+  return Math.min(
+    NOTIFICATION_STREAM_RECONNECT_BASE_MS * (2 ** Math.min(safeAttempt - 1, 5)),
+    NOTIFICATION_STREAM_RECONNECT_MAX_MS,
+  );
+}
+
 /**
  * Opens the notification stream only for a canonically authenticated session.
  * An EventSource cannot expose a failed handshake status, so every connection
- * error is reconciled once through `/api/auth/me` before a bounded reconnect.
+ * error is reconciled through `/api/auth/me` before a bounded-backoff reconnect.
  * A confirmed signed-out state therefore closes the stream instead of letting
- * the browser retry an unauthorized request indefinitely.
+ * the browser retry an unauthorized request indefinitely, while temporary
+ * network or server failures can recover without a page reload.
  */
 export function useAuthenticatedNotificationStream({ enabled = true, onNotifications }: Options) {
   const canonicalSession = useOptionalCanonicalSession();
@@ -25,6 +35,7 @@ export function useAuthenticatedNotificationStream({ enabled = true, onNotificat
   const refreshCanonicalSession = canonicalSession?.refresh;
   const onNotificationsRef = useRef(onNotifications);
   const reconnectAttemptsRef = useRef(0);
+  const [streamCycle, setStreamCycle] = useState(0);
   const [documentVisible, setDocumentVisible] = useState(
     () => typeof document === "undefined" || document.visibilityState !== "hidden",
   );
@@ -46,9 +57,10 @@ export function useAuthenticatedNotificationStream({ enabled = true, onNotificat
     // opens one fresh stream through this same canonical-auth gate.
     if (!enabled || !documentVisible || typeof EventSource === "undefined") return;
     if (hasCanonicalSession && (canonicalSessionResolving || !canonicalUserId)) return;
-    if (reconnectAttemptsRef.current > MAX_RECONNECT_ATTEMPTS) return;
 
     let active = true;
+    let disposed = false;
+    let reconnectTimeout: number | null = null;
     const stream = new EventSource("/api/alpha-exchange/notifications/stream");
     const handleNotifications = (event: Event) => onNotificationsRef.current(event);
     const onOpen = () => {
@@ -71,12 +83,28 @@ export function useAuthenticatedNotificationStream({ enabled = true, onNotificat
       active = false;
       stream.close();
 
-      // Components are always rendered under the provider in production. The
-      // defensive fallback merely avoids an uncontrolled native retry when a
-      // component is rendered in isolation.
-      if (!refreshCanonicalSession) return;
       reconnectAttemptsRef.current += 1;
-      void refreshCanonicalSession({ force: true });
+      const delayMs = getNotificationStreamReconnectDelayMs(reconnectAttemptsRef.current);
+      reconnectTimeout = window.setTimeout(() => {
+        reconnectTimeout = null;
+        if (disposed || document.visibilityState === "hidden") return;
+
+        // Components are rendered under the provider in production. The
+        // fallback cycle keeps isolated component tests from relying on the
+        // browser's uncontrolled native EventSource retry behavior.
+        if (!refreshCanonicalSession) {
+          setStreamCycle((value) => value + 1);
+          return;
+        }
+        void refreshCanonicalSession({ force: true }).then((result) => {
+          // Canonical provider state normally restarts this effect. If React
+          // batches a very fast authenticated refresh back to the same visible
+          // state, this explicit cycle still guarantees a fresh stream.
+          if (!disposed && result === "authenticated" && document.visibilityState !== "hidden") {
+            setStreamCycle((value) => value + 1);
+          }
+        });
+      }, delayMs);
     };
     const handlePageExit = () => {
       // EventSource can dispatch its final error after `beforeunload` but
@@ -84,6 +112,8 @@ export function useAuthenticatedNotificationStream({ enabled = true, onNotificat
       // late teardown noise cannot trigger an unnecessary `/api/auth/me`
       // refresh in the outgoing document.
       active = false;
+      disposed = true;
+      if (reconnectTimeout !== null) window.clearTimeout(reconnectTimeout);
       stream.close();
     };
 
@@ -95,6 +125,8 @@ export function useAuthenticatedNotificationStream({ enabled = true, onNotificat
 
     return () => {
       active = false;
+      disposed = true;
+      if (reconnectTimeout !== null) window.clearTimeout(reconnectTimeout);
       window.removeEventListener("pagehide", handlePageExit);
       window.removeEventListener("beforeunload", handlePageExit);
       stream.removeEventListener("notifications", handleNotifications);
@@ -102,5 +134,5 @@ export function useAuthenticatedNotificationStream({ enabled = true, onNotificat
       stream.removeEventListener("error", onError as EventListener);
       stream.close();
     };
-  }, [canonicalSessionResolving, canonicalUserId, documentVisible, enabled, hasCanonicalSession, refreshCanonicalSession]);
+  }, [canonicalSessionResolving, canonicalUserId, documentVisible, enabled, hasCanonicalSession, refreshCanonicalSession, streamCycle]);
 }

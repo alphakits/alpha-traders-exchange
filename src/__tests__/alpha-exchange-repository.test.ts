@@ -424,6 +424,82 @@ describe("AlphaExchangeRepository", () => {
     expect(savedSnapshot.purchaseRequests).toEqual(expect.arrayContaining([expect.objectContaining({ id: "request-1" }), expect.objectContaining({ id: "request-2" })]));
   });
 
+  it("does not let a stale trade write roll back another listing, audit entry, or commission", async () => {
+    const repository = new AlphaExchangeRepository(null);
+    const baseline = await repository.loadSnapshot();
+    const listingBase = {
+      sellerId: "seller-1",
+      sellerDisplayName: "Seller One",
+      photos: [],
+      originalAmount: "500",
+      availableAmount: "500",
+      price: "3.20",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethods: ["Bank Transfer"],
+      paymentMethod: "Bank Transfer",
+      minimumTrade: "50",
+      maximumTrade: "500",
+      responseTime: "5 min",
+      approvalStatus: "approved",
+      createdAt: "2026-09-04T10:00:00.000Z",
+    };
+    const latestSnapshot = {
+      ...baseline,
+      marketplaceListings: [{
+        ...listingBase,
+        id: "listing-1",
+        status: "matched",
+        activeTradeRequestId: "request-1",
+        updatedAt: "2026-09-04T10:02:00.000Z",
+      }, {
+        ...listingBase,
+        id: "listing-2",
+        status: "active",
+        updatedAt: "2026-09-04T10:00:00.000Z",
+      }],
+      auditLogs: [{ id: "audit-1", action: "listing_matched", actorUserId: "seller-1", createdAt: "2026-09-04T10:02:00.000Z" }],
+      commissionRecords: [{ id: "commission-1", purchaseRequestId: "request-1", listingId: "listing-1", sellerId: "seller-1", buyerId: "buyer-1", rate: 0.01, grossAmount: 320, commissionAmount: 1, paymentStatus: "pending", createdAt: "2026-09-04T10:02:00.000Z", updatedAt: "2026-09-04T10:02:00.000Z" }],
+      __runtimeVersion: 2,
+    } as unknown as AlphaExchangeDb & { __runtimeVersion: number };
+    globalThis.__alphaExchangeMemorySnapshot = latestSnapshot as never;
+
+    const staleWriter = {
+      ...baseline,
+      marketplaceListings: [{
+        ...listingBase,
+        id: "listing-1",
+        status: "active",
+        updatedAt: "2026-09-04T10:00:00.000Z",
+      }, {
+        ...listingBase,
+        id: "listing-2",
+        status: "matched",
+        activeTradeRequestId: "request-2",
+        updatedAt: "2026-09-04T10:03:00.000Z",
+      }],
+      auditLogs: [{ id: "audit-2", action: "listing_matched", actorUserId: "seller-1", createdAt: "2026-09-04T10:03:00.000Z" }],
+      commissionRecords: [{ id: "commission-2", purchaseRequestId: "request-2", listingId: "listing-2", sellerId: "seller-1", buyerId: "buyer-2", rate: 0.01, grossAmount: 320, commissionAmount: 1, paymentStatus: "pending", createdAt: "2026-09-04T10:03:00.000Z", updatedAt: "2026-09-04T10:03:00.000Z" }],
+      __runtimeVersion: 1,
+    } as unknown as AlphaExchangeDb & { __runtimeVersion: number };
+
+    await repository.saveSnapshot(staleWriter, {
+      selectedTables: ["listings", "audit_logs", "commissions"],
+    });
+
+    const persisted = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    expect(persisted.marketplaceListings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "listing-1", status: "matched", activeTradeRequestId: "request-1" }),
+      expect.objectContaining({ id: "listing-2", status: "matched", activeTradeRequestId: "request-2" }),
+    ]));
+    expect(persisted.auditLogs.map((entry) => entry.id)).toEqual(expect.arrayContaining(["audit-1", "audit-2"]));
+    expect(persisted.commissionRecords.map((entry) => entry.id)).toEqual(expect.arrayContaining(["commission-1", "commission-2"]));
+    expect(staleWriter.marketplaceListings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "listing-1", status: "matched" }),
+      expect.objectContaining({ id: "listing-2", status: "matched" }),
+    ]));
+  });
+
   it("runs a security validation against the canonical merged snapshot before a stale write can commit", async () => {
     const repository = new AlphaExchangeRepository(null);
     const baseline = await repository.loadSnapshot();

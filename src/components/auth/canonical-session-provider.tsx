@@ -15,6 +15,17 @@ type CanonicalSessionContextValue = {
 
 const CanonicalSessionContext = createContext<CanonicalSessionContextValue | null>(null);
 
+const CANONICAL_SESSION_RECOVERY_BASE_MS = 1_000;
+const CANONICAL_SESSION_RECOVERY_MAX_MS = 30_000;
+
+export function getCanonicalSessionRecoveryDelayMs(attempt: number) {
+  const safeAttempt = Math.max(1, Math.floor(attempt));
+  return Math.min(
+    CANONICAL_SESSION_RECOVERY_BASE_MS * (2 ** Math.min(safeAttempt - 1, 5)),
+    CANONICAL_SESSION_RECOVERY_MAX_MS,
+  );
+}
+
 export function getSessionExpiryLoginDestination(location: Pick<Location, "pathname" | "search" | "hash">) {
   const pathname = location.pathname || "/";
   const locale = pathname.match(/^\/(ar|en)(?:\/|$)/)?.[1] ?? "en";
@@ -40,6 +51,10 @@ export function CanonicalSessionProvider({
   const mountedRef = useRef(true);
   const hadAuthenticatedSessionRef = useRef(Boolean(initialSessionUser));
   const expiryRedirectStartedRef = useRef(false);
+  const recoveryAttemptsRef = useRef(0);
+  const recoveryTimeoutRef = useRef<number | null>(null);
+  const recoveryNeededRef = useRef(false);
+  const scheduleRecoveryRef = useRef<() => void>(() => undefined);
   const localeSyncRef = useRef<string | null>(null);
   const canonicalUserId = user?.id;
   const canonicalPreferredLocale = user?.preferredLocale;
@@ -94,6 +109,43 @@ export function CanonicalSessionProvider({
     }
   }, []);
 
+  const clearSessionRecovery = useCallback(() => {
+    if (recoveryTimeoutRef.current !== null) {
+      window.clearTimeout(recoveryTimeoutRef.current);
+      recoveryTimeoutRef.current = null;
+    }
+    recoveryAttemptsRef.current = 0;
+  }, []);
+
+  const scheduleSessionRecovery = useCallback(() => {
+    if (
+      !mountedRef.current
+      || !recoveryNeededRef.current
+      || !hadAuthenticatedSessionRef.current
+      || expiryRedirectStartedRef.current
+      || recoveryTimeoutRef.current !== null
+      || document.visibilityState === "hidden"
+      || navigator.onLine === false
+    ) return;
+
+    recoveryAttemptsRef.current += 1;
+    recoveryTimeoutRef.current = window.setTimeout(() => {
+      recoveryTimeoutRef.current = null;
+      if (!mountedRef.current || !recoveryNeededRef.current) return;
+      if (document.visibilityState === "hidden" || navigator.onLine === false) return;
+      void refresh({ force: true }).then((result) => {
+        if (!mountedRef.current) return;
+        if (result === "unavailable") {
+          scheduleRecoveryRef.current();
+        } else {
+          recoveryNeededRef.current = false;
+          clearSessionRecovery();
+        }
+      });
+    }, getCanonicalSessionRecoveryDelayMs(recoveryAttemptsRef.current));
+  }, [clearSessionRecovery, refresh]);
+  scheduleRecoveryRef.current = scheduleSessionRecovery;
+
   useEffect(() => {
     mountedRef.current = true;
     void refresh();
@@ -101,21 +153,30 @@ export function CanonicalSessionProvider({
     const handleSignedOut = () => {
       hadAuthenticatedSessionRef.current = false;
       expiryRedirectStartedRef.current = true;
+      recoveryNeededRef.current = false;
+      clearSessionRecovery();
       requestIdRef.current += 1;
       requestRef.current = null;
       setUser(null);
       setError(false);
       setIsResolving(false);
     };
+    const resumeSessionRecovery = () => scheduleRecoveryRef.current();
     window.addEventListener("alpha-auth-changed", handleAuthChange);
     window.addEventListener("alpha-auth-signed-out", handleSignedOut);
+    window.addEventListener("online", resumeSessionRecovery);
+    document.addEventListener("visibilitychange", resumeSessionRecovery);
     return () => {
       mountedRef.current = false;
+      recoveryNeededRef.current = false;
+      clearSessionRecovery();
       requestIdRef.current += 1;
       window.removeEventListener("alpha-auth-changed", handleAuthChange);
       window.removeEventListener("alpha-auth-signed-out", handleSignedOut);
+      window.removeEventListener("online", resumeSessionRecovery);
+      document.removeEventListener("visibilitychange", resumeSessionRecovery);
     };
-  }, [refresh]);
+  }, [clearSessionRecovery, refresh]);
 
   useEffect(() => {
     if (!locale || !canonicalUserId || canonicalPreferredLocale === locale) return;
@@ -147,6 +208,17 @@ export function CanonicalSessionProvider({
     })();
     return () => controller.abort();
   }, [canonicalPreferredLocale, canonicalUserId, locale]);
+
+  useEffect(() => {
+    if (user || (!error && !isResolving)) {
+      recoveryNeededRef.current = false;
+      clearSessionRecovery();
+      return;
+    }
+    if (!error || isResolving || !hadAuthenticatedSessionRef.current || expiryRedirectStartedRef.current) return;
+    recoveryNeededRef.current = true;
+    scheduleRecoveryRef.current();
+  }, [clearSessionRecovery, error, isResolving, user]);
 
   useEffect(() => {
     if (user) {

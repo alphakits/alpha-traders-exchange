@@ -329,6 +329,14 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function nowIsoAfter(...timestamps: Array<string | undefined>) {
+  const newestPriorTimestamp = timestamps.reduce((latest, value) => {
+    const timestamp = value ? new Date(value).getTime() : 0;
+    return Number.isFinite(timestamp) ? Math.max(latest, timestamp) : latest;
+  }, 0);
+  return new Date(Math.max(Date.now(), newestPriorTimestamp + 1)).toISOString();
+}
+
 function normalizeDigits(value: string | undefined) {
   return String(value ?? "").replace(/\D/g, "");
 }
@@ -10467,7 +10475,7 @@ async function updatePurchaseRequestStatusAttempt(
   }
 
   const actorRole = resolveActorRole(db, input.actorUserId);
-  const now = nowIso();
+  const now = nowIsoAfter(request.updatedAt, listing?.updatedAt);
   const next: PurchaseRequest = {
     ...request,
     timeline: [...(request.timeline ?? [])],

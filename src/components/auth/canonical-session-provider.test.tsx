@@ -1,6 +1,11 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CanonicalSessionProvider, getSessionExpiryLoginDestination, useCanonicalSession } from "@/components/auth/canonical-session-provider";
+import {
+  CanonicalSessionProvider,
+  getCanonicalSessionRecoveryDelayMs,
+  getSessionExpiryLoginDestination,
+  useCanonicalSession,
+} from "@/components/auth/canonical-session-provider";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -20,8 +25,76 @@ function ErrorProbe() {
 
 describe("CanonicalSessionProvider", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("uses capped exponential backoff for transient canonical-session recovery", () => {
+    expect(getCanonicalSessionRecoveryDelayMs(1)).toBe(1_000);
+    expect(getCanonicalSessionRecoveryDelayMs(2)).toBe(2_000);
+    expect(getCanonicalSessionRecoveryDelayMs(3)).toBe(4_000);
+    expect(getCanonicalSessionRecoveryDelayMs(4)).toBe(8_000);
+    expect(getCanonicalSessionRecoveryDelayMs(5)).toBe(16_000);
+    expect(getCanonicalSessionRecoveryDelayMs(6)).toBe(30_000);
+    expect(getCanonicalSessionRecoveryDelayMs(50)).toBe(30_000);
+  });
+
+  it("automatically restores a previously authenticated session after a transient outage", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const recoveredUser = {
+      id: "recovered-seller", fullName: "Recovered Seller", email: "recovered@example.test", role: "approved_seller" as const,
+      roles: ["approved_seller" as const], sellerStatus: "approved_seller" as const, whatsappNumber: "", preferredNetworks: [],
+      profilePhotoUrl: "", languages: [], bio: "", onlineStatus: "offline" as const, createdAt: "2026-01-01",
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({ error: "unavailable" }) })
+      .mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({ error: "still unavailable" }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ user: recoveredUser }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <CanonicalSessionProvider initialSessionUser={recoveredUser}>
+        <ErrorProbe />
+      </CanonicalSessionProvider>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText("anonymous:error")).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("anonymous:error")).toBeTruthy();
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText("recovered-seller:ok")).toBeTruthy();
+  });
+
+  it("does not retry a canonically confirmed anonymous session", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ user: null }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <CanonicalSessionProvider initialSessionUser={null}>
+        <Probe />
+      </CanonicalSessionProvider>,
+    );
+
+    await vi.waitFor(() => expect(screen.getByText("anonymous")).toBeTruthy());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("invalidates an in-flight canonical response after an auth-state change", async () => {
