@@ -1,7 +1,10 @@
 import { act, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CanonicalSessionProvider } from "@/components/auth/canonical-session-provider";
-import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
+import {
+  getNotificationStreamReconnectDelayMs,
+  useAuthenticatedNotificationStream,
+} from "@/components/notifications/use-authenticated-notification-stream";
 import type { ClientSessionUser } from "@/lib/client-session-user";
 
 class MockEventSource {
@@ -53,8 +56,40 @@ function StreamProbe() {
 describe("useAuthenticatedNotificationStream", () => {
   afterEach(() => {
     MockEventSource.instances = [];
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("uses capped exponential backoff for stream recovery", () => {
+    expect(getNotificationStreamReconnectDelayMs(1)).toBe(1_000);
+    expect(getNotificationStreamReconnectDelayMs(2)).toBe(2_000);
+    expect(getNotificationStreamReconnectDelayMs(3)).toBe(4_000);
+    expect(getNotificationStreamReconnectDelayMs(4)).toBe(8_000);
+    expect(getNotificationStreamReconnectDelayMs(5)).toBe(16_000);
+    expect(getNotificationStreamReconnectDelayMs(6)).toBe(30_000);
+    expect(getNotificationStreamReconnectDelayMs(50)).toBe(30_000);
+  });
+
+  it("keeps recovering after more than three consecutive pre-open stream failures", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ user: seller }) });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
+
+    render(<CanonicalSessionProvider initialSessionUser={seller}><StreamProbe /></CanonicalSessionProvider>);
+    await vi.waitFor(() => expect(MockEventSource.instances).toHaveLength(1));
+
+    const delays = [1_000, 2_000, 4_000, 8_000, 16_000];
+    for (const [index, delayMs] of delays.entries()) {
+      await act(async () => {
+        MockEventSource.instances[index]?.emit("error");
+        await vi.advanceTimersByTimeAsync(delayMs);
+      });
+      await vi.waitFor(() => expect(MockEventSource.instances).toHaveLength(index + 2));
+    }
+
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
   it("waits for canonical auth before opening the notification stream", async () => {
@@ -75,6 +110,7 @@ describe("useAuthenticatedNotificationStream", () => {
   });
 
   it("closes an errored stream and stops instead of retrying after canonical auth is lost", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     const replaceSpy = vi.fn();
     const originalLocation = window.location;
     Object.defineProperty(window, "location", {
@@ -93,7 +129,7 @@ describe("useAuthenticatedNotificationStream", () => {
       await act(async () => {
         MockEventSource.instances[0]?.emit("error");
         MockEventSource.instances[0]?.emit("error");
-        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(1_000);
       });
 
       await waitFor(() => expect(MockEventSource.instances[0]?.close).toHaveBeenCalled());
