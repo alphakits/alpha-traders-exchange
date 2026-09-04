@@ -14,6 +14,7 @@ import {
   getCommissionRecordsForAdmin,
   getNotificationsForUser,
   getFirstActiveTradeForUser,
+  getMarketplaceListings,
   getMyMarketplaceListings,
   getMyPurchaseRequests,
   invalidateAlphaExchangeStoreCache,
@@ -584,6 +585,8 @@ describe("partial listing preservation", () => {
       availableAmount: "450",
     });
 
+    await markCommissionPaid(secondRequestId);
+
     await expect(
       createPurchaseRequest({
         buyerId: BUYER_THREE_ID,
@@ -597,8 +600,6 @@ describe("partial listing preservation", () => {
         actorUserId: BUYER_THREE_ID,
       }),
     ).rejects.toThrow("Requested amount exceeds the remaining listing quantity.");
-
-    await markCommissionPaid(secondRequestId);
 
     await completeTrade({
       listingId: listing.id,
@@ -677,6 +678,8 @@ describe("partial listing preservation", () => {
       },
     });
 
+    await markCommissionPaid(completedRequestId);
+
     const nextPurchase = await createPurchaseRequest({
       buyerId: SELLER_TWO_ID,
       listingId: listing.id,
@@ -741,6 +744,36 @@ describe("partial listing preservation", () => {
         actionLabel: "Pay Commission",
       }),
     ]));
+    const commission = (await getCommissionRecordsForAdmin()).find((record) => record.purchaseRequestId === completedSaleId);
+    expect(commission).toBeDefined();
+    const ownerNotifications = await getNotificationsForUser({ userId: OWNER_ID, includeActivity: false });
+    expect(ownerNotifications.notifications).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        title: "Seller commission created",
+        relatedRequestId: completedSaleId,
+        actionHref: `/admin/alpha-exchange?section=commissions&commissionId=${commission!.id}`,
+        actionLabel: "Review Commission",
+      }),
+    ]));
+
+    expect((await getMarketplaceListings()).some((listing) => listing.id === sellerOneListing.id)).toBe(false);
+    expect((await getMarketplaceListings("active")).some((listing) => listing.id === sellerOneListing.id)).toBe(false);
+    await expect(createPurchaseRequest({
+      buyerId: BUYER_TWO_ID,
+      listingId: sellerOneListing.id,
+      usdtAmount: "100",
+      buyerName: "Buyer Two",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      paymentMethod: "Bank Transfer",
+      actorUserId: BUYER_TWO_ID,
+    })).rejects.toMatchObject({
+      name: "TradeBlockedError",
+      code: "LISTING_SELLER_LOCKED",
+      details: expect.objectContaining({
+        guard: "listing-seller-commission-clear",
+        listingId: sellerOneListing.id,
+      }),
+    });
 
     await expect(createPurchaseRequest({
       buyerId: SELLER_ID,
@@ -760,6 +793,7 @@ describe("partial listing preservation", () => {
     });
 
     await markCommissionPaid(completedSaleId);
+    expect((await getMarketplaceListings()).some((listing) => listing.id === sellerOneListing.id)).toBe(true);
     const purchaseAfterPayment = await createPurchaseRequest({
       buyerId: SELLER_ID,
       listingId: sellerTwoListing.id,

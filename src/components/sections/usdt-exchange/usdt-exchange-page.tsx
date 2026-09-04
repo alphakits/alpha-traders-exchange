@@ -661,6 +661,7 @@ function purchaseRequestErrorMessage(code: string, isAr: boolean, englishMessage
   if (code === "PRICE_OFFER_NOT_LOWER") return "يجب أن يكون عرض السعر أقل من سعر البائع الحالي.";
   if (code === "PRICE_OFFER_BELOW_MINIMUM") return "لا يمكن أن يقل عرضك بأكثر من ₪0.35 عن سعر البائع.";
   if (code === "SELLER_COMMISSION_DUE") return "يجب دفع عمولة البائع المستحقة قبل بدء عملية شراء جديدة.";
+  if (code === "LISTING_SELLER_LOCKED") return "هذا العرض غير متاح مؤقتاً لطلبات شراء جديدة. اختر بائعاً آخر.";
   return safeErrorMessage("purchase", true);
 }
 
@@ -3366,7 +3367,7 @@ export function UsdtExchangePage({
                 : (isAr ? "عمولة مستحقة" : "Commission due"),
               body: sellerCommissionStatus?.status === "overdue"
                 ? (isAr ? "أكمل الدفع لاستعادة جميع صلاحيات البائع." : "Complete the payment to restore full seller access.")
-                : (isAr ? "ادفع العمولة الحالية لتبقى إجراءات العروض متاحة." : "Pay the current commission to keep listing actions available."),
+                : (isAr ? "ادفع العمولة الحالية لإظهار عروضك مجدداً وفتح البيع والشراء والصفقات الجديدة." : "Pay the current commission to make your listings visible again and unlock selling, buying, and new trades."),
               action: commissionWorkspaceAction.kind === "pay-one"
                 ? (isAr ? "ادفع الآن" : "Pay now")
                 : (isAr ? "مراجعة غير المدفوع" : "Review unpaid"),
