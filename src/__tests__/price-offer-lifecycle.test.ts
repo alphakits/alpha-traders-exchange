@@ -206,6 +206,32 @@ describe("negotiated marketplace price offers", () => {
     expect(created.request.timeline[0]?.type).toBe("request_submitted");
   });
 
+  it("lets the buyer cancel an accepted trade before payment evidence and safely reopens the listing", async () => {
+    const listing = await createLiveListing();
+    const created = await submitOffer(listing.id, BUYER_ONE_ID, "2.95");
+
+    await updatePurchaseRequestStatus({
+      requestId: created.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "accepted",
+    });
+    const cancelled = await updatePurchaseRequestStatus({
+      requestId: created.request.id,
+      actorUserId: BUYER_ONE_ID,
+      actorRole: "buyer",
+      nextStatus: "cancelled",
+    });
+
+    expect(cancelled.request.status).toBe("cancelled");
+    expect(cancelled.request.timeline.some((event) => event.type === "request_cancelled")).toBe(true);
+    expect((globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb).marketplaceListings.find((item) => item.id === listing.id)).toMatchObject({
+      status: "active",
+      activeTradeRequestId: undefined,
+      lockedAt: undefined,
+    });
+  });
+
   it("keeps the submitted offer snapshot when the seller later edits the public listing price", async () => {
     const listing = await createLiveListing();
     const created = await submitOffer(listing.id, BUYER_ONE_ID, "2.95");

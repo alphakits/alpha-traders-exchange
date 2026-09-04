@@ -6,7 +6,7 @@ export type RealtimeEvent =
   | { type: "listing.quantity_changed"; payload: { listingId: string; availableAmount: string } }
   | { type: "listing.status_changed"; payload: { listingId: string; status: MarketplaceListing["status"] } }
   | { type: "seller.status_changed"; payload: { sellerId: string; onlineStatus: SellerOnlineStatus } }
-  | { type: "trade.status_changed"; payload: { requestId?: string; request?: PurchaseRequest; status?: PurchaseRequest["status"]; timeline?: PurchaseRequest["timeline"]; publishedAtEpochMs?: number } }
+  | { type: "trade.status_changed"; payload: { requestId?: string; request?: PurchaseRequest; status?: PurchaseRequest["status"]; timeline?: PurchaseRequest["timeline"]; publishedAtEpochMs?: number; removed?: boolean } }
   | { type: "trade.request_created"; payload: { request: PurchaseRequest } }
   | { type: "trade.message_created"; payload: { requestId: string; messageId: string } }
   | { type: "notification.created"; payload: { notification: AlphaExchangeNotification } }
@@ -55,6 +55,9 @@ export function applyRealtimeNotificationEvent(items: AlphaExchangeNotification[
 
 export function applyRealtimeTradeEvent(items: PurchaseRequest[], event: RealtimeEvent) {
   if (event.type !== "trade.status_changed") return items;
+  if (event.payload.removed) {
+    return items.filter((request) => request.id !== event.payload.requestId);
+  }
   return items.map((request) => (request.id === event.payload.requestId ? { ...request, status: event.payload.status, timeline: event.payload.timeline ?? request.timeline, updatedAt: new Date().toISOString() } : request));
 }
 

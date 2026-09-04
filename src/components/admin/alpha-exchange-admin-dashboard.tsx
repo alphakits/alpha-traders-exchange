@@ -26,6 +26,7 @@ import type {
   MarketplaceOperationalIncidentKind,
   MarketplaceOperationalSnapshot,
 } from "@/lib/marketplace-operational-health";
+import { isMarketplaceSmokeTestListing } from "@/lib/marketplace-smoke-test";
 
 const RANK_BADGE_COLOR: Record<SellerLevel, string> = {
   bronze: "border-[#CD7F32]/30 bg-[#CD7F32]/10 text-[#E8A96A]",
@@ -2441,6 +2442,26 @@ export function AlphaExchangeAdminDashboard({ locale = "en" }: { locale?: "ar" |
                                           }}
                                         >
                                           {t("Force Close", "إغلاق إجباري")}
+                                        </Button>
+                                      ) : null}
+                                      {isMarketplaceSmokeTestListing(listing) ? (
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="secondary"
+                                          className="border-red-500/50 bg-red-500/15 text-red-200 hover:bg-red-500/25"
+                                          onClick={() => {
+                                            if (!window.confirm(t(
+                                              "Permanently purge this smoke-test listing, its test trade, messages, notifications, audit references, and metric impact? This works only before payment evidence is submitted.",
+                                              "حذف اختبار الفحص نهائيًا مع الصفقة التجريبية والرسائل والإشعارات ومراجع السجل وتأثيره على الإحصاءات؟ يعمل هذا فقط قبل إرسال إثبات الدفع.",
+                                            ))) return;
+                                            void runAction(
+                                              fetch(`/api/alpha-exchange/admin/listings/${listing.id}/purge-smoke-test`, { method: "DELETE" }),
+                                              t("Smoke-test records purged.", "تم حذف سجلات اختبار الفحص بالكامل."),
+                                            );
+                                          }}
+                                        >
+                                          {t("Purge Smoke Test", "حذف اختبار الفحص بالكامل")}
                                         </Button>
                                       ) : null}
                                       <Button type="button" size="sm" variant="secondary" onClick={() => runAction(fetch(`/api/alpha-exchange/admin/listings/${listing.id}`, { method: "DELETE" }), t("Listing deleted.", "تم حذف العرض."))}>

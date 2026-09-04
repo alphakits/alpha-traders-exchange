@@ -10,9 +10,11 @@ const request = {
 } as PurchaseRequest;
 
 describe("Trade Room secondary actions", () => {
-  it("allows the buyer to cancel only before seller acceptance", () => {
+  it("allows the buyer to cancel until payment evidence is submitted", () => {
     expect(canBuyerCancelTrade(request, "buyer-1")).toBe(true);
-    expect(canBuyerCancelTrade({ ...request, status: "accepted" }, "buyer-1")).toBe(false);
+    expect(canBuyerCancelTrade({ ...request, status: "accepted" }, "buyer-1")).toBe(true);
+    expect(canBuyerCancelTrade({ ...request, status: "accepted", paymentSentAt: "2026-09-04T12:00:00.000Z" }, "buyer-1")).toBe(false);
+    expect(canBuyerCancelTrade({ ...request, status: "accepted", buyerEvidence: { id: "evidence-1" } as never }, "buyer-1")).toBe(false);
     expect(canBuyerCancelTrade({ ...request, status: "payment_sent" }, "buyer-1")).toBe(false);
     expect(canBuyerCancelTrade(request, "seller-1")).toBe(false);
   });

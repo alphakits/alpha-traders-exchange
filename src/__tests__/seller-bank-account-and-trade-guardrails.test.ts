@@ -453,9 +453,71 @@ describe("seller bank accounts and trade guardrails", () => {
     }
   });
 
-  it("rejects buyer cancellation through the canonical status endpoint after acceptance", async () => {
+  it("allows cancellation after acceptance but rejects it after the payment stage starts", async () => {
     const now = new Date().toISOString();
-    for (const status of ["accepted", "payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const) {
+    currentSnapshot().purchaseRequests.push({
+      id: "req-cancel-safe-accepted",
+      listingId: "listing-req-cancel-safe-accepted",
+      buyerId: BUYER_ID,
+      buyerName: "Buyer",
+      buyerWhatsapp: "+972500000000",
+      buyerNotes: "",
+      sellerId: SELLER_ID,
+      usdtAmount: "100",
+      fiatAmount: "320",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethod: "Bank Transfer",
+      status: "accepted",
+      timeline: [],
+      createdAt: now,
+      updatedAt: now,
+    } as never);
+    await expect(updatePurchaseRequestStatus({
+      requestId: "req-cancel-safe-accepted",
+      actorUserId: BUYER_ID,
+      actorRole: "buyer",
+      nextStatus: "cancelled",
+    })).resolves.toMatchObject({ request: { status: "cancelled" } });
+
+    currentSnapshot().purchaseRequests.push({
+      id: "req-cancel-evidence-accepted",
+      listingId: "listing-req-cancel-evidence-accepted",
+      buyerId: BUYER_ID,
+      buyerName: "Buyer",
+      buyerWhatsapp: "+972500000000",
+      buyerNotes: "",
+      sellerId: SELLER_ID,
+      usdtAmount: "100",
+      fiatAmount: "320",
+      currency: "ILS",
+      network: "TRC20",
+      paymentMethod: "Bank Transfer",
+      status: "accepted",
+      timeline: [],
+      createdAt: now,
+      updatedAt: now,
+    } as never);
+    currentSnapshot().tradeEvidenceFiles.push({
+      id: "evidence-cancel-guard",
+      purchaseRequestId: "req-cancel-evidence-accepted",
+      side: "buyer",
+      uploadedByUserId: BUYER_ID,
+      uploadedAt: now,
+      fileName: "buyer-payment-evidence.png",
+      mimeType: "image/png",
+      sizeBytes: 68,
+      storagePath: "evidence/cancel-guard.png",
+      status: "uploaded",
+    });
+    await expect(updatePurchaseRequestStatus({
+      requestId: "req-cancel-evidence-accepted",
+      actorUserId: BUYER_ID,
+      actorRole: "buyer",
+      nextStatus: "cancelled",
+    })).rejects.toMatchObject({ code: "payment-evidence-exists" });
+
+    for (const status of ["payment_sent", "funds_received", "usdt_release_pending", "usdt_sent"] as const) {
       const requestId = `req-cancel-locked-${status}`;
       currentSnapshot().purchaseRequests.push({
         id: requestId,

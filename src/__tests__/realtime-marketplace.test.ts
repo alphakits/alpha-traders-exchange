@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { MarketplaceListing } from "@/types/alpha-exchange";
-import { applyRealtimeMarketplaceEvent, publishRealtimeEvent, subscribeRealtimeEvents, type RealtimeEvent } from "@/lib/realtime";
+import type { MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
+import { applyRealtimeMarketplaceEvent, applyRealtimeTradeEvent, publishRealtimeEvent, subscribeRealtimeEvents, type RealtimeEvent } from "@/lib/realtime";
 
 describe("realtime marketplace updates", () => {
   it("adds, updates, and removes listings from the live feed", () => {
@@ -106,5 +106,16 @@ describe("realtime marketplace updates", () => {
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe("listing.created");
     unsubscribe();
+  });
+
+  it("removes a purged smoke-test trade from live client state", () => {
+    const requests = [{ id: "request-smoke" }, { id: "request-real" }] as PurchaseRequest[];
+
+    const remaining = applyRealtimeTradeEvent(requests, {
+      type: "trade.status_changed",
+      payload: { requestId: "request-smoke", status: "cancelled", removed: true },
+    });
+
+    expect(remaining.map((request) => request.id)).toEqual(["request-real"]);
   });
 });

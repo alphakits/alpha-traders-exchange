@@ -36,7 +36,7 @@ describe("USDT exchange localized mobile copy", () => {
     expect(greetingByTime(true, "not-a-date")).toBe("مرحباً");
   });
 
-  it("only enables buyer-history cancellation before seller acceptance", () => {
+  it("enables buyer-history cancellation until payment evidence is submitted", () => {
     const pendingRequest = {
       id: "request-1",
       buyerId: "buyer-1",
@@ -45,7 +45,9 @@ describe("USDT exchange localized mobile copy", () => {
     } as PurchaseRequest;
 
     expect(canCancelBuyerHistoryRequest(pendingRequest, "buyer-1")).toBe(true);
-    expect(canCancelBuyerHistoryRequest({ ...pendingRequest, status: "accepted" }, "buyer-1")).toBe(false);
+    expect(canCancelBuyerHistoryRequest({ ...pendingRequest, status: "accepted" }, "buyer-1")).toBe(true);
+    expect(canCancelBuyerHistoryRequest({ ...pendingRequest, status: "accepted", paymentSentAt: "2026-09-04T12:00:00.000Z" }, "buyer-1")).toBe(false);
+    expect(canCancelBuyerHistoryRequest({ ...pendingRequest, status: "payment_sent" }, "buyer-1")).toBe(false);
     expect(canCancelBuyerHistoryRequest(pendingRequest, "seller-1")).toBe(false);
   });
 
