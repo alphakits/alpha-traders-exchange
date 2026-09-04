@@ -22,7 +22,7 @@ vi.mock("@/i18n/navigation", () => ({
   }),
 }));
 
-type TestRole = "buyer" | "admin" | "owner";
+type TestRole = "guest" | "buyer" | "admin" | "owner";
 const eventSourceInstances: MockEventSource[] = [];
 
 class MockEventSource {
@@ -87,8 +87,8 @@ function makePayload(role: TestRole) {
       completedTrades: 2,
       reviewsGiven: 3,
     },
-    roleBadge: role === "owner" ? "owner" : role === "admin" ? "administrator" : "buyer",
-    roleLabel: role === "owner" ? "Owner" : role === "admin" ? "Administrator" : "Buyer",
+    roleBadge: role === "owner" ? "owner" : role === "admin" ? "administrator" : role,
+    roleLabel: role === "owner" ? "Owner" : role === "admin" ? "Administrator" : role === "guest" ? "Guest" : "Buyer",
     accountStatuses: ["Active"],
   };
 }
@@ -184,6 +184,7 @@ describe("AccountProfilePanel", () => {
     const link = screen.getByRole("link", { name: /owner dashboard/i });
     expect(link).toBeTruthy();
     expect(link.getAttribute("href")).toBe("/admin/alpha-exchange");
+    expect(screen.queryByText("Manage your account path:")).toBeNull();
   });
 
   it("shows the admin dashboard entry for admin accounts only", async () => {
@@ -195,6 +196,20 @@ describe("AccountProfilePanel", () => {
     render(<AccountProfilePanel locale="en" />);
 
     await waitFor(() => expect(screen.getByRole("link", { name: /admin dashboard/i })).toBeTruthy());
+    expect(screen.queryByText("Manage your account path:")).toBeNull();
+  });
+
+  it("keeps onboarding choices available for a guest account", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => makePayload("guest"),
+    }));
+
+    render(<AccountProfilePanel locale="en" />);
+
+    await waitFor(() => expect(screen.getByText("Manage your account path:")).toBeTruthy());
+    expect(screen.getByRole("link", { name: "Become a Buyer" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue as Guest" })).toBeTruthy();
   });
 
   it("hides the administration section from buyers", async () => {
@@ -209,6 +224,23 @@ describe("AccountProfilePanel", () => {
     expect(screen.queryByText("Administration")).toBeNull();
     expect(screen.queryByRole("link", { name: /admin dashboard/i })).toBeNull();
     expect(screen.getByRole("link", { name: /open buyer dashboard/i })).toBeTruthy();
+    expect(screen.queryByText("Manage your account path:")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Become a Buyer" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Continue as Guest" })).toBeNull();
+  });
+
+  it("does not show guest or buyer activation controls to an Arabic buyer", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => makePayload("buyer"),
+    }));
+
+    render(<AccountProfilePanel locale="ar" />);
+
+    await waitFor(() => expect(screen.getByText("هوية التداول العامة")).toBeTruthy());
+    expect(screen.queryByText("إدارة مسار حسابك:")).toBeNull();
+    expect(screen.queryByRole("link", { name: "اختيار دور المشتري" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "المتابعة كضيف" })).toBeNull();
   });
 
   it("shows an error message when profile loading fails", async () => {
@@ -343,6 +375,7 @@ describe("AccountProfilePanel", () => {
 
     await waitFor(() => expect(screen.getByText("Bronze")).toBeTruthy());
     await waitFor(() => expect(eventSourceInstances).toHaveLength(1));
+    expect(screen.queryByText("Manage your account path:")).toBeNull();
 
     eventSourceInstances[0].emit("notifications", JSON.stringify({ notifications: [], unreadCount: 1 }));
 
@@ -504,5 +537,8 @@ describe("AccountProfilePanel", () => {
     await waitFor(() => expect(screen.getAllByText("Gold Buyer").length).toBeGreaterThan(0));
     expect(screen.getAllByText("Buyer rank").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/52,500/).length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.getByText("Become an Approved Seller")).toBeTruthy());
+    expect(screen.getAllByText("Become an Approved Seller")).toHaveLength(1);
+    expect(screen.getByText("Become an Approved Seller").compareDocumentPosition(screen.getByText("Your workspace")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
