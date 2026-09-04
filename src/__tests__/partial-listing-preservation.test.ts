@@ -850,7 +850,7 @@ describe("partial listing preservation", () => {
     });
   });
 
-  it("allows cancellation only before seller acceptance", async () => {
+  it("allows cancellation until payment evidence is submitted", async () => {
     const listing = await createMarketplaceListing({
       sellerId: SELLER_ID,
       sellerDisplayName: "Seller One",
@@ -920,17 +920,19 @@ describe("partial listing preservation", () => {
       actorRole: "approved_seller",
       nextStatus: "accepted",
     });
-    await expect(
-      updatePurchaseRequestStatus({
-        requestId: acceptedTrade.request.id,
-        actorUserId: BUYER_THREE_ID,
-        actorRole: "buyer",
-        nextStatus: "cancelled",
-      }),
-    ).rejects.toMatchObject({ code: "invalid-status-transition" });
+    const acceptedCancellation = await updatePurchaseRequestStatus({
+      requestId: acceptedTrade.request.id,
+      actorUserId: BUYER_THREE_ID,
+      actorRole: "buyer",
+      nextStatus: "cancelled",
+    });
+    expect(acceptedCancellation.request.status).toBe("cancelled");
 
     const listings = await getMyMarketplaceListings(SELLER_ID);
-    expect(listings.find((entry) => entry.id === listing.id)?.status).toBe("matched");
+    expect(listings.find((entry) => entry.id === listing.id)).toMatchObject({
+      status: "active",
+      activeTradeRequestId: undefined,
+    });
   });
 
   it("serializes simultaneous seller acceptance and buyer cancellation to one committed winner", async () => {
@@ -976,14 +978,22 @@ describe("partial listing preservation", () => {
 
     const fulfilled = results.filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof updatePurchaseRequestStatus>>> => result.status === "fulfilled");
     const rejected = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
-    expect(fulfilled).toHaveLength(1);
-    expect(rejected).toHaveLength(1);
-    expect(rejected[0]?.reason).toMatchObject({ code: "invalid-status-transition" });
+    expect(fulfilled.length).toBeGreaterThanOrEqual(1);
+    expect(fulfilled.length).toBeLessThanOrEqual(2);
+    for (const rejection of rejected) {
+      expect(rejection.reason).toMatchObject({ code: "invalid-status-transition" });
+    }
 
     const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     const committed = snapshot.purchaseRequests.find((request) => request.id === created.request.id);
-    expect(committed?.status).toBe(fulfilled[0]?.value.request.status);
+    expect(fulfilled.map((result) => result.value.request.status)).toContain(committed?.status);
     expect(["accepted", "cancelled"]).toContain(committed?.status);
+    const committedListing = snapshot.marketplaceListings.find((item) => item.id === listing.id);
+    if (committed?.status === "accepted") {
+      expect(committedListing).toMatchObject({ status: "matched", activeTradeRequestId: created.request.id });
+    } else {
+      expect(committedListing).toMatchObject({ status: "active", activeTradeRequestId: undefined });
+    }
   });
 
   it("treats simultaneous duplicate acceptance as one transition and one safe replay", async () => {

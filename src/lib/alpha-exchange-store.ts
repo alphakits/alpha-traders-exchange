@@ -147,6 +147,7 @@ import {
 import { COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON, commissionPaymentDestination } from "@/lib/commission-payment-destination";
 import { normalizePreferredLocale } from "@/lib/preferred-locale";
 import { getPriceOfferBounds, validatePriceOffer } from "@/lib/price-offer";
+import { purgeMarketplaceSmokeTestSnapshot } from "@/lib/marketplace-smoke-test";
 
 const SELLER_EVIDENCE_TRACE_PATH = path.join(process.cwd(), "tmp", "seller-evidence-server.log");
 
@@ -2996,6 +2997,24 @@ const BETA_ANNOUNCEMENT_TABLES = ["beta_announcements", "notifications", "audit_
 const BETA_ANNOUNCEMENT_STATE_TABLES = ["beta_announcements", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const ADMIN_ANNOUNCEMENT_TABLES = ["admin_announcement_runs", "audit_logs"] as const satisfies readonly SnapshotTableName[];
 const ADMIN_LISTING_OVERRIDE_TABLES = ["listings", "purchase_requests", "notifications", "audit_logs"] as const satisfies readonly SnapshotTableName[];
+const SMOKE_TEST_PURGE_TABLES = [
+  "listings",
+  "trades",
+  "purchase_requests",
+  "notifications",
+  "commissions",
+  "audit_logs",
+  "evidence",
+  "activity_logs",
+  "disputes",
+  "seller_reports",
+  "trust_score_history",
+  "sms_deliveries",
+] as const satisfies readonly SnapshotTableName[];
+const SMOKE_TEST_TRUST_RECALC_TABLES = [
+  ...USER_PROFILE_TABLES,
+  "trust_snapshots",
+] as const satisfies readonly SnapshotTableName[];
 const ENFORCEMENT_MUTATION_TABLES = [...USER_PROFILE_TABLES, "listings", "notifications", "audit_logs", ...MARKETPLACE_ENFORCEMENT_TABLES] as const satisfies readonly SnapshotTableName[];
 
 async function writeDb(
@@ -4124,7 +4143,7 @@ function getTradeEvidenceFile(db: AlphaExchangeDb, purchaseRequestId: string, si
   return db.tradeEvidenceFiles.find((item) => item.purchaseRequestId === purchaseRequestId && item.side === side);
 }
 
-async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: string; triggeredBy: string }) {
+async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: string; triggeredBy: string; suppressSideEffects?: boolean }) {
   const previous = new Map(db.trustSnapshots.map((entry) => [entry.sellerId, entry.snapshot]));
   const owner = getOwnerUser(db);
   const eligibleSellers = db.users.filter((user) => isTrustEligibleSeller(user));
@@ -4214,7 +4233,7 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
     const trustIncreased = previousSnapshot && newScore - oldScore >= 1;
     const flagged = snapshot.trustScore < 55 || snapshot.marketplaceViolations > 0 || snapshot.disputesLost >= 3 || snapshot.cancellationRate >= 20;
 
-    if (scoreChanged) {
+    if (scoreChanged && !input.suppressSideEffects) {
       publishRealtimeEvent({
         type: "reputation.updated",
         payload: {
@@ -4240,7 +4259,7 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
       });
     }
 
-    if (trustIncreased) {
+    if (trustIncreased && !input.suppressSideEffects) {
       pushNotification(db, {
         userId: snapshot.sellerId,
         category: "trust",
@@ -4255,7 +4274,7 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
       });
     }
 
-    if (levelChanged) {
+    if (levelChanged && !input.suppressSideEffects) {
       pushNotification(db, {
         userId: snapshot.sellerId,
         category: "trust",
@@ -4271,7 +4290,7 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
     }
 
     const promotedAutomatically = !hasOverride && levelRank(snapshot.level) > levelRank(previousRank);
-    if (promotedAutomatically && seller && sellerIndex !== -1) {
+    if (promotedAutomatically && seller && sellerIndex !== -1 && !input.suppressSideEffects) {
       const entry: SellerPromotionHistoryEntry = {
         id: `promotion-${randomUUID()}`,
         rank: snapshot.level,
@@ -4309,7 +4328,7 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
       await sendSellerPrestigePromotionEmail({ seller: db.users[sellerIndex], rank: snapshot.level, promotionId: entry.id });
     }
 
-    if (owner && sharpDrop && sellerNotificationContext) {
+    if (owner && sharpDrop && sellerNotificationContext && !input.suppressSideEffects) {
       pushNotification(db, {
         userId: owner.id,
         category: "trust",
@@ -4325,7 +4344,7 @@ async function recalculateTrustEngine(db: AlphaExchangeDb, input: { reason: stri
       });
     }
 
-    if (owner && flagged && sellerNotificationContext) {
+    if (owner && flagged && sellerNotificationContext && !input.suppressSideEffects) {
       const alreadyNotifiedRecently = db.notifications.some(
         (notification) =>
           notification.userId === owner.id &&
@@ -10444,7 +10463,7 @@ async function updatePurchaseRequestStatusAttempt(
     : [];
   const allowedByStatus: Record<PurchaseRequestStatus, PurchaseRequestStatus[]> = {
     pending: ["accepted", "declined", "cancelled"],
-    accepted: ["payment_sent"],
+    accepted: ["payment_sent", "cancelled"],
     payment_sent: ["funds_received"],
     funds_received: ["usdt_release_pending"],
     usdt_release_pending: ["usdt_sent"],
@@ -10470,6 +10489,18 @@ async function updatePurchaseRequestStatusAttempt(
       currentStatus,
       nextStatus: input.nextStatus,
       allowedNextStatuses: allowedByStatus[currentStatus],
+      actorUserId: input.actorUserId,
+    });
+  }
+  if (
+    input.nextStatus === "cancelled"
+    && currentStatus === "accepted"
+    && (request.paymentSentAt || request.buyerEvidence || getTradeEvidenceFile(db, request.id, "buyer"))
+  ) {
+    throw new TradeBlockedError("payment-evidence-exists", "This trade cannot be cancelled after payment evidence is submitted.", request.id, {
+      guard: "cancel-before-payment-evidence",
+      currentStatus,
+      nextStatus: input.nextStatus,
       actorUserId: input.actorUserId,
     });
   }
@@ -13570,6 +13601,58 @@ export async function forceCompleteTradeByAdmin(input: { requestId: string; reas
     reason: input.reason,
   });
   await writeDb(db, { selectedTables: TRADE_REVIEW_TABLES });
+}
+
+export async function purgeMarketplaceSmokeTestByAdmin(input: { listingId: string; actorUserId: string }) {
+  const initial = await readDb({ bypassCache: true });
+  const initialPurge = purgeMarketplaceSmokeTestSnapshot(initial, input.listingId);
+
+  await writeDb(initialPurge.snapshot, {
+    selectedTables: SMOKE_TEST_PURGE_TABLES,
+    rebaseOnLatest: (latest) => purgeMarketplaceSmokeTestSnapshot(latest, input.listingId).snapshot,
+    validateBeforeCommit: (candidate) => {
+      if (candidate.marketplaceListings.some((listing) => listing.id === input.listingId)) {
+        throw new Error("Smoke-test listing was not removed.");
+      }
+      if (candidate.purchaseRequests.some((request) => request.listingId === input.listingId)) {
+        throw new Error("Smoke-test trade was not removed.");
+      }
+    },
+  });
+
+  invalidateAlphaExchangeStoreCache();
+  const trustSnapshot = await readDb({ bypassCache: true });
+  await recalculateTrustEngine(trustSnapshot, {
+    reason: "Smoke-test records purged",
+    triggeredBy: input.actorUserId,
+    suppressSideEffects: true,
+  });
+  await writeDb(trustSnapshot, {
+    selectedTables: SMOKE_TEST_TRUST_RECALC_TABLES,
+    rebaseOnLatest: async (latest) => {
+      await recalculateTrustEngine(latest, {
+        reason: "Smoke-test records purged",
+        triggeredBy: input.actorUserId,
+        suppressSideEffects: true,
+      });
+      return latest;
+    },
+  });
+  invalidateAlphaExchangeStoreCache();
+
+  publishRealtimeEvent({ type: "listing.removed", payload: { listingId: input.listingId } });
+  for (const requestId of initialPurge.requestIds) {
+    publishRealtimeEvent({
+      type: "trade.status_changed",
+      payload: { requestId, status: "cancelled", removed: true, publishedAtEpochMs: Date.now() },
+    });
+  }
+
+  return {
+    listingId: input.listingId,
+    removedRequestIds: initialPurge.requestIds,
+    removedTradeIds: initialPurge.tradeIds,
+  };
 }
 
 export async function forceCancelTradeByAdmin(input: { requestId: string; reason: string; actorUserId: string }) {
