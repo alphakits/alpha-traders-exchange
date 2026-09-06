@@ -37,6 +37,11 @@ const steps = [
     arguments: ["run", "mobile:typecheck"],
   },
   {
+    label: "Native app configuration and dependency validation",
+    executable: npmExecutable,
+    arguments: ["run", "mobile:doctor"],
+  },
+  {
     label: "Generated build cleanup",
     executable: npmExecutable,
     arguments: ["run", "clean"],

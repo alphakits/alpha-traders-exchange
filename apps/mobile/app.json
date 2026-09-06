@@ -13,7 +13,6 @@
     "orientation": "portrait",
     "scheme": "alphatraders",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.alphakits.alphatraders",
@@ -24,7 +23,6 @@
     "android": {
       "package": "com.alphakits.alphatraders",
       "allowBackup": false,
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": true,
       "adaptiveIcon": {
         "foregroundImage": "../../public/images/brand/alpha-traders-logo-maskable-512.png",
