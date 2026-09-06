@@ -7211,6 +7211,30 @@ export async function updateMarketplaceListingForSeller(input: {
   if (index === -1) throw new Error("Listing not found.");
   const current = db.marketplaceListings[index];
   if (current.sellerId !== input.sellerId) throw new Error("You can edit only your own listings.");
+  const isStatusOnlyRetry = input.status !== undefined && [
+    input.photos,
+    input.availableAmount,
+    input.price,
+    input.currency,
+    input.network,
+    input.paymentMethod,
+    input.paymentMethods,
+    input.bankAccountId,
+    input.bankName,
+    input.minimumTrade,
+    input.maximumTrade,
+    input.expiresAt,
+    input.expirationHours,
+    input.notes,
+    input.sellerDescription,
+    input.responseTime,
+    input.changeReason,
+    input.changeExplanation,
+  ].every((value) => value === undefined);
+  // Mobile networks can deliver a successful status mutation after the client
+  // has already timed out. Repeating the same pause/resume request must not
+  // create another audit event or overwrite a newer listing snapshot.
+  if (isStatusOnlyRetry && current.status === input.status) return current;
   const enforcementRestriction = getSellerEnforcementRestrictionMessage(db, input.sellerId);
   if (enforcementRestriction) {
     throw new Error(enforcementRestriction);

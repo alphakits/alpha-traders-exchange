@@ -27,6 +27,7 @@ export type MobileApiErrorCode =
   | "EMAIL_VERIFICATION_REQUIRED"
   | "ACCOUNT_DISABLED"
   | "BUYER_ROLE_REQUIRED"
+  | "SELLER_ROLE_REQUIRED"
   | "RATE_LIMITED"
   | "UNAUTHORIZED"
   | "SESSION_EXPIRED"
@@ -34,6 +35,7 @@ export type MobileApiErrorCode =
   | "REFRESH_TOKEN_REUSED"
   | "NOT_FOUND"
   | "LISTING_UNAVAILABLE"
+  | "LISTING_ACTION_NOT_ALLOWED"
   | "TRADE_NOT_FOUND"
   | "TRADE_ACTION_NOT_ALLOWED"
   | "TRADE_AMOUNT_INVALID"
@@ -215,6 +217,73 @@ export interface MobileMarketplaceListingsResponse {
   listings: MobileMarketplaceListing[];
   total: number;
   pagination: MobilePagination;
+  requestId: string;
+}
+
+export type MobileSellerAvailabilityStatus = "available" | "away" | "vacation";
+
+export type MobileSellerListingStatus =
+  | "draft"
+  | "active"
+  | "paused"
+  | "matched"
+  | "in_trade"
+  | "expired"
+  | "completed"
+  | "cancelled"
+  | "closed";
+
+export type MobileSellerListingApprovalStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "changes_requested";
+
+/** A seller-owned listing projection that excludes bank and private profile data. */
+export interface MobileSellerListing {
+  id: string;
+  displayNumber?: number;
+  availableAmount: string;
+  price: string;
+  currency: string;
+  network: MobileSupportedNetwork;
+  paymentMethods: string[];
+  minimumTrade: string;
+  maximumTrade: string;
+  status: MobileSellerListingStatus;
+  approvalStatus?: MobileSellerListingApprovalStatus;
+  expiresAt?: string;
+  updatedAt: string;
+  actions: {
+    canPause: boolean;
+    canResume: boolean;
+  };
+}
+
+export interface MobileSellerWorkspaceSummary {
+  activeListingLimit: number;
+  openListingCount: number;
+  openTradeCount: number;
+  pendingCommissionCount: number;
+  canCreateListing: boolean;
+}
+
+export interface MobileSellerListingsResponse {
+  listings: MobileSellerListing[];
+  total: number;
+  pagination: MobilePagination;
+  availabilityStatus: MobileSellerAvailabilityStatus;
+  summary: MobileSellerWorkspaceSummary;
+  requestId: string;
+}
+
+export interface MobileSellerListingResponse {
+  listing: MobileSellerListing;
+  requestId: string;
+}
+
+export interface MobileSellerAvailabilityResponse {
+  availabilityStatus: MobileSellerAvailabilityStatus;
   requestId: string;
 }
 

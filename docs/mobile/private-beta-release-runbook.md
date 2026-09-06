@@ -57,6 +57,7 @@ OS version, build URL, and commit SHA; use fictional test identities and data.
 | Recovery and legal | iOS + Android | iOS + Android | Password recovery, privacy, terms, support, account deletion |
 | Marketplace | iOS + Android | iOS + Android | Refresh, pagination cap, seller profile, listing deep link |
 | Buyer request | iOS + Android | iOS + Android | Buy now, price offer, validation, face-to-face acknowledgement |
+| Seller workspace | iOS + Android | iOS + Android | Role gate, pagination, pause/resume retry, Available/Away/Vacation, trusted full-workspace handoff |
 | Trade Room | iOS + Android | iOS + Android | Both roles, every state transition, chat, bank-detail gate |
 | Evidence | iOS + Android | iOS + Android | Allowed image/PDF, oversize/type rejection, retry |
 | Recovery | iOS + Android | iOS + Android | Offline, timeout, app kill, background/foreground, expired session |
