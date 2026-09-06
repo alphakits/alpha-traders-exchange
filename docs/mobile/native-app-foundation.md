@@ -226,6 +226,9 @@ Completed in source:
 - Bilingual marketplace, seller profiles, buyer request creation, participant-
   only Trade Rooms, chat, bank-detail reveal, evidence upload, buyer disputes,
   verified post-trade reviews, and seller review responses.
+- Buyer requests validate network-specific receiving-wallet formats locally
+  with the same portable TRC20 checksum, EVM, and Solana rules enforced by the
+  canonical server path.
 - Server-side native marketplace facets, filtering, and sorting before
   pagination, with compact screen-reader-labeled controls for small phones.
   Authenticated responses disable actions on the seller's own listing without

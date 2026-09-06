@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { sanitizePurchaseRequestForActor } from "@/lib/alpha-exchange-store";
 import { getWalletAddressValidationError, normalizeWalletAddress } from "@/lib/wallet-address";
+import {
+  getWalletAddressValidationError as getSharedWalletAddressValidationError,
+} from "@alpha-traders/contracts";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
 
 const TRON_ADDRESS = "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE";
@@ -20,6 +23,12 @@ describe("wallet address validation", () => {
     expect(getWalletAddressValidationError("TRC20", `${TRON_ADDRESS.slice(0, -1)}F`)).toMatch(/TRC20/);
     expect(getWalletAddressValidationError("ERC20", TRON_ADDRESS)).toMatch(/ERC20/);
     expect(normalizeWalletAddress(`  ${TRON_ADDRESS}\n`)).toBe(TRON_ADDRESS);
+  });
+
+  it("uses the same portable validator in the native contract package", () => {
+    expect(getSharedWalletAddressValidationError("TRC20", TRON_ADDRESS)).toBeNull();
+    expect(getSharedWalletAddressValidationError("ERC20", TRON_ADDRESS)).toMatch(/ERC20/);
+    expect(getSharedWalletAddressValidationError("SOL", SOLANA_ADDRESS)).toBeNull();
   });
 });
 

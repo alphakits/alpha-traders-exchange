@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { getWalletAddressValidationError } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import {
   createMobileTrade,
@@ -82,11 +83,20 @@ export function TradeFormScreen({
   const isFaceToFace = paymentMethod === "Face-to-Face (Meet in Person)";
   const selectedPrice = mode === "offer" ? numericValue(offeredPrice) : numericValue(listing?.price ?? "0");
   const estimatedTotal = numericValue(amount) * selectedPrice * 1.01;
+  const walletValidationError = listing
+    ? getWalletAddressValidationError(listing.network, walletAddress)
+    : null;
+  const walletIsInvalid = Boolean(walletAddress.trim() && walletValidationError);
+  const walletGuidance = listing?.network === "ERC20" || listing?.network === "BEP20"
+    ? t("evmWalletHint")
+    : listing?.network === "TRC20"
+      ? t("tronWalletHint")
+      : t("solWalletHint");
   const amountRange = listing
     ? `${listing.minimumTrade}–${listing.maximumTrade} USDT`
     : "";
   const formIsValid = useMemo(() => {
-    if (!listing || listing.seller.isCurrentUser || !user || !paymentMethod || !walletAddress.trim()) return false;
+    if (!listing || listing.seller.isCurrentUser || !user || !paymentMethod || walletValidationError) return false;
     const value = numericValue(amount);
     const minimum = numericValue(listing.minimumTrade);
     const available = numericValue(listing.availableAmount);
@@ -100,7 +110,7 @@ export function TradeFormScreen({
       if (listing.currency !== "ILS" || offer <= 0 || offer >= price || offer < price - 0.35) return false;
     }
     return true;
-  }, [amount, isFaceToFace, listing, mode, offeredPrice, paymentMethod, safetyAcknowledged, user, walletAddress]);
+  }, [amount, isFaceToFace, listing, mode, offeredPrice, paymentMethod, safetyAcknowledged, user, walletValidationError]);
 
   async function submit() {
     if (!listing || !formIsValid) {
@@ -236,15 +246,23 @@ export function TradeFormScreen({
             <Text style={[styles.label, isRTL && styles.rtlText]}>{t("receivingWallet")} · {listing.network}</Text>
             <TextInput
               accessibilityLabel={`${t("receivingWallet")} · ${listing.network}`}
+              accessibilityHint={walletGuidance}
+              aria-invalid={walletIsInvalid}
               autoCapitalize="none"
               autoCorrect={false}
               multiline
               onChangeText={setWalletAddress}
               placeholder={t("walletPlaceholder")}
               placeholderTextColor={colors.textMuted}
-              style={[styles.input, styles.walletInput, isRTL && styles.inputRtl]}
+              style={[styles.input, styles.walletInput, walletIsInvalid && styles.inputInvalid, isRTL && styles.inputRtl]}
               value={walletAddress}
             />
+            <Text style={[
+              walletIsInvalid ? styles.fieldError : styles.hint,
+              isRTL && styles.rtlText,
+            ]}>
+              {walletIsInvalid ? t("walletInvalidForNetwork") : walletGuidance}
+            </Text>
           </View>
 
           {isFaceToFace ? (
@@ -298,8 +316,10 @@ const styles = StyleSheet.create({
   label: { color: colors.text, fontSize: typography.small, fontWeight: "800" },
   input: { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, color: colors.text, fontSize: typography.body, minHeight: 52, paddingHorizontal: spacing.lg },
   inputRtl: { textAlign: "right", writingDirection: "rtl" },
+  inputInvalid: { borderColor: colors.danger },
   walletInput: { minHeight: 82, paddingTop: spacing.md, textAlignVertical: "top" },
   hint: { color: colors.textMuted, fontSize: typography.caption, lineHeight: 17 },
+  fieldError: { color: colors.danger, fontSize: typography.small, lineHeight: 20 },
   options: { gap: spacing.sm },
   option: { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, minHeight: 46, justifyContent: "center", paddingHorizontal: spacing.md },
   optionSelected: { backgroundColor: "rgba(216, 180, 74, 0.12)", borderColor: colors.gold },

@@ -21,6 +21,8 @@ remains the only business-logic backend.
   readable minimum text sizes, scalable/wrapping financial layouts, and device
   reduced-motion support for navigation transitions.
 - Buyer purchase requests and ILS price offers.
+- Network-specific receiving-wallet validation for TRC20, ERC20, BEP20, and
+  Solana uses the same portable checksum/format rules as the server.
 - Visible USDT release deadlines with warning/overdue states, backed by the
   canonical server timer rather than a client-authored deadline.
 - Native notification center with unread badges, localized account updates,
