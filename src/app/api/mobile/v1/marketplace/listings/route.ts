@@ -3,6 +3,7 @@ import type { MobileMarketplaceListing } from "@alpha-traders/contracts";
 import { getMarketplaceListings } from "@/lib/alpha-exchange-store";
 import {
   createMobileRequestId,
+  mobileClientVersionError,
   mobileError,
   mobileJson,
   mobilePaginationResult,
@@ -59,6 +60,8 @@ export async function GET(request: NextRequest) {
   const locale = resolveMobileLocale(request);
   const metadata = parseMobileClientMetadata(request);
   if (!metadata) return mobileError("DEVICE_HEADERS_REQUIRED", requestId, locale, 400);
+  const versionError = mobileClientVersionError(metadata, requestId, locale);
+  if (versionError) return versionError;
   const pagination = parseMobilePagination(request, { defaultLimit: 30, maxLimit: 50 });
   if (!pagination) return mobileError("INVALID_REQUEST", requestId, locale, 400);
   const listingId = request.nextUrl.searchParams.get("listingId")?.trim() ?? "";

@@ -4,6 +4,7 @@ import { Platform } from "react-native";
 import type {
   MobileApiErrorCode,
   MobileApiErrorResponse,
+  MobileAppConfigResponse,
   MobileAuthTokens,
   MobileCreateTradeRequest,
   MobileLocale,
@@ -25,6 +26,7 @@ import type {
   MobileTradeResponse,
   MobileTradesResponse,
 } from "@alpha-traders/contracts";
+import { MOBILE_CURRENT_APP_VERSION } from "@alpha-traders/contracts";
 import { getOrCreateDeviceId } from "../auth/session-storage";
 
 const DEFAULT_API_ORIGIN = "https://www.alphatraders.co.il";
@@ -57,7 +59,7 @@ function clientPlatform() {
 }
 
 function appVersion() {
-  return Constants.expoConfig?.version ?? "1.0.0";
+  return Constants.expoConfig?.version ?? MOBILE_CURRENT_APP_VERSION;
 }
 
 type MobileRequestOptions = {
@@ -134,6 +136,14 @@ async function mobileRequest<T>(path: string, options: MobileRequestOptions): Pr
     clearTimeout(timeout);
     options.signal?.removeEventListener("abort", abortFromCaller);
   }
+}
+
+export function getMobileAppConfig(locale: MobileLocale, signal?: AbortSignal) {
+  return mobileRequest<MobileAppConfigResponse>("/api/mobile/v1/app-config", {
+    locale,
+    signal,
+    timeoutMs: 6_000,
+  });
 }
 
 export function loginMobile(email: string, password: string, locale: MobileLocale) {

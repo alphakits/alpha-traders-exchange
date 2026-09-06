@@ -7,6 +7,7 @@ import type {
   MobilePlatform,
 } from "@alpha-traders/contracts";
 import { resolveSupportedRequestLocale } from "@/lib/request-locale";
+import { resolveMobileVersionPolicy } from "@/lib/mobile-version-policy";
 
 export const MOBILE_RESPONSE_HEADERS = {
   "Cache-Control": "no-store, max-age=0",
@@ -32,6 +33,10 @@ const errorMessages: Record<MobileApiErrorCode, Record<MobileLocale, string>> = 
   DEVICE_HEADERS_REQUIRED: {
     ar: "بيانات الجهاز وإصدار التطبيق مطلوبة.",
     en: "Device and app version headers are required.",
+  },
+  APP_UPDATE_REQUIRED: {
+    ar: "يجب تحديث تطبيق ألفا تريدرز للمتابعة بأمان.",
+    en: "Update the Alpha Traders app to continue securely.",
   },
   INVALID_CREDENTIALS: {
     ar: "البريد الإلكتروني أو كلمة المرور غير صحيحة.",
@@ -178,6 +183,17 @@ export function parseMobileClientMetadata(request: NextRequest): MobileClientMet
   };
 }
 
+export function mobileClientVersionError(
+  metadata: MobileClientMetadata,
+  requestId: string,
+  locale: MobileLocale,
+) {
+  const policy = resolveMobileVersionPolicy(metadata.platform, metadata.appVersion);
+  return policy.updateRequired
+    ? mobileError("APP_UPDATE_REQUIRED", requestId, locale, 426)
+    : null;
+}
+
 export function parseMobilePagination(
   request: NextRequest,
   options: { defaultLimit: number; maxLimit: number; maxOffset?: number },
@@ -248,7 +264,7 @@ export function mobileJson<T extends Record<string, unknown>>(
       headers: {
         ...MOBILE_RESPONSE_HEADERS,
         "X-Request-Id": requestId,
-        Vary: "Accept-Language",
+        Vary: "Accept-Language, X-App-Version, X-Platform",
         ...(options.headers ?? {}),
       },
     },
@@ -274,7 +290,7 @@ export function mobileError(
     headers: {
       ...MOBILE_RESPONSE_HEADERS,
       "X-Request-Id": requestId,
-      Vary: "Accept-Language",
+      Vary: "Accept-Language, X-App-Version, X-Platform",
       ...(options.retryAfterSeconds
         ? { "Retry-After": String(options.retryAfterSeconds) }
         : {}),
