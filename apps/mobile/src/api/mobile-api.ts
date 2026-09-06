@@ -10,6 +10,9 @@ import type {
   MobileLoginResponse,
   MobileMarketplaceListingsResponse,
   MobileMeResponse,
+  MobileNotificationResponse,
+  MobileNotificationsResponse,
+  MobileNotificationsUpdateResponse,
   MobileRefreshResponse,
   MobileSellerProfileResponse,
   MobileTradeBankDetailsResponse,
@@ -164,6 +167,47 @@ export function logoutMobile(tokens: MobileAuthTokens, locale: MobileLocale, sco
     locale,
     method: "DELETE",
     accessToken: tokens.accessToken,
+  });
+}
+
+export function getMobileNotifications(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  signal?: AbortSignal,
+) {
+  return mobileRequest<MobileNotificationsResponse>("/api/mobile/v1/notifications", {
+    locale,
+    accessToken: tokens.accessToken,
+    signal,
+  });
+}
+
+export function setMobileNotificationRead(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  notificationId: string,
+  isRead: boolean,
+) {
+  return mobileRequest<MobileNotificationResponse>(
+    `/api/mobile/v1/notifications/${encodeURIComponent(notificationId)}`,
+    {
+      locale,
+      method: "PATCH",
+      accessToken: tokens.accessToken,
+      body: { isRead },
+    },
+  );
+}
+
+export function markAllMobileNotificationsRead(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+) {
+  return mobileRequest<MobileNotificationsUpdateResponse>("/api/mobile/v1/notifications", {
+    locale,
+    method: "PATCH",
+    accessToken: tokens.accessToken,
+    body: { action: "mark_all_read" },
   });
 }
 

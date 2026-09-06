@@ -69,10 +69,11 @@ function TradeCard({ trade, onPress }: { trade: MobileTradeSummary; onPress: () 
 
 export function TradesScreen() {
   const router = useRouter();
-  const { requestWithSession } = useAuth();
+  const { user, requestWithSession } = useAuth();
   const { locale, isRTL, t } = useLocale();
   const query = useQuery({
-    queryKey: ["mobile-trades", locale],
+    enabled: Boolean(user),
+    queryKey: ["mobile-trades", user?.id ?? "anonymous", locale],
     queryFn: ({ signal }) => requestWithSession((tokens, requestLocale) => getMobileTrades(tokens, requestLocale, signal)),
     refetchInterval: 10_000,
     staleTime: 3_000,

@@ -5,10 +5,13 @@ import { useAuth } from "../../src/auth/auth-context";
 import { BootScreen } from "../../src/components/boot-screen";
 import { SessionRecoveryScreen } from "../../src/components/session-recovery-screen";
 import { useLocale } from "../../src/i18n/locale-context";
+import { useMobileNotifications } from "../../src/notifications/use-mobile-notifications";
 
 export default function TabsLayout() {
   const { status } = useAuth();
   const { t } = useLocale();
+  const notifications = useMobileNotifications();
+  const unreadCount = notifications.data?.unreadCount ?? 0;
   if (status === "booting") return <BootScreen />;
   if (status === "unavailable") return <SessionRecoveryScreen />;
   if (status !== "authenticated") return <Redirect href="/(public)/login" />;
@@ -21,6 +24,7 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: styles.tabBar,
         tabBarLabelStyle: styles.tabLabel,
+        tabBarHideOnKeyboard: true,
       }}
     >
       <Tabs.Screen
@@ -35,6 +39,15 @@ export default function TabsLayout() {
         options={{
           title: t("trades"),
           tabBarIcon: ({ color }) => <Text style={[styles.icon, { color }]}>⇄</Text>,
+        }}
+      />
+      <Tabs.Screen
+        name="notifications"
+        options={{
+          title: t("notifications"),
+          tabBarBadge: unreadCount > 0 ? (unreadCount > 99 ? "99+" : unreadCount) : undefined,
+          tabBarBadgeStyle: styles.badge,
+          tabBarIcon: ({ color }) => <Text style={[styles.icon, { color }]}>◆</Text>,
         }}
       />
       <Tabs.Screen
@@ -62,6 +75,12 @@ const styles = StyleSheet.create({
   },
   icon: {
     fontSize: 20,
+    fontWeight: "900",
+  },
+  badge: {
+    backgroundColor: colors.gold,
+    color: colors.background,
+    fontSize: 9,
     fontWeight: "900",
   },
 });
