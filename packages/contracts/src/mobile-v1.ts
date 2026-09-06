@@ -138,6 +138,131 @@ export interface MobilePagination {
   nextOffset: number | null;
 }
 
+export type MobileAcademyLevel =
+  | "beginner"
+  | "intermediate"
+  | "advanced"
+  | "ict"
+  | "psychology"
+  | "risk-management";
+
+export type MobileLessonDifficulty = "easy" | "medium" | "hard" | "expert";
+
+export interface MobileAcademyLessonSummary {
+  id: string;
+  slug: string;
+  title: string;
+  titleAr: string;
+  module: string;
+  moduleAr: string;
+  description: string;
+  descriptionAr: string;
+  durationMinutes: number;
+  order: number;
+  lessonNumber: number;
+  difficulty: MobileLessonDifficulty;
+  hasVideo: boolean;
+  hasWorkbook: boolean;
+  quizQuestionCount: number;
+}
+
+export interface MobileAcademyCourse {
+  id: string;
+  slug: string;
+  title: string;
+  titleAr: string;
+  summary: string;
+  summaryAr: string;
+  level: MobileAcademyLevel;
+  order: number;
+  thumbnailUrl: string;
+  learningPoints: string[];
+  learningPointsAr: string[];
+  whyStart: string;
+  whyStartAr: string;
+  lessons: MobileAcademyLessonSummary[];
+}
+
+export interface MobileAcademyCatalogResponse {
+  courses: MobileAcademyCourse[];
+  contentRevision: string;
+  requestId: string;
+}
+
+export interface MobileAcademyResource {
+  id: string;
+  label: string;
+  labelAr: string;
+  type: "link" | "pdf" | "slide" | "worksheet";
+  url: string;
+}
+
+export interface MobileAcademyVisual {
+  url: string;
+  title: string;
+  titleAr: string;
+}
+
+export interface MobileAcademyQuizQuestion {
+  id: string;
+  type: "multiple-choice" | "true-false";
+  question: string;
+  questionAr: string;
+  options: string[];
+  optionsAr: string[];
+  correctIndex: number;
+  explanation: string;
+  explanationAr: string;
+}
+
+export interface MobileAcademyLesson extends MobileAcademyLessonSummary {
+  courseId: string;
+  summary: string;
+  summaryAr: string;
+  objectives: string[];
+  objectivesAr: string[];
+  takeaways: string[];
+  takeawaysAr: string[];
+  notes: string;
+  notesAr: string;
+  videoUrl: string;
+  workbookUrl: string;
+  presentationUrl: string;
+  videoChapters: Array<{
+    id: string;
+    title: string;
+    titleAr: string;
+    timeSeconds: number;
+  }>;
+  resources: MobileAcademyResource[];
+  quiz: MobileAcademyQuizQuestion[];
+  quizPassingScore: number;
+  narrative: {
+    intro: string;
+    introAr: string;
+    keyConcepts: string[];
+    keyConceptsAr: string[];
+    practicalExamples: string[];
+    practicalExamplesAr: string[];
+    beginnerMistakes: string[];
+    beginnerMistakesAr: string[];
+    workbookIntro: string;
+    workbookIntroAr: string;
+    quizContext: string;
+    quizContextAr: string;
+    visuals: MobileAcademyVisual[];
+  } | null;
+}
+
+export interface MobileAcademyLessonResponse {
+  lesson: MobileAcademyLesson;
+  course: MobileAcademyCourse;
+  previousLesson: MobileAcademyLessonSummary | null;
+  nextLesson: MobileAcademyLessonSummary | null;
+  contentRevision: string;
+  requestId: string;
+}
+
 export type MobileNotificationCategory =
   | "trade"
   | "listing"

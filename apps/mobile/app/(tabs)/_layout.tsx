@@ -8,15 +8,13 @@ import { useLocale } from "../../src/i18n/locale-context";
 import { useMobileNotifications } from "../../src/notifications/use-mobile-notifications";
 
 export default function TabsLayout() {
-  const { status, user } = useAuth();
+  const { status } = useAuth();
   const { t } = useLocale();
   const notifications = useMobileNotifications();
   const unreadCount = notifications.unreadCount;
   if (status === "booting") return <BootScreen />;
   if (status === "unavailable") return <SessionRecoveryScreen />;
   if (status !== "authenticated") return <Redirect href="/(public)/login" />;
-  const canUseSellerWorkspace = user?.sellerStatus === "approved_seller"
-    || user?.roles.includes("approved_seller") === true;
   return (
     <Tabs
       screenOptions={{
@@ -37,20 +35,20 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="academy"
+        options={{
+          title: t("academy"),
+          tabBarIcon: ({ color }) => <Text style={[styles.icon, { color }]}>▤</Text>,
+        }}
+      />
+      <Tabs.Screen
         name="trades"
         options={{
           title: t("trades"),
           tabBarIcon: ({ color }) => <Text style={[styles.icon, { color }]}>⇄</Text>,
         }}
       />
-      <Tabs.Screen
-        name="seller"
-        options={{
-          href: canUseSellerWorkspace ? undefined : null,
-          title: t("sell"),
-          tabBarIcon: ({ color }) => <Text style={[styles.icon, { color }]}>$</Text>,
-        }}
-      />
+      <Tabs.Screen name="seller" options={{ href: null }} />
       <Tabs.Screen
         name="notifications"
         options={{

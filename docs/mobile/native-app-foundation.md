@@ -147,7 +147,9 @@ mocks that later become production dependencies.
 
 ### Phase 3: academy and refinement
 
-- Academy/lesson experience appropriate for native playback.
+- Academy/lesson experience appropriate for native playback. Completed in
+  source with published-only authenticated APIs, five-tab phone navigation,
+  offline content caching, local progress, quizzes, bookmarks, and notes.
 - Biometric re-entry as a local convenience, never as server authorization.
 - Accessibility, degraded-network UX, app update enforcement, and store release
   polish.
@@ -165,9 +167,10 @@ native administration.
 
 (authenticated tabs)
   marketplace
+  academy -> course -> lesson
   trades -> trade room -> evidence/dispute/review
   notifications
-  profile -> settings/security
+  profile -> settings/security/seller workspace
 
 (approved seller)
   seller workspace -> listings/availability
@@ -228,6 +231,12 @@ Completed in source:
 - Platform-specific minimum-version enforcement on every mobile API surface,
   plus a fail-open startup check and bilingual mandatory-update screen. A known
   mandatory update remains enforced during later network loss.
+- Full bilingual native Academy with published-only authenticated catalog and
+  lesson projections, absolute HTTPS media handoffs, account-isolated offline
+  content/progress, course resume state, lesson requirements, quizzes,
+  bookmarks, notes, and previous/next navigation. The tab bar stays at five
+  destinations on small phones; approved sellers enter their native workspace
+  from Profile.
 - Role-gated approved-seller workspace with bounded private listing history,
   retry-safe pause/resume actions, availability controls, and a fixed trusted
   handoff for creation, financial edits, bank management, and commissions.

@@ -11,6 +11,7 @@ import { AuthProvider, useAuth } from "../auth/auth-context";
 import { LocaleProvider } from "../i18n/locale-context";
 import { NetworkProvider } from "../network/network-context";
 import { isPrivateMobileQueryKey } from "../query/private-query-cache";
+import { AcademyProgressProvider } from "../academy/academy-progress-context";
 
 function NativeQueryBoundary({ children }: PropsWithChildren) {
   const queryClient = useQueryClient();
@@ -58,7 +59,9 @@ export function AppProviders({ children }: PropsWithChildren) {
         <NetworkProvider>
           <QueryClientProvider client={queryClient}>
             <AuthProvider>
-              <NativeQueryBoundary>{children}</NativeQueryBoundary>
+              <AcademyProgressProvider>
+                <NativeQueryBoundary>{children}</NativeQueryBoundary>
+              </AcademyProgressProvider>
             </AuthProvider>
           </QueryClientProvider>
         </NetworkProvider>

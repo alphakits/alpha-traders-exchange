@@ -6,6 +6,9 @@ remains the only business-logic backend.
 ## Private-beta capabilities
 
 - Arabic/English onboarding, marketplace, seller profiles, and account access.
+- Full native Academy navigation with published-only tracks and lessons,
+  bilingual/RTL course content, quizzes, bookmarks, account-scoped progress,
+  personal on-device notes, and offline access to previously loaded material.
 - Trusted website handoffs for private-beta access, password recovery, account
   management/deletion, privacy, terms, and support.
 - Device-bound opaque access/refresh sessions stored with SecureStore.
@@ -50,6 +53,10 @@ HTTP origins.
 - Refresh calls are serialized and rotate both tokens.
 - Authenticated query caches are isolated by account and purged whenever the
   signed-in identity changes on a shared device.
+- Academy response caches and learning progress use account-scoped device keys;
+  authorization or version failures never fall back to locally cached content.
+- Academy media handoffs accept absolute HTTPS URLs only. Draft content and
+  storage-provider identifiers are not exposed by the catalog API.
 - Foreground recovery immediately revalidates live queries after the app
   returns from the background.
 - Mutations may only retry when they are idempotent.

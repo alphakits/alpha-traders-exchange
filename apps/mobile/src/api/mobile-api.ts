@@ -5,6 +5,8 @@ import type {
   MobileApiErrorCode,
   MobileApiErrorResponse,
   MobileAppConfigResponse,
+  MobileAcademyCatalogResponse,
+  MobileAcademyLessonResponse,
   MobileAuthTokens,
   MobileCreateTradeRequest,
   MobileLocale,
@@ -175,6 +177,34 @@ export function getMobileMe(tokens: MobileAuthTokens, locale: MobileLocale) {
     locale,
     accessToken: tokens.accessToken,
   });
+}
+
+export function getMobileAcademy(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  signal?: AbortSignal,
+) {
+  return mobileRequest<MobileAcademyCatalogResponse>("/api/mobile/v1/academy", {
+    locale,
+    accessToken: tokens.accessToken,
+    signal,
+  });
+}
+
+export function getMobileAcademyLesson(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  slug: string,
+  signal?: AbortSignal,
+) {
+  return mobileRequest<MobileAcademyLessonResponse>(
+    `/api/mobile/v1/academy/lessons/${encodeURIComponent(slug)}`,
+    {
+      locale,
+      accessToken: tokens.accessToken,
+      signal,
+    },
+  );
 }
 
 export function logoutMobile(tokens: MobileAuthTokens, locale: MobileLocale, scope: "device" | "all" = "device") {

@@ -1,6 +1,6 @@
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Redirect } from "expo-router";
+import { Redirect, useRouter } from "expo-router";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { useAuth } from "../../src/auth/auth-context";
 import { BrandMark } from "../../src/components/brand-mark";
@@ -23,6 +23,7 @@ function roleLabel(role: string, t: ReturnType<typeof useLocale>["t"]) {
 }
 
 export default function ProfileScreen() {
+  const router = useRouter();
   const { status, user, logout, isBusy } = useAuth();
   const { locale, isRTL, t } = useLocale();
   if (status !== "authenticated" || !user) return <Redirect href="/(public)/login" />;
@@ -74,6 +75,15 @@ export default function ProfileScreen() {
           <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("language")}</Text>
           <LanguageSwitch />
         </View>
+        {isApprovedSeller ? (
+          <View style={styles.sellerSection}>
+            <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("sellerWorkspace")}</Text>
+            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("sellerWorkspaceBody")}</Text>
+            <GoldButton onPress={() => router.push("/(tabs)/seller")}>
+              {t("openNativeSellerWorkspace")}
+            </GoldButton>
+          </View>
+        ) : null}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("accountAndSupport")}</Text>
           <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("accountAndSupportBody")}</Text>
@@ -172,6 +182,14 @@ const styles = StyleSheet.create({
   section: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.md,
+    padding: spacing.lg,
+  },
+  sellerSection: {
+    backgroundColor: "rgba(216, 180, 74, 0.08)",
+    borderColor: colors.borderGold,
     borderRadius: radius.lg,
     borderWidth: 1,
     gap: spacing.md,
