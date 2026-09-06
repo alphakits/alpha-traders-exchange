@@ -456,3 +456,55 @@ export function sendMobileTradeMessage(
     },
   );
 }
+
+export function openMobileTradeDispute(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  requestId: string,
+  reason: string,
+) {
+  return mobileRequest<MobileTradeDetailResponse>(
+    `/api/mobile/v1/trades/${encodeURIComponent(requestId)}/dispute`,
+    {
+      locale,
+      method: "POST",
+      accessToken: tokens.accessToken,
+      body: { reason },
+    },
+  );
+}
+
+export function submitMobileBuyerReview(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  requestId: string,
+  rating: number,
+  comment: string,
+) {
+  return mobileRequest<MobileTradeDetailResponse>(
+    `/api/mobile/v1/trades/${encodeURIComponent(requestId)}/review`,
+    {
+      locale,
+      method: "POST",
+      accessToken: tokens.accessToken,
+      body: { rating, comment },
+    },
+  );
+}
+
+export function submitMobileSellerReviewResponse(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  requestId: string,
+  message: string,
+) {
+  return mobileRequest<MobileTradeDetailResponse>(
+    `/api/mobile/v1/trades/${encodeURIComponent(requestId)}/review`,
+    {
+      locale,
+      method: "POST",
+      accessToken: tokens.accessToken,
+      body: { message },
+    },
+  );
+}

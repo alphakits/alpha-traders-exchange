@@ -53,6 +53,8 @@ export type MobileApiErrorCode =
   | "MESSAGE_INVALID"
   | "DIRECT_CONTACT_BLOCKED"
   | "EVIDENCE_INVALID"
+  | "DISPUTE_INVALID"
+  | "REVIEW_INVALID"
   | "SERVICE_UNAVAILABLE"
   | "INTERNAL_ERROR";
 
@@ -544,6 +546,16 @@ export interface MobileTradeMessage {
   createdAt: string;
 }
 
+export interface MobileTradeReview {
+  rating: number;
+  comment: string;
+  createdAt: string;
+  sellerResponse?: {
+    message: string;
+    createdAt: string;
+  };
+}
+
 export interface MobileTradeDetail extends MobileTradeSummary {
   counterpartyDisplayName: string;
   receivingWalletAddress?: string;
@@ -557,6 +569,7 @@ export interface MobileTradeDetail extends MobileTradeSummary {
   deadlineAt: string | null;
   timeRemainingSeconds: number | null;
   hasOpenDispute: boolean;
+  buyerReview?: MobileTradeReview;
   actions: {
     canAccept: boolean;
     canDecline: boolean;
@@ -567,6 +580,9 @@ export interface MobileTradeDetail extends MobileTradeSummary {
     canBeginRelease: boolean;
     canUploadReleaseEvidence: boolean;
     canConfirmReceived: boolean;
+    canOpenDispute: boolean;
+    canSubmitReview: boolean;
+    canRespondToReview: boolean;
   };
 }
 

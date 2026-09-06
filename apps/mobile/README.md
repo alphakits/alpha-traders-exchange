@@ -22,7 +22,9 @@ remains the only business-logic backend.
 - Native notification center with unread badges, localized account updates,
   allowlisted Trade Room deep links, and bounded incremental history loading.
 - Participant-only Trade Room lifecycle and bilingual in-room chat for buyers
-  and sellers, with direct contact details blocked by the server.
+  and sellers, with direct contact details blocked by the server. Eligible
+  buyers can open disputes, buyers can leave verified post-trade reviews, and
+  sellers can publish one response without exposing private record identifiers.
 - Protected bank-detail reveal after seller acceptance.
 - Payment and USDT evidence uploads through the system photo picker. Images
   are resized and re-encoded before upload so embedded photo metadata is not

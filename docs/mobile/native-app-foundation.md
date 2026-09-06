@@ -224,7 +224,8 @@ Completed in source:
 
 - Versioned, device-bound access and rotating refresh sessions.
 - Bilingual marketplace, seller profiles, buyer request creation, participant-
-  only Trade Rooms, chat, bank-detail reveal, and evidence upload.
+  only Trade Rooms, chat, bank-detail reveal, evidence upload, buyer disputes,
+  verified post-trade reviews, and seller review responses.
 - Privacy-safe native notification center with unread state, bounded polling,
   capped paginated history, and allowlisted deep links. Marketplace and trade
   collections use the same bounded incremental-loading contract.

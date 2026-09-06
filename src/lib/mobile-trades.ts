@@ -62,6 +62,21 @@ export function toMobileTradeDetail(
   const side = request.buyerId === userId ? "buyer" : "seller";
   const isBuyer = side === "buyer";
   const isSeller = side === "seller";
+  const buyerReview = request.buyerReview
+    ? {
+        rating: request.buyerReview.rating,
+        comment: request.buyerReview.comment,
+        createdAt: request.buyerReview.createdAt,
+        ...(request.sellerResponse
+          ? {
+              sellerResponse: {
+                message: request.sellerResponse.message,
+                createdAt: request.sellerResponse.createdAt,
+              },
+            }
+          : {}),
+      }
+    : undefined;
   return {
     ...toMobileTradeSummary(request, userId),
     counterpartyDisplayName: isBuyer ? room.counterpart.sellerName : room.counterpart.buyerName,
@@ -76,6 +91,7 @@ export function toMobileTradeDetail(
     deadlineAt: room.deadlineAt,
     timeRemainingSeconds: room.timeRemainingSeconds,
     hasOpenDispute: room.hasOpenDispute,
+    ...(buyerReview ? { buyerReview } : {}),
     actions: {
       canAccept: isSeller && request.status === "pending",
       canDecline: isSeller && request.status === "pending",
@@ -89,6 +105,14 @@ export function toMobileTradeDetail(
       canBeginRelease: isSeller && request.status === "funds_received",
       canUploadReleaseEvidence: isSeller && request.status === "usdt_release_pending",
       canConfirmReceived: isBuyer && request.status === "usdt_sent",
+      canOpenDispute: isBuyer && room.canOpenDispute && !room.hasOpenDispute,
+      canSubmitReview: isBuyer
+        && ["review_open", "completed", "locked"].includes(request.status)
+        && !request.buyerReview,
+      canRespondToReview: isSeller
+        && Boolean(request.buyerReview)
+        && request.buyerReview?.hidden !== true
+        && !request.sellerResponse,
     },
   };
 }
@@ -138,6 +162,12 @@ export function mobileTradeErrorCode(error: unknown): MobileApiErrorCode | null 
   if (message.includes("safety") || message.includes("face-to-face")) return "SAFETY_ACKNOWLEDGEMENT_REQUIRED";
   if (message.includes("offer price") || message.includes("price offer")) return "PRICE_OFFER_INVALID";
   if (message.includes("evidence") || message.includes("file type") || message.includes("file payload")) return "EVIDENCE_INVALID";
+  if (message.includes("dispute reason")) return "DISPUTE_INVALID";
+  if (message.includes("review comment") || message.includes("rating must") || message.includes("response message")) return "REVIEW_INVALID";
+  if (message.includes("open dispute already exists")) return "TRADE_ACTION_NOT_ALLOWED";
+  if (message.includes("review already submitted") || message.includes("response already submitted") || message.includes("cannot reply")) {
+    return "TRADE_ACTION_NOT_ALLOWED";
+  }
   if (message.includes("not allowed") || message.includes("only after") || message.includes("only the")) return "TRADE_ACTION_NOT_ALLOWED";
   return null;
 }
