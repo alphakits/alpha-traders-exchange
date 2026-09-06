@@ -14,6 +14,10 @@ npm run verify:release:full
 npm run mobile:verify
 ```
 
+`mobile:verify` includes Expo Doctor validation and must report every check as
+passing. This blocks invalid app config and duplicate native-module versions
+before either platform reaches EAS.
+
 Record the commit SHA and retain the release-gate output. The production API at
 `https://www.alphatraders.co.il` must be healthy before creating a signed build.
 Do not copy production secrets or data into a preview environment.

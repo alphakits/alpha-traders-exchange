@@ -30,9 +30,10 @@
     "mobile:ios": "npm --workspace @alpha-traders/mobile run ios",
     "mobile:android": "npm --workspace @alpha-traders/mobile run android",
     "mobile:clean": "node -e \"const fs=require('fs'); const dir='apps/mobile/dist'; if (fs.existsSync(dir)) fs.rmSync(dir,{recursive:true,force:true});\"",
+    "mobile:doctor": "npm --workspace @alpha-traders/mobile run doctor",
     "mobile:typecheck": "npm --workspace @alpha-traders/mobile run typecheck",
     "mobile:export": "npm run mobile:clean && npm --workspace @alpha-traders/mobile run export",
-    "mobile:verify": "npm run mobile:typecheck && npm run mobile:export"
+    "mobile:verify": "npm run mobile:typecheck && npm run mobile:doctor && npm run mobile:export"
   },
   "dependencies": {
     "@alpha-traders/contracts": "*",
@@ -48,8 +49,8 @@
     "next-intl": "^4.13.2",
     "pg": "^8.22.0",
     "qrcode": "^1.5.4",
-    "react": "19.1.0",
-    "react-dom": "19.1.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
     "react-hook-form": "^7.81.0",
     "server-only": "^0.0.1",
     "sharp": "^0.35.4",

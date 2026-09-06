@@ -226,7 +226,8 @@ Completed in source:
   retry-safe pause/resume actions, availability controls, and a fixed trusted
   handoff for creation, financial edits, bank management, and commissions.
 - Automated native type-check and iOS/Android export inside the repository
-  release gate.
+  release gate, plus pinned Expo Doctor validation for app configuration and
+  duplicate native-module detection.
 
 Still requires external acceptance:
 

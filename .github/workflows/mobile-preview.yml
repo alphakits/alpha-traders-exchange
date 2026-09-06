@@ -67,6 +67,9 @@ jobs:
       - name: Type-check mobile app
         run: npm run mobile:typecheck
 
+      - name: Validate Expo configuration and native dependencies
+        run: npm run mobile:doctor
+
       - name: Trigger Android preview build
         working-directory: apps/mobile
         run: eas build --platform android --profile preview --non-interactive --no-wait
@@ -102,6 +105,9 @@ jobs:
 
       - name: Type-check mobile app
         run: npm run mobile:typecheck
+
+      - name: Validate Expo configuration and native dependencies
+        run: npm run mobile:doctor
 
       - name: Trigger iOS preview build
         working-directory: apps/mobile
