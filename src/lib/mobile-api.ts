@@ -49,6 +49,10 @@ const errorMessages: Record<MobileApiErrorCode, Record<MobileLocale, string>> = 
     ar: "يلزم حساب مشتري لإجراء صفقة.",
     en: "A buyer account is required to start a trade.",
   },
+  SELLER_ROLE_REQUIRED: {
+    ar: "يلزم حساب بائع معتمد لإدارة الإعلانات.",
+    en: "An approved seller account is required to manage listings.",
+  },
   RATE_LIMITED: {
     ar: "محاولات كثيرة جدًا. حاول مرة أخرى بعد قليل.",
     en: "Too many attempts. Please try again shortly.",
@@ -76,6 +80,10 @@ const errorMessages: Record<MobileApiErrorCode, Record<MobileLocale, string>> = 
   LISTING_UNAVAILABLE: {
     ar: "هذا الإعلان غير متاح لصفقة جديدة الآن.",
     en: "This listing is not available for a new trade right now.",
+  },
+  LISTING_ACTION_NOT_ALLOWED: {
+    ar: "لا يمكن تغيير حالة هذا الإعلان الآن. حدّث مساحة البائع وتحقق من حالة الإعلان.",
+    en: "This listing cannot be changed right now. Refresh the seller workspace and check its status.",
   },
   TRADE_NOT_FOUND: {
     ar: "تعذر العثور على الصفقة.",

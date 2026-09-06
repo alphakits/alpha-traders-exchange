@@ -1,5 +1,6 @@
 const PRIVATE_QUERY_ROOTS = new Set([
   "mobile-notifications",
+  "mobile-seller-listings",
   "mobile-trade",
   "mobile-trades",
 ]);

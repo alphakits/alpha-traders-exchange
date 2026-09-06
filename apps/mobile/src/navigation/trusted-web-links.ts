@@ -9,6 +9,8 @@ const trustedRoutes = {
   privacyPolicy: "privacy-policy",
   terms: "terms",
   support: "support",
+  sellerApplication: "usdt-exchange",
+  sellerWorkspace: "dashboard/seller",
 } as const;
 
 export type TrustedWebDestination = keyof typeof trustedRoutes;

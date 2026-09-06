@@ -21,5 +21,11 @@ describe("native trusted website links", () => {
     expect(trustedWebUrl("support", "ar")).toBe(
       "https://www.alphatraders.co.il/ar/support",
     );
+    expect(trustedWebUrl("sellerApplication", "ar")).toBe(
+      "https://www.alphatraders.co.il/ar/usdt-exchange",
+    );
+    expect(trustedWebUrl("sellerWorkspace", "en")).toBe(
+      "https://www.alphatraders.co.il/en/dashboard/seller",
+    );
   });
 });

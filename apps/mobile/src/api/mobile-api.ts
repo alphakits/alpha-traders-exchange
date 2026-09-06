@@ -15,6 +15,10 @@ import type {
   MobileNotificationsUpdateResponse,
   MobileRefreshResponse,
   MobileSellerProfileResponse,
+  MobileSellerAvailabilityResponse,
+  MobileSellerAvailabilityStatus,
+  MobileSellerListingResponse,
+  MobileSellerListingsResponse,
   MobileTradeBankDetailsResponse,
   MobileTradeDetailResponse,
   MobileTradeMessageResponse,
@@ -238,6 +242,55 @@ export function getMobileSellerProfile(listingId: string, locale: MobileLocale, 
   return mobileRequest<MobileSellerProfileResponse>(
     `/api/mobile/v1/marketplace/listings/${encodeURIComponent(listingId)}/seller`,
     { locale, signal },
+  );
+}
+
+export function getMobileSellerListings(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  offset = 0,
+  signal?: AbortSignal,
+) {
+  return mobileRequest<MobileSellerListingsResponse>(
+    `/api/mobile/v1/seller/listings?limit=${MOBILE_COLLECTION_PAGE_SIZE}&offset=${offset}`,
+    {
+      locale,
+      accessToken: tokens.accessToken,
+      signal,
+    },
+  );
+}
+
+export function setMobileSellerListingStatus(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  listingId: string,
+  action: "pause" | "resume",
+) {
+  return mobileRequest<MobileSellerListingResponse>(
+    `/api/mobile/v1/seller/listings/${encodeURIComponent(listingId)}`,
+    {
+      locale,
+      method: "PATCH",
+      accessToken: tokens.accessToken,
+      body: { action },
+    },
+  );
+}
+
+export function setMobileSellerAvailability(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  availabilityStatus: MobileSellerAvailabilityStatus,
+) {
+  return mobileRequest<MobileSellerAvailabilityResponse>(
+    "/api/mobile/v1/seller/availability",
+    {
+      locale,
+      method: "PATCH",
+      accessToken: tokens.accessToken,
+      body: { availabilityStatus },
+    },
   );
 }
 

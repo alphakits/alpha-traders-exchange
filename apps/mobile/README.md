@@ -18,6 +18,10 @@ remains the only business-logic backend.
 - Payment and USDT evidence uploads through the system photo picker. Images
   are resized and re-encoded before upload so embedded photo metadata is not
   retained.
+- Approved-seller workspace with private listing history, idempotent
+  pause/resume controls, and Available/Away/Vacation switching. Listing
+  creation, price/amount edits, bank management, and commission settlement use
+  the fixed production seller-workspace handoff for this private beta.
 - Owner and administrator operations remain web-only.
 
 ## Local start

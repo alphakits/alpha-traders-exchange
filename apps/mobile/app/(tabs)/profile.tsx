@@ -26,6 +26,11 @@ export default function ProfileScreen() {
   const { status, user, logout, isBusy } = useAuth();
   const { locale, isRTL, t } = useLocale();
   if (status !== "authenticated" || !user) return <Redirect href="/(public)/login" />;
+  const isApprovedSeller = user.sellerStatus === "approved_seller"
+    || user.roles.includes("approved_seller");
+  const canApplyToSell = !isApprovedSeller
+    && user.sellerStatus !== "pending_seller_approval"
+    && (user.role === "buyer" || user.roles.includes("buyer"));
 
   async function openWebsite(destination: TrustedWebDestination) {
     try {
@@ -36,6 +41,11 @@ export default function ProfileScreen() {
   }
 
   const accountLinks: Array<{ destination: TrustedWebDestination; label: string }> = [
+    ...(isApprovedSeller
+      ? [{ destination: "sellerWorkspace" as const, label: t("fullSellerWorkspace") }]
+      : canApplyToSell
+        ? [{ destination: "sellerApplication" as const, label: t("applyToSell") }]
+        : []),
     { destination: "accountSettings", label: t("manageAccount") },
     { destination: "accountDeletion", label: t("requestAccountDeletion") },
     { destination: "support", label: t("support") },

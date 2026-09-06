@@ -6,6 +6,7 @@ describe("native private query cache boundary", () => {
     [["mobile-trades", "user-1", "en"]],
     [["mobile-trade", "user-1", "request-1", "ar"]],
     [["mobile-notifications", "user-1", "en"]],
+    [["mobile-seller-listings", "seller-1", "ar"]],
   ])("classifies authenticated account data as private", (queryKey) => {
     expect(isPrivateMobileQueryKey(queryKey)).toBe(true);
   });

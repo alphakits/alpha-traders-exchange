@@ -222,6 +222,9 @@ Completed in source:
 - SecureStore session persistence, account-isolated query caches, foreground
   refresh, private-beta access/password-recovery handoffs, and legal/account-management
   links.
+- Role-gated approved-seller workspace with bounded private listing history,
+  retry-safe pause/resume actions, availability controls, and a fixed trusted
+  handoff for creation, financial edits, bank management, and commissions.
 - Automated native type-check and iOS/Android export inside the repository
   release gate.
 
