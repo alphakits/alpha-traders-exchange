@@ -1,4 +1,4 @@
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Redirect } from "expo-router";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
@@ -7,6 +7,10 @@ import { BrandMark } from "../../src/components/brand-mark";
 import { GoldButton } from "../../src/components/gold-button";
 import { LanguageSwitch } from "../../src/components/language-switch";
 import { useLocale } from "../../src/i18n/locale-context";
+import {
+  trustedWebUrl,
+  type TrustedWebDestination,
+} from "../../src/navigation/trusted-web-links";
 
 function roleLabel(role: string, t: ReturnType<typeof useLocale>["t"]) {
   if (role === "owner") return t("roleOwner");
@@ -20,8 +24,25 @@ function roleLabel(role: string, t: ReturnType<typeof useLocale>["t"]) {
 
 export default function ProfileScreen() {
   const { status, user, logout, isBusy } = useAuth();
-  const { isRTL, t } = useLocale();
+  const { locale, isRTL, t } = useLocale();
   if (status !== "authenticated" || !user) return <Redirect href="/(public)/login" />;
+
+  async function openWebsite(destination: TrustedWebDestination) {
+    try {
+      await Linking.openURL(trustedWebUrl(destination, locale));
+    } catch {
+      Alert.alert(t("genericError"), t("websiteUnavailable"));
+    }
+  }
+
+  const accountLinks: Array<{ destination: TrustedWebDestination; label: string }> = [
+    { destination: "accountSettings", label: t("manageAccount") },
+    { destination: "accountDeletion", label: t("requestAccountDeletion") },
+    { destination: "support", label: t("support") },
+    { destination: "privacyPolicy", label: t("privacyPolicy") },
+    { destination: "terms", label: t("termsOfService") },
+  ];
+
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -42,6 +63,29 @@ export default function ProfileScreen() {
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("language")}</Text>
           <LanguageSwitch />
+        </View>
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("accountAndSupport")}</Text>
+          <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("accountAndSupportBody")}</Text>
+          <View style={styles.linkList}>
+            {accountLinks.map((link, index) => (
+              <View key={link.destination}>
+                {index > 0 ? <View style={styles.divider} /> : null}
+                <Pressable
+                  accessibilityRole="link"
+                  onPress={() => void openWebsite(link.destination)}
+                  style={({ pressed }) => [
+                    styles.linkRow,
+                    isRTL && styles.rowReverse,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={[styles.linkLabel, isRTL && styles.rtlText]}>{link.label}</Text>
+                  <Text style={styles.chevron}>{isRTL ? "‹" : "›"}</Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
         </View>
         <GoldButton loading={isBusy} onPress={() => void logout()} variant="outline">
           {t("signOut")}
@@ -127,6 +171,47 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: typography.section,
     fontWeight: "800",
+  },
+  sectionBody: {
+    color: colors.textMuted,
+    fontSize: typography.small,
+    lineHeight: 20,
+  },
+  linkList: {
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  linkRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.md,
+    justifyContent: "space-between",
+    minHeight: 50,
+    paddingHorizontal: spacing.md,
+  },
+  linkLabel: {
+    color: colors.text,
+    flex: 1,
+    fontSize: typography.small,
+    fontWeight: "700",
+  },
+  chevron: {
+    color: colors.goldBright,
+    fontSize: typography.section,
+    fontWeight: "900",
+  },
+  divider: {
+    backgroundColor: colors.border,
+    height: 1,
+  },
+  pressed: {
+    opacity: 0.72,
+  },
+  rowReverse: {
+    flexDirection: "row-reverse",
   },
   rtlText: {
     textAlign: "right",

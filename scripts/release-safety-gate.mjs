@@ -32,6 +32,11 @@ const steps = [
     arguments: ["./node_modules/typescript/bin/tsc", "--noEmit"],
   },
   {
+    label: "Native app TypeScript validation",
+    executable: npmExecutable,
+    arguments: ["run", "mobile:typecheck"],
+  },
+  {
     label: "Generated build cleanup",
     executable: npmExecutable,
     arguments: ["run", "clean"],
@@ -40,6 +45,11 @@ const steps = [
     label: "Production build",
     executable: npmExecutable,
     arguments: ["run", "build"],
+  },
+  {
+    label: "Native iOS and Android bundle export",
+    executable: npmExecutable,
+    arguments: ["run", "mobile:export"],
   },
 ];
 

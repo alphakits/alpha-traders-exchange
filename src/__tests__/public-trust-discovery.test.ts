@@ -53,6 +53,7 @@ describe("public trust and AI discovery", () => {
         `https://www.alphatraders.co.il/${locale}/report-abuse`,
         `https://www.alphatraders.co.il/${locale}/terms`,
         `https://www.alphatraders.co.il/${locale}/privacy-policy`,
+        `https://www.alphatraders.co.il/${locale}/account-deletion`,
       ]));
     }
 

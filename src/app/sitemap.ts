@@ -14,6 +14,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/safety-trust",
     "/help-center",
     "/support",
+    "/account-deletion",
     "/report-abuse",
     "/terms",
     "/privacy-policy",

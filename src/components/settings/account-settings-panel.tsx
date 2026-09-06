@@ -118,10 +118,8 @@ export function AccountSettingsPanel({
   const [phoneMessage, setPhoneMessage] = useState<string | null>(null);
   const [notifChannelsLoaded, setNotifChannelsLoaded] = useState(false);
   const [privacyPrefs, setPrivacyPrefs] = useState<PrivacyPrefs>(defaultPrivacy());
+  const [privacyMessage, setPrivacyMessage] = useState<string | null>(null);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState("");
-  const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
-  const [showDeleteCard, setShowDeleteCard] = useState(false);
   const [discordConnection, setDiscordConnection] = useState<DiscordConnection | null>(null);
   const [discordLoaded, setDiscordLoaded] = useState(false);
   const [discordBusy, setDiscordBusy] = useState(false);
@@ -380,6 +378,7 @@ export function AccountSettingsPanel({
 
   async function savePrivacyPrefs(prefs: PrivacyPrefs) {
     setPrivacyPrefs(prefs);
+    setPrivacyMessage(null);
     if (privacySaveTimeoutRef.current) clearTimeout(privacySaveTimeoutRef.current);
     privacySaveTimeoutRef.current = setTimeout(async () => {
       privacySaveAbortRef.current?.abort();
@@ -401,11 +400,11 @@ export function AccountSettingsPanel({
           }),
         });
         if (!response.ok) {
-          setDeleteMessage(isAr ? "تعذر حفظ إعدادات الخصوصية." : "Failed to save privacy settings.");
+          setPrivacyMessage(isAr ? "تعذر حفظ إعدادات الخصوصية." : "Failed to save privacy settings.");
         }
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") return;
-        setDeleteMessage(isAr ? "تعذر حفظ إعدادات الخصوصية." : "Failed to save privacy settings.");
+        setPrivacyMessage(isAr ? "تعذر حفظ إعدادات الخصوصية." : "Failed to save privacy settings.");
       }
     }, 350);
   }
@@ -515,20 +514,6 @@ export function AccountSettingsPanel({
       descAr: "إظهار بريدك الإلكتروني في الملف العام",
     },
   };
-
-  async function handleDeleteAccount() {
-    if (deleteConfirm !== (isAr ? "حذف" : "DELETE")) return;
-    const res = await fetch("/api/auth/me", { method: "DELETE" });
-    if (res.ok) {
-      setDeleteMessage(isAr ? "تم حذف الحساب." : "Account deleted.");
-    } else {
-      setDeleteMessage(
-        isAr
-          ? "للحذف، تواصل مع الدعم: support@alphatraders.co.il"
-          : "Contact support to delete your account: support@alphatraders.co.il",
-      );
-    }
-  }
 
   async function handleDiscordConnect() {
     setDiscordBusy(true);
@@ -965,6 +950,11 @@ export function AccountSettingsPanel({
                   </div>
                 ))}
               </div>
+              {privacyMessage ? (
+                <p role="alert" className="rounded-xl border border-red-500/30 bg-red-950/20 p-3 text-sm text-red-300">
+                  {privacyMessage}
+                </p>
+              ) : null}
             </CardContent>
           </Card>
         )}
@@ -1040,38 +1030,13 @@ export function AccountSettingsPanel({
                     ? "حذف حسابك إجراء لا يمكن التراجع عنه."
                     : "Deleting your account is permanent and cannot be undone."}
                 </p>
-                {!showDeleteCard ? (
-                  <Button variant="destructive" onClick={() => setShowDeleteCard(true)}>
-                    {isAr ? "حذف الحساب" : "Delete Account"}
-                  </Button>
-                ) : (
-                  <div className="rounded-xl border border-red-500/30 bg-red-950/20 p-4 space-y-3">
-                    <p className="text-sm text-red-300">
-                      {isAr ? 'اكتب "حذف" للتأكيد:' : 'Type "DELETE" to confirm:'}
-                    </p>
-                    <Input
-                      value={deleteConfirm}
-                      onChange={(e) => setDeleteConfirm(e.target.value)}
-                      placeholder={isAr ? "حذف" : "DELETE"}
-                      className="border-red-500/30 bg-red-950/20 text-red-300 placeholder:text-red-500/40"
-                    />
-                    <div className="flex gap-2">
-                      <Button
-                        variant="destructive"
-                        disabled={deleteConfirm !== (isAr ? "حذف" : "DELETE")}
-                        onClick={() => void handleDeleteAccount()}
-                      >
-                        {isAr ? "تأكيد الحذف" : "Confirm Delete"}
-                      </Button>
-                      <Button variant="secondary" onClick={() => { setShowDeleteCard(false); setDeleteConfirm(""); }}>
-                        {isAr ? "إلغاء" : "Cancel"}
-                      </Button>
-                    </div>
-                    {deleteMessage && (
-                      <p className="text-sm text-red-300">{deleteMessage}</p>
-                    )}
-                  </div>
-                )}
+                <Link
+                  className={buttonVariants({ variant: "destructive" })}
+                  href="/account-deletion"
+                  locale={locale}
+                >
+                  {isAr ? "بدء طلب حذف الحساب" : "Start account deletion request"}
+                </Link>
               </CardContent>
             </Card>
           </div>

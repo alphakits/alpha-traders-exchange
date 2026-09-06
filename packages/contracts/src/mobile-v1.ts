@@ -116,6 +116,12 @@ export interface MobileLogoutResponse {
   requestId: string;
 }
 
+export interface MobilePagination {
+  limit: number;
+  offset: number;
+  nextOffset: number | null;
+}
+
 export type MobileNotificationCategory =
   | "trade"
   | "listing"
@@ -153,6 +159,7 @@ export interface MobileNotificationsResponse {
   notifications: MobileNotification[];
   total: number;
   unreadCount: number;
+  pagination: MobilePagination;
   requestId: string;
 }
 
@@ -206,6 +213,8 @@ export interface MobileMarketplaceListing {
 
 export interface MobileMarketplaceListingsResponse {
   listings: MobileMarketplaceListing[];
+  total: number;
+  pagination: MobilePagination;
   requestId: string;
 }
 
@@ -365,6 +374,8 @@ export interface MobileCreateTradeRequest {
 
 export interface MobileTradesResponse {
   trades: MobileTradeSummary[];
+  total: number;
+  pagination: MobilePagination;
   requestId: string;
 }
 

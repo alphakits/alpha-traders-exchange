@@ -122,7 +122,20 @@ function validateClient(values: Record<string, string>, t: (typeof T)[Locale]) {
   return errors;
 }
 
-export function ContactForm({ locale }: { locale: Locale }) {
+type ContactValues = {
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+};
+
+export function ContactForm({
+  locale,
+  initialValues,
+}: {
+  locale: Locale;
+  initialValues?: Partial<ContactValues>;
+}) {
   const t = T[locale] ?? T.en;
   const isRtl = locale === "ar";
 
@@ -132,7 +145,12 @@ export function ContactForm({ locale }: { locale: Locale }) {
   const subjectId = `${uid}-subject`;
   const messageId = `${uid}-message`;
 
-  const [values, setValues] = useState({ name: "", email: "", subject: "", message: "" });
+  const [values, setValues] = useState<ContactValues>(() => ({
+    name: initialValues?.name ?? "",
+    email: initialValues?.email ?? "",
+    subject: initialValues?.subject ?? "",
+    message: initialValues?.message ?? "",
+  }));
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");

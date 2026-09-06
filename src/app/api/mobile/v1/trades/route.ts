@@ -5,7 +5,9 @@ import {
   createMobileRequestId,
   mobileError,
   mobileJson,
+  mobilePaginationResult,
   parseMobileClientMetadata,
+  parseMobilePagination,
   readMobileJsonBody,
   resolveMobileLocale,
 } from "@/lib/mobile-api";
@@ -29,17 +31,26 @@ export async function GET(request: NextRequest) {
   const locale = resolveMobileLocale(request);
   const metadata = parseMobileClientMetadata(request);
   if (!metadata) return mobileError("DEVICE_HEADERS_REQUIRED", requestId, locale, 400);
+  const pagination = parseMobilePagination(request, { defaultLimit: 30, maxLimit: 50 });
+  if (!pagination) return mobileError("INVALID_REQUEST", requestId, locale, 400);
   try {
     const auth = await requireMobileApiUser(request, requestId, metadata);
     if (!auth.user) return auth.unauthorized;
-    const trades = (await getMyPurchaseRequests(auth.user.id, auth.user.role))
+    const participantTrades = (await getMyPurchaseRequests(auth.user.id, auth.user.role))
       // Admin/owner accounts may inspect all trades on the web. The native app
       // intentionally remains participant-only.
       .filter((trade) => isMobileTradeParticipant(trade, auth.user.id))
       .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
-      .slice(0, 100)
       .map((trade) => toMobileTradeSummary(trade, auth.user.id));
-    return mobileJson({ trades }, requestId);
+    const trades = participantTrades.slice(
+      pagination.offset,
+      pagination.offset + pagination.limit,
+    );
+    return mobileJson({
+      trades,
+      total: participantTrades.length,
+      pagination: mobilePaginationResult(pagination, trades.length, participantTrades.length),
+    }, requestId);
   } catch (error) {
     logEvent("error", {
       event: "mobile_trades_list",

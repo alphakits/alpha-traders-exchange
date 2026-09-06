@@ -10,7 +10,11 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueryClient,
+  type InfiniteData,
+} from "@tanstack/react-query";
 import type {
   MobileNotification,
   MobileNotificationsResponse,
@@ -51,18 +55,23 @@ function categoryGlyph(category: MobileNotification["category"]) {
 }
 
 function updateReadState(
-  payload: MobileNotificationsResponse | undefined,
+  payload: InfiniteData<MobileNotificationsResponse, number> | undefined,
   notificationId: string,
   isRead: boolean,
 ) {
   if (!payload) return payload;
-  const current = payload.notifications.find((item) => item.id === notificationId);
+  const current = payload.pages
+    .flatMap((page) => page.notifications)
+    .find((item) => item.id === notificationId);
   if (!current || current.isRead === isRead) return payload;
   return {
     ...payload,
-    unreadCount: Math.max(0, payload.unreadCount + (isRead ? -1 : 1)),
-    notifications: payload.notifications.map((item) =>
-      item.id === notificationId ? { ...item, isRead } : item),
+    pages: payload.pages.map((page) => ({
+      ...page,
+      unreadCount: Math.max(0, page.unreadCount + (isRead ? -1 : 1)),
+      notifications: page.notifications.map((item) =>
+        item.id === notificationId ? { ...item, isRead } : item),
+    })),
   };
 }
 
@@ -128,8 +137,8 @@ export function NotificationsScreen() {
         setMobileNotificationRead(tokens, requestLocale, notificationId, isRead)),
     onMutate: async ({ notificationId, isRead }) => {
       await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData<MobileNotificationsResponse>(queryKey);
-      queryClient.setQueryData<MobileNotificationsResponse>(
+      const previous = queryClient.getQueryData<InfiniteData<MobileNotificationsResponse, number>>(queryKey);
+      queryClient.setQueryData<InfiniteData<MobileNotificationsResponse, number>>(
         queryKey,
         (current) => updateReadState(current, notificationId, isRead),
       );
@@ -146,11 +155,14 @@ export function NotificationsScreen() {
       markAllMobileNotificationsRead(tokens, requestLocale)),
     onMutate: async () => {
       await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData<MobileNotificationsResponse>(queryKey);
-      queryClient.setQueryData<MobileNotificationsResponse>(queryKey, (current) => current ? {
+      const previous = queryClient.getQueryData<InfiniteData<MobileNotificationsResponse, number>>(queryKey);
+      queryClient.setQueryData<InfiniteData<MobileNotificationsResponse, number>>(queryKey, (current) => current ? {
         ...current,
-        unreadCount: 0,
-        notifications: current.notifications.map((item) => ({ ...item, isRead: true })),
+        pages: current.pages.map((page) => ({
+          ...page,
+          unreadCount: 0,
+          notifications: page.notifications.map((item) => ({ ...item, isRead: true })),
+        })),
       } : current);
       return { previous };
     },
@@ -176,12 +188,12 @@ export function NotificationsScreen() {
     }
   }, [markRead, router]);
 
-  const unreadCount = query.data?.unreadCount ?? 0;
+  const unreadCount = query.unreadCount;
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
       <FlatList
         contentContainerStyle={styles.content}
-        data={query.data?.notifications ?? []}
+        data={query.notifications}
         keyExtractor={(item) => item.id}
         refreshControl={(
           <RefreshControl
@@ -233,6 +245,17 @@ export function NotificationsScreen() {
             <Text style={[styles.emptyBody, isRTL && styles.rtlText]}>{t("noNotificationsBody")}</Text>
           </View>
         )}
+        ListFooterComponent={query.hasNextPage ? (
+          <View style={styles.footer}>
+            <GoldButton
+              loading={query.isFetchingNextPage}
+              onPress={() => void query.fetchNextPage()}
+              variant="outline"
+            >
+              {t("loadMore")}
+            </GoldButton>
+          </View>
+        ) : null}
         showsVerticalScrollIndicator={false}
       />
     </SafeAreaView>
@@ -271,6 +294,7 @@ const styles = StyleSheet.create({
   empty: { gap: spacing.lg, marginTop: spacing.hero },
   emptyTitle: { color: colors.text, fontSize: typography.section, fontWeight: "900", textAlign: "center" },
   emptyBody: { color: colors.textMuted, fontSize: typography.body, lineHeight: 24, textAlign: "center" },
+  footer: { marginTop: spacing.xl },
   rowReverse: { flexDirection: "row-reverse" },
   rtlText: { textAlign: "right", writingDirection: "rtl" },
 });

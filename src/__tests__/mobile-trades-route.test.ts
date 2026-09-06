@@ -31,8 +31,8 @@ vi.mock("@/lib/structured-logging", () => ({ logEvent: vi.fn() }));
 
 import { GET, POST } from "@/app/api/mobile/v1/trades/route";
 
-function mobileRequest(method: "GET" | "POST", body?: Record<string, unknown>) {
-  return new NextRequest("https://www.alphatraders.co.il/api/mobile/v1/trades", {
+function mobileRequest(method: "GET" | "POST", body?: Record<string, unknown>, query = "") {
+  return new NextRequest(`https://www.alphatraders.co.il/api/mobile/v1/trades${query}`, {
     method,
     headers: {
       "authorization": "Bearer atr_at_v1.test-access-token-value-that-is-long-enough",
@@ -121,6 +121,8 @@ describe("mobile trades collection route", () => {
 
     expect(response.status).toBe(200);
     expect(payload.trades).toHaveLength(1);
+    expect(payload.total).toBe(1);
+    expect(payload.pagination).toEqual({ limit: 30, offset: 0, nextOffset: null });
     expect(payload.trades[0]).toMatchObject({ id: "purchase-own", side: "buyer", usdtAmount: "500" });
     for (const value of [
       "purchase-foreign",
@@ -132,6 +134,25 @@ describe("mobile trades collection route", () => {
     ]) {
       expect(serialized).not.toContain(value);
     }
+  });
+
+  it("paginates participant trades after sorting and rejects invalid bounds", async () => {
+    mocks.getMyPurchaseRequests.mockResolvedValue([
+      trade({ id: "older", updatedAt: "2026-09-05T12:00:00.000Z" }),
+      trade({ id: "newer", updatedAt: "2026-09-06T12:00:00.000Z" }),
+    ]);
+
+    const response = await GET(mobileRequest("GET", undefined, "?limit=1&offset=1"));
+    await expect(response.json()).resolves.toMatchObject({
+      trades: [{ id: "older" }],
+      total: 2,
+      pagination: { limit: 1, offset: 1, nextOffset: null },
+    });
+
+    mocks.requireMobileApiUser.mockClear();
+    const invalid = await GET(mobileRequest("GET", undefined, "?limit=0"));
+    expect(invalid.status).toBe(400);
+    expect(mocks.requireMobileApiUser).not.toHaveBeenCalled();
   });
 
   it("creates a request from the authenticated identity and ignores forged contact fields", async () => {

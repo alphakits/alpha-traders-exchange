@@ -6,10 +6,12 @@ remains the only business-logic backend.
 ## Private-beta capabilities
 
 - Arabic/English onboarding, marketplace, seller profiles, and account access.
+- Trusted website handoffs for private-beta access, password recovery, account
+  management/deletion, privacy, terms, and support.
 - Device-bound opaque access/refresh sessions stored with SecureStore.
 - Buyer purchase requests and ILS price offers.
 - Native notification center with unread badges, localized account updates,
-  and allowlisted Trade Room deep links.
+  allowlisted Trade Room deep links, and bounded incremental history loading.
 - Participant-only Trade Room lifecycle and bilingual in-room chat for buyers
   and sellers, with direct contact details blocked by the server.
 - Protected bank-detail reveal after seller acceptance.
@@ -23,6 +25,13 @@ remains the only business-logic backend.
 ```bash
 npm install
 npm run mobile:start
+```
+
+Validate both native bundles from the repository root before requesting an EAS
+build:
+
+```bash
+npm run mobile:verify
 ```
 
 Set `EXPO_PUBLIC_API_URL` only when testing against a local or preview backend.

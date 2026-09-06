@@ -11,7 +11,7 @@ export default function TabsLayout() {
   const { status } = useAuth();
   const { t } = useLocale();
   const notifications = useMobileNotifications();
-  const unreadCount = notifications.data?.unreadCount ?? 0;
+  const unreadCount = notifications.unreadCount;
   if (status === "booting") return <BootScreen />;
   if (status === "unavailable") return <SessionRecoveryScreen />;
   if (status !== "authenticated") return <Redirect href="/(public)/login" />;

@@ -101,6 +101,7 @@ const ACCOUNT_SECTION: FooterSection = {
     { href: "/dashboard", en: "Dashboard", ar: "لوحة التحكم", icon: Activity },
     { href: "/dashboard/seller", en: "Seller Dashboard", ar: "لوحة البائع", icon: Store },
     { href: "/settings", en: "Settings", ar: "الإعدادات", icon: Settings },
+    { href: "/account-deletion", en: "Account Deletion", ar: "حذف الحساب", icon: UserCircle2 },
     { href: "/settings#notifications", en: "Notifications", ar: "الإشعارات", icon: Bell },
   ],
 };

@@ -4,6 +4,7 @@
     "slug": "alpha-traders",
     "owner": "alpha-traders",
     "version": "1.0.0",
+    "description": "Secure bilingual USDT marketplace and guided P2P trading for Alpha Traders.",
     "icon": "../../public/images/brand/alpha-traders-logo-512.png",
     "platforms": [
       "ios",
@@ -14,7 +15,7 @@
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.alphakits.alphatraders",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
@@ -22,6 +23,7 @@
     },
     "android": {
       "package": "com.alphakits.alphatraders",
+      "allowBackup": false,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": true,
       "adaptiveIcon": {

@@ -25,6 +25,7 @@ import { getOrCreateDeviceId } from "../auth/session-storage";
 
 const DEFAULT_API_ORIGIN = "https://www.alphatraders.co.il";
 const REQUEST_TIMEOUT_MS = 12_000;
+export const MOBILE_COLLECTION_PAGE_SIZE = 30;
 
 export class MobileApiError extends Error {
   constructor(
@@ -173,13 +174,17 @@ export function logoutMobile(tokens: MobileAuthTokens, locale: MobileLocale, sco
 export function getMobileNotifications(
   tokens: MobileAuthTokens,
   locale: MobileLocale,
+  offset = 0,
   signal?: AbortSignal,
 ) {
-  return mobileRequest<MobileNotificationsResponse>("/api/mobile/v1/notifications", {
-    locale,
-    accessToken: tokens.accessToken,
-    signal,
-  });
+  return mobileRequest<MobileNotificationsResponse>(
+    `/api/mobile/v1/notifications?limit=${MOBILE_COLLECTION_PAGE_SIZE}&offset=${offset}`,
+    {
+      locale,
+      accessToken: tokens.accessToken,
+      signal,
+    },
+  );
 }
 
 export function setMobileNotificationRead(
@@ -211,11 +216,22 @@ export function markAllMobileNotificationsRead(
   });
 }
 
-export function getMobileMarketplace(locale: MobileLocale, signal?: AbortSignal) {
-  return mobileRequest<MobileMarketplaceListingsResponse>("/api/mobile/v1/marketplace/listings", {
-    locale,
-    signal,
-  });
+export function getMobileMarketplace(locale: MobileLocale, offset = 0, signal?: AbortSignal) {
+  return mobileRequest<MobileMarketplaceListingsResponse>(
+    `/api/mobile/v1/marketplace/listings?limit=${MOBILE_COLLECTION_PAGE_SIZE}&offset=${offset}`,
+    { locale, signal },
+  );
+}
+
+export function getMobileMarketplaceListing(
+  listingId: string,
+  locale: MobileLocale,
+  signal?: AbortSignal,
+) {
+  return mobileRequest<MobileMarketplaceListingsResponse>(
+    `/api/mobile/v1/marketplace/listings?listingId=${encodeURIComponent(listingId)}&limit=1&offset=0`,
+    { locale, signal },
+  );
 }
 
 export function getMobileSellerProfile(listingId: string, locale: MobileLocale, signal?: AbortSignal) {
@@ -225,12 +241,20 @@ export function getMobileSellerProfile(listingId: string, locale: MobileLocale, 
   );
 }
 
-export function getMobileTrades(tokens: MobileAuthTokens, locale: MobileLocale, signal?: AbortSignal) {
-  return mobileRequest<MobileTradesResponse>("/api/mobile/v1/trades", {
-    locale,
-    accessToken: tokens.accessToken,
-    signal,
-  });
+export function getMobileTrades(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  offset = 0,
+  signal?: AbortSignal,
+) {
+  return mobileRequest<MobileTradesResponse>(
+    `/api/mobile/v1/trades?limit=${MOBILE_COLLECTION_PAGE_SIZE}&offset=${offset}`,
+    {
+      locale,
+      accessToken: tokens.accessToken,
+      signal,
+    },
+  );
 }
 
 export function createMobileTrade(tokens: MobileAuthTokens, locale: MobileLocale, input: MobileCreateTradeRequest) {

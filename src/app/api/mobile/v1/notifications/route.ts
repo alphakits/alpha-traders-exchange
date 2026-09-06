@@ -8,7 +8,9 @@ import {
   createMobileRequestId,
   mobileError,
   mobileJson,
+  mobilePaginationResult,
   parseMobileClientMetadata,
+  parseMobilePagination,
   readMobileJsonBody,
   resolveMobileLocale,
 } from "@/lib/mobile-api";
@@ -21,6 +23,8 @@ export async function GET(request: NextRequest) {
   const locale = resolveMobileLocale(request);
   const metadata = parseMobileClientMetadata(request);
   if (!metadata) return mobileError("DEVICE_HEADERS_REQUIRED", requestId, locale, 400);
+  const pagination = parseMobilePagination(request, { defaultLimit: 30, maxLimit: 60 });
+  if (!pagination) return mobileError("INVALID_REQUEST", requestId, locale, 400);
 
   try {
     const auth = await requireMobileApiUser(request, requestId, metadata);
@@ -40,7 +44,8 @@ export async function GET(request: NextRequest) {
 
     const payload = await getNotificationsForUser({
       userId: auth.user.id,
-      limit: 60,
+      limit: pagination.limit,
+      offset: pagination.offset,
       includeActivity: false,
     });
     return mobileJson({
@@ -48,6 +53,11 @@ export async function GET(request: NextRequest) {
         toMobileNotification(notification, locale)),
       total: payload.total,
       unreadCount: payload.unreadCount,
+      pagination: mobilePaginationResult(
+        pagination,
+        payload.notifications.length,
+        payload.total,
+      ),
     }, requestId);
   } catch (error) {
     logEvent("error", {

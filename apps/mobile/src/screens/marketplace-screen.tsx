@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -8,7 +8,7 @@ import {
   View,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import type { MobileMarketplaceListing } from "@alpha-traders/contracts";
 import { colors, spacing, typography } from "@alpha-traders/design-tokens";
 import { getMobileMarketplace } from "../api/mobile-api";
@@ -18,17 +18,25 @@ import { GoldButton } from "../components/gold-button";
 import { LanguageSwitch } from "../components/language-switch";
 import { ListingCard } from "../components/listing-card";
 import { useLocale } from "../i18n/locale-context";
+import { mergeUniquePages, nextPageOffset } from "../query/paged-data";
 
 export function MarketplaceScreen({ publicMode = false }: { publicMode?: boolean }) {
   const router = useRouter();
   const { user } = useAuth();
   const { locale, isRTL, t } = useLocale();
-  const query = useQuery({
+  const query = useInfiniteQuery({
     queryKey: ["mobile-marketplace", locale],
-    queryFn: ({ signal }) => getMobileMarketplace(locale, signal),
+    queryFn: ({ pageParam, signal }) => getMobileMarketplace(locale, pageParam, signal),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) =>
+      nextPageOffset(lastPage.pagination, allPages.length),
     staleTime: 5_000,
     refetchInterval: 15_000,
   });
+  const listings = useMemo(
+    () => mergeUniquePages(query.data?.pages.map((page) => page.listings) ?? []),
+    [query.data],
+  );
 
   const openTradeAction = useCallback((listing: MobileMarketplaceListing, mode: "buy" | "offer") => {
     if (!user) {
@@ -55,7 +63,7 @@ export function MarketplaceScreen({ publicMode = false }: { publicMode?: boolean
     <View style={styles.screen}>
       <FlatList
         contentContainerStyle={styles.content}
-        data={query.data?.listings ?? []}
+        data={listings}
         keyExtractor={(item) => item.id}
         refreshControl={(
           <RefreshControl
@@ -101,6 +109,17 @@ export function MarketplaceScreen({ publicMode = false }: { publicMode?: boolean
             <Text style={[styles.emptyBody, isRTL && styles.rtlText]}>{t("emptyMarketBody")}</Text>
           </View>
         )}
+        ListFooterComponent={query.hasNextPage ? (
+          <View style={styles.footer}>
+            <GoldButton
+              loading={query.isFetchingNextPage}
+              onPress={() => void query.fetchNextPage()}
+              variant="outline"
+            >
+              {t("loadMore")}
+            </GoldButton>
+          </View>
+        ) : null}
         showsVerticalScrollIndicator={false}
       />
     </View>
@@ -157,6 +176,9 @@ const styles = StyleSheet.create({
     fontSize: typography.body,
     lineHeight: 24,
     textAlign: "center",
+  },
+  footer: {
+    marginTop: spacing.xl,
   },
   rtlText: {
     textAlign: "right",

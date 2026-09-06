@@ -13,8 +13,8 @@ vi.mock("@/lib/alpha-exchange-store", () => ({
 
 import { GET } from "@/app/api/mobile/v1/marketplace/listings/route";
 
-function request() {
-  return new NextRequest("https://www.alphatraders.co.il/api/mobile/v1/marketplace/listings", {
+function request(query = "") {
+  return new NextRequest(`https://www.alphatraders.co.il/api/mobile/v1/marketplace/listings${query}`, {
     headers: {
       "accept-language": "en",
       "x-device-id": "550e8400-e29b-41d4-a716-446655440000",
@@ -93,6 +93,8 @@ describe("GET /api/mobile/v1/marketplace/listings", () => {
     expect(response.status).toBe(200);
     expect(payload.requestId).toBe("market-request-1");
     expect(payload.listings).toHaveLength(1);
+    expect(payload.total).toBe(1);
+    expect(payload.pagination).toEqual({ limit: 30, offset: 0, nextOffset: null });
     expect(payload.listings[0]).toMatchObject({
       id: "listing-1",
       seller: {
@@ -115,5 +117,35 @@ describe("GET /api/mobile/v1/marketplace/listings", () => {
     ]) {
       expect(serialized).not.toContain(value);
     }
+  });
+
+  it("returns a bounded page and rejects invalid pagination", async () => {
+    const valid = await GET(request("?limit=1&offset=1"));
+    expect(valid.status).toBe(200);
+    await expect(valid.json()).resolves.toMatchObject({
+      listings: [],
+      total: 1,
+      pagination: { limit: 1, offset: 1, nextOffset: null },
+    });
+
+    mocks.getMarketplaceListings.mockClear();
+    const invalid = await GET(request("?limit=500&offset=0"));
+    expect(invalid.status).toBe(400);
+    await expect(invalid.json()).resolves.toMatchObject({ error: { code: "INVALID_REQUEST" } });
+    expect(mocks.getMarketplaceListings).not.toHaveBeenCalled();
+  });
+
+  it("supports a safe exact-listing lookup for direct trade deep links", async () => {
+    const response = await GET(request("?listingId=listing-1&limit=1&offset=0"));
+    await expect(response.json()).resolves.toMatchObject({
+      listings: [{ id: "listing-1" }],
+      total: 1,
+      pagination: { limit: 1, offset: 0, nextOffset: null },
+    });
+
+    mocks.getMarketplaceListings.mockClear();
+    const invalid = await GET(request("?listingId=bad%2Flisting&limit=1"));
+    expect(invalid.status).toBe(400);
+    expect(mocks.getMarketplaceListings).not.toHaveBeenCalled();
   });
 });

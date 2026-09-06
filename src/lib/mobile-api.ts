@@ -22,6 +22,7 @@ export type MobileClientMetadata = {
 
 const DEVICE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/;
 const APP_VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.+_-]{0,49}$/;
+const NON_NEGATIVE_INTEGER_PATTERN = /^(?:0|[1-9]\d*)$/;
 
 const errorMessages: Record<MobileApiErrorCode, Record<MobileLocale, string>> = {
   INVALID_REQUEST: {
@@ -166,6 +167,46 @@ export function parseMobileClientMetadata(request: NextRequest): MobileClientMet
     appVersion,
     platform,
     locale: resolveMobileLocale(request),
+  };
+}
+
+export function parseMobilePagination(
+  request: NextRequest,
+  options: { defaultLimit: number; maxLimit: number; maxOffset?: number },
+) {
+  const limitValue = request.nextUrl.searchParams.get("limit");
+  const offsetValue = request.nextUrl.searchParams.get("offset");
+  if (
+    (limitValue !== null && !NON_NEGATIVE_INTEGER_PATTERN.test(limitValue))
+    || (offsetValue !== null && !NON_NEGATIVE_INTEGER_PATTERN.test(offsetValue))
+  ) {
+    return null;
+  }
+
+  const limit = limitValue === null ? options.defaultLimit : Number(limitValue);
+  const offset = offsetValue === null ? 0 : Number(offsetValue);
+  if (
+    !Number.isSafeInteger(limit)
+    || limit < 1
+    || limit > options.maxLimit
+    || !Number.isSafeInteger(offset)
+    || offset < 0
+    || offset > (options.maxOffset ?? 10_000)
+  ) {
+    return null;
+  }
+  return { limit, offset };
+}
+
+export function mobilePaginationResult(
+  pagination: { limit: number; offset: number },
+  returnedCount: number,
+  total: number,
+) {
+  const consumed = pagination.offset + returnedCount;
+  return {
+    ...pagination,
+    nextOffset: returnedCount > 0 && consumed < total ? consumed : null,
   };
 }
 

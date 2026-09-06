@@ -1,6 +1,7 @@
 # Alpha Traders native app foundation
 
-Status: implementation-ready architecture; native client not yet shipped.
+Status: private-beta client implemented; signed device distribution and
+real-device acceptance remain pending.
 
 ## Product decision
 
@@ -202,10 +203,40 @@ The native beta is ready only when:
 - Duplicate/replayed trade mutations are harmless.
 - Upload size/type/signature checks pass on iOS and Android fixtures.
 - Arabic RTL and English layouts pass on small and large phones.
-- Push opens the correct authorized destination without sensitive preview data.
+- Any build that enables remote push opens only the correct authorized
+  destination and never includes sensitive preview data.
 - Airplane-mode, timeout, app-kill, background/foreground, and expired-session
   recovery paths are verified.
 - No admin-only capability or secret is bundled into the app.
+
+## Current private-beta status
+
+Completed in source:
+
+- Versioned, device-bound access and rotating refresh sessions.
+- Bilingual marketplace, seller profiles, buyer request creation, participant-
+  only Trade Rooms, chat, bank-detail reveal, and evidence upload.
+- Privacy-safe native notification center with unread state, bounded polling,
+  capped paginated history, and allowlisted deep links. Marketplace and trade
+  collections use the same bounded incremental-loading contract.
+- SecureStore session persistence, account-isolated query caches, foreground
+  refresh, private-beta access/password-recovery handoffs, and legal/account-management
+  links.
+- Automated native type-check and iOS/Android export inside the repository
+  release gate.
+
+Still requires external acceptance:
+
+- One signed Android internal build and the real-device matrix in the
+  [private-beta release runbook](./private-beta-release-runbook.md).
+- Apple Developer enrollment, signing, and one TestFlight build.
+- Push-token registration and privacy-safe remote push delivery. The first
+  private build continues to use bounded foreground polling until that path is
+  implemented and verified on real devices.
+- Store metadata, screenshots, reviewer access, and final release approval.
+
+The exact handoff sequence, evidence to record, and card-gated steps are in the
+[private-beta release runbook](./private-beta-release-runbook.md).
 
 ## First implementation slice
 

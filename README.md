@@ -106,6 +106,12 @@ npm run start
 
 - Unit tests: `npm run test`
 - E2E tests: `npm run test:e2e`
+- Web and native release gate: `npm run verify:release`
+- Web and native release gate plus browser flows: `npm run verify:release:full`
+
+The release gate compiles both native platforms in addition to testing, linting,
+type-checking, and building the Next.js application. This prevents mobile-only
+TypeScript or Expo bundle failures from reaching a signed EAS build.
 
 Marketplace listing publication notification regression is now covered by
 `e2e/listing-publication-notifications.spec.ts` and runs against the local QA
