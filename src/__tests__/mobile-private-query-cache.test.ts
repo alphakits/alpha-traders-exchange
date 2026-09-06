@@ -12,6 +12,7 @@ describe("native private query cache boundary", () => {
 
   it.each([
     [["mobile-marketplace", "en"]],
+    [["mobile-marketplace-listing", "listing-1", "en"]],
     [["mobile-seller-profile", "listing-1", "ar"]],
     [[]],
   ])("preserves privacy-safe public cache entries", (queryKey) => {

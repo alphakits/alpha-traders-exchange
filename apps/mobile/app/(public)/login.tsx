@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import {
+  Alert,
   KeyboardAvoidingView,
+  Linking,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,6 +19,10 @@ import { useAuth } from "../../src/auth/auth-context";
 import { BrandMark } from "../../src/components/brand-mark";
 import { GoldButton } from "../../src/components/gold-button";
 import { useLocale } from "../../src/i18n/locale-context";
+import {
+  trustedWebUrl,
+  type TrustedWebDestination,
+} from "../../src/navigation/trusted-web-links";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -23,7 +30,7 @@ export default function LoginScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ listingId?: string | string[]; tradeMode?: string | string[] }>();
   const { login, status, isBusy } = useAuth();
-  const { isRTL, t } = useLocale();
+  const { locale, isRTL, t } = useLocale();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +62,14 @@ export default function LoginScreen() {
       await login(email, password);
     } catch (caught) {
       setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+    }
+  }
+
+  async function openWebsite(destination: TrustedWebDestination) {
+    try {
+      await Linking.openURL(trustedWebUrl(destination, locale));
+    } catch {
+      Alert.alert(t("genericError"), t("websiteUnavailable"));
     }
   }
 
@@ -121,8 +136,35 @@ export default function LoginScreen() {
             >
               {t("browseMarket")}
             </GoldButton>
+            <View style={[styles.accountLinks, isRTL && styles.rowReverse]}>
+              <Pressable
+                accessibilityRole="link"
+                disabled={isBusy}
+                hitSlop={8}
+                onPress={() => void openWebsite("forgotPassword")}
+              >
+                <Text style={styles.link}>{t("forgotPassword")}</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="link"
+                disabled={isBusy}
+                hitSlop={8}
+                onPress={() => void openWebsite("support")}
+              >
+                <Text style={styles.link}>{t("requestBetaAccess")}</Text>
+              </Pressable>
+            </View>
           </View>
           <Text style={[styles.secure, isRTL && styles.rtlText]}>◈ {t("secureSession")}</Text>
+          <View style={[styles.legalLinks, isRTL && styles.rowReverse]}>
+            <Pressable accessibilityRole="link" hitSlop={8} onPress={() => void openWebsite("privacyPolicy")}>
+              <Text style={styles.legalLink}>{t("privacyPolicy")}</Text>
+            </Pressable>
+            <Text style={styles.legalSeparator}>·</Text>
+            <Pressable accessibilityRole="link" hitSlop={8} onPress={() => void openWebsite("terms")}>
+              <Text style={styles.legalLink}>{t("termsOfService")}</Text>
+            </Pressable>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -195,6 +237,38 @@ const styles = StyleSheet.create({
     color: colors.goldMuted,
     fontSize: typography.small,
     textAlign: "center",
+  },
+  accountLinks: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.lg,
+    justifyContent: "space-between",
+  },
+  link: {
+    color: colors.goldBright,
+    fontSize: typography.small,
+    fontWeight: "800",
+    textDecorationLine: "underline",
+  },
+  legalLinks: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    justifyContent: "center",
+  },
+  legalLink: {
+    color: colors.textMuted,
+    fontSize: typography.caption,
+    textDecorationLine: "underline",
+  },
+  legalSeparator: {
+    color: colors.textMuted,
+    fontSize: typography.caption,
+  },
+  rowReverse: {
+    flexDirection: "row-reverse",
   },
   rtlText: {
     textAlign: "right",

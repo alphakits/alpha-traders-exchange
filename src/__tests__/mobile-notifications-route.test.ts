@@ -142,6 +142,7 @@ describe("mobile notification routes", () => {
     expect(payload).toMatchObject({
       total: 2,
       unreadCount: 1,
+      pagination: { limit: 30, offset: 0, nextOffset: null },
       requestId: "notification-request-1",
       notifications: [
         {
@@ -162,6 +163,8 @@ describe("mobile notification routes", () => {
     expect(mocks.getNotificationsForUser).toHaveBeenCalledWith(expect.objectContaining({
       userId: user.id,
       includeActivity: false,
+      limit: 30,
+      offset: 0,
     }));
     for (const forbidden of [
       user.id,
@@ -172,6 +175,41 @@ describe("mobile notification routes", () => {
     ]) {
       expect(serialized).not.toContain(forbidden);
     }
+  });
+
+  it("bounds pagination and forwards an accepted page to the store", async () => {
+    mocks.getNotificationsForUser.mockResolvedValueOnce({
+      notifications: [accountNotification],
+      total: 3,
+      unreadCount: 1,
+      activity: [],
+    });
+    const request = new NextRequest(
+      "https://www.alphatraders.co.il/api/mobile/v1/notifications?limit=1&offset=1",
+      { headers: headers() },
+    );
+
+    const response = await listNotifications(request);
+    await expect(response.json()).resolves.toMatchObject({
+      notifications: [{ id: "notification-2" }],
+      pagination: { limit: 1, offset: 1, nextOffset: 2 },
+    });
+    expect(mocks.getNotificationsForUser).toHaveBeenCalledWith(expect.objectContaining({
+      limit: 1,
+      offset: 1,
+    }));
+  });
+
+  it("rejects oversized or malformed pagination before authentication", async () => {
+    const request = new NextRequest(
+      "https://www.alphatraders.co.il/api/mobile/v1/notifications?limit=61&offset=-1",
+      { headers: headers() },
+    );
+
+    const response = await listNotifications(request);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "INVALID_REQUEST" } });
+    expect(mocks.requireMobileApiUser).not.toHaveBeenCalled();
   });
 
   it("marks every notification read only for the authenticated account", async () => {

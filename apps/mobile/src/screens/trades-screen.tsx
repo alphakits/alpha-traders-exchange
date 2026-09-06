@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -9,7 +9,7 @@ import {
   View,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import type { MobileTradeSummary } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { getMobileTrades } from "../api/mobile-api";
@@ -18,6 +18,7 @@ import { BrandMark } from "../components/brand-mark";
 import { GoldButton } from "../components/gold-button";
 import { LanguageSwitch } from "../components/language-switch";
 import { useLocale } from "../i18n/locale-context";
+import { mergeUniquePages, nextPageOffset } from "../query/paged-data";
 import { mobilePaymentMethodLabel, mobileTradeStatusLabel } from "../trades/trade-labels";
 
 function shortDate(value: string, locale: "ar" | "en") {
@@ -71,13 +72,21 @@ export function TradesScreen() {
   const router = useRouter();
   const { user, requestWithSession } = useAuth();
   const { locale, isRTL, t } = useLocale();
-  const query = useQuery({
+  const query = useInfiniteQuery({
     enabled: Boolean(user),
     queryKey: ["mobile-trades", user?.id ?? "anonymous", locale],
-    queryFn: ({ signal }) => requestWithSession((tokens, requestLocale) => getMobileTrades(tokens, requestLocale, signal)),
+    queryFn: ({ pageParam, signal }) => requestWithSession((tokens, requestLocale) =>
+      getMobileTrades(tokens, requestLocale, pageParam, signal)),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) =>
+      nextPageOffset(lastPage.pagination, allPages.length),
     refetchInterval: 10_000,
     staleTime: 3_000,
   });
+  const trades = useMemo(
+    () => mergeUniquePages(query.data?.pages.map((page) => page.trades) ?? []),
+    [query.data],
+  );
   const openTrade = useCallback((trade: MobileTradeSummary) => {
     router.push({ pathname: "/trade/[requestId]", params: { requestId: trade.id } });
   }, [router]);
@@ -85,7 +94,7 @@ export function TradesScreen() {
   return (
     <FlatList
       contentContainerStyle={styles.content}
-      data={query.data?.trades ?? []}
+      data={trades}
       keyExtractor={(item) => item.id}
       refreshControl={<RefreshControl onRefresh={() => void query.refetch()} refreshing={query.isRefetching} tintColor={colors.gold} />}
       renderItem={({ item }) => <TradeCard onPress={() => openTrade(item)} trade={item} />}
@@ -112,6 +121,17 @@ export function TradesScreen() {
           <GoldButton onPress={() => router.push("/(tabs)")}>{t("browseMarket")}</GoldButton>
         </View>
       )}
+      ListFooterComponent={query.hasNextPage ? (
+        <View style={styles.footer}>
+          <GoldButton
+            loading={query.isFetchingNextPage}
+            onPress={() => void query.fetchNextPage()}
+            variant="outline"
+          >
+            {t("loadMore")}
+          </GoldButton>
+        </View>
+      ) : null}
       showsVerticalScrollIndicator={false}
     />
   );
@@ -145,5 +165,6 @@ const styles = StyleSheet.create({
   empty: { gap: spacing.lg, marginTop: spacing.hero },
   emptyTitle: { color: colors.text, fontSize: typography.section, fontWeight: "900", textAlign: "center" },
   emptyBody: { color: colors.textMuted, fontSize: typography.body, lineHeight: 24, textAlign: "center" },
+  footer: { marginTop: spacing.xl },
   rtlText: { textAlign: "right", writingDirection: "rtl" },
 });

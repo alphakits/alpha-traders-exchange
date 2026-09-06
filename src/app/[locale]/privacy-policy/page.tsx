@@ -37,7 +37,7 @@ const privacySections = {
     },
     {
       title: "Your choices and requests",
-      body: "You can update available account and notification settings. You may contact support to request access, correction, export, or deletion of personal information. Some information may need to be retained where reasonably required for security, disputes, fraud prevention, record integrity, or law. We may need to verify the requester before acting.",
+      body: "You can update available account and notification settings. Use the dedicated Account Deletion page to request deletion, or contact support to request access, correction, or export of personal information. Some information may need to be retained where reasonably required for security, disputes, fraud prevention, record integrity, or law. We may need to verify the requester before acting.",
     },
     {
       title: "Cookies and similar technology",
@@ -67,7 +67,7 @@ const privacySections = {
     },
     {
       title: "خياراتك وطلباتك",
-      body: "يمكنك تحديث إعدادات الحساب والإشعارات المتاحة. ويمكنك التواصل مع الدعم لطلب الوصول إلى معلوماتك الشخصية أو تصحيحها أو تصديرها أو حذفها. قد نحتاج للاحتفاظ ببعض المعلومات لأسباب تتعلق بالأمان أو النزاعات أو منع الاحتيال أو سلامة السجلات أو القانون، وقد نتحقق من هوية مقدم الطلب أولًا.",
+      body: "يمكنك تحديث إعدادات الحساب والإشعارات المتاحة. استخدم صفحة حذف الحساب المخصصة لطلب الحذف، أو تواصل مع الدعم لطلب الوصول إلى معلوماتك الشخصية أو تصحيحها أو تصديرها. قد نحتاج للاحتفاظ ببعض المعلومات لأسباب تتعلق بالأمان أو النزاعات أو منع الاحتيال أو سلامة السجلات أو القانون، وقد نتحقق من هوية مقدم الطلب أولًا.",
     },
     {
       title: "الكوكيز والتقنيات المشابهة",

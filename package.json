@@ -29,8 +29,10 @@
     "mobile:start": "npm --workspace @alpha-traders/mobile run start",
     "mobile:ios": "npm --workspace @alpha-traders/mobile run ios",
     "mobile:android": "npm --workspace @alpha-traders/mobile run android",
+    "mobile:clean": "node -e \"const fs=require('fs'); const dir='apps/mobile/dist'; if (fs.existsSync(dir)) fs.rmSync(dir,{recursive:true,force:true});\"",
     "mobile:typecheck": "npm --workspace @alpha-traders/mobile run typecheck",
-    "mobile:export": "npm --workspace @alpha-traders/mobile run export"
+    "mobile:export": "npm run mobile:clean && npm --workspace @alpha-traders/mobile run export",
+    "mobile:verify": "npm run mobile:typecheck && npm run mobile:export"
   },
   "dependencies": {
     "@alpha-traders/contracts": "*",

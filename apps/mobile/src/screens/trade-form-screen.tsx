@@ -11,7 +11,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
-import { createMobileTrade, getMobileMarketplace, MobileApiError } from "../api/mobile-api";
+import {
+  createMobileTrade,
+  getMobileMarketplaceListing,
+  MobileApiError,
+} from "../api/mobile-api";
 import { useAuth } from "../auth/auth-context";
 import { GoldButton } from "../components/gold-button";
 import { useLocale } from "../i18n/locale-context";
@@ -42,11 +46,11 @@ export function TradeFormScreen({
   const { locale, isRTL, t } = useLocale();
   const market = useQuery({
     enabled: Boolean(listingId),
-    queryKey: ["mobile-marketplace", locale],
-    queryFn: ({ signal }) => getMobileMarketplace(locale, signal),
+    queryKey: ["mobile-marketplace-listing", listingId, locale],
+    queryFn: ({ signal }) => getMobileMarketplaceListing(listingId, locale, signal),
     staleTime: 5_000,
   });
-  const listing = market.data?.listings.find((item) => item.id === listingId);
+  const listing = market.data?.listings[0];
   const [amount, setAmount] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
