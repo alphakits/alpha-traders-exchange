@@ -37,6 +37,6 @@ export const typography = {
   title: 24,
   section: 19,
   body: 16,
-  small: 13,
-  caption: 11,
+  small: 14,
+  caption: 12,
 } as const;

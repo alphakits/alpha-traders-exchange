@@ -195,7 +195,7 @@ const styles = StyleSheet.create({
   },
   trustLabel: {
     color: colors.goldMuted,
-    fontSize: 8,
+    fontSize: typography.caption,
     fontWeight: "800",
     letterSpacing: 1,
   },
@@ -207,10 +207,13 @@ const styles = StyleSheet.create({
   primaryStats: {
     alignItems: "flex-end",
     flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.md,
     justifyContent: "space-between",
   },
   statBlock: {
     flex: 1,
+    minWidth: 150,
   },
   statLabel: {
     color: colors.textMuted,
@@ -228,6 +231,7 @@ const styles = StyleSheet.create({
   },
   priceBlock: {
     alignItems: "flex-end",
+    minWidth: 110,
   },
   alignStart: {
     alignItems: "flex-start",
@@ -239,6 +243,7 @@ const styles = StyleSheet.create({
   },
   detailRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.sm,
     marginTop: spacing.lg,
   },
@@ -246,6 +251,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceRaised,
     borderRadius: radius.sm,
     flex: 1,
+    minWidth: 130,
     padding: spacing.md,
   },
   detailLabel: {
@@ -270,10 +276,12 @@ const styles = StyleSheet.create({
   },
   actionRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.sm,
   },
   actionHalf: {
     flex: 1,
+    minWidth: 130,
   },
   profileButton: {
     alignItems: "center",
@@ -284,6 +292,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     minHeight: 52,
+    minWidth: 130,
     paddingHorizontal: spacing.sm,
   },
   profileLabel: {

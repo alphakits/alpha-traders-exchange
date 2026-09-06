@@ -134,7 +134,7 @@ export function TradeFormScreen({
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.unavailable}>
-          <Text style={[styles.title, isRTL && styles.rtlText]}>{t("currentListingUnavailable")}</Text>
+          <Text accessibilityRole="alert" style={[styles.title, isRTL && styles.rtlText]}>{t("currentListingUnavailable")}</Text>
           <GoldButton onPress={() => router.back()} variant="outline">{t("back")}</GoldButton>
         </View>
       </SafeAreaView>
@@ -148,7 +148,7 @@ export function TradeFormScreen({
           <Text style={styles.backLabel}>{isRTL ? "›" : "‹"} {t("back")}</Text>
         </Pressable>
         <View style={styles.heading}>
-          <Text style={[styles.title, isRTL && styles.rtlText]}>{mode === "offer" ? t("offerTitle") : t("buyTitle")}</Text>
+          <Text accessibilityRole="header" style={[styles.title, isRTL && styles.rtlText]}>{mode === "offer" ? t("offerTitle") : t("buyTitle")}</Text>
           <Text style={[styles.seller, isRTL && styles.rtlText]}>{listing.seller.displayName} · {listing.network}</Text>
         </View>
 
@@ -161,6 +161,8 @@ export function TradeFormScreen({
           <View style={styles.field}>
             <Text style={[styles.label, isRTL && styles.rtlText]}>{t("tradeAmount")}</Text>
             <TextInput
+              accessibilityHint={`${t("amountHint")}: ${amountRange}`}
+              accessibilityLabel={t("tradeAmount")}
               inputMode="decimal"
               onChangeText={(value) => setAmount(normalizeDecimalInput(value, 6))}
               placeholder={listing.minimumTrade}
@@ -175,6 +177,8 @@ export function TradeFormScreen({
             <View style={styles.field}>
               <Text style={[styles.label, isRTL && styles.rtlText]}>{t("offerPrice")}</Text>
               <TextInput
+                accessibilityHint={t("priceOfferHint")}
+                accessibilityLabel={t("offerPrice")}
                 inputMode="decimal"
                 onChangeText={(value) => setOfferedPrice(normalizeDecimalInput(value, 2))}
                 placeholder="0.00"
@@ -188,7 +192,7 @@ export function TradeFormScreen({
 
           <View style={styles.field}>
             <Text style={[styles.label, isRTL && styles.rtlText]}>{t("selectPayment")}</Text>
-            <View style={styles.options}>
+            <View accessibilityRole="radiogroup" style={styles.options}>
               {listing.paymentMethods.map((method) => (
                 <Pressable
                   accessibilityRole="radio"
@@ -211,6 +215,7 @@ export function TradeFormScreen({
           <View style={styles.field}>
             <Text style={[styles.label, isRTL && styles.rtlText]}>{t("receivingWallet")} · {listing.network}</Text>
             <TextInput
+              accessibilityLabel={`${t("receivingWallet")} · ${listing.network}`}
               autoCapitalize="none"
               autoCorrect={false}
               multiline

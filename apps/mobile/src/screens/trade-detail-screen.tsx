@@ -231,7 +231,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.errorState}>
-          <Text style={[styles.title, isRTL && styles.rtlText]}>{t("genericError")}</Text>
+          <Text accessibilityRole="alert" style={[styles.title, isRTL && styles.rtlText]}>{t("genericError")}</Text>
           <GoldButton onPress={() => void query.refetch()}>{t("refresh")}</GoldButton>
           <GoldButton onPress={() => router.back()} variant="ghost">{t("back")}</GoldButton>
         </View>
@@ -262,7 +262,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         <View style={styles.heroCard}>
           <View style={[styles.heroTop, isRTL && styles.rowReverse]}>
             <View style={styles.heroIdentity}>
-              <Text style={[styles.tradeNumber, isRTL && styles.rtlText]}>
+              <Text accessibilityRole="header" style={[styles.tradeNumber, isRTL && styles.rtlText]}>
                 {t("tradeNumber")} #{trade.displayNumber ?? trade.id.slice(-6).toUpperCase()}
               </Text>
               <Text style={[styles.counterparty, isRTL && styles.rtlText]}>{t("tradingWith")} {trade.counterpartyDisplayName}</Text>
@@ -284,14 +284,14 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
 
         {trade.receivingWalletAddress ? (
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("receivingWalletLabel")} · {trade.network}</Text>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("receivingWalletLabel")} · {trade.network}</Text>
             <Text selectable style={[styles.wallet, isRTL && styles.rtlText]}>{trade.receivingWalletAddress}</Text>
           </View>
         ) : null}
 
         {actions.canViewBankDetails ? (
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("bankDetails")}</Text>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("bankDetails")}</Text>
             {bankDetails ? (
               <View style={styles.bankRows}>
                 <DetailRow isRTL={isRTL} label={t("accountHolder")} value={bankDetails.accountHolderName} />
@@ -362,7 +362,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         ) : null}
 
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("tradeChat")}</Text>
+          <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("tradeChat")}</Text>
           <Text style={[styles.chatSafety, isRTL && styles.rtlText]}>{t("chatSafety")}</Text>
           <View style={styles.messageList}>
             {trade.messages.length ? trade.messages.map((message, index) => {
@@ -415,7 +415,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         </View>
 
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("tradeTimeline")}</Text>
+          <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("tradeTimeline")}</Text>
           {trade.timeline.map((event, index) => (
             <View key={`${event.createdAt}-${event.type}-${index}`} style={[styles.timelineRow, isRTL && styles.rowReverse]}>
               <View style={styles.timelineMarker} />
@@ -444,7 +444,7 @@ const styles = StyleSheet.create({
   backLabel: { color: colors.goldBright, fontSize: typography.body, fontWeight: "800" },
   screenLabel: { color: colors.textMuted, fontSize: typography.small, fontWeight: "700" },
   heroCard: { backgroundColor: colors.surface, borderColor: colors.borderGold, borderRadius: radius.lg, borderWidth: 1, gap: spacing.md, padding: spacing.lg },
-  heroTop: { alignItems: "flex-start", flexDirection: "row", gap: spacing.md, justifyContent: "space-between" },
+  heroTop: { alignItems: "flex-start", flexDirection: "row", flexWrap: "wrap", gap: spacing.md, justifyContent: "space-between" },
   heroIdentity: { flex: 1, gap: spacing.xs },
   tradeNumber: { color: colors.text, fontSize: typography.title, fontWeight: "900" },
   counterparty: { color: colors.textMuted, fontSize: typography.small },
@@ -452,9 +452,9 @@ const styles = StyleSheet.create({
   statusText: { color: colors.goldBright, fontSize: typography.caption, fontWeight: "900" },
   instruction: { color: colors.text, fontSize: typography.body, lineHeight: 23 },
   summaryCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg, borderWidth: 1, gap: spacing.md, padding: spacing.lg },
-  detailRow: { alignItems: "flex-start", flexDirection: "row", gap: spacing.md, justifyContent: "space-between" },
-  detailLabel: { color: colors.textMuted, flex: 1, fontSize: typography.small },
-  detailValue: { color: colors.text, flex: 1.4, fontSize: typography.small, fontWeight: "800", textAlign: "right" },
+  detailRow: { alignItems: "flex-start", flexDirection: "row", flexWrap: "wrap", gap: spacing.md, justifyContent: "space-between" },
+  detailLabel: { color: colors.textMuted, flex: 1, fontSize: typography.small, minWidth: 110 },
+  detailValue: { color: colors.text, flex: 1.4, fontSize: typography.small, fontWeight: "800", minWidth: 130, textAlign: "right" },
   section: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg, borderWidth: 1, gap: spacing.md, padding: spacing.lg },
   sectionTitle: { color: colors.text, fontSize: typography.section, fontWeight: "900" },
   wallet: { backgroundColor: colors.surfaceRaised, borderRadius: radius.sm, color: colors.goldBright, fontSize: typography.small, lineHeight: 20, padding: spacing.md },
@@ -469,12 +469,12 @@ const styles = StyleSheet.create({
   ownMessage: { alignSelf: "flex-end", backgroundColor: "rgba(216, 180, 74, 0.18)", borderColor: colors.borderGold, borderWidth: 1 },
   counterpartyMessage: { alignSelf: "flex-start", backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderWidth: 1 },
   messageText: { color: colors.text, fontSize: typography.small, lineHeight: 20 },
-  messageTime: { color: colors.textMuted, fontSize: 10 },
+  messageTime: { color: colors.textMuted, fontSize: typography.caption },
   systemMessage: { alignItems: "center", gap: spacing.xs, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
   systemMessageText: { color: colors.goldMuted, fontSize: typography.caption, lineHeight: 18, textAlign: "center" },
   noMessages: { color: colors.textMuted, fontSize: typography.small, paddingVertical: spacing.sm, textAlign: "center" },
-  composer: { alignItems: "flex-end", flexDirection: "row", gap: spacing.sm },
-  messageInput: { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, color: colors.text, flex: 1, fontSize: typography.small, maxHeight: 120, minHeight: 52, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, textAlignVertical: "top" },
+  composer: { alignItems: "flex-end", flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  messageInput: { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, color: colors.text, flex: 1, fontSize: typography.small, maxHeight: 120, minHeight: 52, minWidth: 190, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, textAlignVertical: "top" },
   rtlInput: { textAlign: "right", writingDirection: "rtl" },
   sendButton: { minHeight: 52, paddingHorizontal: spacing.md },
   timelineRow: { flexDirection: "row", gap: spacing.md },

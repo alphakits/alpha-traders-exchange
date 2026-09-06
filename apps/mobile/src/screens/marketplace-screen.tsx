@@ -86,7 +86,7 @@ export function MarketplaceScreen({ publicMode = false }: { publicMode?: boolean
             <BrandMark compact />
             <LanguageSwitch />
             <View style={styles.headingBlock}>
-              <Text style={[styles.title, isRTL && styles.rtlText]}>{t("liveMarket")}</Text>
+              <Text accessibilityRole="header" style={[styles.title, isRTL && styles.rtlText]}>{t("liveMarket")}</Text>
               <Text style={[styles.subtitle, isRTL && styles.rtlText]}>{t("liveMarketBody")}</Text>
             </View>
             {publicMode && !user ? (
@@ -100,7 +100,7 @@ export function MarketplaceScreen({ publicMode = false }: { publicMode?: boolean
           <ActivityIndicator color={colors.gold} size="large" style={styles.loader} />
         ) : query.isError ? (
           <View style={styles.empty}>
-            <Text style={[styles.emptyTitle, isRTL && styles.rtlText]}>{t("genericError")}</Text>
+            <Text accessibilityRole="alert" style={[styles.emptyTitle, isRTL && styles.rtlText]}>{t("genericError")}</Text>
             <GoldButton onPress={() => void query.refetch()} variant="outline">{t("refresh")}</GoldButton>
           </View>
         ) : (

@@ -92,7 +92,7 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.errorState}>
-          <Text style={[styles.errorTitle, isRTL && styles.rtlText]}>{t("genericError")}</Text>
+          <Text accessibilityRole="alert" style={[styles.errorTitle, isRTL && styles.rtlText]}>{t("genericError")}</Text>
           <GoldButton onPress={() => void query.refetch()}>{t("refresh")}</GoldButton>
           <GoldButton onPress={goBack} variant="ghost">{t("back")}</GoldButton>
         </View>
@@ -123,7 +123,7 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
           </View>
           <View style={styles.identity}>
             <View style={[styles.nameRow, isRTL && styles.rowReverse]}>
-              <Text style={[styles.name, isRTL && styles.rtlText]}>{seller.displayName}</Text>
+              <Text accessibilityRole="header" style={[styles.name, isRTL && styles.rtlText]}>{seller.displayName}</Text>
               {seller.isEmailVerified ? <Text style={styles.verified}>✓</Text> : null}
             </View>
             <View style={[styles.statusRow, isRTL && styles.rowReverse]}>

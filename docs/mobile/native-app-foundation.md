@@ -151,8 +151,14 @@ mocks that later become production dependencies.
   source with published-only authenticated APIs, five-tab phone navigation,
   offline content caching, local progress, quizzes, bookmarks, and notes.
 - Biometric re-entry as a local convenience, never as server authorization.
-- Accessibility, degraded-network UX, app update enforcement, and store release
-  polish.
+  Completed in source with optional per-account enrollment, immediate
+  app-switcher masking, protected SecureStore sentinels, and safe recovery when
+  biometric enrollment changes.
+- Accessibility, degraded-network UX, and app update enforcement. Completed in
+  source with screen-reader structure, explicit financial form labels, loading
+  state announcements, scalable wrapping layouts, readable minimum type sizes,
+  reduced-motion navigation, offline recovery, and mandatory-version handling.
+- Store listing assets, signed-build acceptance, and release-console work.
 
 Admin moderation, announcements, user-role changes, imports/exports, and Discord
 operations remain on the web console until a separate security review approves
@@ -225,6 +231,10 @@ Completed in source:
 - SecureStore session persistence, account-isolated query caches, foreground
   refresh, private-beta access/password-recovery handoffs, and legal/account-management
   links.
+- Optional per-account Face ID/fingerprint privacy lock. It uses a separate
+  authentication-protected sentinel, masks the navigation tree before app
+  backgrounding, pauses live queries while locked, and requires a fresh sign-in
+  after the operating system invalidates changed biometric enrollment.
 - Native connectivity monitoring that pauses server-state fetches while offline,
   resumes and refreshes them after reconnection, and presents bilingual degraded-
   network status without discarding a saved session.
@@ -237,6 +247,9 @@ Completed in source:
   bookmarks, notes, and previous/next navigation. The tab bar stays at five
   destinations on small phones; approved sellers enter their native workspace
   from Profile.
+- Native accessibility guardrails covering headings, form controls, busy states,
+  44–52 point touch targets, larger base caption sizes, wrapping financial
+  layouts, modal biometric masking, and operating-system reduced-motion settings.
 - Role-gated approved-seller workspace with bounded private listing history,
   retry-safe pause/resume actions, availability controls, and a fixed trusted
   handoff for creation, financial edits, bank management, and commissions.

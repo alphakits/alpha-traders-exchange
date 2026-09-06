@@ -86,13 +86,14 @@ export default function LoginScreen() {
         >
           <BrandMark compact />
           <View style={styles.heading}>
-            <Text style={[styles.title, isRTL && styles.rtlText]}>{t("loginTitle")}</Text>
+            <Text accessibilityRole="header" style={[styles.title, isRTL && styles.rtlText]}>{t("loginTitle")}</Text>
             <Text style={[styles.body, isRTL && styles.rtlText]}>{t("loginBody")}</Text>
           </View>
           <View style={styles.form}>
             <View style={styles.field}>
               <Text style={[styles.label, isRTL && styles.rtlText]}>{t("email")}</Text>
               <TextInput
+                accessibilityLabel={t("email")}
                 autoCapitalize="none"
                 autoComplete="email"
                 editable={!isBusy}
@@ -109,6 +110,7 @@ export default function LoginScreen() {
             <View style={styles.field}>
               <Text style={[styles.label, isRTL && styles.rtlText]}>{t("password")}</Text>
               <TextInput
+                accessibilityLabel={t("password")}
                 autoCapitalize="none"
                 autoComplete="current-password"
                 editable={!isBusy}

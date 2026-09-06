@@ -36,7 +36,7 @@ export function UpdateRequiredScreen({ config }: UpdateRequiredScreenProps) {
           <View style={styles.statusIcon}>
             <Text style={styles.statusIconLabel}>↑</Text>
           </View>
-          <Text style={[styles.title, isRTL && styles.rtlText]}>{t("updateRequiredTitle")}</Text>
+          <Text accessibilityRole="header" style={[styles.title, isRTL && styles.rtlText]}>{t("updateRequiredTitle")}</Text>
           <Text style={[styles.body, isRTL && styles.rtlText]}>{t("updateRequiredBody")}</Text>
           <View style={styles.versionList}>
             <View style={[styles.versionRow, isRTL && styles.rowReverse]}>
@@ -113,6 +113,8 @@ const styles = StyleSheet.create({
   versionRow: {
     alignItems: "center",
     flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
     justifyContent: "space-between",
   },
   versionLabel: {

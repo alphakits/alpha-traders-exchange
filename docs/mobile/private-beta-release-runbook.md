@@ -80,6 +80,7 @@ OS version, build URL, and commit SHA; use fictional test identities and data.
 | --- | --- | --- | --- |
 | Install and launch | iOS + Android | iOS + Android | Cold launch, icon, splash, no crash |
 | Authentication | iOS + Android | iOS + Android | Login, invalid login, refresh, logout, reinstall |
+| Biometric lock | iOS + Android | iOS + Android | Enable/disable, cancel/retry, app-switcher mask, background/foreground, changed enrollment |
 | Recovery and legal | iOS + Android | iOS + Android | Password recovery, privacy, terms, support, account deletion |
 | Marketplace | iOS + Android | iOS + Android | Refresh, pagination cap, seller profile, listing deep link |
 | Buyer request | iOS + Android | iOS + Android | Buy now, price offer, validation, face-to-face acknowledgement |

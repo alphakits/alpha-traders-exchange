@@ -18,7 +18,7 @@ export function SessionRecoveryScreen() {
           <View style={styles.statusIcon}>
             <Text style={styles.statusIconLabel}>↻</Text>
           </View>
-          <Text style={[styles.title, isRTL && styles.rtlText]}>{t("connectionTitle")}</Text>
+          <Text accessibilityRole="header" style={[styles.title, isRTL && styles.rtlText]}>{t("connectionTitle")}</Text>
           <Text style={[styles.body, isRTL && styles.rtlText]}>{t("connectionBody")}</Text>
           <GoldButton onPress={() => void retryBootstrap()}>{t("retryConnection")}</GoldButton>
         </View>

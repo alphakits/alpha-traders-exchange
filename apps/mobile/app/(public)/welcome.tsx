@@ -17,7 +17,7 @@ export default function WelcomeScreen() {
         <BrandMark />
         <View style={styles.hero}>
           <Text style={[styles.eyebrow, isRTL && styles.rtlText]}>{t("welcomeEyebrow")}</Text>
-          <Text style={[styles.title, isRTL && styles.rtlText]}>{t("welcomeTitle")}</Text>
+          <Text accessibilityRole="header" style={[styles.title, isRTL && styles.rtlText]}>{t("welcomeTitle")}</Text>
           <Text style={[styles.body, isRTL && styles.rtlText]}>{t("welcomeBody")}</Text>
         </View>
         <View style={styles.languageCard}>

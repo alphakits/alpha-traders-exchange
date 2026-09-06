@@ -31,21 +31,21 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: t("market"),
-          tabBarIcon: ({ color }) => <Text style={[styles.icon, { color }]}>⌂</Text>,
+          tabBarIcon: ({ color }) => <Text accessible={false} style={[styles.icon, { color }]}>⌂</Text>,
         }}
       />
       <Tabs.Screen
         name="academy"
         options={{
           title: t("academy"),
-          tabBarIcon: ({ color }) => <Text style={[styles.icon, { color }]}>▤</Text>,
+          tabBarIcon: ({ color }) => <Text accessible={false} style={[styles.icon, { color }]}>▤</Text>,
         }}
       />
       <Tabs.Screen
         name="trades"
         options={{
           title: t("trades"),
-          tabBarIcon: ({ color }) => <Text style={[styles.icon, { color }]}>⇄</Text>,
+          tabBarIcon: ({ color }) => <Text accessible={false} style={[styles.icon, { color }]}>⇄</Text>,
         }}
       />
       <Tabs.Screen name="seller" options={{ href: null }} />
@@ -55,14 +55,14 @@ export default function TabsLayout() {
           title: t("notifications"),
           tabBarBadge: unreadCount > 0 ? (unreadCount > 99 ? "99+" : unreadCount) : undefined,
           tabBarBadgeStyle: styles.badge,
-          tabBarIcon: ({ color }) => <Text style={[styles.icon, { color }]}>◆</Text>,
+          tabBarIcon: ({ color }) => <Text accessible={false} style={[styles.icon, { color }]}>◆</Text>,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: t("profile"),
-          tabBarIcon: ({ color }) => <Text style={[styles.icon, { color }]}>●</Text>,
+          tabBarIcon: ({ color }) => <Text accessible={false} style={[styles.icon, { color }]}>●</Text>,
         }}
       />
     </Tabs>
@@ -73,13 +73,14 @@ const styles = StyleSheet.create({
   tabBar: {
     backgroundColor: colors.surface,
     borderTopColor: colors.border,
-    height: 68,
+    minHeight: 68,
     paddingBottom: 8,
     paddingTop: 7,
   },
   tabLabel: {
     fontSize: typography.caption,
     fontWeight: "700",
+    lineHeight: 16,
   },
   icon: {
     fontSize: 20,
@@ -88,7 +89,7 @@ const styles = StyleSheet.create({
   badge: {
     backgroundColor: colors.gold,
     color: colors.background,
-    fontSize: 9,
+    fontSize: typography.caption,
     fontWeight: "900",
   },
 });

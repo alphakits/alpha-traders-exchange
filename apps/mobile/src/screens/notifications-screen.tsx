@@ -83,9 +83,11 @@ function NotificationCard({
   onPress: () => void;
 }) {
   const { locale, isRTL, t } = useLocale();
+  const time = notificationTime(notification.createdAt, locale);
   return (
     <Pressable
       accessibilityHint={notification.destination ? t("openNotification") : t("markNotificationRead")}
+      accessibilityLabel={`${notification.isRead ? "" : `${t("unread")}. `}${notification.title}. ${notification.message}. ${time}`}
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [
@@ -96,22 +98,22 @@ function NotificationCard({
       ]}
     >
       <View style={[styles.cardTop, isRTL && styles.rowReverse]}>
-        <View style={[styles.glyph, notification.actionRequired && styles.glyphAction]}>
-          <Text style={styles.glyphText}>{categoryGlyph(notification.category)}</Text>
+        <View accessible={false} style={[styles.glyph, notification.actionRequired && styles.glyphAction]}>
+          <Text accessible={false} style={styles.glyphText}>{categoryGlyph(notification.category)}</Text>
         </View>
         <View style={styles.cardCopy}>
           <View style={[styles.titleRow, isRTL && styles.rowReverse]}>
             <Text numberOfLines={2} style={[styles.cardTitle, isRTL && styles.rtlText]}>
               {notification.title}
             </Text>
-            {!notification.isRead ? <View accessibilityLabel={t("unread")} style={styles.unreadDot} /> : null}
+            {!notification.isRead ? <View accessible={false} style={styles.unreadDot} /> : null}
           </View>
           <Text style={[styles.cardMessage, isRTL && styles.rtlText]}>{notification.message}</Text>
         </View>
       </View>
       <View style={[styles.cardFooter, isRTL && styles.rowReverse]}>
         <Text style={[styles.time, isRTL && styles.rtlText]}>
-          {notificationTime(notification.createdAt, locale)}
+          {time}
         </Text>
         {notification.actionRequired ? (
           <Text style={styles.actionPill}>{t("needsAction")}</Text>
@@ -212,7 +214,7 @@ export function NotificationsScreen() {
             <LanguageSwitch />
             <View style={[styles.headingRow, isRTL && styles.rowReverse]}>
               <View style={styles.headingCopy}>
-                <Text style={[styles.title, isRTL && styles.rtlText]}>{t("notifications")}</Text>
+                <Text accessibilityRole="header" style={[styles.title, isRTL && styles.rtlText]}>{t("notifications")}</Text>
                 <Text style={[styles.subtitle, isRTL && styles.rtlText]}>{t("notificationsBody")}</Text>
               </View>
               {unreadCount > 0 ? (
@@ -236,7 +238,7 @@ export function NotificationsScreen() {
           <ActivityIndicator color={colors.gold} size="large" style={styles.loader} />
         ) : query.isError ? (
           <View style={styles.empty}>
-            <Text style={[styles.emptyTitle, isRTL && styles.rtlText]}>{t("genericError")}</Text>
+            <Text accessibilityRole="alert" style={[styles.emptyTitle, isRTL && styles.rtlText]}>{t("genericError")}</Text>
             <GoldButton onPress={() => void query.refetch()}>{t("refresh")}</GoldButton>
           </View>
         ) : (

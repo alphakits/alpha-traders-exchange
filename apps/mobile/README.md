@@ -12,6 +12,12 @@ remains the only business-logic backend.
 - Trusted website handoffs for private-beta access, password recovery, account
   management/deletion, privacy, terms, and support.
 - Device-bound opaque access/refresh sessions stored with SecureStore.
+- Optional Face ID or secure-fingerprint privacy lock that masks authenticated
+  content immediately in the app switcher and pauses live query work while
+  locked. It protects local presentation only and never replaces server auth.
+- Native screen-reader headings and form labels, 44–52 point touch targets,
+  readable minimum text sizes, scalable/wrapping financial layouts, and device
+  reduced-motion support for navigation transitions.
 - Buyer purchase requests and ILS price offers.
 - Native notification center with unread badges, localized account updates,
   allowlisted Trade Room deep links, and bounded incremental history loading.
@@ -50,6 +56,8 @@ HTTP origins.
 - Native access and refresh tokens are stored only with Expo SecureStore.
 - Reinstall detection clears any iOS Keychain values left by an older install.
 - Browser cookies are never read or written by the native API.
+- Biometric re-entry protects a separate opaque per-account sentinel; session
+  tokens retain their independent rotation, revocation, and expiry lifecycle.
 - Refresh calls are serialized and rotate both tokens.
 - Authenticated query caches are isolated by account and purged whenever the
   signed-in identity changes on a shared device.
