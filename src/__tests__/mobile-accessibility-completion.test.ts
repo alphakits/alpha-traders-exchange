@@ -7,6 +7,67 @@ function source(path: string) {
 }
 
 describe("mobile accessibility completion", () => {
+  it("honors native reduced-motion settings and keeps enlarged tab labels unclipped", () => {
+    const rootLayout = source("apps/mobile/app/_layout.tsx");
+    const publicLayout = source("apps/mobile/app/(public)/_layout.tsx");
+    const reducedMotion = source("apps/mobile/src/accessibility/use-reduced-motion.ts");
+    const tabs = source("apps/mobile/app/(tabs)/_layout.tsx");
+    const languageSwitch = source("apps/mobile/src/components/language-switch.tsx");
+    const tokens = source("packages/design-tokens/src/index.ts");
+
+    expect(reducedMotion).toContain("AccessibilityInfo.isReduceMotionEnabled()");
+    expect(reducedMotion).toContain('"reduceMotionChanged"');
+    expect(rootLayout).toContain('animation: isReducedMotionEnabled ? "none" : "fade"');
+    expect(publicLayout).toContain('isReducedMotionEnabled ? "none"');
+    expect(publicLayout).toContain('isRTL ? "slide_from_left" : "slide_from_right"');
+    expect(tabs).toContain("minHeight: 68");
+    expect(tabs).not.toContain("height: 68");
+    expect(languageSwitch).toContain("minHeight: 44");
+    expect(tokens).toContain("small: 14");
+    expect(tokens).toContain("caption: 12");
+  });
+
+  it("preserves spoken labels and busy state on native loading buttons", () => {
+    const button = source("apps/mobile/src/components/gold-button.tsx");
+
+    expect(button).toContain("const spokenLabel = accessibilityLabel");
+    expect(button).toContain("accessibilityLabel={spokenLabel}");
+    expect(button).toContain("busy: loading");
+    expect(button).toContain("disabled: isDisabled");
+    expect(button).toContain("<ActivityIndicator accessible={false}");
+  });
+
+  it("gives native financial forms explicit labels, roles, and alert semantics", () => {
+    const login = source("apps/mobile/app/(public)/login.tsx");
+    const tradeForm = source("apps/mobile/src/screens/trade-form-screen.tsx");
+    const tradeRoom = source("apps/mobile/src/screens/trade-detail-screen.tsx");
+
+    expect(login).toContain('accessibilityLabel={t("email")}');
+    expect(login).toContain('accessibilityLabel={t("password")}');
+    expect(tradeForm).toContain('accessibilityRole="radiogroup"');
+    expect(tradeForm).toContain('accessibilityLabel={t("tradeAmount")}');
+    expect(tradeForm).toContain('accessibilityLabel={`${t("receivingWallet")} · ${listing.network}`}');
+    expect(tradeForm).toContain("activeFormScopeRef");
+    expect(tradeForm).toContain("setWalletAddress(\"\")");
+    expect(tradeRoom).toContain('accessibilityRole="header"');
+    expect(tradeRoom).toContain('accessibilityRole="alert"');
+    expect(tradeRoom).toContain("activeTradeScopeRef");
+    expect(tradeRoom).toContain("setBankDetails(null)");
+  });
+
+  it("keeps recovery surfaces scrollable and text-link targets at least 44 points", () => {
+    const biometricLock = source("apps/mobile/src/components/biometric-lock-screen.tsx");
+    const sessionRecovery = source("apps/mobile/src/components/session-recovery-screen.tsx");
+    const login = source("apps/mobile/app/(public)/login.tsx");
+
+    expect(biometricLock).toContain("<ScrollView");
+    expect(biometricLock).toContain("flexGrow: 1");
+    expect(sessionRecovery).toContain("<ScrollView");
+    expect(sessionRecovery).toContain("flexGrow: 1");
+    expect(login).toContain("minHeight: 44");
+    expect(login.match(/style=\{styles\.textLinkTarget\}/g)).toHaveLength(4);
+  });
+
   it("labels the footer newsletter field and keeps mobile footer targets usable", () => {
     const footer = source("src/components/layout/site-footer.tsx");
     const newsletter = source("src/components/layout/footer-newsletter-signup.tsx");

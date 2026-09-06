@@ -4,11 +4,16 @@ import { Platform } from "react-native";
 import type {
   MobileApiErrorCode,
   MobileApiErrorResponse,
+  MobileAccountProfileResponse,
+  MobileAccountProfileUpdateRequest,
   MobileAppConfigResponse,
+  MobileAcademyCatalogResponse,
+  MobileAcademyLessonResponse,
   MobileAuthTokens,
   MobileCreateTradeRequest,
   MobileLocale,
   MobileLoginResponse,
+  MobileMarketplaceFilters,
   MobileMarketplaceListingsResponse,
   MobileMeResponse,
   MobileNotificationResponse,
@@ -66,7 +71,7 @@ type MobileRequestOptions = {
   locale: MobileLocale;
   method?: "GET" | "POST" | "PATCH" | "DELETE";
   accessToken?: string;
-  body?: Record<string, unknown>;
+  body?: Record<string, unknown> | FormData;
   signal?: AbortSignal;
   timeoutMs?: number;
 };
@@ -92,13 +97,17 @@ async function mobileRequest<T>(path: string, options: MobileRequestOptions): Pr
       "X-Platform": clientPlatform(),
       "X-Request-Id": requestId,
     };
+    const isMultipart = typeof FormData !== "undefined" && options.body instanceof FormData;
+    const requestBody = options.body
+      ? (isMultipart ? options.body as FormData : JSON.stringify(options.body))
+      : undefined;
     if (options.accessToken) headers.Authorization = `Bearer ${options.accessToken}`;
-    if (options.body) headers["Content-Type"] = "application/json";
+    if (options.body && !isMultipart) headers["Content-Type"] = "application/json";
 
     const response = await fetch(`${apiOrigin()}${path}`, {
       method: options.method ?? "GET",
       headers,
-      body: options.body ? JSON.stringify(options.body) : undefined,
+      body: requestBody,
       signal: controller.signal,
     });
     const text = await response.text();
@@ -177,6 +186,59 @@ export function getMobileMe(tokens: MobileAuthTokens, locale: MobileLocale) {
   });
 }
 
+export function getMobileAccountProfile(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  signal?: AbortSignal,
+) {
+  return mobileRequest<MobileAccountProfileResponse>("/api/mobile/v1/profile", {
+    locale,
+    accessToken: tokens.accessToken,
+    signal,
+  });
+}
+
+export function updateMobileAccountProfile(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  update: MobileAccountProfileUpdateRequest,
+) {
+  return mobileRequest<MobileAccountProfileResponse>("/api/mobile/v1/profile", {
+    locale,
+    method: "PATCH",
+    accessToken: tokens.accessToken,
+    body: { ...update },
+  });
+}
+
+export function getMobileAcademy(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  signal?: AbortSignal,
+) {
+  return mobileRequest<MobileAcademyCatalogResponse>("/api/mobile/v1/academy", {
+    locale,
+    accessToken: tokens.accessToken,
+    signal,
+  });
+}
+
+export function getMobileAcademyLesson(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  slug: string,
+  signal?: AbortSignal,
+) {
+  return mobileRequest<MobileAcademyLessonResponse>(
+    `/api/mobile/v1/academy/lessons/${encodeURIComponent(slug)}`,
+    {
+      locale,
+      accessToken: tokens.accessToken,
+      signal,
+    },
+  );
+}
+
 export function logoutMobile(tokens: MobileAuthTokens, locale: MobileLocale, scope: "device" | "all" = "device") {
   return mobileRequest<{ revoked: true }>(`/api/mobile/v1/auth/session?scope=${scope}`, {
     locale,
@@ -230,10 +292,25 @@ export function markAllMobileNotificationsRead(
   });
 }
 
-export function getMobileMarketplace(locale: MobileLocale, offset = 0, signal?: AbortSignal) {
+export function getMobileMarketplace(
+  locale: MobileLocale,
+  offset = 0,
+  signal?: AbortSignal,
+  filters: MobileMarketplaceFilters = {},
+  tokens?: MobileAuthTokens,
+) {
+  const query = new URLSearchParams({
+    limit: String(MOBILE_COLLECTION_PAGE_SIZE),
+    offset: String(offset),
+    sort: filters.sort ?? "trust-desc",
+  });
+  if (filters.network) query.set("network", filters.network);
+  if (filters.currency) query.set("currency", filters.currency);
+  if (filters.paymentMethod) query.set("payment", filters.paymentMethod);
+  if (filters.onlineOnly) query.set("online", "1");
   return mobileRequest<MobileMarketplaceListingsResponse>(
-    `/api/mobile/v1/marketplace/listings?limit=${MOBILE_COLLECTION_PAGE_SIZE}&offset=${offset}`,
-    { locale, signal },
+    `/api/mobile/v1/marketplace/listings?${query.toString()}`,
+    { locale, signal, accessToken: tokens?.accessToken },
   );
 }
 
@@ -241,17 +318,23 @@ export function getMobileMarketplaceListing(
   listingId: string,
   locale: MobileLocale,
   signal?: AbortSignal,
+  tokens?: MobileAuthTokens,
 ) {
   return mobileRequest<MobileMarketplaceListingsResponse>(
     `/api/mobile/v1/marketplace/listings?listingId=${encodeURIComponent(listingId)}&limit=1&offset=0`,
-    { locale, signal },
+    { locale, signal, accessToken: tokens?.accessToken },
   );
 }
 
-export function getMobileSellerProfile(listingId: string, locale: MobileLocale, signal?: AbortSignal) {
+export function getMobileSellerProfile(
+  listingId: string,
+  locale: MobileLocale,
+  signal?: AbortSignal,
+  tokens?: MobileAuthTokens,
+) {
   return mobileRequest<MobileSellerProfileResponse>(
     `/api/mobile/v1/marketplace/listings/${encodeURIComponent(listingId)}/seller`,
-    { locale, signal },
+    { locale, signal, accessToken: tokens?.accessToken },
   );
 }
 
@@ -383,22 +466,23 @@ export function uploadMobileTradeEvidence(
     requestId: string;
     side: "buyer" | "seller";
     mimeType: "image/jpeg" | "image/png" | "image/webp";
-    sizeBytes: number;
-    contentBase64: string;
+    fileUri: string;
   },
 ) {
+  const form = new FormData();
+  form.append("side", input.side);
+  form.append("evidence", {
+    uri: input.fileUri,
+    name: input.side === "buyer" ? "payment-evidence.jpg" : "release-evidence.jpg",
+    type: input.mimeType,
+  } as unknown as Blob);
   return mobileRequest<MobileTradeResponse>(
     `/api/mobile/v1/trades/${encodeURIComponent(input.requestId)}/evidence`,
     {
       locale,
       method: "POST",
       accessToken: tokens.accessToken,
-      body: {
-        side: input.side,
-        mimeType: input.mimeType,
-        sizeBytes: input.sizeBytes,
-        contentBase64: input.contentBase64,
-      },
+      body: form,
       timeoutMs: 45_000,
     },
   );
@@ -423,6 +507,58 @@ export function sendMobileTradeMessage(
         message: input.message,
         clientMessageId: input.clientMessageId,
       },
+    },
+  );
+}
+
+export function openMobileTradeDispute(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  requestId: string,
+  reason: string,
+) {
+  return mobileRequest<MobileTradeDetailResponse>(
+    `/api/mobile/v1/trades/${encodeURIComponent(requestId)}/dispute`,
+    {
+      locale,
+      method: "POST",
+      accessToken: tokens.accessToken,
+      body: { reason },
+    },
+  );
+}
+
+export function submitMobileBuyerReview(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  requestId: string,
+  rating: number,
+  comment: string,
+) {
+  return mobileRequest<MobileTradeDetailResponse>(
+    `/api/mobile/v1/trades/${encodeURIComponent(requestId)}/review`,
+    {
+      locale,
+      method: "POST",
+      accessToken: tokens.accessToken,
+      body: { rating, comment },
+    },
+  );
+}
+
+export function submitMobileSellerReviewResponse(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  requestId: string,
+  message: string,
+) {
+  return mobileRequest<MobileTradeDetailResponse>(
+    `/api/mobile/v1/trades/${encodeURIComponent(requestId)}/review`,
+    {
+      locale,
+      method: "POST",
+      accessToken: tokens.accessToken,
+      body: { message },
     },
   );
 }

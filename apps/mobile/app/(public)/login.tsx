@@ -86,13 +86,14 @@ export default function LoginScreen() {
         >
           <BrandMark compact />
           <View style={styles.heading}>
-            <Text style={[styles.title, isRTL && styles.rtlText]}>{t("loginTitle")}</Text>
+            <Text accessibilityRole="header" style={[styles.title, isRTL && styles.rtlText]}>{t("loginTitle")}</Text>
             <Text style={[styles.body, isRTL && styles.rtlText]}>{t("loginBody")}</Text>
           </View>
           <View style={styles.form}>
             <View style={styles.field}>
               <Text style={[styles.label, isRTL && styles.rtlText]}>{t("email")}</Text>
               <TextInput
+                accessibilityLabel={t("email")}
                 autoCapitalize="none"
                 autoComplete="email"
                 editable={!isBusy}
@@ -109,6 +110,7 @@ export default function LoginScreen() {
             <View style={styles.field}>
               <Text style={[styles.label, isRTL && styles.rtlText]}>{t("password")}</Text>
               <TextInput
+                accessibilityLabel={t("password")}
                 autoCapitalize="none"
                 autoComplete="current-password"
                 editable={!isBusy}
@@ -142,6 +144,7 @@ export default function LoginScreen() {
                 disabled={isBusy}
                 hitSlop={8}
                 onPress={() => void openWebsite("forgotPassword")}
+                style={styles.textLinkTarget}
               >
                 <Text style={styles.link}>{t("forgotPassword")}</Text>
               </Pressable>
@@ -150,6 +153,7 @@ export default function LoginScreen() {
                 disabled={isBusy}
                 hitSlop={8}
                 onPress={() => void openWebsite("support")}
+                style={styles.textLinkTarget}
               >
                 <Text style={styles.link}>{t("requestBetaAccess")}</Text>
               </Pressable>
@@ -157,11 +161,11 @@ export default function LoginScreen() {
           </View>
           <Text style={[styles.secure, isRTL && styles.rtlText]}>◈ {t("secureSession")}</Text>
           <View style={[styles.legalLinks, isRTL && styles.rowReverse]}>
-            <Pressable accessibilityRole="link" hitSlop={8} onPress={() => void openWebsite("privacyPolicy")}>
+            <Pressable accessibilityRole="link" hitSlop={8} onPress={() => void openWebsite("privacyPolicy")} style={styles.textLinkTarget}>
               <Text style={styles.legalLink}>{t("privacyPolicy")}</Text>
             </Pressable>
             <Text style={styles.legalSeparator}>·</Text>
-            <Pressable accessibilityRole="link" hitSlop={8} onPress={() => void openWebsite("terms")}>
+            <Pressable accessibilityRole="link" hitSlop={8} onPress={() => void openWebsite("terms")} style={styles.textLinkTarget}>
               <Text style={styles.legalLink}>{t("termsOfService")}</Text>
             </Pressable>
           </View>
@@ -250,6 +254,10 @@ const styles = StyleSheet.create({
     fontSize: typography.small,
     fontWeight: "800",
     textDecorationLine: "underline",
+  },
+  textLinkTarget: {
+    justifyContent: "center",
+    minHeight: 44,
   },
   legalLinks: {
     alignItems: "center",

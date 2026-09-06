@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -24,7 +24,10 @@ import {
   getMobileTrade,
   getMobileTradeBankDetails,
   MobileApiError,
+  openMobileTradeDispute,
   sendMobileTradeMessage,
+  submitMobileBuyerReview,
+  submitMobileSellerReviewResponse,
   updateMobileTrade,
   uploadMobileTradeEvidence,
 } from "../api/mobile-api";
@@ -36,6 +39,7 @@ import {
   mobileTradeEventLabel,
   mobileTradeStatusLabel,
 } from "../trades/trade-labels";
+import { formatTradeCountdown } from "../trades/trade-countdown";
 
 type BankDetails = {
   accountHolderName: string;
@@ -65,6 +69,51 @@ function DetailRow({ label, value, isRTL }: { label: string; value: string; isRT
   );
 }
 
+function RatingSelector({
+  value,
+  onChange,
+  disabled,
+  isRTL,
+  label,
+}: {
+  value: number;
+  onChange: (rating: number) => void;
+  disabled: boolean;
+  isRTL: boolean;
+  label: string;
+}) {
+  return (
+    <View
+      accessibilityLabel={label}
+      accessibilityRole="radiogroup"
+      style={[styles.ratingRow, isRTL && styles.rowReverse]}
+    >
+      {[1, 2, 3, 4, 5].map((rating) => {
+        const selected = rating === value;
+        return (
+          <Pressable
+            key={rating}
+            accessibilityLabel={`${rating} ${label}`}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: selected, disabled }}
+            disabled={disabled}
+            onPress={() => onChange(rating)}
+            style={({ pressed }) => [
+              styles.ratingOption,
+              selected && styles.ratingOptionSelected,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={[styles.ratingOptionText, selected && styles.ratingOptionTextSelected]}>
+              {rating} ★
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -72,10 +121,19 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const { locale, isRTL, t } = useLocale();
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [bankDetails, setBankDetails] = useState<BankDetails | null>(null);
   const [draftMessage, setDraftMessage] = useState("");
+  const [disputeReason, setDisputeReason] = useState("");
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState("");
+  const [reviewResponse, setReviewResponse] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [visibleTimeRemaining, setVisibleTimeRemaining] = useState<number | null>(null);
   const pendingMessageRef = useRef<{ message: string; clientMessageId: string } | null>(null);
+  const tradeScope = `${user?.id ?? "anonymous"}:${requestId}`;
+  const activeTradeScopeRef = useRef(tradeScope);
+  activeTradeScopeRef.current = tradeScope;
   const query = useQuery({
     enabled: Boolean(requestId && user),
     queryKey: ["mobile-trade", user?.id ?? "anonymous", requestId, locale],
@@ -84,6 +142,32 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     refetchInterval: 5_000,
     staleTime: 2_000,
   });
+  const serverTimeRemaining = query.data?.trade?.status === "usdt_release_pending"
+    ? query.data.trade.timeRemainingSeconds
+    : null;
+
+  useEffect(() => {
+    setBusyAction(null);
+    setError(null);
+    setNotice(null);
+    setBankDetails(null);
+    setDraftMessage("");
+    setDisputeReason("");
+    setReviewRating(5);
+    setReviewComment("");
+    setReviewResponse("");
+    setSendingMessage(false);
+    pendingMessageRef.current = null;
+  }, [tradeScope]);
+
+  useEffect(() => {
+    setVisibleTimeRemaining(serverTimeRemaining);
+    if (serverTimeRemaining === null || serverTimeRemaining <= 0) return undefined;
+    const timer = setInterval(() => {
+      setVisibleTimeRemaining((current) => current === null ? null : Math.max(0, current - 1));
+    }, 1_000);
+    return () => clearInterval(timer);
+  }, [serverTimeRemaining]);
 
   const refreshTrade = useCallback(async () => {
     await Promise.all([
@@ -92,17 +176,27 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     ]);
   }, [query, queryClient]);
 
+  const goBack = useCallback(() => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/(tabs)/trades");
+  }, [router]);
+
   async function updateStatus(status: MobileTradeStatus, safetyAcknowledged = false) {
+    const operationScope = activeTradeScopeRef.current;
     setError(null);
+    setNotice(null);
     setBusyAction(status);
     try {
       await requestWithSession((tokens, requestLocale) =>
         updateMobileTrade(tokens, requestLocale, requestId, status, safetyAcknowledged));
+      if (activeTradeScopeRef.current !== operationScope) return;
       await refreshTrade();
     } catch (caught) {
-      setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      if (activeTradeScopeRef.current === operationScope) {
+        setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      }
     } finally {
-      setBusyAction(null);
+      if (activeTradeScopeRef.current === operationScope) setBusyAction(null);
     }
   }
 
@@ -120,25 +214,33 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
 
   async function revealBankDetails() {
     if (busyAction) return;
+    const operationScope = activeTradeScopeRef.current;
     setError(null);
+    setNotice(null);
     setBusyAction("bank-details");
     try {
       const response = await requestWithSession((tokens, requestLocale) =>
         getMobileTradeBankDetails(tokens, requestLocale, requestId));
+      if (activeTradeScopeRef.current !== operationScope) return;
       setBankDetails(response.bankDetails);
     } catch (caught) {
-      setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      if (activeTradeScopeRef.current === operationScope) {
+        setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      }
     } finally {
-      setBusyAction(null);
+      if (activeTradeScopeRef.current === operationScope) setBusyAction(null);
     }
   }
 
   async function uploadEvidence(side: "buyer" | "seller") {
     if (busyAction) return;
+    const operationScope = activeTradeScopeRef.current;
     setError(null);
+    setNotice(null);
     setBusyAction("picking-evidence");
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (activeTradeScopeRef.current !== operationScope) return;
       if (!permission.granted) {
         setError(t("photoPermissionDenied"));
         return;
@@ -151,6 +253,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         quality: 0.9,
         selectionLimit: 1,
       });
+      if (activeTradeScopeRef.current !== operationScope) return;
       if (result.canceled) return;
       const asset = result.assets[0];
       if (!asset?.uri) {
@@ -161,17 +264,12 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         asset.uri,
         asset.width > 1600 ? [{ resize: { width: 1600 } }] : [],
         {
-          base64: true,
           compress: 0.76,
           format: ImageManipulator.SaveFormat.JPEG,
         },
       );
-      if (!prepared.base64) {
-        setError(t("evidenceInvalid"));
-        return;
-      }
-      const sizeBytes = Math.ceil(prepared.base64.length * 3 / 4);
-      if (sizeBytes <= 0 || sizeBytes > 5 * 1024 * 1024) {
+      if (activeTradeScopeRef.current !== operationScope) return;
+      if (!prepared.uri) {
         setError(t("evidenceInvalid"));
         return;
       }
@@ -180,19 +278,22 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         requestId,
         side,
         mimeType: "image/jpeg",
-        sizeBytes,
-        contentBase64: prepared.base64!,
+        fileUri: prepared.uri,
       }));
+      if (activeTradeScopeRef.current !== operationScope) return;
       await refreshTrade();
     } catch (caught) {
-      setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      if (activeTradeScopeRef.current === operationScope) {
+        setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      }
     } finally {
-      setBusyAction(null);
+      if (activeTradeScopeRef.current === operationScope) setBusyAction(null);
     }
   }
 
   async function sendMessage() {
     if (sendingMessage) return;
+    const operationScope = activeTradeScopeRef.current;
     const message = draftMessage.trim();
     if (!message || message.length > 1200) {
       setError(t("messageInvalid"));
@@ -203,6 +304,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
       : { message, clientMessageId: Crypto.randomUUID() };
     pendingMessageRef.current = pending;
     setError(null);
+    setNotice(null);
     setSendingMessage(true);
     try {
       await requestWithSession((tokens, requestLocale) => sendMobileTradeMessage(tokens, requestLocale, {
@@ -210,13 +312,118 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         message: pending.message,
         clientMessageId: pending.clientMessageId,
       }));
+      if (activeTradeScopeRef.current !== operationScope) return;
       pendingMessageRef.current = null;
       setDraftMessage("");
       await refreshTrade();
     } catch (caught) {
-      setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      if (activeTradeScopeRef.current === operationScope) {
+        setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      }
     } finally {
-      setSendingMessage(false);
+      if (activeTradeScopeRef.current === operationScope) setSendingMessage(false);
+    }
+  }
+
+  async function openDispute() {
+    if (busyAction) return;
+    const operationScope = activeTradeScopeRef.current;
+    const reason = disputeReason.trim();
+    if (!reason || reason.length > 500) {
+      setError(t("disputeInvalid"));
+      return;
+    }
+    setError(null);
+    setNotice(null);
+    setBusyAction("dispute");
+    try {
+      const response = await requestWithSession((tokens, requestLocale) =>
+        openMobileTradeDispute(tokens, requestLocale, requestId, reason));
+      if (activeTradeScopeRef.current !== operationScope) return;
+      queryClient.setQueryData(
+        ["mobile-trade", user?.id ?? "anonymous", requestId, locale],
+        response,
+      );
+      setDisputeReason("");
+      setNotice(t("disputeSubmitted"));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["mobile-trades"] }),
+        queryClient.invalidateQueries({ queryKey: ["mobile-notifications"] }),
+      ]);
+    } catch (caught) {
+      if (activeTradeScopeRef.current === operationScope) {
+        setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      }
+    } finally {
+      if (activeTradeScopeRef.current === operationScope) setBusyAction(null);
+    }
+  }
+
+  async function submitReview() {
+    if (busyAction) return;
+    const operationScope = activeTradeScopeRef.current;
+    const comment = reviewComment.trim();
+    if (!Number.isInteger(reviewRating) || reviewRating < 1 || reviewRating > 5 || !comment || comment.length > 500) {
+      setError(t("reviewInvalid"));
+      return;
+    }
+    setError(null);
+    setNotice(null);
+    setBusyAction("review");
+    try {
+      const response = await requestWithSession((tokens, requestLocale) =>
+        submitMobileBuyerReview(tokens, requestLocale, requestId, reviewRating, comment));
+      if (activeTradeScopeRef.current !== operationScope) return;
+      queryClient.setQueryData(
+        ["mobile-trade", user?.id ?? "anonymous", requestId, locale],
+        response,
+      );
+      setReviewComment("");
+      setNotice(t("reviewSubmitted"));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["mobile-trades"] }),
+        queryClient.invalidateQueries({ queryKey: ["mobile-notifications"] }),
+      ]);
+    } catch (caught) {
+      if (activeTradeScopeRef.current === operationScope) {
+        setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      }
+    } finally {
+      if (activeTradeScopeRef.current === operationScope) setBusyAction(null);
+    }
+  }
+
+  async function submitReviewResponse() {
+    if (busyAction) return;
+    const operationScope = activeTradeScopeRef.current;
+    const message = reviewResponse.trim();
+    if (!message || message.length > 500) {
+      setError(t("reviewInvalid"));
+      return;
+    }
+    setError(null);
+    setNotice(null);
+    setBusyAction("review-response");
+    try {
+      const response = await requestWithSession((tokens, requestLocale) =>
+        submitMobileSellerReviewResponse(tokens, requestLocale, requestId, message));
+      if (activeTradeScopeRef.current !== operationScope) return;
+      queryClient.setQueryData(
+        ["mobile-trade", user?.id ?? "anonymous", requestId, locale],
+        response,
+      );
+      setReviewResponse("");
+      setNotice(t("responseSubmitted"));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["mobile-trades"] }),
+        queryClient.invalidateQueries({ queryKey: ["mobile-notifications"] }),
+      ]);
+    } catch (caught) {
+      if (activeTradeScopeRef.current === operationScope) {
+        setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      }
+    } finally {
+      if (activeTradeScopeRef.current === operationScope) setBusyAction(null);
     }
   }
 
@@ -227,13 +434,15 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
       </SafeAreaView>
     );
   }
-  if (query.isError || !query.data?.trade) {
+  if (!query.data?.trade) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.errorState}>
-          <Text style={[styles.title, isRTL && styles.rtlText]}>{t("genericError")}</Text>
+          <Text accessibilityRole="alert" style={[styles.title, isRTL && styles.rtlText]}>
+            {query.error instanceof Error ? query.error.message : t("genericError")}
+          </Text>
           <GoldButton onPress={() => void query.refetch()}>{t("refresh")}</GoldButton>
-          <GoldButton onPress={() => router.back()} variant="ghost">{t("back")}</GoldButton>
+          <GoldButton onPress={goBack} variant="ghost">{t("back")}</GoldButton>
         </View>
       </SafeAreaView>
     );
@@ -249,11 +458,12 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flex}>
         <ScrollView
           contentContainerStyle={styles.content}
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
           keyboardShouldPersistTaps="handled"
           refreshControl={<RefreshControl onRefresh={() => void refreshTrade()} refreshing={query.isRefetching} tintColor={colors.gold} />}
         >
         <View style={[styles.topRow, isRTL && styles.rowReverse]}>
-          <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.backButton}>
+          <Pressable accessibilityRole="button" onPress={goBack} style={styles.backButton}>
             <Text style={styles.backLabel}>{isRTL ? "›" : "‹"} {t("back")}</Text>
           </Pressable>
           <Text style={styles.screenLabel}>{t("tradeRoom")}</Text>
@@ -262,7 +472,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         <View style={styles.heroCard}>
           <View style={[styles.heroTop, isRTL && styles.rowReverse]}>
             <View style={styles.heroIdentity}>
-              <Text style={[styles.tradeNumber, isRTL && styles.rtlText]}>
+              <Text accessibilityRole="header" style={[styles.tradeNumber, isRTL && styles.rtlText]}>
                 {t("tradeNumber")} #{trade.displayNumber ?? trade.id.slice(-6).toUpperCase()}
               </Text>
               <Text style={[styles.counterparty, isRTL && styles.rtlText]}>{t("tradingWith")} {trade.counterpartyDisplayName}</Text>
@@ -274,6 +484,28 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           <Text style={[styles.instruction, isRTL && styles.rtlText]}>{stageInstruction(trade.status, t)}</Text>
         </View>
 
+        {trade.status === "usdt_release_pending" && visibleTimeRemaining !== null ? (
+          <View style={[
+            styles.deadlineCard,
+            visibleTimeRemaining <= 300 && styles.deadlineCardWarning,
+            visibleTimeRemaining <= 0 && styles.deadlineCardOverdue,
+          ]}>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>
+              {t("releaseDeadline")}
+            </Text>
+            <Text style={[styles.deadlineLabel, isRTL && styles.rtlText]}>{t("timeRemaining")}</Text>
+            <Text
+              accessibilityLabel={`${t("timeRemaining")}: ${formatTradeCountdown(visibleTimeRemaining)}`}
+              style={[styles.deadlineValue, visibleTimeRemaining <= 0 && styles.deadlineValueOverdue]}
+            >
+              {formatTradeCountdown(visibleTimeRemaining)}
+            </Text>
+            <Text style={[styles.deadlineBody, isRTL && styles.rtlText]}>
+              {visibleTimeRemaining <= 0 ? t("releaseOverdue") : t("releaseDeadlineBody")}
+            </Text>
+          </View>
+        ) : null}
+
         <View style={styles.summaryCard}>
           <DetailRow isRTL={isRTL} label={t("tradeAmount")} value={`${trade.usdtAmount} USDT`} />
           <DetailRow isRTL={isRTL} label={t("unitPrice")} value={`${trade.currency === "ILS" ? "₪" : trade.currency} ${trade.pricePerUsdt}`} />
@@ -284,14 +516,14 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
 
         {trade.receivingWalletAddress ? (
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("receivingWalletLabel")} · {trade.network}</Text>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("receivingWalletLabel")} · {trade.network}</Text>
             <Text selectable style={[styles.wallet, isRTL && styles.rtlText]}>{trade.receivingWalletAddress}</Text>
           </View>
         ) : null}
 
         {actions.canViewBankDetails ? (
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("bankDetails")}</Text>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("bankDetails")}</Text>
             {bankDetails ? (
               <View style={styles.bankRows}>
                 <DetailRow isRTL={isRTL} label={t("accountHolder")} value={bankDetails.accountHolderName} />
@@ -356,13 +588,136 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         </View>
 
         {error ? <Text accessibilityRole="alert" style={[styles.error, isRTL && styles.rtlText]}>{error}</Text> : null}
+        {notice ? (
+          <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={[styles.notice, isRTL && styles.rtlText]}>
+            {notice}
+          </Text>
+        ) : null}
+
+        {trade.hasOpenDispute ? (
+          <View style={styles.disputeCard}>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>
+              {t("disputeHelpTitle")}
+            </Text>
+            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("disputeOpened")}</Text>
+          </View>
+        ) : actions.canOpenDispute ? (
+          <View style={styles.disputeCard}>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>
+              {t("disputeHelpTitle")}
+            </Text>
+            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("disputeHelpBody")}</Text>
+            <TextInput
+              accessibilityLabel={t("disputeReason")}
+              editable={!actionsDisabled}
+              maxLength={500}
+              multiline
+              onChangeText={setDisputeReason}
+              placeholder={t("disputePlaceholder")}
+              placeholderTextColor={colors.textMuted}
+              style={[styles.longInput, isRTL && styles.rtlInput]}
+              textAlignVertical="top"
+              value={disputeReason}
+            />
+            <GoldButton
+              disabled={!disputeReason.trim() || actionsDisabled}
+              loading={busyAction === "dispute"}
+              onPress={() => void openDispute()}
+              variant="outline"
+            >
+              {t("submitDispute")}
+            </GoldButton>
+          </View>
+        ) : null}
+
+        {actions.canSubmitReview ? (
+          <View style={styles.section}>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>
+              {t("reviewTitle")}
+            </Text>
+            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("reviewBody")}</Text>
+            <RatingSelector
+              disabled={actionsDisabled}
+              isRTL={isRTL}
+              label={t("reviewRating")}
+              onChange={setReviewRating}
+              value={reviewRating}
+            />
+            <TextInput
+              accessibilityLabel={t("reviewComment")}
+              editable={!actionsDisabled}
+              maxLength={500}
+              multiline
+              onChangeText={setReviewComment}
+              placeholder={t("reviewPlaceholder")}
+              placeholderTextColor={colors.textMuted}
+              style={[styles.longInput, isRTL && styles.rtlInput]}
+              textAlignVertical="top"
+              value={reviewComment}
+            />
+            <GoldButton
+              disabled={!reviewComment.trim() || actionsDisabled}
+              loading={busyAction === "review"}
+              onPress={() => void submitReview()}
+            >
+              {t("submitReview")}
+            </GoldButton>
+          </View>
+        ) : null}
+
+        {trade.buyerReview ? (
+          <View style={styles.section}>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>
+              {trade.side === "buyer" ? t("yourReview") : t("reviewTitle")}
+            </Text>
+            <Text
+              accessibilityLabel={`${trade.buyerReview.rating} ${t("reviewRating")}`}
+              style={[styles.reviewStars, isRTL && styles.rtlText]}
+            >
+              {"★".repeat(trade.buyerReview.rating)}{"☆".repeat(5 - trade.buyerReview.rating)}
+            </Text>
+            <Text style={[styles.reviewComment, isRTL && styles.rtlText]}>{trade.buyerReview.comment}</Text>
+            {trade.buyerReview.sellerResponse ? (
+              <View style={styles.responseCard}>
+                <Text style={[styles.responseLabel, isRTL && styles.rtlText]}>{t("sellerResponse")}</Text>
+                <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>
+                  {trade.buyerReview.sellerResponse.message}
+                </Text>
+              </View>
+            ) : actions.canRespondToReview ? (
+              <View style={styles.responseComposer}>
+                <Text style={[styles.responseLabel, isRTL && styles.rtlText]}>{t("respondToReview")}</Text>
+                <TextInput
+                  accessibilityLabel={t("respondToReview")}
+                  editable={!actionsDisabled}
+                  maxLength={500}
+                  multiline
+                  onChangeText={setReviewResponse}
+                  placeholder={t("responsePlaceholder")}
+                  placeholderTextColor={colors.textMuted}
+                  style={[styles.longInput, isRTL && styles.rtlInput]}
+                  textAlignVertical="top"
+                  value={reviewResponse}
+                />
+                <GoldButton
+                  disabled={!reviewResponse.trim() || actionsDisabled}
+                  loading={busyAction === "review-response"}
+                  onPress={() => void submitReviewResponse()}
+                  variant="outline"
+                >
+                  {t("submitResponse")}
+                </GoldButton>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
 
         {(actions.canUploadPaymentEvidence || actions.canUploadReleaseEvidence) ? (
           <Text style={[styles.privacyNote, isRTL && styles.rtlText]}>◈ {t("evidencePrivacy")}</Text>
         ) : null}
 
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("tradeChat")}</Text>
+          <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("tradeChat")}</Text>
           <Text style={[styles.chatSafety, isRTL && styles.rtlText]}>{t("chatSafety")}</Text>
           <View style={styles.messageList}>
             {trade.messages.length ? trade.messages.map((message, index) => {
@@ -415,7 +770,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         </View>
 
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("tradeTimeline")}</Text>
+          <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("tradeTimeline")}</Text>
           {trade.timeline.map((event, index) => (
             <View key={`${event.createdAt}-${event.type}-${index}`} style={[styles.timelineRow, isRTL && styles.rowReverse]}>
               <View style={styles.timelineMarker} />
@@ -444,17 +799,24 @@ const styles = StyleSheet.create({
   backLabel: { color: colors.goldBright, fontSize: typography.body, fontWeight: "800" },
   screenLabel: { color: colors.textMuted, fontSize: typography.small, fontWeight: "700" },
   heroCard: { backgroundColor: colors.surface, borderColor: colors.borderGold, borderRadius: radius.lg, borderWidth: 1, gap: spacing.md, padding: spacing.lg },
-  heroTop: { alignItems: "flex-start", flexDirection: "row", gap: spacing.md, justifyContent: "space-between" },
+  heroTop: { alignItems: "flex-start", flexDirection: "row", flexWrap: "wrap", gap: spacing.md, justifyContent: "space-between" },
   heroIdentity: { flex: 1, gap: spacing.xs },
   tradeNumber: { color: colors.text, fontSize: typography.title, fontWeight: "900" },
   counterparty: { color: colors.textMuted, fontSize: typography.small },
   statusBadge: { backgroundColor: "rgba(216, 180, 74, 0.12)", borderColor: colors.borderGold, borderRadius: radius.pill, borderWidth: 1, paddingHorizontal: spacing.md, paddingVertical: 6 },
   statusText: { color: colors.goldBright, fontSize: typography.caption, fontWeight: "900" },
   instruction: { color: colors.text, fontSize: typography.body, lineHeight: 23 },
+  deadlineCard: { backgroundColor: "rgba(216, 180, 74, 0.08)", borderColor: colors.borderGold, borderRadius: radius.lg, borderWidth: 1, gap: spacing.sm, padding: spacing.lg },
+  deadlineCardWarning: { backgroundColor: "rgba(231, 184, 75, 0.12)", borderColor: colors.warning },
+  deadlineCardOverdue: { backgroundColor: "rgba(240, 106, 106, 0.10)", borderColor: colors.danger },
+  deadlineLabel: { color: colors.textMuted, fontSize: typography.small, fontWeight: "700" },
+  deadlineValue: { color: colors.goldBright, fontSize: 36, fontVariant: ["tabular-nums"], fontWeight: "900" },
+  deadlineValueOverdue: { color: colors.danger },
+  deadlineBody: { color: colors.text, fontSize: typography.small, lineHeight: 21 },
   summaryCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg, borderWidth: 1, gap: spacing.md, padding: spacing.lg },
-  detailRow: { alignItems: "flex-start", flexDirection: "row", gap: spacing.md, justifyContent: "space-between" },
-  detailLabel: { color: colors.textMuted, flex: 1, fontSize: typography.small },
-  detailValue: { color: colors.text, flex: 1.4, fontSize: typography.small, fontWeight: "800", textAlign: "right" },
+  detailRow: { alignItems: "flex-start", flexDirection: "row", flexWrap: "wrap", gap: spacing.md, justifyContent: "space-between" },
+  detailLabel: { color: colors.textMuted, flex: 1, fontSize: typography.small, minWidth: 110 },
+  detailValue: { color: colors.text, flex: 1.4, fontSize: typography.small, fontWeight: "800", minWidth: 130, textAlign: "right" },
   section: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg, borderWidth: 1, gap: spacing.md, padding: spacing.lg },
   sectionTitle: { color: colors.text, fontSize: typography.section, fontWeight: "900" },
   wallet: { backgroundColor: colors.surfaceRaised, borderRadius: radius.sm, color: colors.goldBright, fontSize: typography.small, lineHeight: 20, padding: spacing.md },
@@ -462,6 +824,21 @@ const styles = StyleSheet.create({
   safetyNote: { color: colors.warning, fontSize: typography.caption, lineHeight: 18 },
   actions: { gap: spacing.md },
   error: { color: colors.danger, fontSize: typography.small, lineHeight: 20 },
+  notice: { color: colors.success, fontSize: typography.small, fontWeight: "800", lineHeight: 21 },
+  sectionBody: { color: colors.textMuted, fontSize: typography.body, lineHeight: 24 },
+  disputeCard: { backgroundColor: "rgba(231, 184, 75, 0.08)", borderColor: colors.warning, borderRadius: radius.lg, borderWidth: 1, gap: spacing.md, padding: spacing.lg },
+  longInput: { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, color: colors.text, fontSize: typography.body, minHeight: 112, paddingHorizontal: spacing.md, paddingVertical: spacing.md },
+  ratingRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  ratingOption: { alignItems: "center", backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, flex: 1, justifyContent: "center", minHeight: 52, minWidth: 48, paddingHorizontal: spacing.xs },
+  ratingOptionSelected: { backgroundColor: "rgba(216, 180, 74, 0.14)", borderColor: colors.gold },
+  ratingOptionText: { color: colors.textMuted, fontSize: typography.small, fontWeight: "800" },
+  ratingOptionTextSelected: { color: colors.goldBright },
+  reviewStars: { color: colors.goldBright, fontSize: typography.title, letterSpacing: 2 },
+  reviewComment: { color: colors.text, fontSize: typography.body, lineHeight: 24 },
+  responseCard: { backgroundColor: colors.surfaceRaised, borderRadius: radius.md, gap: spacing.sm, padding: spacing.md },
+  responseComposer: { gap: spacing.md },
+  responseLabel: { color: colors.goldBright, fontSize: typography.small, fontWeight: "900" },
+  pressed: { opacity: 0.76 },
   privacyNote: { color: colors.goldMuted, fontSize: typography.caption, textAlign: "center" },
   chatSafety: { color: colors.warning, fontSize: typography.caption, lineHeight: 18 },
   messageList: { gap: spacing.sm },
@@ -469,12 +846,12 @@ const styles = StyleSheet.create({
   ownMessage: { alignSelf: "flex-end", backgroundColor: "rgba(216, 180, 74, 0.18)", borderColor: colors.borderGold, borderWidth: 1 },
   counterpartyMessage: { alignSelf: "flex-start", backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderWidth: 1 },
   messageText: { color: colors.text, fontSize: typography.small, lineHeight: 20 },
-  messageTime: { color: colors.textMuted, fontSize: 10 },
+  messageTime: { color: colors.textMuted, fontSize: typography.caption },
   systemMessage: { alignItems: "center", gap: spacing.xs, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
   systemMessageText: { color: colors.goldMuted, fontSize: typography.caption, lineHeight: 18, textAlign: "center" },
   noMessages: { color: colors.textMuted, fontSize: typography.small, paddingVertical: spacing.sm, textAlign: "center" },
-  composer: { alignItems: "flex-end", flexDirection: "row", gap: spacing.sm },
-  messageInput: { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, color: colors.text, flex: 1, fontSize: typography.small, maxHeight: 120, minHeight: 52, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, textAlignVertical: "top" },
+  composer: { alignItems: "flex-end", flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  messageInput: { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, color: colors.text, flex: 1, fontSize: typography.small, maxHeight: 120, minHeight: 52, minWidth: 190, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, textAlignVertical: "top" },
   rtlInput: { textAlign: "right", writingDirection: "rtl" },
   sendButton: { minHeight: 52, paddingHorizontal: spacing.md },
   timelineRow: { flexDirection: "row", gap: spacing.md },

@@ -11,23 +11,26 @@ import { AuthProvider, useAuth } from "../auth/auth-context";
 import { LocaleProvider } from "../i18n/locale-context";
 import { NetworkProvider } from "../network/network-context";
 import { isPrivateMobileQueryKey } from "../query/private-query-cache";
+import { AcademyProgressProvider } from "../academy/academy-progress-context";
+import { BiometricLockProvider, useBiometricLock } from "../security/biometric-lock-context";
 
 function NativeQueryBoundary({ children }: PropsWithChildren) {
   const queryClient = useQueryClient();
   const { status, user } = useAuth();
+  const { isLocked } = useBiometricLock();
   const previousUserId = useRef<string | null>(null);
   const userId = user?.id ?? null;
 
   useEffect(() => {
-    focusManager.setFocused(AppState.currentState === "active");
+    focusManager.setFocused(AppState.currentState === "active" && !isLocked);
     const subscription = AppState.addEventListener("change", (nextState) => {
-      focusManager.setFocused(nextState === "active");
+      focusManager.setFocused(nextState === "active" && !isLocked);
     });
     return () => {
       subscription.remove();
       focusManager.setFocused(undefined);
     };
-  }, []);
+  }, [isLocked]);
 
   useEffect(() => {
     const nextUserId = status === "authenticated" ? userId : null;
@@ -58,7 +61,11 @@ export function AppProviders({ children }: PropsWithChildren) {
         <NetworkProvider>
           <QueryClientProvider client={queryClient}>
             <AuthProvider>
-              <NativeQueryBoundary>{children}</NativeQueryBoundary>
+              <BiometricLockProvider>
+                <AcademyProgressProvider>
+                  <NativeQueryBoundary>{children}</NativeQueryBoundary>
+                </AcademyProgressProvider>
+              </BiometricLockProvider>
             </AuthProvider>
           </QueryClientProvider>
         </NetworkProvider>

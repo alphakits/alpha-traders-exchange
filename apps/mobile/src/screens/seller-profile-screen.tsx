@@ -17,6 +17,7 @@ import { getMobileSellerProfile } from "../api/mobile-api";
 import { useAuth } from "../auth/auth-context";
 import { GoldButton } from "../components/gold-button";
 import { useLocale } from "../i18n/locale-context";
+import { safeRemoteImageUrl } from "../media/safe-media-url";
 
 type Translator = ReturnType<typeof useLocale>["t"];
 
@@ -47,14 +48,29 @@ function Metric({ label, value, isRTL }: { label: string; value: string; isRTL: 
   );
 }
 
+function finiteMetric(value: number) {
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
+function memberYear(value: string, locale: "ar" | "en") {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "—";
+  return new Intl.DateTimeFormat(locale === "ar" ? "ar-IL" : "en-IL", {
+    year: "numeric",
+  }).format(date);
+}
+
 export function SellerProfileScreen({ listingId }: { listingId: string }) {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, requestWithSession } = useAuth();
   const { locale, isRTL, t } = useLocale();
   const query = useQuery({
     enabled: Boolean(listingId),
-    queryKey: ["mobile-seller-profile", listingId, locale],
-    queryFn: ({ signal }) => getMobileSellerProfile(listingId, locale, signal),
+    queryKey: ["mobile-seller-profile", user?.id ?? "public", listingId, locale],
+    queryFn: ({ signal }) => user
+      ? requestWithSession((tokens, requestLocale) =>
+          getMobileSellerProfile(listingId, requestLocale, signal, tokens))
+      : getMobileSellerProfile(listingId, locale, signal),
     staleTime: 15_000,
   });
 
@@ -81,18 +97,20 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <Pressable accessibilityRole="button" onPress={goBack} style={styles.backButton}>
-          <Text style={styles.backLabel}>‹ {t("back")}</Text>
+          <Text style={styles.backLabel}>{isRTL ? "›" : "‹"} {t("back")}</Text>
         </Pressable>
         <ActivityIndicator color={colors.gold} size="large" style={styles.loader} />
       </SafeAreaView>
     );
   }
 
-  if (query.isError || !query.data?.seller) {
+  if (!query.data?.seller) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.errorState}>
-          <Text style={[styles.errorTitle, isRTL && styles.rtlText]}>{t("genericError")}</Text>
+          <Text accessibilityRole="alert" style={[styles.errorTitle, isRTL && styles.rtlText]}>
+            {query.error instanceof Error ? query.error.message : t("genericError")}
+          </Text>
           <GoldButton onPress={() => void query.refetch()}>{t("refresh")}</GoldButton>
           <GoldButton onPress={goBack} variant="ghost">{t("back")}</GoldButton>
         </View>
@@ -101,8 +119,10 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
   }
 
   const seller = query.data.seller;
-  const joinedYear = new Date(seller.memberSince).getUTCFullYear();
-  const rating = seller.averageRating > 0 ? seller.averageRating.toFixed(1) : "—";
+  const joinedYear = memberYear(seller.memberSince, locale);
+  const profilePhotoUrl = safeRemoteImageUrl(seller.profilePhotoUrl);
+  const averageRating = finiteMetric(seller.averageRating);
+  const rating = averageRating > 0 ? averageRating.toFixed(1) : "—";
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -115,15 +135,15 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
         </View>
 
         <View style={[styles.heroCard, isRTL && styles.rowReverse]}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarFallback}>{seller.displayName.trim().slice(0, 1).toUpperCase() || "A"}</Text>
-            {seller.profilePhotoUrl ? (
-              <Image accessibilityLabel={seller.displayName} alt={seller.displayName} source={{ uri: seller.profilePhotoUrl }} style={styles.avatarImage} />
+          <View accessible={false} style={styles.avatar}>
+            <Text accessible={false} style={styles.avatarFallback}>{seller.displayName.trim().slice(0, 1).toUpperCase() || "A"}</Text>
+            {profilePhotoUrl ? (
+              <Image accessible={false} alt="" source={{ uri: profilePhotoUrl }} style={styles.avatarImage} />
             ) : null}
           </View>
           <View style={styles.identity}>
             <View style={[styles.nameRow, isRTL && styles.rowReverse]}>
-              <Text style={[styles.name, isRTL && styles.rtlText]}>{seller.displayName}</Text>
+              <Text accessibilityRole="header" style={[styles.name, isRTL && styles.rtlText]}>{seller.displayName}</Text>
               {seller.isEmailVerified ? <Text style={styles.verified}>✓</Text> : null}
             </View>
             <View style={[styles.statusRow, isRTL && styles.rowReverse]}>
@@ -137,11 +157,11 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
 
         <View style={styles.metricsGrid}>
           <Metric isRTL={isRTL} label={t("trustedVolume")} value={seller.publicVolumeRange} />
-          <Metric isRTL={isRTL} label={t("completedTrades")} value={String(seller.completedTrades)} />
+          <Metric isRTL={isRTL} label={t("completedTrades")} value={String(Math.round(finiteMetric(seller.completedTrades)))} />
           <Metric isRTL={isRTL} label={t("rating")} value={`${rating} ★`} />
-          <Metric isRTL={isRTL} label={t("responseTime")} value={`${Math.max(0, Math.round(seller.responseTimeMinutes))} ${t("minutesShort")}`} />
-          <Metric isRTL={isRTL} label={t("completionRate")} value={`${Math.round(seller.completionRate)}%`} />
-          <Metric isRTL={isRTL} label="TRUST" value={String(Math.round(seller.trustScore))} />
+          <Metric isRTL={isRTL} label={t("responseTime")} value={`${Math.round(finiteMetric(seller.responseTimeMinutes))} ${t("minutesShort")}`} />
+          <Metric isRTL={isRTL} label={t("completionRate")} value={`${Math.round(Math.min(100, finiteMetric(seller.completionRate)))}%`} />
+          <Metric isRTL={isRTL} label={t("trustScore")} value={String(Math.round(Math.min(100, finiteMetric(seller.trustScore))))} />
         </View>
 
         {seller.badges.length ? (
@@ -154,7 +174,7 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
 
         {seller.bio || seller.languages.length ? (
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("aboutSeller")}</Text>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("aboutSeller")}</Text>
             {seller.bio ? <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{seller.bio}</Text> : null}
             {seller.languages.length ? (
               <Text style={[styles.sectionMeta, isRTL && styles.rtlText]}>
@@ -165,7 +185,7 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
         ) : null}
 
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>
+          <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>
             {t("sellerReviews")} ({seller.totalReviews})
           </Text>
           {seller.latestReviews.length ? seller.latestReviews.map((review, index) => (
@@ -189,7 +209,9 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
         </View>
 
         <View style={styles.actions}>
-          <GoldButton onPress={() => startTrade("buy")}>{t("buyNow")}</GoldButton>
+          <GoldButton disabled={!seller.canBuyNow} onPress={() => startTrade("buy")}>
+            {seller.isCurrentUser ? t("yourListing") : t("buyNow")}
+          </GoldButton>
           <GoldButton disabled={!seller.canMakeOffer} onPress={() => startTrade("offer")} variant="outline">{t("makeOffer")}</GoldButton>
         </View>
       </ScrollView>
@@ -208,15 +230,15 @@ const styles = StyleSheet.create({
   loader: { flex: 1 },
   errorState: { flex: 1, gap: spacing.lg, justifyContent: "center", padding: spacing.xl },
   errorTitle: { color: colors.text, fontSize: typography.section, fontWeight: "800", textAlign: "center" },
-  heroCard: { alignItems: "center", backgroundColor: colors.surface, borderColor: colors.borderGold, borderRadius: radius.lg, borderWidth: 1, flexDirection: "row", gap: spacing.lg, padding: spacing.lg },
+  heroCard: { alignItems: "center", backgroundColor: colors.surface, borderColor: colors.borderGold, borderRadius: radius.lg, borderWidth: 1, flexDirection: "row", flexWrap: "wrap", gap: spacing.lg, padding: spacing.lg },
   avatar: { alignItems: "center", backgroundColor: colors.surfaceRaised, borderColor: colors.gold, borderRadius: 36, borderWidth: 1.5, height: 72, justifyContent: "center", overflow: "hidden", width: 72 },
   avatarFallback: { color: colors.goldBright, fontSize: 28, fontWeight: "900" },
   avatarImage: { bottom: 0, height: 72, left: 0, position: "absolute", right: 0, top: 0, width: 72 },
-  identity: { flex: 1, gap: spacing.sm },
+  identity: { flex: 1, gap: spacing.sm, minWidth: 180 },
   nameRow: { alignItems: "center", flexDirection: "row", gap: spacing.sm },
   name: { color: colors.text, flexShrink: 1, fontSize: typography.title, fontWeight: "900" },
   verified: { color: colors.success, fontSize: typography.section, fontWeight: "900" },
-  statusRow: { alignItems: "center", flexDirection: "row", gap: spacing.sm },
+  statusRow: { alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   statusDot: { backgroundColor: colors.textMuted, borderRadius: 5, height: 8, width: 8 },
   statusOnline: { backgroundColor: colors.success },
   statusText: { color: colors.textMuted, fontSize: typography.small },

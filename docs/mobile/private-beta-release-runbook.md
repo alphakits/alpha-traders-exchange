@@ -80,12 +80,14 @@ OS version, build URL, and commit SHA; use fictional test identities and data.
 | --- | --- | --- | --- |
 | Install and launch | iOS + Android | iOS + Android | Cold launch, icon, splash, no crash |
 | Authentication | iOS + Android | iOS + Android | Login, invalid login, refresh, logout, reinstall |
+| Biometric lock | iOS + Android | iOS + Android | Enable/disable, cancel/retry, app-switcher mask, background/foreground, changed enrollment |
+| Profile | iOS + Android | iOS + Android | Activity cards, level progress, edit/cancel/save, every privacy switch, avatar fallback, account change |
 | Recovery and legal | iOS + Android | iOS + Android | Password recovery, privacy, terms, support, account deletion |
-| Marketplace | iOS + Android | iOS + Android | Refresh, pagination cap, seller profile, listing deep link |
+| Marketplace | iOS + Android | iOS + Android | Refresh, filter/sort reset, filtered pagination, seller profile, listing deep link |
 | Buyer request | iOS + Android | iOS + Android | Buy now, price offer, validation, face-to-face acknowledgement |
 | Seller workspace | iOS + Android | iOS + Android | Role gate, pagination, pause/resume retry, Available/Away/Vacation, trusted full-workspace handoff |
-| Trade Room | iOS + Android | iOS + Android | Both roles, every state transition, chat, bank-detail gate |
-| Evidence | iOS + Android | iOS + Android | Allowed image/PDF, oversize/type rejection, retry |
+| Trade Room | iOS + Android | iOS + Android | Both roles, every state transition, release timer/overdue state, chat, bank-detail gate, dispute eligibility, verified review, seller response |
+| Evidence | iOS + Android | iOS + Android | Allowed image, oversize/type rejection, retry |
 | Recovery | iOS + Android | iOS + Android | Offline, timeout, app kill, background/foreground, expired session |
 | App version | iOS + Android | iOS + Android | Recommended version, HTTP 426, mandatory-update copy and support link |
 | Accessibility | iOS + Android | iOS + Android | RTL order, text scaling, keyboard, screen-reader labels |

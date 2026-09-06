@@ -19,12 +19,22 @@ export function GoldButton({
   loading = false,
   disabled,
   style,
+  accessibilityLabel,
+  accessibilityState,
   ...props
 }: GoldButtonProps) {
+  const isDisabled = Boolean(disabled || loading);
+  const spokenLabel = accessibilityLabel ?? (typeof children === "string" ? children : undefined);
   return (
     <Pressable
+      accessibilityLabel={spokenLabel}
       accessibilityRole="button"
-      disabled={disabled || loading}
+      accessibilityState={{
+        ...accessibilityState,
+        busy: loading || accessibilityState?.busy,
+        disabled: isDisabled || accessibilityState?.disabled,
+      }}
+      disabled={isDisabled}
       style={(state) => [
         styles.base,
         styles[variant],
@@ -35,7 +45,7 @@ export function GoldButton({
       {...props}
     >
       {loading ? (
-        <ActivityIndicator color={variant === "gold" ? colors.background : colors.gold} />
+        <ActivityIndicator accessible={false} color={variant === "gold" ? colors.background : colors.gold} />
       ) : (
         <Text style={[styles.label, variant === "gold" ? styles.goldLabel : styles.outlineLabel]}>
           {children}

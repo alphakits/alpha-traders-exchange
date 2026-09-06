@@ -1,9 +1,10 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import type { MobileMarketplaceListing } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { useLocale } from "../i18n/locale-context";
 import { GoldButton } from "./gold-button";
 import { mobilePaymentMethodLabel } from "../trades/trade-labels";
+import { safeRemoteImageUrl } from "../media/safe-media-url";
 
 type ListingCardProps = {
   listing: MobileMarketplaceListing;
@@ -23,16 +24,25 @@ function readableNumber(value: string, locale: "ar" | "en") {
 export function ListingCard({ listing, onBuy, onOffer, onSeller }: ListingCardProps) {
   const { locale, isRTL, t } = useLocale();
   const isOnline = listing.seller.onlineStatus === "online";
+  const profilePhotoUrl = safeRemoteImageUrl(listing.seller.profilePhotoUrl);
   const responseTime = listing.seller.responseTimeMinutes !== undefined
     ? `${Math.max(0, Math.round(listing.seller.responseTimeMinutes))} ${t("minutesShort")}`
     : listing.responseTime;
   return (
     <View style={styles.card}>
       <View style={[styles.sellerRow, isRTL && styles.rowReverse]}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarLabel}>
+        <View accessible={false} style={styles.avatar}>
+          <Text accessible={false} style={styles.avatarLabel}>
             {listing.seller.displayName.trim().slice(0, 1).toUpperCase() || "A"}
           </Text>
+          {profilePhotoUrl ? (
+            <Image
+              accessible={false}
+              alt=""
+              source={{ uri: profilePhotoUrl }}
+              style={styles.avatarImage}
+            />
+          ) : null}
         </View>
         <View style={styles.sellerCopy}>
           <View style={[styles.nameRow, isRTL && styles.rowReverse]}>
@@ -47,6 +57,15 @@ export function ListingCard({ listing, onBuy, onOffer, onSeller }: ListingCardPr
               {isOnline ? t("online") : t("offline")} · {t("verifiedSeller")}
             </Text>
           </View>
+          {listing.seller.rating !== undefined || listing.seller.completedTrades !== undefined ? (
+            <Text style={[styles.sellerMetrics, isRTL && styles.rtlText]}>
+              {listing.seller.rating !== undefined ? `★ ${listing.seller.rating.toFixed(1)}` : ""}
+              {listing.seller.rating !== undefined && listing.seller.completedTrades !== undefined ? " · " : ""}
+              {listing.seller.completedTrades !== undefined
+                ? `${listing.seller.completedTrades} ${t("completedTrades")}`
+                : ""}
+            </Text>
+          ) : null}
         </View>
         {listing.seller.trustScore !== undefined ? (
           <View style={styles.trustBadge}>
@@ -79,6 +98,10 @@ export function ListingCard({ listing, onBuy, onOffer, onSeller }: ListingCardPr
           <Text style={styles.detailValue}>{readableNumber(listing.minimumTrade, locale)} USDT</Text>
         </View>
         <View style={styles.detailPill}>
+          <Text style={styles.detailLabel}>{t("maximum")}</Text>
+          <Text style={styles.detailValue}>{readableNumber(listing.maximumTrade, locale)} USDT</Text>
+        </View>
+        <View style={styles.detailPill}>
           <Text style={styles.detailLabel}>{listing.network}</Text>
           <Text style={styles.detailValue}>{responseTime}</Text>
         </View>
@@ -89,7 +112,9 @@ export function ListingCard({ listing, onBuy, onOffer, onSeller }: ListingCardPr
       </Text>
 
       <View style={styles.actions}>
-        <GoldButton onPress={onBuy}>{t("buyNow")}</GoldButton>
+        <GoldButton disabled={!listing.actions.canBuyNow} onPress={onBuy}>
+          {listing.seller.isCurrentUser ? t("yourListing") : t("buyNow")}
+        </GoldButton>
         <View style={[styles.actionRow, isRTL && styles.rowReverse]}>
           <View style={styles.actionHalf}>
             <GoldButton disabled={!listing.actions.canMakeOffer} onPress={onOffer} variant="outline">{t("makeOffer")}</GoldButton>
@@ -127,12 +152,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 44,
     justifyContent: "center",
+    overflow: "hidden",
     width: 44,
   },
   avatarLabel: {
     color: colors.goldBright,
     fontSize: typography.section,
     fontWeight: "800",
+  },
+  avatarImage: {
+    bottom: 0,
+    height: 44,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+    width: 44,
   },
   sellerCopy: {
     flex: 1,
@@ -179,6 +214,11 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: typography.caption,
   },
+  sellerMetrics: {
+    color: colors.goldMuted,
+    fontSize: typography.caption,
+    lineHeight: 18,
+  },
   trustBadge: {
     alignItems: "center",
     borderColor: colors.borderGold,
@@ -195,7 +235,7 @@ const styles = StyleSheet.create({
   },
   trustLabel: {
     color: colors.goldMuted,
-    fontSize: 8,
+    fontSize: typography.caption,
     fontWeight: "800",
     letterSpacing: 1,
   },
@@ -207,10 +247,13 @@ const styles = StyleSheet.create({
   primaryStats: {
     alignItems: "flex-end",
     flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.md,
     justifyContent: "space-between",
   },
   statBlock: {
     flex: 1,
+    minWidth: 150,
   },
   statLabel: {
     color: colors.textMuted,
@@ -228,6 +271,7 @@ const styles = StyleSheet.create({
   },
   priceBlock: {
     alignItems: "flex-end",
+    minWidth: 110,
   },
   alignStart: {
     alignItems: "flex-start",
@@ -239,6 +283,7 @@ const styles = StyleSheet.create({
   },
   detailRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.sm,
     marginTop: spacing.lg,
   },
@@ -246,6 +291,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceRaised,
     borderRadius: radius.sm,
     flex: 1,
+    minWidth: 130,
     padding: spacing.md,
   },
   detailLabel: {
@@ -270,10 +316,12 @@ const styles = StyleSheet.create({
   },
   actionRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.sm,
   },
   actionHalf: {
     flex: 1,
+    minWidth: 130,
   },
   profileButton: {
     alignItems: "center",
@@ -284,6 +332,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     minHeight: 52,
+    minWidth: 130,
     paddingHorizontal: spacing.sm,
   },
   profileLabel: {

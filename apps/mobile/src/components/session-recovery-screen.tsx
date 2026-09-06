@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { useAuth } from "../auth/auth-context";
@@ -12,18 +12,18 @@ export function SessionRecoveryScreen() {
   const { isRTL, t } = useLocale();
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <BrandMark compact />
         <View style={styles.card}>
           <View style={styles.statusIcon}>
             <Text style={styles.statusIconLabel}>↻</Text>
           </View>
-          <Text style={[styles.title, isRTL && styles.rtlText]}>{t("connectionTitle")}</Text>
+          <Text accessibilityRole="header" style={[styles.title, isRTL && styles.rtlText]}>{t("connectionTitle")}</Text>
           <Text style={[styles.body, isRTL && styles.rtlText]}>{t("connectionBody")}</Text>
           <GoldButton onPress={() => void retryBootstrap()}>{t("retryConnection")}</GoldButton>
         </View>
         <LanguageSwitch />
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -34,7 +34,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    flex: 1,
+    flexGrow: 1,
     gap: spacing.xl,
     justifyContent: "center",
     padding: spacing.xl,

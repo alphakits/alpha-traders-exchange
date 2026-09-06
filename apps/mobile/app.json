@@ -32,7 +32,13 @@
     "plugins": [
       "expo-router",
       "expo-localization",
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true,
+          "faceIDPermission": "Allow Alpha Traders to use Face ID to unlock and protect your app."
+        }
+      ],
       [
         "expo-splash-screen",
         {

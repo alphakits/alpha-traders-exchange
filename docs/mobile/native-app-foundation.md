@@ -82,8 +82,9 @@ and roles from the validated device session.
 
 ### 3. Mobile-safe evidence uploads
 
-The current trade evidence route accepts base64 inside JSON. Before native trade
-flows ship, add multipart upload or a short-lived signed direct-upload flow.
+Implemented for the native client with bounded multipart image uploads. The
+server retains temporary JSON compatibility for an earlier private client, but
+the current app no longer base64-duplicates evidence in JavaScript memory.
 
 Requirements:
 
@@ -147,10 +148,18 @@ mocks that later become production dependencies.
 
 ### Phase 3: academy and refinement
 
-- Academy/lesson experience appropriate for native playback.
+- Academy/lesson experience appropriate for native playback. Completed in
+  source with published-only authenticated APIs, five-tab phone navigation,
+  offline content caching, local progress, quizzes, bookmarks, and notes.
 - Biometric re-entry as a local convenience, never as server authorization.
-- Accessibility, degraded-network UX, app update enforcement, and store release
-  polish.
+  Completed in source with optional per-account enrollment, immediate
+  app-switcher masking, protected SecureStore sentinels, and safe recovery when
+  biometric enrollment changes.
+- Accessibility, degraded-network UX, and app update enforcement. Completed in
+  source with screen-reader structure, explicit financial form labels, loading
+  state announcements, scalable wrapping layouts, readable minimum type sizes,
+  reduced-motion navigation, offline recovery, and mandatory-version handling.
+- Store listing assets, signed-build acceptance, and release-console work.
 
 Admin moderation, announcements, user-role changes, imports/exports, and Discord
 operations remain on the web console until a separate security review approves
@@ -165,9 +174,10 @@ native administration.
 
 (authenticated tabs)
   marketplace
+  academy -> course -> lesson
   trades -> trade room -> evidence/dispute/review
   notifications
-  profile -> settings/security
+  profile -> settings/security/seller workspace
 
 (approved seller)
   seller workspace -> listings/availability
@@ -215,22 +225,62 @@ Completed in source:
 
 - Versioned, device-bound access and rotating refresh sessions.
 - Bilingual marketplace, seller profiles, buyer request creation, participant-
-  only Trade Rooms, chat, bank-detail reveal, and evidence upload.
+  only Trade Rooms, chat, bank-detail reveal, evidence upload, buyer disputes,
+  verified post-trade reviews, and seller review responses.
+- Native evidence is resized, re-encoded to remove embedded photo metadata, and
+  sent as bounded multipart data while the server preserves participant checks,
+  file-signature validation, neutral filenames, and content-derived replay
+  safety.
+- Buyer requests validate network-specific receiving-wallet formats locally
+  with the same portable TRC20 checksum, EVM, and Solana rules enforced by the
+  canonical server path.
+- Server-side native marketplace facets, filtering, and sorting before
+  pagination, with compact screen-reader-labeled controls for small phones.
+  Authenticated responses disable actions on the seller's own listing without
+  exposing seller IDs and are never stored in a shared public cache.
 - Privacy-safe native notification center with unread state, bounded polling,
   capped paginated history, and allowlisted deep links. Marketplace and trade
   collections use the same bounded incremental-loading contract.
 - SecureStore session persistence, account-isolated query caches, foreground
-  refresh, private-beta access/password-recovery handoffs, and legal/account-management
+  refresh, private-beta access/password-recovery handoffs, and legal/advanced-account
   links.
+- Native profile activity and reputation summaries, level progress, everyday
+  profile editing, and six explicit privacy controls. The versioned endpoint
+  derives the account from the device session and omits private contact numbers,
+  commission history, billing data, and internal persistence identifiers.
+- Generation-aware refresh recovery reuses credentials already rotated by a
+  concurrent request and prevents stale work from reviving or clearing a
+  signed-out or replacement account session.
+- Optional per-account Face ID/fingerprint privacy lock. It uses a separate
+  authentication-protected sentinel, masks the navigation tree before app
+  backgrounding, pauses live queries while locked, and requires a fresh sign-in
+  after the operating system invalidates changed biometric enrollment.
+- Canonical USDT release countdown visibility, including warning and overdue
+  guidance without treating the client clock as an authorization boundary.
 - Native connectivity monitoring that pauses server-state fetches while offline,
   resumes and refreshes them after reconnection, and presents bilingual degraded-
   network status without discarding a saved session.
 - Platform-specific minimum-version enforcement on every mobile API surface,
   plus a fail-open startup check and bilingual mandatory-update screen. A known
   mandatory update remains enforced during later network loss.
+- Full bilingual native Academy with published-only authenticated catalog and
+  lesson projections, absolute HTTPS media handoffs, account-isolated offline
+  content/progress, course resume state, lesson requirements, quizzes,
+  bookmarks, notes, and previous/next navigation. The tab bar stays at five
+  destinations on small phones; approved sellers enter their native workspace
+  from Profile.
+- Native accessibility guardrails covering headings, form controls, busy states,
+  44–52 point touch targets, larger base caption sizes, wrapping financial
+  layouts, scroll-safe recovery surfaces, RTL-aware navigation motion, modal
+  biometric masking, and operating-system reduced-motion settings.
 - Role-gated approved-seller workspace with bounded private listing history,
   retry-safe pause/resume actions, availability controls, and a fixed trusted
   handoff for creation, financial edits, bank management, and commissions.
+- Optional-session marketplace and seller-profile responses consistently block
+  self-trades on every native entry path, remain free of seller identifiers,
+  constrain remote images to credential-free HTTPS, and purge personalized
+  caches when the account changes. Trade-local sensitive state also resets on
+  account or route changes and ignores late responses from an older Trade Room.
 - Automated native type-check and iOS/Android export inside the repository
   release gate, plus pinned Expo Doctor validation for app configuration and
   duplicate native-module detection.

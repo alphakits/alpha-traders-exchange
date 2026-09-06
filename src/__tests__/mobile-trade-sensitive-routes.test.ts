@@ -130,6 +130,56 @@ describe("mobile trade sensitive routes", () => {
     expect(mocks.uploadTradeEvidence).not.toHaveBeenCalled();
   });
 
+  it("accepts a bounded multipart image without trusting client file metadata", async () => {
+    const form = new FormData();
+    form.set("side", "buyer");
+    form.set(
+      "evidence",
+      new File([Uint8Array.from([0xff, 0xd8, 0xff, 0xd9])], "private-phone-number.jpg", {
+        type: "image/jpeg",
+      }),
+    );
+    const multipartHeaders = { ...headers() } as Record<string, string>;
+    delete multipartHeaders["content-type"];
+    const request = new NextRequest("https://www.alphatraders.co.il/api/mobile/v1/trades/purchase-1/evidence", {
+      method: "POST",
+      headers: multipartHeaders,
+      body: form,
+    });
+
+    const response = await uploadEvidence(request, { params: Promise.resolve({ requestId: "purchase-1" }) });
+
+    expect(response.status).toBe(200);
+    expect(mocks.uploadTradeEvidence).toHaveBeenCalledWith(expect.objectContaining({
+      actorUserId: "buyer-1",
+      side: "buyer",
+      mimeType: "image/jpeg",
+      sizeBytes: 4,
+      contentBase64: "/9j/2Q==",
+      fileName: "mobile-payment-evidence",
+    }));
+    expect(JSON.stringify(mocks.uploadTradeEvidence.mock.calls[0]?.[0])).not.toContain("private-phone-number");
+  });
+
+  it("rejects unsupported multipart content before the evidence store", async () => {
+    const form = new FormData();
+    form.set("side", "buyer");
+    form.set("evidence", new File(["not evidence"], "notes.txt", { type: "text/plain" }));
+    const multipartHeaders = { ...headers() } as Record<string, string>;
+    delete multipartHeaders["content-type"];
+    const request = new NextRequest("https://www.alphatraders.co.il/api/mobile/v1/trades/purchase-1/evidence", {
+      method: "POST",
+      headers: multipartHeaders,
+      body: form,
+    });
+
+    const response = await uploadEvidence(request, { params: Promise.resolve({ requestId: "purchase-1" }) });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "EVIDENCE_INVALID" } });
+    expect(mocks.uploadTradeEvidence).not.toHaveBeenCalled();
+  });
+
   it("uses neutral server-owned evidence metadata and ignores a forged filename", async () => {
     const request = new NextRequest("https://www.alphatraders.co.il/api/mobile/v1/trades/purchase-1/evidence", {
       method: "POST",

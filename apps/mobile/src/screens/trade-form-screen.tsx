@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,6 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { getWalletAddressValidationError } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import {
   createMobileTrade,
@@ -45,9 +47,10 @@ export function TradeFormScreen({
   const { user, requestWithSession } = useAuth();
   const { locale, isRTL, t } = useLocale();
   const market = useQuery({
-    enabled: Boolean(listingId),
-    queryKey: ["mobile-marketplace-listing", listingId, locale],
-    queryFn: ({ signal }) => getMobileMarketplaceListing(listingId, locale, signal),
+    enabled: Boolean(listingId && user),
+    queryKey: ["mobile-marketplace-listing", user?.id ?? "public", listingId, locale],
+    queryFn: ({ signal }) => requestWithSession((tokens, requestLocale) =>
+      getMobileMarketplaceListing(listingId, requestLocale, signal, tokens)),
     staleTime: 5_000,
   });
   const listing = market.data?.listings[0];
@@ -58,6 +61,9 @@ export function TradeFormScreen({
   const [safetyAcknowledged, setSafetyAcknowledged] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const formScope = `${user?.id ?? "anonymous"}:${listingId}:${mode}`;
+  const activeFormScopeRef = useRef(formScope);
+  activeFormScopeRef.current = formScope;
 
   useEffect(() => {
     if (!user) {
@@ -67,6 +73,16 @@ export function TradeFormScreen({
       });
     }
   }, [listingId, mode, router, user]);
+
+  useEffect(() => {
+    setAmount("");
+    setWalletAddress("");
+    setPaymentMethod("");
+    setOfferedPrice("");
+    setSafetyAcknowledged(false);
+    setIsSubmitting(false);
+    setError(null);
+  }, [formScope]);
 
   useEffect(() => {
     if (!listing) return;
@@ -80,11 +96,20 @@ export function TradeFormScreen({
   const isFaceToFace = paymentMethod === "Face-to-Face (Meet in Person)";
   const selectedPrice = mode === "offer" ? numericValue(offeredPrice) : numericValue(listing?.price ?? "0");
   const estimatedTotal = numericValue(amount) * selectedPrice * 1.01;
+  const walletValidationError = listing
+    ? getWalletAddressValidationError(listing.network, walletAddress)
+    : null;
+  const walletIsInvalid = Boolean(walletAddress.trim() && walletValidationError);
+  const walletGuidance = listing?.network === "ERC20" || listing?.network === "BEP20"
+    ? t("evmWalletHint")
+    : listing?.network === "TRC20"
+      ? t("tronWalletHint")
+      : t("solWalletHint");
   const amountRange = listing
     ? `${listing.minimumTrade}–${listing.maximumTrade} USDT`
     : "";
   const formIsValid = useMemo(() => {
-    if (!listing || !user || !paymentMethod || !walletAddress.trim()) return false;
+    if (!listing || listing.seller.isCurrentUser || !user || !paymentMethod || walletValidationError) return false;
     const value = numericValue(amount);
     const minimum = numericValue(listing.minimumTrade);
     const available = numericValue(listing.availableAmount);
@@ -98,13 +123,19 @@ export function TradeFormScreen({
       if (listing.currency !== "ILS" || offer <= 0 || offer >= price || offer < price - 0.35) return false;
     }
     return true;
-  }, [amount, isFaceToFace, listing, mode, offeredPrice, paymentMethod, safetyAcknowledged, user, walletAddress]);
+  }, [amount, isFaceToFace, listing, mode, offeredPrice, paymentMethod, safetyAcknowledged, user, walletValidationError]);
+
+  const goBack = useCallback(() => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/(tabs)");
+  }, [router]);
 
   async function submit() {
     if (!listing || !formIsValid) {
       setError(t("invalidTradeForm"));
       return;
     }
+    const operationScope = activeFormScopeRef.current;
     setError(null);
     setIsSubmitting(true);
     try {
@@ -117,25 +148,49 @@ export function TradeFormScreen({
         offeredPrice: mode === "offer" ? offeredPrice.trim() : undefined,
         safetyAcknowledged,
       }));
+      if (activeFormScopeRef.current !== operationScope) return;
       await queryClient.invalidateQueries({ queryKey: ["mobile-trades"] });
+      if (activeFormScopeRef.current !== operationScope) return;
       router.replace({ pathname: "/trade/[requestId]", params: { requestId: response.trade.id } });
     } catch (caught) {
-      setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      if (activeFormScopeRef.current === operationScope) {
+        setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      }
     } finally {
-      setIsSubmitting(false);
+      if (activeFormScopeRef.current === operationScope) setIsSubmitting(false);
     }
   }
 
   if (market.isLoading || !user) {
-    return <SafeAreaView style={styles.safeArea} />;
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <ActivityIndicator accessibilityLabel={t("loading")} color={colors.gold} size="large" style={styles.loader} />
+      </SafeAreaView>
+    );
   }
 
-  if (!listing) {
+  if (market.isError && !market.data) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.unavailable}>
-          <Text style={[styles.title, isRTL && styles.rtlText]}>{t("currentListingUnavailable")}</Text>
-          <GoldButton onPress={() => router.back()} variant="outline">{t("back")}</GoldButton>
+          <Text accessibilityRole="alert" style={[styles.title, isRTL && styles.rtlText]}>
+            {market.error instanceof Error ? market.error.message : t("genericError")}
+          </Text>
+          <GoldButton onPress={() => void market.refetch()}>{t("refresh")}</GoldButton>
+          <GoldButton onPress={goBack} variant="outline">{t("back")}</GoldButton>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!listing || listing.seller.isCurrentUser) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.unavailable}>
+          <Text accessibilityRole="alert" style={[styles.title, isRTL && styles.rtlText]}>
+            {listing?.seller.isCurrentUser ? t("ownListingTradeBlocked") : t("currentListingUnavailable")}
+          </Text>
+          <GoldButton onPress={goBack} variant="outline">{t("back")}</GoldButton>
         </View>
       </SafeAreaView>
     );
@@ -143,12 +198,18 @@ export function TradeFormScreen({
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.backButton}>
+      <ScrollView
+        automaticallyAdjustKeyboardInsets
+        contentContainerStyle={styles.content}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <Pressable accessibilityRole="button" disabled={isSubmitting} onPress={goBack} style={styles.backButton}>
           <Text style={styles.backLabel}>{isRTL ? "›" : "‹"} {t("back")}</Text>
         </Pressable>
         <View style={styles.heading}>
-          <Text style={[styles.title, isRTL && styles.rtlText]}>{mode === "offer" ? t("offerTitle") : t("buyTitle")}</Text>
+          <Text accessibilityRole="header" style={[styles.title, isRTL && styles.rtlText]}>{mode === "offer" ? t("offerTitle") : t("buyTitle")}</Text>
           <Text style={[styles.seller, isRTL && styles.rtlText]}>{listing.seller.displayName} · {listing.network}</Text>
         </View>
 
@@ -161,6 +222,9 @@ export function TradeFormScreen({
           <View style={styles.field}>
             <Text style={[styles.label, isRTL && styles.rtlText]}>{t("tradeAmount")}</Text>
             <TextInput
+              accessibilityHint={`${t("amountHint")}: ${amountRange}`}
+              accessibilityLabel={t("tradeAmount")}
+              editable={!isSubmitting}
               inputMode="decimal"
               onChangeText={(value) => setAmount(normalizeDecimalInput(value, 6))}
               placeholder={listing.minimumTrade}
@@ -175,6 +239,9 @@ export function TradeFormScreen({
             <View style={styles.field}>
               <Text style={[styles.label, isRTL && styles.rtlText]}>{t("offerPrice")}</Text>
               <TextInput
+                accessibilityHint={t("priceOfferHint")}
+                accessibilityLabel={t("offerPrice")}
+                editable={!isSubmitting}
                 inputMode="decimal"
                 onChangeText={(value) => setOfferedPrice(normalizeDecimalInput(value, 2))}
                 placeholder="0.00"
@@ -188,11 +255,12 @@ export function TradeFormScreen({
 
           <View style={styles.field}>
             <Text style={[styles.label, isRTL && styles.rtlText]}>{t("selectPayment")}</Text>
-            <View style={styles.options}>
+            <View accessibilityRole="radiogroup" style={styles.options}>
               {listing.paymentMethods.map((method) => (
                 <Pressable
                   accessibilityRole="radio"
-                  accessibilityState={{ checked: paymentMethod === method }}
+                  accessibilityState={{ checked: paymentMethod === method, disabled: isSubmitting }}
+                  disabled={isSubmitting}
                   key={method}
                   onPress={() => {
                     setPaymentMethod(method);
@@ -211,15 +279,25 @@ export function TradeFormScreen({
           <View style={styles.field}>
             <Text style={[styles.label, isRTL && styles.rtlText]}>{t("receivingWallet")} · {listing.network}</Text>
             <TextInput
+              accessibilityLabel={`${t("receivingWallet")} · ${listing.network}`}
+              accessibilityHint={walletGuidance}
+              aria-invalid={walletIsInvalid}
               autoCapitalize="none"
               autoCorrect={false}
+              editable={!isSubmitting}
               multiline
               onChangeText={setWalletAddress}
               placeholder={t("walletPlaceholder")}
               placeholderTextColor={colors.textMuted}
-              style={[styles.input, styles.walletInput, isRTL && styles.inputRtl]}
+              style={[styles.input, styles.walletInput, walletIsInvalid && styles.inputInvalid, isRTL && styles.inputRtl]}
               value={walletAddress}
             />
+            <Text style={[
+              walletIsInvalid ? styles.fieldError : styles.hint,
+              isRTL && styles.rtlText,
+            ]}>
+              {walletIsInvalid ? t("walletInvalidForNetwork") : walletGuidance}
+            </Text>
           </View>
 
           {isFaceToFace ? (
@@ -228,7 +306,8 @@ export function TradeFormScreen({
               <Text style={[styles.safetyBody, isRTL && styles.rtlText]}>{t("faceSafetyBody")}</Text>
               <Pressable
                 accessibilityRole="checkbox"
-                accessibilityState={{ checked: safetyAcknowledged }}
+                accessibilityState={{ checked: safetyAcknowledged, disabled: isSubmitting }}
+                disabled={isSubmitting}
                 onPress={() => setSafetyAcknowledged((value) => !value)}
                 style={[styles.checkRow, isRTL && styles.rowReverse]}
               >
@@ -259,6 +338,7 @@ export function TradeFormScreen({
 
 const styles = StyleSheet.create({
   safeArea: { backgroundColor: colors.background, flex: 1 },
+  loader: { flex: 1 },
   content: { gap: spacing.lg, padding: spacing.lg, paddingBottom: spacing.hero },
   backButton: { alignSelf: "flex-start", justifyContent: "center", minHeight: 44, paddingHorizontal: spacing.sm },
   backLabel: { color: colors.goldBright, fontSize: typography.body, fontWeight: "800" },
@@ -272,8 +352,10 @@ const styles = StyleSheet.create({
   label: { color: colors.text, fontSize: typography.small, fontWeight: "800" },
   input: { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, color: colors.text, fontSize: typography.body, minHeight: 52, paddingHorizontal: spacing.lg },
   inputRtl: { textAlign: "right", writingDirection: "rtl" },
+  inputInvalid: { borderColor: colors.danger },
   walletInput: { minHeight: 82, paddingTop: spacing.md, textAlignVertical: "top" },
   hint: { color: colors.textMuted, fontSize: typography.caption, lineHeight: 17 },
+  fieldError: { color: colors.danger, fontSize: typography.small, lineHeight: 20 },
   options: { gap: spacing.sm },
   option: { backgroundColor: colors.surfaceRaised, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, minHeight: 46, justifyContent: "center", paddingHorizontal: spacing.md },
   optionSelected: { backgroundColor: "rgba(216, 180, 74, 0.12)", borderColor: colors.gold },

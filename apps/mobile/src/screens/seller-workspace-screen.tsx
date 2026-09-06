@@ -274,7 +274,7 @@ export function SellerWorkspaceScreen() {
           <View style={styles.header}>
             <BrandMark compact />
             <View style={styles.headingBlock}>
-              <Text style={[styles.title, isRTL && styles.rtlText]}>{t("sellerWorkspace")}</Text>
+              <Text accessibilityRole="header" style={[styles.title, isRTL && styles.rtlText]}>{t("sellerWorkspace")}</Text>
               <Text style={[styles.subtitle, isRTL && styles.rtlText]}>{t("sellerWorkspaceBody")}</Text>
             </View>
             <View style={styles.section}>
@@ -331,7 +331,7 @@ export function SellerWorkspaceScreen() {
           <ActivityIndicator color={colors.gold} size="large" style={styles.loader} />
         ) : query.isError ? (
           <View style={styles.empty}>
-            <Text style={[styles.emptyTitle, isRTL && styles.rtlText]}>{t("genericError")}</Text>
+            <Text accessibilityRole="alert" style={[styles.emptyTitle, isRTL && styles.rtlText]}>{t("genericError")}</Text>
             <GoldButton onPress={() => void query.refetch()} variant="outline">{t("refresh")}</GoldButton>
           </View>
         ) : (
@@ -404,6 +404,7 @@ const styles = StyleSheet.create({
   },
   availabilityRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.sm,
   },
   availabilityButton: {
@@ -413,8 +414,10 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     flex: 1,
+    flexBasis: "30%",
     justifyContent: "center",
     minHeight: 48,
+    minWidth: 96,
     paddingHorizontal: spacing.sm,
   },
   availabilityButtonSelected: {
@@ -508,6 +511,7 @@ const styles = StyleSheet.create({
   },
   metricsRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.sm,
   },
   metric: {
@@ -515,6 +519,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     flex: 1,
     gap: spacing.xs,
+    minWidth: 130,
     padding: spacing.md,
   },
   metricLabel: {

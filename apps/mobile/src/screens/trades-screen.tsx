@@ -35,8 +35,15 @@ function shortDate(value: string, locale: "ar" | "en") {
 function TradeCard({ trade, onPress }: { trade: MobileTradeSummary; onPress: () => void }) {
   const { locale, isRTL, t } = useLocale();
   const isTerminal = ["completed", "review_open", "declined", "cancelled"].includes(trade.status);
+  const statusLabel = mobileTradeStatusLabel(trade.status, locale);
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
+    <Pressable
+      accessibilityHint={t("openTrade")}
+      accessibilityLabel={`${t("tradeNumber")} #${trade.displayNumber ?? trade.id.slice(-6).toUpperCase()}. ${statusLabel}. ${trade.usdtAmount} USDT. ${trade.fiatAmount} ${trade.currency}`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.card, pressed && styles.pressed]}
+    >
       <View style={[styles.cardTop, isRTL && styles.rowReverse]}>
         <View style={styles.tradeIdentity}>
           <Text style={[styles.tradeNumber, isRTL && styles.rtlText]}>
@@ -48,7 +55,7 @@ function TradeCard({ trade, onPress }: { trade: MobileTradeSummary; onPress: () 
         </View>
         <View style={[styles.status, isTerminal && styles.statusTerminal]}>
           <Text style={[styles.statusLabel, isTerminal && styles.statusTerminalLabel]}>
-            {mobileTradeStatusLabel(trade.status, locale)}
+            {statusLabel}
           </Text>
         </View>
       </View>
@@ -103,7 +110,7 @@ export function TradesScreen() {
         <View style={styles.header}>
           <BrandMark compact />
           <LanguageSwitch />
-          <Text style={[styles.title, isRTL && styles.rtlText]}>{t("myTrades")}</Text>
+          <Text accessibilityRole="header" style={[styles.title, isRTL && styles.rtlText]}>{t("myTrades")}</Text>
           <Text style={[styles.subtitle, isRTL && styles.rtlText]}>{t("myTradesBody")}</Text>
         </View>
       )}
@@ -111,7 +118,7 @@ export function TradesScreen() {
         <ActivityIndicator color={colors.gold} size="large" style={styles.loader} />
       ) : query.isError ? (
         <View style={styles.empty}>
-          <Text style={[styles.emptyTitle, isRTL && styles.rtlText]}>{t("genericError")}</Text>
+          <Text accessibilityRole="alert" style={[styles.emptyTitle, isRTL && styles.rtlText]}>{t("genericError")}</Text>
           <GoldButton onPress={() => void query.refetch()}>{t("refresh")}</GoldButton>
         </View>
       ) : (
@@ -154,12 +161,12 @@ const styles = StyleSheet.create({
   statusLabel: { color: colors.goldBright, fontSize: typography.caption, fontWeight: "800" },
   statusTerminalLabel: { color: colors.textMuted },
   divider: { backgroundColor: colors.border, height: 1 },
-  amountRow: { alignItems: "flex-end", flexDirection: "row", justifyContent: "space-between" },
+  amountRow: { alignItems: "flex-end", flexDirection: "row", flexWrap: "wrap", gap: spacing.md, justifyContent: "space-between" },
   amount: { color: colors.text, fontSize: typography.section, fontWeight: "900" },
   payment: { color: colors.textMuted, fontSize: typography.caption, marginTop: spacing.xs },
-  fiatBlock: { alignItems: "flex-end", gap: spacing.xs },
+  fiatBlock: { alignItems: "flex-end", flexGrow: 1, gap: spacing.xs, minWidth: 120 },
   fiat: { color: colors.goldBright, fontSize: typography.body, fontWeight: "800" },
-  updated: { color: colors.textMuted, fontSize: 9 },
+  updated: { color: colors.textMuted, fontSize: typography.caption },
   openLabel: { color: colors.goldMuted, fontSize: typography.small, fontWeight: "800" },
   loader: { marginTop: spacing.hero },
   empty: { gap: spacing.lg, marginTop: spacing.hero },

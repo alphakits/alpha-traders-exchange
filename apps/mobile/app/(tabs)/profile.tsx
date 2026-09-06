@@ -1,6 +1,6 @@
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Redirect } from "expo-router";
+import { Redirect, useRouter } from "expo-router";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { useAuth } from "../../src/auth/auth-context";
 import { BrandMark } from "../../src/components/brand-mark";
@@ -11,6 +11,9 @@ import {
   trustedWebUrl,
   type TrustedWebDestination,
 } from "../../src/navigation/trusted-web-links";
+import { useBiometricLock } from "../../src/security/biometric-lock-context";
+import { AccountProfilePanel } from "../../src/screens/account-profile-panel";
+import { safeRemoteImageUrl } from "../../src/media/safe-media-url";
 
 function roleLabel(role: string, t: ReturnType<typeof useLocale>["t"]) {
   if (role === "owner") return t("roleOwner");
@@ -23,14 +26,17 @@ function roleLabel(role: string, t: ReturnType<typeof useLocale>["t"]) {
 }
 
 export default function ProfileScreen() {
+  const router = useRouter();
   const { status, user, logout, isBusy } = useAuth();
   const { locale, isRTL, t } = useLocale();
+  const biometric = useBiometricLock();
   if (status !== "authenticated" || !user) return <Redirect href="/(public)/login" />;
   const isApprovedSeller = user.sellerStatus === "approved_seller"
     || user.roles.includes("approved_seller");
   const canApplyToSell = !isApprovedSeller
     && user.sellerStatus !== "pending_seller_approval"
     && (user.role === "buyer" || user.roles.includes("buyer"));
+  const profilePhotoUrl = safeRemoteImageUrl(user.profilePhotoUrl);
 
   async function openWebsite(destination: TrustedWebDestination) {
     try {
@@ -38,6 +44,17 @@ export default function ProfileScreen() {
     } catch {
       Alert.alert(t("genericError"), t("websiteUnavailable"));
     }
+  }
+
+  async function toggleBiometricLock() {
+    const result = biometric.isEnabled ? await biometric.disable() : await biometric.enable();
+    if (result === "success") return;
+    const message = result === "unsupported"
+      ? t("biometricUnavailable")
+      : result === "invalidated"
+        ? t("biometricChanged")
+        : t("biometricFailed");
+    Alert.alert(t("biometricSecurity"), message);
   }
 
   const accountLinks: Array<{ destination: TrustedWebDestination; label: string }> = [
@@ -55,13 +72,27 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        automaticallyAdjustKeyboardInsets
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         <BrandMark compact />
         <View style={styles.card}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{user.fullName.trim().slice(0, 1).toUpperCase() || "A"}</Text>
+          <View accessible={false} style={styles.avatar}>
+            {profilePhotoUrl ? (
+              <Image
+                accessible={false}
+                alt=""
+                source={{ uri: profilePhotoUrl }}
+                style={styles.avatarImage}
+              />
+            ) : (
+              <Text accessible={false} style={styles.avatarText}>{user.fullName.trim().slice(0, 1).toUpperCase() || "A"}</Text>
+            )}
           </View>
-          <Text style={[styles.name, isRTL && styles.rtlText]}>{user.fullName}</Text>
+          <Text accessibilityRole="header" style={[styles.name, isRTL && styles.rtlText]}>{user.fullName}</Text>
           <Text style={[styles.email, isRTL && styles.rtlText]}>{user.email}</Text>
           <View style={styles.roleBadge}>
             <Text style={styles.roleText}>{roleLabel(user.role, t)}</Text>
@@ -70,12 +101,44 @@ export default function ProfileScreen() {
             <Text style={[styles.verified, isRTL && styles.rtlText]}>✓ {t("accountVerified")}</Text>
           ) : null}
         </View>
+        <AccountProfilePanel />
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("language")}</Text>
+          <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("language")}</Text>
           <LanguageSwitch />
         </View>
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("accountAndSupport")}</Text>
+          <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("biometricSecurity")}</Text>
+          <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("biometricSecurityBody")}</Text>
+          <Text style={[
+            styles.securityStatus,
+            biometric.isEnabled && styles.securityStatusEnabled,
+            isRTL && styles.rtlText,
+          ]}>
+            {biometric.isEnabled ? `✓ ${t("biometricEnabled")}` : t("biometricDisabled")}
+          </Text>
+          {biometric.isSupported || biometric.isEnabled ? (
+            <GoldButton
+              loading={biometric.isAuthenticating || biometric.isChecking}
+              onPress={() => void toggleBiometricLock()}
+              variant="outline"
+            >
+              {biometric.isEnabled ? t("disableBiometric") : t("enableBiometric")}
+            </GoldButton>
+          ) : (
+            <Text style={[styles.unavailable, isRTL && styles.rtlText]}>{t("biometricUnavailable")}</Text>
+          )}
+        </View>
+        {isApprovedSeller ? (
+          <View style={styles.sellerSection}>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("sellerWorkspace")}</Text>
+            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("sellerWorkspaceBody")}</Text>
+            <GoldButton onPress={() => router.push("/(tabs)/seller")}>
+              {t("openNativeSellerWorkspace")}
+            </GoldButton>
+          </View>
+        ) : null}
+        <View style={styles.section}>
+          <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("accountAndSupport")}</Text>
           <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("accountAndSupportBody")}</Text>
           <View style={styles.linkList}>
             {accountLinks.map((link, index) => (
@@ -132,12 +195,17 @@ const styles = StyleSheet.create({
     height: 84,
     justifyContent: "center",
     marginBottom: spacing.sm,
+    overflow: "hidden",
     width: 84,
   },
   avatarText: {
     color: colors.goldBright,
     fontSize: 34,
     fontWeight: "900",
+  },
+  avatarImage: {
+    height: "100%",
+    width: "100%",
   },
   name: {
     color: colors.text,
@@ -176,6 +244,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: spacing.md,
     padding: spacing.lg,
+  },
+  sellerSection: {
+    backgroundColor: "rgba(216, 180, 74, 0.08)",
+    borderColor: colors.borderGold,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.md,
+    padding: spacing.lg,
+  },
+  securityStatus: {
+    color: colors.textMuted,
+    fontSize: typography.small,
+    fontWeight: "800",
+  },
+  securityStatusEnabled: {
+    color: colors.success,
+  },
+  unavailable: {
+    color: colors.warning,
+    fontSize: typography.small,
+    lineHeight: 20,
   },
   sectionTitle: {
     color: colors.text,
