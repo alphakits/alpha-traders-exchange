@@ -116,6 +116,56 @@ export interface MobileLogoutResponse {
   requestId: string;
 }
 
+export type MobileNotificationCategory =
+  | "trade"
+  | "listing"
+  | "account"
+  | "trust"
+  | "application"
+  | "dispute"
+  | "report"
+  | "system"
+  | "review";
+
+export type MobileNotificationPriority = "critical" | "high" | "normal" | "low";
+
+export type MobileNotificationDestination =
+  | { screen: "trade"; requestId: string }
+  | { screen: "marketplace" }
+  | { screen: "profile" };
+
+/** Privacy-safe notification projection for an authenticated native device. */
+export interface MobileNotification {
+  id: string;
+  category: MobileNotificationCategory;
+  title: string;
+  message: string;
+  isRead: boolean;
+  priority: MobileNotificationPriority;
+  actionRequired: boolean;
+  destination: MobileNotificationDestination | null;
+  relatedDisplayNumber?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MobileNotificationsResponse {
+  notifications: MobileNotification[];
+  total: number;
+  unreadCount: number;
+  requestId: string;
+}
+
+export interface MobileNotificationResponse {
+  notification: MobileNotification;
+  requestId: string;
+}
+
+export interface MobileNotificationsUpdateResponse {
+  updated: true;
+  requestId: string;
+}
+
 export type MobileSupportedNetwork = "TRC20" | "ERC20" | "BEP20" | "SOL";
 
 export interface MobileMarketplaceListing {

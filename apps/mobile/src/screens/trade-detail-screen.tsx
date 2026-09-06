@@ -68,7 +68,7 @@ function DetailRow({ label, value, isRTL }: { label: string; value: string; isRT
 export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { requestWithSession } = useAuth();
+  const { user, requestWithSession } = useAuth();
   const { locale, isRTL, t } = useLocale();
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -77,8 +77,8 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const [sendingMessage, setSendingMessage] = useState(false);
   const pendingMessageRef = useRef<{ message: string; clientMessageId: string } | null>(null);
   const query = useQuery({
-    enabled: Boolean(requestId),
-    queryKey: ["mobile-trade", requestId, locale],
+    enabled: Boolean(requestId && user),
+    queryKey: ["mobile-trade", user?.id ?? "anonymous", requestId, locale],
     queryFn: ({ signal }) => requestWithSession((tokens, requestLocale) =>
       getMobileTrade(tokens, requestLocale, requestId, signal)),
     refetchInterval: 5_000,

@@ -2,14 +2,28 @@ name: Mobile Preview
 
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Preview platform to build
+        required: true
+        default: android
+        type: choice
+        options:
+          - android
+          - ios
+          - all
   push:
     branches:
-      - feature/mobile-app-foundation-v1
+      - "feature/mobile-*"
+      - "fix/mobile-*"
+      - "release/mobile-*"
     paths:
       - .github/workflows/mobile-preview.yml
+      - .easignore
       - apps/mobile/**
       - packages/contracts/**
       - packages/design-tokens/**
+      - public/images/brand/**
       - package.json
       - package-lock.json
 
@@ -23,6 +37,7 @@ concurrency:
 jobs:
   android-preview:
     name: Android internal preview
+    if: github.event_name == 'push' || inputs.platform == 'android' || inputs.platform == 'all'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -55,3 +70,39 @@ jobs:
       - name: Trigger Android preview build
         working-directory: apps/mobile
         run: eas build --platform android --profile preview --non-interactive --no-wait
+
+  ios-preview:
+    name: iOS internal preview
+    if: github.event_name == 'workflow_dispatch' && (inputs.platform == 'ios' || inputs.platform == 'all')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Require Expo access token
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: test -n "$EXPO_TOKEN"
+
+      - name: Set up Expo and EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: 23.2.0
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Type-check mobile app
+        run: npm run mobile:typecheck
+
+      - name: Trigger iOS preview build
+        working-directory: apps/mobile
+        run: eas build --platform ios --profile preview --non-interactive --no-wait
