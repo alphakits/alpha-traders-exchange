@@ -12,6 +12,7 @@ import {
   resolveMobileLocale,
 } from "@/lib/mobile-api";
 import type { PremiumSellerProfileData } from "@/types/alpha-exchange";
+import { safeMobileMediaUrl } from "@/lib/mobile-safe-media-url";
 
 type RouteContext = {
   params: Promise<{ listingId: string }>;
@@ -29,7 +30,7 @@ function toMobileSellerProfile(
     listingId: listing.id,
     displayName: profile.profile.publicTradingName || profile.profile.sellerName,
     isCurrentUser,
-    profilePhotoUrl: profile.profile.profilePhotoUrl,
+    profilePhotoUrl: safeMobileMediaUrl(profile.profile.profilePhotoUrl),
     bio: profile.profile.bio,
     memberSince: profile.profile.memberSince,
     languages: [...profile.profile.languages],

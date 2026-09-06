@@ -144,6 +144,7 @@ export default function LoginScreen() {
                 disabled={isBusy}
                 hitSlop={8}
                 onPress={() => void openWebsite("forgotPassword")}
+                style={styles.textLinkTarget}
               >
                 <Text style={styles.link}>{t("forgotPassword")}</Text>
               </Pressable>
@@ -152,6 +153,7 @@ export default function LoginScreen() {
                 disabled={isBusy}
                 hitSlop={8}
                 onPress={() => void openWebsite("support")}
+                style={styles.textLinkTarget}
               >
                 <Text style={styles.link}>{t("requestBetaAccess")}</Text>
               </Pressable>
@@ -159,11 +161,11 @@ export default function LoginScreen() {
           </View>
           <Text style={[styles.secure, isRTL && styles.rtlText]}>◈ {t("secureSession")}</Text>
           <View style={[styles.legalLinks, isRTL && styles.rowReverse]}>
-            <Pressable accessibilityRole="link" hitSlop={8} onPress={() => void openWebsite("privacyPolicy")}>
+            <Pressable accessibilityRole="link" hitSlop={8} onPress={() => void openWebsite("privacyPolicy")} style={styles.textLinkTarget}>
               <Text style={styles.legalLink}>{t("privacyPolicy")}</Text>
             </Pressable>
             <Text style={styles.legalSeparator}>·</Text>
-            <Pressable accessibilityRole="link" hitSlop={8} onPress={() => void openWebsite("terms")}>
+            <Pressable accessibilityRole="link" hitSlop={8} onPress={() => void openWebsite("terms")} style={styles.textLinkTarget}>
               <Text style={styles.legalLink}>{t("termsOfService")}</Text>
             </Pressable>
           </View>
@@ -252,6 +254,10 @@ const styles = StyleSheet.create({
     fontSize: typography.small,
     fontWeight: "800",
     textDecorationLine: "underline",
+  },
+  textLinkTarget: {
+    justifyContent: "center",
+    minHeight: 44,
   },
   legalLinks: {
     alignItems: "center",

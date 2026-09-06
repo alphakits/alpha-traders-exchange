@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -61,6 +61,9 @@ export function TradeFormScreen({
   const [safetyAcknowledged, setSafetyAcknowledged] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const formScope = `${user?.id ?? "anonymous"}:${listingId}:${mode}`;
+  const activeFormScopeRef = useRef(formScope);
+  activeFormScopeRef.current = formScope;
 
   useEffect(() => {
     if (!user) {
@@ -70,6 +73,16 @@ export function TradeFormScreen({
       });
     }
   }, [listingId, mode, router, user]);
+
+  useEffect(() => {
+    setAmount("");
+    setWalletAddress("");
+    setPaymentMethod("");
+    setOfferedPrice("");
+    setSafetyAcknowledged(false);
+    setIsSubmitting(false);
+    setError(null);
+  }, [formScope]);
 
   useEffect(() => {
     if (!listing) return;
@@ -112,11 +125,17 @@ export function TradeFormScreen({
     return true;
   }, [amount, isFaceToFace, listing, mode, offeredPrice, paymentMethod, safetyAcknowledged, user, walletValidationError]);
 
+  const goBack = useCallback(() => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/(tabs)");
+  }, [router]);
+
   async function submit() {
     if (!listing || !formIsValid) {
       setError(t("invalidTradeForm"));
       return;
     }
+    const operationScope = activeFormScopeRef.current;
     setError(null);
     setIsSubmitting(true);
     try {
@@ -129,12 +148,16 @@ export function TradeFormScreen({
         offeredPrice: mode === "offer" ? offeredPrice.trim() : undefined,
         safetyAcknowledged,
       }));
+      if (activeFormScopeRef.current !== operationScope) return;
       await queryClient.invalidateQueries({ queryKey: ["mobile-trades"] });
+      if (activeFormScopeRef.current !== operationScope) return;
       router.replace({ pathname: "/trade/[requestId]", params: { requestId: response.trade.id } });
     } catch (caught) {
-      setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      if (activeFormScopeRef.current === operationScope) {
+        setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      }
     } finally {
-      setIsSubmitting(false);
+      if (activeFormScopeRef.current === operationScope) setIsSubmitting(false);
     }
   }
 
@@ -146,13 +169,15 @@ export function TradeFormScreen({
     );
   }
 
-  if (market.isError) {
+  if (market.isError && !market.data) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.unavailable}>
-          <Text accessibilityRole="alert" style={[styles.title, isRTL && styles.rtlText]}>{t("genericError")}</Text>
+          <Text accessibilityRole="alert" style={[styles.title, isRTL && styles.rtlText]}>
+            {market.error instanceof Error ? market.error.message : t("genericError")}
+          </Text>
           <GoldButton onPress={() => void market.refetch()}>{t("refresh")}</GoldButton>
-          <GoldButton onPress={() => router.back()} variant="outline">{t("back")}</GoldButton>
+          <GoldButton onPress={goBack} variant="outline">{t("back")}</GoldButton>
         </View>
       </SafeAreaView>
     );
@@ -165,7 +190,7 @@ export function TradeFormScreen({
           <Text accessibilityRole="alert" style={[styles.title, isRTL && styles.rtlText]}>
             {listing?.seller.isCurrentUser ? t("ownListingTradeBlocked") : t("currentListingUnavailable")}
           </Text>
-          <GoldButton onPress={() => router.back()} variant="outline">{t("back")}</GoldButton>
+          <GoldButton onPress={goBack} variant="outline">{t("back")}</GoldButton>
         </View>
       </SafeAreaView>
     );
@@ -173,8 +198,14 @@ export function TradeFormScreen({
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.backButton}>
+      <ScrollView
+        automaticallyAdjustKeyboardInsets
+        contentContainerStyle={styles.content}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <Pressable accessibilityRole="button" disabled={isSubmitting} onPress={goBack} style={styles.backButton}>
           <Text style={styles.backLabel}>{isRTL ? "›" : "‹"} {t("back")}</Text>
         </Pressable>
         <View style={styles.heading}>
@@ -193,6 +224,7 @@ export function TradeFormScreen({
             <TextInput
               accessibilityHint={`${t("amountHint")}: ${amountRange}`}
               accessibilityLabel={t("tradeAmount")}
+              editable={!isSubmitting}
               inputMode="decimal"
               onChangeText={(value) => setAmount(normalizeDecimalInput(value, 6))}
               placeholder={listing.minimumTrade}
@@ -209,6 +241,7 @@ export function TradeFormScreen({
               <TextInput
                 accessibilityHint={t("priceOfferHint")}
                 accessibilityLabel={t("offerPrice")}
+                editable={!isSubmitting}
                 inputMode="decimal"
                 onChangeText={(value) => setOfferedPrice(normalizeDecimalInput(value, 2))}
                 placeholder="0.00"
@@ -226,7 +259,8 @@ export function TradeFormScreen({
               {listing.paymentMethods.map((method) => (
                 <Pressable
                   accessibilityRole="radio"
-                  accessibilityState={{ checked: paymentMethod === method }}
+                  accessibilityState={{ checked: paymentMethod === method, disabled: isSubmitting }}
+                  disabled={isSubmitting}
                   key={method}
                   onPress={() => {
                     setPaymentMethod(method);
@@ -250,6 +284,7 @@ export function TradeFormScreen({
               aria-invalid={walletIsInvalid}
               autoCapitalize="none"
               autoCorrect={false}
+              editable={!isSubmitting}
               multiline
               onChangeText={setWalletAddress}
               placeholder={t("walletPlaceholder")}
@@ -271,7 +306,8 @@ export function TradeFormScreen({
               <Text style={[styles.safetyBody, isRTL && styles.rtlText]}>{t("faceSafetyBody")}</Text>
               <Pressable
                 accessibilityRole="checkbox"
-                accessibilityState={{ checked: safetyAcknowledged }}
+                accessibilityState={{ checked: safetyAcknowledged, disabled: isSubmitting }}
+                disabled={isSubmitting}
                 onPress={() => setSafetyAcknowledged((value) => !value)}
                 style={[styles.checkRow, isRTL && styles.rowReverse]}
               >

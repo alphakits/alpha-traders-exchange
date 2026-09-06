@@ -160,6 +160,25 @@ describe("GET /api/mobile/v1/marketplace/listings/[listingId]/seller", () => {
     expect(JSON.stringify(payload)).not.toContain("private-seller-id");
   });
 
+  it("removes an unsafe seller image URL from the native projection", async () => {
+    const current = await mocks.getPremiumSellerProfile();
+    mocks.getPremiumSellerProfile.mockResolvedValue({
+      ...current,
+      profile: {
+        ...current.profile,
+        profilePhotoUrl: "https://username:password@cdn.example/private.webp",
+      },
+    });
+
+    const response = await GET(request(), {
+      params: Promise.resolve({ listingId: "listing-1" }),
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.seller.profilePhotoUrl).toBe("");
+  });
+
   it("returns a stable not-found response for listings outside the public feed", async () => {
     mocks.getMarketplaceListings.mockResolvedValue([]);
 

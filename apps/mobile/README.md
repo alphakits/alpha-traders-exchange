@@ -92,3 +92,9 @@ HTTP origins.
 - Authenticated marketplace, seller-profile, and direct-listing views disable
   self-trade actions consistently and purge their personalized cache on account
   changes.
+- Remote marketplace, seller, profile, and Academy images are accepted only as
+  absolute credential-free HTTPS URLs; invalid media falls back to initials or
+  text without blocking the screen.
+- Trade-local bank details and form drafts reset whenever the account or trade
+  route changes, and late responses cannot write sensitive state into the next
+  Trade Room.

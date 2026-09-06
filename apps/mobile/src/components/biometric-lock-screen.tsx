@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { useAuth } from "../auth/auth-context";
@@ -39,7 +39,7 @@ export function BiometricLockScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <BrandMark compact />
         <View style={styles.card}>
           <View style={styles.lockIcon}>
@@ -64,14 +64,14 @@ export function BiometricLockScreen() {
           </GoldButton>
         </View>
         <LanguageSwitch />
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: { backgroundColor: colors.background, flex: 1 },
-  content: { flex: 1, gap: spacing.xl, justifyContent: "center", padding: spacing.xl },
+  content: { flexGrow: 1, gap: spacing.xl, justifyContent: "center", padding: spacing.xl },
   card: {
     backgroundColor: colors.surface,
     borderColor: colors.borderGold,

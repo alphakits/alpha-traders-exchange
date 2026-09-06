@@ -18,6 +18,7 @@ import {
   resolveMobileLocale,
 } from "@/lib/mobile-api";
 import type { MarketplaceListing } from "@/types/alpha-exchange";
+import { safeMobileMediaUrl } from "@/lib/mobile-safe-media-url";
 
 const RESOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const SUPPORTED_NETWORKS = new Set<MobileSupportedNetwork>(["TRC20", "ERC20", "BEP20", "SOL"]);
@@ -74,7 +75,7 @@ function toMobileListing(listing: MarketplaceListing, viewerUserId?: string): Mo
     displayNumber: listing.displayNumber,
     seller: {
       displayName: listing.sellerDisplayName,
-      profilePhotoUrl: profile?.profilePhotoUrl ?? "",
+      profilePhotoUrl: safeMobileMediaUrl(profile?.profilePhotoUrl),
       isCurrentUser,
       isOwner: profile?.isOwner === true,
       isFoundingSeller: profile?.isFoundingSeller === true,
@@ -87,7 +88,7 @@ function toMobileListing(listing: MarketplaceListing, viewerUserId?: string): Mo
       completedTrades: reputation?.completedTrades,
       responseTimeMinutes: reputation?.responseTimeMinutes,
     },
-    photos: listing.photos.slice(0, 6),
+    photos: listing.photos.slice(0, 6).map(safeMobileMediaUrl).filter(Boolean),
     availableAmount: listing.availableAmount,
     price: listing.price,
     currency: listing.currency,

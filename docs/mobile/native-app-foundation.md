@@ -271,13 +271,16 @@ Completed in source:
   from Profile.
 - Native accessibility guardrails covering headings, form controls, busy states,
   44–52 point touch targets, larger base caption sizes, wrapping financial
-  layouts, modal biometric masking, and operating-system reduced-motion settings.
+  layouts, scroll-safe recovery surfaces, RTL-aware navigation motion, modal
+  biometric masking, and operating-system reduced-motion settings.
 - Role-gated approved-seller workspace with bounded private listing history,
   retry-safe pause/resume actions, availability controls, and a fixed trusted
   handoff for creation, financial edits, bank management, and commissions.
 - Optional-session marketplace and seller-profile responses consistently block
   self-trades on every native entry path, remain free of seller identifiers,
-  and purge personalized caches when the account changes.
+  constrain remote images to credential-free HTTPS, and purge personalized
+  caches when the account changes. Trade-local sensitive state also resets on
+  account or route changes and ignores late responses from an older Trade Room.
 - Automated native type-check and iOS/Android export inside the repository
   release gate, plus pinned Expo Doctor validation for app configuration and
   duplicate native-module detection.

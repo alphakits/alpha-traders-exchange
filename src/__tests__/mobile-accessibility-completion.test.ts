@@ -9,6 +9,7 @@ function source(path: string) {
 describe("mobile accessibility completion", () => {
   it("honors native reduced-motion settings and keeps enlarged tab labels unclipped", () => {
     const rootLayout = source("apps/mobile/app/_layout.tsx");
+    const publicLayout = source("apps/mobile/app/(public)/_layout.tsx");
     const reducedMotion = source("apps/mobile/src/accessibility/use-reduced-motion.ts");
     const tabs = source("apps/mobile/app/(tabs)/_layout.tsx");
     const languageSwitch = source("apps/mobile/src/components/language-switch.tsx");
@@ -17,6 +18,8 @@ describe("mobile accessibility completion", () => {
     expect(reducedMotion).toContain("AccessibilityInfo.isReduceMotionEnabled()");
     expect(reducedMotion).toContain('"reduceMotionChanged"');
     expect(rootLayout).toContain('animation: isReducedMotionEnabled ? "none" : "fade"');
+    expect(publicLayout).toContain('isReducedMotionEnabled ? "none"');
+    expect(publicLayout).toContain('isRTL ? "slide_from_left" : "slide_from_right"');
     expect(tabs).toContain("minHeight: 68");
     expect(tabs).not.toContain("height: 68");
     expect(languageSwitch).toContain("minHeight: 44");
@@ -44,8 +47,25 @@ describe("mobile accessibility completion", () => {
     expect(tradeForm).toContain('accessibilityRole="radiogroup"');
     expect(tradeForm).toContain('accessibilityLabel={t("tradeAmount")}');
     expect(tradeForm).toContain('accessibilityLabel={`${t("receivingWallet")} · ${listing.network}`}');
+    expect(tradeForm).toContain("activeFormScopeRef");
+    expect(tradeForm).toContain("setWalletAddress(\"\")");
     expect(tradeRoom).toContain('accessibilityRole="header"');
     expect(tradeRoom).toContain('accessibilityRole="alert"');
+    expect(tradeRoom).toContain("activeTradeScopeRef");
+    expect(tradeRoom).toContain("setBankDetails(null)");
+  });
+
+  it("keeps recovery surfaces scrollable and text-link targets at least 44 points", () => {
+    const biometricLock = source("apps/mobile/src/components/biometric-lock-screen.tsx");
+    const sessionRecovery = source("apps/mobile/src/components/session-recovery-screen.tsx");
+    const login = source("apps/mobile/app/(public)/login.tsx");
+
+    expect(biometricLock).toContain("<ScrollView");
+    expect(biometricLock).toContain("flexGrow: 1");
+    expect(sessionRecovery).toContain("<ScrollView");
+    expect(sessionRecovery).toContain("flexGrow: 1");
+    expect(login).toContain("minHeight: 44");
+    expect(login.match(/style=\{styles\.textLinkTarget\}/g)).toHaveLength(4);
   });
 
   it("labels the footer newsletter field and keeps mobile footer targets usable", () => {

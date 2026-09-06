@@ -131,6 +131,9 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const [sendingMessage, setSendingMessage] = useState(false);
   const [visibleTimeRemaining, setVisibleTimeRemaining] = useState<number | null>(null);
   const pendingMessageRef = useRef<{ message: string; clientMessageId: string } | null>(null);
+  const tradeScope = `${user?.id ?? "anonymous"}:${requestId}`;
+  const activeTradeScopeRef = useRef(tradeScope);
+  activeTradeScopeRef.current = tradeScope;
   const query = useQuery({
     enabled: Boolean(requestId && user),
     queryKey: ["mobile-trade", user?.id ?? "anonymous", requestId, locale],
@@ -142,6 +145,20 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const serverTimeRemaining = query.data?.trade?.status === "usdt_release_pending"
     ? query.data.trade.timeRemainingSeconds
     : null;
+
+  useEffect(() => {
+    setBusyAction(null);
+    setError(null);
+    setNotice(null);
+    setBankDetails(null);
+    setDraftMessage("");
+    setDisputeReason("");
+    setReviewRating(5);
+    setReviewComment("");
+    setReviewResponse("");
+    setSendingMessage(false);
+    pendingMessageRef.current = null;
+  }, [tradeScope]);
 
   useEffect(() => {
     setVisibleTimeRemaining(serverTimeRemaining);
@@ -159,18 +176,27 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     ]);
   }, [query, queryClient]);
 
+  const goBack = useCallback(() => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/(tabs)/trades");
+  }, [router]);
+
   async function updateStatus(status: MobileTradeStatus, safetyAcknowledged = false) {
+    const operationScope = activeTradeScopeRef.current;
     setError(null);
     setNotice(null);
     setBusyAction(status);
     try {
       await requestWithSession((tokens, requestLocale) =>
         updateMobileTrade(tokens, requestLocale, requestId, status, safetyAcknowledged));
+      if (activeTradeScopeRef.current !== operationScope) return;
       await refreshTrade();
     } catch (caught) {
-      setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      if (activeTradeScopeRef.current === operationScope) {
+        setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      }
     } finally {
-      setBusyAction(null);
+      if (activeTradeScopeRef.current === operationScope) setBusyAction(null);
     }
   }
 
@@ -188,27 +214,33 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
 
   async function revealBankDetails() {
     if (busyAction) return;
+    const operationScope = activeTradeScopeRef.current;
     setError(null);
     setNotice(null);
     setBusyAction("bank-details");
     try {
       const response = await requestWithSession((tokens, requestLocale) =>
         getMobileTradeBankDetails(tokens, requestLocale, requestId));
+      if (activeTradeScopeRef.current !== operationScope) return;
       setBankDetails(response.bankDetails);
     } catch (caught) {
-      setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      if (activeTradeScopeRef.current === operationScope) {
+        setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      }
     } finally {
-      setBusyAction(null);
+      if (activeTradeScopeRef.current === operationScope) setBusyAction(null);
     }
   }
 
   async function uploadEvidence(side: "buyer" | "seller") {
     if (busyAction) return;
+    const operationScope = activeTradeScopeRef.current;
     setError(null);
     setNotice(null);
     setBusyAction("picking-evidence");
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (activeTradeScopeRef.current !== operationScope) return;
       if (!permission.granted) {
         setError(t("photoPermissionDenied"));
         return;
@@ -221,6 +253,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         quality: 0.9,
         selectionLimit: 1,
       });
+      if (activeTradeScopeRef.current !== operationScope) return;
       if (result.canceled) return;
       const asset = result.assets[0];
       if (!asset?.uri) {
@@ -235,6 +268,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           format: ImageManipulator.SaveFormat.JPEG,
         },
       );
+      if (activeTradeScopeRef.current !== operationScope) return;
       if (!prepared.uri) {
         setError(t("evidenceInvalid"));
         return;
@@ -246,16 +280,20 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         mimeType: "image/jpeg",
         fileUri: prepared.uri,
       }));
+      if (activeTradeScopeRef.current !== operationScope) return;
       await refreshTrade();
     } catch (caught) {
-      setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      if (activeTradeScopeRef.current === operationScope) {
+        setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      }
     } finally {
-      setBusyAction(null);
+      if (activeTradeScopeRef.current === operationScope) setBusyAction(null);
     }
   }
 
   async function sendMessage() {
     if (sendingMessage) return;
+    const operationScope = activeTradeScopeRef.current;
     const message = draftMessage.trim();
     if (!message || message.length > 1200) {
       setError(t("messageInvalid"));
@@ -274,18 +312,22 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         message: pending.message,
         clientMessageId: pending.clientMessageId,
       }));
+      if (activeTradeScopeRef.current !== operationScope) return;
       pendingMessageRef.current = null;
       setDraftMessage("");
       await refreshTrade();
     } catch (caught) {
-      setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      if (activeTradeScopeRef.current === operationScope) {
+        setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      }
     } finally {
-      setSendingMessage(false);
+      if (activeTradeScopeRef.current === operationScope) setSendingMessage(false);
     }
   }
 
   async function openDispute() {
     if (busyAction) return;
+    const operationScope = activeTradeScopeRef.current;
     const reason = disputeReason.trim();
     if (!reason || reason.length > 500) {
       setError(t("disputeInvalid"));
@@ -297,6 +339,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     try {
       const response = await requestWithSession((tokens, requestLocale) =>
         openMobileTradeDispute(tokens, requestLocale, requestId, reason));
+      if (activeTradeScopeRef.current !== operationScope) return;
       queryClient.setQueryData(
         ["mobile-trade", user?.id ?? "anonymous", requestId, locale],
         response,
@@ -308,14 +351,17 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         queryClient.invalidateQueries({ queryKey: ["mobile-notifications"] }),
       ]);
     } catch (caught) {
-      setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      if (activeTradeScopeRef.current === operationScope) {
+        setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      }
     } finally {
-      setBusyAction(null);
+      if (activeTradeScopeRef.current === operationScope) setBusyAction(null);
     }
   }
 
   async function submitReview() {
     if (busyAction) return;
+    const operationScope = activeTradeScopeRef.current;
     const comment = reviewComment.trim();
     if (!Number.isInteger(reviewRating) || reviewRating < 1 || reviewRating > 5 || !comment || comment.length > 500) {
       setError(t("reviewInvalid"));
@@ -327,6 +373,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     try {
       const response = await requestWithSession((tokens, requestLocale) =>
         submitMobileBuyerReview(tokens, requestLocale, requestId, reviewRating, comment));
+      if (activeTradeScopeRef.current !== operationScope) return;
       queryClient.setQueryData(
         ["mobile-trade", user?.id ?? "anonymous", requestId, locale],
         response,
@@ -338,14 +385,17 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         queryClient.invalidateQueries({ queryKey: ["mobile-notifications"] }),
       ]);
     } catch (caught) {
-      setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      if (activeTradeScopeRef.current === operationScope) {
+        setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      }
     } finally {
-      setBusyAction(null);
+      if (activeTradeScopeRef.current === operationScope) setBusyAction(null);
     }
   }
 
   async function submitReviewResponse() {
     if (busyAction) return;
+    const operationScope = activeTradeScopeRef.current;
     const message = reviewResponse.trim();
     if (!message || message.length > 500) {
       setError(t("reviewInvalid"));
@@ -357,6 +407,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     try {
       const response = await requestWithSession((tokens, requestLocale) =>
         submitMobileSellerReviewResponse(tokens, requestLocale, requestId, message));
+      if (activeTradeScopeRef.current !== operationScope) return;
       queryClient.setQueryData(
         ["mobile-trade", user?.id ?? "anonymous", requestId, locale],
         response,
@@ -368,9 +419,11 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         queryClient.invalidateQueries({ queryKey: ["mobile-notifications"] }),
       ]);
     } catch (caught) {
-      setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      if (activeTradeScopeRef.current === operationScope) {
+        setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      }
     } finally {
-      setBusyAction(null);
+      if (activeTradeScopeRef.current === operationScope) setBusyAction(null);
     }
   }
 
@@ -381,13 +434,15 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
       </SafeAreaView>
     );
   }
-  if (query.isError || !query.data?.trade) {
+  if (!query.data?.trade) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.errorState}>
-          <Text accessibilityRole="alert" style={[styles.title, isRTL && styles.rtlText]}>{t("genericError")}</Text>
+          <Text accessibilityRole="alert" style={[styles.title, isRTL && styles.rtlText]}>
+            {query.error instanceof Error ? query.error.message : t("genericError")}
+          </Text>
           <GoldButton onPress={() => void query.refetch()}>{t("refresh")}</GoldButton>
-          <GoldButton onPress={() => router.back()} variant="ghost">{t("back")}</GoldButton>
+          <GoldButton onPress={goBack} variant="ghost">{t("back")}</GoldButton>
         </View>
       </SafeAreaView>
     );
@@ -408,7 +463,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           refreshControl={<RefreshControl onRefresh={() => void refreshTrade()} refreshing={query.isRefetching} tintColor={colors.gold} />}
         >
         <View style={[styles.topRow, isRTL && styles.rowReverse]}>
-          <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.backButton}>
+          <Pressable accessibilityRole="button" onPress={goBack} style={styles.backButton}>
             <Text style={styles.backLabel}>{isRTL ? "›" : "‹"} {t("back")}</Text>
           </Pressable>
           <Text style={styles.screenLabel}>{t("tradeRoom")}</Text>

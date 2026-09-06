@@ -1,9 +1,10 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import type { MobileMarketplaceListing } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { useLocale } from "../i18n/locale-context";
 import { GoldButton } from "./gold-button";
 import { mobilePaymentMethodLabel } from "../trades/trade-labels";
+import { safeRemoteImageUrl } from "../media/safe-media-url";
 
 type ListingCardProps = {
   listing: MobileMarketplaceListing;
@@ -23,16 +24,25 @@ function readableNumber(value: string, locale: "ar" | "en") {
 export function ListingCard({ listing, onBuy, onOffer, onSeller }: ListingCardProps) {
   const { locale, isRTL, t } = useLocale();
   const isOnline = listing.seller.onlineStatus === "online";
+  const profilePhotoUrl = safeRemoteImageUrl(listing.seller.profilePhotoUrl);
   const responseTime = listing.seller.responseTimeMinutes !== undefined
     ? `${Math.max(0, Math.round(listing.seller.responseTimeMinutes))} ${t("minutesShort")}`
     : listing.responseTime;
   return (
     <View style={styles.card}>
       <View style={[styles.sellerRow, isRTL && styles.rowReverse]}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarLabel}>
+        <View accessible={false} style={styles.avatar}>
+          <Text accessible={false} style={styles.avatarLabel}>
             {listing.seller.displayName.trim().slice(0, 1).toUpperCase() || "A"}
           </Text>
+          {profilePhotoUrl ? (
+            <Image
+              accessible={false}
+              alt=""
+              source={{ uri: profilePhotoUrl }}
+              style={styles.avatarImage}
+            />
+          ) : null}
         </View>
         <View style={styles.sellerCopy}>
           <View style={[styles.nameRow, isRTL && styles.rowReverse]}>
@@ -142,12 +152,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 44,
     justifyContent: "center",
+    overflow: "hidden",
     width: 44,
   },
   avatarLabel: {
     color: colors.goldBright,
     fontSize: typography.section,
     fontWeight: "800",
+  },
+  avatarImage: {
+    bottom: 0,
+    height: 44,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+    width: 44,
   },
   sellerCopy: {
     flex: 1,

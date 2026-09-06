@@ -13,16 +13,7 @@ import {
 } from "../../src/navigation/trusted-web-links";
 import { useBiometricLock } from "../../src/security/biometric-lock-context";
 import { AccountProfilePanel } from "../../src/screens/account-profile-panel";
-
-function safeProfilePhotoUrl(value: string) {
-  if (!value || value.length > 2_048) return "";
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" && !url.username && !url.password ? url.toString() : "";
-  } catch {
-    return "";
-  }
-}
+import { safeRemoteImageUrl } from "../../src/media/safe-media-url";
 
 function roleLabel(role: string, t: ReturnType<typeof useLocale>["t"]) {
   if (role === "owner") return t("roleOwner");
@@ -45,7 +36,7 @@ export default function ProfileScreen() {
   const canApplyToSell = !isApprovedSeller
     && user.sellerStatus !== "pending_seller_approval"
     && (user.role === "buyer" || user.roles.includes("buyer"));
-  const profilePhotoUrl = safeProfilePhotoUrl(user.profilePhotoUrl);
+  const profilePhotoUrl = safeRemoteImageUrl(user.profilePhotoUrl);
 
   async function openWebsite(destination: TrustedWebDestination) {
     try {
@@ -89,16 +80,16 @@ export default function ProfileScreen() {
       >
         <BrandMark compact />
         <View style={styles.card}>
-          <View style={styles.avatar}>
+          <View accessible={false} style={styles.avatar}>
             {profilePhotoUrl ? (
               <Image
-                accessibilityLabel={user.fullName}
-                alt={user.fullName}
+                accessible={false}
+                alt=""
                 source={{ uri: profilePhotoUrl }}
                 style={styles.avatarImage}
               />
             ) : (
-              <Text style={styles.avatarText}>{user.fullName.trim().slice(0, 1).toUpperCase() || "A"}</Text>
+              <Text accessible={false} style={styles.avatarText}>{user.fullName.trim().slice(0, 1).toUpperCase() || "A"}</Text>
             )}
           </View>
           <Text accessibilityRole="header" style={[styles.name, isRTL && styles.rtlText]}>{user.fullName}</Text>

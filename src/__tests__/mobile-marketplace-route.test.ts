@@ -147,6 +147,30 @@ describe("GET /api/mobile/v1/marketplace/listings", () => {
     });
   });
 
+  it("returns only absolute credential-free HTTPS listing media", async () => {
+    const [listing] = await mocks.getMarketplaceListings();
+    mocks.getMarketplaceListings.mockResolvedValue([{
+      ...listing,
+      photos: [
+        "https://cdn.example/listing.webp",
+        "http://cdn.example/insecure.webp",
+        "data:image/png;base64,AAAA",
+        "https://username:password@cdn.example/private.webp",
+      ],
+      sellerProfile: {
+        ...listing.sellerProfile,
+        profilePhotoUrl: "http://cdn.example/avatar.webp",
+      },
+    }]);
+
+    const response = await GET(request());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.listings[0].photos).toEqual(["https://cdn.example/listing.webp"]);
+    expect(payload.listings[0].seller.profilePhotoUrl).toBe("");
+  });
+
   it("returns a bounded page and rejects invalid pagination", async () => {
     const valid = await GET(request("?limit=1&offset=1"));
     expect(valid.status).toBe(200);
