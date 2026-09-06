@@ -9,6 +9,8 @@ export type MarketplaceEmailEvent =
   | "trade_accepted"
   | "trade_rejected"
   | "buyer_payment_sent"
+  | "seller_funds_received"
+  | "seller_usdt_release_started"
   | "seller_usdt_released"
   | "trade_completed"
   | "trade_cancelled"
@@ -267,6 +269,9 @@ export async function sendMarketplaceEmail(
     to: string;
     recipientLocale: MarketplaceEmailLocale;
     idempotencyKey?: string;
+    maxAttempts?: number;
+    retryDelayMs?: number;
+    timeoutMs?: number;
   },
 ) {
   recordMarketplaceEmailAttempt({
@@ -281,24 +286,38 @@ export async function sendMarketplaceEmail(
   }
 
   const email = buildMarketplaceEmail(input);
-  try {
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        ...(input.idempotencyKey ? { "Idempotency-Key": input.idempotencyKey } : {}),
-      },
-      body: JSON.stringify({
-        from,
-        to: [input.to],
-        subject: email.subject,
-        html: email.html,
-        text: email.text,
-      }),
-    });
+  const maxAttempts = Math.max(1, Math.min(3, Math.floor(input.maxAttempts ?? 3)));
+  const retryDelayMs = Math.max(0, Math.min(1_000, Math.floor(input.retryDelayMs ?? 100)));
+  const timeoutMs = Math.max(250, Math.min(15_000, Math.floor(input.timeoutMs ?? 5_000)));
+  let latestFailure:
+    | { ok: false; reason: "resend_request_failed"; providerStatus: number; providerMessage: string }
+    | { ok: false; reason: "resend_network_failed" | "resend_timeout"; providerMessage: string }
+    = { ok: false, reason: "resend_network_failed", providerMessage: "Email request did not run." };
 
-    if (!response.ok) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let retryable = true;
+    try {
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          ...(input.idempotencyKey ? { "Idempotency-Key": input.idempotencyKey } : {}),
+        },
+        body: JSON.stringify({
+          from,
+          to: [input.to],
+          subject: email.subject,
+          html: email.html,
+          text: email.text,
+        }),
+        signal: controller.signal,
+      });
+
+      if (response.ok) return { ok: true as const };
+
       const responseBody = await response.text();
       let providerMessage = responseBody;
       try {
@@ -307,19 +326,33 @@ export async function sendMarketplaceEmail(
       } catch {
         // Keep the raw response when Resend does not return JSON.
       }
-      return {
-        ok: false as const,
-        reason: "resend_request_failed" as const,
+      latestFailure = {
+        ok: false,
+        reason: "resend_request_failed",
         providerStatus: response.status,
         providerMessage: providerMessage.slice(0, 500),
       };
+      retryable = response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500;
+    } catch (error) {
+      const timedOut = controller.signal.aborted || (error instanceof Error && error.name === "AbortError");
+      latestFailure = {
+        ok: false,
+        reason: timedOut ? "resend_timeout" : "resend_network_failed",
+        providerMessage: timedOut
+          ? "Resend request timed out."
+          : error instanceof Error
+            ? error.message.slice(0, 500)
+            : "Unknown network error",
+      };
+    } finally {
+      clearTimeout(timeout);
     }
-    return { ok: true as const };
-  } catch (error) {
-    return {
-      ok: false as const,
-      reason: "resend_network_failed" as const,
-      providerMessage: error instanceof Error ? error.message.slice(0, 500) : "Unknown network error",
-    };
+
+    if (!retryable || attempt === maxAttempts) return latestFailure;
+    if (retryDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs * 2 ** (attempt - 1)));
+    }
   }
+
+  return latestFailure;
 }

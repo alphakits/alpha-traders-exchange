@@ -15,6 +15,9 @@ function isNotificationEventForUser(event: RealtimeEvent, userId: string) {
   if (event.type === "notification.created" || event.type === "notification.updated") {
     return event.payload.notification.userId === userId;
   }
+  if (event.type === "notification.deleted") {
+    return event.payload.userId === userId;
+  }
   // Also refresh when the trade status changes — this fires AFTER writeDb, so the
   // notification that was pushed in the same transaction is now persisted and readable.
   if (event.type === "trade.status_changed") {
@@ -93,8 +96,13 @@ export async function GET(request: NextRequest) {
             strongConsistency: true,
           });
           if (closed) return;
-          const top = snapshot.notifications[0];
-          const signature = `${snapshot.unreadCount}:${top?.id ?? ""}:${top?.updatedAt ?? top?.createdAt ?? ""}`;
+          const signature = `${snapshot.unreadCount}:${snapshot.notifications
+            .map((notification) => [
+              notification.id,
+              notification.state,
+              notification.updatedAt ?? notification.createdAt,
+            ].join("~"))
+            .join("^")}`;
           if (signature === lastSignature) return;
           lastSignature = signature;
           safeEnqueue(`event: notifications\ndata: ${JSON.stringify({ notifications: snapshot.notifications, unreadCount: snapshot.unreadCount })}\n\n`);

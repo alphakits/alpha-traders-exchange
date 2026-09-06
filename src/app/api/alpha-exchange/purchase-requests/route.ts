@@ -142,8 +142,23 @@ export async function POST(request: NextRequest) {
       actorUserId: user.id,
     });
     const { request: purchase, metrics } = created;
-    const deliverTradeEmails = await prepareTradeEventEmails({ event: "new_buy_request", request: purchase });
-    after(deliverTradeEmails);
+    try {
+      const deliverTradeEmails = await prepareTradeEventEmails({ event: "new_buy_request", request: purchase });
+      after(deliverTradeEmails);
+    } catch (emailScheduleError) {
+      // The purchase request and in-app notification are already durable. An
+      // email preparation failure must never turn that successful commit into
+      // a misleading 4xx response that encourages the Buyer to submit again.
+      logEvent("error", {
+        event: "trade_lifecycle_email_schedule",
+        actorUserId: user.id,
+        actorRole: user.role,
+        resourceId: purchase.id,
+        outcome: "failed",
+        reason: "new_buy_request_post_commit_schedule_failed",
+        metadata: { errorType: emailScheduleError instanceof Error ? emailScheduleError.name : typeof emailScheduleError },
+      });
+    }
     const routeMs = Date.now() - routeStartedAt;
     const queueMs = Math.max(0, routeMs - metrics.totalMs);
     logEvent("info", {

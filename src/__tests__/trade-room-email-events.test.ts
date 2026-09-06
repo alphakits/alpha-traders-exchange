@@ -158,6 +158,34 @@ describe("Trade Room email events", () => {
         en: "The seller accepted your request. Upload your payment receipt to continue.",
       },
       actionPath: "/trade-room/purchase-1",
+      idempotencyKey: "trade-lifecycle:purchase-1:trade_accepted:buyer-1",
+    }));
+  });
+
+  it("emails the Buyer for both seller-side middle transitions", async () => {
+    const fundsReceived = await prepareTradeEventEmails({
+      event: "seller_funds_received",
+      request: createRequest("funds_received"),
+    });
+    const releaseStarted = await prepareTradeEventEmails({
+      event: "seller_usdt_release_started",
+      request: createRequest("usdt_release_pending"),
+    });
+
+    await fundsReceived();
+    await releaseStarted();
+
+    expect(sendMarketplaceEmailMock).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      event: "seller_funds_received",
+      to: "buyer-1@example.test",
+      title: { ar: "أكد البائع استلام الأموال", en: "Seller Confirmed Funds Received" },
+      idempotencyKey: "trade-lifecycle:purchase-1:seller_funds_received:buyer-1",
+    }));
+    expect(sendMarketplaceEmailMock).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      event: "seller_usdt_release_started",
+      to: "buyer-1@example.test",
+      title: { ar: "بدأ البائع إرسال USDT", en: "Seller Started USDT Release" },
+      idempotencyKey: "trade-lifecycle:purchase-1:seller_usdt_release_started:buyer-1",
     }));
   });
 

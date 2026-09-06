@@ -24,6 +24,8 @@ type LifecycleTradeEmailEvent = Extract<
   | "trade_accepted"
   | "trade_rejected"
   | "buyer_payment_sent"
+  | "seller_funds_received"
+  | "seller_usdt_release_started"
   | "seller_usdt_released"
   | "trade_completed"
   | "trade_cancelled"
@@ -51,6 +53,8 @@ export function tradeEmailEventForStatus(status: PurchaseRequest["status"]) {
   if (status === "accepted") return "trade_accepted" as const;
   if (status === "declined") return "trade_rejected" as const;
   if (status === "payment_sent") return "buyer_payment_sent" as const;
+  if (status === "funds_received") return "seller_funds_received" as const;
+  if (status === "usdt_release_pending") return "seller_usdt_release_started" as const;
   if (status === "usdt_sent") return "seller_usdt_released" as const;
   if (status === "completed" || status === "review_open" || status === "locked") return "trade_completed" as const;
   if (status === "cancelled") return "trade_cancelled" as const;
@@ -162,6 +166,26 @@ function tradeEmailContent(
       },
     };
   }
+  if (event === "seller_funds_received") {
+    return {
+      ...common,
+      title: { ar: "أكد البائع استلام الأموال", en: "Seller Confirmed Funds Received" },
+      message: {
+        ar: "أكد البائع استلام دفعتك. أصبحت خطوة إرسال USDT متاحة للبائع.",
+        en: "The seller confirmed your payment was received. The USDT release step is now available to the seller.",
+      },
+    };
+  }
+  if (event === "seller_usdt_release_started") {
+    return {
+      ...common,
+      title: { ar: "بدأ البائع إرسال USDT", en: "Seller Started USDT Release" },
+      message: {
+        ar: "بدأ البائع نافذة إرسال USDT لمدة 45 دقيقة. تابع الحالة مباشرة في غرفة الصفقة.",
+        en: "The seller started the 45-minute USDT release window. Follow the live status in the Trade Room.",
+      },
+    };
+  }
   if (event === "seller_usdt_released") {
     return {
       ...common,
@@ -211,7 +235,11 @@ export async function prepareTradeEventEmails(input: {
     (user): user is NonNullable<typeof user> => Boolean(user && recipientIds.includes(user.id)),
   );
   const content = tradeEmailContent(input.event, input.request);
-  return () => Promise.all(recipients.map((recipient) => deliver({ ...content, recipient })));
+  return () => Promise.all(recipients.map((recipient) => deliver({
+    ...content,
+    recipient,
+    idempotencyKey: `trade-lifecycle:${input.request.id}:${input.event}:${recipient.id}`,
+  })));
 }
 
 export async function prepareTradeRoomConversationEmail(input: {
@@ -296,6 +324,7 @@ export async function prepareListingReviewEmails(input: {
       : { ar: "مراجعة الإعلان", en: "Review Listing" },
     actionPath: marketplacePath(),
     referenceLabel: input.listing.id,
+    idempotencyKey: `listing-review:${input.listing.id}:${input.decision}:${seller.id}`,
   } as const;
 
   const recipients = approved
@@ -315,6 +344,7 @@ export async function prepareListingReviewEmails(input: {
         actionLabel: { ar: "تصفّح السوق", en: "Browse Marketplace" },
         actionPath: marketplacePath(),
         referenceLabel: input.listing.id,
+        idempotencyKey: `listing-published:${input.listing.id}:${recipient.id}`,
       })),
     ]);
   };

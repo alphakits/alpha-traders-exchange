@@ -6,6 +6,7 @@ vi.mock("@/lib/postgres-runtime", () => ({
 }));
 
 import {
+  deleteNotification,
   getNotificationsForUser,
   invalidateAlphaExchangeStoreCache,
   markAllNotificationsRead,
@@ -149,5 +150,19 @@ describe("notification read persistence", () => {
     expect(afterAll.notifications.every((item) => item.isRead && item.state === "read")).toBe(true);
     expect(otherUser.unreadCount).toBe(1);
     expect(otherUser.notifications[0]).toMatchObject({ id: "notification-other", state: "unread", isRead: false });
+  });
+
+  it("preserves a concurrent read while durably deleting a different notification", async () => {
+    await Promise.all([
+      deleteNotification({ userId: USER_ID, notificationId: "notification-one" }),
+      markNotificationReadState({ userId: USER_ID, notificationId: "notification-two", isRead: true }),
+    ]);
+    invalidateAlphaExchangeStoreCache();
+
+    const currentUser = await getNotificationsForUser({ userId: USER_ID, includeActivity: false });
+    const otherUser = await getNotificationsForUser({ userId: OTHER_USER_ID, includeActivity: false });
+    expect(currentUser.notifications.map((item) => item.id)).toEqual(["notification-two"]);
+    expect(currentUser.notifications[0]).toMatchObject({ state: "read", isRead: true });
+    expect(otherUser.notifications).toEqual([expect.objectContaining({ id: "notification-other", state: "unread" })]);
   });
 });
