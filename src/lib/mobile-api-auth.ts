@@ -3,6 +3,7 @@ import type { AlphaExchangeUser } from "@/types/alpha-exchange";
 import { findUserById } from "@/lib/alpha-exchange-store";
 import { mobileAuthService, type MobileAuthService } from "@/lib/mobile-auth";
 import {
+  mobileClientVersionError,
   mobileError,
   readMobileBearerToken,
   type MobileClientMetadata,
@@ -26,6 +27,10 @@ export async function requireMobileApiUser(
   metadata: MobileClientMetadata,
   service: MobileAuthService = mobileAuthService,
 ): Promise<MobileApiAuthResult> {
+  const versionError = mobileClientVersionError(metadata, requestId, metadata.locale);
+  if (versionError) {
+    return { user: null, accessToken: null, unauthorized: versionError };
+  }
   const accessToken = readMobileBearerToken(request);
   if (!accessToken) {
     return {

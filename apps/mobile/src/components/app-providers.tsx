@@ -9,6 +9,7 @@ import {
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "../auth/auth-context";
 import { LocaleProvider } from "../i18n/locale-context";
+import { NetworkProvider } from "../network/network-context";
 import { isPrivateMobileQueryKey } from "../query/private-query-cache";
 
 function NativeQueryBoundary({ children }: PropsWithChildren) {
@@ -54,11 +55,13 @@ export function AppProviders({ children }: PropsWithChildren) {
   return (
     <SafeAreaProvider>
       <LocaleProvider>
-        <QueryClientProvider client={queryClient}>
-          <AuthProvider>
-            <NativeQueryBoundary>{children}</NativeQueryBoundary>
-          </AuthProvider>
-        </QueryClientProvider>
+        <NetworkProvider>
+          <QueryClientProvider client={queryClient}>
+            <AuthProvider>
+              <NativeQueryBoundary>{children}</NativeQueryBoundary>
+            </AuthProvider>
+          </QueryClientProvider>
+        </NetworkProvider>
       </LocaleProvider>
     </SafeAreaProvider>
   );

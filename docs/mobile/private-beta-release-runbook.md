@@ -22,6 +22,28 @@ Record the commit SHA and retain the release-gate output. The production API at
 `https://www.alphatraders.co.il` must be healthy before creating a signed build.
 Do not copy production secrets or data into a preview environment.
 
+### Minimum-version rollout safety
+
+The production server reads these environment variables at runtime:
+
+| Platform | Mandatory minimum | Latest recommended |
+| --- | --- | --- |
+| iOS | `MOBILE_MIN_IOS_VERSION` | `MOBILE_LATEST_IOS_VERSION` |
+| Android | `MOBILE_MIN_ANDROID_VERSION` | `MOBILE_LATEST_ANDROID_VERSION` |
+
+Use strict `major.minor.patch` values. Missing or malformed values safely fall
+back to the source app version, and a configured latest version below the
+minimum is raised to the minimum. The config endpoint remains available to an
+old client, but every other mobile endpoint returns HTTP 426 with
+`APP_UPDATE_REQUIRED` when the installed version is below the platform minimum.
+
+Never raise a mandatory minimum until that exact version or a newer one is
+signed, installable in the intended TestFlight/Google Play/internal channel,
+and has passed the device matrix. Publish and verify the installable build
+first, set the latest recommended version second, and raise the mandatory
+minimum only after the release owner explicitly approves the cutoff. Until
+signed distribution exists, keep both platform minimums at `1.0.0`.
+
 ## 2. Android internal build
 
 After GitHub Actions billing is restored, dispatch **Mobile Preview** with
@@ -65,6 +87,7 @@ OS version, build URL, and commit SHA; use fictional test identities and data.
 | Trade Room | iOS + Android | iOS + Android | Both roles, every state transition, chat, bank-detail gate |
 | Evidence | iOS + Android | iOS + Android | Allowed image/PDF, oversize/type rejection, retry |
 | Recovery | iOS + Android | iOS + Android | Offline, timeout, app kill, background/foreground, expired session |
+| App version | iOS + Android | iOS + Android | Recommended version, HTTP 426, mandatory-update copy and support link |
 | Accessibility | iOS + Android | iOS + Android | RTL order, text scaling, keyboard, screen-reader labels |
 | Privacy | iOS + Android | iOS + Android | Account cache isolation and no sensitive lock-screen content |
 

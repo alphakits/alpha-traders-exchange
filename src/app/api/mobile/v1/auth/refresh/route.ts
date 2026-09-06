@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { hashMobileSecret, mobileAuthService } from "@/lib/mobile-auth";
 import {
   createMobileRequestId,
+  mobileClientVersionError,
   mobileError,
   mobileJson,
   parseMobileClientMetadata,
@@ -16,6 +17,8 @@ export async function POST(request: NextRequest) {
   const locale = resolveMobileLocale(request);
   const metadata = parseMobileClientMetadata(request);
   if (!metadata) return mobileError("DEVICE_HEADERS_REQUIRED", requestId, locale, 400);
+  const versionError = mobileClientVersionError(metadata, requestId, locale);
+  if (versionError) return versionError;
   const body = await readMobileJsonBody(request);
   const refreshToken = String(body?.refreshToken ?? "").trim();
   if (!refreshToken || refreshToken.length > 220) {

@@ -222,6 +222,12 @@ Completed in source:
 - SecureStore session persistence, account-isolated query caches, foreground
   refresh, private-beta access/password-recovery handoffs, and legal/account-management
   links.
+- Native connectivity monitoring that pauses server-state fetches while offline,
+  resumes and refreshes them after reconnection, and presents bilingual degraded-
+  network status without discarding a saved session.
+- Platform-specific minimum-version enforcement on every mobile API surface,
+  plus a fail-open startup check and bilingual mandatory-update screen. A known
+  mandatory update remains enforced during later network loss.
 - Role-gated approved-seller workspace with bounded private listing history,
   retry-safe pause/resume actions, availability controls, and a fixed trusted
   handoff for creation, financial edits, bank management, and commissions.

@@ -91,6 +91,7 @@ describe("GET /api/mobile/v1/marketplace/listings", () => {
     const serialized = JSON.stringify(payload);
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("vary")).toBe("Accept-Language, X-App-Version, X-Platform");
     expect(payload.requestId).toBe("market-request-1");
     expect(payload.listings).toHaveLength(1);
     expect(payload.total).toBe(1);

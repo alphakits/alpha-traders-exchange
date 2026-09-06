@@ -3,6 +3,7 @@ import type { MobileSellerProfile } from "@alpha-traders/contracts";
 import { getMarketplaceListings, getPremiumSellerProfile } from "@/lib/alpha-exchange-store";
 import {
   createMobileRequestId,
+  mobileClientVersionError,
   mobileError,
   mobileJson,
   parseMobileClientMetadata,
@@ -69,6 +70,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const locale = resolveMobileLocale(request);
   const metadata = parseMobileClientMetadata(request);
   if (!metadata) return mobileError("DEVICE_HEADERS_REQUIRED", requestId, locale, 400);
+  const versionError = mobileClientVersionError(metadata, requestId, locale);
+  if (versionError) return versionError;
 
   const { listingId } = await context.params;
   if (!LISTING_ID_PATTERN.test(listingId)) {

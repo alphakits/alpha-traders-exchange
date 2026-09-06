@@ -1,4 +1,5 @@
 export const MOBILE_API_VERSION = "v1" as const;
+export const MOBILE_CURRENT_APP_VERSION = "1.0.0" as const;
 export const MOBILE_ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 export const MOBILE_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 
@@ -23,6 +24,7 @@ export type MobileSellerStatus =
 export type MobileApiErrorCode =
   | "INVALID_REQUEST"
   | "DEVICE_HEADERS_REQUIRED"
+  | "APP_UPDATE_REQUIRED"
   | "INVALID_CREDENTIALS"
   | "EMAIL_VERIFICATION_REQUIRED"
   | "ACCOUNT_DISABLED"
@@ -59,6 +61,18 @@ export interface MobileApiErrorResponse {
     code: MobileApiErrorCode;
     message: string;
   };
+  requestId: string;
+}
+
+export interface MobileAppConfigResponse {
+  apiVersion: typeof MOBILE_API_VERSION;
+  platform: MobilePlatform;
+  currentVersion: string;
+  minimumSupportedVersion: string;
+  latestVersion: string;
+  updateRequired: boolean;
+  updateRecommended: boolean;
+  checkedAt: string;
   requestId: string;
 }
 

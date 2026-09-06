@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
 
@@ -111,6 +111,10 @@ beforeEach(() => {
   mocks.revokeAllUserSessions.mockResolvedValue(1);
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("mobile v1 authentication routes", () => {
   it("rejects login before credential work when native client headers are missing", async () => {
     const request = new NextRequest("https://www.alphatraders.co.il/api/mobile/v1/auth/login", {
@@ -123,6 +127,25 @@ describe("mobile v1 authentication routes", () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({
       error: { code: "DEVICE_HEADERS_REQUIRED" },
+    });
+    expect(mocks.authenticateMobileCredentials).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unsupported app version before credential work", async () => {
+    vi.stubEnv("MOBILE_MIN_IOS_VERSION", "2.0.0");
+    const request = new NextRequest("https://www.alphatraders.co.il/api/mobile/v1/auth/login", {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ email: user.email, password: "valid-password" }),
+    });
+
+    const response = await login(request);
+    expect(response.status).toBe(426);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "APP_UPDATE_REQUIRED",
+        message: "يجب تحديث تطبيق ألفا تريدرز للمتابعة بأمان.",
+      },
     });
     expect(mocks.authenticateMobileCredentials).not.toHaveBeenCalled();
   });
