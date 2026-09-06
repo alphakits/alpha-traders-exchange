@@ -318,12 +318,29 @@ export interface MobileNotificationsUpdateResponse {
 
 export type MobileSupportedNetwork = "TRC20" | "ERC20" | "BEP20" | "SOL";
 
+export type MobileMarketplaceSort =
+  | "trust-desc"
+  | "price-asc"
+  | "amount-desc"
+  | "rating-desc"
+  | "response-fast"
+  | "newest";
+
+export interface MobileMarketplaceFilters {
+  network?: MobileSupportedNetwork;
+  currency?: string;
+  paymentMethod?: string;
+  onlineOnly?: boolean;
+  sort?: MobileMarketplaceSort;
+}
+
 export interface MobileMarketplaceListing {
   id: string;
   displayNumber?: number;
   seller: {
     displayName: string;
     profilePhotoUrl: string;
+    isCurrentUser: boolean;
     isOwner: boolean;
     isFoundingSeller: boolean;
     isFeaturedSeller: boolean;
@@ -357,6 +374,11 @@ export interface MobileMarketplaceListing {
 export interface MobileMarketplaceListingsResponse {
   listings: MobileMarketplaceListing[];
   total: number;
+  facets: {
+    networks: MobileSupportedNetwork[];
+    currencies: string[];
+    paymentMethods: string[];
+  };
   pagination: MobilePagination;
   requestId: string;
 }

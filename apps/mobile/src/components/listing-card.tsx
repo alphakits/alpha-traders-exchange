@@ -47,6 +47,15 @@ export function ListingCard({ listing, onBuy, onOffer, onSeller }: ListingCardPr
               {isOnline ? t("online") : t("offline")} · {t("verifiedSeller")}
             </Text>
           </View>
+          {listing.seller.rating !== undefined || listing.seller.completedTrades !== undefined ? (
+            <Text style={[styles.sellerMetrics, isRTL && styles.rtlText]}>
+              {listing.seller.rating !== undefined ? `★ ${listing.seller.rating.toFixed(1)}` : ""}
+              {listing.seller.rating !== undefined && listing.seller.completedTrades !== undefined ? " · " : ""}
+              {listing.seller.completedTrades !== undefined
+                ? `${listing.seller.completedTrades} ${t("completedTrades")}`
+                : ""}
+            </Text>
+          ) : null}
         </View>
         {listing.seller.trustScore !== undefined ? (
           <View style={styles.trustBadge}>
@@ -79,6 +88,10 @@ export function ListingCard({ listing, onBuy, onOffer, onSeller }: ListingCardPr
           <Text style={styles.detailValue}>{readableNumber(listing.minimumTrade, locale)} USDT</Text>
         </View>
         <View style={styles.detailPill}>
+          <Text style={styles.detailLabel}>{t("maximum")}</Text>
+          <Text style={styles.detailValue}>{readableNumber(listing.maximumTrade, locale)} USDT</Text>
+        </View>
+        <View style={styles.detailPill}>
           <Text style={styles.detailLabel}>{listing.network}</Text>
           <Text style={styles.detailValue}>{responseTime}</Text>
         </View>
@@ -89,7 +102,9 @@ export function ListingCard({ listing, onBuy, onOffer, onSeller }: ListingCardPr
       </Text>
 
       <View style={styles.actions}>
-        <GoldButton onPress={onBuy}>{t("buyNow")}</GoldButton>
+        <GoldButton disabled={!listing.actions.canBuyNow} onPress={onBuy}>
+          {listing.seller.isCurrentUser ? t("yourListing") : t("buyNow")}
+        </GoldButton>
         <View style={[styles.actionRow, isRTL && styles.rowReverse]}>
           <View style={styles.actionHalf}>
             <GoldButton disabled={!listing.actions.canMakeOffer} onPress={onOffer} variant="outline">{t("makeOffer")}</GoldButton>
@@ -178,6 +193,11 @@ const styles = StyleSheet.create({
   statusText: {
     color: colors.textMuted,
     fontSize: typography.caption,
+  },
+  sellerMetrics: {
+    color: colors.goldMuted,
+    fontSize: typography.caption,
+    lineHeight: 18,
   },
   trustBadge: {
     alignItems: "center",

@@ -226,6 +226,10 @@ Completed in source:
 - Bilingual marketplace, seller profiles, buyer request creation, participant-
   only Trade Rooms, chat, bank-detail reveal, evidence upload, buyer disputes,
   verified post-trade reviews, and seller review responses.
+- Server-side native marketplace facets, filtering, and sorting before
+  pagination, with compact screen-reader-labeled controls for small phones.
+  Authenticated responses disable actions on the seller's own listing without
+  exposing seller IDs and are never stored in a shared public cache.
 - Privacy-safe native notification center with unread state, bounded polling,
   capped paginated history, and allowlisted deep links. Marketplace and trade
   collections use the same bounded incremental-loading contract.
@@ -236,6 +240,8 @@ Completed in source:
   authentication-protected sentinel, masks the navigation tree before app
   backgrounding, pauses live queries while locked, and requires a fresh sign-in
   after the operating system invalidates changed biometric enrollment.
+- Canonical USDT release countdown visibility, including warning and overdue
+  guidance without treating the client clock as an authorization boundary.
 - Native connectivity monitoring that pauses server-state fetches while offline,
   resumes and refreshes them after reconnection, and presents bilingual degraded-
   network status without discarding a saved session.

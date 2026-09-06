@@ -5,7 +5,9 @@ remains the only business-logic backend.
 
 ## Private-beta capabilities
 
-- Arabic/English onboarding, marketplace, seller profiles, and account access.
+- Arabic/English onboarding, server-paginated marketplace with compact
+  network/currency/payment/online filters and trusted seller sorting, seller
+  profiles, and account access.
 - Full native Academy navigation with published-only tracks and lessons,
   bilingual/RTL course content, quizzes, bookmarks, account-scoped progress,
   personal on-device notes, and offline access to previously loaded material.
@@ -19,6 +21,8 @@ remains the only business-logic backend.
   readable minimum text sizes, scalable/wrapping financial layouts, and device
   reduced-motion support for navigation transitions.
 - Buyer purchase requests and ILS price offers.
+- Visible USDT release deadlines with warning/overdue states, backed by the
+  canonical server timer rather than a client-authored deadline.
 - Native notification center with unread badges, localized account updates,
   allowlisted Trade Room deep links, and bounded incremental history loading.
 - Participant-only Trade Room lifecycle and bilingual in-room chat for buyers

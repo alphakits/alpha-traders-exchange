@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -39,6 +39,7 @@ import {
   mobileTradeEventLabel,
   mobileTradeStatusLabel,
 } from "../trades/trade-labels";
+import { formatTradeCountdown } from "../trades/trade-countdown";
 
 type BankDetails = {
   accountHolderName: string;
@@ -128,6 +129,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const [reviewComment, setReviewComment] = useState("");
   const [reviewResponse, setReviewResponse] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [visibleTimeRemaining, setVisibleTimeRemaining] = useState<number | null>(null);
   const pendingMessageRef = useRef<{ message: string; clientMessageId: string } | null>(null);
   const query = useQuery({
     enabled: Boolean(requestId && user),
@@ -137,6 +139,18 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
     refetchInterval: 5_000,
     staleTime: 2_000,
   });
+  const serverTimeRemaining = query.data?.trade?.status === "usdt_release_pending"
+    ? query.data.trade.timeRemainingSeconds
+    : null;
+
+  useEffect(() => {
+    setVisibleTimeRemaining(serverTimeRemaining);
+    if (serverTimeRemaining === null || serverTimeRemaining <= 0) return undefined;
+    const timer = setInterval(() => {
+      setVisibleTimeRemaining((current) => current === null ? null : Math.max(0, current - 1));
+    }, 1_000);
+    return () => clearInterval(timer);
+  }, [serverTimeRemaining]);
 
   const refreshTrade = useCallback(async () => {
     await Promise.all([
@@ -421,6 +435,28 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           </View>
           <Text style={[styles.instruction, isRTL && styles.rtlText]}>{stageInstruction(trade.status, t)}</Text>
         </View>
+
+        {trade.status === "usdt_release_pending" && visibleTimeRemaining !== null ? (
+          <View style={[
+            styles.deadlineCard,
+            visibleTimeRemaining <= 300 && styles.deadlineCardWarning,
+            visibleTimeRemaining <= 0 && styles.deadlineCardOverdue,
+          ]}>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>
+              {t("releaseDeadline")}
+            </Text>
+            <Text style={[styles.deadlineLabel, isRTL && styles.rtlText]}>{t("timeRemaining")}</Text>
+            <Text
+              accessibilityLabel={`${t("timeRemaining")}: ${formatTradeCountdown(visibleTimeRemaining)}`}
+              style={[styles.deadlineValue, visibleTimeRemaining <= 0 && styles.deadlineValueOverdue]}
+            >
+              {formatTradeCountdown(visibleTimeRemaining)}
+            </Text>
+            <Text style={[styles.deadlineBody, isRTL && styles.rtlText]}>
+              {visibleTimeRemaining <= 0 ? t("releaseOverdue") : t("releaseDeadlineBody")}
+            </Text>
+          </View>
+        ) : null}
 
         <View style={styles.summaryCard}>
           <DetailRow isRTL={isRTL} label={t("tradeAmount")} value={`${trade.usdtAmount} USDT`} />
@@ -722,6 +758,13 @@ const styles = StyleSheet.create({
   statusBadge: { backgroundColor: "rgba(216, 180, 74, 0.12)", borderColor: colors.borderGold, borderRadius: radius.pill, borderWidth: 1, paddingHorizontal: spacing.md, paddingVertical: 6 },
   statusText: { color: colors.goldBright, fontSize: typography.caption, fontWeight: "900" },
   instruction: { color: colors.text, fontSize: typography.body, lineHeight: 23 },
+  deadlineCard: { backgroundColor: "rgba(216, 180, 74, 0.08)", borderColor: colors.borderGold, borderRadius: radius.lg, borderWidth: 1, gap: spacing.sm, padding: spacing.lg },
+  deadlineCardWarning: { backgroundColor: "rgba(231, 184, 75, 0.12)", borderColor: colors.warning },
+  deadlineCardOverdue: { backgroundColor: "rgba(240, 106, 106, 0.10)", borderColor: colors.danger },
+  deadlineLabel: { color: colors.textMuted, fontSize: typography.small, fontWeight: "700" },
+  deadlineValue: { color: colors.goldBright, fontSize: 36, fontVariant: ["tabular-nums"], fontWeight: "900" },
+  deadlineValueOverdue: { color: colors.danger },
+  deadlineBody: { color: colors.text, fontSize: typography.small, lineHeight: 21 },
   summaryCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg, borderWidth: 1, gap: spacing.md, padding: spacing.lg },
   detailRow: { alignItems: "flex-start", flexDirection: "row", flexWrap: "wrap", gap: spacing.md, justifyContent: "space-between" },
   detailLabel: { color: colors.textMuted, flex: 1, fontSize: typography.small, minWidth: 110 },

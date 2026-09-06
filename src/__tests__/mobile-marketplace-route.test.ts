@@ -5,18 +5,21 @@ import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   getMarketplaceListings: vi.fn(),
+  requireMobileApiUser: vi.fn(),
 }));
 
 vi.mock("@/lib/alpha-exchange-store", () => ({
   getMarketplaceListings: mocks.getMarketplaceListings,
 }));
+vi.mock("@/lib/mobile-api-auth", () => ({ requireMobileApiUser: mocks.requireMobileApiUser }));
 
 import { GET } from "@/app/api/mobile/v1/marketplace/listings/route";
 
-function request(query = "") {
+function request(query = "", accessToken?: string) {
   return new NextRequest(`https://www.alphatraders.co.il/api/mobile/v1/marketplace/listings${query}`, {
     headers: {
       "accept-language": "en",
+      ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
       "x-device-id": "550e8400-e29b-41d4-a716-446655440000",
       "x-app-version": "1.0.0",
       "x-platform": "android",
@@ -27,6 +30,11 @@ function request(query = "") {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.requireMobileApiUser.mockResolvedValue({
+    user: { id: "private-seller-id", role: "approved_seller" },
+    accessToken: "access",
+    unauthorized: null,
+  });
   mocks.getMarketplaceListings.mockResolvedValue([
     {
       id: "listing-1",
@@ -91,15 +99,21 @@ describe("GET /api/mobile/v1/marketplace/listings", () => {
     const serialized = JSON.stringify(payload);
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("vary")).toBe("Accept-Language, X-App-Version, X-Platform");
+    expect(response.headers.get("vary")).toBe("Accept-Language, X-App-Version, X-Platform, Authorization");
     expect(payload.requestId).toBe("market-request-1");
     expect(payload.listings).toHaveLength(1);
     expect(payload.total).toBe(1);
+    expect(payload.facets).toEqual({
+      networks: ["TRC20"],
+      currencies: ["ILS"],
+      paymentMethods: ["Bank Transfer"],
+    });
     expect(payload.pagination).toEqual({ limit: 30, offset: 0, nextOffset: null });
     expect(payload.listings[0]).toMatchObject({
       id: "listing-1",
       seller: {
         displayName: "Verified Seller",
+        isCurrentUser: false,
         trustScore: 98,
         rating: 4.9,
       },
@@ -118,6 +132,19 @@ describe("GET /api/mobile/v1/marketplace/listings", () => {
     ]) {
       expect(serialized).not.toContain(value);
     }
+  });
+
+  it("personalizes own-listing actions only after validating an optional device session", async () => {
+    const response = await GET(request("", "token"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store, max-age=0");
+    expect(mocks.requireMobileApiUser).toHaveBeenCalledOnce();
+    expect(payload.listings[0]).toMatchObject({
+      seller: { isCurrentUser: true },
+      actions: { canBuyNow: false, canMakeOffer: false },
+    });
   });
 
   it("returns a bounded page and rejects invalid pagination", async () => {
@@ -147,6 +174,67 @@ describe("GET /api/mobile/v1/marketplace/listings", () => {
     mocks.getMarketplaceListings.mockClear();
     const invalid = await GET(request("?listingId=bad%2Flisting&limit=1"));
     expect(invalid.status).toBe(400);
+    expect(mocks.getMarketplaceListings).not.toHaveBeenCalled();
+  });
+
+  it("filters before pagination, returns stable facets, and sorts numeric prices", async () => {
+    const sourceListings = await mocks.getMarketplaceListings();
+    const first = sourceListings[0];
+    mocks.getMarketplaceListings.mockResolvedValue([
+      first,
+      {
+        ...first,
+        id: "listing-2",
+        displayNumber: 82,
+        price: "3.10",
+        network: "ERC20",
+        paymentMethod: "Cash Deposit",
+        paymentMethods: ["Cash Deposit"],
+        sellerDisplayName: "Second Seller",
+        sellerProfile: {
+          ...first.sellerProfile,
+          onlineStatus: "offline",
+          isFeaturedSeller: false,
+        },
+        sellerReputation: {
+          ...first.sellerReputation,
+          trustScore: 80,
+          rating: 4.2,
+        },
+      },
+    ]);
+
+    const sorted = await GET(request("?sort=price-asc"));
+    const sortedPayload = await sorted.json();
+    expect(sortedPayload.listings.map((listing: { id: string }) => listing.id)).toEqual(["listing-2", "listing-1"]);
+    expect(sortedPayload.facets).toEqual({
+      networks: ["ERC20", "TRC20"],
+      currencies: ["ILS"],
+      paymentMethods: ["Bank Transfer", "Cash Deposit"],
+    });
+
+    const filtered = await GET(request("?network=ERC20&online=1&sort=trust-desc"));
+    await expect(filtered.json()).resolves.toMatchObject({
+      listings: [],
+      total: 0,
+      facets: { networks: ["ERC20", "TRC20"] },
+      pagination: { offset: 0, nextOffset: null },
+    });
+  });
+
+  it.each([
+    "?network=unknown",
+    "?currency=1",
+    "?online=yes",
+    "?sort=random",
+    `?payment=${encodeURIComponent("x".repeat(81))}`,
+  ])("rejects invalid filter query %s before reading listings", async (query) => {
+    mocks.getMarketplaceListings.mockClear();
+
+    const response = await GET(request(query));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "INVALID_REQUEST" } });
     expect(mocks.getMarketplaceListings).not.toHaveBeenCalled();
   });
 });

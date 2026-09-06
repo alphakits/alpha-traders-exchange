@@ -11,6 +11,7 @@ import type {
   MobileCreateTradeRequest,
   MobileLocale,
   MobileLoginResponse,
+  MobileMarketplaceFilters,
   MobileMarketplaceListingsResponse,
   MobileMeResponse,
   MobileNotificationResponse,
@@ -260,10 +261,25 @@ export function markAllMobileNotificationsRead(
   });
 }
 
-export function getMobileMarketplace(locale: MobileLocale, offset = 0, signal?: AbortSignal) {
+export function getMobileMarketplace(
+  locale: MobileLocale,
+  offset = 0,
+  signal?: AbortSignal,
+  filters: MobileMarketplaceFilters = {},
+  tokens?: MobileAuthTokens,
+) {
+  const query = new URLSearchParams({
+    limit: String(MOBILE_COLLECTION_PAGE_SIZE),
+    offset: String(offset),
+    sort: filters.sort ?? "trust-desc",
+  });
+  if (filters.network) query.set("network", filters.network);
+  if (filters.currency) query.set("currency", filters.currency);
+  if (filters.paymentMethod) query.set("payment", filters.paymentMethod);
+  if (filters.onlineOnly) query.set("online", "1");
   return mobileRequest<MobileMarketplaceListingsResponse>(
-    `/api/mobile/v1/marketplace/listings?limit=${MOBILE_COLLECTION_PAGE_SIZE}&offset=${offset}`,
-    { locale, signal },
+    `/api/mobile/v1/marketplace/listings?${query.toString()}`,
+    { locale, signal, accessToken: tokens?.accessToken },
   );
 }
 
