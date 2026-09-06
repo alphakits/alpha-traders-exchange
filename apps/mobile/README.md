@@ -34,7 +34,8 @@ remains the only business-logic backend.
 - Protected bank-detail reveal after seller acceptance.
 - Payment and USDT evidence uploads through the system photo picker. Images
   are resized and re-encoded before upload so embedded photo metadata is not
-  retained.
+  retained, then sent as bounded multipart files without base64 duplication in
+  the app's JavaScript memory.
 - Approved-seller workspace with private listing history, idempotent
   pause/resume controls, and Available/Away/Vacation switching. Listing
   creation, price/amount edits, bank management, and commission settlement use

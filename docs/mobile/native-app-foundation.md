@@ -82,8 +82,9 @@ and roles from the validated device session.
 
 ### 3. Mobile-safe evidence uploads
 
-The current trade evidence route accepts base64 inside JSON. Before native trade
-flows ship, add multipart upload or a short-lived signed direct-upload flow.
+Implemented for the native client with bounded multipart image uploads. The
+server retains temporary JSON compatibility for an earlier private client, but
+the current app no longer base64-duplicates evidence in JavaScript memory.
 
 Requirements:
 
@@ -226,6 +227,10 @@ Completed in source:
 - Bilingual marketplace, seller profiles, buyer request creation, participant-
   only Trade Rooms, chat, bank-detail reveal, evidence upload, buyer disputes,
   verified post-trade reviews, and seller review responses.
+- Native evidence is resized, re-encoded to remove embedded photo metadata, and
+  sent as bounded multipart data while the server preserves participant checks,
+  file-signature validation, neutral filenames, and content-derived replay
+  safety.
 - Buyer requests validate network-specific receiving-wallet formats locally
   with the same portable TRC20 checksum, EVM, and Solana rules enforced by the
   canonical server path.

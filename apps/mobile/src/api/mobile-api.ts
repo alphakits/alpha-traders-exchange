@@ -69,7 +69,7 @@ type MobileRequestOptions = {
   locale: MobileLocale;
   method?: "GET" | "POST" | "PATCH" | "DELETE";
   accessToken?: string;
-  body?: Record<string, unknown>;
+  body?: Record<string, unknown> | FormData;
   signal?: AbortSignal;
   timeoutMs?: number;
 };
@@ -95,13 +95,17 @@ async function mobileRequest<T>(path: string, options: MobileRequestOptions): Pr
       "X-Platform": clientPlatform(),
       "X-Request-Id": requestId,
     };
+    const isMultipart = typeof FormData !== "undefined" && options.body instanceof FormData;
+    const requestBody = options.body
+      ? (isMultipart ? options.body as FormData : JSON.stringify(options.body))
+      : undefined;
     if (options.accessToken) headers.Authorization = `Bearer ${options.accessToken}`;
-    if (options.body) headers["Content-Type"] = "application/json";
+    if (options.body && !isMultipart) headers["Content-Type"] = "application/json";
 
     const response = await fetch(`${apiOrigin()}${path}`, {
       method: options.method ?? "GET",
       headers,
-      body: options.body ? JSON.stringify(options.body) : undefined,
+      body: requestBody,
       signal: controller.signal,
     });
     const text = await response.text();
@@ -435,22 +439,23 @@ export function uploadMobileTradeEvidence(
     requestId: string;
     side: "buyer" | "seller";
     mimeType: "image/jpeg" | "image/png" | "image/webp";
-    sizeBytes: number;
-    contentBase64: string;
+    fileUri: string;
   },
 ) {
+  const form = new FormData();
+  form.append("side", input.side);
+  form.append("evidence", {
+    uri: input.fileUri,
+    name: input.side === "buyer" ? "payment-evidence.jpg" : "release-evidence.jpg",
+    type: input.mimeType,
+  } as unknown as Blob);
   return mobileRequest<MobileTradeResponse>(
     `/api/mobile/v1/trades/${encodeURIComponent(input.requestId)}/evidence`,
     {
       locale,
       method: "POST",
       accessToken: tokens.accessToken,
-      body: {
-        side: input.side,
-        mimeType: input.mimeType,
-        sizeBytes: input.sizeBytes,
-        contentBase64: input.contentBase64,
-      },
+      body: form,
       timeoutMs: 45_000,
     },
   );

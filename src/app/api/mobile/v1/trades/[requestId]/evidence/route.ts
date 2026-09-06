@@ -26,6 +26,23 @@ const RESOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_EVIDENCE_BYTES = 5 * 1024 * 1024;
 const MAX_JSON_BYTES = Math.ceil(MAX_EVIDENCE_BYTES * 1.38) + 4096;
+const MAX_MULTIPART_BYTES = MAX_EVIDENCE_BYTES + 256 * 1024;
+
+type MultipartEvidenceFile = {
+  arrayBuffer: () => Promise<ArrayBuffer>;
+  size: number;
+  type: string;
+};
+
+function isMultipartEvidenceFile(value: unknown): value is MultipartEvidenceFile {
+  return Boolean(
+    value
+      && typeof value === "object"
+      && typeof (value as MultipartEvidenceFile).arrayBuffer === "function"
+      && typeof (value as MultipartEvidenceFile).size === "number"
+      && typeof (value as MultipartEvidenceFile).type === "string",
+  );
+}
 
 export async function POST(request: NextRequest, context: RouteContext) {
   const requestId = createMobileRequestId(request);
@@ -51,35 +68,71 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return mobileError("TRADE_NOT_FOUND", requestId, locale, 404);
     }
 
+    const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
+    const isMultipart = contentType.startsWith("multipart/form-data");
     const contentLength = Number(request.headers.get("content-length") ?? "0");
-    if (Number.isFinite(contentLength) && contentLength > MAX_JSON_BYTES) {
+    const maxRequestBytes = isMultipart ? MAX_MULTIPART_BYTES : MAX_JSON_BYTES;
+    if (Number.isFinite(contentLength) && contentLength > maxRequestBytes) {
       return mobileError("EVIDENCE_INVALID", requestId, locale, 413);
     }
-    let body: Record<string, unknown>;
-    try {
-      const value: unknown = await request.json();
-      if (!value || typeof value !== "object" || Array.isArray(value)) {
+
+    let side = "";
+    let mimeType = "";
+    let contentBase64 = "";
+    let sizeBytes = 0;
+    let multipartFile: MultipartEvidenceFile | null = null;
+    if (isMultipart) {
+      try {
+        const form = await request.formData();
+        side = String(form.get("side") ?? "").trim();
+        const candidate = form.get("evidence");
+        if (!isMultipartEvidenceFile(candidate)) {
+          return mobileError("EVIDENCE_INVALID", requestId, locale, 400);
+        }
+        multipartFile = candidate;
+        mimeType = candidate.type.trim().toLowerCase();
+        sizeBytes = candidate.size;
+      } catch {
         return mobileError("INVALID_REQUEST", requestId, locale, 400);
       }
-      body = value as Record<string, unknown>;
-    } catch {
+    } else if (contentType.startsWith("application/json")) {
+      let body: Record<string, unknown>;
+      try {
+        const value: unknown = await request.json();
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          return mobileError("INVALID_REQUEST", requestId, locale, 400);
+        }
+        body = value as Record<string, unknown>;
+      } catch {
+        return mobileError("INVALID_REQUEST", requestId, locale, 400);
+      }
+      side = String(body.side ?? "").trim();
+      mimeType = String(body.mimeType ?? "").trim().toLowerCase();
+      contentBase64 = String(body.contentBase64 ?? "").trim();
+      sizeBytes = Number(body.sizeBytes ?? 0);
+    } else {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
 
     const expectedSide = room.request.buyerId === auth.user.id ? "buyer" : "seller";
-    const side = String(body.side ?? "").trim();
-    const mimeType = String(body.mimeType ?? "").trim().toLowerCase();
-    const contentBase64 = String(body.contentBase64 ?? "").trim();
-    const sizeBytes = Number(body.sizeBytes ?? 0);
     if (
       side !== expectedSide
       || !ALLOWED_MIME_TYPES.has(mimeType)
       || !Number.isFinite(sizeBytes)
       || sizeBytes <= 0
       || sizeBytes > MAX_EVIDENCE_BYTES
-      || !contentBase64
-      || contentBase64.length > Math.ceil(MAX_EVIDENCE_BYTES * 4 / 3) + 8
+      || (!multipartFile && !contentBase64)
     ) {
+      return mobileError("EVIDENCE_INVALID", requestId, locale, 400);
+    }
+    if (multipartFile) {
+      const bytes = Buffer.from(await multipartFile.arrayBuffer());
+      if (!bytes.length || bytes.length !== sizeBytes || bytes.length > MAX_EVIDENCE_BYTES) {
+        return mobileError("EVIDENCE_INVALID", requestId, locale, 400);
+      }
+      contentBase64 = bytes.toString("base64");
+    }
+    if (contentBase64.length > Math.ceil(MAX_EVIDENCE_BYTES * 4 / 3) + 8) {
       return mobileError("EVIDENCE_INVALID", requestId, locale, 400);
     }
 

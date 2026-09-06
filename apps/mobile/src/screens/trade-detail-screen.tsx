@@ -231,17 +231,11 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         asset.uri,
         asset.width > 1600 ? [{ resize: { width: 1600 } }] : [],
         {
-          base64: true,
           compress: 0.76,
           format: ImageManipulator.SaveFormat.JPEG,
         },
       );
-      if (!prepared.base64) {
-        setError(t("evidenceInvalid"));
-        return;
-      }
-      const sizeBytes = Math.ceil(prepared.base64.length * 3 / 4);
-      if (sizeBytes <= 0 || sizeBytes > 5 * 1024 * 1024) {
+      if (!prepared.uri) {
         setError(t("evidenceInvalid"));
         return;
       }
@@ -250,8 +244,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         requestId,
         side,
         mimeType: "image/jpeg",
-        sizeBytes,
-        contentBase64: prepared.base64!,
+        fileUri: prepared.uri,
       }));
       await refreshTrade();
     } catch (caught) {
