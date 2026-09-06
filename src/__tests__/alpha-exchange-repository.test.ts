@@ -58,6 +58,7 @@ function createEmptyDb(): AlphaExchangeDb {
 describe("AlphaExchangeRepository", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.ALPHA_EXCHANGE_TEST_PERSIST_FALLBACK = "1";
     vi.mocked(getAlphaExchangeRepository).mockReset();
     globalThis.__alphaExchangeMemorySnapshot = undefined as never;
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
@@ -77,6 +78,7 @@ describe("AlphaExchangeRepository", () => {
     globalThis.__alphaExchangeMemorySnapshot = undefined as never;
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
+    delete process.env.ALPHA_EXCHANGE_TEST_PERSIST_FALLBACK;
   });
 
   it("skips runtime DDL when the current schema sentinel exists", async () => {

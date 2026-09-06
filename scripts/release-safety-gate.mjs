@@ -32,6 +32,11 @@ const steps = [
     arguments: ["./node_modules/typescript/bin/tsc", "--noEmit"],
   },
   {
+    label: "Generated build cleanup",
+    executable: npmExecutable,
+    arguments: ["run", "clean"],
+  },
+  {
     label: "Production build",
     executable: npmExecutable,
     arguments: ["run", "build"],

@@ -169,6 +169,14 @@ function logLocalMarketplaceDiagnostic(
   details: Record<string, unknown> = {},
 ) {
   if (allowsRuntimeDiagnostics()) {
+    if (
+      level === "info"
+      && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM !== "1"
+      && process.env.ALPHA_EXCHANGE_PERF !== "1"
+      && process.env.ALPHA_EXCHANGE_REPO_TRACE !== "1"
+    ) {
+      return;
+    }
     console[level](event, details);
     return;
   }

@@ -1582,22 +1582,23 @@ function getLatestAvailableFallbackSnapshot(): SnapshotWithVersion {
       getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
     )
     : null;
-  const persistedFallback = loadPersistedFallbackSnapshot();
-  if (!memorySnapshot) {
-    if (persistedFallback) {
-      globalThis.__alphaExchangeMemorySnapshot = attachVersion(cloneSnapshot(persistedFallback), getVersion(persistedFallback));
-      return attachVersion(cloneSnapshot(persistedFallback), getVersion(persistedFallback));
-    }
-    ensureMemorySeed();
-    return attachVersion(
-      cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
-      getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
-    );
-  }
   // Prefer explicit in-process memory when present. Tests and harness flows
   // intentionally seed memory directly and must not be silently replaced by
-  // a persisted snapshot from a previous run.
-  return memorySnapshot;
+  // a persisted snapshot from a previous run. Avoid reading and parsing the
+  // entire fallback file on every request once that authoritative snapshot is
+  // already warm; the file is only needed to recover a fresh process.
+  if (memorySnapshot) return memorySnapshot;
+
+  const persistedFallback = loadPersistedFallbackSnapshot();
+  if (persistedFallback) {
+    globalThis.__alphaExchangeMemorySnapshot = attachVersion(cloneSnapshot(persistedFallback), getVersion(persistedFallback));
+    return attachVersion(cloneSnapshot(persistedFallback), getVersion(persistedFallback));
+  }
+  ensureMemorySeed();
+  return attachVersion(
+    cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
+    getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
+  );
 }
 
 function syncFallbackAuthSessions(update: (sessions: AuthSession[]) => AuthSession[]) {
@@ -1609,9 +1610,19 @@ function syncFallbackAuthSessions(update: (sessions: AuthSession[]) => AuthSessi
   syncMemoryFallbackSnapshot(next, getVersion(snapshot));
 }
 
+function shouldPersistLocalFallbackSnapshot() {
+  if (isProductionSecurityRuntime()) return false;
+  // Unit and load tests seed an isolated in-memory snapshot explicitly. Writing
+  // the growing JSON snapshot after every mutation adds quadratic disk I/O and
+  // does not improve their durability. Repository persistence tests opt in so
+  // the cross-process recovery contract remains covered.
+  return process.env.NODE_ENV !== "test"
+    || process.env.ALPHA_EXCHANGE_TEST_PERSIST_FALLBACK === "1";
+}
+
 function loadPersistedFallbackSnapshot(): SnapshotWithVersion | null {
   // Production must never read a prior mutable snapshot from local disk.
-  if (isProductionSecurityRuntime()) return null;
+  if (!shouldPersistLocalFallbackSnapshot()) return null;
   try {
     if (!existsSync(FALLBACK_SNAPSHOT_PATH)) return null;
     const raw = readFileSync(FALLBACK_SNAPSHOT_PATH, "utf8").trim();
@@ -1644,7 +1655,7 @@ function syncMemoryFallbackSnapshot(snapshot: AlphaExchangeDb, version = getVers
   globalThis.__alphaExchangeMemorySnapshot = next;
   // A successful production database read may update the in-process mirror for
   // cache coherence, but must not persist user/session data to /tmp.
-  if (isProductionSecurityRuntime()) return;
+  if (!shouldPersistLocalFallbackSnapshot()) return;
   try {
     mkdirSync(FALLBACK_SNAPSHOT_DIR, { recursive: true });
     const tempPath = `${FALLBACK_SNAPSHOT_PATH}.tmp`;
