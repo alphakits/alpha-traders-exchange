@@ -55,6 +55,8 @@ export type MobileApiErrorCode =
   | "EVIDENCE_INVALID"
   | "DISPUTE_INVALID"
   | "REVIEW_INVALID"
+  | "PROFILE_INVALID"
+  | "PROFILE_UPDATE_FAILED"
   | "SERVICE_UNAVAILABLE"
   | "INTERNAL_ERROR";
 
@@ -124,6 +126,64 @@ export interface MobileRefreshResponse {
 }
 
 export interface MobileMeResponse {
+  user: MobileSessionUser;
+  requestId: string;
+}
+
+export interface MobileAccountProfile {
+  fullName: string;
+  email: string;
+  profilePhotoUrl: string;
+  bio: string;
+  country: string;
+  language: string;
+  memberSince: string;
+  lastLogin: string;
+  showTradeStats: boolean;
+  showLastActive: boolean;
+  allowDirectMessages: boolean;
+  allowProfileSearch: boolean;
+  showPhonePublic: boolean;
+  showEmailPublic: boolean;
+}
+
+export type MobileAccountStats =
+  | {
+      kind: "buyer";
+      level: "bronze" | "silver" | "gold" | "diamond" | "elite";
+      lifetimeCompletedVolumeUsdt: number;
+      activeTrades: number;
+      completedTrades: number;
+      reviewsGiven: number;
+      progressToNextLevelPercent: number;
+    }
+  | {
+      kind: "seller";
+      level: "bronze" | "silver" | "gold" | "diamond" | "elite";
+      lifetimeCompletedVolumeUsdt: number;
+      completedTrades: number;
+      activeListings: number;
+      pendingListings: number;
+      averageRating: number;
+      trustScore: number;
+      progressToNextLevelPercent: number;
+    };
+
+export interface MobileAccountProfileUpdateRequest {
+  fullName?: string;
+  bio?: string;
+  country?: string;
+  showTradeStats?: boolean;
+  showLastActive?: boolean;
+  allowDirectMessages?: boolean;
+  allowProfileSearch?: boolean;
+  showPhonePublic?: boolean;
+  showEmailPublic?: boolean;
+}
+
+export interface MobileAccountProfileResponse {
+  profile: MobileAccountProfile;
+  stats: MobileAccountStats;
   user: MobileSessionUser;
   requestId: string;
 }

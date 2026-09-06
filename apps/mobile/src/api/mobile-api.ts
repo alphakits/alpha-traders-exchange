@@ -4,6 +4,8 @@ import { Platform } from "react-native";
 import type {
   MobileApiErrorCode,
   MobileApiErrorResponse,
+  MobileAccountProfileResponse,
+  MobileAccountProfileUpdateRequest,
   MobileAppConfigResponse,
   MobileAcademyCatalogResponse,
   MobileAcademyLessonResponse,
@@ -181,6 +183,31 @@ export function getMobileMe(tokens: MobileAuthTokens, locale: MobileLocale) {
   return mobileRequest<MobileMeResponse>("/api/mobile/v1/auth/me", {
     locale,
     accessToken: tokens.accessToken,
+  });
+}
+
+export function getMobileAccountProfile(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  signal?: AbortSignal,
+) {
+  return mobileRequest<MobileAccountProfileResponse>("/api/mobile/v1/profile", {
+    locale,
+    accessToken: tokens.accessToken,
+    signal,
+  });
+}
+
+export function updateMobileAccountProfile(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  update: MobileAccountProfileUpdateRequest,
+) {
+  return mobileRequest<MobileAccountProfileResponse>("/api/mobile/v1/profile", {
+    locale,
+    method: "PATCH",
+    accessToken: tokens.accessToken,
+    body: { ...update },
   });
 }
 

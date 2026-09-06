@@ -8,6 +8,7 @@ describe("native private query cache boundary", () => {
     [["mobile-trades", "user-1", "en"]],
     [["mobile-trade", "user-1", "request-1", "ar"]],
     [["mobile-notifications", "user-1", "en"]],
+    [["mobile-profile", "user-1", "en"]],
     [["mobile-seller-listings", "seller-1", "ar"]],
     [["mobile-marketplace", "user-1", "en", "all"]],
     [["mobile-marketplace-listing", "user-1", "listing-1", "en"]],

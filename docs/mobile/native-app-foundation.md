@@ -242,8 +242,12 @@ Completed in source:
   capped paginated history, and allowlisted deep links. Marketplace and trade
   collections use the same bounded incremental-loading contract.
 - SecureStore session persistence, account-isolated query caches, foreground
-  refresh, private-beta access/password-recovery handoffs, and legal/account-management
+  refresh, private-beta access/password-recovery handoffs, and legal/advanced-account
   links.
+- Native profile activity and reputation summaries, level progress, everyday
+  profile editing, and six explicit privacy controls. The versioned endpoint
+  derives the account from the device session and omits private contact numbers,
+  commission history, billing data, and internal persistence identifiers.
 - Generation-aware refresh recovery reuses credentials already rotated by a
   concurrent request and prevents stale work from reviving or clearing a
   signed-out or replacement account session.

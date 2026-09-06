@@ -1,5 +1,6 @@
 import type { MobileSessionUser } from "@alpha-traders/contracts";
 import { normalizePreferredLocale } from "@/lib/preferred-locale";
+import { safeMobileMediaUrl } from "@/lib/mobile-safe-media-url";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
 
 /** Native allowlist. Persistence credentials, contact numbers, bank accounts,
@@ -13,7 +14,7 @@ export function toMobileSessionUser(user: AlphaExchangeUser): MobileSessionUser 
     roles: user.roles ?? [user.role],
     sellerStatus: user.sellerStatus,
     preferredLocale: normalizePreferredLocale(user.preferredLocale),
-    profilePhotoUrl: user.profilePhotoUrl,
+    profilePhotoUrl: safeMobileMediaUrl(user.profilePhotoUrl),
     emailVerified: user.emailVerified === true,
     onboardingSelection: user.onboardingSelection,
     onboardingCompletedAt: user.onboardingCompletedAt,

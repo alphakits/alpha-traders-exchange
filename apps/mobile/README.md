@@ -8,11 +8,15 @@ remains the only business-logic backend.
 - Arabic/English onboarding, server-paginated marketplace with compact
   network/currency/payment/online filters and trusted seller sorting, seller
   profiles, and account access.
+- Native account activity and reputation cards, level progress, everyday
+  profile editing, and explicit privacy controls. The profile endpoint exposes
+  a mobile allowlist and excludes private contact numbers, seller commission
+  history, billing details, and persistence identifiers.
 - Full native Academy navigation with published-only tracks and lessons,
   bilingual/RTL course content, quizzes, bookmarks, account-scoped progress,
   personal on-device notes, and offline access to previously loaded material.
-- Trusted website handoffs for private-beta access, password recovery, account
-  management/deletion, privacy, terms, and support.
+- Trusted website handoffs for private-beta access, password recovery, profile
+  photo/password management, account deletion, privacy, terms, and support.
 - Device-bound opaque access/refresh sessions stored with SecureStore.
 - Optional Face ID or secure-fingerprint privacy lock that masks authenticated
   content immediately in the app switcher and pauses live query work while
@@ -72,6 +76,9 @@ HTTP origins.
   cannot revive or clear a signed-out or replacement account session.
 - Authenticated query caches are isolated by account and purged whenever the
   signed-in identity changes on a shared device.
+- Profile edits derive identity from the validated device session, reject
+  unknown or role-bearing fields, and safely synchronize the current session
+  without allowing an older account response to replace a newer sign-in.
 - Academy response caches and learning progress use account-scoped device keys;
   authorization or version failures never fall back to locally cached content.
 - Academy media handoffs accept absolute HTTPS URLs only. Draft content and

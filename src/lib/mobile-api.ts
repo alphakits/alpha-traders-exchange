@@ -158,6 +158,14 @@ const errorMessages: Record<MobileApiErrorCode, Record<MobileLocale, string>> = 
     ar: "اختر تقييمًا من 1 إلى 5 وأدخل نصًا من 1 إلى 500 حرف.",
     en: "Choose a rating from 1 to 5 and enter text between 1 and 500 characters.",
   },
+  PROFILE_INVALID: {
+    ar: "تحقق من بيانات الملف الشخصي وإعدادات الخصوصية.",
+    en: "Check the profile details and privacy settings.",
+  },
+  PROFILE_UPDATE_FAILED: {
+    ar: "تعذر تحديث الملف الشخصي الآن. حاول مرة أخرى.",
+    en: "The profile could not be updated right now. Please try again.",
+  },
   SERVICE_UNAVAILABLE: {
     ar: "الخدمة غير متاحة مؤقتًا. حاول مرة أخرى.",
     en: "The service is temporarily unavailable. Please try again.",

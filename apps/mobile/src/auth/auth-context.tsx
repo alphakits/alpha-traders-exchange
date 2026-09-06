@@ -41,6 +41,7 @@ type AuthContextValue = {
   refreshSession: () => Promise<MobileAuthTokens | null>;
   retryBootstrap: () => Promise<void>;
   requestWithSession: AuthenticatedRequest;
+  syncSessionUser: (nextUser: MobileSessionUser) => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -246,6 +247,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   }, [discardSession]);
 
+  const syncSessionUser = useCallback((nextUser: MobileSessionUser) => {
+    setUser((current) => current?.id === nextUser.id ? nextUser : current);
+  }, []);
+
   const value = useMemo<AuthContextValue>(() => ({
     status,
     user,
@@ -255,7 +260,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     refreshSession,
     retryBootstrap: bootstrapSession,
     requestWithSession,
-  }), [bootstrapSession, isBusy, login, logout, refreshSession, requestWithSession, status, user]);
+    syncSessionUser,
+  }), [bootstrapSession, isBusy, login, logout, refreshSession, requestWithSession, status, syncSessionUser, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

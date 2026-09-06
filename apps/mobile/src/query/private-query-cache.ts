@@ -2,6 +2,7 @@ const PRIVATE_QUERY_ROOTS = new Set([
   "mobile-academy",
   "mobile-academy-lesson",
   "mobile-notifications",
+  "mobile-profile",
   "mobile-seller-listings",
   "mobile-trade",
   "mobile-trades",
