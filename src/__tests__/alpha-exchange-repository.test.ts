@@ -79,6 +79,49 @@ describe("AlphaExchangeRepository", () => {
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
   });
 
+  it("skips runtime DDL when the current schema sentinel exists", async () => {
+    const query = vi.fn((queryText: string) => {
+      if (queryText.includes("to_regclass")) {
+        return Promise.resolve({ rows: [{ ready: true }] });
+      }
+      if (queryText.includes("count(*)::text")) {
+        return Promise.resolve({ rows: [{ count: "1" }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const pool = { query, connect: vi.fn(), on: vi.fn() } as unknown as Pool;
+
+    const repository = new AlphaExchangeRepository(pool);
+    await repository.ensureReady();
+
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query).toHaveBeenNthCalledWith(
+      1,
+      "select to_regclass($1) is not null as ready",
+      ["alpha_exchange.idx_alpha_exchange_marketplace_enforcement_audit_seller_created"],
+    );
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("create schema"))).toBe(false);
+  });
+
+  it("retains safe runtime bootstrap when the schema sentinel is missing", async () => {
+    const query = vi.fn((queryText: string) => {
+      if (queryText.includes("to_regclass")) {
+        return Promise.resolve({ rows: [{ ready: false }] });
+      }
+      if (queryText.includes("count(*)::text")) {
+        return Promise.resolve({ rows: [{ count: "1" }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const pool = { query, connect: vi.fn(), on: vi.fn() } as unknown as Pool;
+
+    const repository = new AlphaExchangeRepository(pool);
+    await repository.ensureReady();
+
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("create schema if not exists alpha_exchange"))).toBe(true);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("idx_alpha_exchange_marketplace_enforcement_audit_seller_created"))).toBe(true);
+  });
+
   it("falls back to the in-memory snapshot when the database connection times out", async () => {
     const pool = {
       query: vi.fn().mockRejectedValue(new Error("timeout exceeded when trying to connect")),

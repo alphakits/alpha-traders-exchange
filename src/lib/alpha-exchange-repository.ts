@@ -38,6 +38,12 @@ import type {
 
 type Queryable = Pool | PoolClient;
 
+// This index is the final object created by SCHEMA_SQL. Its presence proves
+// that the current runtime schema bootstrap completed successfully. When the
+// schema changes, append the new statements and advance this sentinel too.
+const CURRENT_SCHEMA_SENTINEL =
+  "alpha_exchange.idx_alpha_exchange_marketplace_enforcement_audit_seller_created";
+
 type EvidenceWriteMap = Map<string, Buffer>;
 
 const TEST_FALLBACK_DIR_SUFFIX = process.env.NODE_ENV === "test"
@@ -1551,6 +1557,14 @@ async function runSchema(target: Queryable) {
   );
 }
 
+async function isCurrentSchemaReady(target: Queryable) {
+  const result = await target.query<{ ready: boolean }>(
+    "select to_regclass($1) is not null as ready",
+    [CURRENT_SCHEMA_SENTINEL],
+  );
+  return result.rows[0]?.ready === true;
+}
+
 function ensureMemorySeed() {
   if (!globalThis.__alphaExchangeMemorySnapshot) {
     const persistedFallback = loadPersistedFallbackSnapshot();
@@ -1687,7 +1701,9 @@ export class AlphaExchangeRepository {
           return;
         }
         try {
-          await runSchema(pool);
+          if (!(await isCurrentSchemaReady(pool))) {
+            await runSchema(pool);
+          }
           const usersCount = await pool.query<{ count: string }>("select count(*)::text as count from alpha_exchange.users");
           const shouldSeed = usersCount.rows[0]?.count === "0" && process.env.NODE_ENV !== "production";
           if (shouldSeed) {
