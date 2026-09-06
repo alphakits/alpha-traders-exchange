@@ -26,6 +26,9 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "@alpha-traders/contracts": [
+        "./packages/contracts/src/index.ts"
       ]
     }
   },
@@ -40,6 +43,7 @@
   ],
   "exclude": [
     "node_modules",
+    "apps/mobile",
     "e2e/new-buyer-seller-application.spec.ts",
     "src/__tests__/admin-approved-sellers-privacy.test.ts",
     "src/__tests__/legacy-pending-seller-normalization.test.ts"

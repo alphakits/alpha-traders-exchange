@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "Alpha Traders",
+    "slug": "alpha-traders",
+    "version": "1.0.0",
+    "icon": "../../public/images/brand/alpha-traders-logo-512.png",
+    "platforms": [
+      "ios",
+      "android"
+    ],
+    "orientation": "portrait",
+    "scheme": "alphatraders",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.alphakits.alphatraders",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.alphakits.alphatraders",
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": true,
+      "adaptiveIcon": {
+        "foregroundImage": "../../public/images/brand/alpha-traders-logo-maskable-512.png",
+        "backgroundColor": "#050505"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-localization",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#050505",
+          "image": "../../public/images/brand/alpha-traders-logo-512.png",
+          "imageWidth": 180,
+          "resizeMode": "contain"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Alpha Traders to select a payment or USDT transfer receipt for your active trade.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "apiVersion": "v1"
+    }
+  }
+}

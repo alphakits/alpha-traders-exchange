@@ -17,6 +17,19 @@ function isExternalCallbackPath(pathname: string) {
   return EXTERNAL_CALLBACK_PATHS.has(pathname.replace(/\/$/, ""));
 }
 
+function isOriginlessNativeMobileRequest(request: Parameters<typeof intlMiddleware>[0]) {
+  if (!request.nextUrl.pathname.startsWith("/api/mobile/v1/")) return false;
+  if (request.headers.get("origin") || request.headers.get("sec-fetch-site")) return false;
+  const deviceId = request.headers.get("x-device-id")?.trim() ?? "";
+  const appVersion = request.headers.get("x-app-version")?.trim() ?? "";
+  const platform = request.headers.get("x-platform")?.trim().toLowerCase();
+  return deviceId.length >= 16
+    && deviceId.length <= 128
+    && appVersion.length >= 1
+    && appVersion.length <= 50
+    && (platform === "ios" || platform === "android");
+}
+
 function rejectUntrustedApiMutation() {
   return NextResponse.json(
     { error: "Invalid request origin." },
@@ -39,10 +52,12 @@ export default function middleware(request: Parameters<typeof intlMiddleware>[0]
       && !isExternalCallbackPath(pathname);
     const isOriginlessLocalTestMutation = !request.headers.get("origin")
       && allowsLocalTestSupportRequest(request);
+    const isOriginlessMobileMutation = isOriginlessNativeMobileRequest(request);
     if (
       isProtectedMutation
       && !hasTrustedSameOrigin(request)
       && !isOriginlessLocalTestMutation
+      && !isOriginlessMobileMutation
     ) {
       return rejectUntrustedApiMutation();
     }

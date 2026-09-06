@@ -2,6 +2,10 @@
   "name": "alpha-traders",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "clean": "node -e \"const fs=require('fs'); ['.next','.next-dev','.next-runtime','.next-runtime-build','.next-stale'].forEach((dir)=>{ if (fs.existsSync(dir)) fs.rmSync(dir,{recursive:true,force:true}); });\"",
     "dev": "node scripts/ensure-single-dev.mjs && node ./node_modules/next/dist/bin/next dev",
@@ -21,9 +25,15 @@
     "discord:post-setup": "npm run discord:verify && npm run discord:inspect",
     "discord:provision": "node scripts/discord/provision-alpha-discord.mjs",
     "discord:commands": "node scripts/discord/register-alpha-slash-commands.mjs",
-    "discord:worker": "node --conditions=react-server --import tsx src/workers/discord-worker.ts"
+    "discord:worker": "node --conditions=react-server --import tsx src/workers/discord-worker.ts",
+    "mobile:start": "npm --workspace @alpha-traders/mobile run start",
+    "mobile:ios": "npm --workspace @alpha-traders/mobile run ios",
+    "mobile:android": "npm --workspace @alpha-traders/mobile run android",
+    "mobile:typecheck": "npm --workspace @alpha-traders/mobile run typecheck",
+    "mobile:export": "npm --workspace @alpha-traders/mobile run export"
   },
   "dependencies": {
+    "@alpha-traders/contracts": "*",
     "@hookform/resolvers": "^5.4.0",
     "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.110.7",
