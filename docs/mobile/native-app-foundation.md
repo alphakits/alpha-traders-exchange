@@ -236,6 +236,9 @@ Completed in source:
 - SecureStore session persistence, account-isolated query caches, foreground
   refresh, private-beta access/password-recovery handoffs, and legal/account-management
   links.
+- Generation-aware refresh recovery reuses credentials already rotated by a
+  concurrent request and prevents stale work from reviving or clearing a
+  signed-out or replacement account session.
 - Optional per-account Face ID/fingerprint privacy lock. It uses a separate
   authentication-protected sentinel, masks the navigation tree before app
   backgrounding, pauses live queries while locked, and requires a fresh sign-in
@@ -260,6 +263,9 @@ Completed in source:
 - Role-gated approved-seller workspace with bounded private listing history,
   retry-safe pause/resume actions, availability controls, and a fixed trusted
   handoff for creation, financial edits, bank management, and commissions.
+- Optional-session marketplace and seller-profile responses consistently block
+  self-trades on every native entry path, remain free of seller identifiers,
+  and purge personalized caches when the account changes.
 - Automated native type-check and iOS/Android export inside the repository
   release gate, plus pinned Expo Doctor validation for app configuration and
   duplicate native-module detection.

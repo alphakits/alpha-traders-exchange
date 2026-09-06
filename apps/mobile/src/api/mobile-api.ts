@@ -287,17 +287,23 @@ export function getMobileMarketplaceListing(
   listingId: string,
   locale: MobileLocale,
   signal?: AbortSignal,
+  tokens?: MobileAuthTokens,
 ) {
   return mobileRequest<MobileMarketplaceListingsResponse>(
     `/api/mobile/v1/marketplace/listings?listingId=${encodeURIComponent(listingId)}&limit=1&offset=0`,
-    { locale, signal },
+    { locale, signal, accessToken: tokens?.accessToken },
   );
 }
 
-export function getMobileSellerProfile(listingId: string, locale: MobileLocale, signal?: AbortSignal) {
+export function getMobileSellerProfile(
+  listingId: string,
+  locale: MobileLocale,
+  signal?: AbortSignal,
+  tokens?: MobileAuthTokens,
+) {
   return mobileRequest<MobileSellerProfileResponse>(
     `/api/mobile/v1/marketplace/listings/${encodeURIComponent(listingId)}/seller`,
-    { locale, signal },
+    { locale, signal, accessToken: tokens?.accessToken },
   );
 }
 

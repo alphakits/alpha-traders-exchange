@@ -6,19 +6,22 @@ import { NextRequest } from "next/server";
 const mocks = vi.hoisted(() => ({
   getMarketplaceListings: vi.fn(),
   getPremiumSellerProfile: vi.fn(),
+  requireMobileApiUser: vi.fn(),
 }));
 
 vi.mock("@/lib/alpha-exchange-store", () => ({
   getMarketplaceListings: mocks.getMarketplaceListings,
   getPremiumSellerProfile: mocks.getPremiumSellerProfile,
 }));
+vi.mock("@/lib/mobile-api-auth", () => ({ requireMobileApiUser: mocks.requireMobileApiUser }));
 
 import { GET } from "@/app/api/mobile/v1/marketplace/listings/[listingId]/seller/route";
 
-function request(listingId = "listing-1") {
+function request(listingId = "listing-1", accessToken?: string) {
   return new NextRequest(`https://www.alphatraders.co.il/api/mobile/v1/marketplace/listings/${listingId}/seller`, {
     headers: {
       "accept-language": "en",
+      ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
       "x-device-id": "550e8400-e29b-41d4-a716-446655440000",
       "x-app-version": "1.0.0",
       "x-platform": "ios",
@@ -29,6 +32,11 @@ function request(listingId = "listing-1") {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.requireMobileApiUser.mockResolvedValue({
+    user: { id: "private-seller-id", role: "approved_seller" },
+    accessToken: "access",
+    unauthorized: null,
+  });
   mocks.getMarketplaceListings.mockResolvedValue([
     {
       id: "listing-1",
@@ -108,9 +116,11 @@ describe("GET /api/mobile/v1/marketplace/listings/[listingId]/seller", () => {
     expect(payload.seller).toMatchObject({
       listingId: "listing-1",
       displayName: "Alpha OTC",
+      isCurrentUser: false,
       level: "gold",
       trustScore: 97.4,
       canMakeOffer: true,
+      canBuyNow: true,
       latestReviews: [
         {
           buyerDisplayName: "Verified Buyer",
@@ -130,6 +140,24 @@ describe("GET /api/mobile/v1/marketplace/listings/[listingId]/seller", () => {
     ]) {
       expect(serialized).not.toContain(value);
     }
+  });
+
+  it("disables trade actions for the authenticated seller without exposing their identifier", async () => {
+    const response = await GET(request("listing-1", "token"), {
+      params: Promise.resolve({ listingId: "listing-1" }),
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store, max-age=0");
+    expect(response.headers.get("vary")).toContain("Authorization");
+    expect(mocks.requireMobileApiUser).toHaveBeenCalledOnce();
+    expect(payload.seller).toMatchObject({
+      isCurrentUser: true,
+      canBuyNow: false,
+      canMakeOffer: false,
+    });
+    expect(JSON.stringify(payload)).not.toContain("private-seller-id");
   });
 
   it("returns a stable not-found response for listings outside the public feed", async () => {

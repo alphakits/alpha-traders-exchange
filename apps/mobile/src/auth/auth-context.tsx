@@ -22,6 +22,11 @@ import {
   loadStoredTokens,
   saveStoredTokens,
 } from "./session-storage";
+import {
+  canCommitMobileSessionRefresh,
+  resolveMobileSessionRecovery,
+  type MobileSessionSnapshot,
+} from "./session-refresh-policy";
 import { useLocale } from "../i18n/locale-context";
 
 type AuthStatus = "booting" | "anonymous" | "authenticated" | "unavailable";
@@ -60,6 +65,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const { locale, isHydrated } = useLocale();
   const localeRef = useRef(locale);
   const tokensRef = useRef<MobileAuthTokens | null>(null);
+  const sessionGenerationRef = useRef(0);
   const bootStarted = useRef(false);
   const [status, setStatus] = useState<AuthStatus>("booting");
   const [user, setUser] = useState<MobileSessionUser | null>(null);
@@ -75,7 +81,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
     else await clearStoredTokens();
   }, []);
 
+  const currentSessionSnapshot = useCallback((): MobileSessionSnapshot | null => {
+    const tokens = tokensRef.current;
+    return tokens ? { generation: sessionGenerationRef.current, tokens } : null;
+  }, []);
+
   const discardSession = useCallback(async () => {
+    sessionGenerationRef.current += 1;
     try {
       await storeTokens(null);
     } catch {
@@ -86,46 +98,75 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   }, [storeTokens]);
 
+  const discardSessionIfCurrent = useCallback(async (snapshot: MobileSessionSnapshot) => {
+    if (!canCommitMobileSessionRefresh(snapshot, currentSessionSnapshot())) return false;
+    await discardSession();
+    return true;
+  }, [currentSessionSnapshot, discardSession]);
+
+  const recoverSessionTokens = useCallback(async (failed: MobileSessionSnapshot) => {
+    const decision = resolveMobileSessionRecovery(failed, currentSessionSnapshot());
+    if (decision.action === "superseded") return null;
+    if (decision.action === "retry") return decision.tokens;
+
+    const refreshed = await refreshMobile(decision.tokens, localeRef.current);
+    if (canCommitMobileSessionRefresh(failed, currentSessionSnapshot())) {
+      await storeTokens(refreshed.tokens);
+      return refreshed.tokens;
+    }
+
+    const latest = resolveMobileSessionRecovery(failed, currentSessionSnapshot());
+    return latest.action === "retry" ? latest.tokens : null;
+  }, [currentSessionSnapshot, storeTokens]);
+
   const refreshSession = useCallback(async () => {
     const current = tokensRef.current;
     if (!current) return null;
+    const snapshot = { generation: sessionGenerationRef.current, tokens: current };
     try {
-      const refreshed = await refreshMobile(current, localeRef.current);
-      await storeTokens(refreshed.tokens);
-      return refreshed.tokens;
+      return await recoverSessionTokens(snapshot);
     } catch (error) {
       if (shouldDiscardSession(error)) {
-        await discardSession();
+        await discardSessionIfCurrent(snapshot);
         return null;
       }
       throw error;
     }
-  }, [discardSession, storeTokens]);
+  }, [discardSessionIfCurrent, recoverSessionTokens]);
 
   const requestWithSession = useCallback<AuthenticatedRequest>(async (operation) => {
     const current = tokensRef.current;
     if (!current) {
       throw new MobileApiError("Please sign in to continue.", "UNAUTHORIZED", 401);
     }
+    const snapshot = { generation: sessionGenerationRef.current, tokens: current };
     try {
       return await operation(current, localeRef.current);
     } catch (error) {
       if (shouldDiscardSession(error) && !canRefresh(error)) {
-        await discardSession();
+        await discardSessionIfCurrent(snapshot);
         throw error;
       }
       if (!canRefresh(error)) throw error;
     }
 
+    let recovered: MobileAuthTokens | null = null;
     try {
-      const refreshed = await refreshMobile(current, localeRef.current);
-      await storeTokens(refreshed.tokens);
-      return await operation(refreshed.tokens, localeRef.current);
+      recovered = await recoverSessionTokens(snapshot);
+      if (!recovered) {
+        throw new MobileApiError("Please sign in to continue.", "UNAUTHORIZED", 401);
+      }
+      return await operation(recovered, localeRef.current);
     } catch (error) {
-      if (shouldDiscardSession(error)) await discardSession();
+      if (shouldDiscardSession(error)) {
+        const recoverySnapshot = recovered
+          ? { generation: snapshot.generation, tokens: recovered }
+          : snapshot;
+        await discardSessionIfCurrent(recoverySnapshot);
+      }
       throw error;
     }
-  }, [discardSession, storeTokens]);
+  }, [discardSessionIfCurrent, recoverSessionTokens]);
 
   const bootstrapSession = useCallback(async () => {
     setStatus("booting");
@@ -139,6 +180,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         return;
       }
       tokensRef.current = tokens;
+      sessionGenerationRef.current += 1;
       try {
         const response = await getMobileMe(tokens, localeRef.current);
         setUser(response.user);
@@ -175,6 +217,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setIsBusy(true);
     try {
       const response = await loginMobile(email.trim().toLowerCase(), password, localeRef.current);
+      sessionGenerationRef.current += 1;
       await storeTokens(response.tokens);
       setUser(response.user);
       setStatus("authenticated");

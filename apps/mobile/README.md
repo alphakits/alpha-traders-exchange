@@ -65,6 +65,8 @@ HTTP origins.
 - Biometric re-entry protects a separate opaque per-account sentinel; session
   tokens retain their independent rotation, revocation, and expiry lifecycle.
 - Refresh calls are serialized and rotate both tokens.
+- Slower requests reuse credentials already rotated by another request and
+  cannot revive or clear a signed-out or replacement account session.
 - Authenticated query caches are isolated by account and purged whenever the
   signed-in identity changes on a shared device.
 - Academy response caches and learning progress use account-scoped device keys;
@@ -77,3 +79,6 @@ HTTP origins.
 - User IDs, roles, and locale headers never grant authorization.
 - Native trade APIs require both a valid device session and canonical trade
   participation, including for owner or administrator accounts.
+- Authenticated marketplace, seller-profile, and direct-listing views disable
+  self-trade actions consistently and purge their personalized cache on account
+  changes.

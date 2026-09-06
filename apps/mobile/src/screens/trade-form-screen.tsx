@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -45,9 +46,10 @@ export function TradeFormScreen({
   const { user, requestWithSession } = useAuth();
   const { locale, isRTL, t } = useLocale();
   const market = useQuery({
-    enabled: Boolean(listingId),
-    queryKey: ["mobile-marketplace-listing", listingId, locale],
-    queryFn: ({ signal }) => getMobileMarketplaceListing(listingId, locale, signal),
+    enabled: Boolean(listingId && user),
+    queryKey: ["mobile-marketplace-listing", user?.id ?? "public", listingId, locale],
+    queryFn: ({ signal }) => requestWithSession((tokens, requestLocale) =>
+      getMobileMarketplaceListing(listingId, requestLocale, signal, tokens)),
     staleTime: 5_000,
   });
   const listing = market.data?.listings[0];
@@ -84,7 +86,7 @@ export function TradeFormScreen({
     ? `${listing.minimumTrade}–${listing.maximumTrade} USDT`
     : "";
   const formIsValid = useMemo(() => {
-    if (!listing || !user || !paymentMethod || !walletAddress.trim()) return false;
+    if (!listing || listing.seller.isCurrentUser || !user || !paymentMethod || !walletAddress.trim()) return false;
     const value = numericValue(amount);
     const minimum = numericValue(listing.minimumTrade);
     const available = numericValue(listing.availableAmount);
@@ -127,14 +129,32 @@ export function TradeFormScreen({
   }
 
   if (market.isLoading || !user) {
-    return <SafeAreaView style={styles.safeArea} />;
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <ActivityIndicator accessibilityLabel={t("loading")} color={colors.gold} size="large" style={styles.loader} />
+      </SafeAreaView>
+    );
   }
 
-  if (!listing) {
+  if (market.isError) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.unavailable}>
-          <Text accessibilityRole="alert" style={[styles.title, isRTL && styles.rtlText]}>{t("currentListingUnavailable")}</Text>
+          <Text accessibilityRole="alert" style={[styles.title, isRTL && styles.rtlText]}>{t("genericError")}</Text>
+          <GoldButton onPress={() => void market.refetch()}>{t("refresh")}</GoldButton>
+          <GoldButton onPress={() => router.back()} variant="outline">{t("back")}</GoldButton>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!listing || listing.seller.isCurrentUser) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.unavailable}>
+          <Text accessibilityRole="alert" style={[styles.title, isRTL && styles.rtlText]}>
+            {listing?.seller.isCurrentUser ? t("ownListingTradeBlocked") : t("currentListingUnavailable")}
+          </Text>
           <GoldButton onPress={() => router.back()} variant="outline">{t("back")}</GoldButton>
         </View>
       </SafeAreaView>
@@ -264,6 +284,7 @@ export function TradeFormScreen({
 
 const styles = StyleSheet.create({
   safeArea: { backgroundColor: colors.background, flex: 1 },
+  loader: { flex: 1 },
   content: { gap: spacing.lg, padding: spacing.lg, paddingBottom: spacing.hero },
   backButton: { alignSelf: "flex-start", justifyContent: "center", minHeight: 44, paddingHorizontal: spacing.sm },
   backLabel: { color: colors.goldBright, fontSize: typography.body, fontWeight: "800" },

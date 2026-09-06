@@ -49,12 +49,15 @@ function Metric({ label, value, isRTL }: { label: string; value: string; isRTL: 
 
 export function SellerProfileScreen({ listingId }: { listingId: string }) {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, requestWithSession } = useAuth();
   const { locale, isRTL, t } = useLocale();
   const query = useQuery({
     enabled: Boolean(listingId),
-    queryKey: ["mobile-seller-profile", listingId, locale],
-    queryFn: ({ signal }) => getMobileSellerProfile(listingId, locale, signal),
+    queryKey: ["mobile-seller-profile", user?.id ?? "public", listingId, locale],
+    queryFn: ({ signal }) => user
+      ? requestWithSession((tokens, requestLocale) =>
+          getMobileSellerProfile(listingId, requestLocale, signal, tokens))
+      : getMobileSellerProfile(listingId, locale, signal),
     staleTime: 15_000,
   });
 
@@ -189,7 +192,9 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
         </View>
 
         <View style={styles.actions}>
-          <GoldButton onPress={() => startTrade("buy")}>{t("buyNow")}</GoldButton>
+          <GoldButton disabled={!seller.canBuyNow} onPress={() => startTrade("buy")}>
+            {seller.isCurrentUser ? t("yourListing") : t("buyNow")}
+          </GoldButton>
           <GoldButton disabled={!seller.canMakeOffer} onPress={() => startTrade("offer")} variant="outline">{t("makeOffer")}</GoldButton>
         </View>
       </ScrollView>

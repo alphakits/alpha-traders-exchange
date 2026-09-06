@@ -474,6 +474,7 @@ export interface MobileSellerProfileReview {
 export interface MobileSellerProfile {
   listingId: string;
   displayName: string;
+  isCurrentUser: boolean;
   profilePhotoUrl: string;
   bio: string;
   memberSince: string;
@@ -486,6 +487,7 @@ export interface MobileSellerProfile {
   isFoundingMember: boolean;
   isFoundingSeller: boolean;
   isFeaturedSeller: boolean;
+  canBuyNow: boolean;
   canMakeOffer: boolean;
   level: "bronze" | "silver" | "gold" | "diamond" | "elite";
   trustScore: number;

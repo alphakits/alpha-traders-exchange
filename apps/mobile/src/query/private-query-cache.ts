@@ -7,6 +7,14 @@ const PRIVATE_QUERY_ROOTS = new Set([
   "mobile-trades",
 ]);
 
+const OPTIONAL_SESSION_QUERY_ROOTS = new Set([
+  "mobile-marketplace",
+  "mobile-marketplace-listing",
+  "mobile-seller-profile",
+]);
+
 export function isPrivateMobileQueryKey(queryKey: readonly unknown[]) {
-  return PRIVATE_QUERY_ROOTS.has(String(queryKey[0] ?? ""));
+  const root = String(queryKey[0] ?? "");
+  if (PRIVATE_QUERY_ROOTS.has(root)) return true;
+  return OPTIONAL_SESSION_QUERY_ROOTS.has(root) && queryKey[1] !== "public";
 }
