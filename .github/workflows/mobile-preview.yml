@@ -1,0 +1,57 @@
+name: Mobile Preview
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/mobile-app-foundation-v1
+    paths:
+      - .github/workflows/mobile-preview.yml
+      - apps/mobile/**
+      - packages/contracts/**
+      - packages/design-tokens/**
+      - package.json
+      - package-lock.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-preview:
+    name: Android internal preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Require Expo access token
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: test -n "$EXPO_TOKEN"
+
+      - name: Set up Expo and EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: 23.2.0
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Type-check mobile app
+        run: npm run mobile:typecheck
+
+      - name: Trigger Android preview build
+        working-directory: apps/mobile
+        run: eas build --platform android --profile preview --non-interactive --no-wait

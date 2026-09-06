@@ -10,6 +10,7 @@ const securityHeaders = buildSecurityHeaders({ isProduction: isProductionSecurit
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["discord.js"],
+  transpilePackages: ["@alpha-traders/contracts"],
   // Keep development artifacts separate from production build artifacts.
   // This prevents dev-server module resolution failures when `.next` is cleaned or reused by other workflows.
   distDir: isDev ? ".next-dev" : ".next",

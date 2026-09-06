@@ -61,6 +61,37 @@ describe("API mutation origin protection", () => {
     expect(response.status).toBe(403);
   });
 
+  it("allows originless native mobile mutations only with required client headers", () => {
+    const response = middleware(apiRequest(
+      "/api/mobile/v1/auth/login",
+      "POST",
+      {
+        "x-device-id": "550e8400-e29b-41d4-a716-446655440000",
+        "x-app-version": "1.0.0",
+        "x-platform": "ios",
+      },
+    ));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("rejects native-looking cross-site browser mutations", () => {
+    const response = middleware(apiRequest(
+      "/api/mobile/v1/auth/login",
+      "POST",
+      {
+        origin: "https://attacker.example",
+        "sec-fetch-site": "cross-site",
+        "x-device-id": "550e8400-e29b-41d4-a716-446655440000",
+        "x-app-version": "1.0.0",
+        "x-platform": "android",
+      },
+    ));
+
+    expect(response.status).toBe(403);
+  });
+
   it("preserves loopback-only production E2E writes without weakening deployed production", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("VERCEL", "");
