@@ -320,13 +320,20 @@ Admin lesson/media/version persistence now also uses PostgreSQL plus Supabase St
 - `src/data/media-library.json`
 - `public/uploads/admin/`
 
-Apply these migrations before starting the app in any persistent environment:
+Apply migrations in timestamp order before starting the app in any persistent
+environment. The marketplace baseline and current runtime parity require:
 
 - `supabase/migrations/20260720160000_alpha_exchange_runtime.sql`
 - `supabase/migrations/20260720193000_admin_cms_storage.sql`
+- `supabase/migrations/20260827090000_alpha_exchange_preferred_locale.sql`
+- `supabase/migrations/20260905223000_alpha_exchange_runtime_schema_parity.sql`
 
 Trade evidence uploads are stored in PostgreSQL `bytea` rows in `alpha_exchange.evidence`.
 Admin lesson/media uploads are stored in the Supabase Storage bucket `admin-media` by default, with metadata stored in `admin_cms.media_items`.
+
+Production health-latency release steps are in
+`docs/runbooks/production-health-latency.md`. The native iOS/Android foundation,
+API gates, and phased scope are in `docs/mobile/native-app-foundation.md`.
 
 ## Quality checks
 

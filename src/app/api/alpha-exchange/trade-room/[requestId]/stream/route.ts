@@ -24,7 +24,7 @@ function isRelevantTradeRoomEvent(event: RealtimeEvent, requestId: string) {
     if (event.payload.request?.id === requestId) return true;
     return false;
   }
-  if (event.type === "trade.message_created") {
+  if (event.type === "trade.message_created" || event.type === "trade.message_updated") {
     return event.payload.requestId === requestId;
   }
   return false;

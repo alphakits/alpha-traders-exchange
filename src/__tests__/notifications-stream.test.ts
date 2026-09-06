@@ -77,4 +77,37 @@ describe("notification SSE reconciliation", () => {
     expect(mocks.getNotificationsForUser).toHaveBeenCalledTimes(1);
     expect(mocks.unsubscribe).toHaveBeenCalledTimes(1);
   });
+
+  it("emits a changed list even when unread count and the first notification are unchanged", async () => {
+    const first = {
+      notifications: [
+        { id: "notification-one", state: "read", createdAt: "2026-09-05T10:00:00.000Z", updatedAt: "2026-09-05T10:00:00.000Z" },
+        { id: "notification-two", state: "read", createdAt: "2026-09-05T09:00:00.000Z", updatedAt: "2026-09-05T09:00:00.000Z" },
+      ],
+      unreadCount: 0,
+    };
+    const afterDelete = {
+      notifications: [first.notifications[0]],
+      unreadCount: 0,
+    };
+    mocks.getNotificationsForUser
+      .mockReset()
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(afterDelete);
+    const controller = new AbortController();
+
+    const response = await GET(new NextRequest("http://localhost/api/alpha-exchange/notifications/stream", { signal: controller.signal }));
+    const reader = response.body!.getReader();
+    const initialChunk = await reader.read();
+    expect(new TextDecoder().decode(initialChunk.value)).toContain("notification-two");
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    const updatedChunk = await reader.read();
+    const updatedText = new TextDecoder().decode(updatedChunk.value);
+    expect(updatedText).toContain("notification-one");
+    expect(updatedText).not.toContain("notification-two");
+
+    controller.abort();
+    await reader.cancel();
+  });
 });

@@ -179,6 +179,66 @@ describe("Trade Room participant communication", () => {
     expect(snapshot().notifications.some((entry) => entry.userId === SELLER_ID)).toBe(false);
   });
 
+  it("durably marks counterparty messages Seen and publishes the receipt to the sender", async () => {
+    const posted = await postTradeRoomMessage({
+      purchaseRequestId: "trade-1",
+      actorUserId: BUYER_ID,
+      clientMessageId: "c6902851-51ae-4cbf-9ebf-08d5109a5244",
+      message: "Please confirm you can see this message.",
+    });
+    mocks.publishRealtimeEvent.mockClear();
+
+    const sellerRoom = await getTradeRoomData({
+      purchaseRequestId: "trade-1",
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      markMessagesRead: true,
+      strongConsistency: true,
+    });
+    invalidateAlphaExchangeStoreCache();
+    const buyerRoom = await getTradeRoomData({
+      purchaseRequestId: "trade-1",
+      actorUserId: BUYER_ID,
+      actorRole: "buyer",
+      markMessagesRead: false,
+      strongConsistency: true,
+    });
+
+    expect(sellerRoom.messages[0]).toMatchObject({
+      id: posted.message.id,
+      deliveredAt: expect.any(String),
+      seenAt: expect.any(String),
+    });
+    expect(sellerRoom.messages[0]?.readByUserIds).toEqual(expect.arrayContaining([BUYER_ID, SELLER_ID]));
+    expect(buyerRoom.messages[0]?.readByUserIds).toEqual(expect.arrayContaining([BUYER_ID, SELLER_ID]));
+    expect(mocks.publishRealtimeEvent).toHaveBeenCalledWith({
+      type: "trade.message_updated",
+      payload: { requestId: "trade-1", messageIds: [posted.message.id] },
+    });
+  });
+
+  it("does not let an admin monitoring the room impersonate a counterparty Seen receipt", async () => {
+    await postTradeRoomMessage({
+      purchaseRequestId: "trade-1",
+      actorUserId: BUYER_ID,
+      clientMessageId: "5e77010a-cb86-441e-8f42-372bc31ab459",
+      message: "Waiting for the seller.",
+    });
+    mocks.publishRealtimeEvent.mockClear();
+
+    const adminRoom = await getTradeRoomData({
+      purchaseRequestId: "trade-1",
+      actorUserId: ADMIN_ID,
+      actorRole: "admin",
+      markMessagesRead: true,
+      strongConsistency: true,
+    });
+
+    expect(adminRoom.messages[0]?.readByUserIds).toEqual([BUYER_ID]);
+    expect(adminRoom.messages[0]?.seenAt).toBeUndefined();
+    expect(mocks.publishRealtimeEvent).not.toHaveBeenCalled();
+  });
+
   it("persists one exact message and notification when an uncertain request is retried", async () => {
     const input = {
       purchaseRequestId: "trade-1",

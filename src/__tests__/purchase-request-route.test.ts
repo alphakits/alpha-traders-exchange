@@ -167,4 +167,31 @@ describe("purchase request route", () => {
     expect(response.status).toBe(403);
     expect(mocks.createPurchaseRequest).not.toHaveBeenCalled();
   });
+
+  it("returns the committed purchase request when post-commit email preparation fails", async () => {
+    mocks.createPurchaseRequest.mockResolvedValue({
+      request: { id: "purchase-1", paymentMethod: "Bank Transfer" },
+      metrics: { totalMs: 1, readDbMs: 0, validationMs: 0, businessMs: 0, writeDbMs: 1, sseMs: 0 },
+    });
+    mocks.prepareTradeEventEmails.mockRejectedValueOnce(new Error("recipient lookup unavailable"));
+    const request = new NextRequest("http://localhost/api/alpha-exchange/purchase-requests", {
+      method: "POST",
+      body: JSON.stringify({
+        listingId: "listing-1",
+        usdtAmount: "500",
+        buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(201);
+    expect(mocks.after).not.toHaveBeenCalled();
+    expect(mocks.logEvent).toHaveBeenCalledWith("error", expect.objectContaining({
+      event: "trade_lifecycle_email_schedule",
+      resourceId: "purchase-1",
+      reason: "new_buy_request_post_commit_schedule_failed",
+    }));
+  });
 });

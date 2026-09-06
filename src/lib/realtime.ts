@@ -9,8 +9,10 @@ export type RealtimeEvent =
   | { type: "trade.status_changed"; payload: { requestId?: string; request?: PurchaseRequest; status?: PurchaseRequest["status"]; timeline?: PurchaseRequest["timeline"]; publishedAtEpochMs?: number; removed?: boolean } }
   | { type: "trade.request_created"; payload: { request: PurchaseRequest } }
   | { type: "trade.message_created"; payload: { requestId: string; messageId: string } }
+  | { type: "trade.message_updated"; payload: { requestId: string; messageIds: string[] } }
   | { type: "notification.created"; payload: { notification: AlphaExchangeNotification } }
   | { type: "notification.updated"; payload: { notification: AlphaExchangeNotification } }
+  | { type: "notification.deleted"; payload: { notificationId: string; userId: string } }
   | { type: "reputation.updated"; payload: { sellerId: string; trustScore?: number; reviewCount?: number } }
   | { type: "review.count_changed"; payload: { sellerId: string; reviewCount: number } };
 
@@ -49,8 +51,16 @@ export function applyRealtimeMarketplaceEvent<T>(items: T[], event: RealtimeEven
 }
 
 export function applyRealtimeNotificationEvent(items: AlphaExchangeNotification[], event: RealtimeEvent) {
-  if (event.type !== "notification.created") return items;
-  return [event.payload.notification, ...items.filter((item) => item.id !== event.payload.notification.id)];
+  if (event.type === "notification.created") {
+    return [event.payload.notification, ...items.filter((item) => item.id !== event.payload.notification.id)];
+  }
+  if (event.type === "notification.updated") {
+    return items.map((item) => item.id === event.payload.notification.id ? event.payload.notification : item);
+  }
+  if (event.type === "notification.deleted") {
+    return items.filter((item) => item.id !== event.payload.notificationId);
+  }
+  return items;
 }
 
 export function applyRealtimeTradeEvent(items: PurchaseRequest[], event: RealtimeEvent) {

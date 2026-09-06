@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
-import { applyRealtimeMarketplaceEvent, applyRealtimeTradeEvent, publishRealtimeEvent, subscribeRealtimeEvents, type RealtimeEvent } from "@/lib/realtime";
+import type { AlphaExchangeNotification, MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
+import { applyRealtimeMarketplaceEvent, applyRealtimeNotificationEvent, applyRealtimeTradeEvent, publishRealtimeEvent, subscribeRealtimeEvents, type RealtimeEvent } from "@/lib/realtime";
 
 describe("realtime marketplace updates", () => {
   it("adds, updates, and removes listings from the live feed", () => {
@@ -117,5 +117,25 @@ describe("realtime marketplace updates", () => {
     });
 
     expect(remaining.map((request) => request.id)).toEqual(["request-real"]);
+  });
+
+  it("applies notification updates and deletions without waiting for a page reload", () => {
+    const initial = [
+      { id: "notification-one", userId: "buyer-1", state: "unread", isRead: false },
+      { id: "notification-two", userId: "buyer-1", state: "read", isRead: true },
+    ] as AlphaExchangeNotification[];
+    const updatedNotification = { ...initial[0], state: "read", isRead: true } as AlphaExchangeNotification;
+
+    const updated = applyRealtimeNotificationEvent(initial, {
+      type: "notification.updated",
+      payload: { notification: updatedNotification },
+    });
+    const remaining = applyRealtimeNotificationEvent(updated, {
+      type: "notification.deleted",
+      payload: { notificationId: "notification-two", userId: "buyer-1" },
+    });
+
+    expect(updated[0]).toMatchObject({ id: "notification-one", state: "read", isRead: true });
+    expect(remaining.map((notification) => notification.id)).toEqual(["notification-one"]);
   });
 });

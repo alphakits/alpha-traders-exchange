@@ -19,6 +19,7 @@ const payload: MarketplaceEmailPayload = {
 };
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
@@ -124,7 +125,7 @@ describe("marketplace email delivery", () => {
     vi.stubEnv("EMAIL_FROM", "Alpha Exchange <notifications@example.com>");
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network unavailable")));
 
-    await expect(sendMarketplaceEmail({ ...payload, to: "mark@example.com", recipientLocale: "en" })).resolves.toEqual({
+    await expect(sendMarketplaceEmail({ ...payload, to: "mark@example.com", recipientLocale: "en", maxAttempts: 1 })).resolves.toEqual({
       ok: false,
       reason: "resend_network_failed",
       providerMessage: "network unavailable",
@@ -145,6 +146,68 @@ describe("marketplace email delivery", () => {
       reason: "resend_request_failed",
       providerStatus: 400,
       providerMessage: "API key is invalid",
+    });
+  });
+
+  it("retries a transient Resend rejection with the same idempotency key", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("RESEND_API_KEY", "test-api-key");
+    vi.stubEnv("EMAIL_FROM", "Alpha Exchange <notifications@example.com>");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        text: vi.fn().mockResolvedValue(JSON.stringify({ message: "temporarily unavailable" })),
+      })
+      .mockResolvedValueOnce({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const delivery = sendMarketplaceEmail({
+      ...payload,
+      to: "mark@example.com",
+      recipientLocale: "en",
+      idempotencyKey: "trade-lifecycle:request-1:accepted:buyer-1",
+      maxAttempts: 2,
+      retryDelayMs: 10,
+    });
+    await vi.advanceTimersByTimeAsync(10);
+
+    await expect(delivery).resolves.toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const call of fetchMock.mock.calls) {
+      expect(call[1]).toEqual(expect.objectContaining({
+        headers: expect.objectContaining({
+          "Idempotency-Key": "trade-lifecycle:request-1:accepted:buyer-1",
+        }),
+      }));
+    }
+  });
+
+  it("aborts a stalled Resend request instead of losing the background task to an indefinite wait", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("RESEND_API_KEY", "test-api-key");
+    vi.stubEnv("EMAIL_FROM", "Alpha Exchange <notifications@example.com>");
+    vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => {
+        const error = new Error("aborted");
+        error.name = "AbortError";
+        reject(error);
+      });
+    })));
+
+    const delivery = sendMarketplaceEmail({
+      ...payload,
+      to: "mark@example.com",
+      recipientLocale: "en",
+      maxAttempts: 1,
+      timeoutMs: 250,
+    });
+    await vi.advanceTimersByTimeAsync(250);
+
+    await expect(delivery).resolves.toEqual({
+      ok: false,
+      reason: "resend_timeout",
+      providerMessage: "Resend request timed out.",
     });
   });
 });

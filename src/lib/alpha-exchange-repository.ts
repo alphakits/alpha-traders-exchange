@@ -38,6 +38,12 @@ import type {
 
 type Queryable = Pool | PoolClient;
 
+// This index is the final object created by SCHEMA_SQL. Its presence proves
+// that the current runtime schema bootstrap completed successfully. When the
+// schema changes, append the new statements and advance this sentinel too.
+const CURRENT_SCHEMA_SENTINEL =
+  "alpha_exchange.idx_alpha_exchange_marketplace_enforcement_audit_seller_created";
+
 type EvidenceWriteMap = Map<string, Buffer>;
 
 const TEST_FALLBACK_DIR_SUFFIX = process.env.NODE_ENV === "test"
@@ -1551,6 +1557,14 @@ async function runSchema(target: Queryable) {
   );
 }
 
+async function isCurrentSchemaReady(target: Queryable) {
+  const result = await target.query<{ ready: boolean }>(
+    "select to_regclass($1) is not null as ready",
+    [CURRENT_SCHEMA_SENTINEL],
+  );
+  return result.rows[0]?.ready === true;
+}
+
 function ensureMemorySeed() {
   if (!globalThis.__alphaExchangeMemorySnapshot) {
     const persistedFallback = loadPersistedFallbackSnapshot();
@@ -1568,22 +1582,23 @@ function getLatestAvailableFallbackSnapshot(): SnapshotWithVersion {
       getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
     )
     : null;
-  const persistedFallback = loadPersistedFallbackSnapshot();
-  if (!memorySnapshot) {
-    if (persistedFallback) {
-      globalThis.__alphaExchangeMemorySnapshot = attachVersion(cloneSnapshot(persistedFallback), getVersion(persistedFallback));
-      return attachVersion(cloneSnapshot(persistedFallback), getVersion(persistedFallback));
-    }
-    ensureMemorySeed();
-    return attachVersion(
-      cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
-      getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
-    );
-  }
   // Prefer explicit in-process memory when present. Tests and harness flows
   // intentionally seed memory directly and must not be silently replaced by
-  // a persisted snapshot from a previous run.
-  return memorySnapshot;
+  // a persisted snapshot from a previous run. Avoid reading and parsing the
+  // entire fallback file on every request once that authoritative snapshot is
+  // already warm; the file is only needed to recover a fresh process.
+  if (memorySnapshot) return memorySnapshot;
+
+  const persistedFallback = loadPersistedFallbackSnapshot();
+  if (persistedFallback) {
+    globalThis.__alphaExchangeMemorySnapshot = attachVersion(cloneSnapshot(persistedFallback), getVersion(persistedFallback));
+    return attachVersion(cloneSnapshot(persistedFallback), getVersion(persistedFallback));
+  }
+  ensureMemorySeed();
+  return attachVersion(
+    cloneSnapshot(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
+    getVersion(globalThis.__alphaExchangeMemorySnapshot as SnapshotWithVersion),
+  );
 }
 
 function syncFallbackAuthSessions(update: (sessions: AuthSession[]) => AuthSession[]) {
@@ -1595,9 +1610,19 @@ function syncFallbackAuthSessions(update: (sessions: AuthSession[]) => AuthSessi
   syncMemoryFallbackSnapshot(next, getVersion(snapshot));
 }
 
+function shouldPersistLocalFallbackSnapshot() {
+  if (isProductionSecurityRuntime()) return false;
+  // Unit and load tests seed an isolated in-memory snapshot explicitly. Writing
+  // the growing JSON snapshot after every mutation adds quadratic disk I/O and
+  // does not improve their durability. Repository persistence tests opt in so
+  // the cross-process recovery contract remains covered.
+  return process.env.NODE_ENV !== "test"
+    || process.env.ALPHA_EXCHANGE_TEST_PERSIST_FALLBACK === "1";
+}
+
 function loadPersistedFallbackSnapshot(): SnapshotWithVersion | null {
   // Production must never read a prior mutable snapshot from local disk.
-  if (isProductionSecurityRuntime()) return null;
+  if (!shouldPersistLocalFallbackSnapshot()) return null;
   try {
     if (!existsSync(FALLBACK_SNAPSHOT_PATH)) return null;
     const raw = readFileSync(FALLBACK_SNAPSHOT_PATH, "utf8").trim();
@@ -1630,7 +1655,7 @@ function syncMemoryFallbackSnapshot(snapshot: AlphaExchangeDb, version = getVers
   globalThis.__alphaExchangeMemorySnapshot = next;
   // A successful production database read may update the in-process mirror for
   // cache coherence, but must not persist user/session data to /tmp.
-  if (isProductionSecurityRuntime()) return;
+  if (!shouldPersistLocalFallbackSnapshot()) return;
   try {
     mkdirSync(FALLBACK_SNAPSHOT_DIR, { recursive: true });
     const tempPath = `${FALLBACK_SNAPSHOT_PATH}.tmp`;
@@ -1687,7 +1712,9 @@ export class AlphaExchangeRepository {
           return;
         }
         try {
-          await runSchema(pool);
+          if (!(await isCurrentSchemaReady(pool))) {
+            await runSchema(pool);
+          }
           const usersCount = await pool.query<{ count: string }>("select count(*)::text as count from alpha_exchange.users");
           const shouldSeed = usersCount.rows[0]?.count === "0" && process.env.NODE_ENV !== "production";
           if (shouldSeed) {

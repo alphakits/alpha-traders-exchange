@@ -169,6 +169,14 @@ function logLocalMarketplaceDiagnostic(
   details: Record<string, unknown> = {},
 ) {
   if (allowsRuntimeDiagnostics()) {
+    if (
+      level === "info"
+      && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM !== "1"
+      && process.env.ALPHA_EXCHANGE_PERF !== "1"
+      && process.env.ALPHA_EXCHANGE_REPO_TRACE !== "1"
+    ) {
+      return;
+    }
     console[level](event, details);
     return;
   }
@@ -8783,7 +8791,7 @@ export async function getTradeRoomData(input: {
     });
     throw new Error("Trade not found.");
   }
-  const request = db.purchaseRequests[requestIndex];
+  let request = db.purchaseRequests[requestIndex];
   if (debug) console.log("[trade-room-open] store lookup success", {
     incomingRequestId: input.purchaseRequestId,
     resolvedRequestId: request.id,
@@ -8800,27 +8808,56 @@ export async function getTradeRoomData(input: {
   const allMessages = request.messages?.length
     ? request.messages
     : (db.tradeMessages ?? []).filter((message) => message.purchaseRequestId === request.id);
-  const messages = [...allMessages].sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+  let messages = [...allMessages].sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
 
-  let changed = false;
-  const seenAt = nowIso();
-  if (input.markMessagesRead !== false) {
-    for (const message of messages) {
-      if (message.senderUserId === input.actorUserId) continue;
-      if (message.readByUserIds.includes(input.actorUserId)) continue;
-      message.readByUserIds.push(input.actorUserId);
-      message.seenAt = seenAt;
-      if (!message.deliveredAt) message.deliveredAt = seenAt;
-      changed = true;
+  const actorIsTradeParticipant = request.buyerId === input.actorUserId || request.sellerId === input.actorUserId;
+  if (input.markMessagesRead !== false && actorIsTradeParticipant) {
+    const seenAt = nowIso();
+    let committedMessageIds: string[] = [];
+    const applyReadReceiptsToCanonicalSnapshot = (snapshot: AlphaExchangeDb) => {
+      const canonicalIndex = snapshot.purchaseRequests.findIndex((candidate) => candidate.id === request.id);
+      if (canonicalIndex === -1) throw new Error("Trade not found.");
+      const canonicalRequest = snapshot.purchaseRequests[canonicalIndex];
+      assertTradeRoomParticipant(canonicalRequest, input.actorUserId);
+      const canonicalMessages = canonicalRequest.messages?.length
+        ? [...canonicalRequest.messages]
+        : (snapshot.tradeMessages ?? []).filter((message) => message.purchaseRequestId === canonicalRequest.id);
+      committedMessageIds = [];
+      for (const message of canonicalMessages) {
+        if (message.senderUserId === input.actorUserId) continue;
+        const readByUserIds = message.readByUserIds ?? [];
+        if (readByUserIds.includes(input.actorUserId)) continue;
+        message.readByUserIds = [...readByUserIds, input.actorUserId];
+        message.seenAt = seenAt;
+        if (!message.deliveredAt) message.deliveredAt = seenAt;
+        committedMessageIds.push(message.id);
+      }
+      if (committedMessageIds.length) {
+        canonicalRequest.messages = canonicalMessages;
+        snapshot.purchaseRequests[canonicalIndex] = canonicalRequest;
+      }
+      return snapshot;
+    };
+
+    applyReadReceiptsToCanonicalSnapshot(db);
+    if (committedMessageIds.length) {
+      // Reapply this narrow receipt delta to the latest canonical request while
+      // the repository lock is held. Opening a room can therefore never
+      // overwrite a message or lifecycle update committed at the same moment.
+      await writeDb(db, {
+        selectedTables: PURCHASE_REQUEST_ONLY_TABLES,
+        rebaseOnLatest: applyReadReceiptsToCanonicalSnapshot,
+      });
+      request = db.purchaseRequests.find((candidate) => candidate.id === request.id) ?? request;
+      messages = [...(request.messages ?? [])]
+        .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+      if (committedMessageIds.length) {
+        publishRealtimeEvent({
+          type: "trade.message_updated",
+          payload: { requestId: request.id, messageIds: [...committedMessageIds] },
+        });
+      }
     }
-    if (changed) {
-      // Persist read-receipt updates back onto the request.messages array
-      request.messages = messages;
-      db.purchaseRequests[requestIndex] = request;
-    }
-  }
-  if (changed) {
-    await writeDb(db, { selectedTables: AUDIT_LOG_ONLY_TABLES });
   }
 
   const listing = db.marketplaceListings.find((item) => item.id === request.listingId) ?? null;
@@ -13326,72 +13363,134 @@ export async function getNotificationsForUser(input: {
 
 export async function markNotificationReadState(input: { userId: string; notificationId: string; isRead: boolean }) {
   const db = await readDb();
-  const index = db.notifications.findIndex((item) => item.id === input.notificationId && item.userId === input.userId);
-  if (index === -1) throw new Error("Notification not found.");
   const state: NotificationState = input.isRead ? "read" : "unread";
-  db.notifications[index] = enrichNotification(db, {
-    ...db.notifications[index],
-    isRead: input.isRead,
-    state,
-    archivedAt: undefined,
-    updatedAt: nowIso(),
+  const updatedAt = nowIso();
+  let committedNotification: AlphaExchangeNotification | null = null;
+  const applyReadStateToCanonicalSnapshot = (snapshot: AlphaExchangeDb) => {
+    const index = snapshot.notifications.findIndex((item) => item.id === input.notificationId && item.userId === input.userId);
+    if (index === -1) throw new Error("Notification not found.");
+    committedNotification = enrichNotification(snapshot, {
+      ...snapshot.notifications[index],
+      isRead: input.isRead,
+      state,
+      archivedAt: undefined,
+      updatedAt,
+    });
+    snapshot.notifications[index] = committedNotification;
+    return snapshot;
+  };
+  applyReadStateToCanonicalSnapshot(db);
+  await writeDb(db, {
+    selectedTables: NOTIFICATION_ONLY_TABLES,
+    rebaseOnLatest: applyReadStateToCanonicalSnapshot,
   });
-  publishRealtimeEvent({ type: "notification.updated", payload: { notification: db.notifications[index] } });
-  await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
-  return db.notifications[index];
+  if (!committedNotification) throw new Error("Notification update failed.");
+  publishRealtimeEvent({ type: "notification.updated", payload: { notification: committedNotification } });
+  return committedNotification;
 }
 
 export async function updateNotificationState(input: { userId: string; notificationId: string; state: NotificationState }) {
   const db = await readDb();
-  const index = db.notifications.findIndex((item) => item.id === input.notificationId && item.userId === input.userId);
-  if (index === -1) throw new Error("Notification not found.");
   const now = nowIso();
-  const state = normalizeNotificationState(input.state, db.notifications[index].isRead);
-  db.notifications[index] = enrichNotification(db, {
-    ...db.notifications[index],
-    state,
-    isRead: state !== "unread",
-    archivedAt: state === "archived" ? now : undefined,
-    updatedAt: now,
+  let committedNotification: AlphaExchangeNotification | null = null;
+  const applyStateToCanonicalSnapshot = (snapshot: AlphaExchangeDb) => {
+    const index = snapshot.notifications.findIndex((item) => item.id === input.notificationId && item.userId === input.userId);
+    if (index === -1) throw new Error("Notification not found.");
+    const state = normalizeNotificationState(input.state, snapshot.notifications[index].isRead);
+    committedNotification = enrichNotification(snapshot, {
+      ...snapshot.notifications[index],
+      state,
+      isRead: state !== "unread",
+      archivedAt: state === "archived" ? now : undefined,
+      updatedAt: now,
+    });
+    snapshot.notifications[index] = committedNotification;
+    return snapshot;
+  };
+  applyStateToCanonicalSnapshot(db);
+  await writeDb(db, {
+    selectedTables: NOTIFICATION_ONLY_TABLES,
+    rebaseOnLatest: applyStateToCanonicalSnapshot,
   });
-  publishRealtimeEvent({ type: "notification.updated", payload: { notification: db.notifications[index] } });
-  await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
-  return db.notifications[index];
+  if (!committedNotification) throw new Error("Notification update failed.");
+  publishRealtimeEvent({ type: "notification.updated", payload: { notification: committedNotification } });
+  return committedNotification;
 }
 
 export async function markAllNotificationsRead(userId: string) {
   const db = await readDb();
   const now = nowIso();
-  const sharedLookup = createExchangeDisplayLookup({
-    listings: db.marketplaceListings,
-    requests: db.purchaseRequests,
-    commissions: db.commissionRecords,
-    disputes: db.disputes,
-    applications: db.sellerApplications,
+  let committedNotifications: AlphaExchangeNotification[] = [];
+  const applyMarkAllToCanonicalSnapshot = (snapshot: AlphaExchangeDb) => {
+    const sharedLookup = createExchangeDisplayLookup({
+      listings: snapshot.marketplaceListings,
+      requests: snapshot.purchaseRequests,
+      commissions: snapshot.commissionRecords,
+      disputes: snapshot.disputes,
+      applications: snapshot.sellerApplications,
+    });
+    committedNotifications = [];
+    snapshot.notifications = snapshot.notifications.map((item) => {
+      if (item.userId !== userId || item.state !== "unread") return item;
+      const updated = enrichNotification(snapshot, { ...item, isRead: true, state: "read", updatedAt: now }, sharedLookup);
+      committedNotifications.push(updated);
+      return updated;
+    });
+    return snapshot;
+  };
+  applyMarkAllToCanonicalSnapshot(db);
+  if (!committedNotifications.length) return;
+  await writeDb(db, {
+    selectedTables: NOTIFICATION_ONLY_TABLES,
+    rebaseOnLatest: applyMarkAllToCanonicalSnapshot,
   });
-  db.notifications = db.notifications.map((item) => {
-    if (item.userId !== userId || item.state === "archived") return item;
-    return enrichNotification(db, { ...item, isRead: true, state: "read", updatedAt: now }, sharedLookup);
-  });
-  await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
+  for (const notification of committedNotifications) {
+    publishRealtimeEvent({ type: "notification.updated", payload: { notification } });
+  }
 }
 
 export async function archiveReadNotifications(userId: string) {
   const db = await readDb();
   const now = nowIso();
-  db.notifications = db.notifications.map((item) => {
-    if (item.userId !== userId || item.state === "archived" || item.state === "unread") return item;
-    return enrichNotification(db, { ...item, state: "archived", isRead: true, archivedAt: now, updatedAt: now });
+  let committedNotifications: AlphaExchangeNotification[] = [];
+  const applyArchiveToCanonicalSnapshot = (snapshot: AlphaExchangeDb) => {
+    committedNotifications = [];
+    snapshot.notifications = snapshot.notifications.map((item) => {
+      if (item.userId !== userId || item.state !== "read") return item;
+      const updated = enrichNotification(snapshot, { ...item, state: "archived", isRead: true, archivedAt: now, updatedAt: now });
+      committedNotifications.push(updated);
+      return updated;
+    });
+    return snapshot;
+  };
+  applyArchiveToCanonicalSnapshot(db);
+  if (!committedNotifications.length) return;
+  await writeDb(db, {
+    selectedTables: NOTIFICATION_ONLY_TABLES,
+    rebaseOnLatest: applyArchiveToCanonicalSnapshot,
   });
-  await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
+  for (const notification of committedNotifications) {
+    publishRealtimeEvent({ type: "notification.updated", payload: { notification } });
+  }
 }
 
 export async function deleteNotification(input: { userId: string; notificationId: string }) {
   const db = await readDb();
-  const exists = db.notifications.some((item) => item.id === input.notificationId && item.userId === input.userId);
-  if (!exists) throw new Error("Notification not found.");
-  db.notifications = db.notifications.filter((item) => !(item.id === input.notificationId && item.userId === input.userId));
-  await writeDb(db, { selectedTables: NOTIFICATION_ONLY_TABLES });
+  const applyDeleteToCanonicalSnapshot = (snapshot: AlphaExchangeDb) => {
+    const exists = snapshot.notifications.some((item) => item.id === input.notificationId && item.userId === input.userId);
+    if (!exists) throw new Error("Notification not found.");
+    snapshot.notifications = snapshot.notifications.filter((item) => !(item.id === input.notificationId && item.userId === input.userId));
+    return snapshot;
+  };
+  applyDeleteToCanonicalSnapshot(db);
+  await writeDb(db, {
+    selectedTables: NOTIFICATION_ONLY_TABLES,
+    rebaseOnLatest: applyDeleteToCanonicalSnapshot,
+  });
+  publishRealtimeEvent({
+    type: "notification.deleted",
+    payload: { notificationId: input.notificationId, userId: input.userId },
+  });
 }
 
 export async function updateNotificationPreferences(

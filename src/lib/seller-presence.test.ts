@@ -6,7 +6,9 @@ import {
   deriveSellerPresence,
 } from "@/lib/seller-presence";
 
-const NOW = new Date(2026, 1, 15, 12, 0, 0).getTime();
+// Use an explicit instant so these calendar-boundary tests do not depend on
+// the machine running Vitest (CI workers can be in any timezone).
+const NOW = new Date("2026-02-15T10:00:00.000Z").getTime();
 const iso = (msFromNow: number) => new Date(NOW + msFromNow).toISOString();
 
 describe("deriveSellerPresence", () => {

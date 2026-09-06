@@ -58,6 +58,7 @@ describe("Trade Room email verification gate", () => {
     expect(mocks.getTradeRoomData).toHaveBeenCalledWith(expect.objectContaining({
       purchaseRequestId: "request-1",
       actorUserId: "buyer-1",
+      markMessagesRead: true,
     }));
   });
 

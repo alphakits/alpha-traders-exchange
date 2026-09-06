@@ -1,34 +1,30 @@
 import { NextResponse } from "next/server";
-import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
+import { checkRuntimeDatabaseHealth } from "@/lib/database-health";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const startTime = Date.now();
 
 export async function GET() {
-  let dbStatus: "ok" | "error" = "ok";
-  try {
-    const repository = await getAlphaExchangeRepository();
-    await repository.healthCheck();
-  } catch {
-    dbStatus = "error";
-  }
-
+  const database = await checkRuntimeDatabaseHealth();
   const uptimeSeconds = Math.floor((Date.now() - startTime) / 1000);
-
-  const status = dbStatus === "ok" ? 200 : 503;
+  const status = database.status === "ok" ? 200 : 503;
 
   return NextResponse.json(
     {
-      status: dbStatus === "ok" ? "ok" : "degraded",
+      status: database.status === "ok" ? "ok" : "degraded",
       uptime: uptimeSeconds,
       checks: {
-        database: dbStatus,
+        database: database.status,
       },
+      responseTimeMs: database.durationMs,
       timestamp: new Date().toISOString(),
     },
     {
       status,
       headers: {
-        "Cache-Control": "no-store",
+        "Cache-Control": "no-store, max-age=0",
       },
     },
   );

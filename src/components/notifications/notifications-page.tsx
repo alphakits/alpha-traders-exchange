@@ -20,6 +20,7 @@ import { isNotificationActionRequired } from "@/lib/notification-action-required
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { localizeNotificationActionLabel, localizeNotificationCopy } from "@/lib/notification-localization";
+import { israelCalendarDayNumber } from "@/lib/israel-calendar";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -168,14 +169,11 @@ function writeNotificationsCache(payload: NotificationsPayload) {
 }
 
 function notificationGroupLabel(notificationDate: Date, locale: AppLocale) {
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const yesterdayStart = todayStart - 86_400_000;
-  const notificationTime = notificationDate.getTime();
-  if (notificationTime >= todayStart) {
+  const dayDifference = israelCalendarDayNumber(Date.now()) - israelCalendarDayNumber(notificationDate);
+  if (Number.isFinite(dayDifference) && dayDifference <= 0) {
     return locale === "ar" ? "اليوم" : "Today";
   }
-  if (notificationTime >= yesterdayStart) {
+  if (dayDifference === 1) {
     return locale === "ar" ? "أمس" : "Yesterday";
   }
   return locale === "ar" ? "أقدم" : "Earlier";
