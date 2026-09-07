@@ -9,9 +9,10 @@ function source(path: string) {
 }
 
 describe("native website parity", () => {
-  it("mounts the website-inspired crypto network behind transparent native navigation", () => {
+  it("mounts the website-inspired crypto network inside every native scene", () => {
     const background = source("apps/mobile/src/components/native-blockchain-background.tsx");
     const root = source("apps/mobile/app/_layout.tsx");
+    const publicLayout = source("apps/mobile/app/(public)/_layout.tsx");
     const tabs = source("apps/mobile/app/(tabs)/_layout.tsx");
 
     for (const coin of ["btc", "eth", "sol", "usdt", "bnb", "xrp", "ada"]) {
@@ -19,9 +20,14 @@ describe("native website parity", () => {
     }
     expect(background).toContain("PulsePacket");
     expect(background).toContain("useReducedMotion()");
-    expect(root).toContain("<NativeBlockchainBackground />");
-    expect(root).toContain('contentStyle: { backgroundColor: "transparent" }');
-    expect(tabs).toContain('sceneStyle: { backgroundColor: "transparent" }');
+    expect(background).toContain("export function NativeScreenFrame");
+    expect(background).toContain("useIsFocused()");
+    expect(root).toContain("<NativeScreenFrame");
+    expect(publicLayout).toContain("<NativeScreenFrame>");
+    expect(tabs).toContain("<NativeScreenFrame>");
+    expect(root).toContain("contentStyle: { backgroundColor: colors.background }");
+    expect(publicLayout).toContain("contentStyle: { backgroundColor: colors.background }");
+    expect(tabs).toContain("sceneStyle: { backgroundColor: colors.background }");
   });
 
   it("keeps the native listing card aligned to the website information hierarchy", () => {

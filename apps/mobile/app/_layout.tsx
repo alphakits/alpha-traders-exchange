@@ -12,7 +12,7 @@ import { NetworkStatusBanner } from "../src/components/network-status-banner";
 import { SessionRecoveryScreen } from "../src/components/session-recovery-screen";
 import { UpdateRequiredScreen } from "../src/components/update-required-screen";
 import { BiometricLockScreen } from "../src/components/biometric-lock-screen";
-import { NativeBlockchainBackground } from "../src/components/native-blockchain-background";
+import { NativeScreenFrame } from "../src/components/native-blockchain-background";
 import { useLocale } from "../src/i18n/locale-context";
 import { useNetworkStatus } from "../src/network/network-context";
 import { useMobileAppReadiness } from "../src/readiness/use-mobile-app-readiness";
@@ -53,7 +53,6 @@ function RootNavigator() {
   return (
     <View style={[styles.root, { direction: isRTL ? "rtl" : "ltr" }]}>
       <StatusBar style="light" />
-      <NativeBlockchainBackground />
       <View
         accessibilityElementsHidden={maskAuthenticatedContent}
         importantForAccessibility={maskAuthenticatedContent ? "no-hide-descendants" : "auto"}
@@ -62,9 +61,14 @@ function RootNavigator() {
       >
         <NetworkStatusBanner />
         <Stack
+          screenLayout={({ children, route }) => (
+            <NativeScreenFrame showBackground={route.name !== "(public)" && route.name !== "(tabs)"}>
+              {children}
+            </NativeScreenFrame>
+          )}
           screenOptions={{
             animation: isReducedMotionEnabled ? "none" : "fade",
-            contentStyle: { backgroundColor: "transparent" },
+            contentStyle: { backgroundColor: colors.background },
             headerShown: false,
           }}
         />
