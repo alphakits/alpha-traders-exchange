@@ -32,6 +32,9 @@ describe("mobile website parity", () => {
     expect(shell).toContain("addNotificationResponseReceivedListener");
     expect(shell).toContain("addPushTokenListener");
     expect(shell).toContain("setBadgeCountAsync(message.unreadCount)");
+    expect(shell).toContain("pendingPushRegistrationRef.current = { userId, locale: nextLocale }");
+    expect(shell).toContain('AppState.currentState !== "active"');
+    expect(shell).toContain("pendingReviewRef.current = tradeReference");
     expect(shell).toContain("if (!hasLoadedContentRef.current) setIsLoading(true)");
     expect(shell).toContain("if (loadErrorRef.current ||");
     expect(shell).toContain('if (decision === "allow")');

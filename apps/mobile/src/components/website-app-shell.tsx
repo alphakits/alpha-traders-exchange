@@ -164,6 +164,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   const pendingPushUrlRef = useRef<string | null>(null);
   const pushRegistrationKeyRef = useRef<string | null>(null);
   const pushRegistrationResultRef = useRef<NativeToWebBridgeMessage | null>(null);
+  const pendingPushRegistrationRef = useRef<{ userId: string; locale: MobileLocale } | null>(null);
   const pushRegistrationInFlightRef = useRef<Promise<void> | null>(null);
   const [source, setSource] = useState<WebSource | null>(null);
   const [locale, setLocale] = useState<MobileLocale>(inferredLocale);
@@ -209,7 +210,10 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
     }
   }, []);
 
-  const ensurePushRegistration = useCallback((userId: string, nextLocale: MobileLocale) => {
+  const ensurePushRegistration = useCallback(function registerPush(
+    userId: string,
+    nextLocale: MobileLocale,
+  ) {
     const key = `${userId}:${nextLocale}`;
     if (pushRegistrationKeyRef.current === key) {
       if (pushRegistrationResultRef.current) {
@@ -217,7 +221,13 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       }
       return;
     }
-    if (pushRegistrationInFlightRef.current) return;
+    if (pushRegistrationInFlightRef.current) {
+      // A logout/login or locale change can arrive while the OS token request
+      // is still open. Keep the latest authenticated target instead of losing
+      // its registration until another app foreground event happens.
+      pendingPushRegistrationRef.current = { userId, locale: nextLocale };
+      return;
+    }
     const task = (async () => {
       const result = await registerForNativePushNotifications(nextLocale);
       if (activeSessionRef.current?.userId !== userId) return;
@@ -232,6 +242,11 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       if (pushRegistrationInFlightRef.current === task) {
         pushRegistrationInFlightRef.current = null;
       }
+      const pending = pendingPushRegistrationRef.current;
+      pendingPushRegistrationRef.current = null;
+      if (pending && activeSessionRef.current?.userId === pending.userId) {
+        registerPush(pending.userId, pending.locale);
+      }
     });
   }, [sendMessageToWebsite]);
 
@@ -240,9 +255,22 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
     const tradeReference = pendingReviewRef.current;
     if (!session || !tradeReference || AppState.currentState !== "active") return;
     pendingReviewRef.current = null;
+    const requestedUserId = session.userId;
     void requestAppReviewAfterCompletedTrade({
       userId: session.userId,
       tradeReference,
+    }).then((requested) => {
+      // If the user backgrounds the app during the short presentation delay,
+      // retry when they return instead of silently losing the completed-trade
+      // review opportunity. Never overwrite a newer completion signal.
+      if (
+        !requested
+        && AppState.currentState !== "active"
+        && activeSessionRef.current?.userId === requestedUserId
+        && pendingReviewRef.current === null
+      ) {
+        pendingReviewRef.current = tradeReference;
+      }
     });
   }, []);
 
@@ -342,6 +370,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       if (!message.authenticated) {
         activeSessionRef.current = null;
         pendingBadgeRef.current = null;
+        pendingPushRegistrationRef.current = null;
         pushRegistrationKeyRef.current = null;
         pushRegistrationResultRef.current = null;
         pendingReviewRef.current = null;
