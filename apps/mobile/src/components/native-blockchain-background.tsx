@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useRef, type PropsWithChildren } from "react";
 import {
   Animated,
   Easing,
@@ -8,6 +8,7 @@ import {
   useWindowDimensions,
   type DimensionValue,
 } from "react-native";
+import { useIsFocused } from "expo-router";
 import { useReducedMotion } from "../accessibility/use-reduced-motion";
 
 type CoinName = "btc" | "eth" | "sol" | "usdt" | "bnb" | "xrp" | "ada";
@@ -174,7 +175,7 @@ const PulsePacket = memo(function PulsePacket({ reducedMotion }: { reducedMotion
   );
 });
 
-export function NativeBlockchainBackground() {
+export function NativeBlockchainBackground({ active = true }: { active?: boolean }) {
   const reducedMotion = useReducedMotion();
   const { width, height } = useWindowDimensions();
   const diagonalLength = Math.max(width, height) * 1.3;
@@ -211,7 +212,7 @@ export function NativeBlockchainBackground() {
             { left: line.left, top: line.top, width: line.width, transform: [{ rotate: `${line.rotate}deg` }] },
           ]}
         >
-          <PulsePacket reducedMotion={reducedMotion} />
+          <PulsePacket reducedMotion={reducedMotion || !active} />
         </View>
       ))}
       {NODES.map(([left, top, size], index) => (
@@ -221,7 +222,7 @@ export function NativeBlockchainBackground() {
         <View key={`dust-${index}`} style={[styles.dust, { height: size, left, top, width: size }]} />
       ))}
       {COINS.map((item, index) => (
-        <FloatingCoin index={index} item={item} key={`${item.coin}-${index}`} reducedMotion={reducedMotion} />
+        <FloatingCoin index={index} item={item} key={`${item.coin}-${index}`} reducedMotion={reducedMotion || !active} />
       ))}
       <View style={styles.vignetteTop} />
       <View style={styles.vignetteBottom} />
@@ -229,7 +230,31 @@ export function NativeBlockchainBackground() {
   );
 }
 
+/**
+ * Native stack and tab scenes own platform-backed surfaces. On iOS those
+ * surfaces can resolve a transparent background against UIKit's default
+ * white, so a backdrop mounted outside the navigator is not reliably visible.
+ * Keep the backdrop inside each scene instead and pause off-screen animation.
+ */
+export function NativeScreenFrame({ children, showBackground = true }: PropsWithChildren<{ showBackground?: boolean }>) {
+  const isFocused = useIsFocused();
+  return (
+    <View style={styles.screenFrame}>
+      {showBackground ? <NativeBlockchainBackground active={isFocused} /> : null}
+      <View style={styles.screenContent}>{children}</View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  screenFrame: {
+    backgroundColor: "#050505",
+    flex: 1,
+  },
+  screenContent: {
+    backgroundColor: "transparent",
+    flex: 1,
+  },
   root: {
     bottom: 0,
     backgroundColor: "#050505",
