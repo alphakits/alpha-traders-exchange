@@ -5,6 +5,7 @@ import { colors, radius, typography } from "@alpha-traders/design-tokens";
 import { useAuth } from "../../src/auth/auth-context";
 import { BootScreen } from "../../src/components/boot-screen";
 import { SessionRecoveryScreen } from "../../src/components/session-recovery-screen";
+import { NativeScreenFrame } from "../../src/components/native-blockchain-background";
 import { useLocale } from "../../src/i18n/locale-context";
 import { useMobileNotifications } from "../../src/notifications/use-mobile-notifications";
 
@@ -25,9 +26,10 @@ export default function TabsLayout() {
   ) return <Redirect href="/onboarding" />;
   return (
     <Tabs
+      screenLayout={({ children }) => <NativeScreenFrame>{children}</NativeScreenFrame>}
       screenOptions={{
         headerShown: false,
-        sceneStyle: { backgroundColor: "transparent" },
+        sceneStyle: { backgroundColor: colors.background },
         tabBarActiveTintColor: colors.goldBright,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: styles.tabBar,
