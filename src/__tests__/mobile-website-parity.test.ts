@@ -13,7 +13,10 @@ describe("mobile website parity", () => {
     const root = source("apps/mobile/app/_layout.tsx");
     const shell = source("apps/mobile/src/components/website-app-shell.tsx");
     const navigation = source("apps/mobile/src/web/website-navigation.ts");
+    const nativeNotifications = source("apps/mobile/src/notifications/native-notifications.ts");
     const mobilePackage = source("apps/mobile/package.json");
+    const mobileConfig = source("apps/mobile/app.json");
+    const installedIphoneWorkflow = source("apps/mobile/.eas/workflows/iphone-installed-preview.yml");
 
     expect(root).toContain("<WebsiteAppShell");
     expect(root).toContain("screenLayout={() => <WebsiteScreen />}");
@@ -25,7 +28,19 @@ describe("mobile website parity", () => {
     expect(shell).toContain("allowsBackForwardNavigationGestures");
     expect(shell).toContain('if (!request.isTopFrame) return decision !== "block"');
     expect(shell).not.toContain("injectedJavaScript=");
+    expect(shell).toContain("onMessage={handleWebsiteMessage}");
+    expect(shell).toContain("addNotificationResponseReceivedListener");
+    expect(shell).toContain("addPushTokenListener");
+    expect(nativeNotifications).toContain("ExecutionEnvironment.StoreClient");
     expect(navigation).toContain('https://www.alphatraders.co.il');
     expect(mobilePackage).toContain('"react-native-webview": "13.16.1"');
+    expect(mobilePackage).toContain('"expo-notifications": "~57.0.17"');
+    expect(mobilePackage).toContain('"expo-store-review": "~57.0.2"');
+    expect(mobileConfig).toContain('"icon": "../../public/images/brand/alpha-traders-app-icon-1024.png"');
+    expect(mobileConfig).toContain('"foregroundImage": "../../public/images/brand/alpha-traders-app-icon-maskable-1024.png"');
+    expect(mobileConfig).toContain('"expo-notifications"');
+    expect(installedIphoneWorkflow).toContain("type: apple-device-registration-request");
+    expect(installedIphoneWorkflow).toContain("profile: preview");
+    expect(installedIphoneWorkflow).toContain("refresh_ad_hoc_provisioning_profile: true");
   });
 });

@@ -100,7 +100,7 @@ describe("AlphaExchangeRepository", () => {
     expect(query).toHaveBeenNthCalledWith(
       1,
       "select to_regclass($1) is not null as ready",
-      ["alpha_exchange.idx_alpha_exchange_marketplace_enforcement_audit_seller_created"],
+      ["alpha_exchange.idx_alpha_exchange_mobile_push_receipts"],
     );
     expect(query.mock.calls.some(([sql]) => String(sql).includes("create schema"))).toBe(false);
   });
@@ -122,6 +122,7 @@ describe("AlphaExchangeRepository", () => {
 
     expect(query.mock.calls.some(([sql]) => String(sql).includes("create schema if not exists alpha_exchange"))).toBe(true);
     expect(query.mock.calls.some(([sql]) => String(sql).includes("idx_alpha_exchange_marketplace_enforcement_audit_seller_created"))).toBe(true);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("idx_alpha_exchange_mobile_push_receipts"))).toBe(true);
   });
 
   it("falls back to the in-memory snapshot when the database connection times out", async () => {

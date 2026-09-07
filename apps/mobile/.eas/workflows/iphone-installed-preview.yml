@@ -1,0 +1,34 @@
+name: Alpha Traders iPhone Installed Preview
+
+on:
+  push:
+    branches: [release/iphone-installed-preview]
+
+jobs:
+  register_iphone:
+    name: Register the test iPhone
+    type: apple-device-registration-request
+
+  build_ios:
+    name: Build signed Alpha Traders for iPhone
+    needs: [register_iphone]
+    type: build
+    environment: preview
+    env:
+      GIT_LFS_SKIP_SMUDGE: "1"
+    params:
+      platform: ios
+      profile: preview
+      message: Alpha Traders 1.1 signed iPhone preview
+      refresh_ad_hoc_provisioning_profile: true
+
+  install_instructions:
+    name: Install on the registered iPhone
+    needs: [build_ios]
+    type: doc
+    params:
+      md: |
+        The signed Alpha Traders build is ready. Open the build from this
+        workflow on the registered iPhone and tap Install. This standalone app
+        uses the Alpha Traders icon and can receive lock-screen notifications;
+        Expo Go cannot provide either app-specific behavior.

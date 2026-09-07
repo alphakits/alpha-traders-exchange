@@ -3,9 +3,9 @@
     "name": "Alpha Traders",
     "slug": "alpha-traders",
     "owner": "alpha-traders",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "Secure bilingual USDT marketplace and guided P2P trading for Alpha Traders.",
-    "icon": "../../public/images/brand/alpha-traders-logo-512.png",
+    "icon": "../../public/images/brand/alpha-traders-app-icon-1024.png",
     "platforms": [
       "ios",
       "android"
@@ -25,7 +25,7 @@
       "allowBackup": false,
       "predictiveBackGestureEnabled": true,
       "adaptiveIcon": {
-        "foregroundImage": "../../public/images/brand/alpha-traders-logo-maskable-512.png",
+        "foregroundImage": "../../public/images/brand/alpha-traders-app-icon-maskable-1024.png",
         "backgroundColor": "#050505"
       }
     },
@@ -43,7 +43,7 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#050505",
-          "image": "../../public/images/brand/alpha-traders-logo-512.png",
+          "image": "../../public/images/brand/alpha-traders-app-icon-1024.png",
           "imageWidth": 180,
           "resizeMode": "contain"
         }
@@ -54,6 +54,13 @@
           "photosPermission": "Allow Alpha Traders to select a payment or USDT transfer receipt for your active trade.",
           "cameraPermission": false,
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#D4AF37",
+          "defaultChannel": "alpha-trade-updates"
         }
       ]
     ],

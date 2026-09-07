@@ -1,5 +1,6 @@
 export const MOBILE_API_VERSION = "v1" as const;
-export const MOBILE_CURRENT_APP_VERSION = "1.0.0" as const;
+export const MOBILE_CURRENT_APP_VERSION = "1.1.0" as const;
+export const MOBILE_MINIMUM_SUPPORTED_APP_VERSION = "1.0.0" as const;
 export const MOBILE_ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 export const MOBILE_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 

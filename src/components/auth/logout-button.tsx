@@ -35,11 +35,10 @@ export function LogoutButton({
     if (isPending) return;
     setIsPending(true);
     setErrorMessage(null);
-    // Safety-net: if the server doesn't respond in 3 s, navigate anyway.
-    // The server expires cookies before doing any async work, so a slow
-    // response likely means the cookies were already cleared.
+    // Bound a stalled request, but never show a successful logout until the
+    // server has revoked the session and returned the expired cookies.
     const controller = new AbortController();
-    const safetyTimeout = window.setTimeout(() => controller.abort(), 3000);
+    const safetyTimeout = window.setTimeout(() => controller.abort(), 8_000);
     try {
       const response = await fetch("/api/auth/logout", {
         method: "POST",
@@ -60,12 +59,10 @@ export function LogoutButton({
     } catch (error) {
       window.clearTimeout(safetyTimeout);
       if (error instanceof Error && error.name === "AbortError") {
-        // Safety timeout fired — navigate anyway; server may have cleared cookies.
-        onSignedOut?.();
-        window.dispatchEvent(new Event("alpha-auth-signed-out"));
-        window.dispatchEvent(new Event("alpha-auth-changed"));
-        await new Promise((resolve) => window.setTimeout(resolve, 50));
-        window.location.replace(`/${locale}/login`);
+        setIsPending(false);
+        setErrorMessage(locale === "ar"
+          ? "استغرق تسجيل الخروج وقتًا أطول من المتوقع. حاول مرة أخرى."
+          : "Signing out took longer than expected. Please try again.");
         return;
       }
       // Genuine failure — re-enable button and surface the error.

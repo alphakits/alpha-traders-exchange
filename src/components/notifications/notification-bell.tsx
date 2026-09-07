@@ -19,6 +19,7 @@ import { isNotificationActionRequired } from "@/lib/notification-action-required
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { localizeNotificationActionLabel, localizeNotificationCopy } from "@/lib/notification-localization";
+import { forwardCompletedTradesToNative } from "@/lib/native-app-bridge";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -219,6 +220,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
         throw new Error(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
       }
       const payload = (await response.json()) as NotificationsPayload;
+      forwardCompletedTradesToNative(payload.notifications ?? [], canonicalSession?.user?.id, locale);
       const keepVisibleList = isOpenRef.current && notificationsCountRef.current > 0;
       if (!shouldPreserveList && !keepVisibleList) {
         setNotifications(sortNotificationsNewestFirst(payload.notifications ?? []));
@@ -233,7 +235,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
         setIsLoading(false);
       }
     }
-  }, [canLoadNotifications, canonicalSession, isAr]);
+  }, [canLoadNotifications, canonicalSession, isAr, locale]);
 
   useEffect(() => {
     if (!canLoadNotifications) return;
@@ -244,6 +246,11 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
     const messageEvent = event as MessageEvent<string>;
     try {
       const payload = JSON.parse(messageEvent.data) as NotificationsStreamPayload;
+      forwardCompletedTradesToNative(
+        Array.isArray(payload.notifications) ? payload.notifications : [],
+        canonicalSession?.user?.id,
+        locale,
+      );
       if (!isOpenRef.current) {
         setNotifications(sortNotificationsNewestFirst(Array.isArray(payload.notifications) ? payload.notifications : []));
       }
@@ -251,7 +258,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
     } catch {
       // Ignore malformed stream payloads and keep current state.
     }
-  }, []);
+  }, [canonicalSession?.user?.id, locale]);
   useAuthenticatedNotificationStream({ enabled: canLoadNotifications, onNotifications: handleNotificationStream });
 
   async function handleToggleOpen() {
