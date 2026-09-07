@@ -65,7 +65,7 @@ describe("mobile accessibility completion", () => {
     expect(sessionRecovery).toContain("<ScrollView");
     expect(sessionRecovery).toContain("flexGrow: 1");
     expect(login).toContain("minHeight: 44");
-    expect(login.match(/style=\{styles\.textLinkTarget\}/g)).toHaveLength(4);
+    expect(login.match(/styles\.textLinkTarget,/g)).toHaveLength(2);
   });
 
   it("labels the footer newsletter field and keeps mobile footer targets usable", () => {

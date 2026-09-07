@@ -36,7 +36,7 @@ type AuthContextValue = {
   status: AuthStatus;
   user: MobileSessionUser | null;
   isBusy: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
   logout: (scope?: "device" | "all") => Promise<void>;
   refreshSession: () => Promise<MobileAuthTokens | null>;
   retryBootstrap: () => Promise<void>;
@@ -66,6 +66,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const { locale, isHydrated } = useLocale();
   const localeRef = useRef(locale);
   const tokensRef = useRef<MobileAuthTokens | null>(null);
+  const persistSessionRef = useRef(true);
   const sessionGenerationRef = useRef(0);
   const bootStarted = useRef(false);
   const [status, setStatus] = useState<AuthStatus>("booting");
@@ -78,7 +79,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const storeTokens = useCallback(async (tokens: MobileAuthTokens | null) => {
     tokensRef.current = tokens;
-    if (tokens) await saveStoredTokens(tokens);
+    if (tokens && persistSessionRef.current) await saveStoredTokens(tokens);
     else await clearStoredTokens();
   }, []);
 
@@ -181,6 +182,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         return;
       }
       tokensRef.current = tokens;
+      persistSessionRef.current = true;
       sessionGenerationRef.current += 1;
       try {
         const response = await getMobileMe(tokens, localeRef.current);
@@ -214,11 +216,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
     void bootstrapSession();
   }, [bootstrapSession, isHydrated]);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string, rememberMe = true) => {
     setIsBusy(true);
     try {
       const response = await loginMobile(email.trim().toLowerCase(), password, localeRef.current);
       sessionGenerationRef.current += 1;
+      persistSessionRef.current = rememberMe;
       await storeTokens(response.tokens);
       setUser(response.user);
       setStatus("authenticated");

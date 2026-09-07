@@ -20,9 +20,7 @@ import type {
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { getMobileMarketplace } from "../api/mobile-api";
 import { useAuth } from "../auth/auth-context";
-import { BrandMark } from "../components/brand-mark";
 import { GoldButton } from "../components/gold-button";
-import { LanguageSwitch } from "../components/language-switch";
 import { ListingCard } from "../components/listing-card";
 import { useLocale } from "../i18n/locale-context";
 import { mergeUniquePages, nextPageOffset } from "../query/paged-data";
@@ -205,8 +203,6 @@ export function MarketplaceScreen({ publicMode = false }: { publicMode?: boolean
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         ListHeaderComponent={(
           <View style={styles.header}>
-            <BrandMark compact />
-            <LanguageSwitch />
             <View style={styles.headingBlock}>
               <Text accessibilityRole="header" style={[styles.title, isRTL && styles.rtlText]}>{t("liveMarket")}</Text>
               <Text style={[styles.subtitle, isRTL && styles.rtlText]}>{t("liveMarketBody")}</Text>

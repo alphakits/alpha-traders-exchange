@@ -15,6 +15,31 @@ function safeResourceId(value: string | null | undefined) {
 }
 
 function notificationDestination(notification: AlphaExchangeNotification): MobileNotificationDestination | null {
+  const explicitHref = notification.actionHref?.trim() || notification.relatedHref?.trim() || "";
+  let explicitPath = "";
+  if (explicitHref.startsWith("/") && !explicitHref.startsWith("//")) {
+    try {
+      const parsed = new URL(explicitHref, "https://www.alphatraders.co.il");
+      if (parsed.origin === "https://www.alphatraders.co.il") {
+        explicitPath = parsed.pathname.replace(/^\/(?:ar|en)(?=\/)/i, "");
+      }
+    } catch {
+      explicitPath = "";
+    }
+  }
+
+  // Explicit role destinations must be resolved before category inference. An
+  // admin notification may reference a trade for context without granting the
+  // admin access to the participants' Trade Room.
+  if (/^\/admin(?:\/|$)/i.test(explicitPath)) return { screen: "admin" };
+  if (/^\/dashboard\/seller\/compliance-payment(?:\/|$)/i.test(explicitPath)) {
+    return { screen: "seller" };
+  }
+  if (/^\/dashboard\/seller(?:\/|$)/i.test(explicitPath)) return { screen: "seller" };
+  if (/^\/settings(?:\/|$)/i.test(explicitPath)) return { screen: "settings" };
+  if (/^\/(?:profile|dashboard)(?:\/|$)/i.test(explicitPath)) return { screen: "profile" };
+  if (/^\/onboarding(?:\/|$)/i.test(explicitPath)) return { screen: "seller_application" };
+
   const requestId = safeResourceId(
     notification.relatedRequestId ?? notification.tradeSnapshot?.requestId,
   );
@@ -26,9 +51,8 @@ function notificationDestination(notification: AlphaExchangeNotification): Mobil
     return { screen: "trade", requestId };
   }
   if (notification.category === "listing") return { screen: "marketplace" };
-  if (notification.category === "account" || notification.category === "application") {
-    return { screen: "profile" };
-  }
+  if (notification.category === "application") return { screen: "seller_application" };
+  if (notification.category === "account") return { screen: "profile" };
   return null;
 }
 

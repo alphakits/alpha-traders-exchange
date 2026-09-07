@@ -4,17 +4,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
+  canPublishListings: vi.fn(),
   checkSharedRateLimit: vi.fn(),
   getMarketplaceListingById: vi.fn(),
   getMyMarketplaceListings: vi.fn(),
   getSellerListingWorkspaceSummary: vi.fn(),
-  hasRole: vi.fn(),
   requireMobileApiUser: vi.fn(),
   updateMarketplaceListingForSeller: vi.fn(),
   updateSellerAvailabilityStatus: vi.fn(),
 }));
 
 vi.mock("@/lib/alpha-exchange-store", () => ({
+  canPublishListings: mocks.canPublishListings,
   getMarketplaceListingById: mocks.getMarketplaceListingById,
   getMyMarketplaceListings: mocks.getMyMarketplaceListings,
   getSellerListingWorkspaceSummary: mocks.getSellerListingWorkspaceSummary,
@@ -23,7 +24,6 @@ vi.mock("@/lib/alpha-exchange-store", () => ({
 }));
 vi.mock("@/lib/mobile-api-auth", () => ({ requireMobileApiUser: mocks.requireMobileApiUser }));
 vi.mock("@/lib/rate-limit", () => ({ checkSharedRateLimit: mocks.checkSharedRateLimit }));
-vi.mock("@/lib/roles", () => ({ hasRole: mocks.hasRole }));
 vi.mock("@/lib/structured-logging", () => ({ logEvent: vi.fn() }));
 
 import { GET } from "@/app/api/mobile/v1/seller/listings/route";
@@ -99,7 +99,7 @@ beforeEach(() => {
     accessToken: "access",
     unauthorized: null,
   });
-  mocks.hasRole.mockReturnValue(true);
+  mocks.canPublishListings.mockReturnValue(true);
   mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0 });
   mocks.getMyMarketplaceListings.mockResolvedValue([]);
   mocks.getSellerListingWorkspaceSummary.mockResolvedValue({
@@ -157,7 +157,7 @@ describe("mobile seller workspace routes", () => {
   });
 
   it("rejects non-sellers and invalid pagination before reading seller data", async () => {
-    mocks.hasRole.mockReturnValueOnce(false);
+    mocks.canPublishListings.mockReturnValueOnce(false);
     const forbidden = await GET(collectionRequest());
     expect(forbidden.status).toBe(403);
     await expect(forbidden.json()).resolves.toMatchObject({ error: { code: "SELLER_ROLE_REQUIRED" } });

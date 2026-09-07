@@ -25,9 +25,8 @@ import {
   setMobileNotificationRead,
 } from "../api/mobile-api";
 import { useAuth } from "../auth/auth-context";
-import { BrandMark } from "../components/brand-mark";
 import { GoldButton } from "../components/gold-button";
-import { LanguageSwitch } from "../components/language-switch";
+import { NativeSiteHeader } from "../components/native-site-header";
 import { useLocale } from "../i18n/locale-context";
 import {
   mobileNotificationsQueryKey,
@@ -187,12 +186,23 @@ export function NotificationsScreen() {
       router.push("/(tabs)");
     } else if (notification.destination?.screen === "profile") {
       router.push("/(tabs)/profile");
+    } else if (notification.destination?.screen === "settings") {
+      router.push("/settings");
+    } else if (notification.destination?.screen === "seller") {
+      router.push("/(tabs)/seller");
+    } else if (notification.destination?.screen === "seller_application") {
+      router.push("/seller-application");
+    } else if (notification.destination?.screen === "seller_commissions") {
+      router.push("/seller/commissions");
+    } else if (notification.destination?.screen === "admin") {
+      router.push("/admin");
     }
   }, [markRead, router]);
 
   const unreadCount = query.unreadCount;
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
+      <NativeSiteHeader />
       <FlatList
         contentContainerStyle={styles.content}
         data={query.notifications}
@@ -210,8 +220,6 @@ export function NotificationsScreen() {
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         ListHeaderComponent={(
           <View style={styles.header}>
-            <BrandMark compact />
-            <LanguageSwitch />
             <View style={[styles.headingRow, isRTL && styles.rowReverse]}>
               <View style={styles.headingCopy}>
                 <Text accessibilityRole="header" style={[styles.title, isRTL && styles.rtlText]}>{t("notifications")}</Text>

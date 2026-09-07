@@ -11,9 +11,7 @@ import { Redirect, useRouter } from "expo-router";
 import type { MobileAcademyCourse } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { useAuth } from "../auth/auth-context";
-import { BrandMark } from "../components/brand-mark";
 import { GoldButton } from "../components/gold-button";
-import { LanguageSwitch } from "../components/language-switch";
 import { useLocale } from "../i18n/locale-context";
 import { useAcademyCatalog } from "../academy/use-academy";
 import { useAcademyProgress } from "../academy/academy-progress-context";
@@ -104,10 +102,6 @@ export function AcademyScreen() {
         )}
         ListHeaderComponent={(
           <View style={styles.header}>
-            <View style={[styles.brandRow, isRTL && academySharedStyles.rowReverse]}>
-              <BrandMark compact />
-              <LanguageSwitch />
-            </View>
             <View style={styles.heading}>
               <Text accessibilityRole="header" style={[academySharedStyles.title, isRTL && academySharedStyles.rtlText]}>
                 {academyText(locale, "title")}
@@ -176,7 +170,6 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
   },
   header: { gap: spacing.xl, marginBottom: spacing.lg },
-  brandRow: { alignItems: "center", flexDirection: "row", justifyContent: "space-between" },
   heading: { gap: spacing.sm },
   pathTitle: { color: colors.text, fontSize: typography.section, fontWeight: "900" },
   resumeCard: {

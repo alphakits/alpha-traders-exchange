@@ -3,14 +3,13 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Linking,
   Pressable,
   RefreshControl,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { Redirect } from "expo-router";
+import { Redirect, useRouter } from "expo-router";
 import {
   useInfiniteQuery,
   useMutation,
@@ -31,11 +30,9 @@ import {
   setMobileSellerListingStatus,
 } from "../api/mobile-api";
 import { useAuth } from "../auth/auth-context";
-import { BrandMark } from "../components/brand-mark";
 import { GoldButton } from "../components/gold-button";
 import { useLocale } from "../i18n/locale-context";
 import type { MessageKey } from "../i18n/messages";
-import { trustedWebUrl } from "../navigation/trusted-web-links";
 import { mergeUniquePages, nextPageOffset } from "../query/paged-data";
 
 function listingStatusKey(status: MobileSellerListingStatus): MessageKey {
@@ -69,12 +66,13 @@ function safeAmount(value: string) {
 }
 
 export function SellerWorkspaceScreen() {
+  const router = useRouter();
   const { status, user, requestWithSession } = useAuth();
   const { locale, isRTL, t } = useLocale();
   const queryClient = useQueryClient();
   const userId = user?.id ?? "anonymous";
   const isApprovedSeller = user?.sellerStatus === "approved_seller"
-    || user?.roles.includes("approved_seller") === true;
+    || user?.roles.some((role) => role === "approved_seller" || role === "admin" || role === "owner") === true;
   const queryKey = useMemo(
     () => ["mobile-seller-listings", userId, locale] as const,
     [locale, userId],
@@ -149,14 +147,6 @@ export function SellerWorkspaceScreen() {
       void queryClient.invalidateQueries({ queryKey });
     },
   });
-
-  const openFullWorkspace = useCallback(async () => {
-    try {
-      await Linking.openURL(trustedWebUrl("sellerWorkspace", locale));
-    } catch {
-      Alert.alert(t("genericError"), t("websiteUnavailable"));
-    }
-  }, [locale, t]);
 
   const requestListingAction = useCallback((listing: MobileSellerListing) => {
     const action = listing.actions.canPause ? "pause" : listing.actions.canResume ? "resume" : null;
@@ -266,13 +256,21 @@ export function SellerWorkspaceScreen() {
                   {actionLabel}
                 </GoldButton>
               ) : null}
+              {item.status !== "matched" && item.status !== "in_trade" && item.status !== "completed" && item.status !== "cancelled" && item.status !== "closed" ? (
+                <GoldButton
+                  disabled={listingMutation.isPending || availabilityMutation.isPending}
+                  onPress={() => router.push({ pathname: "/seller/new", params: { listingId: item.id } })}
+                  variant="ghost"
+                >
+                  {isRTL ? "تعديل العرض" : "Edit listing"}
+                </GoldButton>
+              ) : null}
             </View>
           );
         }}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         ListHeaderComponent={(
           <View style={styles.header}>
-            <BrandMark compact />
             <View style={styles.headingBlock}>
               <Text accessibilityRole="header" style={[styles.title, isRTL && styles.rtlText]}>{t("sellerWorkspace")}</Text>
               <Text style={[styles.subtitle, isRTL && styles.rtlText]}>{t("sellerWorkspaceBody")}</Text>
@@ -320,9 +318,20 @@ export function SellerWorkspaceScreen() {
               </View>
             ) : null}
             <View style={styles.section}>
-              <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("sellerWebHandoff")}</Text>
-              <GoldButton onPress={() => void openFullWorkspace()} variant="outline">
-                {t("fullSellerWorkspace")}
+              <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>
+                {isRTL ? "أنشئ عرضًا جديدًا وأدره مباشرة داخل التطبيق." : "Create and manage a new listing directly inside the app."}
+              </Text>
+              <GoldButton
+                disabled={Boolean(workspace && !workspace.summary.canCreateListing)}
+                onPress={() => router.push("/seller/new")}
+              >
+                {isRTL ? "إنشاء عرض" : "Create listing"}
+              </GoldButton>
+              <GoldButton onPress={() => router.push("/seller/bank-accounts")} variant="outline">
+                {isRTL ? "إدارة الحسابات البنكية" : "Manage bank accounts"}
+              </GoldButton>
+              <GoldButton onPress={() => router.push("/seller/commissions")} variant="outline">
+                {isRTL ? "إدارة العمولات" : "Manage commissions"}
               </GoldButton>
             </View>
           </View>
