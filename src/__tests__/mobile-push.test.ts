@@ -1,6 +1,8 @@
 // @vitest-environment node
 
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   buildExpoPushMessage,
   isExpoPushToken,
@@ -82,5 +84,13 @@ describe("native lock-screen push payloads", () => {
 
     expect(mobilePushDeliveryKey(repeatedPublication)).toBe(mobilePushDeliveryKey(first));
     expect(mobilePushDeliveryKey(nextMessage)).not.toBe(mobilePushDeliveryKey(first));
+  });
+
+  it("reclaims a stale interrupted delivery without reusing its old ticket", () => {
+    const pushSource = readFileSync(join(process.cwd(), "src/lib/mobile-push.ts"), "utf8");
+    expect(pushSource).toContain("status in ('failed', 'processing')");
+    expect(pushSource).toContain("ticket_id = null");
+    expect(pushSource).toContain("receipt_checked_at = null");
+    expect(pushSource).toContain("updated_at < now() - interval '30 seconds'");
   });
 });

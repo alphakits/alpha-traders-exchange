@@ -370,9 +370,11 @@ async function claimDelivery(
      on conflict (notification_id, subscription_id) do update set
        status = 'processing',
        attempt_count = alpha_exchange.mobile_push_deliveries.attempt_count + 1,
+       ticket_id = null,
        last_error_code = null,
+       receipt_checked_at = null,
        updated_at = now()
-     where alpha_exchange.mobile_push_deliveries.status = 'failed'
+     where alpha_exchange.mobile_push_deliveries.status in ('failed', 'processing')
        and alpha_exchange.mobile_push_deliveries.attempt_count < 3
        and alpha_exchange.mobile_push_deliveries.updated_at < now() - interval '30 seconds'
      returning notification_id`,
