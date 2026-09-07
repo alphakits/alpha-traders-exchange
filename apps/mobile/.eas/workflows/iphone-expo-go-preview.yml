@@ -9,6 +9,12 @@ jobs:
     name: Publish phone preview
     type: update
     environment: preview
+    env:
+      # The native app does not use the website's Git LFS course videos, and
+      # GitHub currently blocks their download after the LFS budget is spent.
+      # Keep the website assets tracked while preventing EAS checkout from
+      # smudging unrelated video pointers before the update job starts.
+      GIT_LFS_SKIP_SMUDGE: "1"
     params:
       platform: all
       branch: phone-preview
