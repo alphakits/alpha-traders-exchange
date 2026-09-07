@@ -444,9 +444,9 @@ export function AcademyLessonScreen() {
 }
 
 const styles = StyleSheet.create({
-  centered: { alignItems: "center", backgroundColor: colors.background, flex: 1, justifyContent: "center" },
+  centered: { alignItems: "center", backgroundColor: "transparent", flex: 1, justifyContent: "center" },
   centeredContent: {
-    backgroundColor: colors.background,
+    backgroundColor: "transparent",
     flex: 1,
     gap: spacing.xl,
     justifyContent: "center",

@@ -95,7 +95,7 @@ export default function ForgotPasswordScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { backgroundColor: colors.background, flex: 1 },
+  safeArea: { backgroundColor: "transparent", flex: 1 },
   flex: { flex: 1 },
   content: { flexGrow: 1, justifyContent: "center", padding: spacing.lg, paddingBottom: 48 },
   card: { backgroundColor: "rgba(7,7,7,0.97)", borderColor: "rgba(255,255,255,0.10)", borderRadius: 28, borderWidth: 1, gap: spacing.lg, overflow: "hidden", padding: spacing.xl },

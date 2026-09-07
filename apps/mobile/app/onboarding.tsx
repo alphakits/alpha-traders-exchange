@@ -211,7 +211,7 @@ function OnboardingInput({ label, isRTL, ...props }: { label: string; isRTL: boo
 }
 
 const styles = StyleSheet.create({
-  safeArea: { backgroundColor: colors.background, flex: 1 },
+  safeArea: { backgroundColor: "transparent", flex: 1 },
   flex: { flex: 1 },
   content: { gap: spacing.lg, padding: spacing.lg, paddingBottom: 52 },
   intro: { backgroundColor: "#0A0A0A", borderColor: "rgba(201,162,39,0.30)", borderRadius: radius.lg, borderWidth: 1, gap: spacing.lg, overflow: "hidden", padding: spacing.xl },

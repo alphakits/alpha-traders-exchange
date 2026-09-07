@@ -221,7 +221,7 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { backgroundColor: colors.background, flex: 1 },
+  safeArea: { backgroundColor: "transparent", flex: 1 },
   content: { gap: spacing.lg, padding: spacing.lg, paddingBottom: spacing.hero },
   topRow: { alignItems: "center", flexDirection: "row", justifyContent: "space-between" },
   rowReverse: { flexDirection: "row-reverse" },

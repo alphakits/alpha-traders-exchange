@@ -280,7 +280,7 @@ export function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { backgroundColor: colors.background, flex: 1 },
+  safeArea: { backgroundColor: "transparent", flex: 1 },
   content: { flexGrow: 1, padding: spacing.lg, paddingBottom: spacing.hero },
   header: { gap: spacing.md, marginBottom: spacing.xl },
   headingRow: { alignItems: "flex-start", flexDirection: "row", gap: spacing.md },

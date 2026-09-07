@@ -354,7 +354,7 @@ export function TradeFormScreen({
 }
 
 const styles = StyleSheet.create({
-  safeArea: { backgroundColor: colors.background, flex: 1 },
+  safeArea: { backgroundColor: "transparent", flex: 1 },
   loader: { flex: 1 },
   content: { gap: spacing.lg, padding: spacing.lg, paddingBottom: spacing.hero },
   backButton: { alignSelf: "flex-start", justifyContent: "center", minHeight: 44, paddingHorizontal: spacing.sm },

@@ -202,7 +202,7 @@ function AuthField({ label, isRTL, style, ...props }: AuthFieldProps) {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { backgroundColor: colors.background, flex: 1 },
+  safeArea: { backgroundColor: "transparent", flex: 1 },
   flex: { flex: 1 },
   content: { flexGrow: 1, padding: spacing.lg, paddingBottom: 48 },
   card: {

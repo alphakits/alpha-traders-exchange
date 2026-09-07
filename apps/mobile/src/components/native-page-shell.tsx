@@ -45,7 +45,7 @@ export function NativePageShell({ children, title, subtitle }: NativePageShellPr
 
 const styles = StyleSheet.create({
   safeArea: {
-    backgroundColor: colors.background,
+    backgroundColor: "transparent",
     flex: 1,
   },
   content: {

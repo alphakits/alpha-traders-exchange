@@ -23,6 +23,8 @@ const PROFILE_UPDATE_KEYS = new Set<keyof MobileAccountProfileUpdateRequest>([
   "fullName",
   "bio",
   "country",
+  "language",
+  "whatsappNumber",
   "showTradeStats",
   "showLastActive",
   "allowDirectMessages",
@@ -44,6 +46,8 @@ function parseProfileUpdate(body: Record<string, unknown>): MobileAccountProfile
     ))
     || (body.bio !== undefined && (typeof body.bio !== "string" || body.bio.length > 2_000))
     || (body.country !== undefined && (typeof body.country !== "string" || body.country.trim().length > 100))
+    || (body.language !== undefined && (typeof body.language !== "string" || body.language.trim().length > 20))
+    || (body.whatsappNumber !== undefined && (typeof body.whatsappNumber !== "string" || body.whatsappNumber.trim().length > 30))
   ) {
     return null;
   }
@@ -64,6 +68,8 @@ function parseProfileUpdate(body: Record<string, unknown>): MobileAccountProfile
     ...(body.fullName !== undefined ? { fullName: body.fullName.trim() } : {}),
     ...(body.bio !== undefined ? { bio: body.bio.trim() } : {}),
     ...(body.country !== undefined ? { country: body.country.trim() } : {}),
+    ...(body.language !== undefined ? { language: body.language.trim() } : {}),
+    ...(body.whatsappNumber !== undefined ? { whatsappNumber: body.whatsappNumber.trim() } : {}),
     ...Object.fromEntries(
       booleanKeys
         .filter((key) => body[key] !== undefined)
@@ -78,9 +84,38 @@ async function profilePayload(userId: string) {
     findUserById(userId),
   ]);
   if (!user) return null;
+  const roles = user.roles ?? [user.role];
+  const roleBadge = roles.includes("owner") || user.role === "owner"
+    ? "owner" as const
+    : roles.includes("admin") || user.role === "admin"
+      ? "administrator" as const
+      : roles.includes("approved_seller") || user.role === "approved_seller" || user.sellerStatus === "approved_seller"
+        ? "approved_seller" as const
+        : roles.includes("pending_seller_approval") || user.sellerStatus === "pending_seller_approval"
+          ? "pending_seller" as const
+          : roles.includes("buyer") || user.role === "buyer"
+            ? "buyer" as const
+            : roles.includes("student") || user.role === "student"
+              ? "student" as const
+              : "guest" as const;
+  const roleLabels = {
+    guest: "Guest",
+    student: "Student",
+    buyer: "Buyer",
+    pending_seller: "Pending Seller",
+    approved_seller: "Approved Seller",
+    administrator: "Administrator",
+    owner: "Owner",
+  } as const;
+  const accountStatuses = user.sellerStatus === "suspended"
+    ? ["Suspended"]
+    : ["Active", ...(user.sellerStatus === "pending_seller_approval" ? ["Pending Seller Approval"] : [])];
   return {
     profile: toMobileAccountProfile(account.profile),
     stats: toMobileAccountStats(account.stats),
+    roleBadge,
+    roleLabel: roleLabels[roleBadge],
+    accountStatuses,
     user: toMobileSessionUser(user),
   };
 }

@@ -147,7 +147,7 @@ export function TradesScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { backgroundColor: colors.background, flexGrow: 1, padding: spacing.lg, paddingBottom: spacing.hero },
+  content: { backgroundColor: "transparent", flexGrow: 1, padding: spacing.lg, paddingBottom: spacing.hero },
   header: { gap: spacing.md, marginBottom: spacing.xl },
   title: { color: colors.text, fontSize: typography.title, fontWeight: "900", marginTop: spacing.sm },
   subtitle: { color: colors.textMuted, fontSize: typography.body, lineHeight: 23 },
