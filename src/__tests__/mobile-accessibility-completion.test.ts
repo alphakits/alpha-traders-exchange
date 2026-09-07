@@ -7,8 +7,9 @@ function source(path: string) {
 }
 
 describe("mobile accessibility completion", () => {
-  it("honors native reduced-motion settings and keeps enlarged tab labels unclipped", () => {
+  it("keeps the website shell transition-free while preserving the legacy native accessibility surfaces", () => {
     const rootLayout = source("apps/mobile/app/_layout.tsx");
+    const websiteShell = source("apps/mobile/src/components/website-app-shell.tsx");
     const publicLayout = source("apps/mobile/app/(public)/_layout.tsx");
     const reducedMotion = source("apps/mobile/src/accessibility/use-reduced-motion.ts");
     const tabs = source("apps/mobile/app/(tabs)/_layout.tsx");
@@ -17,7 +18,9 @@ describe("mobile accessibility completion", () => {
 
     expect(reducedMotion).toContain("AccessibilityInfo.isReduceMotionEnabled()");
     expect(reducedMotion).toContain('"reduceMotionChanged"');
-    expect(rootLayout).toContain('animation: isReducedMotionEnabled ? "none" : "fade"');
+    expect(rootLayout).toContain('animation: "none"');
+    expect(websiteShell).toContain('accessibilityRole="progressbar"');
+    expect(websiteShell).toContain('accessibilityRole="alert"');
     expect(publicLayout).toContain('isReducedMotionEnabled ? "none"');
     expect(publicLayout).toContain('isRTL ? "slide_from_left" : "slide_from_right"');
     expect(tabs).toContain("minHeight: 68");

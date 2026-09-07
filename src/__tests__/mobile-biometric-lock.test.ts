@@ -34,10 +34,10 @@ describe("native biometric privacy lock", () => {
     expect(sessionStorage).not.toContain("requireAuthentication");
   });
 
-  it("configures Face ID disclosure and hides the underlying navigation tree while locked", () => {
+  it("retains the Face ID disclosure while the parity shell owns the visible route tree", () => {
     const secureStorePlugin = mobileAppConfig.expo.plugins.find((plugin) => Array.isArray(plugin) && plugin[0] === "expo-secure-store");
     const rootLayout = source("apps/mobile/app/_layout.tsx");
-    const providers = source("apps/mobile/src/components/app-providers.tsx");
+    const websiteShell = source("apps/mobile/src/components/website-app-shell.tsx");
 
     expect(secureStorePlugin).toEqual([
       "expo-secure-store",
@@ -46,10 +46,9 @@ describe("native biometric privacy lock", () => {
         faceIDPermission: "Allow Alpha Traders to use Face ID to unlock and protect your app.",
       },
     ]);
-    expect(rootLayout).toContain("accessibilityElementsHidden={maskAuthenticatedContent}");
-    expect(rootLayout).toContain('importantForAccessibility={maskAuthenticatedContent ? "no-hide-descendants" : "auto"}');
-    expect(rootLayout).toContain("<View accessibilityViewIsModal style={styles.lockOverlay}>");
-    expect(rootLayout).toContain("<BiometricLockScreen />");
-    expect(providers).toContain('nextState === "active" && !isLocked');
+    expect(rootLayout).toContain("<WebsiteAppShell");
+    expect(rootLayout).not.toContain("<BiometricLockScreen");
+    expect(websiteShell).toContain("sharedCookiesEnabled");
+    expect(websiteShell).toContain("currentNativeTokens");
   });
 });
