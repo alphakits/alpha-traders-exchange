@@ -52,7 +52,7 @@
         "expo-image-picker",
         {
           "photosPermission": "Allow Alpha Traders to select a payment or USDT transfer receipt for your active trade.",
-          "cameraPermission": false,
+          "cameraPermission": "Allow Alpha Traders to use your camera to photograph payment or USDT transfer evidence for an active trade.",
           "microphonePermission": false
         }
       ],

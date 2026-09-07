@@ -16,7 +16,7 @@ function notification(overrides: Partial<AlphaExchangeNotification> = {}): Alpha
     userId: "buyer-1",
     category: "trade",
     title: "New trade room message",
-    message: "Call +972 50 123 4567 and send money to private account 9876.",
+    message: "SENSITIVE_CONTACT_MARKER SENSITIVE_PAYMENT_MARKER",
     isRead: false,
     relatedRequestId: "request-123",
     createdAt: new Date().toISOString(),
@@ -41,8 +41,8 @@ describe("native lock-screen push payloads", () => {
     const serialized = JSON.stringify(message);
     expect(message.title).toBe("New Trade Room message");
     expect(message.body).toBe("Open Alpha Traders to read it securely.");
-    expect(serialized).not.toContain("+972");
-    expect(serialized).not.toContain("9876");
+    expect(serialized).not.toContain("SENSITIVE_CONTACT_MARKER");
+    expect(serialized).not.toContain("SENSITIVE_PAYMENT_MARKER");
     expect(message.data.url).toBe("https://www.alphatraders.co.il/en/trade-room/request-123");
   });
 
@@ -60,6 +60,16 @@ describe("native lock-screen push payloads", () => {
     });
     expect(privacySafeMobilePushCopy(notification({ title: "Trade completed" }), "ar").title)
       .toBe("اكتملت الصفقة");
+  });
+
+  it("sets the lock-screen badge to the user's bounded unread total", () => {
+    const subscription = {
+      expoPushToken: "ExponentPushToken[abcdefghijklmnop]",
+      locale: "en" as const,
+    };
+    expect(buildExpoPushMessage(notification(), subscription, 37).badge).toBe(37);
+    expect(buildExpoPushMessage(notification(), subscription, 12_000).badge).toBe(9_999);
+    expect(buildExpoPushMessage(notification(), subscription, Number.NaN).badge).toBe(1);
   });
 
   it("deduplicates one persisted revision but alerts again for a later chat revision", () => {

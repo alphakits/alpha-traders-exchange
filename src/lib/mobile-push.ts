@@ -271,6 +271,7 @@ export function privacySafeMobilePushCopy(
 export function buildExpoPushMessage(
   notification: AlphaExchangeNotification,
   subscription: Pick<MobilePushSubscription, "expoPushToken" | "locale">,
+  unreadCount = 1,
 ): ExpoPushMessage {
   const copy = privacySafeMobilePushCopy(notification, subscription.locale);
   const completedTrade = notification.category === "trade"
@@ -283,7 +284,9 @@ export function buildExpoPushMessage(
     title: copy.title,
     body: copy.body,
     sound: "default",
-    badge: 1,
+    badge: Number.isFinite(unreadCount)
+      ? Math.min(9_999, Math.max(0, Math.trunc(unreadCount)))
+      : 1,
     priority: notification.priority === "high" || notification.priority === "critical"
       ? "high"
       : "default",
@@ -415,8 +418,13 @@ async function sendClaimedBatch(
   notification: AlphaExchangeNotification,
   deliveryKey: string,
   subscriptions: MobilePushSubscription[],
+  unreadCount: number,
 ) {
-  const messages = subscriptions.map((subscription) => buildExpoPushMessage(notification, subscription));
+  const messages = subscriptions.map((subscription) => buildExpoPushMessage(
+    notification,
+    subscription,
+    unreadCount,
+  ));
   let tickets: ExpoPushTicket[] = [];
   try {
     const response = await fetchExpoJson(EXPO_PUSH_SEND_URL, messages) as { data?: ExpoPushTicket[] | ExpoPushTicket } | null;
@@ -479,14 +487,19 @@ async function reconcileExpoPushReceipts(pool: Pool) {
 export async function deliverMobilePushNotification(notification: AlphaExchangeNotification) {
   const pool = requirePushPool();
   await ensurePushSchema(pool);
-  const canonicalResult = await pool.query<{ payload: AlphaExchangeNotification }>(
-    `select payload from alpha_exchange.notifications
-     where id = $1 and user_id = $2
+  const canonicalResult = await pool.query<{ payload: AlphaExchangeNotification; unread_count: number }>(
+    `select notification.payload,
+            (select count(*)::int
+             from alpha_exchange.notifications unread
+             where unread.user_id = $2 and unread.is_read = false) as unread_count
+     from alpha_exchange.notifications notification
+     where notification.id = $1 and notification.user_id = $2
      limit 1`,
     [notification.id, notification.userId],
   );
   const canonical = canonicalResult.rows[0]?.payload;
   if (!canonical || canonical.isRead || canonical.state === "read" || canonical.state === "archived") return;
+  const unreadCount = canonicalResult.rows[0]?.unread_count ?? 1;
   const deliveryKey = mobilePushDeliveryKey(canonical);
 
   const result = await pool.query<{
@@ -519,7 +532,13 @@ export async function deliverMobilePushNotification(notification: AlphaExchangeN
     if (await claimDelivery(pool, deliveryKey, subscription.id)) claimed.push(subscription);
   }
   for (let index = 0; index < claimed.length; index += MAX_PUSH_BATCH) {
-    await sendClaimedBatch(pool, canonical, deliveryKey, claimed.slice(index, index + MAX_PUSH_BATCH));
+    await sendClaimedBatch(
+      pool,
+      canonical,
+      deliveryKey,
+      claimed.slice(index, index + MAX_PUSH_BATCH),
+      unreadCount,
+    );
   }
   await reconcileExpoPushReceipts(pool);
 }

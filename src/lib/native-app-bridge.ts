@@ -67,3 +67,19 @@ export function forwardCompletedTradesToNative(
   }
   return sent;
 }
+
+export function syncNotificationCountToNative(
+  unreadCount: number,
+  userId: string | null | undefined,
+  locale: MobileLocale,
+) {
+  const normalizedUserId = userId?.trim();
+  if (!normalizedUserId || !Number.isFinite(unreadCount)) return false;
+  return postToNativeApp({
+    type: "alpha.web.notification-count",
+    version: NATIVE_WEB_BRIDGE_VERSION,
+    userId: normalizedUserId,
+    unreadCount: Math.min(9_999, Math.max(0, Math.trunc(unreadCount))),
+    locale,
+  });
+}

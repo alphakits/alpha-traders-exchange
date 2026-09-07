@@ -3,6 +3,7 @@ import {
   forwardCompletedTradesToNative,
   isRecentCompletedTradeNotification,
   postToNativeApp,
+  syncNotificationCountToNative,
 } from "@/lib/native-app-bridge";
 import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
 
@@ -59,5 +60,20 @@ describe("website-to-native completion signals", () => {
     expect(isRecentCompletedTradeNotification(notification({
       title: "Large-value trade completed",
     }), now)).toBe(false);
+  });
+
+  it("syncs a sanitized unread count to the signed-in native app", () => {
+    const postMessage = vi.fn();
+    window.ReactNativeWebView = { postMessage };
+    expect(syncNotificationCountToNative(12.9, " user-1 ", "ar")).toBe(true);
+    expect(JSON.parse(postMessage.mock.calls[0]?.[0] ?? "{}")).toEqual({
+      type: "alpha.web.notification-count",
+      version: 1,
+      userId: "user-1",
+      unreadCount: 12,
+      locale: "ar",
+    });
+    expect(syncNotificationCountToNative(Number.NaN, "user-1", "en")).toBe(false);
+    expect(syncNotificationCountToNative(1, "", "en")).toBe(false);
   });
 });

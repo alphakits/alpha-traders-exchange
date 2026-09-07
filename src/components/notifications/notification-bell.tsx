@@ -19,7 +19,7 @@ import { isNotificationActionRequired } from "@/lib/notification-action-required
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { localizeNotificationActionLabel, localizeNotificationCopy } from "@/lib/notification-localization";
-import { forwardCompletedTradesToNative } from "@/lib/native-app-bridge";
+import { forwardCompletedTradesToNative, syncNotificationCountToNative } from "@/lib/native-app-bridge";
 
 type NotificationsPayload = {
   notifications: AlphaExchangeNotification[];
@@ -163,8 +163,16 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const isOpenRef = useRef(false);
   const notificationsCountRef = useRef(0);
+  const unreadCountRef = useRef(0);
   const router = useRouter();
   const canLoadNotifications = !canonicalSession || (!canonicalSession.isResolving && Boolean(canonicalSession.user));
+
+  const applyUnreadCount = useCallback((value: number) => {
+    const normalized = Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+    unreadCountRef.current = normalized;
+    setUnreadCount(normalized);
+    syncNotificationCountToNative(normalized, canonicalSession?.user?.id, locale);
+  }, [canonicalSession?.user?.id, locale]);
 
   useEffect(() => {
     isOpenRef.current = isOpen;
@@ -225,7 +233,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
       if (!shouldPreserveList && !keepVisibleList) {
         setNotifications(sortNotificationsNewestFirst(payload.notifications ?? []));
       }
-      setUnreadCount(payload.unreadCount ?? 0);
+      applyUnreadCount(payload.unreadCount ?? 0);
       setLastLoadedAt(Date.now());
       appendLoginJourneyStep("Notifications loading (header bell)", startedAt, Date.now(), { limit, status: response.status });
     } catch {
@@ -235,7 +243,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
         setIsLoading(false);
       }
     }
-  }, [canLoadNotifications, canonicalSession, isAr, locale]);
+  }, [applyUnreadCount, canLoadNotifications, canonicalSession, isAr, locale]);
 
   useEffect(() => {
     if (!canLoadNotifications) return;
@@ -254,11 +262,11 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
       if (!isOpenRef.current) {
         setNotifications(sortNotificationsNewestFirst(Array.isArray(payload.notifications) ? payload.notifications : []));
       }
-      setUnreadCount(typeof payload.unreadCount === "number" ? payload.unreadCount : 0);
+      applyUnreadCount(typeof payload.unreadCount === "number" ? payload.unreadCount : 0);
     } catch {
       // Ignore malformed stream payloads and keep current state.
     }
-  }, [canonicalSession?.user?.id, locale]);
+  }, [applyUnreadCount, canonicalSession?.user?.id, locale]);
   useAuthenticatedNotificationStream({ enabled: canLoadNotifications, onNotifications: handleNotificationStream });
 
   async function handleToggleOpen() {
@@ -282,7 +290,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
     setNotifications((prev) =>
       prev.map((n) => (n.id === notificationId ? { ...n, isRead: true, state: "read" as const } : n)),
     );
-    setUnreadCount((prev) => Math.max(0, prev - 1));
+    applyUnreadCount(Math.max(0, unreadCountRef.current - 1));
     try {
       const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
         method: "PATCH",
@@ -301,7 +309,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   async function handleMarkAllRead() {
     // Optimistic update — mark everything read locally before the server confirms.
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true, state: "read" as const })));
-    setUnreadCount(0);
+    applyUnreadCount(0);
     try {
       const response = await fetch("/api/alpha-exchange/notifications", {
         method: "PATCH",

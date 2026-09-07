@@ -23,6 +23,13 @@ export type WebToNativeBridgeMessage =
       notificationId: string;
       tradeReference: string;
       locale: MobileLocale;
+    }
+  | {
+      type: "alpha.web.notification-count";
+      version: typeof NATIVE_WEB_BRIDGE_VERSION;
+      userId: string;
+      unreadCount: number;
+      locale: MobileLocale;
     };
 
 export type NativeToWebBridgeMessage =
@@ -107,6 +114,26 @@ export function parseWebToNativeBridgeMessage(raw: unknown): WebToNativeBridgeMe
         userId,
         notificationId,
         tradeReference,
+        locale: value.locale,
+      };
+    }
+  }
+
+  if (value.type === "alpha.web.notification-count" && isLocale(value.locale)) {
+    const userId = boundedString(value.userId, 160);
+    const unreadCount = value.unreadCount;
+    if (
+      userId
+      && typeof unreadCount === "number"
+      && Number.isInteger(unreadCount)
+      && unreadCount >= 0
+      && unreadCount <= 9_999
+    ) {
+      return {
+        type: "alpha.web.notification-count",
+        version: NATIVE_WEB_BRIDGE_VERSION,
+        userId,
+        unreadCount,
         locale: value.locale,
       };
     }

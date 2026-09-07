@@ -456,11 +456,17 @@ export function LocalizedEvidenceFileInput({
 }
 
 export function formatIls(value: number) {
-  return `₪${value.toFixed(2)}`;
+  return `₪${value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 export function formatUsdt(value: number) {
-  return `${value.toFixed(2)} USDT`;
+  return `${value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} USDT`;
 }
 
 export function formatIsraelDateKey(value: string | number | Date) {

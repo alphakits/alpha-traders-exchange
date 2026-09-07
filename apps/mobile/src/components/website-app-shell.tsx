@@ -155,8 +155,11 @@ function copy(locale: MobileLocale) {
 export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   const webViewRef = useRef<WebView>(null);
   const readyReported = useRef(false);
+  const hasLoadedContentRef = useRef(false);
+  const loadErrorRef = useRef(false);
   const localeRef = useRef<MobileLocale>(inferredLocale());
   const activeSessionRef = useRef<{ userId: string; locale: MobileLocale } | null>(null);
+  const pendingBadgeRef = useRef<{ userId: string; unreadCount: number } | null>(null);
   const pendingReviewRef = useRef<string | null>(null);
   const pendingPushUrlRef = useRef<string | null>(null);
   const pushRegistrationKeyRef = useRef<string | null>(null);
@@ -176,6 +179,8 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   }, [onNativeReady]);
 
   const prepare = useCallback(async () => {
+    hasLoadedContentRef.current = false;
+    loadErrorRef.current = false;
     setLoadFailed(false);
     setIsLoading(true);
     try {
@@ -245,8 +250,9 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
     const target = trustedPushWebsiteUrl(data, localeRef.current);
     if (target) {
       pendingPushUrlRef.current = target;
+      loadErrorRef.current = false;
       setLoadFailed(false);
-      setIsLoading(true);
+      setIsLoading(!hasLoadedContentRef.current);
       setSource({ uri: target });
     }
     const reviewReference = reviewReferenceFromPushData(data);
@@ -335,14 +341,34 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
     if (message.type === "alpha.web.session") {
       if (!message.authenticated) {
         activeSessionRef.current = null;
+        pendingBadgeRef.current = null;
         pushRegistrationKeyRef.current = null;
         pushRegistrationResultRef.current = null;
         pendingReviewRef.current = null;
+        void Notifications.setBadgeCountAsync(0).catch(() => undefined);
         return;
       }
       activeSessionRef.current = { userId: message.userId, locale: message.locale };
+      if (pendingBadgeRef.current?.userId === message.userId) {
+        void Notifications.setBadgeCountAsync(pendingBadgeRef.current.unreadCount).catch(() => undefined);
+      }
+      pendingBadgeRef.current = null;
       ensurePushRegistration(message.userId, message.locale);
       attemptPendingReview();
+      return;
+    }
+    if (
+      message.type === "alpha.web.notification-count"
+      && activeSessionRef.current?.userId === message.userId
+    ) {
+      void Notifications.setBadgeCountAsync(message.unreadCount).catch(() => undefined);
+      return;
+    }
+    if (message.type === "alpha.web.notification-count" && !activeSessionRef.current) {
+      pendingBadgeRef.current = {
+        userId: message.userId,
+        unreadCount: message.unreadCount,
+      };
       return;
     }
     if (
@@ -355,17 +381,24 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   }, [attemptPendingReview, ensurePushRegistration]);
 
   const completeLoad = useCallback((event: WebViewNavigationEvent | WebViewErrorEvent) => {
-    if ("description" in event.nativeEvent) {
+    if (loadErrorRef.current || "description" in event.nativeEvent) {
+      hasLoadedContentRef.current = false;
+      loadErrorRef.current = true;
       setLoadFailed(true);
-    } else {
-      rememberNavigation(event.nativeEvent);
-      setLoadFailed(false);
+      setIsLoading(false);
+      reportNativeReady();
+      return;
     }
+    hasLoadedContentRef.current = true;
+    rememberNavigation(event.nativeEvent);
+    setLoadFailed(false);
     setIsLoading(false);
     reportNativeReady();
   }, [rememberNavigation, reportNativeReady]);
 
   const failLoad = useCallback(() => {
+    hasLoadedContentRef.current = false;
+    loadErrorRef.current = true;
     setIsLoading(false);
     setLoadFailed(true);
     reportNativeReady();
@@ -375,6 +408,8 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
     try {
       const failedUrl = new URL(event.nativeEvent.url);
       if (failedUrl.pathname !== "/api/mobile/v1/auth/web-session") return;
+      loadErrorRef.current = true;
+      hasLoadedContentRef.current = false;
       setLoadFailed(false);
       setIsLoading(true);
       setSource({ uri: `${ALPHA_TRADERS_WEB_ORIGIN}/${locale}` });
@@ -384,7 +419,16 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   }, [locale]);
 
   const openWindow = useCallback((event: WebViewOpenWindowEvent) => {
-    openExternally(event.nativeEvent.targetUrl);
+    const targetUrl = event.nativeEvent.targetUrl;
+    const decision = websiteNavigationDecision(targetUrl);
+    if (decision === "allow") {
+      loadErrorRef.current = false;
+      setLoadFailed(false);
+      setIsLoading(!hasLoadedContentRef.current);
+      setSource({ uri: targetUrl });
+      return;
+    }
+    if (decision === "external") openExternally(targetUrl);
   }, [openExternally]);
 
   const downloadFile = useCallback((event: FileDownloadEvent) => {
@@ -392,11 +436,21 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   }, [openExternally]);
 
   const retry = useCallback(() => {
+    hasLoadedContentRef.current = false;
+    loadErrorRef.current = false;
     setLoadFailed(false);
     setIsLoading(true);
     if (webViewRef.current) webViewRef.current.reload();
     else void prepare();
   }, [prepare]);
+
+  const recoverWebProcess = useCallback(() => {
+    hasLoadedContentRef.current = false;
+    loadErrorRef.current = false;
+    setLoadFailed(false);
+    setIsLoading(true);
+    webViewRef.current?.reload();
+  }, []);
 
   return (
     <SafeAreaView edges={["top", "left", "right", "bottom"]} style={styles.safeArea}>
@@ -410,8 +464,9 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
           onShouldStartLoadWithRequest={shouldStart}
           onNavigationStateChange={rememberNavigation}
           onLoadStart={() => {
-            setIsLoading(true);
+            loadErrorRef.current = false;
             setLoadFailed(false);
+            if (!hasLoadedContentRef.current) setIsLoading(true);
           }}
           onLoadEnd={completeLoad}
           onError={failLoad}
@@ -419,9 +474,9 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
           onOpenWindow={openWindow}
           onFileDownload={downloadFile}
           onMessage={handleWebsiteMessage}
-          onContentProcessDidTerminate={() => webViewRef.current?.reload()}
+          onContentProcessDidTerminate={recoverWebProcess}
           onRenderProcessGone={() => {
-            webViewRef.current?.reload();
+            recoverWebProcess();
             return true;
           }}
           allowsBackForwardNavigationGestures

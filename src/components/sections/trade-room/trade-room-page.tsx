@@ -130,6 +130,13 @@ function toNumber(value: string | number | null | undefined) {
   return Number(normalized.replace(/[^\d.]/g, "")) || 0;
 }
 
+function formatUsdtAmount(value: string | number | null | undefined) {
+  return `${toNumber(value).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} USDT`;
+}
+
 function formatDuration(totalSeconds: number) {
   const seconds = Math.max(0, Math.floor(totalSeconds));
   const minutes = Math.floor(seconds / 60);
@@ -2588,8 +2595,8 @@ export function TradeRoomPage({
               {room.sellerCommissionDueCount > 0 && isSeller ? (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
                   <p className="font-medium">{isAr ? "عمولة مستحقة" : "Commission Due"}</p>
-                  <p>{isAr ? `ادفع الآن: ${(room.sellerPayableCommissionAmount ?? 0).toFixed(2)} USDT` : `Pay now: ${(room.sellerPayableCommissionAmount ?? 0).toFixed(2)} USDT`}</p>
-                  {room.sellerCommissionDueCount > 1 ? <p className="text-xs">{isAr ? `إجمالي المستحق: ${room.sellerCommissionDueAmount.toFixed(2)} USDT` : `Total outstanding: ${room.sellerCommissionDueAmount.toFixed(2)} USDT`}</p> : null}
+                  <p>{isAr ? `ادفع الآن: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Pay now: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`}</p>
+                  {room.sellerCommissionDueCount > 1 ? <p className="text-xs">{isAr ? `إجمالي المستحق: ${formatUsdtAmount(room.sellerCommissionDueAmount)}` : `Total outstanding: ${formatUsdtAmount(room.sellerCommissionDueAmount)}`}</p> : null}
                   <p className="text-xs">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
                   <Button type="button" size="sm" className="mt-2" disabled={!room.sellerPayableCommissionId} onClick={() => openCommissionPayNow(room.sellerPayableCommissionId)}>
                     {isAr ? "ادفع الآن" : "Pay Now"}
@@ -3382,8 +3389,8 @@ export function TradeRoomPage({
                 </CardHeader>
                 <CardContent className="text-sm text-[#FDE68A]">
                   <p>{isAr ? `عدد العمولات غير المدفوعة: ${room.sellerCommissionDueCount}` : `Pending commissions: ${room.sellerCommissionDueCount}`}</p>
-                  <p className="mt-1">{isAr ? `المبلغ الإجمالي: ${room.sellerCommissionDueAmount.toFixed(2)} USDT` : `Total due: ${room.sellerCommissionDueAmount.toFixed(2)} USDT`}</p>
-                  <p className="mt-1">{isAr ? `الدفع الحالي: ${(room.sellerPayableCommissionAmount ?? 0).toFixed(2)} USDT` : `Current payment: ${(room.sellerPayableCommissionAmount ?? 0).toFixed(2)} USDT`}</p>
+                  <p className="mt-1">{isAr ? `المبلغ الإجمالي: ${formatUsdtAmount(room.sellerCommissionDueAmount)}` : `Total due: ${formatUsdtAmount(room.sellerCommissionDueAmount)}`}</p>
+                  <p className="mt-1">{isAr ? `الدفع الحالي: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}` : `Current payment: ${formatUsdtAmount(room.sellerPayableCommissionAmount)}`}</p>
                   <p className="mt-1 text-xs text-amber-100">{isAr ? "لن تتمكن من نشر عروض جديدة حتى السداد." : "New listing creation stays blocked until payment is cleared."}</p>
                   <Button type="button" size="sm" className="mt-2" disabled={!room.sellerPayableCommissionId} onClick={() => openCommissionPayNow(room.sellerPayableCommissionId)}>
                     {isAr ? "ادفع الآن" : "Pay Now"}

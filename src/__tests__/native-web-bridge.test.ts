@@ -55,4 +55,18 @@ describe("native website bridge protocol", () => {
     } as const;
     expect(parseNativeToWebBridgeMessage(message)).toEqual(message);
   });
+
+  it("accepts only bounded whole-number notification badge counts", () => {
+    const valid = {
+      type: "alpha.web.notification-count",
+      version: NATIVE_WEB_BRIDGE_VERSION,
+      userId: "user-1",
+      unreadCount: 42,
+      locale: "en",
+    } as const;
+    expect(parseWebToNativeBridgeMessage(valid)).toEqual(valid);
+    expect(parseWebToNativeBridgeMessage({ ...valid, unreadCount: -1 })).toBeNull();
+    expect(parseWebToNativeBridgeMessage({ ...valid, unreadCount: 1.5 })).toBeNull();
+    expect(parseWebToNativeBridgeMessage({ ...valid, unreadCount: 10_000 })).toBeNull();
+  });
 });
