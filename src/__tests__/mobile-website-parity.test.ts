@@ -8,75 +8,24 @@ function source(path: string) {
   return readFileSync(join(process.cwd(), path), "utf8");
 }
 
-describe("native website parity", () => {
-  it("mounts the website-inspired crypto network inside every native scene", () => {
-    const background = source("apps/mobile/src/components/native-blockchain-background.tsx");
+describe("mobile website parity", () => {
+  it("uses the production website as the only rendered product surface", () => {
     const root = source("apps/mobile/app/_layout.tsx");
-    const publicLayout = source("apps/mobile/app/(public)/_layout.tsx");
-    const tabs = source("apps/mobile/app/(tabs)/_layout.tsx");
+    const shell = source("apps/mobile/src/components/website-app-shell.tsx");
+    const navigation = source("apps/mobile/src/web/website-navigation.ts");
+    const mobilePackage = source("apps/mobile/package.json");
 
-    for (const coin of ["btc", "eth", "sol", "usdt", "bnb", "xrp", "ada"]) {
-      expect(background).toContain(`coin: "${coin}"`);
-    }
-    expect(background).toContain("PulsePacket");
-    expect(background).toContain("useReducedMotion()");
-    expect(background).toContain("export function NativeScreenFrame");
-    expect(background).toContain("useIsFocused()");
-    expect(root).toContain("<NativeScreenFrame");
-    expect(publicLayout).toContain("<NativeScreenFrame>");
-    expect(tabs).toContain("<NativeScreenFrame>");
-    expect(root).toContain("contentStyle: { backgroundColor: colors.background }");
-    expect(publicLayout).toContain("contentStyle: { backgroundColor: colors.background }");
-    expect(tabs).toContain("sceneStyle: { backgroundColor: colors.background }");
-  });
-
-  it("keeps the native listing card aligned to the website information hierarchy", () => {
-    const listingCard = source("apps/mobile/src/components/listing-card.tsx");
-
-    for (const section of [
-      "Official Alpha Exchange Listing",
-      "Approved seller",
-      "AVAILABLE USDT",
-      "LISTING PRICE",
-      "CURRENT MARKET",
-      "Trade limits",
-      "Trade flow",
-    ]) {
-      expect(listingCard).toContain(section);
-    }
-    expect(listingCard).toContain('t("sellerProfile")');
-    expect(listingCard).toContain("formatFinancialNumber(listing.availableAmount");
-    expect(listingCard).toContain("formatCurrencyAmountAsUsd(listing.price");
-    expect(listingCard).toContain("formatFinancialNumber(listing.minimumTrade");
-    expect(listingCard).not.toContain("ILS / USDT");
-  });
-
-  it("renders the full website account identity, reputation, seller, and buyer details", () => {
-    const panel = source("apps/mobile/src/screens/account-profile-panel.tsx");
-    const contract = source("packages/contracts/src/mobile-v1.ts");
-
-    for (const section of [
-      "Update cover",
-      "Update photo",
-      "Public trading identity",
-      "Reputation board",
-      "TIER ACHIEVEMENTS",
-      "YOUR BUYER ACTIVITY",
-      "BUYER ACHIEVEMENTS",
-      "Verified identity",
-    ]) {
-      expect(panel).toContain(section);
-    }
-    for (const field of [
-      "coverBannerUrl",
-      "username",
-      "roleBadge",
-      "accountStatuses",
-      "buyerActivity",
-      "promotionHistory",
-      "commissionPaidUsdt",
-    ]) {
-      expect(contract).toContain(field);
-    }
+    expect(root).toContain("<WebsiteAppShell");
+    expect(root).toContain("screenLayout={() => <WebsiteScreen />}");
+    expect(root).not.toContain("{children}");
+    expect(shell).toContain('from "react-native-webview"');
+    expect(shell).toContain("source={source}");
+    expect(shell).toContain("sharedCookiesEnabled");
+    expect(shell).toContain("cacheEnabled");
+    expect(shell).toContain("allowsBackForwardNavigationGestures");
+    expect(shell).toContain('if (!request.isTopFrame) return decision !== "block"');
+    expect(shell).not.toContain("injectedJavaScript=");
+    expect(navigation).toContain('https://www.alphatraders.co.il');
+    expect(mobilePackage).toContain('"react-native-webview": "13.16.1"');
   });
 });
