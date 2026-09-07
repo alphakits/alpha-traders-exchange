@@ -72,11 +72,11 @@ export function AcademyBackButton({
 
 export const academySharedStyles = StyleSheet.create({
   safeArea: {
-    backgroundColor: colors.background,
+    backgroundColor: "transparent",
     flex: 1,
   },
   screen: {
-    backgroundColor: colors.background,
+    backgroundColor: "transparent",
     flex: 1,
   },
   content: {

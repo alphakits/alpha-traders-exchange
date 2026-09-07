@@ -3,7 +3,8 @@ import * as Crypto from "expo-crypto";
 import { Platform } from "react-native";
 import type {
   MobileApiErrorCode,
-  MobileApiErrorResponse,
+  MobileAdminOverviewResponse,
+  MobileAdminReviewRequest,
   MobileAccountProfileResponse,
   MobileAccountProfileUpdateRequest,
   MobileAppConfigResponse,
@@ -17,12 +18,26 @@ import type {
   MobileMarketplaceListingsResponse,
   MobileMeResponse,
   MobileNotificationResponse,
+  MobileNotificationPreferencesResponse,
+  MobileNotificationPreferencesUpdateRequest,
   MobileNotificationsResponse,
   MobileNotificationsUpdateResponse,
+  MobileOnboardingRequest,
+  MobileOnboardingResponse,
+  MobileProfilePhotoResponse,
   MobileRefreshResponse,
   MobileSellerProfileResponse,
   MobileSellerAvailabilityResponse,
   MobileSellerAvailabilityStatus,
+  MobileSellerApplicationRequest,
+  MobileSellerApplicationResponse,
+  MobileSellerBankAccountCreateRequest,
+  MobileSellerBankAccountsResponse,
+  MobileSellerCommissionPaymentRequest,
+  MobileSellerCommissionsResponse,
+  MobileSellerListingCreateRequest,
+  MobileSellerListingDetailResponse,
+  MobileSellerListingUpdateRequest,
   MobileSellerListingResponse,
   MobileSellerListingsResponse,
   MobileTradeBankDetailsResponse,
@@ -92,6 +107,7 @@ async function mobileRequest<T>(path: string, options: MobileRequestOptions): Pr
     const headers: Record<string, string> = {
       Accept: "application/json",
       "Accept-Language": options.locale,
+      "X-Locale": options.locale,
       "X-App-Version": appVersion(),
       "X-Device-Id": deviceId,
       "X-Platform": clientPlatform(),
@@ -118,10 +134,21 @@ async function mobileRequest<T>(path: string, options: MobileRequestOptions): Pr
       payload = null;
     }
     if (!response.ok) {
-      const apiError = payload as Partial<MobileApiErrorResponse> | null;
+      const apiError = payload as ({
+        error?: string | { code?: MobileApiErrorCode; message?: string };
+        code?: string;
+        message?: string;
+        requestId?: string;
+      }) | null;
+      const nestedError = apiError?.error && typeof apiError.error === "object"
+        ? apiError.error
+        : null;
+      const message = typeof apiError?.error === "string"
+        ? apiError.error
+        : (nestedError?.message ?? apiError?.message ?? `Request failed with status ${response.status}.`);
       throw new MobileApiError(
-        apiError?.error?.message ?? `Request failed with status ${response.status}.`,
-        apiError?.error?.code ?? "INTERNAL_ERROR",
+        message,
+        nestedError?.code ?? "INVALID_REQUEST",
         response.status,
         apiError?.requestId ?? response.headers.get("x-request-id") ?? requestId,
       );
@@ -163,6 +190,112 @@ export function loginMobile(email: string, password: string, locale: MobileLocal
   });
 }
 
+export type MobileRegistrationInput = {
+  fullName: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+  whatsappNumber: string;
+  agreedToTerms: boolean;
+};
+
+export function registerMobile(input: MobileRegistrationInput, locale: MobileLocale) {
+  return mobileRequest<{ ok: true; message?: string }>("/api/auth/register", {
+    locale,
+    method: "POST",
+    body: { ...input },
+  });
+}
+
+export function requestPasswordResetMobile(email: string, locale: MobileLocale) {
+  return mobileRequest<{ ok: true; message?: string }>("/api/auth/reset/request", {
+    locale,
+    method: "POST",
+    body: { email },
+  });
+}
+
+export function resendVerificationMobile(email: string, locale: MobileLocale) {
+  return mobileRequest<{ message?: string }>("/api/auth/verify-email/resend", {
+    locale,
+    method: "POST",
+    body: { email },
+  });
+}
+
+export type MobileContactInput = {
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+};
+
+export type PublicMarketPairKey = "ethUsdt" | "btcUsdt" | "usdtIls";
+
+export type PublicMarketPair = {
+  key: PublicMarketPairKey;
+  label: string;
+  price: number;
+  changePercent: number | null;
+  source: string;
+  reference?: string;
+};
+
+export type PublicMarketSnapshot = {
+  status: "live" | "degraded";
+  updatedAt: string;
+  stale: boolean;
+  unavailablePairs: PublicMarketPairKey[];
+  pairs: Record<PublicMarketPairKey, PublicMarketPair>;
+};
+
+export function getPublicMarketSnapshot(locale: MobileLocale, signal?: AbortSignal) {
+  return mobileRequest<{ snapshot: PublicMarketSnapshot }>("/api/market/center", {
+    locale,
+    signal,
+    timeoutMs: 8_000,
+  });
+}
+
+export function submitContactMobile(input: MobileContactInput, locale: MobileLocale) {
+  return mobileRequest<{ ok: true }>("/api/contact", {
+    locale,
+    method: "POST",
+    body: {
+      ...input,
+      locale,
+      website: "",
+    },
+  });
+}
+
+export function getMobileAdminOverview(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  signal?: AbortSignal,
+) {
+  return mobileRequest<MobileAdminOverviewResponse>("/api/mobile/v1/admin/overview", {
+    locale,
+    accessToken: tokens.accessToken,
+    signal,
+    timeoutMs: 20_000,
+  });
+}
+
+export function reviewMobileAdminItem(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  input: MobileAdminReviewRequest,
+) {
+  return mobileRequest<MobileAdminOverviewResponse>("/api/mobile/v1/admin/overview", {
+    locale,
+    method: "POST",
+    accessToken: tokens.accessToken,
+    body: { ...input },
+    timeoutMs: 30_000,
+  });
+}
+
 let refreshInFlight: { refreshToken: string; promise: Promise<MobileRefreshResponse> } | null = null;
 
 export function refreshMobile(tokens: MobileAuthTokens, locale: MobileLocale) {
@@ -183,6 +316,19 @@ export function getMobileMe(tokens: MobileAuthTokens, locale: MobileLocale) {
   return mobileRequest<MobileMeResponse>("/api/mobile/v1/auth/me", {
     locale,
     accessToken: tokens.accessToken,
+  });
+}
+
+export function updateMobileOnboarding(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  input: MobileOnboardingRequest,
+) {
+  return mobileRequest<MobileOnboardingResponse>("/api/mobile/v1/onboarding", {
+    locale,
+    method: "POST",
+    accessToken: tokens.accessToken,
+    body: { ...input },
   });
 }
 
@@ -208,6 +354,45 @@ export function updateMobileAccountProfile(
     method: "PATCH",
     accessToken: tokens.accessToken,
     body: { ...update },
+  });
+}
+
+export function uploadMobileProfilePhoto(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  input: {
+    kind: "profile" | "cover";
+    mimeType: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+    fileUri: string;
+  },
+) {
+  const form = new FormData();
+  form.append("kind", input.kind);
+  form.append("file", {
+    uri: input.fileUri,
+    name: `${input.kind}-photo.${input.mimeType === "image/png" ? "png" : input.mimeType === "image/webp" ? "webp" : input.mimeType === "image/gif" ? "gif" : "jpg"}`,
+    type: input.mimeType,
+  } as unknown as Blob);
+  return mobileRequest<MobileProfilePhotoResponse>("/api/mobile/v1/profile/photo", {
+    locale,
+    method: "POST",
+    accessToken: tokens.accessToken,
+    body: form,
+    timeoutMs: 45_000,
+  });
+}
+
+export function removeMobileProfilePhoto(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  kind: "profile" | "cover",
+) {
+  return mobileRequest<MobileProfilePhotoResponse>("/api/mobile/v1/profile/photo", {
+    locale,
+    method: "DELETE",
+    accessToken: tokens.accessToken,
+    body: { kind },
+    timeoutMs: 30_000,
   });
 }
 
@@ -292,6 +477,31 @@ export function markAllMobileNotificationsRead(
   });
 }
 
+export function getMobileNotificationPreferences(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  signal?: AbortSignal,
+) {
+  return mobileRequest<MobileNotificationPreferencesResponse>("/api/mobile/v1/settings/notifications", {
+    locale,
+    accessToken: tokens.accessToken,
+    signal,
+  });
+}
+
+export function updateMobileNotificationPreferences(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  input: MobileNotificationPreferencesUpdateRequest,
+) {
+  return mobileRequest<MobileNotificationPreferencesResponse>("/api/mobile/v1/settings/notifications", {
+    locale,
+    method: "PATCH",
+    accessToken: tokens.accessToken,
+    body: { ...input },
+  });
+}
+
 export function getMobileMarketplace(
   locale: MobileLocale,
   offset = 0,
@@ -354,11 +564,54 @@ export function getMobileSellerListings(
   );
 }
 
+export function createMobileSellerListing(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  input: MobileSellerListingCreateRequest,
+) {
+  return mobileRequest<MobileSellerListingResponse>("/api/mobile/v1/seller/listings", {
+    locale,
+    method: "POST",
+    accessToken: tokens.accessToken,
+    body: { ...input },
+    timeoutMs: 30_000,
+  });
+}
+
 export function setMobileSellerListingStatus(
   tokens: MobileAuthTokens,
   locale: MobileLocale,
   listingId: string,
   action: "pause" | "resume",
+) {
+  return mobileRequest<MobileSellerListingDetailResponse>(
+    `/api/mobile/v1/seller/listings/${encodeURIComponent(listingId)}`,
+    {
+      locale,
+      method: "PATCH",
+      accessToken: tokens.accessToken,
+      body: { action },
+    },
+  );
+}
+
+export function getMobileSellerListing(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  listingId: string,
+  signal?: AbortSignal,
+) {
+  return mobileRequest<MobileSellerListingDetailResponse>(
+    `/api/mobile/v1/seller/listings/${encodeURIComponent(listingId)}`,
+    { locale, accessToken: tokens.accessToken, signal },
+  );
+}
+
+export function updateMobileSellerListing(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  listingId: string,
+  input: MobileSellerListingUpdateRequest,
 ) {
   return mobileRequest<MobileSellerListingResponse>(
     `/api/mobile/v1/seller/listings/${encodeURIComponent(listingId)}`,
@@ -366,7 +619,26 @@ export function setMobileSellerListingStatus(
       locale,
       method: "PATCH",
       accessToken: tokens.accessToken,
-      body: { action },
+      body: { action: "update", ...input },
+      timeoutMs: 30_000,
+    },
+  );
+}
+
+export function deleteMobileSellerListing(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  listingId: string,
+  input: Pick<MobileSellerListingUpdateRequest, "changeReason" | "changeExplanation">,
+) {
+  return mobileRequest<{ deleted: true; requestId: string }>(
+    `/api/mobile/v1/seller/listings/${encodeURIComponent(listingId)}`,
+    {
+      locale,
+      method: "DELETE",
+      accessToken: tokens.accessToken,
+      body: { ...input },
+      timeoutMs: 30_000,
     },
   );
 }
@@ -385,6 +657,86 @@ export function setMobileSellerAvailability(
       body: { availabilityStatus },
     },
   );
+}
+
+export function createMobileSellerApplication(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  input: MobileSellerApplicationRequest,
+) {
+  return mobileRequest<MobileSellerApplicationResponse>("/api/mobile/v1/seller/application", {
+    locale,
+    method: "POST",
+    accessToken: tokens.accessToken,
+    body: { ...input },
+  });
+}
+
+export function getMobileSellerBankAccounts(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  signal?: AbortSignal,
+) {
+  return mobileRequest<MobileSellerBankAccountsResponse>("/api/mobile/v1/seller/bank-accounts", {
+    locale,
+    accessToken: tokens.accessToken,
+    signal,
+  });
+}
+
+export function createMobileSellerBankAccount(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  input: MobileSellerBankAccountCreateRequest,
+) {
+  return mobileRequest<MobileSellerBankAccountsResponse>("/api/mobile/v1/seller/bank-accounts", {
+    locale,
+    method: "POST",
+    accessToken: tokens.accessToken,
+    body: { ...input },
+  });
+}
+
+export function deleteMobileSellerBankAccount(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  bankAccountId: string,
+) {
+  return mobileRequest<MobileSellerBankAccountsResponse>(
+    `/api/mobile/v1/seller/bank-accounts?bankAccountId=${encodeURIComponent(bankAccountId)}`,
+    {
+      locale,
+      method: "DELETE",
+      accessToken: tokens.accessToken,
+    },
+  );
+}
+
+export function getMobileSellerCommissions(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  signal?: AbortSignal,
+) {
+  return mobileRequest<MobileSellerCommissionsResponse>("/api/mobile/v1/seller/commissions", {
+    locale,
+    accessToken: tokens.accessToken,
+    signal,
+    timeoutMs: 20_000,
+  });
+}
+
+export function submitMobileSellerCommissionPayment(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  input: MobileSellerCommissionPaymentRequest,
+) {
+  return mobileRequest<MobileSellerCommissionsResponse>("/api/mobile/v1/seller/commissions", {
+    locale,
+    method: "POST",
+    accessToken: tokens.accessToken,
+    body: { ...input },
+    timeoutMs: 45_000,
+  });
 }
 
 export function getMobileTrades(

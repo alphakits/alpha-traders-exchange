@@ -40,6 +40,8 @@ import {
   mobileTradeStatusLabel,
 } from "../trades/trade-labels";
 import { formatTradeCountdown } from "../trades/trade-countdown";
+import { formatCurrencyAmountAsUsd, formatUsdt } from "../finance/financial-display";
+import { useUsdDisplayRate } from "../finance/use-usd-display-rate";
 
 type BankDetails = {
   accountHolderName: string;
@@ -119,6 +121,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
   const queryClient = useQueryClient();
   const { user, requestWithSession } = useAuth();
   const { locale, isRTL, t } = useLocale();
+  const usdIlsRate = useUsdDisplayRate();
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -507,9 +510,9 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         ) : null}
 
         <View style={styles.summaryCard}>
-          <DetailRow isRTL={isRTL} label={t("tradeAmount")} value={`${trade.usdtAmount} USDT`} />
-          <DetailRow isRTL={isRTL} label={t("unitPrice")} value={`${trade.currency === "ILS" ? "₪" : trade.currency} ${trade.pricePerUsdt}`} />
-          <DetailRow isRTL={isRTL} label={t("tradeValue")} value={`${trade.currency === "ILS" ? "₪" : trade.currency} ${trade.fiatAmount}`} />
+          <DetailRow isRTL={isRTL} label={t("tradeAmount")} value={formatUsdt(trade.usdtAmount)} />
+          <DetailRow isRTL={isRTL} label={t("unitPrice")} value={formatCurrencyAmountAsUsd(trade.pricePerUsdt, trade.currency, usdIlsRate, 4)} />
+          <DetailRow isRTL={isRTL} label={t("tradeValue")} value={formatCurrencyAmountAsUsd(trade.fiatAmount, trade.currency, usdIlsRate)} />
           <DetailRow isRTL={isRTL} label={t("selectPayment")} value={mobilePaymentMethodLabel(trade.paymentMethod, locale)} />
           <DetailRow isRTL={isRTL} label={t("tradeSide")} value={trade.side === "buyer" ? t("purchaseSide") : t("saleSide")} />
         </View>
@@ -788,7 +791,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { backgroundColor: colors.background, flex: 1 },
+  safeArea: { backgroundColor: "transparent", flex: 1 },
   flex: { flex: 1 },
   content: { gap: spacing.lg, padding: spacing.lg, paddingBottom: spacing.hero },
   loader: { flex: 1 },

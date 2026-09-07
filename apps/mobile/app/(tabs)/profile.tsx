@@ -1,50 +1,26 @@
-import { Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Redirect, useRouter } from "expo-router";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { useAuth } from "../../src/auth/auth-context";
-import { BrandMark } from "../../src/components/brand-mark";
 import { GoldButton } from "../../src/components/gold-button";
 import { LanguageSwitch } from "../../src/components/language-switch";
+import { NativeSiteHeader } from "../../src/components/native-site-header";
 import { useLocale } from "../../src/i18n/locale-context";
-import {
-  trustedWebUrl,
-  type TrustedWebDestination,
-} from "../../src/navigation/trusted-web-links";
 import { useBiometricLock } from "../../src/security/biometric-lock-context";
 import { AccountProfilePanel } from "../../src/screens/account-profile-panel";
-import { safeRemoteImageUrl } from "../../src/media/safe-media-url";
-
-function roleLabel(role: string, t: ReturnType<typeof useLocale>["t"]) {
-  if (role === "owner") return t("roleOwner");
-  if (role === "admin") return t("roleAdmin");
-  if (role === "approved_seller") return t("roleSeller");
-  if (role === "pending_seller_approval") return t("rolePending");
-  if (role === "student") return t("roleStudent");
-  if (role === "guest") return t("roleGuest");
-  return t("roleBuyer");
-}
 
 export default function ProfileScreen() {
   const router = useRouter();
   const { status, user, logout, isBusy } = useAuth();
-  const { locale, isRTL, t } = useLocale();
+  const { isRTL, t } = useLocale();
   const biometric = useBiometricLock();
   if (status !== "authenticated" || !user) return <Redirect href="/(public)/login" />;
-  const isApprovedSeller = user.sellerStatus === "approved_seller"
-    || user.roles.includes("approved_seller");
-  const canApplyToSell = !isApprovedSeller
+  const canUseSellerWorkspace = user.sellerStatus === "approved_seller"
+    || user.roles.some((role) => role === "approved_seller" || role === "admin" || role === "owner");
+  const canApplyToSell = !canUseSellerWorkspace
     && user.sellerStatus !== "pending_seller_approval"
     && (user.role === "buyer" || user.roles.includes("buyer"));
-  const profilePhotoUrl = safeRemoteImageUrl(user.profilePhotoUrl);
-
-  async function openWebsite(destination: TrustedWebDestination) {
-    try {
-      await Linking.openURL(trustedWebUrl(destination, locale));
-    } catch {
-      Alert.alert(t("genericError"), t("websiteUnavailable"));
-    }
-  }
 
   async function toggleBiometricLock() {
     const result = biometric.isEnabled ? await biometric.disable() : await biometric.enable();
@@ -57,50 +33,28 @@ export default function ProfileScreen() {
     Alert.alert(t("biometricSecurity"), message);
   }
 
-  const accountLinks: Array<{ destination: TrustedWebDestination; label: string }> = [
-    ...(isApprovedSeller
-      ? [{ destination: "sellerWorkspace" as const, label: t("fullSellerWorkspace") }]
+  const accountLinks = [
+    ...(canUseSellerWorkspace
+      ? [{ href: "/(tabs)/seller" as const, label: t("fullSellerWorkspace") }]
       : canApplyToSell
-        ? [{ destination: "sellerApplication" as const, label: t("applyToSell") }]
+        ? [{ href: "/seller-application" as const, label: t("applyToSell") }]
         : []),
-    { destination: "accountSettings", label: t("manageAccount") },
-    { destination: "accountDeletion", label: t("requestAccountDeletion") },
-    { destination: "support", label: t("support") },
-    { destination: "privacyPolicy", label: t("privacyPolicy") },
-    { destination: "terms", label: t("termsOfService") },
+    { href: "/settings" as const, label: t("manageAccount") },
+    { href: "/account-deletion" as const, label: t("requestAccountDeletion") },
+    { href: "/support" as const, label: t("support") },
+    { href: "/privacy-policy" as const, label: t("privacyPolicy") },
+    { href: "/terms" as const, label: t("termsOfService") },
   ];
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
+      <NativeSiteHeader />
       <ScrollView
         automaticallyAdjustKeyboardInsets
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <BrandMark compact />
-        <View style={styles.card}>
-          <View accessible={false} style={styles.avatar}>
-            {profilePhotoUrl ? (
-              <Image
-                accessible={false}
-                alt=""
-                source={{ uri: profilePhotoUrl }}
-                style={styles.avatarImage}
-              />
-            ) : (
-              <Text accessible={false} style={styles.avatarText}>{user.fullName.trim().slice(0, 1).toUpperCase() || "A"}</Text>
-            )}
-          </View>
-          <Text accessibilityRole="header" style={[styles.name, isRTL && styles.rtlText]}>{user.fullName}</Text>
-          <Text style={[styles.email, isRTL && styles.rtlText]}>{user.email}</Text>
-          <View style={styles.roleBadge}>
-            <Text style={styles.roleText}>{roleLabel(user.role, t)}</Text>
-          </View>
-          {user.emailVerified ? (
-            <Text style={[styles.verified, isRTL && styles.rtlText]}>✓ {t("accountVerified")}</Text>
-          ) : null}
-        </View>
         <AccountProfilePanel />
         <View style={styles.section}>
           <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("language")}</Text>
@@ -128,7 +82,7 @@ export default function ProfileScreen() {
             <Text style={[styles.unavailable, isRTL && styles.rtlText]}>{t("biometricUnavailable")}</Text>
           )}
         </View>
-        {isApprovedSeller ? (
+        {canUseSellerWorkspace ? (
           <View style={styles.sellerSection}>
             <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("sellerWorkspace")}</Text>
             <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("sellerWorkspaceBody")}</Text>
@@ -142,11 +96,11 @@ export default function ProfileScreen() {
           <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("accountAndSupportBody")}</Text>
           <View style={styles.linkList}>
             {accountLinks.map((link, index) => (
-              <View key={link.destination}>
+              <View key={link.href}>
                 {index > 0 ? <View style={styles.divider} /> : null}
                 <Pressable
                   accessibilityRole="link"
-                  onPress={() => void openWebsite(link.destination)}
+                  onPress={() => router.push(link.href)}
                   style={({ pressed }) => [
                     styles.linkRow,
                     isRTL && styles.rowReverse,
@@ -170,7 +124,7 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   safeArea: {
-    backgroundColor: colors.background,
+    backgroundColor: "transparent",
     flex: 1,
   },
   content: {

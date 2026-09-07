@@ -9,7 +9,7 @@ import {
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 
 type GoldButtonProps = PropsWithChildren<PressableProps & {
-  variant?: "gold" | "outline" | "ghost";
+  variant?: "gold" | "outline" | "ghost" | "blue" | "red";
   loading?: boolean;
 }>;
 
@@ -45,9 +45,18 @@ export function GoldButton({
       {...props}
     >
       {loading ? (
-        <ActivityIndicator accessible={false} color={variant === "gold" ? colors.background : colors.gold} />
+        <ActivityIndicator accessible={false}
+          color={variant === "gold" ? colors.background : (variant === "blue" || variant === "red" ? "#FFFFFF" : colors.gold)}
+        />
       ) : (
-        <Text style={[styles.label, variant === "gold" ? styles.goldLabel : styles.outlineLabel]}>
+        <Text
+          style={[
+            styles.label,
+            variant === "gold"
+              ? styles.goldLabel
+              : (variant === "blue" || variant === "red" ? styles.colorLabel : styles.outlineLabel),
+          ]}
+        >
           {children}
         </Text>
       )}
@@ -58,10 +67,10 @@ export function GoldButton({
 const styles = StyleSheet.create({
   base: {
     alignItems: "center",
-    borderRadius: radius.md,
+    borderRadius: radius.pill,
     borderWidth: 1,
     justifyContent: "center",
-    minHeight: 52,
+    minHeight: 48,
     paddingHorizontal: spacing.lg,
   },
   gold: {
@@ -75,6 +84,22 @@ const styles = StyleSheet.create({
   ghost: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
+  },
+  blue: {
+    backgroundColor: "#2479FF",
+    borderColor: "#6CAEFF",
+    shadowColor: "#2479FF",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.34,
+    shadowRadius: 14,
+  },
+  red: {
+    backgroundColor: "#E53935",
+    borderColor: "#FF665E",
+    shadowColor: "#C62828",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.34,
+    shadowRadius: 14,
   },
   pressed: {
     opacity: 0.78,
@@ -92,5 +117,8 @@ const styles = StyleSheet.create({
   },
   outlineLabel: {
     color: colors.text,
+  },
+  colorLabel: {
+    color: "#FFFFFF",
   },
 });

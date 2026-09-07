@@ -15,8 +15,9 @@ remains the only business-logic backend.
 - Full native Academy navigation with published-only tracks and lessons,
   bilingual/RTL course content, quizzes, bookmarks, account-scoped progress,
   personal on-device notes, and offline access to previously loaded material.
-- Trusted website handoffs for private-beta access, password recovery, profile
-  photo/password management, account deletion, privacy, terms, and support.
+- Native registration, sign-in, remembered or session-only login, password
+  recovery, onboarding, profile/privacy settings, support, account deletion,
+  privacy policy, and terms screens.
 - Device-bound opaque access/refresh sessions stored with SecureStore.
 - Optional Face ID or secure-fingerprint privacy lock that masks authenticated
   content immediately in the app switcher and pauses live query work while
@@ -24,7 +25,7 @@ remains the only business-logic backend.
 - Native screen-reader headings and form labels, 44–52 point touch targets,
   readable minimum text sizes, scalable/wrapping financial layouts, and device
   reduced-motion support for navigation transitions.
-- Buyer purchase requests and ILS price offers.
+- Buyer purchase requests with USD/USDT pricing and calculations.
 - Network-specific receiving-wallet validation for TRC20, ERC20, BEP20, and
   Solana uses the same portable checksum/format rules as the server.
 - Visible USDT release deadlines with warning/overdue states, backed by the
@@ -40,11 +41,13 @@ remains the only business-logic backend.
   are resized and re-encoded before upload so embedded photo metadata is not
   retained, then sent as bounded multipart files without base64 duplication in
   the app's JavaScript memory.
-- Approved-seller workspace with private listing history, idempotent
-  pause/resume controls, and Available/Away/Vacation switching. Listing
-  creation, price/amount edits, bank management, and commission settlement use
-  the fixed production seller-workspace handoff for this private beta.
-- Owner and administrator operations remain web-only.
+- Approved-seller workspace with private listing history, native listing
+  creation/edit/removal, idempotent pause/resume controls,
+  Available/Away/Vacation switching, payout-bank management, and exact-record
+  commission settlement.
+- Native owner/administrator review dashboard for pending seller applications
+  and marketplace listings, using the same canonical approval records as the
+  website.
 
 ## Local start
 
