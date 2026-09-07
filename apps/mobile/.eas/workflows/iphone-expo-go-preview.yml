@@ -1,0 +1,11 @@
+name: iPhone Expo Go Preview
+
+jobs:
+  publish_preview:
+    name: Publish iPhone preview
+    type: update
+    environment: preview
+    params:
+      platform: ios
+      branch: phone-preview
+      message: Alpha Traders phone preview
