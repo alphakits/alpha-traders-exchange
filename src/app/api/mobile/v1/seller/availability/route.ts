@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { updateSellerAvailabilityStatus } from "@/lib/alpha-exchange-store";
+import { canPublishListings, updateSellerAvailabilityStatus } from "@/lib/alpha-exchange-store";
 import { requireMobileApiUser } from "@/lib/mobile-api-auth";
 import {
   createMobileRequestId,
@@ -10,7 +10,6 @@ import {
   resolveMobileLocale,
 } from "@/lib/mobile-api";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
-import { hasRole } from "@/lib/roles";
 import { logEvent } from "@/lib/structured-logging";
 import type { SellerAvailabilityStatus } from "@/types/alpha-exchange";
 
@@ -27,7 +26,7 @@ export async function PATCH(request: NextRequest) {
   try {
     const auth = await requireMobileApiUser(request, requestId, metadata);
     if (!auth.user) return auth.unauthorized;
-    if (!hasRole(auth.user, "approved_seller")) {
+    if (!canPublishListings(auth.user)) {
       return mobileError("SELLER_ROLE_REQUIRED", requestId, locale, 403);
     }
     const rate = await checkSharedRateLimit({

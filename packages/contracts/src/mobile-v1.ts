@@ -130,6 +130,40 @@ export interface MobileMeResponse {
   requestId: string;
 }
 
+export type MobileOnboardingRequest =
+  | { action: "guest" }
+  | { action: "student" }
+  | {
+      action: "buyer";
+      firstName: string;
+      lastName: string;
+      displayName?: string;
+    };
+
+export interface MobileOnboardingResponse {
+  user: MobileSessionUser;
+  requestId: string;
+}
+
+export interface MobileSellerApplicationRequest {
+  fullName?: string;
+  whatsappNumber: string;
+  preferredNetworks: string[];
+  expectedMonthlyTradingVolume?: string;
+  additionalNotes?: string;
+}
+
+export interface MobileSellerApplicationResponse {
+  application: {
+    id: string;
+    status: "pending" | "approved" | "rejected";
+    createdAt: string;
+    updatedAt: string;
+  };
+  user: MobileSessionUser;
+  requestId: string;
+}
+
 export interface MobileAccountProfile {
   fullName: string;
   email: string;
@@ -341,7 +375,12 @@ export type MobileNotificationPriority = "critical" | "high" | "normal" | "low";
 export type MobileNotificationDestination =
   | { screen: "trade"; requestId: string }
   | { screen: "marketplace" }
-  | { screen: "profile" };
+  | { screen: "profile" }
+  | { screen: "settings" }
+  | { screen: "seller" }
+  | { screen: "seller_application" }
+  | { screen: "seller_commissions" }
+  | { screen: "admin" };
 
 /** Privacy-safe notification projection for an authenticated native device. */
 export interface MobileNotification {
@@ -375,6 +414,23 @@ export interface MobileNotificationsUpdateResponse {
   updated: true;
   requestId: string;
 }
+
+export interface MobileNotificationPreferences {
+  inApp: boolean;
+  email: boolean;
+  sms: boolean;
+}
+
+export interface MobileNotificationPreferencesResponse {
+  preferences: MobileNotificationPreferences;
+  phone: {
+    verified: boolean;
+    masked: string | null;
+  };
+  requestId: string;
+}
+
+export type MobileNotificationPreferencesUpdateRequest = Partial<MobileNotificationPreferences>;
 
 export type MobileSupportedNetwork = "TRC20" | "ERC20" | "BEP20" | "SOL";
 
@@ -462,7 +518,7 @@ export type MobileSellerListingApprovalStatus =
   | "rejected"
   | "changes_requested";
 
-/** A seller-owned listing projection that excludes bank and private profile data. */
+/** A bounded seller-owned listing projection for workspace collections. */
 export interface MobileSellerListing {
   id: string;
   displayNumber?: number;
@@ -481,6 +537,154 @@ export interface MobileSellerListing {
     canPause: boolean;
     canResume: boolean;
   };
+}
+
+/** Full editable details, visible only to the authenticated listing owner. */
+export interface MobileSellerListingDetail extends MobileSellerListing {
+  photos: string[];
+  bankAccountId?: string;
+  bankName?: string;
+  sellerDescription: string;
+  notes: string;
+  responseTime: string;
+  createdAt: string;
+}
+
+export interface MobileSellerListingCreateRequest {
+  availableAmount: string;
+  price: string;
+  currency: string;
+  network: MobileSupportedNetwork;
+  paymentMethods: string[];
+  bankAccountId?: string;
+  bankName?: string;
+  minimumTrade: string;
+  maximumTrade: string;
+  sellerDescription?: string;
+  notes?: string;
+  responseTime?: string;
+  expirationHours?: number;
+  acceptedCommissionPolicy: boolean;
+}
+
+export interface MobileSellerListingUpdateRequest extends Omit<MobileSellerListingCreateRequest, "acceptedCommissionPolicy"> {
+  changeReason: "Changed available balance" | "Price updated" | "Network issue" | "Personal reason" | "Other";
+  changeExplanation: string;
+}
+
+export interface MobileSellerBankAccount {
+  id: string;
+  accountHolderName: string;
+  bankName: string;
+  branchNumber: string;
+  accountLast4: string;
+  maskedAccountNumber: string;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MobileSellerBankAccountsResponse {
+  bankAccounts: MobileSellerBankAccount[];
+  requestId: string;
+}
+
+export interface MobileSellerBankAccountCreateRequest {
+  accountHolderName: string;
+  bankName: string;
+  branchNumber: string;
+  accountNumber: string;
+  isDefault?: boolean;
+}
+
+export interface MobileAdminPendingListing {
+  id: string;
+  displayNumber?: number;
+  sellerId: string;
+  sellerDisplayName: string;
+  availableAmount: string;
+  price: string;
+  currency: string;
+  network: MobileSupportedNetwork;
+  paymentMethods: string[];
+  bankName?: string;
+  minimumTrade: string;
+  maximumTrade: string;
+  sellerDescription: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MobileAdminSellerApplication {
+  id: string;
+  displayNumber?: number;
+  userId: string;
+  fullName: string;
+  email: string;
+  whatsappNumber: string;
+  preferredNetworks: string[];
+  expectedMonthlyTradingVolume: string;
+  additionalNotes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MobileAdminOverviewResponse {
+  pendingListings: MobileAdminPendingListing[];
+  pendingSellerApplications: MobileAdminSellerApplication[];
+  metrics: {
+    pendingListings: number;
+    pendingSellerApplications: number;
+    activeTrades: number;
+    totalListings: number;
+  };
+  requestId: string;
+}
+
+export type MobileAdminReviewRequest =
+  | {
+      target: "listing";
+      id: string;
+      decision: "approve" | "reject" | "request_changes";
+      reason?: string;
+    }
+  | {
+      target: "seller_application";
+      id: string;
+      decision: "approve" | "reject";
+      reason: string;
+    };
+
+export type MobileCommissionNetwork = "ERC20" | "POLYGON" | "SOL";
+
+export interface MobileSellerCommissionRecord {
+  commissionId: string;
+  amountDue: number;
+  dueAt?: string;
+  relatedRequestId: string;
+  relatedTradeId?: string;
+  relatedTradeDisplayNumber?: number;
+}
+
+export interface MobileSellerCommissionsResponse {
+  status: "clear" | "pending" | "overdue";
+  pendingCount: number;
+  totalAmountDue: number;
+  payableRecords: MobileSellerCommissionRecord[];
+  paymentNetworks: Array<{
+    network: MobileCommissionNetwork;
+    label: string;
+    available: boolean;
+    walletAddress?: string;
+    error?: string;
+  }>;
+  requestId: string;
+}
+
+export interface MobileSellerCommissionPaymentRequest {
+  commissionId: string;
+  network: MobileCommissionNetwork;
+  paymentSignature: string;
 }
 
 export interface MobileSellerWorkspaceSummary {
@@ -502,6 +706,11 @@ export interface MobileSellerListingsResponse {
 
 export interface MobileSellerListingResponse {
   listing: MobileSellerListing;
+  requestId: string;
+}
+
+export interface MobileSellerListingDetailResponse {
+  listing: MobileSellerListingDetail;
   requestId: string;
 }
 

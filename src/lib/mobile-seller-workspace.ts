@@ -1,4 +1,4 @@
-import type { MobileSellerListing } from "@alpha-traders/contracts";
+import type { MobileSellerListing, MobileSellerListingDetail } from "@alpha-traders/contracts";
 import type { MarketplaceListing } from "@/types/alpha-exchange";
 
 export function toMobileSellerListing(listing: MarketplaceListing): MobileSellerListing {
@@ -20,6 +20,19 @@ export function toMobileSellerListing(listing: MarketplaceListing): MobileSeller
       canPause: listing.status === "active",
       canResume: listing.status === "paused",
     },
+  };
+}
+
+export function toMobileSellerListingDetail(listing: MarketplaceListing): MobileSellerListingDetail {
+  return {
+    ...toMobileSellerListing(listing),
+    photos: [...listing.photos],
+    bankAccountId: listing.bankAccountId,
+    bankName: listing.bankName,
+    sellerDescription: listing.sellerDescription,
+    notes: listing.notes ?? "",
+    responseTime: listing.responseTime,
+    createdAt: listing.createdAt,
   };
 }
 

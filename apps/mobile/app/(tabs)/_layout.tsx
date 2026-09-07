@@ -8,13 +8,20 @@ import { useLocale } from "../../src/i18n/locale-context";
 import { useMobileNotifications } from "../../src/notifications/use-mobile-notifications";
 
 export default function TabsLayout() {
-  const { status } = useAuth();
+  const { status, user } = useAuth();
   const { t } = useLocale();
   const notifications = useMobileNotifications();
   const unreadCount = notifications.unreadCount;
   if (status === "booting") return <BootScreen />;
   if (status === "unavailable") return <SessionRecoveryScreen />;
   if (status !== "authenticated") return <Redirect href="/(public)/login" />;
+  if (
+    user
+    && !user.onboardingSelection
+    && !user.onboardingCompletedAt
+    && user.roles.length === 1
+    && user.roles[0] === "guest"
+  ) return <Redirect href="/onboarding" />;
   return (
     <Tabs
       screenOptions={{

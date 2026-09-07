@@ -14,9 +14,7 @@ import type { MobileTradeSummary } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { getMobileTrades } from "../api/mobile-api";
 import { useAuth } from "../auth/auth-context";
-import { BrandMark } from "../components/brand-mark";
 import { GoldButton } from "../components/gold-button";
-import { LanguageSwitch } from "../components/language-switch";
 import { useLocale } from "../i18n/locale-context";
 import { mergeUniquePages, nextPageOffset } from "../query/paged-data";
 import { mobilePaymentMethodLabel, mobileTradeStatusLabel } from "../trades/trade-labels";
@@ -108,8 +106,6 @@ export function TradesScreen() {
       ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
       ListHeaderComponent={(
         <View style={styles.header}>
-          <BrandMark compact />
-          <LanguageSwitch />
           <Text accessibilityRole="header" style={[styles.title, isRTL && styles.rtlText]}>{t("myTrades")}</Text>
           <Text style={[styles.subtitle, isRTL && styles.rtlText]}>{t("myTradesBody")}</Text>
         </View>

@@ -3,8 +3,23 @@ import type { MobileLocale } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import { useLocale } from "../i18n/locale-context";
 
-export function LanguageSwitch() {
+export function LanguageSwitch({ compact = false }: { compact?: boolean }) {
   const { locale, setLocale, t } = useLocale();
+  if (compact) {
+    const nextLocale: MobileLocale = locale === "ar" ? "en" : "ar";
+    const label = locale === "ar" ? "Switch to English" : "التبديل إلى العربية";
+    return (
+      <Pressable
+        accessibilityLabel={label}
+        accessibilityRole="button"
+        onPress={() => void setLocale(nextLocale)}
+        style={({ pressed }) => [styles.compact, pressed && styles.pressed]}
+      >
+        <Text accessible={false} style={styles.globe}>◎</Text>
+        <Text style={styles.compactLabel}>{nextLocale.toUpperCase()}</Text>
+      </Pressable>
+    );
+  }
   return (
     <View style={styles.container} accessibilityRole="radiogroup">
       {(["ar", "en"] as const).map((value: MobileLocale) => {
@@ -28,6 +43,32 @@ export function LanguageSwitch() {
 }
 
 const styles = StyleSheet.create({
+  compact: {
+    alignItems: "center",
+    borderColor: "rgba(255,255,255,0.20)",
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 5,
+    justifyContent: "center",
+    minHeight: 44,
+    minWidth: 62,
+    paddingHorizontal: spacing.sm,
+  },
+  compactLabel: {
+    color: colors.textMuted,
+    fontSize: typography.caption,
+    fontWeight: "800",
+  },
+  globe: {
+    color: colors.textMuted,
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  pressed: {
+    borderColor: colors.gold,
+    opacity: 0.78,
+  },
   container: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
