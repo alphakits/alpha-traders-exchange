@@ -67,10 +67,10 @@ export function GoldButton({
 const styles = StyleSheet.create({
   base: {
     alignItems: "center",
-    borderRadius: radius.md,
+    borderRadius: radius.pill,
     borderWidth: 1,
     justifyContent: "center",
-    minHeight: 52,
+    minHeight: 48,
     paddingHorizontal: spacing.lg,
   },
   gold: {

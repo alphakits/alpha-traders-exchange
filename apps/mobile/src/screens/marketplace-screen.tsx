@@ -25,6 +25,8 @@ import { ListingCard } from "../components/listing-card";
 import { useLocale } from "../i18n/locale-context";
 import { mergeUniquePages, nextPageOffset } from "../query/paged-data";
 import { mobilePaymentMethodLabel } from "../trades/trade-labels";
+import { formatCount } from "../finance/financial-display";
+import { useUsdDisplayRate } from "../finance/use-usd-display-rate";
 
 type FilterOption<T extends string> = {
   label: string;
@@ -83,6 +85,7 @@ export function MarketplaceScreen({ publicMode = false }: { publicMode?: boolean
   const router = useRouter();
   const { user, requestWithSession } = useAuth();
   const { locale, isRTL, t } = useLocale();
+  const usdIlsRate = useUsdDisplayRate();
   const [showFilters, setShowFilters] = useState(false);
   const [network, setNetwork] = useState<MobileSupportedNetwork>();
   const [currency, setCurrency] = useState<string>();
@@ -112,10 +115,11 @@ export function MarketplaceScreen({ publicMode = false }: { publicMode?: boolean
           getMobileMarketplace(requestLocale, pageParam, signal, filters, tokens))
       : getMobileMarketplace(locale, pageParam, signal, filters),
     initialPageParam: 0,
+    placeholderData: (previous) => previous,
     getNextPageParam: (lastPage, allPages) =>
       nextPageOffset(lastPage.pagination, allPages.length),
-    staleTime: 5_000,
-    refetchInterval: 15_000,
+    staleTime: 20_000,
+    refetchInterval: 30_000,
   });
   const listings = useMemo(
     () => mergeUniquePages(query.data?.pages.map((page) => page.listings) ?? []),
@@ -198,6 +202,7 @@ export function MarketplaceScreen({ publicMode = false }: { publicMode?: boolean
             onBuy={() => openTradeAction(item, "buy")}
             onOffer={() => openTradeAction(item, "offer")}
             onSeller={() => openSeller(item)}
+            usdIlsRate={usdIlsRate}
           />
         )}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
@@ -214,7 +219,7 @@ export function MarketplaceScreen({ publicMode = false }: { publicMode?: boolean
                     {t("marketFilters")}{activeFilterCount ? ` (${activeFilterCount})` : ""}
                   </Text>
                   <Text accessibilityLiveRegion="polite" style={[styles.resultCount, isRTL && styles.rtlText]}>
-                    {query.data?.pages[0]?.total ?? 0} {t("marketResults")}
+                    {formatCount(query.data?.pages[0]?.total ?? 0)} {t("marketResults")}
                   </Text>
                 </View>
                 <Pressable
@@ -254,7 +259,10 @@ export function MarketplaceScreen({ publicMode = false }: { publicMode?: boolean
                       onChange={setCurrency}
                       options={[
                         { value: undefined, label: t("allOptions") },
-                        ...currencyValues.map((value) => ({ value, label: value })),
+                        ...currencyValues.map((value) => ({
+                          value,
+                          label: value.trim().toUpperCase() === "USDT" ? "USDT" : "USD",
+                        })),
                       ]}
                       value={currency}
                     />

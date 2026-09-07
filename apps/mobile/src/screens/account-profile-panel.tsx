@@ -24,6 +24,7 @@ import { useAuth } from "../auth/auth-context";
 import { GoldButton } from "../components/gold-button";
 import { useLocale } from "../i18n/locale-context";
 import type { MessageKey } from "../i18n/messages";
+import { formatFinancialNumber } from "../finance/financial-display";
 
 type ProfileDraft = Required<Pick<
   MobileAccountProfileUpdateRequest,
@@ -77,11 +78,9 @@ function profileDraft(profile: MobileAccountProfile): ProfileDraft {
   };
 }
 
-function localizedNumber(value: number, locale: "ar" | "en", maximumFractionDigits = 0) {
+function localizedNumber(value: number, maximumFractionDigits = 0) {
   if (!Number.isFinite(value)) return "—";
-  return value.toLocaleString(locale === "ar" ? "ar-IL" : "en-IL", {
-    maximumFractionDigits,
-  });
+  return formatFinancialNumber(value, { maximumFractionDigits });
 }
 
 function localizedDate(value: string, locale: "ar" | "en", includeTime = false) {
@@ -229,18 +228,18 @@ export function AccountProfilePanel() {
     : 0;
   const metrics = stats.kind === "seller"
     ? [
-        { label: t("lifetimeVolume"), value: `${localizedNumber(stats.lifetimeCompletedVolumeUsdt, locale, 2)} USDT` },
-        { label: t("completedTrades"), value: localizedNumber(stats.completedTrades, locale) },
-        { label: t("activeListings"), value: localizedNumber(stats.activeListings, locale) },
-        { label: t("pendingListings"), value: localizedNumber(stats.pendingListings, locale) },
-        { label: t("rating"), value: localizedNumber(stats.averageRating, locale, 1) },
-        { label: t("trustScore"), value: `${localizedNumber(stats.trustScore, locale, 1)} / 100` },
+        { label: t("lifetimeVolume"), value: `${localizedNumber(stats.lifetimeCompletedVolumeUsdt, 2)} USDT` },
+        { label: t("completedTrades"), value: localizedNumber(stats.completedTrades) },
+        { label: t("activeListings"), value: localizedNumber(stats.activeListings) },
+        { label: t("pendingListings"), value: localizedNumber(stats.pendingListings) },
+        { label: t("rating"), value: localizedNumber(stats.averageRating, 1) },
+        { label: t("trustScore"), value: `${localizedNumber(stats.trustScore, 1)} / 100` },
       ]
     : [
-        { label: t("lifetimeVolume"), value: `${localizedNumber(stats.lifetimeCompletedVolumeUsdt, locale, 2)} USDT` },
-        { label: t("completedTrades"), value: localizedNumber(stats.completedTrades, locale) },
-        { label: t("activeTrades"), value: localizedNumber(stats.activeTrades, locale) },
-        { label: t("reviewsGiven"), value: localizedNumber(stats.reviewsGiven, locale) },
+        { label: t("lifetimeVolume"), value: `${localizedNumber(stats.lifetimeCompletedVolumeUsdt, 2)} USDT` },
+        { label: t("completedTrades"), value: localizedNumber(stats.completedTrades) },
+        { label: t("activeTrades"), value: localizedNumber(stats.activeTrades) },
+        { label: t("reviewsGiven"), value: localizedNumber(stats.reviewsGiven) },
       ];
   const currentDraft = draft ?? profileDraft(profile);
   const mutationMessage = mutation.isError
@@ -290,10 +289,10 @@ export function AccountProfilePanel() {
             <Text style={[styles.detailLabel, isRTL && styles.rtlText]}>{t("accountLevel")}</Text>
             <Text style={[styles.levelValue, isRTL && styles.rtlText]}>{t(levelKey(stats.level))}</Text>
           </View>
-          <Text style={styles.progressValue}>{localizedNumber(progress, locale, 0)}%</Text>
+          <Text style={styles.progressValue}>{localizedNumber(progress, 0)}%</Text>
         </View>
         <View
-          accessibilityLabel={`${t("levelProgress")}: ${localizedNumber(progress, locale, 0)}%`}
+          accessibilityLabel={`${t("levelProgress")}: ${localizedNumber(progress, 0)}%`}
           accessibilityRole="progressbar"
           accessibilityValue={{ min: 0, max: 100, now: Math.round(progress) }}
           style={styles.progressTrack}

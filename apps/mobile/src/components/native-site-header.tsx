@@ -68,9 +68,13 @@ export function NativeSiteHeader() {
     });
   }
 
+  function openHome() {
+    closeAndRun(() => router.replace(isAuthenticated ? "/(tabs)" : "/(public)/welcome"));
+  }
+
   function openExchange() {
     closeAndRun(() => {
-      if (isAuthenticated) router.push("/(tabs)");
+      if (isAuthenticated) router.push("/(tabs)/market");
       else router.push("/(public)/marketplace");
     });
   }
@@ -87,7 +91,7 @@ export function NativeSiteHeader() {
         <Pressable
           accessibilityLabel={t("navHome")}
           accessibilityRole="button"
-          onPress={() => router.replace("/(public)/welcome")}
+          onPress={openHome}
           style={({ pressed }) => pressed && styles.pressed}
         >
           <BrandMark compact />
@@ -140,7 +144,7 @@ export function NativeSiteHeader() {
               <ScrollView contentContainerStyle={styles.menuContent} showsVerticalScrollIndicator={false}>
                 <MenuItem
                   label={t("navHome")}
-                  onPress={() => closeAndRun(() => router.replace("/(public)/welcome"))}
+                  onPress={openHome}
                 />
                 <MenuItem label={t("academy")} onPress={openAcademy} />
                 <MenuItem
@@ -162,9 +166,6 @@ export function NativeSiteHeader() {
                         <Text numberOfLines={1} style={[styles.userName, isRTL && styles.rtlText]}>
                           {user.fullName}
                         </Text>
-                        <Text numberOfLines={1} style={[styles.userEmail, isRTL && styles.rtlText]}>
-                          {user.email}
-                        </Text>
                       </View>
                     </View>
                     <MenuItem
@@ -175,21 +176,17 @@ export function NativeSiteHeader() {
                       label={t("notifications")}
                       onPress={() => closeAndRun(() => router.push("/(tabs)/notifications"))}
                     />
-                    <MenuItem
-                      label={t("trades")}
-                      onPress={() => closeAndRun(() => router.push("/(tabs)/trades"))}
-                    />
                     {canSell ? (
                       <MenuItem
                         accent="gold"
-                        label={t("sellerWorkspace")}
-                        onPress={() => closeAndRun(() => router.push("/(tabs)/seller"))}
+                        label={isRTL ? "إنشاء عرض" : "Create Listing"}
+                        onPress={() => closeAndRun(() => router.push("/seller/new"))}
                       />
                     ) : null}
                     {user.roles.some((role) => role === "admin" || role === "owner") ? (
                       <MenuItem
-                        accent="blue"
-                        label={isRTL ? "لوحة الإدارة" : "Admin dashboard"}
+                        accent="gold"
+                        label={isRTL ? "🛠 لوحة الإدارة" : "🛠 Admin dashboard"}
                         onPress={() => closeAndRun(() => router.push("/admin"))}
                       />
                     ) : null}
@@ -221,14 +218,14 @@ export function NativeSiteHeader() {
 const styles = StyleSheet.create({
   header: {
     alignItems: "center",
-    backgroundColor: "rgba(5,5,5,0.96)",
+    backgroundColor: "rgba(7,7,7,0.97)",
     borderBottomColor: "rgba(255,255,255,0.10)",
     borderBottomWidth: 1,
     flexDirection: "row",
     justifyContent: "space-between",
-    minHeight: 66,
+    minHeight: 64,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    paddingVertical: 6,
     zIndex: 20,
   },
   headerActions: {
@@ -262,20 +259,21 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     flex: 1,
     paddingHorizontal: spacing.lg,
-    paddingTop: 54,
+    paddingTop: 56,
   },
   menuPanel: {
     backgroundColor: "rgba(11,11,11,0.99)",
     borderColor: "rgba(255,255,255,0.15)",
     borderRadius: radius.lg,
     borderWidth: 1,
-    maxHeight: "84%",
+    maxHeight: "82%",
     overflow: "hidden",
     shadowColor: "#000000",
     shadowOffset: { width: 0, height: 20 },
     shadowOpacity: 0.62,
     shadowRadius: 32,
-    width: "88%",
+    maxWidth: "100%",
+    width: 304,
   },
   menuPanelRtl: {
     alignSelf: "flex-start",
@@ -286,7 +284,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     flexDirection: "row",
     justifyContent: "space-between",
-    padding: spacing.lg,
+    padding: spacing.md,
   },
   menuTitle: {
     color: colors.goldBright,
@@ -310,16 +308,16 @@ const styles = StyleSheet.create({
     lineHeight: 30,
   },
   menuContent: {
-    gap: spacing.sm,
-    padding: spacing.md,
+    gap: 2,
+    padding: spacing.sm,
   },
   menuItem: {
     borderColor: "transparent",
     borderRadius: radius.md,
     borderWidth: 1,
     justifyContent: "center",
-    minHeight: 48,
-    paddingHorizontal: spacing.lg,
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
   },
   menuItemGold: {
     backgroundColor: "rgba(201,162,39,0.10)",
@@ -353,7 +351,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     gap: spacing.md,
-    padding: spacing.md,
+    padding: spacing.sm,
   },
   onlineDot: {
     backgroundColor: colors.success,
@@ -370,15 +368,11 @@ const styles = StyleSheet.create({
     fontSize: typography.small,
     fontWeight: "800",
   },
-  userEmail: {
-    color: colors.textMuted,
-    fontSize: typography.caption,
-  },
   signOutButton: {
     borderRadius: radius.md,
     justifyContent: "center",
-    minHeight: 48,
-    paddingHorizontal: spacing.lg,
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
   },
   signOutLabel: {
     color: colors.textMuted,

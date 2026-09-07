@@ -18,6 +18,8 @@ import { GoldButton } from "../components/gold-button";
 import { useLocale } from "../i18n/locale-context";
 import { mergeUniquePages, nextPageOffset } from "../query/paged-data";
 import { mobilePaymentMethodLabel, mobileTradeStatusLabel } from "../trades/trade-labels";
+import { formatCurrencyAmountAsUsd, formatUsdt } from "../finance/financial-display";
+import { useUsdDisplayRate } from "../finance/use-usd-display-rate";
 
 function shortDate(value: string, locale: "ar" | "en") {
   const date = new Date(value);
@@ -30,14 +32,16 @@ function shortDate(value: string, locale: "ar" | "en") {
   }).format(date);
 }
 
-function TradeCard({ trade, onPress }: { trade: MobileTradeSummary; onPress: () => void }) {
+function TradeCard({ trade, onPress, usdIlsRate }: { trade: MobileTradeSummary; onPress: () => void; usdIlsRate: number }) {
   const { locale, isRTL, t } = useLocale();
   const isTerminal = ["completed", "review_open", "declined", "cancelled"].includes(trade.status);
   const statusLabel = mobileTradeStatusLabel(trade.status, locale);
+  const usdtAmount = formatUsdt(trade.usdtAmount);
+  const usdAmount = formatCurrencyAmountAsUsd(trade.fiatAmount, trade.currency, usdIlsRate);
   return (
     <Pressable
       accessibilityHint={t("openTrade")}
-      accessibilityLabel={`${t("tradeNumber")} #${trade.displayNumber ?? trade.id.slice(-6).toUpperCase()}. ${statusLabel}. ${trade.usdtAmount} USDT. ${trade.fiatAmount} ${trade.currency}`}
+      accessibilityLabel={`${t("tradeNumber")} #${trade.displayNumber ?? trade.id.slice(-6).toUpperCase()}. ${statusLabel}. ${usdtAmount}. ${usdAmount}`}
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
@@ -60,11 +64,11 @@ function TradeCard({ trade, onPress }: { trade: MobileTradeSummary; onPress: () 
       <View style={styles.divider} />
       <View style={[styles.amountRow, isRTL && styles.rowReverse]}>
         <View>
-          <Text style={[styles.amount, isRTL && styles.rtlText]}>{trade.usdtAmount} USDT</Text>
+          <Text style={[styles.amount, isRTL && styles.rtlText]}>{usdtAmount}</Text>
           <Text style={[styles.payment, isRTL && styles.rtlText]}>{mobilePaymentMethodLabel(trade.paymentMethod, locale)}</Text>
         </View>
         <View style={styles.fiatBlock}>
-          <Text style={[styles.fiat, isRTL && styles.rtlText]}>{trade.currency === "ILS" ? "₪" : `${trade.currency} `}{trade.fiatAmount}</Text>
+          <Text style={[styles.fiat, isRTL && styles.rtlText]}>{usdAmount}</Text>
           <Text style={[styles.updated, isRTL && styles.rtlText]}>{t("updatedAt")} {shortDate(trade.updatedAt, locale)}</Text>
         </View>
       </View>
@@ -77,16 +81,18 @@ export function TradesScreen() {
   const router = useRouter();
   const { user, requestWithSession } = useAuth();
   const { locale, isRTL, t } = useLocale();
+  const usdIlsRate = useUsdDisplayRate();
   const query = useInfiniteQuery({
     enabled: Boolean(user),
     queryKey: ["mobile-trades", user?.id ?? "anonymous", locale],
     queryFn: ({ pageParam, signal }) => requestWithSession((tokens, requestLocale) =>
       getMobileTrades(tokens, requestLocale, pageParam, signal)),
     initialPageParam: 0,
+    placeholderData: (previous) => previous,
     getNextPageParam: (lastPage, allPages) =>
       nextPageOffset(lastPage.pagination, allPages.length),
     refetchInterval: 10_000,
-    staleTime: 3_000,
+    staleTime: 15_000,
   });
   const trades = useMemo(
     () => mergeUniquePages(query.data?.pages.map((page) => page.trades) ?? []),
@@ -102,7 +108,7 @@ export function TradesScreen() {
       data={trades}
       keyExtractor={(item) => item.id}
       refreshControl={<RefreshControl onRefresh={() => void query.refetch()} refreshing={query.isRefetching} tintColor={colors.gold} />}
-      renderItem={({ item }) => <TradeCard onPress={() => openTrade(item)} trade={item} />}
+      renderItem={({ item }) => <TradeCard onPress={() => openTrade(item)} trade={item} usdIlsRate={usdIlsRate} />}
       ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
       ListHeaderComponent={(
         <View style={styles.header}>
@@ -121,7 +127,7 @@ export function TradesScreen() {
         <View style={styles.empty}>
           <Text style={[styles.emptyTitle, isRTL && styles.rtlText]}>{t("noTrades")}</Text>
           <Text style={[styles.emptyBody, isRTL && styles.rtlText]}>{t("noTradesBody")}</Text>
-          <GoldButton onPress={() => router.push("/(tabs)")}>{t("browseMarket")}</GoldButton>
+          <GoldButton onPress={() => router.push("/(tabs)/market")}>{t("browseMarket")}</GoldButton>
         </View>
       )}
       ListFooterComponent={query.hasNextPage ? (

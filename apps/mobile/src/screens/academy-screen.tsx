@@ -21,6 +21,7 @@ import {
 } from "../academy/academy-progress";
 import { academyLevelLabel, academyText } from "../academy/academy-copy";
 import { AcademyProgressBar, academySharedStyles } from "../academy/academy-ui";
+import { formatCount } from "../finance/financial-display";
 
 export function AcademyScreen() {
   const router = useRouter();
@@ -62,7 +63,7 @@ export function AcademyScreen() {
             <Text style={styles.levelText}>{academyLevelLabel(item.level, locale)}</Text>
           </View>
           <Text style={styles.lessonCount}>
-            {item.lessons.length} {academyText(locale, "publishedLessons")}
+            {formatCount(item.lessons.length)} {academyText(locale, "publishedLessons")}
           </Text>
         </View>
         <Text style={[styles.courseTitle, isRTL && academySharedStyles.rtlText]}>

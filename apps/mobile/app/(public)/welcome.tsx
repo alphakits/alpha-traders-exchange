@@ -12,7 +12,7 @@ import { useLocale } from "../../src/i18n/locale-context";
 import logo from "../../../../public/images/brand/alpha-traders-logo-512.png";
 import heroImage from "../../../../public/images/hero/hero-trading-office.webp";
 
-export default function WelcomeScreen() {
+export function WelcomeScreen() {
   const router = useRouter();
   const { status } = useAuth();
   const { isRTL, t } = useLocale();
@@ -24,7 +24,7 @@ export default function WelcomeScreen() {
   }
 
   function openExchange() {
-    if (isAuthenticated) router.push("/(tabs)");
+    if (isAuthenticated) router.push("/(tabs)/market");
     else router.push({ pathname: "/(public)/login", params: { destination: "exchange" } });
   }
 
@@ -99,7 +99,7 @@ export default function WelcomeScreen() {
           <View pointerEvents="none" style={styles.blueGlow} />
           <NativeMarketCenter />
           <GoldButton
-            onPress={() => router.push(isAuthenticated ? "/(tabs)" : "/(public)/marketplace")}
+            onPress={() => router.push(isAuthenticated ? "/(tabs)/market" : "/(public)/marketplace")}
             variant="blue"
           >
             {t("viewMarketplace")}
@@ -151,6 +151,8 @@ export default function WelcomeScreen() {
     </SafeAreaView>
   );
 }
+
+export default WelcomeScreen;
 
 const styles = StyleSheet.create({
   safeArea: {

@@ -34,6 +34,12 @@ import { GoldButton } from "../components/gold-button";
 import { useLocale } from "../i18n/locale-context";
 import type { MessageKey } from "../i18n/messages";
 import { mergeUniquePages, nextPageOffset } from "../query/paged-data";
+import {
+  formatCount,
+  formatCurrencyAmountAsUsd,
+  formatFinancialNumber,
+} from "../finance/financial-display";
+import { useUsdDisplayRate } from "../finance/use-usd-display-rate";
 
 function listingStatusKey(status: MobileSellerListingStatus): MessageKey {
   const keys: Record<MobileSellerListingStatus, MessageKey> = {
@@ -60,15 +66,11 @@ function approvalStatusKey(status: MobileSellerListingApprovalStatus): MessageKe
   return keys[status];
 }
 
-function safeAmount(value: string) {
-  const amount = Number(value);
-  return Number.isFinite(amount) ? amount.toLocaleString("en-IL") : value;
-}
-
 export function SellerWorkspaceScreen() {
   const router = useRouter();
   const { status, user, requestWithSession } = useAuth();
   const { locale, isRTL, t } = useLocale();
+  const usdIlsRate = useUsdDisplayRate();
   const queryClient = useQueryClient();
   const userId = user?.id ?? "anonymous";
   const isApprovedSeller = user?.sellerStatus === "approved_seller"
@@ -83,10 +85,11 @@ export function SellerWorkspaceScreen() {
     queryFn: ({ pageParam, signal }) => requestWithSession((tokens, requestLocale) =>
       getMobileSellerListings(tokens, requestLocale, pageParam, signal)),
     initialPageParam: 0,
+    placeholderData: (previous) => previous,
     getNextPageParam: (lastPage, allPages) =>
       nextPageOffset(lastPage.pagination, allPages.length),
-    staleTime: 3_000,
-    refetchInterval: 15_000,
+    staleTime: 20_000,
+    refetchInterval: 30_000,
   });
   const listings = useMemo(
     () => mergeUniquePages(query.data?.pages.map((page) => page.listings) ?? []),
@@ -228,18 +231,18 @@ export function SellerWorkspaceScreen() {
               <View style={styles.metricsRow}>
                 <View style={styles.metric}>
                   <Text style={styles.metricLabel}>{t("available")}</Text>
-                  <Text style={styles.metricValue}>{safeAmount(item.availableAmount)} USDT</Text>
+                  <Text style={styles.metricValue}>{formatFinancialNumber(item.availableAmount, { maximumFractionDigits: 6 })} USDT</Text>
                 </View>
                 <View style={styles.metric}>
                   <Text style={styles.metricLabel}>{t("price")}</Text>
-                  <Text style={styles.metricValue}>{item.price} {item.currency}</Text>
+                  <Text style={styles.metricValue}>{formatCurrencyAmountAsUsd(item.price, item.currency, usdIlsRate, 4)}</Text>
                 </View>
               </View>
               <Text style={[styles.detail, isRTL && styles.rtlText]}>
                 {item.network} · {item.paymentMethods.join(" · ")}
               </Text>
               <Text style={[styles.detail, isRTL && styles.rtlText]}>
-                {t("minimum")}: {safeAmount(item.minimumTrade)} · {t("maximum")}: {safeAmount(item.maximumTrade)} USDT
+                {t("minimum")}: {formatFinancialNumber(item.minimumTrade, { maximumFractionDigits: 6 })} · {t("maximum")}: {formatFinancialNumber(item.maximumTrade, { maximumFractionDigits: 6 })} USDT
               </Text>
               {item.approvalStatus ? (
                 <Text style={[styles.detail, isRTL && styles.rtlText]}>
@@ -312,7 +315,7 @@ export function SellerWorkspaceScreen() {
                 ].map(([label, value]) => (
                   <View key={String(label)} style={styles.summaryCard}>
                     <Text style={[styles.summaryLabel, isRTL && styles.rtlText]}>{label}</Text>
-                    <Text style={[styles.summaryValue, isRTL && styles.rtlText]}>{value}</Text>
+                    <Text style={[styles.summaryValue, isRTL && styles.rtlText]}>{formatCount(Number(value))}</Text>
                   </View>
                 ))}
               </View>

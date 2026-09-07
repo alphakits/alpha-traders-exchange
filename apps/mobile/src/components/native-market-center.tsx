@@ -6,12 +6,13 @@ import {
   type PublicMarketPair,
 } from "../api/mobile-api";
 import { useLocale } from "../i18n/locale-context";
+import { formatFinancialNumber } from "../finance/financial-display";
 
 function formatPrice(pair: PublicMarketPair) {
-  if (pair.key === "usdtIls") return `₪${pair.price.toFixed(2)}`;
-  return `$${pair.price.toLocaleString("en-US", {
+  if (pair.key === "usdtIls") return "$1.00 USD";
+  return `${formatFinancialNumber(pair.price, {
     maximumFractionDigits: pair.key === "ethUsdt" ? 2 : 0,
-  })}`;
+  })} USDT`;
 }
 
 function formatChange(value: number | null) {
@@ -92,12 +93,12 @@ export function NativeMarketCenter() {
 
       <View style={styles.anchorCard}>
         <Text style={[styles.eyebrow, isRTL && styles.rtlText]}>{isAr ? "مرساة التسعير" : "PRICING ANCHOR"}</Text>
-        <Text style={[styles.pair, isRTL && styles.rtlText]}>{heroPair.label}</Text>
+        <Text style={[styles.pair, isRTL && styles.rtlText]}>USDT / USD</Text>
         <View style={[styles.priceRow, isRTL && styles.rowReverse]}>
           <Text style={styles.heroPrice}>{formatPrice(heroPair)}</Text>
-          <Text style={[styles.change, (heroPair.changePercent ?? 0) < 0 && styles.negative]}>{formatChange(heroPair.changePercent)}</Text>
+          <Text style={styles.change}>1:1</Text>
         </View>
-        <Text style={[styles.source, isRTL && styles.rtlText]}>{sourceLabel(heroPair, isAr)}</Text>
+        <Text style={[styles.source, isRTL && styles.rtlText]}>{isAr ? "مرجع عرض التطبيق" : "App display reference"}</Text>
       </View>
 
       <View style={styles.supportingGrid}>
@@ -115,8 +116,8 @@ export function NativeMarketCenter() {
         <Text style={[styles.policyTitle, isRTL && styles.rtlText]}>{isAr ? "كيف يعمل التسعير" : "HOW PRICING WORKS"}</Text>
         <Text style={[styles.policyBody, isRTL && styles.rtlText]}>
           {isAr
-            ? "تُقيّد أسعار البائعين مقارنةً بمرجع USD/ILS المباشر لحماية المشترين من التسعير غير المعقول."
-            : "Seller prices are capped relative to the live USD/ILS reference to protect buyers from unreasonable pricing."}
+            ? "يعرض التطبيق جميع الأسعار والحسابات بالدولار أو USDT، ويحوّل قيم التسوية المحلية باستخدام مرجع السوق المباشر."
+            : "The app shows every price and calculation in USD or USDT, normalizing local settlement values with the live market reference."}
         </Text>
       </View>
     </View>

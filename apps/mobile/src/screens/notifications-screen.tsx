@@ -32,6 +32,8 @@ import {
   mobileNotificationsQueryKey,
   useMobileNotifications,
 } from "../notifications/use-mobile-notifications";
+import { formatFinancialText } from "../finance/financial-display";
+import { useUsdDisplayRate } from "../finance/use-usd-display-rate";
 
 function notificationTime(value: string, locale: "ar" | "en") {
   const date = new Date(value);
@@ -77,16 +79,20 @@ function updateReadState(
 function NotificationCard({
   notification,
   onPress,
+  usdIlsRate,
 }: {
   notification: MobileNotification;
   onPress: () => void;
+  usdIlsRate: number;
 }) {
   const { locale, isRTL, t } = useLocale();
   const time = notificationTime(notification.createdAt, locale);
+  const title = formatFinancialText(notification.title, usdIlsRate);
+  const message = formatFinancialText(notification.message, usdIlsRate);
   return (
     <Pressable
       accessibilityHint={notification.destination ? t("openNotification") : t("markNotificationRead")}
-      accessibilityLabel={`${notification.isRead ? "" : `${t("unread")}. `}${notification.title}. ${notification.message}. ${time}`}
+      accessibilityLabel={`${notification.isRead ? "" : `${t("unread")}. `}${title}. ${message}. ${time}`}
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [
@@ -103,11 +109,11 @@ function NotificationCard({
         <View style={styles.cardCopy}>
           <View style={[styles.titleRow, isRTL && styles.rowReverse]}>
             <Text numberOfLines={2} style={[styles.cardTitle, isRTL && styles.rtlText]}>
-              {notification.title}
+              {title}
             </Text>
             {!notification.isRead ? <View accessible={false} style={styles.unreadDot} /> : null}
           </View>
-          <Text style={[styles.cardMessage, isRTL && styles.rtlText]}>{notification.message}</Text>
+          <Text style={[styles.cardMessage, isRTL && styles.rtlText]}>{message}</Text>
         </View>
       </View>
       <View style={[styles.cardFooter, isRTL && styles.rowReverse]}>
@@ -129,6 +135,7 @@ export function NotificationsScreen() {
   const queryClient = useQueryClient();
   const { user, requestWithSession } = useAuth();
   const { locale, isRTL, t } = useLocale();
+  const usdIlsRate = useUsdDisplayRate();
   const query = useMobileNotifications();
   const queryKey = mobileNotificationsQueryKey(user?.id ?? "anonymous", locale);
 
@@ -183,7 +190,7 @@ export function NotificationsScreen() {
         params: { requestId: notification.destination.requestId },
       });
     } else if (notification.destination?.screen === "marketplace") {
-      router.push("/(tabs)");
+      router.push("/(tabs)/market");
     } else if (notification.destination?.screen === "profile") {
       router.push("/(tabs)/profile");
     } else if (notification.destination?.screen === "settings") {
@@ -215,7 +222,7 @@ export function NotificationsScreen() {
           />
         )}
         renderItem={({ item }) => (
-          <NotificationCard notification={item} onPress={() => openNotification(item)} />
+          <NotificationCard notification={item} onPress={() => openNotification(item)} usdIlsRate={usdIlsRate} />
         )}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         ListHeaderComponent={(

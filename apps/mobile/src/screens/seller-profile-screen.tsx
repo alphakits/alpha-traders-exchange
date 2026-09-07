@@ -18,6 +18,7 @@ import { useAuth } from "../auth/auth-context";
 import { GoldButton } from "../components/gold-button";
 import { useLocale } from "../i18n/locale-context";
 import { safeRemoteImageUrl } from "../media/safe-media-url";
+import { formatCount } from "../finance/financial-display";
 
 type Translator = ReturnType<typeof useLocale>["t"];
 
@@ -76,7 +77,7 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
 
   const goBack = useCallback(() => {
     if (router.canGoBack()) router.back();
-    else router.replace(user ? "/(tabs)" : "/(public)/marketplace");
+    else router.replace(user ? "/(tabs)/market" : "/(public)/marketplace");
   }, [router, user]);
 
   const startTrade = useCallback((mode: "buy" | "offer") => {
@@ -157,7 +158,7 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
 
         <View style={styles.metricsGrid}>
           <Metric isRTL={isRTL} label={t("trustedVolume")} value={seller.publicVolumeRange} />
-          <Metric isRTL={isRTL} label={t("completedTrades")} value={String(Math.round(finiteMetric(seller.completedTrades)))} />
+          <Metric isRTL={isRTL} label={t("completedTrades")} value={formatCount(Math.round(finiteMetric(seller.completedTrades)))} />
           <Metric isRTL={isRTL} label={t("rating")} value={`${rating} ★`} />
           <Metric isRTL={isRTL} label={t("responseTime")} value={`${Math.round(finiteMetric(seller.responseTimeMinutes))} ${t("minutesShort")}`} />
           <Metric isRTL={isRTL} label={t("completionRate")} value={`${Math.round(Math.min(100, finiteMetric(seller.completionRate)))}%`} />
@@ -186,7 +187,7 @@ export function SellerProfileScreen({ listingId }: { listingId: string }) {
 
         <View style={styles.section}>
           <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>
-            {t("sellerReviews")} ({seller.totalReviews})
+            {t("sellerReviews")} ({formatCount(seller.totalReviews)})
           </Text>
           {seller.latestReviews.length ? seller.latestReviews.map((review, index) => (
             <View key={`${review.createdAt}-${index}`} style={styles.review}>

@@ -22,10 +22,19 @@ import { useAuth } from "../auth/auth-context";
 import { GoldButton } from "../components/gold-button";
 import { useLocale } from "../i18n/locale-context";
 import { mobilePaymentMethodLabel } from "../trades/trade-labels";
+import {
+  financialNumber,
+  formatCurrencyAmountAsUsd,
+  formatFinancialNumber,
+  formatFinancialText,
+  formatUsd,
+  priceForUsdInput,
+  usdAmountToCurrency,
+} from "../finance/financial-display";
+import { useUsdDisplayRate } from "../finance/use-usd-display-rate";
 
 function numericValue(value: string) {
-  const number = Number(value.trim());
-  return Number.isFinite(number) ? number : 0;
+  return financialNumber(value);
 }
 
 function normalizeDecimalInput(value: string, decimalPlaces: number) {
@@ -46,6 +55,7 @@ export function TradeFormScreen({
   const queryClient = useQueryClient();
   const { user, requestWithSession } = useAuth();
   const { locale, isRTL, t } = useLocale();
+  const usdIlsRate = useUsdDisplayRate();
   const market = useQuery({
     enabled: Boolean(listingId && user),
     queryKey: ["mobile-marketplace-listing", user?.id ?? "public", listingId, locale],
@@ -89,13 +99,17 @@ export function TradeFormScreen({
     setAmount((current) => current || listing.minimumTrade);
     setPaymentMethod((current) => current || listing.paymentMethods[0] || "");
     if (mode === "offer") {
-      setOfferedPrice((current) => current || Math.max(0.01, numericValue(listing.price) - 0.01).toFixed(2));
+      const listingPriceUsd = numericValue(priceForUsdInput(listing.price, listing.currency, usdIlsRate));
+      setOfferedPrice((current) => current || Math.max(0.01, listingPriceUsd - 0.01).toFixed(2));
     }
-  }, [listing, mode]);
+  }, [listing, mode, usdIlsRate]);
 
   const isFaceToFace = paymentMethod === "Face-to-Face (Meet in Person)";
-  const selectedPrice = mode === "offer" ? numericValue(offeredPrice) : numericValue(listing?.price ?? "0");
-  const estimatedTotal = numericValue(amount) * selectedPrice * 1.01;
+  const listingPriceUsd = listing
+    ? numericValue(priceForUsdInput(listing.price, listing.currency, usdIlsRate))
+    : 0;
+  const selectedPriceUsd = mode === "offer" ? numericValue(offeredPrice) : listingPriceUsd;
+  const estimatedTotalUsd = numericValue(amount) * selectedPriceUsd * 1.01;
   const walletValidationError = listing
     ? getWalletAddressValidationError(listing.network, walletAddress)
     : null;
@@ -106,7 +120,7 @@ export function TradeFormScreen({
       ? t("tronWalletHint")
       : t("solWalletHint");
   const amountRange = listing
-    ? `${listing.minimumTrade}–${listing.maximumTrade} USDT`
+    ? `${formatFinancialNumber(listing.minimumTrade, { maximumFractionDigits: 6 })}–${formatFinancialNumber(listing.maximumTrade, { maximumFractionDigits: 6 })} USDT`
     : "";
   const formIsValid = useMemo(() => {
     if (!listing || listing.seller.isCurrentUser || !user || !paymentMethod || walletValidationError) return false;
@@ -118,16 +132,16 @@ export function TradeFormScreen({
     if (value <= 0 || value < minimum || value > maximum) return false;
     if (isFaceToFace && !safetyAcknowledged) return false;
     if (mode === "offer") {
-      const offer = numericValue(offeredPrice);
+      const offer = usdAmountToCurrency(offeredPrice, listing.currency, usdIlsRate);
       const price = numericValue(listing.price);
       if (listing.currency !== "ILS" || offer <= 0 || offer >= price || offer < price - 0.35) return false;
     }
     return true;
-  }, [amount, isFaceToFace, listing, mode, offeredPrice, paymentMethod, safetyAcknowledged, user, walletValidationError]);
+  }, [amount, isFaceToFace, listing, mode, offeredPrice, paymentMethod, safetyAcknowledged, usdIlsRate, user, walletValidationError]);
 
   const goBack = useCallback(() => {
     if (router.canGoBack()) router.back();
-    else router.replace("/(tabs)");
+    else router.replace("/(tabs)/market");
   }, [router]);
 
   async function submit() {
@@ -141,11 +155,13 @@ export function TradeFormScreen({
     try {
       const response = await requestWithSession((tokens, requestLocale) => createMobileTrade(tokens, requestLocale, {
         listingId: listing.id,
-        usdtAmount: amount.trim(),
+        usdtAmount: numericValue(amount).toString(),
         receivingWalletAddress: walletAddress.trim(),
         paymentMethod,
         priceMode: mode === "offer" ? "buyer_offer" : "listing_price",
-        offeredPrice: mode === "offer" ? offeredPrice.trim() : undefined,
+        offeredPrice: mode === "offer"
+          ? usdAmountToCurrency(offeredPrice, listing.currency, usdIlsRate).toFixed(2)
+          : undefined,
         safetyAcknowledged,
       }));
       if (activeFormScopeRef.current !== operationScope) return;
@@ -154,7 +170,7 @@ export function TradeFormScreen({
       router.replace({ pathname: "/trade/[requestId]", params: { requestId: response.trade.id } });
     } catch (caught) {
       if (activeFormScopeRef.current === operationScope) {
-        setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+        setError(caught instanceof MobileApiError ? formatFinancialText(caught.message, usdIlsRate) : t("genericError"));
       }
     } finally {
       if (activeFormScopeRef.current === operationScope) setIsSubmitting(false);
@@ -215,7 +231,7 @@ export function TradeFormScreen({
 
         <View style={styles.priceCard}>
           <Text style={[styles.label, isRTL && styles.rtlText]}>{t("listingPrice")}</Text>
-          <Text style={[styles.price, isRTL && styles.rtlText]}>{listing.currency === "ILS" ? "₪" : `${listing.currency} `}{listing.price}</Text>
+          <Text style={[styles.price, isRTL && styles.rtlText]}>{formatCurrencyAmountAsUsd(listing.price, listing.currency, usdIlsRate, 4)}</Text>
         </View>
 
         <View style={styles.form}>
@@ -226,6 +242,7 @@ export function TradeFormScreen({
               accessibilityLabel={t("tradeAmount")}
               editable={!isSubmitting}
               inputMode="decimal"
+              onBlur={() => setAmount(formatFinancialNumber(amount, { maximumFractionDigits: 6 }))}
               onChangeText={(value) => setAmount(normalizeDecimalInput(value, 6))}
               placeholder={listing.minimumTrade}
               placeholderTextColor={colors.textMuted}
@@ -322,7 +339,7 @@ export function TradeFormScreen({
 
         <View style={styles.totalCard}>
           <Text style={[styles.label, isRTL && styles.rtlText]}>{t("estimatedTotal")}</Text>
-          <Text style={[styles.total, isRTL && styles.rtlText]}>{listing.currency === "ILS" ? "₪" : `${listing.currency} `}{estimatedTotal.toFixed(2)}</Text>
+          <Text style={[styles.total, isRTL && styles.rtlText]}>{formatUsd(estimatedTotalUsd)}</Text>
           <Text style={[styles.fee, isRTL && styles.rtlText]}>{t("feeIncluded")}</Text>
           <Text style={[styles.hint, isRTL && styles.rtlText]}>{t("serviceFeeNote")}</Text>
         </View>

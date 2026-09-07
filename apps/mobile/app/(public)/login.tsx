@@ -75,7 +75,7 @@ export default function LoginScreen() {
       return;
     }
     if (destination === "exchange") {
-      router.replace("/(tabs)");
+      router.replace("/(tabs)/market");
       return;
     }
     if (user.roles.some((role) => role === "owner" || role === "admin")) {

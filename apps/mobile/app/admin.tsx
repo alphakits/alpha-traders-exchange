@@ -14,6 +14,12 @@ import { useAuth } from "../src/auth/auth-context";
 import { GoldButton } from "../src/components/gold-button";
 import { NativePageShell } from "../src/components/native-page-shell";
 import { useLocale } from "../src/i18n/locale-context";
+import {
+  formatCount,
+  formatCurrencyAmountAsUsd,
+  formatFinancialNumber,
+} from "../src/finance/financial-display";
+import { useUsdDisplayRate } from "../src/finance/use-usd-display-rate";
 
 type PendingReview = Omit<MobileAdminReviewRequest, "reason"> & {
   title: string;
@@ -142,19 +148,20 @@ export default function AdminScreen() {
 }
 
 function Metric({ label, value }: { label: string; value: number }) {
-  return <View style={styles.metric}><Text style={styles.metricValue}>{value}</Text><Text style={styles.metricLabel}>{label}</Text></View>;
+  return <View style={styles.metric}><Text style={styles.metricValue}>{formatCount(value)}</Text><Text style={styles.metricLabel}>{label}</Text></View>;
 }
 
 function ListingReviewCard({ listing, isAr, isRTL, onReview }: { listing: MobileAdminPendingListing; isAr: boolean; isRTL: boolean; onReview: (review: PendingReview) => void }) {
+  const usdIlsRate = useUsdDisplayRate();
   return (
     <View style={styles.reviewCard}>
       <View style={[styles.cardTop, isRTL && styles.rowReverse]}>
         <Text style={[styles.cardTitle, isRTL && styles.rtlText]}>#{listing.displayNumber ?? listing.id.slice(-6)} · {listing.sellerDisplayName}</Text>
         <Text style={styles.pendingBadge}>{isAr ? "معلق" : "Pending"}</Text>
       </View>
-      <Text style={[styles.amount, isRTL && styles.rtlText]}>{Number(listing.availableAmount).toLocaleString("en-IL")} USDT · {listing.price} {listing.currency}</Text>
+      <Text style={[styles.amount, isRTL && styles.rtlText]}>{formatFinancialNumber(listing.availableAmount, { maximumFractionDigits: 6 })} USDT · {formatCurrencyAmountAsUsd(listing.price, listing.currency, usdIlsRate, 4)}</Text>
       <Text style={[styles.body, isRTL && styles.rtlText]}>{listing.network} · {listing.paymentMethods.join(" · ")}</Text>
-      <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "الحدود" : "Limits"}: {listing.minimumTrade}–{listing.maximumTrade} USDT</Text>
+      <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "الحدود" : "Limits"}: {formatFinancialNumber(listing.minimumTrade, { maximumFractionDigits: 6 })}–{formatFinancialNumber(listing.maximumTrade, { maximumFractionDigits: 6 })} USDT</Text>
       {listing.sellerDescription ? <Text style={[styles.description, isRTL && styles.rtlText]}>{listing.sellerDescription}</Text> : null}
       <GoldButton onPress={() => onReview({ target: "listing", id: listing.id, decision: "approve", title: isAr ? "الموافقة على العرض" : "Approve listing", reasonRequired: false })}>{isAr ? "موافقة" : "Approve"}</GoldButton>
       <GoldButton onPress={() => onReview({ target: "listing", id: listing.id, decision: "request_changes", title: isAr ? "طلب تعديلات" : "Request changes", reasonRequired: true })} variant="outline">{isAr ? "طلب تعديلات" : "Request changes"}</GoldButton>
