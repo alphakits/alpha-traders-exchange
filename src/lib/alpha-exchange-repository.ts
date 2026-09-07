@@ -42,7 +42,7 @@ type Queryable = Pool | PoolClient;
 // that the current runtime schema bootstrap completed successfully. When the
 // schema changes, append the new statements and advance this sentinel too.
 const CURRENT_SCHEMA_SENTINEL =
-  "alpha_exchange.idx_alpha_exchange_marketplace_enforcement_audit_seller_created";
+  "alpha_exchange.idx_alpha_exchange_mobile_push_receipts";
 
 type EvidenceWriteMap = Map<string, Buffer>;
 
@@ -348,6 +348,34 @@ const SCHEMA_SQL = [
     sort_index integer not null,
     payload jsonb not null
   )`,
+  `create table if not exists alpha_exchange.mobile_push_subscriptions (
+    id text primary key,
+    user_id text not null,
+    session_token_hash text not null,
+    installation_id_hash text not null,
+    expo_push_token text not null unique,
+    platform text not null check (platform in ('ios', 'android')),
+    locale text not null check (locale in ('ar', 'en')),
+    app_version text not null,
+    active boolean not null default true,
+    disabled_reason text,
+    last_seen_at timestamptz not null default now(),
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    unique (user_id, installation_id_hash)
+  )`,
+  `create table if not exists alpha_exchange.mobile_push_deliveries (
+    notification_id text not null,
+    subscription_id text not null references alpha_exchange.mobile_push_subscriptions(id) on delete cascade,
+    status text not null check (status in ('processing', 'sent', 'delivered', 'failed')),
+    ticket_id text,
+    attempt_count integer not null default 1 check (attempt_count > 0),
+    last_error_code text,
+    receipt_checked_at timestamptz,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    primary key (notification_id, subscription_id)
+  )`,
   "alter table alpha_exchange.admin_announcement_runs add column if not exists request_key text",
   "create index if not exists idx_alpha_exchange_users_email on alpha_exchange.users (email)",
   "create index if not exists idx_alpha_exchange_users_role on alpha_exchange.users (role)",
@@ -368,6 +396,9 @@ const SCHEMA_SQL = [
   "create index if not exists idx_alpha_exchange_sms_deliveries_status on alpha_exchange.sms_deliveries (status, updated_at desc)",
   "create index if not exists idx_alpha_exchange_marketplace_enforcement_records_seller_status on alpha_exchange.marketplace_enforcement_records (seller_id, status, updated_at desc)",
   "create index if not exists idx_alpha_exchange_marketplace_enforcement_audit_seller_created on alpha_exchange.marketplace_enforcement_audit_log (seller_id, created_at desc)",
+  "create index if not exists idx_alpha_exchange_mobile_push_user_active on alpha_exchange.mobile_push_subscriptions (user_id, active, updated_at desc)",
+  "create index if not exists idx_alpha_exchange_mobile_push_session on alpha_exchange.mobile_push_subscriptions (session_token_hash)",
+  "create index if not exists idx_alpha_exchange_mobile_push_receipts on alpha_exchange.mobile_push_deliveries (status, updated_at) where status = 'sent' and ticket_id is not null",
 ];
 
 const DEFAULT_DB = alphaExchangeSeed as unknown as AlphaExchangeDb;

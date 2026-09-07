@@ -87,7 +87,7 @@ describe("native runtime guardrails", () => {
       MOBILE_LATEST_IOS_VERSION: "also-invalid",
     })).toMatchObject({
       minimumSupportedVersion: "1.0.0",
-      latestVersion: "1.0.0",
+      latestVersion: "1.1.0",
       updateRequired: true,
     });
   });

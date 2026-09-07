@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 
 const BRAND_ROOT = join(process.cwd(), "public", "images", "brand");
 const CURRENT_LOGO_SHA256 = "e2d02b50ee93956c92bf7473d355753a3fc36245785a094700b99c8f7811808f";
+const APP_ICON_SHA256 = "47346c7eb545dcf0372fffe7825ff6ebe82a701e6e6531f9dbc43b191a89a322";
+const MASKABLE_APP_ICON_SHA256 = "3251d430ad99135d7e754891bfd68358da19effceaa0f3dc99d49cb8fd6a0b3c";
 
 describe("current Alpha Traders brand assets", () => {
   it("keeps the approved Academy & Exchange artwork as the canonical PNG", () => {
@@ -35,5 +37,12 @@ describe("current Alpha Traders brand assets", () => {
     for (const icon of manifest.icons) {
       expect(existsSync(join(process.cwd(), "public", icon.src))).toBe(true);
     }
+  });
+
+  it("keeps the supplied high-resolution artwork as the native app icon", () => {
+    const appIcon = readFileSync(join(BRAND_ROOT, "alpha-traders-app-icon-1024.png"));
+    const maskableIcon = readFileSync(join(BRAND_ROOT, "alpha-traders-app-icon-maskable-1024.png"));
+    expect(createHash("sha256").update(appIcon).digest("hex")).toBe(APP_ICON_SHA256);
+    expect(createHash("sha256").update(maskableIcon).digest("hex")).toBe(MASKABLE_APP_ICON_SHA256);
   });
 });

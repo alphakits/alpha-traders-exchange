@@ -1,10 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import { getLocales } from "expo-localization";
+import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   BackHandler,
   Linking,
   Platform,
@@ -22,9 +24,16 @@ import type {
   WebViewHttpErrorEvent,
   WebViewNavigation,
   WebViewNavigationEvent,
+  WebViewMessageEvent,
   WebViewOpenWindowEvent,
 } from "react-native-webview/lib/WebViewTypes";
-import { MOBILE_CURRENT_APP_VERSION, type MobileAuthTokens, type MobileLocale } from "@alpha-traders/contracts";
+import {
+  MOBILE_CURRENT_APP_VERSION,
+  parseWebToNativeBridgeMessage,
+  type MobileAuthTokens,
+  type MobileLocale,
+  type NativeToWebBridgeMessage,
+} from "@alpha-traders/contracts";
 import { MobileApiError, refreshMobile } from "../api/mobile-api";
 import {
   clearStoredTokens,
@@ -38,6 +47,12 @@ import {
   trustedWebsiteReturnPath,
   websiteNavigationDecision,
 } from "../web/website-navigation";
+import {
+  registerForNativePushNotifications,
+  requestAppReviewAfterCompletedTrade,
+  reviewReferenceFromPushData,
+  trustedPushWebsiteUrl,
+} from "../notifications/native-notifications";
 
 const LEGACY_LOCALE_KEY = "alpha.mobile.locale.v1";
 const RESUME_URL_KEY = "alpha.mobile.website.resume-url.v1";
@@ -140,6 +155,13 @@ function copy(locale: MobileLocale) {
 export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   const webViewRef = useRef<WebView>(null);
   const readyReported = useRef(false);
+  const localeRef = useRef<MobileLocale>(inferredLocale());
+  const activeSessionRef = useRef<{ userId: string; locale: MobileLocale } | null>(null);
+  const pendingReviewRef = useRef<string | null>(null);
+  const pendingPushUrlRef = useRef<string | null>(null);
+  const pushRegistrationKeyRef = useRef<string | null>(null);
+  const pushRegistrationResultRef = useRef<NativeToWebBridgeMessage | null>(null);
+  const pushRegistrationInFlightRef = useRef<Promise<void> | null>(null);
   const [source, setSource] = useState<WebSource | null>(null);
   const [locale, setLocale] = useState<MobileLocale>(inferredLocale);
   const [canGoBack, setCanGoBack] = useState(false);
@@ -158,18 +180,116 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
     setIsLoading(true);
     try {
       const initial = await createInitialSource();
+      localeRef.current = initial.locale;
       setLocale(initial.locale);
-      setSource(initial.source);
+      setSource(pendingPushUrlRef.current ? { uri: pendingPushUrlRef.current } : initial.source);
     } catch {
       const fallbackLocale = inferredLocale();
+      localeRef.current = fallbackLocale;
       setLocale(fallbackLocale);
-      setSource({ uri: `${ALPHA_TRADERS_WEB_ORIGIN}/${fallbackLocale}` });
+      setSource({ uri: pendingPushUrlRef.current ?? `${ALPHA_TRADERS_WEB_ORIGIN}/${fallbackLocale}` });
     }
   }, []);
 
   useEffect(() => {
     void prepare();
   }, [prepare]);
+
+  const sendMessageToWebsite = useCallback((message: unknown) => {
+    try {
+      webViewRef.current?.postMessage(JSON.stringify(message));
+    } catch {
+      // A navigation may replace the document while a native task is ending.
+      // The next authenticated session signal safely retries registration.
+    }
+  }, []);
+
+  const ensurePushRegistration = useCallback((userId: string, nextLocale: MobileLocale) => {
+    const key = `${userId}:${nextLocale}`;
+    if (pushRegistrationKeyRef.current === key) {
+      if (pushRegistrationResultRef.current) {
+        sendMessageToWebsite(pushRegistrationResultRef.current);
+      }
+      return;
+    }
+    if (pushRegistrationInFlightRef.current) return;
+    const task = (async () => {
+      const result = await registerForNativePushNotifications(nextLocale);
+      if (activeSessionRef.current?.userId !== userId) return;
+      if (result.status === "registered") {
+        pushRegistrationKeyRef.current = key;
+        pushRegistrationResultRef.current = result;
+      }
+      sendMessageToWebsite(result);
+    })();
+    pushRegistrationInFlightRef.current = task;
+    void task.finally(() => {
+      if (pushRegistrationInFlightRef.current === task) {
+        pushRegistrationInFlightRef.current = null;
+      }
+    });
+  }, [sendMessageToWebsite]);
+
+  const attemptPendingReview = useCallback(() => {
+    const session = activeSessionRef.current;
+    const tradeReference = pendingReviewRef.current;
+    if (!session || !tradeReference || AppState.currentState !== "active") return;
+    pendingReviewRef.current = null;
+    void requestAppReviewAfterCompletedTrade({
+      userId: session.userId,
+      tradeReference,
+    });
+  }, []);
+
+  const openPushDestination = useCallback((data: unknown) => {
+    const target = trustedPushWebsiteUrl(data, localeRef.current);
+    if (target) {
+      pendingPushUrlRef.current = target;
+      setLoadFailed(false);
+      setIsLoading(true);
+      setSource({ uri: target });
+    }
+    const reviewReference = reviewReferenceFromPushData(data);
+    if (reviewReference) {
+      pendingReviewRef.current = reviewReference;
+      attemptPendingReview();
+    }
+  }, [attemptPendingReview]);
+
+  useEffect(() => {
+    const lastResponse = Notifications.getLastNotificationResponse();
+    if (lastResponse?.notification) {
+      openPushDestination(lastResponse.notification.request.content.data);
+      void Notifications.clearLastNotificationResponseAsync().catch(() => undefined);
+    }
+    const responseSubscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      openPushDestination(response.notification.request.content.data);
+    });
+    const receivedSubscription = Notifications.addNotificationReceivedListener((notification) => {
+      const reviewReference = reviewReferenceFromPushData(notification.request.content.data);
+      if (!reviewReference) return;
+      pendingReviewRef.current = reviewReference;
+      attemptPendingReview();
+    });
+    const tokenSubscription = Notifications.addPushTokenListener(() => {
+      pushRegistrationKeyRef.current = null;
+      pushRegistrationResultRef.current = null;
+      const session = activeSessionRef.current;
+      if (session) ensurePushRegistration(session.userId, session.locale);
+    });
+    const appStateSubscription = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      const session = activeSessionRef.current;
+      if (session) ensurePushRegistration(session.userId, session.locale);
+      attemptPendingReview();
+    });
+    return () => {
+      responseSubscription.remove();
+      receivedSubscription.remove();
+      tokenSubscription.remove();
+      appStateSubscription.remove();
+    };
+  }, [attemptPendingReview, ensurePushRegistration, openPushDestination]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -200,6 +320,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
     const resumeUrl = trustedWebsiteReturnPath(url);
     if (!resumeUrl) return;
     const nextLocale: MobileLocale = resumeUrl.startsWith("/ar") ? "ar" : "en";
+    localeRef.current = nextLocale;
     setLocale(nextLocale);
     void Promise.all([
       AsyncStorage.setItem(RESUME_URL_KEY, `${ALPHA_TRADERS_WEB_ORIGIN}${resumeUrl}`),
@@ -207,6 +328,31 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       AsyncStorage.setItem(SESSION_MIGRATED_KEY, "1"),
     ]);
   }, []);
+
+  const handleWebsiteMessage = useCallback((event: WebViewMessageEvent) => {
+    const message = parseWebToNativeBridgeMessage(event.nativeEvent.data);
+    if (!message) return;
+    if (message.type === "alpha.web.session") {
+      if (!message.authenticated) {
+        activeSessionRef.current = null;
+        pushRegistrationKeyRef.current = null;
+        pushRegistrationResultRef.current = null;
+        pendingReviewRef.current = null;
+        return;
+      }
+      activeSessionRef.current = { userId: message.userId, locale: message.locale };
+      ensurePushRegistration(message.userId, message.locale);
+      attemptPendingReview();
+      return;
+    }
+    if (
+      message.type === "alpha.web.trade-completed"
+      && activeSessionRef.current?.userId === message.userId
+    ) {
+      pendingReviewRef.current = message.tradeReference;
+      attemptPendingReview();
+    }
+  }, [attemptPendingReview, ensurePushRegistration]);
 
   const completeLoad = useCallback((event: WebViewNavigationEvent | WebViewErrorEvent) => {
     if ("description" in event.nativeEvent) {
@@ -272,6 +418,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
           onHttpError={handleHttpError}
           onOpenWindow={openWindow}
           onFileDownload={downloadFile}
+          onMessage={handleWebsiteMessage}
           onContentProcessDidTerminate={() => webViewRef.current?.reload()}
           onRenderProcessGone={() => {
             webViewRef.current?.reload();

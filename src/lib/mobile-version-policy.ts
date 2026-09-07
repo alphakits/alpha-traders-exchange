@@ -1,6 +1,7 @@
 import {
   MOBILE_API_VERSION,
   MOBILE_CURRENT_APP_VERSION,
+  MOBILE_MINIMUM_SUPPORTED_APP_VERSION,
   type MobilePlatform,
 } from "@alpha-traders/contracts";
 
@@ -37,9 +38,10 @@ export function compareMobileAppVersions(left: string, right: string) {
 function configuredVersion(
   environment: MobileVersionEnvironment,
   key: MobileVersionEnvironmentKey,
+  fallback: string,
 ) {
   const value = environment[key]?.trim() ?? "";
-  return parseMobileAppVersion(value) ? value : MOBILE_CURRENT_APP_VERSION;
+  return parseMobileAppVersion(value) ? value : fallback;
 }
 
 export function resolveMobileVersionPolicy(
@@ -49,8 +51,16 @@ export function resolveMobileVersionPolicy(
 ) {
   const minimumKey = platform === "ios" ? "MOBILE_MIN_IOS_VERSION" : "MOBILE_MIN_ANDROID_VERSION";
   const latestKey = platform === "ios" ? "MOBILE_LATEST_IOS_VERSION" : "MOBILE_LATEST_ANDROID_VERSION";
-  const minimumSupportedVersion = configuredVersion(environment, minimumKey);
-  const configuredLatestVersion = configuredVersion(environment, latestKey);
+  const minimumSupportedVersion = configuredVersion(
+    environment,
+    minimumKey,
+    MOBILE_MINIMUM_SUPPORTED_APP_VERSION,
+  );
+  const configuredLatestVersion = configuredVersion(
+    environment,
+    latestKey,
+    MOBILE_CURRENT_APP_VERSION,
+  );
   const latestVersion = compareMobileAppVersions(configuredLatestVersion, minimumSupportedVersion) === -1
     ? minimumSupportedVersion
     : configuredLatestVersion;

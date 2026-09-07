@@ -22,6 +22,7 @@ import { runEnvValidation } from "@/lib/env-validation";
 import { getAlphaExchangeRepository, type SnapshotTableName } from "@/lib/alpha-exchange-repository";
 import { addRole, hasRole, isUserRole, normalizeRolesForUser, removeRole, resolvePrimaryRole } from "@/lib/roles";
 import { publishRealtimeEvent } from "@/lib/realtime";
+import { scheduleMobilePushDelivery } from "@/lib/mobile-push";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import {
   sendMarketplaceEmail,
@@ -3483,6 +3484,10 @@ function publishNotificationPublication(publication: DeferredNotificationPublica
     type: publication.type,
     payload: { notification: publication.notification },
   });
+  // A burst of trade-room chat reuses one notification row and advances its
+  // persisted updatedAt value. The mobile outbox keys each revision so every
+  // new message can alert the device while duplicate publications stay safe.
+  scheduleMobilePushDelivery(publication.notification);
 }
 
 function pushNotification(
