@@ -25,7 +25,7 @@ remains the only business-logic backend.
 - Native screen-reader headings and form labels, 44–52 point touch targets,
   readable minimum text sizes, scalable/wrapping financial layouts, and device
   reduced-motion support for navigation transitions.
-- Buyer purchase requests and ILS price offers.
+- Buyer purchase requests with USD/USDT pricing and calculations.
 - Network-specific receiving-wallet validation for TRC20, ERC20, BEP20, and
   Solana uses the same portable checksum/format rules as the server.
 - Visible USDT release deadlines with warning/overdue states, backed by the

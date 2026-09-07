@@ -9,6 +9,7 @@ import { useAuth } from "../../src/auth/auth-context";
 import { GoldButton } from "../../src/components/gold-button";
 import { NativePageShell } from "../../src/components/native-page-shell";
 import { useLocale } from "../../src/i18n/locale-context";
+import { formatCount, formatUsdt } from "../../src/finance/financial-display";
 
 export default function SellerCommissionsScreen() {
   const router = useRouter();
@@ -83,8 +84,8 @@ export default function SellerCommissionsScreen() {
     >
       <View style={[styles.statusCard, query.data?.status === "overdue" && styles.overdueCard]}>
         <Text style={[styles.statusTitle, isRTL && styles.rtlText]}>{query.data?.status === "clear" ? `✓ ${isAr ? "لا توجد عمولات مستحقة" : "No commission due"}` : (isAr ? "عمولة تحتاج إلى الدفع" : "Commission payment required")}</Text>
-        <Text style={[styles.total, isRTL && styles.rtlText]}>{(query.data?.totalAmountDue ?? 0).toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT</Text>
-        <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "السجلات غير المدفوعة" : "Unpaid records"}: {query.data?.pendingCount ?? 0}</Text>
+        <Text style={[styles.total, isRTL && styles.rtlText]}>{formatUsdt(query.data?.totalAmountDue ?? 0)}</Text>
+        <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "السجلات غير المدفوعة" : "Unpaid records"}: {formatCount(query.data?.pendingCount ?? 0)}</Text>
       </View>
 
       {query.data?.payableRecords.length ? (
@@ -92,7 +93,7 @@ export default function SellerCommissionsScreen() {
           <Text style={[styles.title, isRTL && styles.rtlText]}>{isAr ? "اختر سجل العمولة" : "Choose commission record"}</Text>
           {query.data.payableRecords.map((record) => (
             <Pressable key={record.commissionId} onPress={() => { setCommissionId(record.commissionId); setError(""); }} style={[styles.option, commissionId === record.commissionId && styles.optionSelected]}>
-              <Text style={[styles.optionTitle, isRTL && styles.rtlText]}>{commissionId === record.commissionId ? "✓ " : ""}{record.amountDue.toLocaleString("en-IL", { maximumFractionDigits: 6 })} USDT</Text>
+              <Text style={[styles.optionTitle, isRTL && styles.rtlText]}>{commissionId === record.commissionId ? "✓ " : ""}{formatUsdt(record.amountDue)}</Text>
               <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "الصفقة" : "Trade"}: #{record.relatedTradeDisplayNumber ?? record.relatedTradeId ?? record.relatedRequestId.slice(-6)}</Text>
               {record.dueAt ? <Text style={[styles.body, isRTL && styles.rtlText]}>{isAr ? "الاستحقاق" : "Due"}: {new Date(record.dueAt).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}</Text> : null}
               <GoldButton onPress={() => router.push({ pathname: "/trade/[requestId]", params: { requestId: record.relatedRequestId } })} variant="ghost">{isAr ? "فتح الصفقة" : "Open trade"}</GoldButton>

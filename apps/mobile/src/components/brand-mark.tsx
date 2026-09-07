@@ -1,5 +1,5 @@
 import { Image, StyleSheet, Text, View } from "react-native";
-import { colors, spacing, typography } from "@alpha-traders/design-tokens";
+import { colors, spacing } from "@alpha-traders/design-tokens";
 import { useLocale } from "../i18n/locale-context";
 import logo from "../../../../public/images/brand/alpha-traders-logo-512.png";
 
@@ -25,7 +25,7 @@ const styles = StyleSheet.create({
   row: {
     alignItems: "center",
     flexDirection: "row",
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   rowRtl: {
     flexDirection: "row-reverse",
@@ -51,15 +51,15 @@ const styles = StyleSheet.create({
   },
   name: {
     color: colors.text,
-    fontSize: typography.body,
+    fontSize: 14,
     fontWeight: "800",
-    letterSpacing: 1.6,
+    letterSpacing: 1.35,
   },
   subtitle: {
     color: colors.gold,
-    fontSize: typography.caption,
+    fontSize: 9,
     fontWeight: "700",
-    letterSpacing: 1.2,
+    letterSpacing: 1.05,
     marginTop: 2,
   },
   rtlText: {

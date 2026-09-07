@@ -15,6 +15,15 @@ import { useAuth } from "../../src/auth/auth-context";
 import { GoldButton } from "../../src/components/gold-button";
 import { NativePageShell } from "../../src/components/native-page-shell";
 import { useLocale } from "../../src/i18n/locale-context";
+import {
+  financialNumber,
+  formatFinancialNumber,
+  formatFinancialText,
+  formatUsd,
+  priceForUsdInput,
+  usdAmountToCurrency,
+} from "../../src/finance/financial-display";
+import { useUsdDisplayRate } from "../../src/finance/use-usd-display-rate";
 
 const NETWORKS: MobileSupportedNetwork[] = ["TRC20", "ERC20", "BEP20", "SOL"];
 const PAYMENT_METHODS = [
@@ -61,6 +70,7 @@ export default function NewSellerListingScreen() {
   const queryClient = useQueryClient();
   const { status, user, requestWithSession } = useAuth();
   const { locale, isRTL } = useLocale();
+  const usdIlsRate = useUsdDisplayRate();
   const isAr = locale === "ar";
   const canSell = user?.sellerStatus === "approved_seller"
     || user?.roles.some((role) => role === "approved_seller" || role === "admin" || role === "owner") === true;
@@ -98,10 +108,10 @@ export default function NewSellerListingScreen() {
     const listing = listingQuery.data?.listing;
     if (!listing || initializedListingRef.current === listing.id) return;
     initializedListingRef.current = listing.id;
-    setAvailableAmount(listing.availableAmount);
-    setPrice(listing.price);
-    setMinimumTrade(listing.minimumTrade);
-    setMaximumTrade(listing.maximumTrade);
+    setAvailableAmount(formatFinancialNumber(listing.availableAmount, { maximumFractionDigits: 6 }));
+    setPrice(priceForUsdInput(listing.price, listing.currency, usdIlsRate));
+    setMinimumTrade(formatFinancialNumber(listing.minimumTrade, { maximumFractionDigits: 6 }));
+    setMaximumTrade(formatFinancialNumber(listing.maximumTrade, { maximumFractionDigits: 6 }));
     setNetwork(listing.network);
     setPaymentMethods([...listing.paymentMethods]);
     setBanks(listing.bankName?.split(",").map((bank) => bank.trim()).filter(Boolean) ?? []);
@@ -109,27 +119,27 @@ export default function NewSellerListingScreen() {
     setSellerDescription(listing.sellerDescription);
     setResponseTime(listing.responseTime);
     setAcceptedCommission(true);
-  }, [listingQuery.data?.listing]);
+  }, [listingQuery.data?.listing, usdIlsRate]);
   const requiresBankSelection = paymentMethods.includes("Bank Transfer")
     || paymentMethods.includes("Cardless ATM Withdrawal");
   const requiresPayoutAccount = paymentMethods.includes("Bank Transfer");
   const selectedPayoutAccount = bankAccountsQuery.data?.bankAccounts.find((account) => account.id === bankAccountId);
 
   const payload = useMemo<MobileSellerListingCreateRequest>(() => ({
-    availableAmount,
-    price,
+    availableAmount: financialNumber(availableAmount).toString(),
+    price: usdAmountToCurrency(price, "ILS", usdIlsRate).toFixed(2),
     currency: "ILS",
     network,
     paymentMethods,
     bankAccountId: requiresPayoutAccount ? bankAccountId : undefined,
     bankName: requiresBankSelection ? banks.join(", ") : undefined,
-    minimumTrade,
-    maximumTrade,
+    minimumTrade: financialNumber(minimumTrade).toString(),
+    maximumTrade: financialNumber(maximumTrade).toString(),
     sellerDescription,
     responseTime,
     expirationHours: 24,
     acceptedCommissionPolicy: acceptedCommission,
-  }), [acceptedCommission, availableAmount, bankAccountId, banks, maximumTrade, minimumTrade, network, paymentMethods, price, requiresBankSelection, requiresPayoutAccount, responseTime, sellerDescription]);
+  }), [acceptedCommission, availableAmount, bankAccountId, banks, maximumTrade, minimumTrade, network, paymentMethods, price, requiresBankSelection, requiresPayoutAccount, responseTime, sellerDescription, usdIlsRate]);
 
   const mutation = useMutation({
     mutationFn: () => requestWithSession((tokens, requestLocale) => isEditing
@@ -152,7 +162,7 @@ export default function NewSellerListingScreen() {
         [{ text: isAr ? "فتح مساحة البائع" : "Open seller workspace", onPress: () => router.replace("/(tabs)/seller") }],
       );
     },
-    onError: (mutationError) => setError(mutationError instanceof Error ? mutationError.message : (isAr ? "تعذر إرسال العرض." : "The listing could not be submitted.")),
+    onError: (mutationError) => setError(mutationError instanceof Error ? formatFinancialText(mutationError.message, usdIlsRate) : (isAr ? "تعذر إرسال العرض." : "The listing could not be submitted.")),
   });
   const deleteMutation = useMutation({
     mutationFn: () => requestWithSession((tokens, requestLocale) => deleteMobileSellerListing(tokens, requestLocale, listingId, {
@@ -187,10 +197,10 @@ export default function NewSellerListingScreen() {
   }
 
   function validateAndSubmit() {
-    const amount = Number(availableAmount);
-    const listingPrice = Number(price);
-    const minimum = Number(minimumTrade);
-    const maximum = Number(maximumTrade);
+    const amount = financialNumber(availableAmount);
+    const listingPrice = financialNumber(price);
+    const minimum = financialNumber(minimumTrade);
+    const maximum = financialNumber(maximumTrade);
     const payoutIncluded = !selectedPayoutAccount || banks.includes(selectedPayoutAccount.bankName);
     if (!Number.isFinite(amount) || amount <= 0 || !Number.isFinite(listingPrice) || listingPrice <= 0) {
       setError(isAr ? "أدخل كمية USDT وسعرًا صالحين." : "Enter a valid USDT amount and price.");
@@ -253,10 +263,11 @@ export default function NewSellerListingScreen() {
           <Text style={[styles.label, isRTL && styles.rtlText]}>{isAr ? "كمية USDT المتاحة *" : "Available USDT *"}</Text>
           <TextInput
             keyboardType="decimal-pad"
+            onBlur={() => setAvailableAmount(formatFinancialNumber(availableAmount, { maximumFractionDigits: 6 }))}
             onChangeText={(value) => {
               const next = cleanNumber(value);
               setAvailableAmount(next);
-              if (!maximumTrade || Number(maximumTrade) > Number(next)) setMaximumTrade(next);
+              if (!maximumTrade || financialNumber(maximumTrade) > financialNumber(next)) setMaximumTrade(next);
               setError("");
             }}
             placeholder="1,000"
@@ -267,9 +278,9 @@ export default function NewSellerListingScreen() {
           />
         </View>
         <View style={styles.field}>
-          <Text style={[styles.label, isRTL && styles.rtlText]}>{isAr ? "السعر لكل USDT (₪) *" : "Price per USDT (₪) *"}</Text>
-          <TextInput keyboardType="decimal-pad" onChangeText={(value) => { setPrice(cleanNumber(value)); setError(""); }} placeholder="3.75" placeholderTextColor={colors.textMuted} selectionColor={colors.gold} style={[styles.input, isRTL && styles.rtlInput]} value={price} />
-          {availableAmount && price ? <Text style={[styles.helper, isRTL && styles.rtlText]}>{isAr ? "القيمة الإجمالية" : "Live total"}: ₪{(Number(availableAmount) * Number(price || 0)).toLocaleString("en-IL", { maximumFractionDigits: 2 })}</Text> : null}
+          <Text style={[styles.label, isRTL && styles.rtlText]}>{isAr ? "السعر لكل USDT بالدولار *" : "Price per USDT (USD) *"}</Text>
+          <TextInput keyboardType="decimal-pad" onChangeText={(value) => { setPrice(cleanNumber(value)); setError(""); }} placeholder="1.05" placeholderTextColor={colors.textMuted} selectionColor={colors.gold} style={[styles.input, isRTL && styles.rtlInput]} value={price} />
+          {availableAmount && price ? <Text style={[styles.helper, isRTL && styles.rtlText]}>{isAr ? "القيمة الإجمالية" : "Live total"}: {formatUsd(financialNumber(availableAmount) * financialNumber(price))}</Text> : null}
         </View>
         <Text style={[styles.label, isRTL && styles.rtlText]}>{isAr ? "الشبكة *" : "Network *"}</Text>
         <View style={[styles.options, isRTL && styles.rowReverse]}>
@@ -282,11 +293,11 @@ export default function NewSellerListingScreen() {
         <View style={[styles.doubleRow, isRTL && styles.rowReverse]}>
           <View style={styles.flexField}>
             <Text style={[styles.label, isRTL && styles.rtlText]}>{isAr ? "أدنى صفقة *" : "Minimum trade *"}</Text>
-            <TextInput keyboardType="decimal-pad" onChangeText={(value) => { setMinimumTrade(cleanNumber(value)); setError(""); }} placeholder="100" placeholderTextColor={colors.textMuted} selectionColor={colors.gold} style={[styles.input, isRTL && styles.rtlInput]} value={minimumTrade} />
+            <TextInput keyboardType="decimal-pad" onBlur={() => setMinimumTrade(formatFinancialNumber(minimumTrade, { maximumFractionDigits: 6 }))} onChangeText={(value) => { setMinimumTrade(cleanNumber(value)); setError(""); }} placeholder="100" placeholderTextColor={colors.textMuted} selectionColor={colors.gold} style={[styles.input, isRTL && styles.rtlInput]} value={minimumTrade} />
           </View>
           <View style={styles.flexField}>
             <Text style={[styles.label, isRTL && styles.rtlText]}>{isAr ? "أقصى صفقة *" : "Maximum trade *"}</Text>
-            <TextInput keyboardType="decimal-pad" onChangeText={(value) => { setMaximumTrade(cleanNumber(value)); setError(""); }} placeholder="1,000" placeholderTextColor={colors.textMuted} selectionColor={colors.gold} style={[styles.input, isRTL && styles.rtlInput]} value={maximumTrade} />
+            <TextInput keyboardType="decimal-pad" onBlur={() => setMaximumTrade(formatFinancialNumber(maximumTrade, { maximumFractionDigits: 6 }))} onChangeText={(value) => { setMaximumTrade(cleanNumber(value)); setError(""); }} placeholder="1,000" placeholderTextColor={colors.textMuted} selectionColor={colors.gold} style={[styles.input, isRTL && styles.rtlInput]} value={maximumTrade} />
           </View>
         </View>
         {requiresBankSelection ? (

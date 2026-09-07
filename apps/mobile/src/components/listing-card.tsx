@@ -5,23 +5,21 @@ import { useLocale } from "../i18n/locale-context";
 import { GoldButton } from "./gold-button";
 import { mobilePaymentMethodLabel } from "../trades/trade-labels";
 import { safeRemoteImageUrl } from "../media/safe-media-url";
+import {
+  formatCount,
+  formatCurrencyAmountAsUsd,
+  formatUsdt,
+} from "../finance/financial-display";
 
 type ListingCardProps = {
   listing: MobileMarketplaceListing;
   onBuy: () => void;
   onOffer: () => void;
   onSeller: () => void;
+  usdIlsRate: number;
 };
 
-function readableNumber(value: string, locale: "ar" | "en") {
-  const number = Number(value.replace(/[^\d.-]/g, ""));
-  if (!Number.isFinite(number)) return value;
-  return new Intl.NumberFormat(locale === "ar" ? "ar-IL" : "en-IL", {
-    maximumFractionDigits: 2,
-  }).format(number);
-}
-
-export function ListingCard({ listing, onBuy, onOffer, onSeller }: ListingCardProps) {
+export function ListingCard({ listing, onBuy, onOffer, onSeller, usdIlsRate }: ListingCardProps) {
   const { locale, isRTL, t } = useLocale();
   const isOnline = listing.seller.onlineStatus === "online";
   const profilePhotoUrl = safeRemoteImageUrl(listing.seller.profilePhotoUrl);
@@ -62,7 +60,7 @@ export function ListingCard({ listing, onBuy, onOffer, onSeller }: ListingCardPr
               {listing.seller.rating !== undefined ? `★ ${listing.seller.rating.toFixed(1)}` : ""}
               {listing.seller.rating !== undefined && listing.seller.completedTrades !== undefined ? " · " : ""}
               {listing.seller.completedTrades !== undefined
-                ? `${listing.seller.completedTrades} ${t("completedTrades")}`
+                ? `${formatCount(listing.seller.completedTrades)} ${t("completedTrades")}`
                 : ""}
             </Text>
           ) : null}
@@ -80,14 +78,12 @@ export function ListingCard({ listing, onBuy, onOffer, onSeller }: ListingCardPr
       <View style={[styles.primaryStats, isRTL && styles.rowReverse]}>
         <View style={styles.statBlock}>
           <Text style={[styles.statLabel, isRTL && styles.rtlText]}>{t("available")}</Text>
-          <Text style={[styles.amount, isRTL && styles.rtlText]}>
-            {readableNumber(listing.availableAmount, locale)} <Text style={styles.unit}>USDT</Text>
-          </Text>
+          <Text style={[styles.amount, isRTL && styles.rtlText]}>{formatUsdt(listing.availableAmount)}</Text>
         </View>
         <View style={[styles.priceBlock, isRTL && styles.alignStart]}>
           <Text style={[styles.statLabel, isRTL && styles.rtlText]}>{t("price")}</Text>
           <Text style={[styles.price, isRTL && styles.rtlText]}>
-            {listing.currency === "ILS" ? "₪" : `${listing.currency} `}{readableNumber(listing.price, locale)}
+            {formatCurrencyAmountAsUsd(listing.price, listing.currency, usdIlsRate, 4)}
           </Text>
         </View>
       </View>
@@ -95,11 +91,11 @@ export function ListingCard({ listing, onBuy, onOffer, onSeller }: ListingCardPr
       <View style={[styles.detailRow, isRTL && styles.rowReverse]}>
         <View style={styles.detailPill}>
           <Text style={styles.detailLabel}>{t("minimum")}</Text>
-          <Text style={styles.detailValue}>{readableNumber(listing.minimumTrade, locale)} USDT</Text>
+          <Text style={styles.detailValue}>{formatUsdt(listing.minimumTrade)}</Text>
         </View>
         <View style={styles.detailPill}>
           <Text style={styles.detailLabel}>{t("maximum")}</Text>
-          <Text style={styles.detailValue}>{readableNumber(listing.maximumTrade, locale)} USDT</Text>
+          <Text style={styles.detailValue}>{formatUsdt(listing.maximumTrade)}</Text>
         </View>
         <View style={styles.detailPill}>
           <Text style={styles.detailLabel}>{listing.network}</Text>

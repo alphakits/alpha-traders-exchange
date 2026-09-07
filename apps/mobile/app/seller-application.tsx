@@ -120,7 +120,7 @@ export default function SellerApplicationScreen() {
           <Text style={[styles.body, styles.centerText, isRTL && styles.rtlText]}>
             {isAr ? "سيصلك إشعار فور اكتمال المراجعة." : "You’ll receive a notification as soon as the review is complete."}
           </Text>
-          <GoldButton onPress={() => router.replace("/(tabs)")} variant="blue">{isAr ? "متابعة إلى Exchange" : "Continue to Exchange"}</GoldButton>
+          <GoldButton onPress={() => router.replace("/(tabs)/market")} variant="blue">{isAr ? "متابعة إلى Exchange" : "Continue to Exchange"}</GoldButton>
         </View>
       </SafeAreaView>
     );
