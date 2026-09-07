@@ -139,7 +139,7 @@ beforeEach(() => {
 });
 
 describe("mobile v1 account profile route", () => {
-  it("returns only the native profile and reputation allowlists", async () => {
+  it("returns the website-parity profile projection without authentication secrets", async () => {
     const response = await GET(mobileRequest("GET"));
     const payload = await response.json();
     const serialized = JSON.stringify(payload);
@@ -149,9 +149,14 @@ describe("mobile v1 account profile route", () => {
     expect(payload).toMatchObject({
       requestId: "profile-request-1",
       profile: {
+        id: "profile-user",
         fullName: "Mobile Seller",
+        username: "mobile-seller",
         email: "seller@example.test",
         profilePhotoUrl: "",
+        coverBannerUrl: "https://cdn.example/private-cover.webp",
+        onlineStatus: "online",
+        whatsappNumber: "+972500000000",
         country: "Jordan",
         showPhonePublic: false,
       },
@@ -163,7 +168,18 @@ describe("mobile v1 account profile route", () => {
         activeListings: 3,
         averageRating: 4.9,
         trustScore: 97.4,
+        nextLevel: "diamond",
+        amountToNextLevelUsdt: 12_000,
+        commissionPaidUsdt: 380,
+        averageTradeSizeUsdt: 760,
+        buyerActivity: {
+          level: "silver",
+          lifetimeCompletedVolumeUsdt: 500,
+        },
       },
+      roleBadge: "approved_seller",
+      roleLabel: "Approved Seller",
+      accountStatuses: ["Active"],
       user: {
         id: user.id,
         fullName: user.fullName,
@@ -173,14 +189,7 @@ describe("mobile v1 account profile route", () => {
     for (const privateValue of [
       "never-return-password-hash",
       "never-return-verification-token",
-      "+972500000000",
-      "private-cover.webp",
-      "mobile-seller",
-      "commissionPaid",
-      "averageTradeSize",
-      "promotionHistory",
-      "buyerActivity",
-      "amountToNextLevelUsdt",
+      "username:password@cdn.example",
     ]) {
       expect(serialized).not.toContain(privateValue);
     }
@@ -191,6 +200,8 @@ describe("mobile v1 account profile route", () => {
       fullName: "  Updated Seller  ",
       bio: "  Clear profile bio.  ",
       country: "  Jordan  ",
+      language: "  Arabic  ",
+      whatsappNumber: "  +972500000000  ",
       showTradeStats: false,
       showLastActive: false,
       allowDirectMessages: true,
@@ -206,6 +217,8 @@ describe("mobile v1 account profile route", () => {
       fullName: "Updated Seller",
       bio: "Clear profile bio.",
       country: "Jordan",
+      language: "Arabic",
+      whatsappNumber: "+972500000000",
       showTradeStats: false,
       showLastActive: false,
       allowDirectMessages: true,
@@ -218,7 +231,7 @@ describe("mobile v1 account profile route", () => {
       event: "mobile_profile_update",
       metadata: {
         requestId: "profile-request-1",
-        updatedFields: expect.arrayContaining(["fullName", "bio", "country", "showEmailPublic"]),
+        updatedFields: expect.arrayContaining(["fullName", "bio", "country", "language", "whatsappNumber", "showEmailPublic"]),
       },
       outcome: "success",
     }));

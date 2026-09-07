@@ -156,7 +156,7 @@ export default WelcomeScreen;
 
 const styles = StyleSheet.create({
   safeArea: {
-    backgroundColor: colors.background,
+    backgroundColor: "transparent",
     flex: 1,
   },
   page: {

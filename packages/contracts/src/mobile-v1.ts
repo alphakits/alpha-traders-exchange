@@ -165,12 +165,19 @@ export interface MobileSellerApplicationResponse {
 }
 
 export interface MobileAccountProfile {
+  id: string;
   fullName: string;
+  username: string;
   email: string;
   profilePhotoUrl: string;
+  coverBannerUrl: string;
+  role: MobileUserRole;
+  sellerStatus: MobileSellerStatus;
+  onlineStatus: "online" | "offline";
   bio: string;
   country: string;
   language: string;
+  whatsappNumber: string;
   memberSince: string;
   lastLogin: string;
   showTradeStats: boolean;
@@ -181,6 +188,27 @@ export interface MobileAccountProfile {
   showEmailPublic: boolean;
 }
 
+export type MobileAccountRoleBadge =
+  | "guest"
+  | "student"
+  | "buyer"
+  | "pending_seller"
+  | "approved_seller"
+  | "administrator"
+  | "owner";
+
+export interface MobileBuyerActivityStats {
+  level: "bronze" | "silver" | "gold" | "diamond" | "elite";
+  nextLevel?: "bronze" | "silver" | "gold" | "diamond" | "elite";
+  progressToNextLevelPercent: number;
+  amountToNextLevelUsdt: number;
+  requiredVolumeUsdt: number;
+  lifetimeCompletedVolumeUsdt: number;
+  activeTrades: number;
+  completedTrades: number;
+  reviewsGiven: number;
+}
+
 export type MobileAccountStats =
   | {
       kind: "buyer";
@@ -189,6 +217,9 @@ export type MobileAccountStats =
       activeTrades: number;
       completedTrades: number;
       reviewsGiven: number;
+      nextLevel?: "bronze" | "silver" | "gold" | "diamond" | "elite";
+      amountToNextLevelUsdt: number;
+      requiredVolumeUsdt: number;
       progressToNextLevelPercent: number;
     }
   | {
@@ -200,6 +231,16 @@ export type MobileAccountStats =
       pendingListings: number;
       averageRating: number;
       trustScore: number;
+      nextLevel?: "bronze" | "silver" | "gold" | "diamond" | "elite";
+      amountToNextLevelUsdt: number;
+      commissionPaidUsdt: number;
+      averageTradeSizeUsdt: number;
+      promotionHistory: Array<{
+        id: string;
+        rank: "bronze" | "silver" | "gold" | "diamond" | "elite";
+        promotedAt: string;
+      }>;
+      buyerActivity: MobileBuyerActivityStats;
       progressToNextLevelPercent: number;
     };
 
@@ -207,6 +248,8 @@ export interface MobileAccountProfileUpdateRequest {
   fullName?: string;
   bio?: string;
   country?: string;
+  language?: string;
+  whatsappNumber?: string;
   showTradeStats?: boolean;
   showLastActive?: boolean;
   allowDirectMessages?: boolean;
@@ -218,7 +261,16 @@ export interface MobileAccountProfileUpdateRequest {
 export interface MobileAccountProfileResponse {
   profile: MobileAccountProfile;
   stats: MobileAccountStats;
+  roleBadge: MobileAccountRoleBadge;
+  roleLabel: string;
+  accountStatuses: string[];
   user: MobileSessionUser;
+  requestId: string;
+}
+
+export interface MobileProfilePhotoResponse {
+  kind: "profile" | "cover";
+  url: string;
   requestId: string;
 }
 
@@ -460,8 +512,11 @@ export interface MobileMarketplaceListing {
     isOwner: boolean;
     isFoundingSeller: boolean;
     isFeaturedSeller: boolean;
+    emailVerified: boolean;
     onlineStatus: "online" | "offline";
     availabilityStatus: "available" | "away" | "vacation";
+    lastActiveAt?: string;
+    country?: string;
     level?: "bronze" | "silver" | "gold" | "diamond" | "elite";
     trustScore?: number;
     rating?: number;

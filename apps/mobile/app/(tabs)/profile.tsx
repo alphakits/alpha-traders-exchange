@@ -1,4 +1,4 @@
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Redirect, useRouter } from "expo-router";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
@@ -9,17 +9,6 @@ import { NativeSiteHeader } from "../../src/components/native-site-header";
 import { useLocale } from "../../src/i18n/locale-context";
 import { useBiometricLock } from "../../src/security/biometric-lock-context";
 import { AccountProfilePanel } from "../../src/screens/account-profile-panel";
-import { safeRemoteImageUrl } from "../../src/media/safe-media-url";
-
-function roleLabel(role: string, t: ReturnType<typeof useLocale>["t"]) {
-  if (role === "owner") return t("roleOwner");
-  if (role === "admin") return t("roleAdmin");
-  if (role === "approved_seller") return t("roleSeller");
-  if (role === "pending_seller_approval") return t("rolePending");
-  if (role === "student") return t("roleStudent");
-  if (role === "guest") return t("roleGuest");
-  return t("roleBuyer");
-}
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -32,7 +21,6 @@ export default function ProfileScreen() {
   const canApplyToSell = !canUseSellerWorkspace
     && user.sellerStatus !== "pending_seller_approval"
     && (user.role === "buyer" || user.roles.includes("buyer"));
-  const profilePhotoUrl = safeRemoteImageUrl(user.profilePhotoUrl);
 
   async function toggleBiometricLock() {
     const result = biometric.isEnabled ? await biometric.disable() : await biometric.enable();
@@ -67,28 +55,6 @@ export default function ProfileScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.card}>
-          <View accessible={false} style={styles.avatar}>
-            {profilePhotoUrl ? (
-              <Image
-                accessible={false}
-                alt=""
-                source={{ uri: profilePhotoUrl }}
-                style={styles.avatarImage}
-              />
-            ) : (
-              <Text accessible={false} style={styles.avatarText}>{user.fullName.trim().slice(0, 1).toUpperCase() || "A"}</Text>
-            )}
-          </View>
-          <Text accessibilityRole="header" style={[styles.name, isRTL && styles.rtlText]}>{user.fullName}</Text>
-          <Text style={[styles.email, isRTL && styles.rtlText]}>{user.email}</Text>
-          <View style={styles.roleBadge}>
-            <Text style={styles.roleText}>{roleLabel(user.role, t)}</Text>
-          </View>
-          {user.emailVerified ? (
-            <Text style={[styles.verified, isRTL && styles.rtlText]}>✓ {t("accountVerified")}</Text>
-          ) : null}
-        </View>
         <AccountProfilePanel />
         <View style={styles.section}>
           <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>{t("language")}</Text>
@@ -158,7 +124,7 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   safeArea: {
-    backgroundColor: colors.background,
+    backgroundColor: "transparent",
     flex: 1,
   },
   content: {

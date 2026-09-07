@@ -257,7 +257,7 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { backgroundColor: colors.background, flex: 1 },
+  safeArea: { backgroundColor: "transparent", flex: 1 },
   flex: { flex: 1 },
   content: { flexGrow: 1, gap: spacing.lg, padding: spacing.lg, paddingBottom: 48 },
   loginCard: {

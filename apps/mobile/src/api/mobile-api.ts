@@ -24,6 +24,7 @@ import type {
   MobileNotificationsUpdateResponse,
   MobileOnboardingRequest,
   MobileOnboardingResponse,
+  MobileProfilePhotoResponse,
   MobileRefreshResponse,
   MobileSellerProfileResponse,
   MobileSellerAvailabilityResponse,
@@ -353,6 +354,45 @@ export function updateMobileAccountProfile(
     method: "PATCH",
     accessToken: tokens.accessToken,
     body: { ...update },
+  });
+}
+
+export function uploadMobileProfilePhoto(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  input: {
+    kind: "profile" | "cover";
+    mimeType: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+    fileUri: string;
+  },
+) {
+  const form = new FormData();
+  form.append("kind", input.kind);
+  form.append("file", {
+    uri: input.fileUri,
+    name: `${input.kind}-photo.${input.mimeType === "image/png" ? "png" : input.mimeType === "image/webp" ? "webp" : input.mimeType === "image/gif" ? "gif" : "jpg"}`,
+    type: input.mimeType,
+  } as unknown as Blob);
+  return mobileRequest<MobileProfilePhotoResponse>("/api/mobile/v1/profile/photo", {
+    locale,
+    method: "POST",
+    accessToken: tokens.accessToken,
+    body: form,
+    timeoutMs: 45_000,
+  });
+}
+
+export function removeMobileProfilePhoto(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  kind: "profile" | "cover",
+) {
+  return mobileRequest<MobileProfilePhotoResponse>("/api/mobile/v1/profile/photo", {
+    locale,
+    method: "DELETE",
+    accessToken: tokens.accessToken,
+    body: { kind },
+    timeoutMs: 30_000,
   });
 }
 

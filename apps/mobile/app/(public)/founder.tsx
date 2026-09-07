@@ -126,7 +126,7 @@ export default function FounderScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { backgroundColor: colors.background, flex: 1 },
+  safeArea: { backgroundColor: "transparent", flex: 1 },
   content: { gap: spacing.xxl, paddingBottom: 56, paddingHorizontal: spacing.lg, paddingTop: spacing.lg },
   heroCard: {
     backgroundColor: "#0A0A0A",

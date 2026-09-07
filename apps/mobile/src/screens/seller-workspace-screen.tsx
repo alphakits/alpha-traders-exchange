@@ -371,7 +371,7 @@ export function SellerWorkspaceScreen() {
 
 const styles = StyleSheet.create({
   screen: {
-    backgroundColor: colors.background,
+    backgroundColor: "transparent",
     flex: 1,
   },
   content: {
