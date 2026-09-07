@@ -228,7 +228,7 @@ export function PurchaseListingDialog({
                   </div>
                 </div>
                 <p className={`mt-2 text-[11px] text-[#9CA3AF] ${isAr ? "text-right" : ""}`}>
-                  {isAr ? "العمولة (1%)" : "Commission (1%)"}: <span className="text-white">₪{commission.toFixed(2)}</span> · {isAr ? "الإجمالي التقديري" : "Estimated total"}: <span className="text-[#C9A227]">₪{estimatedTotal.toFixed(2)}</span>
+                  {isAr ? "العمولة (1%)" : "Commission (1%)"}: <span className="text-white">{formatIls(commission)}</span> · {isAr ? "الإجمالي التقديري" : "Estimated total"}: <span className="text-[#C9A227]">{formatIls(estimatedTotal)}</span>
                 </p>
               </div>
 
@@ -258,7 +258,7 @@ export function PurchaseListingDialog({
                     </div>
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
                       <p className="font-medium text-white">{isAr ? "أحدث العمولات" : "Recent Commission"}</p>
-                      {(sellerProfileData.ownerTools?.commissionHistory ?? []).slice(0, 3).map((entry) => <p key={entry.id} className="mt-1">{entry.commissionAmount.toFixed(2)} USDT • {new Date(entry.createdAt).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}</p>)}
+                      {(sellerProfileData.ownerTools?.commissionHistory ?? []).slice(0, 3).map((entry) => <p key={entry.id} className="mt-1">{entry.commissionAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT • {new Date(entry.createdAt).toLocaleDateString(isAr ? "ar-IL" : "en-IL")}</p>)}
                     </div>
                     <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-[#D1D5DB]">
                       <p className="font-medium text-white">{isAr ? "أحدث الصفقات" : "Recent Trades"}</p>

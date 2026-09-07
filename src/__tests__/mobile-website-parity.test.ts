@@ -31,6 +31,11 @@ describe("mobile website parity", () => {
     expect(shell).toContain("onMessage={handleWebsiteMessage}");
     expect(shell).toContain("addNotificationResponseReceivedListener");
     expect(shell).toContain("addPushTokenListener");
+    expect(shell).toContain("setBadgeCountAsync(message.unreadCount)");
+    expect(shell).toContain("if (!hasLoadedContentRef.current) setIsLoading(true)");
+    expect(shell).toContain("if (loadErrorRef.current ||");
+    expect(shell).toContain('if (decision === "allow")');
+    expect(shell).toContain("setSource({ uri: targetUrl })");
     expect(nativeNotifications).toContain("ExecutionEnvironment.StoreClient");
     expect(navigation).toContain('https://www.alphatraders.co.il');
     expect(mobilePackage).toContain('"react-native-webview": "13.16.1"');
@@ -39,6 +44,8 @@ describe("mobile website parity", () => {
     expect(mobileConfig).toContain('"icon": "../../public/images/brand/alpha-traders-app-icon-1024.png"');
     expect(mobileConfig).toContain('"foregroundImage": "../../public/images/brand/alpha-traders-app-icon-maskable-1024.png"');
     expect(mobileConfig).toContain('"expo-notifications"');
+    expect(mobileConfig).toContain('"cameraPermission": "Allow Alpha Traders');
+    expect(mobileConfig).toContain('"microphonePermission": false');
     expect(installedIphoneWorkflow).toContain("type: apple-device-registration-request");
     expect(installedIphoneWorkflow).toContain("profile: preview");
     expect(installedIphoneWorkflow).toContain("refresh_ad_hoc_provisioning_profile: true");

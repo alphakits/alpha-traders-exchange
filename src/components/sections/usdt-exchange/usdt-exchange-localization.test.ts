@@ -11,8 +11,10 @@ vi.mock("next/image", () => ({ default: () => null }));
 
 import {
   canCancelBuyerHistoryRequest,
+  formatIls,
   formatIsraelDateKey,
   formatIsraelMarketTime,
+  formatUsdt,
   greetingByTime,
   localizeWalletValidationError,
   listingStatusLabel,
@@ -29,6 +31,11 @@ import type { ListingStatus, PurchaseRequest, PurchaseRequestStatus, TradeTimeli
 const ARABIC_TEXT = /[\u0600-\u06ff]/;
 
 describe("USDT exchange localized mobile copy", () => {
+  it("groups every marketplace financial amount above 999", () => {
+    expect(formatUsdt(1_000)).toBe("1,000.00 USDT");
+    expect(formatIls(1_050_000)).toBe("₪1,050,000.00");
+  });
+
   it("renders time-based greetings from one deterministic Israel timezone", () => {
     expect(greetingByTime(false, "2026-09-03T22:30:00.000Z")).toBe("Good morning");
     expect(greetingByTime(true, "2026-09-03T10:00:00.000Z")).toBe("مساء الخير");
