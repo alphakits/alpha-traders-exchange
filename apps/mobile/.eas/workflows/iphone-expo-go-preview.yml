@@ -9,3 +9,8 @@ jobs:
       platform: ios
       branch: phone-preview
       message: Alpha Traders phone preview
+    hooks:
+      after_install_node_modules:
+        - name: Expose Expo runtime to update tools
+          run: test -e node_modules/expo || ln -s ../apps/mobile/node_modules/expo node_modules/expo
+          working_directory: ../..
