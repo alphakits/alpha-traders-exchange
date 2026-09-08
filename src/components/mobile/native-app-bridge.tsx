@@ -48,7 +48,18 @@ export function NativeAppBridge({ locale }: { locale: AppLocale }) {
               appVersion: message.appVersion,
             }),
           });
-          if (response.ok) return;
+          if (response.ok) {
+            if (!stopped && currentUserIdRef.current === userId) {
+              postToNativeApp({
+                type: "alpha.web.push-registration",
+                version: NATIVE_WEB_BRIDGE_VERSION,
+                userId,
+                status: "registered",
+                locale: message.locale,
+              });
+            }
+            return;
+          }
           if (response.status !== 429 && response.status < 500) break;
         } catch {
           // Retry bounded transient network failures below.
@@ -58,6 +69,15 @@ export function NativeAppBridge({ locale }: { locale: AppLocale }) {
         // A foreground/session signal from the native shell resends its cached
         // token, while the server upsert keeps that retry idempotent.
         lastRegistrationRef.current = null;
+      }
+      if (!stopped && currentUserIdRef.current === userId) {
+        postToNativeApp({
+          type: "alpha.web.push-registration",
+          version: NATIVE_WEB_BRIDGE_VERSION,
+          userId,
+          status: "failed",
+          locale: message.locale,
+        });
       }
     };
 

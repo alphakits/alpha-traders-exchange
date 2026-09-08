@@ -30,6 +30,13 @@ export type WebToNativeBridgeMessage =
       userId: string;
       unreadCount: number;
       locale: MobileLocale;
+    }
+  | {
+      type: "alpha.web.push-registration";
+      version: typeof NATIVE_WEB_BRIDGE_VERSION;
+      userId: string;
+      status: "registered" | "failed";
+      locale: MobileLocale;
     };
 
 export type NativeToWebBridgeMessage =
@@ -134,6 +141,19 @@ export function parseWebToNativeBridgeMessage(raw: unknown): WebToNativeBridgeMe
         version: NATIVE_WEB_BRIDGE_VERSION,
         userId,
         unreadCount,
+        locale: value.locale,
+      };
+    }
+  }
+
+  if (value.type === "alpha.web.push-registration" && isLocale(value.locale)) {
+    const userId = boundedString(value.userId, 160);
+    if (userId && (value.status === "registered" || value.status === "failed")) {
+      return {
+        type: "alpha.web.push-registration",
+        version: NATIVE_WEB_BRIDGE_VERSION,
+        userId,
+        status: value.status,
         locale: value.locale,
       };
     }

@@ -53,6 +53,11 @@ import {
   reviewReferenceFromPushData,
   trustedPushWebsiteUrl,
 } from "../notifications/native-notifications";
+import {
+  pushSetupIssueFromRegistrationStatus,
+  pushSetupRecoveryCopy,
+  type PushSetupIssue,
+} from "../notifications/push-registration-recovery";
 
 const LEGACY_LOCALE_KEY = "alpha.mobile.locale.v1";
 const RESUME_URL_KEY = "alpha.mobile.website.resume-url.v1";
@@ -164,14 +169,23 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   const pendingPushUrlRef = useRef<string | null>(null);
   const pushRegistrationKeyRef = useRef<string | null>(null);
   const pushRegistrationResultRef = useRef<NativeToWebBridgeMessage | null>(null);
-  const pendingPushRegistrationRef = useRef<{ userId: string; locale: MobileLocale } | null>(null);
+  const pendingPushRegistrationRef = useRef<{
+    userId: string;
+    locale: MobileLocale;
+    forceRefresh: boolean;
+  } | null>(null);
   const pushRegistrationInFlightRef = useRef<Promise<void> | null>(null);
   const [source, setSource] = useState<WebSource | null>(null);
   const [locale, setLocale] = useState<MobileLocale>(inferredLocale);
   const [canGoBack, setCanGoBack] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
+  const [pushSetupIssue, setPushSetupIssue] = useState<PushSetupIssue | null>(null);
   const labels = useMemo(() => copy(locale), [locale]);
+  const pushRecoveryLabels = useMemo(
+    () => pushSetupIssue ? pushSetupRecoveryCopy(locale, pushSetupIssue) : null,
+    [locale, pushSetupIssue],
+  );
 
   const reportNativeReady = useCallback(() => {
     if (readyReported.current) return;
@@ -213,8 +227,16 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   const ensurePushRegistration = useCallback(function registerPush(
     userId: string,
     nextLocale: MobileLocale,
+    forceRefresh = false,
   ) {
     const key = `${userId}:${nextLocale}`;
+    if (forceRefresh) {
+      // Permission may have changed while the user was in phone settings, and
+      // a token may rotate while the app is backgrounded. Re-read both on the
+      // next foreground instead of trusting a once-valid cached registration.
+      pushRegistrationKeyRef.current = null;
+      pushRegistrationResultRef.current = null;
+    }
     if (pushRegistrationKeyRef.current === key) {
       if (pushRegistrationResultRef.current) {
         sendMessageToWebsite(pushRegistrationResultRef.current);
@@ -225,12 +247,23 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       // A logout/login or locale change can arrive while the OS token request
       // is still open. Keep the latest authenticated target instead of losing
       // its registration until another app foreground event happens.
-      pendingPushRegistrationRef.current = { userId, locale: nextLocale };
+      const alreadyPending = pendingPushRegistrationRef.current;
+      pendingPushRegistrationRef.current = {
+        userId,
+        locale: nextLocale,
+        forceRefresh: forceRefresh || Boolean(
+          alreadyPending
+          && alreadyPending.userId === userId
+          && alreadyPending.locale === nextLocale
+          && alreadyPending.forceRefresh
+        ),
+      };
       return;
     }
     const task = (async () => {
       const result = await registerForNativePushNotifications(nextLocale);
       if (activeSessionRef.current?.userId !== userId) return;
+      setPushSetupIssue(pushSetupIssueFromRegistrationStatus(result.status));
       if (result.status === "registered") {
         pushRegistrationKeyRef.current = key;
         pushRegistrationResultRef.current = result;
@@ -245,7 +278,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       const pending = pendingPushRegistrationRef.current;
       pendingPushRegistrationRef.current = null;
       if (pending && activeSessionRef.current?.userId === pending.userId) {
-        registerPush(pending.userId, pending.locale);
+        registerPush(pending.userId, pending.locale, pending.forceRefresh);
       }
     });
   }, [sendMessageToWebsite]);
@@ -314,7 +347,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
     const appStateSubscription = AppState.addEventListener("change", (state) => {
       if (state !== "active") return;
       const session = activeSessionRef.current;
-      if (session) ensurePushRegistration(session.userId, session.locale);
+      if (session) ensurePushRegistration(session.userId, session.locale, true);
       attemptPendingReview();
     });
     return () => {
@@ -374,6 +407,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
         pushRegistrationKeyRef.current = null;
         pushRegistrationResultRef.current = null;
         pendingReviewRef.current = null;
+        setPushSetupIssue(null);
         void Notifications.setBadgeCountAsync(0).catch(() => undefined);
         return;
       }
@@ -401,6 +435,13 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       return;
     }
     if (
+      message.type === "alpha.web.push-registration"
+      && activeSessionRef.current?.userId === message.userId
+    ) {
+      setPushSetupIssue(message.status === "failed" ? "failed" : null);
+      return;
+    }
+    if (
       message.type === "alpha.web.trade-completed"
       && activeSessionRef.current?.userId === message.userId
     ) {
@@ -408,6 +449,17 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       attemptPendingReview();
     }
   }, [attemptPendingReview, ensurePushRegistration]);
+
+  const recoverPushSetup = useCallback(() => {
+    if (pushSetupIssue === "denied") {
+      void Linking.openSettings().catch(() => undefined);
+      return;
+    }
+    const session = activeSessionRef.current;
+    if (!session) return;
+    setPushSetupIssue(null);
+    ensurePushRegistration(session.userId, session.locale, true);
+  }, [ensurePushRegistration, pushSetupIssue]);
 
   const completeLoad = useCallback((event: WebViewNavigationEvent | WebViewErrorEvent) => {
     if (loadErrorRef.current || "description" in event.nativeEvent) {
@@ -524,6 +576,35 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
         />
       ) : null}
 
+      {pushSetupIssue && pushRecoveryLabels && !isLoading && !loadFailed ? (
+        <View accessibilityRole="alert" style={styles.pushRecoveryBanner}>
+          <Text style={[styles.pushRecoveryTitle, locale === "ar" && styles.rtlText]}>
+            {pushRecoveryLabels.title}
+          </Text>
+          <Text style={[styles.pushRecoveryBody, locale === "ar" && styles.rtlText]}>
+            {pushRecoveryLabels.body}
+          </Text>
+          <View style={[styles.pushRecoveryActions, locale === "ar" && styles.reverseRow]}>
+            <Pressable
+              accessibilityLabel={pushRecoveryLabels.action}
+              accessibilityRole="button"
+              onPress={recoverPushSetup}
+              style={styles.pushRecoveryPrimary}
+            >
+              <Text style={styles.pushRecoveryPrimaryText}>{pushRecoveryLabels.action}</Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel={pushRecoveryLabels.dismiss}
+              accessibilityRole="button"
+              onPress={() => setPushSetupIssue(null)}
+              style={styles.pushRecoverySecondary}
+            >
+              <Text style={styles.pushRecoverySecondaryText}>{pushRecoveryLabels.dismiss}</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
       {isLoading && !loadFailed ? (
         <View accessibilityLabel={locale === "ar" ? "جارٍ تحميل Alpha Traders" : "Loading Alpha Traders"} accessibilityRole="progressbar" style={styles.loadingOverlay}>
           <ActivityIndicator color="#D4AF37" size="large" />
@@ -554,6 +635,73 @@ const styles = StyleSheet.create({
   webView: {
     backgroundColor: "#050505",
     flex: 1,
+  },
+  pushRecoveryBanner: {
+    backgroundColor: "#17130A",
+    borderColor: "rgba(212, 175, 55, 0.72)",
+    borderRadius: 16,
+    borderWidth: 1,
+    bottom: 14,
+    elevation: 8,
+    left: 12,
+    padding: 16,
+    position: "absolute",
+    right: 12,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    zIndex: 8,
+  },
+  pushRecoveryTitle: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  pushRecoveryBody: {
+    color: "#D6D9DE",
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 5,
+  },
+  pushRecoveryActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 13,
+  },
+  reverseRow: {
+    flexDirection: "row-reverse",
+  },
+  rtlText: {
+    textAlign: "right",
+    writingDirection: "rtl",
+  },
+  pushRecoveryPrimary: {
+    alignItems: "center",
+    backgroundColor: "#D4AF37",
+    borderRadius: 12,
+    justifyContent: "center",
+    minHeight: 46,
+    paddingHorizontal: 16,
+  },
+  pushRecoveryPrimaryText: {
+    color: "#050505",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  pushRecoverySecondary: {
+    alignItems: "center",
+    borderColor: "rgba(255, 255, 255, 0.28)",
+    borderRadius: 12,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 46,
+    paddingHorizontal: 16,
+  },
+  pushRecoverySecondaryText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
   },
   loadingOverlay: {
     alignItems: "center",
