@@ -3,14 +3,19 @@
 Status: private-beta client implemented; signed device distribution and
 real-device acceptance remain pending.
 
-## Product decision
+## Current product decision
 
-Build one Expo/React Native TypeScript app for iOS and Android, using Expo Router
-for navigation. Keep the existing Next.js application as the backend and web
-experience. Keep owner/admin operations web-only for the first native release.
+Ship one signed Expo/React Native TypeScript app for iOS and Android. Its root
+layout renders the canonical production website through a hardened WebView so
+phone users receive the exact website features, rules, copy, and fixes without a
+second drifting product surface. Expo provides the branded icon and splash,
+native lock-screen notifications, notification taps, app-review prompts, and
+signed App Store/Google Play packaging.
 
-This gives the app one shared UI codebase while preserving the marketplace's
-existing business rules, database, audit log, and bilingual domain model.
+The existing versioned native APIs and native screens remain a tested foundation,
+but they are not rendered by the shipping root layout. The Next.js application
+remains the single visible product and the authoritative backend for marketplace
+rules, persistence, audit logs, authentication, and bilingual behavior.
 
 Primary references:
 
@@ -29,9 +34,9 @@ Primary references:
   without `next/*`, Node-only, or server-only imports.
 - Existing brand assets and the black/gold visual system.
 
-Web React components should not be copied into React Native. Share contracts,
-business rules, design tokens, and copy; implement native screens with native
-controls and accessibility semantics.
+Do not recreate visible website flows in a second active native interface. Keep
+native-only capabilities narrowly scoped and bridge them through bounded,
+versioned messages whose payloads contain no credentials or private trade data.
 
 ## Pre-app API gates
 
@@ -96,13 +101,15 @@ Requirements:
 
 ### 4. Push and foreground freshness
 
-- Register push tokens per user, device, platform, locale, and app version.
-- Require an authenticated device session to register or delete a token.
+- Register push tokens per user, installation, platform, locale, app version,
+  and the exact authenticated website session inside the signed app.
+- Require the canonical authenticated session to register or replace a token;
+  expired or logged-out sessions must stop delivery server-side.
 - Keep notification payloads privacy-safe: no bank details, phone numbers,
   evidence URLs, or sensitive message text on the lock screen.
 - Deep-link to a route identifier and fetch authorized content after open.
-- Use bounded foreground polling for the first beta where the web app currently
-  relies on SSE. Push is a wake-up hint, never the source of truth.
+- Keep SSE and bounded foreground refresh as the source of truth. Push is a
+  privacy-safe wake-up hint and never authorizes or advances a trade.
 
 ### 5. Idempotency and reconciliation
 
@@ -223,6 +230,15 @@ The native beta is ready only when:
 
 Completed in source:
 
+- Website-parity app shell with strict production-origin navigation, shared
+  authenticated cookies, safe external handoff, weak-network recovery, a branded
+  icon/splash, and no separate visible native product surface.
+- Signed-device Expo push registration bound to the active user session, durable
+  delivery deduplication, bounded provider retries, receipt reconciliation, and
+  invalid-token deactivation,
+  privacy-safe Arabic/English lock-screen copy, unread badge sync, allowlisted
+  notification taps, token-rotation recovery, and foreground permission
+  revalidation with direct phone-settings/retry guidance.
 - Versioned, device-bound access and rotating refresh sessions.
 - Bilingual marketplace, seller profiles, buyer request creation, participant-
   only Trade Rooms, chat, bank-detail reveal, evidence upload, buyer disputes,
@@ -290,9 +306,9 @@ Still requires external acceptance:
 - One signed Android internal build and the real-device matrix in the
   [private-beta release runbook](./private-beta-release-runbook.md).
 - Apple Developer enrollment, signing, and one TestFlight build.
-- Push-token registration and privacy-safe remote push delivery. The first
-  private build continues to use bounded foreground polling until that path is
-  implemented and verified on real devices.
+- End-to-end Expo/APNs/FCM delivery acceptance on signed physical devices,
+  including permission denial/re-enable, token rotation, background/terminated
+  receipt, tap destination, badge clearing, and lock-screen privacy checks.
 - Store metadata, screenshots, reviewer access, and final release approval.
 
 The exact handoff sequence, evidence to record, and card-gated steps are in the

@@ -44,6 +44,12 @@ first, set the latest recommended version second, and raise the mandatory
 minimum only after the release owner explicitly approves the cutoff. Until
 signed distribution exists, keep both platform minimums at `1.0.0`.
 
+Remote push uses Expo's push service. The signed app obtains its own Expo token;
+the website stores it only after the canonical user session is authenticated.
+If enhanced Expo push security is enabled for the EAS project, set the server-only
+`EXPO_ACCESS_TOKEN` in Vercel. Never expose that value to the app or browser, and
+never substitute the repository `EXPO_TOKEN`, which is only for EAS build access.
+
 ## 2. Android internal build
 
 After GitHub Actions billing is restored, dispatch **Mobile Preview** with
@@ -59,17 +65,19 @@ device matrix in section 4.
 
 After Apple Developer Program enrollment and signing access are complete:
 
-1. Register the intended test-device UDIDs for ad hoc distribution.
-2. Dispatch **Mobile Preview** with `platform=ios`.
+1. Confirm `release/iphone-installed-preview` points to the exact approved and
+   fully gated `main` commit; an older release branch must not be built.
+2. Push that exact release commit to trigger **Alpha Traders iPhone Installed
+   Preview**, then complete its one-time device-registration request.
 3. Confirm that EAS uses the expected bundle identifier
    `com.alphakits.alphatraders` and the `preview` profile.
 4. Record the EAS build URL, commit SHA, signing team, registered devices, and
    completion status without recording private keys or credentials.
 
-Use TestFlight for broader iOS beta distribution. Keep the first private build
-on bounded foreground polling; remote push is a separate signed-device change
-and must not contain trade amounts, bank details, wallet addresses, or evidence
-in lock-screen text.
+Use TestFlight for broader iOS beta distribution. The signed preview includes
+remote push, while SSE and foreground refresh remain authoritative. Verify that
+lock-screen copy contains no trade amounts, chat text, bank details, wallet
+addresses, contact details, or evidence data.
 
 ## 4. Real-device acceptance matrix
 
@@ -87,6 +95,7 @@ OS version, build URL, and commit SHA; use fictional test identities and data.
 | Buyer request | iOS + Android | iOS + Android | Buy now, price offer, validation, face-to-face acknowledgement |
 | Seller workspace | iOS + Android | iOS + Android | Role gate, pagination, pause/resume retry, Available/Away/Vacation, trusted full-workspace handoff |
 | Trade Room | iOS + Android | iOS + Android | Both roles, every state transition, release timer/overdue state, chat, bank-detail gate, dispute eligibility, verified review, seller response |
+| Notifications | iOS + Android | iOS + Android | Permission allow/deny/re-enable, background and terminated delivery, token rotation, unread badge, correct tap destination, Arabic/English privacy-safe preview |
 | Evidence | iOS + Android | iOS + Android | Allowed image, oversize/type rejection, retry |
 | Recovery | iOS + Android | iOS + Android | Offline, timeout, app kill, background/foreground, expired session |
 | App version | iOS + Android | iOS + Android | Recommended version, HTTP 426, mandatory-update copy and support link |

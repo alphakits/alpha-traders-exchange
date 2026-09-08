@@ -69,4 +69,21 @@ describe("native website bridge protocol", () => {
     expect(parseWebToNativeBridgeMessage({ ...valid, unreadCount: 1.5 })).toBeNull();
     expect(parseWebToNativeBridgeMessage({ ...valid, unreadCount: 10_000 })).toBeNull();
   });
+
+  it("accepts only account-scoped push persistence acknowledgements", () => {
+    const registered = {
+      type: "alpha.web.push-registration",
+      version: NATIVE_WEB_BRIDGE_VERSION,
+      userId: "user-1",
+      status: "registered",
+      locale: "en",
+    } as const;
+    expect(parseWebToNativeBridgeMessage(registered)).toEqual(registered);
+    expect(parseWebToNativeBridgeMessage({ ...registered, status: "failed" })).toEqual({
+      ...registered,
+      status: "failed",
+    });
+    expect(parseWebToNativeBridgeMessage({ ...registered, status: "pending" })).toBeNull();
+    expect(parseWebToNativeBridgeMessage({ ...registered, userId: "" })).toBeNull();
+  });
 });

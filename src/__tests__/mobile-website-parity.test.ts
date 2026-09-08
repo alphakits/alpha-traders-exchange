@@ -12,6 +12,7 @@ describe("mobile website parity", () => {
   it("uses the production website as the only rendered product surface", () => {
     const root = source("apps/mobile/app/_layout.tsx");
     const shell = source("apps/mobile/src/components/website-app-shell.tsx");
+    const websiteBridge = source("src/components/mobile/native-app-bridge.tsx");
     const navigation = source("apps/mobile/src/web/website-navigation.ts");
     const nativeNotifications = source("apps/mobile/src/notifications/native-notifications.ts");
     const mobilePackage = source("apps/mobile/package.json");
@@ -32,7 +33,14 @@ describe("mobile website parity", () => {
     expect(shell).toContain("addNotificationResponseReceivedListener");
     expect(shell).toContain("addPushTokenListener");
     expect(shell).toContain("setBadgeCountAsync(message.unreadCount)");
-    expect(shell).toContain("pendingPushRegistrationRef.current = { userId, locale: nextLocale }");
+    expect(shell).toContain("pendingPushRegistrationRef.current = {");
+    expect(shell).toContain("forceRefresh: forceRefresh || Boolean(");
+    expect(shell).toContain("ensurePushRegistration(session.userId, session.locale, true)");
+    expect(shell).toContain("Linking.openSettings()");
+    expect(shell).toContain('accessibilityRole="alert"');
+    expect(shell).toContain('message.type === "alpha.web.push-registration"');
+    expect(websiteBridge).toContain('status: "registered"');
+    expect(websiteBridge).toContain('status: "failed"');
     expect(shell).toContain('AppState.currentState !== "active"');
     expect(shell).toContain("pendingReviewRef.current = tradeReference");
     expect(shell).toContain("if (!hasLoadedContentRef.current) setIsLoading(true)");
