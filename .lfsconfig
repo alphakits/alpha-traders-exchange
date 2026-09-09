@@ -1,0 +1,5 @@
+# Mobile publishing branches only: EAS does not need website course media.
+# Keep LFS pointers in the checkout and let .easignore exclude them from upload.
+[lfs]
+    fetchexclude = public/files/**
+    skipdownloaderrors = true
