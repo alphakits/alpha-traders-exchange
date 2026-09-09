@@ -4,7 +4,7 @@ run_name: Android production build • ${{ github.sha }}
 on:
   push:
     branches: [release/android-production]
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 jobs:
   build_android:
