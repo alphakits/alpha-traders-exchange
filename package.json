@@ -49,7 +49,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "discord.js": "^14.27.0",
-    "expo": "~57.0.20",
+    "expo": "~57.0.21",
     "lucide-react": "^1.25.0",
     "next": "15.5.25",
     "next-intl": "^4.13.2",

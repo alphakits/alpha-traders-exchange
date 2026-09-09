@@ -878,10 +878,10 @@ describe("partial listing preservation", () => {
       availableAmount: "0",
       activeTradeRequestId: undefined,
     });
-  // The 100 complete lifecycles take roughly 85 seconds in isolation and can
-  // exceed two minutes while the full 240+ file suite shares CI CPU. Keep the
+  // The 100 complete lifecycles take roughly 90 seconds in isolation and can
+  // exceed four minutes while the full 240+ file suite shares CI CPU. Keep the
   // scenario intact and allow scheduling headroom instead of reducing coverage.
-  }, 180_000);
+  }, 360_000);
 
   it("covers full trade lifecycle transitions, notifications, and commission record creation", async () => {
     const listing = await createMarketplaceListing({
