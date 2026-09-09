@@ -58,6 +58,18 @@ describe("mobile accessibility completion", () => {
     expect(tradeRoom).toContain("setBankDetails(null)");
   });
 
+  it("keeps Face-to-Face completion explicit, confirmed, and evidence-free in the native Trade Room", () => {
+    const tradeRoom = source("apps/mobile/src/screens/trade-detail-screen.tsx");
+    const mobileApi = source("apps/mobile/src/api/mobile-api.ts");
+
+    expect(tradeRoom).toContain("actions.canCompleteFaceToFace");
+    expect(tradeRoom).toContain('Alert.alert(t("faceToFaceCompletionTitle"), t("faceToFaceCompletionConfirmation")');
+    expect(tradeRoom).toContain('loading={busyAction === "complete-face-to-face"}');
+    expect(tradeRoom).toContain("!actions.canCompleteFaceToFace && actions.canUploadPaymentEvidence");
+    expect(tradeRoom).toContain("!actions.canCompleteFaceToFace && actions.canUploadReleaseEvidence");
+    expect(mobileApi).toContain('body: { action: "complete_face_to_face" }');
+  });
+
   it("keeps recovery surfaces scrollable and text-link targets at least 44 points", () => {
     const biometricLock = source("apps/mobile/src/components/biometric-lock-screen.tsx");
     const sessionRecovery = source("apps/mobile/src/components/session-recovery-screen.tsx");

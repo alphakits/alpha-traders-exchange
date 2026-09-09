@@ -103,6 +103,18 @@ const EXACT_SYSTEM_MESSAGES: Record<string, LocalizedExactTemplate> = {
     ar: "أكّد المشتري اكتمال الصفقة.",
     en: "Buyer confirmed trade completed.",
   },
+  "Seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can mark the trade complete without uploading evidence.": {
+    ar: "وافق البائع على صفقة اللقاء الشخصي. أكملوا التبادل وجهًا لوجه أولًا، وبعد ذلك يمكن لأي من الطرفين إنهاء الصفقة دون رفع إثبات.",
+    en: "Seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can mark the trade complete without uploading evidence.",
+  },
+  "Buyer marked the Face-to-Face trade complete. The trade has moved to history and review.": {
+    ar: "أنهى المشتري صفقة اللقاء الشخصي. انتقلت الصفقة إلى السجل والتقييم.",
+    en: "Buyer marked the Face-to-Face trade complete. The trade has moved to history and review.",
+  },
+  "Seller marked the Face-to-Face trade complete. The trade has moved to history and review.": {
+    ar: "أنهى البائع صفقة اللقاء الشخصي. انتقلت الصفقة إلى السجل والتقييم.",
+    en: "Seller marked the Face-to-Face trade complete. The trade has moved to history and review.",
+  },
   "Buyer sent a reminder to continue this Trade Room.": {
     ar: "أرسل المشتري تذكيرًا لمتابعة غرفة الصفقة.",
     en: "Buyer sent a reminder to continue this Trade Room.",

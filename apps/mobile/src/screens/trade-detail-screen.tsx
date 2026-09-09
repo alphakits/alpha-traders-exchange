@@ -21,6 +21,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MobileTradeDetail, MobileTradeStatus } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import {
+  completeMobileFaceToFaceTrade,
   getMobileTrade,
   getMobileTradeBankDetails,
   MobileApiError,
@@ -51,7 +52,12 @@ type BankDetails = {
   accountLast4: string;
 };
 
-function stageInstruction(status: MobileTradeStatus, t: ReturnType<typeof useLocale>["t"]) {
+function stageInstruction(
+  status: MobileTradeStatus,
+  t: ReturnType<typeof useLocale>["t"],
+  canCompleteFaceToFace = false,
+) {
+  if (canCompleteFaceToFace) return t("faceToFaceReady");
   if (status === "pending") return t("waitingForSeller");
   if (status === "accepted") return t("waitingForBuyerPayment");
   if (status === "payment_sent") return t("waitingForFunds");
@@ -212,6 +218,38 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
         style: destructive ? "destructive" : "default",
         onPress: () => void updateStatus(status, safetyAcknowledged),
       },
+    ]);
+  }
+
+  async function completeFaceToFaceTrade() {
+    if (busyAction) return;
+    const operationScope = activeTradeScopeRef.current;
+    setError(null);
+    setNotice(null);
+    setBusyAction("complete-face-to-face");
+    try {
+      await requestWithSession((tokens, requestLocale) =>
+        completeMobileFaceToFaceTrade(tokens, requestLocale, requestId));
+      if (activeTradeScopeRef.current !== operationScope) return;
+      setNotice(t("faceToFaceCompleted"));
+      await Promise.all([
+        refreshTrade(),
+        queryClient.invalidateQueries({ queryKey: ["mobile-notifications"] }),
+      ]);
+    } catch (caught) {
+      if (activeTradeScopeRef.current === operationScope) {
+        setError(caught instanceof MobileApiError ? caught.message : t("genericError"));
+      }
+    } finally {
+      if (activeTradeScopeRef.current === operationScope) setBusyAction(null);
+    }
+  }
+
+  function confirmFaceToFaceCompletion() {
+    if (busyAction) return;
+    Alert.alert(t("faceToFaceCompletionTitle"), t("faceToFaceCompletionConfirmation"), [
+      { text: t("cancel"), style: "cancel" },
+      { text: t("confirm"), onPress: () => void completeFaceToFaceTrade() },
     ]);
   }
 
@@ -484,10 +522,10 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               <Text style={styles.statusText}>{mobileTradeStatusLabel(trade.status, locale)}</Text>
             </View>
           </View>
-          <Text style={[styles.instruction, isRTL && styles.rtlText]}>{stageInstruction(trade.status, t)}</Text>
+          <Text style={[styles.instruction, isRTL && styles.rtlText]}>{stageInstruction(trade.status, t, actions.canCompleteFaceToFace)}</Text>
         </View>
 
-        {trade.status === "usdt_release_pending" && visibleTimeRemaining !== null ? (
+        {!actions.canCompleteFaceToFace && trade.status === "usdt_release_pending" && visibleTimeRemaining !== null ? (
           <View style={[
             styles.deadlineCard,
             visibleTimeRemaining <= 300 && styles.deadlineCardWarning,
@@ -543,6 +581,15 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           </View>
         ) : null}
 
+        {actions.canCompleteFaceToFace ? (
+          <View style={styles.faceToFaceCard}>
+            <Text accessibilityRole="header" style={[styles.sectionTitle, isRTL && styles.rtlText]}>
+              {t("faceToFaceCompletionTitle")}
+            </Text>
+            <Text style={[styles.sectionBody, isRTL && styles.rtlText]}>{t("faceToFaceNoEvidence")}</Text>
+          </View>
+        ) : null}
+
         <View style={styles.actions}>
           {actions.canAccept ? (
             <GoldButton
@@ -563,27 +610,36 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
               {t("cancelTrade")}
             </GoldButton>
           ) : null}
-          {actions.canUploadPaymentEvidence ? (
+          {actions.canCompleteFaceToFace ? (
+            <GoldButton
+              disabled={actionsDisabled}
+              loading={busyAction === "complete-face-to-face"}
+              onPress={confirmFaceToFaceCompletion}
+            >
+              {t("completeFaceToFaceTrade")}
+            </GoldButton>
+          ) : null}
+          {!actions.canCompleteFaceToFace && actions.canUploadPaymentEvidence ? (
             <GoldButton disabled={actionsDisabled} loading={busyAction === "evidence-buyer" || busyAction === "picking-evidence"} onPress={() => void uploadEvidence("buyer")}>
               {trade.hasBuyerEvidence ? t("receiptUploaded") : t("uploadPaymentReceipt")}
             </GoldButton>
           ) : null}
-          {actions.canConfirmFunds ? (
+          {!actions.canCompleteFaceToFace && actions.canConfirmFunds ? (
             <GoldButton disabled={actionsDisabled} loading={busyAction === "funds_received"} onPress={() => confirmStatus("funds_received", t("fundsConfirmation"))}>
               {t("confirmFunds")}
             </GoldButton>
           ) : null}
-          {actions.canBeginRelease ? (
+          {!actions.canCompleteFaceToFace && actions.canBeginRelease ? (
             <GoldButton disabled={actionsDisabled} loading={busyAction === "usdt_release_pending"} onPress={() => confirmStatus("usdt_release_pending", t("releaseConfirmation"))}>
               {t("beginUsdtRelease")}
             </GoldButton>
           ) : null}
-          {actions.canUploadReleaseEvidence ? (
+          {!actions.canCompleteFaceToFace && actions.canUploadReleaseEvidence ? (
             <GoldButton disabled={actionsDisabled} loading={busyAction === "evidence-seller" || busyAction === "picking-evidence"} onPress={() => void uploadEvidence("seller")}>
               {trade.hasSellerEvidence ? t("releaseProofUploaded") : t("uploadReleaseProof")}
             </GoldButton>
           ) : null}
-          {actions.canConfirmReceived ? (
+          {!actions.canCompleteFaceToFace && actions.canConfirmReceived ? (
             <GoldButton disabled={actionsDisabled} loading={busyAction === "completed"} onPress={() => confirmStatus("completed", t("receivedConfirmation"))}>
               {t("confirmReceived")}
             </GoldButton>
@@ -715,7 +771,7 @@ export function TradeDetailScreen({ requestId }: { requestId: string }) {
           </View>
         ) : null}
 
-        {(actions.canUploadPaymentEvidence || actions.canUploadReleaseEvidence) ? (
+        {!actions.canCompleteFaceToFace && (actions.canUploadPaymentEvidence || actions.canUploadReleaseEvidence) ? (
           <Text style={[styles.privacyNote, isRTL && styles.rtlText]}>◈ {t("evidencePrivacy")}</Text>
         ) : null}
 
@@ -825,6 +881,7 @@ const styles = StyleSheet.create({
   wallet: { backgroundColor: colors.surfaceRaised, borderRadius: radius.sm, color: colors.goldBright, fontSize: typography.small, lineHeight: 20, padding: spacing.md },
   bankRows: { gap: spacing.md },
   safetyNote: { color: colors.warning, fontSize: typography.caption, lineHeight: 18 },
+  faceToFaceCard: { backgroundColor: "rgba(67, 205, 138, 0.08)", borderColor: "rgba(67, 205, 138, 0.38)", borderRadius: radius.lg, borderWidth: 1, gap: spacing.sm, padding: spacing.lg },
   actions: { gap: spacing.md },
   error: { color: colors.danger, fontSize: typography.small, lineHeight: 20 },
   notice: { color: colors.success, fontSize: typography.small, fontWeight: "800", lineHeight: 21 },

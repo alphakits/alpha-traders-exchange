@@ -7,6 +7,7 @@ import type {
 } from "@alpha-traders/contracts";
 import type { TradeRoomData } from "@/lib/alpha-exchange-store";
 import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
+import { isFaceToFaceCompletionAvailable } from "@/lib/marketplace-payment-methods";
 import { localizeTradeRoomSystemMessage } from "@/lib/trade-room-system-message-localization";
 import type { PurchaseRequest, TradeChatMessage } from "@/types/alpha-exchange";
 
@@ -105,6 +106,8 @@ export function toMobileTradeDetail(
       canBeginRelease: isSeller && request.status === "funds_received",
       canUploadReleaseEvidence: isSeller && request.status === "usdt_release_pending",
       canConfirmReceived: isBuyer && request.status === "usdt_sent",
+      canCompleteFaceToFace: (isBuyer || isSeller)
+        && isFaceToFaceCompletionAvailable(request.paymentMethod, request.status),
       canOpenDispute: isBuyer && room.canOpenDispute && !room.hasOpenDispute,
       canSubmitReview: isBuyer
         && ["review_open", "completed", "locked"].includes(request.status)

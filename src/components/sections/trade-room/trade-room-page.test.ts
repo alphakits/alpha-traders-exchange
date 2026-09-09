@@ -12,6 +12,7 @@ vi.mock("@/i18n/navigation", () => ({
 
 import {
   canRevealTradeRoomBankDetails,
+  getPrimaryAction,
   getTradeRoomSessionKey,
   isTradeRoomChatNearBottom,
   groupTradeTimelineEntries,
@@ -105,6 +106,46 @@ describe("Trade Room client stability helpers", () => {
     expect(canRevealTradeRoomBankDetails({ ...acceptedBankTransfer, paymentMethod: "Cardless ATM Withdrawal" }, false)).toBe(false);
     expect(canRevealTradeRoomBankDetails({ ...acceptedBankTransfer, sellerBankAccountId: undefined }, false)).toBe(false);
     expect(canRevealTradeRoomBankDetails(acceptedBankTransfer, true)).toBe(false);
+  });
+
+  it("offers the no-evidence Face-to-Face completion command to both participants only after acceptance", () => {
+    const acceptedFaceToFace = {
+      ...room({ status: "accepted" }).request,
+      paymentMethod: "Face-to-Face (Meet in Person)",
+      buyerId: "buyer-1",
+      sellerId: "seller-1",
+    } as PurchaseRequest;
+
+    const buyerAction = getPrimaryAction(acceptedFaceToFace, "buyer-1", false, true);
+    expect(buyerAction).toMatchObject({
+      label: "Complete Face-to-Face Trade",
+      nextStatus: "completed",
+      command: "complete_face_to_face",
+    });
+    expect(buyerAction).not.toHaveProperty("requiresEvidenceSide");
+    expect(getPrimaryAction(acceptedFaceToFace, "seller-1", true, true)).toMatchObject({
+      label: "إكمال صفقة اللقاء الشخصي",
+      nextStatus: "completed",
+      command: "complete_face_to_face",
+    });
+    expect(getPrimaryAction({ ...acceptedFaceToFace, status: "pending" }, "buyer-1", false, true)).toBeNull();
+    expect(getPrimaryAction({ ...acceptedFaceToFace, paymentMethod: "Bank Transfer" }, "buyer-1", false, true)).toMatchObject({
+      mode: "upload",
+      uploadSide: "buyer",
+    });
+    expect(getPrimaryAction(acceptedFaceToFace, "admin-not-in-trade", false, true)).toBeNull();
+  });
+
+  it("requires confirmation and keeps the Face-to-Face action on both responsive website surfaces", () => {
+    const source = readFileSync(join(process.cwd(), "src/components/sections/trade-room/trade-room-page.tsx"), "utf8");
+
+    expect(source).toContain("!window.confirm(primaryAction.confirmationMessage)");
+    expect(source.match(/onClick=\{\(\) => void handlePrimaryAction\(\)\}/g)).toHaveLength(2);
+    expect(source).toContain('action: action.command');
+    expect(source).toContain('isFaceToFaceTrade ? (');
+    expect(source).toContain('No Evidence Upload Required');
+    expect(source).toContain('isSeller && request.status === "accepted" && !isFaceToFaceTrade');
+    expect(source).toContain('Meet in a safe public place and verify everything before completing the trade.');
   });
 
   it("keeps button-triggered file inputs out of the keyboard tab order", () => {

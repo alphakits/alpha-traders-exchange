@@ -162,6 +162,28 @@ describe("Trade Room email events", () => {
     }));
   });
 
+  it("sends no-evidence completion instructions when a Face-to-Face trade is accepted", async () => {
+    const deliver = await prepareTradeEventEmails({
+      event: "trade_accepted",
+      request: {
+        ...createRequest("accepted"),
+        paymentMethod: "Face-to-Face (Meet in Person)",
+      },
+    });
+
+    await deliver();
+
+    expect(sendMarketplaceEmailMock).toHaveBeenCalledWith(expect.objectContaining({
+      event: "trade_accepted",
+      to: "buyer-1@example.test",
+      title: { ar: "تم قبول صفقة اللقاء الشخصي", en: "Face-to-Face Trade Accepted" },
+      message: {
+        ar: expect.stringContaining("دون رفع إثبات"),
+        en: expect.stringContaining("without uploading evidence"),
+      },
+    }));
+  });
+
   it("emails the Buyer for both seller-side middle transitions", async () => {
     const fundsReceived = await prepareTradeEventEmails({
       event: "seller_funds_received",

@@ -98,7 +98,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (!room) return mobileError("TRADE_NOT_FOUND", requestId, locale, 404);
 
     const body = await readMobileJsonBody(request);
-    const nextStatus = String(body?.status ?? "") as PurchaseRequestStatus;
+    const action = String(body?.action ?? "").trim();
+    if (action && action !== "complete_face_to_face") {
+      return mobileError("INVALID_REQUEST", requestId, locale, 400);
+    }
+    const isFaceToFaceCompletion = action === "complete_face_to_face";
+    const nextStatus = (isFaceToFaceCompletion ? "completed" : String(body?.status ?? "")) as PurchaseRequestStatus;
     if (!MOBILE_MUTABLE_STATUSES.has(nextStatus)) {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
@@ -121,6 +126,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       actorUserId: auth.user.id,
       actorRole: auth.user.role,
       nextStatus,
+      completionMode: isFaceToFaceCompletion ? "face_to_face" : undefined,
       safetyAcknowledged: body?.safetyAcknowledged === true,
     });
 
