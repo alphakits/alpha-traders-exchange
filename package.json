@@ -32,8 +32,13 @@
     "mobile:clean": "node -e \"const fs=require('fs'); const dir='apps/mobile/dist'; if (fs.existsSync(dir)) fs.rmSync(dir,{recursive:true,force:true});\"",
     "mobile:doctor": "npm --workspace @alpha-traders/mobile run doctor",
     "mobile:typecheck": "npm --workspace @alpha-traders/mobile run typecheck",
+    "mobile:store-readiness": "node scripts/verify-mobile-store-readiness.mjs",
+    "mobile:store-readiness:submission": "node scripts/verify-mobile-store-readiness.mjs --submission",
+    "mobile:review-rehearsal": "node ./node_modules/vitest/vitest.mjs run src/__tests__/app-review-rehearsal.test.ts",
+    "mobile:scale-rehearsal": "node ./node_modules/vitest/vitest.mjs run src/__tests__/marketplace-concurrency-scale.test.ts",
+    "mobile:review-surface": "node scripts/verify-mobile-review-surface.mjs",
     "mobile:export": "npm run mobile:clean && npm --workspace @alpha-traders/mobile run export",
-    "mobile:verify": "npm run mobile:typecheck && npm run mobile:doctor && npm run mobile:export"
+    "mobile:verify": "npm run mobile:typecheck && npm run mobile:doctor && npm run mobile:store-readiness && npm run mobile:export"
   },
   "dependencies": {
     "@alpha-traders/contracts": "*",

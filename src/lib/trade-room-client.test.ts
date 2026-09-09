@@ -21,12 +21,19 @@ describe("Trade Room client prefetch reliability", () => {
   it("keeps route identifiers encoded and caches only a fresh payload", () => {
     expect(buildTradeRoomHref("trade/with spaces")).toBe("/trade-room/trade%2Fwith%20spaces");
 
-    writeTradeRoomCache("trade-1", { status: "accepted" });
-    expect(readTradeRoomCache("trade-1")).toEqual({ status: "accepted" });
+    writeTradeRoomCache("trade-1", "buyer-1", { status: "accepted" });
+    expect(readTradeRoomCache("trade-1", "buyer-1")).toEqual({ status: "accepted" });
 
     vi.advanceTimersByTime(90_001);
-    expect(readTradeRoomCache("trade-1")).toBeNull();
-    expect(window.sessionStorage.getItem("alpha.trade-room.cache.trade-1")).toBeNull();
+    expect(readTradeRoomCache("trade-1", "buyer-1")).toBeNull();
+    expect(window.sessionStorage.getItem("alpha.trade-room.cache.buyer-1.trade-1")).toBeNull();
+  });
+
+  it("never shares a cached Trade Room snapshot with a different signed-in account", () => {
+    writeTradeRoomCache("trade-shared", "buyer-1", { privateView: "buyer-one" });
+
+    expect(readTradeRoomCache("trade-shared", "buyer-1")).toEqual({ privateView: "buyer-one" });
+    expect(readTradeRoomCache("trade-shared", "buyer-2")).toBeNull();
   });
 
   it("coalesces hover, focus, and click prefetches into one route and data request", async () => {
@@ -38,9 +45,9 @@ describe("Trade Room client prefetch reliability", () => {
     vi.stubGlobal("fetch", fetchMock);
     const router = { prefetch: vi.fn(() => Promise.resolve()) };
 
-    const hoverPrefetch = prefetchTradeRoom(router, "trade-2");
-    const focusPrefetch = prefetchTradeRoom(router, "trade-2");
-    const clickPrefetch = prefetchTradeRoom(router, "trade-2");
+    const hoverPrefetch = prefetchTradeRoom(router, "trade-2", "buyer-1");
+    const focusPrefetch = prefetchTradeRoom(router, "trade-2", "buyer-1");
+    const clickPrefetch = prefetchTradeRoom(router, "trade-2", "buyer-1");
     await Promise.resolve();
 
     expect(focusPrefetch).toBe(hoverPrefetch);
@@ -51,16 +58,16 @@ describe("Trade Room client prefetch reliability", () => {
     resolveFetch?.(new Response(JSON.stringify({ request: { id: "trade-2" } }), { status: 200 }));
     await hoverPrefetch;
 
-    expect(readTradeRoomCache("trade-2")).toEqual({ request: { id: "trade-2" } });
+    expect(readTradeRoomCache("trade-2", "buyer-1")).toEqual({ request: { id: "trade-2" } });
   });
 
   it("reuses a fresh cached snapshot without making another data request", async () => {
-    writeTradeRoomCache("trade-3", { request: { id: "trade-3" } });
+    writeTradeRoomCache("trade-3", "buyer-1", { request: { id: "trade-3" } });
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     const router = { prefetch: vi.fn() };
 
-    await prefetchTradeRoom(router, "trade-3");
+    await prefetchTradeRoom(router, "trade-3", "buyer-1");
 
     expect(router.prefetch).toHaveBeenCalledWith("/trade-room/trade-3");
     expect(fetchMock).not.toHaveBeenCalled();
@@ -70,7 +77,18 @@ describe("Trade Room client prefetch reliability", () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("offline"))));
     const router = { prefetch: vi.fn(() => Promise.reject(new Error("route prefetch failed"))) };
 
-    await expect(prefetchTradeRoom(router, "trade-4")).resolves.toBeUndefined();
-    expect(readTradeRoomCache("trade-4")).toBeNull();
+    await expect(prefetchTradeRoom(router, "trade-4", "buyer-1")).resolves.toBeUndefined();
+    expect(readTradeRoomCache("trade-4", "buyer-1")).toBeNull();
+  });
+
+  it("prefetches only the route when no authenticated account scope is available", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const router = { prefetch: vi.fn() };
+
+    await prefetchTradeRoom(router, "trade-anonymous");
+
+    expect(router.prefetch).toHaveBeenCalledWith("/trade-room/trade-anonymous");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

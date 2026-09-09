@@ -60,7 +60,7 @@ type NotificationGroup = {
 const PAGE_SIZE = 20;
 const MOBILE_FETCH_LIMIT = 40;
 const DESKTOP_FETCH_LIMIT = 120;
-const NOTIFICATIONS_CACHE_KEY = "alpha.notifications.page.v1";
+const NOTIFICATIONS_CACHE_PREFIX = "alpha.notifications.page.v2.";
 const NOTIFICATIONS_CACHE_MAX_AGE_MS = 45_000;
 const TRADE_ROOM_DEBUG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
 
@@ -146,10 +146,14 @@ function matchesFilter(notification: AlphaExchangeNotification, filter: Notifica
   return isAnnouncement(notification);
 }
 
-function readNotificationsCache() {
+function notificationsCacheKey(userId: string) {
+  return `${NOTIFICATIONS_CACHE_PREFIX}${encodeURIComponent(userId)}`;
+}
+
+function readNotificationsCache(userId: string) {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.sessionStorage.getItem(NOTIFICATIONS_CACHE_KEY);
+    const raw = window.sessionStorage.getItem(notificationsCacheKey(userId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as NotificationsCachePayload;
     if (!parsed?.payload || typeof parsed.fetchedAt !== "number") return null;
@@ -159,13 +163,18 @@ function readNotificationsCache() {
   }
 }
 
-function writeNotificationsCache(payload: NotificationsPayload) {
+function writeNotificationsCache(userId: string, payload: NotificationsPayload) {
   if (typeof window === "undefined") return;
-  const serialized: NotificationsCachePayload = {
-    fetchedAt: Date.now(),
-    payload,
-  };
-  window.sessionStorage.setItem(NOTIFICATIONS_CACHE_KEY, JSON.stringify(serialized));
+  try {
+    const serialized: NotificationsCachePayload = {
+      fetchedAt: Date.now(),
+      payload,
+    };
+    window.sessionStorage.setItem(notificationsCacheKey(userId), JSON.stringify(serialized));
+  } catch {
+    // A cache quota or privacy-mode restriction must not turn a successful
+    // server response into an inbox loading error.
+  }
 }
 
 function notificationGroupLabel(notificationDate: Date, locale: AppLocale) {
@@ -272,7 +281,13 @@ function formatNotificationMessage(notification: AlphaExchangeNotification, loca
   return replaceExchangeEntityIdsWithHints(localizeNotificationCopy(notification, locale).message, notification);
 }
 
-export function NotificationsPage({ locale }: { locale: AppLocale }) {
+type NotificationsPageProps = { locale: AppLocale; userId: string };
+
+export function NotificationsPage(props: NotificationsPageProps) {
+  return <NotificationsPageSession key={props.userId} {...props} />;
+}
+
+function NotificationsPageSession({ locale, userId }: NotificationsPageProps) {
   const isAr = locale === "ar";
   const canonicalSession = useOptionalCanonicalSession();
   const [notifications, setNotifications] = useState<AlphaExchangeNotification[]>([]);
@@ -288,7 +303,22 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
   const [itemLoading, setItemLoading] = useState<Record<string, boolean>>({});
   const [isMobileViewport, setIsMobileViewport] = useState<boolean | null>(null);
   const router = useRouter();
-  const canLoadNotifications = !canonicalSession || (!canonicalSession.isResolving && Boolean(canonicalSession.user));
+  const canonicalUserMismatch = Boolean(
+    canonicalSession
+    && !canonicalSession.isResolving
+    && canonicalSession.user?.id !== userId,
+  );
+  const canLoadNotifications = !canonicalSession
+    || (!canonicalSession.isResolving && canonicalSession.user?.id === userId);
+
+  useEffect(() => {
+    if (!canonicalUserMismatch) return;
+    setNotifications([]);
+    setTotalCount(0);
+    setUnreadCount(0);
+    setError(null);
+    setLoading(false);
+  }, [canonicalUserMismatch]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 768px)");
@@ -318,7 +348,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
     setError(null);
     try {
       if (filter === "all" && !append && !force && offset === 0) {
-        const cached = readNotificationsCache();
+        const cached = readNotificationsCache(userId);
         if (cached && Date.now() - cached.fetchedAt <= NOTIFICATIONS_CACHE_MAX_AGE_MS) {
           const incoming = sortNotificationsNewestFirst(cached.payload.notifications ?? []);
           setNotifications(incoming);
@@ -356,7 +386,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
       setTotalCount(payload.total ?? incoming.length);
       setUnreadCount(payload.unreadCount ?? 0);
       if (filter === "all" && offset === 0) {
-        writeNotificationsCache({
+        writeNotificationsCache(userId, {
           ...payload,
           notifications: incoming,
         });
@@ -370,7 +400,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
         setLoading(false);
       }
     }
-  }, [canLoadNotifications, canonicalSession, fetchLimit, filter, isAr]);
+  }, [canLoadNotifications, canonicalSession, fetchLimit, filter, isAr, userId]);
 
   useEffect(() => {
     if (isMobileViewport === null || !canLoadNotifications) return;
@@ -572,7 +602,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
     }
     const requestId = extractRequestIdFromTradeRoomHref(destination);
     if (requestId) {
-      prefetchTradeRoom(router, requestId);
+      prefetchTradeRoom(router, requestId, userId);
     }
     if (!notification.isRead) {
       await handleMarkOneRead(notification.id);
@@ -628,7 +658,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
       const nextUnreadCount = Math.max(0, unreadCount - 1);
       setNotifications(sortedNextNotifications);
       setUnreadCount(nextUnreadCount);
-      writeNotificationsCache({
+      writeNotificationsCache(userId, {
         notifications: sortedNextNotifications,
         total: totalCount,
         unreadCount: nextUnreadCount,
@@ -654,7 +684,7 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
       const nextNotifications = sortNotificationsNewestFirst(notifications.map((item) => ({ ...item, isRead: true })));
       setNotifications(nextNotifications);
       setUnreadCount(0);
-      writeNotificationsCache({
+      writeNotificationsCache(userId, {
         notifications: nextNotifications,
         total: totalCount,
         unreadCount: 0,
@@ -669,6 +699,18 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
   async function handleLoadOlder() {
     if (isLoadingMore || !canLoadOlder) return;
     await loadNotifications({ offset: notifications.length, append: true });
+  }
+
+  if (canonicalUserMismatch) {
+    return (
+      <section className="section-container page-shell" dir={isAr ? "rtl" : "ltr"}>
+        <Card className="border-white/10 bg-[#0B0B0B]/90">
+          <CardContent className="p-6 text-sm text-[#B8BEC8]" role="status" aria-live="polite">
+            {isAr ? "جاري مزامنة الحساب..." : "Syncing account..."}
+          </CardContent>
+        </Card>
+      </section>
+    );
   }
 
   return (
@@ -852,13 +894,13 @@ export function NotificationsPage({ locale }: { locale: AppLocale }) {
                                   if (!isTradeNotification(notification)) return;
                                   const href = resolveTradeRoomHref(notification);
                                   const requestId = extractRequestIdFromTradeRoomHref(href);
-                                  if (requestId) prefetchTradeRoom(router, requestId);
+                                  if (requestId) prefetchTradeRoom(router, requestId, userId);
                                 }}
                                 onFocus={() => {
                                   if (!isTradeNotification(notification)) return;
                                   const href = resolveTradeRoomHref(notification);
                                   const requestId = extractRequestIdFromTradeRoomHref(href);
-                                  if (requestId) prefetchTradeRoom(router, requestId);
+                                  if (requestId) prefetchTradeRoom(router, requestId, userId);
                                 }}
                                 onClick={() => void openNotificationDestination(notification)}
                               >

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { TradeChatMessage, TradeTimelineEntry } from "@/types/alpha-exchange";
+import type { PurchaseRequest, TradeChatMessage, TradeTimelineEntry } from "@/types/alpha-exchange";
 
 vi.mock("next/image", () => ({ default: () => null }));
 vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
@@ -11,17 +11,21 @@ vi.mock("@/i18n/navigation", () => ({
 }));
 
 import {
+  canRevealTradeRoomBankDetails,
+  getTradeRoomSessionKey,
   isTradeRoomChatNearBottom,
   groupTradeTimelineEntries,
   getTradeRoomReconnectDelayMs,
   mergeTradeRoomSnapshotPreservingOptimisticMessages,
   mergeTradeRoomMessages,
+  resolveTradeRoomChatAttempt,
   revealTradeRoomDeepLinkTarget,
   shouldRestartTradeRoomStreamAfterPageShow,
   shouldAutoScrollTradeRoomChat,
   shouldShowTradeRoomNewMessageIndicator,
   shouldIgnoreRegressiveSnapshot,
   tradeRoomSnapshotSignature,
+  tradeRoomChatAttemptSignature,
 } from "./trade-room-page";
 
 type TradeRoomSnapshot = Parameters<typeof shouldIgnoreRegressiveSnapshot>[0];
@@ -74,6 +78,35 @@ describe("Trade Room client stability helpers", () => {
     vi.restoreAllMocks();
   });
 
+  it("isolates local UI state by both account and trade", () => {
+    expect(getTradeRoomSessionKey("buyer-1", "trade-a")).not.toBe(getTradeRoomSessionKey("buyer-1", "trade-b"));
+    expect(getTradeRoomSessionKey("buyer-1", "trade-a")).not.toBe(getTradeRoomSessionKey("buyer-2", "trade-a"));
+  });
+
+  it("reuses one chat request id after an uncertain retry and rotates it when content changes", () => {
+    const signature = tradeRoomChatAttemptSignature("Hello", null);
+    const first = resolveTradeRoomChatAttempt(null, signature, () => "message-id-1");
+    const retry = resolveTradeRoomChatAttempt(first, signature, () => "message-id-2");
+    const edited = resolveTradeRoomChatAttempt(first, tradeRoomChatAttemptSignature("Hello again", null), () => "message-id-3");
+
+    expect(retry.clientMessageId).toBe("message-id-1");
+    expect(edited.clientMessageId).toBe("message-id-3");
+  });
+
+  it("shows sensitive bank details only for a linked bank-transfer trade after acceptance", () => {
+    const acceptedBankTransfer = {
+      ...room({ status: "accepted" }).request,
+      paymentMethod: "Bank Transfer",
+      sellerBankAccountId: "bank-1",
+    } as PurchaseRequest;
+
+    expect(canRevealTradeRoomBankDetails(acceptedBankTransfer, false)).toBe(true);
+    expect(canRevealTradeRoomBankDetails({ ...acceptedBankTransfer, status: "pending" }, false)).toBe(false);
+    expect(canRevealTradeRoomBankDetails({ ...acceptedBankTransfer, paymentMethod: "Cardless ATM Withdrawal" }, false)).toBe(false);
+    expect(canRevealTradeRoomBankDetails({ ...acceptedBankTransfer, sellerBankAccountId: undefined }, false)).toBe(false);
+    expect(canRevealTradeRoomBankDetails(acceptedBankTransfer, true)).toBe(false);
+  });
+
   it("keeps button-triggered file inputs out of the keyboard tab order", () => {
     const source = readFileSync(join(process.cwd(), "src/components/sections/trade-room/trade-room-page.tsx"), "utf8");
 
@@ -87,6 +120,16 @@ describe("Trade Room client stability helpers", () => {
       expect(inputMarkup, accessibleName).toContain('type="file"');
       expect(inputMarkup, accessibleName).toContain("tabIndex={-1}");
     }
+  });
+
+  it("mirrors server text limits and handles clipboard failures inside the Trade Room", () => {
+    const source = readFileSync(join(process.cwd(), "src/components/sections/trade-room/trade-room-page.tsx"), "utf8");
+
+    expect(source).toContain('maxLength={1200}');
+    expect(source).toContain('maxLength={1000}');
+    expect(source.match(/maxLength=\{500\}/g)).toHaveLength(2);
+    expect(source).toContain("await navigator.clipboard.writeText(chatDraft)");
+    expect(source).toContain('setChatErrorMessage(isAr ? "تعذر نسخ الرسالة." : "Could not copy the message.")');
   });
 
   it("rejects an older normal snapshot instead of only protecting terminal status regressions", () => {

@@ -149,9 +149,22 @@ function buildTradeDestinationFromNotification(notification: AlphaExchangeNotifi
   return `/trade-room/${requestId}?action=${encodeURIComponent(action)}#${hash}`;
 }
 
-export function NotificationBell({ locale }: { locale: AppLocale }) {
-  const isAr = locale === "ar";
+type NotificationBellProps = { locale: AppLocale };
+type OptionalCanonicalSession = ReturnType<typeof useOptionalCanonicalSession>;
+
+export function NotificationBell(props: NotificationBellProps) {
   const canonicalSession = useOptionalCanonicalSession();
+  const accountKey = canonicalSession
+    ? (canonicalSession.user?.id ?? "signed-out")
+    : "unscoped";
+  return <NotificationBellSession key={accountKey} {...props} canonicalSession={canonicalSession} />;
+}
+
+function NotificationBellSession({
+  locale,
+  canonicalSession,
+}: NotificationBellProps & { canonicalSession: OptionalCanonicalSession }) {
+  const isAr = locale === "ar";
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
@@ -165,6 +178,11 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   const notificationsCountRef = useRef(0);
   const unreadCountRef = useRef(0);
   const router = useRouter();
+  const notificationAccountScope = canonicalSession
+    ? (canonicalSession.user?.id ?? "signed-out")
+    : "unscoped";
+  const activeNotificationAccountScopeRef = useRef(notificationAccountScope);
+  activeNotificationAccountScopeRef.current = notificationAccountScope;
   const canLoadNotifications = !canonicalSession || (!canonicalSession.isResolving && Boolean(canonicalSession.user));
 
   const applyUnreadCount = useCallback((value: number) => {
@@ -173,6 +191,12 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
     setUnreadCount(normalized);
     syncNotificationCountToNative(normalized, canonicalSession?.user?.id, locale);
   }, [canonicalSession?.user?.id, locale]);
+
+  useEffect(() => () => {
+    // Prevent a response owned by an unmounted account-scoped bell from
+    // publishing native or React state after an authentication change.
+    activeNotificationAccountScopeRef.current = "disposed";
+  }, []);
 
   useEffect(() => {
     isOpenRef.current = isOpen;
@@ -214,6 +238,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
 
   const loadNotifications = useCallback(async (limit: number, options?: { preserveOpenList?: boolean }) => {
     if (!canLoadNotifications) return;
+    const operationScope = notificationAccountScope;
     const startedAt = Date.now();
     const shouldPreserveList = options?.preserveOpenList && isOpenRef.current && notificationsCountRef.current > 0;
     if (!shouldPreserveList) {
@@ -228,6 +253,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
         throw new Error(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
       }
       const payload = (await response.json()) as NotificationsPayload;
+      if (activeNotificationAccountScopeRef.current !== operationScope) return;
       forwardCompletedTradesToNative(payload.notifications ?? [], canonicalSession?.user?.id, locale);
       const keepVisibleList = isOpenRef.current && notificationsCountRef.current > 0;
       if (!shouldPreserveList && !keepVisibleList) {
@@ -237,13 +263,15 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
       setLastLoadedAt(Date.now());
       appendLoginJourneyStep("Notifications loading (header bell)", startedAt, Date.now(), { limit, status: response.status });
     } catch {
-      setError(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
+      if (activeNotificationAccountScopeRef.current === operationScope) {
+        setError(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
+      }
     } finally {
-      if (!shouldPreserveList) {
+      if (activeNotificationAccountScopeRef.current === operationScope && !shouldPreserveList) {
         setIsLoading(false);
       }
     }
-  }, [applyUnreadCount, canLoadNotifications, canonicalSession, isAr, locale]);
+  }, [applyUnreadCount, canLoadNotifications, canonicalSession, isAr, locale, notificationAccountScope]);
 
   useEffect(() => {
     if (!canLoadNotifications) return;
@@ -251,6 +279,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
   }, [canLoadNotifications, loadNotifications]);
 
   const handleNotificationStream = useCallback((event: Event) => {
+    if (activeNotificationAccountScopeRef.current !== notificationAccountScope) return;
     const messageEvent = event as MessageEvent<string>;
     try {
       const payload = JSON.parse(messageEvent.data) as NotificationsStreamPayload;
@@ -266,7 +295,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
     } catch {
       // Ignore malformed stream payloads and keep current state.
     }
-  }, [applyUnreadCount, canonicalSession?.user?.id, locale]);
+  }, [applyUnreadCount, canonicalSession?.user?.id, locale, notificationAccountScope]);
   useAuthenticatedNotificationStream({ enabled: canLoadNotifications, onNotifications: handleNotificationStream });
 
   async function handleToggleOpen() {
@@ -329,7 +358,7 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
     if (!destination) return;
 
     const requestId = extractRequestIdFromTradeRoomHref(destination);
-    if (requestId) prefetchTradeRoom(router, requestId);
+    if (requestId) prefetchTradeRoom(router, requestId, canonicalSession?.user?.id ?? notification.userId);
     if (!notification.isRead) {
       await handleMarkOneRead(notification.id);
     }
@@ -527,12 +556,12 @@ export function NotificationBell({ locale }: { locale: AppLocale }) {
                               onMouseEnter={() => {
                                 if (!destination) return;
                                 const requestId = extractRequestIdFromTradeRoomHref(destination);
-                                if (requestId) prefetchTradeRoom(router, requestId);
+                                if (requestId) prefetchTradeRoom(router, requestId, canonicalSession?.user?.id ?? notification.userId);
                               }}
                               onFocus={() => {
                                 if (!destination) return;
                                 const requestId = extractRequestIdFromTradeRoomHref(destination);
-                                if (requestId) prefetchTradeRoom(router, requestId);
+                                if (requestId) prefetchTradeRoom(router, requestId, canonicalSession?.user?.id ?? notification.userId);
                               }}
                               onClick={() => void handleOpenNotification(notification)}
                             >

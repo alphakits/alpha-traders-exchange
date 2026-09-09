@@ -1797,7 +1797,7 @@ export async function getSellerProfileRouteData(input: {
     dbInput: db,
   });
 
-  const listings = await getMarketplaceListings("active", db);
+  const listings = await getMarketplaceListings("active", db, input.viewerUserId);
   const sellerListings = listings.filter((listing) => listing.sellerId === seller.id).slice(0, 6);
   const usersById = new Map(db.users.map((user) => [user.id, user]));
   const similarSellers = listings
@@ -2062,29 +2062,36 @@ function isValidPurchaseStatus(value: string): value is PurchaseRequestStatus {
   );
 }
 
+const VALID_TRADE_TIMELINE_TYPES = {
+  request_submitted: true,
+  price_offer_submitted: true,
+  request_accepted: true,
+  price_offer_accepted: true,
+  payment_sent: true,
+  seller_confirmed_funds: true,
+  usdt_release_started: true,
+  usdt_sent: true,
+  trade_completed: true,
+  trade_timed_out: true,
+  trade_locked: true,
+  review_unlocked: true,
+  dispute_opened: true,
+  commission_recorded: true,
+  commission_paid: true,
+  buyer_evidence_uploaded: true,
+  seller_evidence_uploaded: true,
+  request_declined: true,
+  price_offer_declined: true,
+  request_cancelled: true,
+  buyer_confirmed_receipt: true,
+  buyer_confirmation_overdue: true,
+  trade_closed_manually: true,
+  trade_inactivity_warning_sent: true,
+  bank_details_revealed: true,
+} satisfies Record<TradeTimelineEventType, true>;
+
 function isValidTradeTimelineType(value: string): value is TradeTimelineEventType {
-  return (
-    value === "request_submitted" ||
-    value === "request_accepted" ||
-    value === "payment_sent" ||
-    value === "seller_confirmed_funds" ||
-    value === "usdt_release_started" ||
-    value === "usdt_sent" ||
-    value === "trade_completed" ||
-    value === "trade_timed_out" ||
-    value === "trade_locked" ||
-    value === "review_unlocked" ||
-    value === "dispute_opened" ||
-    value === "commission_recorded" ||
-    value === "commission_paid" ||
-    value === "buyer_evidence_uploaded" ||
-    value === "seller_evidence_uploaded" ||
-    value === "request_declined" ||
-    value === "request_cancelled" ||
-    value === "trade_closed_manually" ||
-    value === "trade_inactivity_warning_sent" ||
-    value === "bank_details_revealed"
-  );
+  return Object.prototype.hasOwnProperty.call(VALID_TRADE_TIMELINE_TYPES, value);
 }
 
 function isValidInviteStatus(value: string): value is "active" | "expired" | "disabled" {
@@ -2327,6 +2334,12 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         allowProfileSearch: (user as { allowProfileSearch?: boolean }).allowProfileSearch !== false,
         showPhonePublic: (user as { showPhonePublic?: boolean }).showPhonePublic === true,
         showEmailPublic: (user as { showEmailPublic?: boolean }).showEmailPublic === true,
+        blockedUserIds: Array.isArray((user as { blockedUserIds?: unknown[] }).blockedUserIds)
+          ? Array.from(new Set((user as { blockedUserIds: unknown[] }).blockedUserIds
+              .map((value) => String(value).trim())
+              .filter((value) => value && value !== user.id)))
+              .slice(0, 1000)
+          : [],
         notificationPreferences: normalizeNotificationPreferences((user as { notificationPreferences?: NotificationPreferences }).notificationPreferences),
         // Email verification is a security boundary for marketplace actions.
         // Legacy records without an explicit marker must fail closed rather
@@ -5469,6 +5482,63 @@ export async function findUserById(userId: string) {
   return db.users.find((user) => user.id === userId) ?? null;
 }
 
+function userBlockedIds(user: AlphaExchangeUser | null | undefined) {
+  return new Set((user?.blockedUserIds ?? []).map((value) => String(value).trim()).filter(Boolean));
+}
+
+export function isUserInteractionBlocked(db: AlphaExchangeDb, firstUserId: string, secondUserId: string) {
+  if (!firstUserId || !secondUserId || firstUserId === secondUserId) return false;
+  const first = db.users.find((user) => user.id === firstUserId);
+  const second = db.users.find((user) => user.id === secondUserId);
+  return userBlockedIds(first).has(secondUserId) || userBlockedIds(second).has(firstUserId);
+}
+
+export async function getUserBlockStatus(input: { actorUserId: string; targetUserId: string }) {
+  const db = await readDb({ skipMaintenance: true });
+  const actor = db.users.find((user) => user.id === input.actorUserId);
+  if (!actor) throw new Error("User not found.");
+  const target = db.users.find((user) => user.id === input.targetUserId);
+  if (!target) throw new Error("Target account not found.");
+  if (actor.id === target.id) throw new Error("You cannot block your own account.");
+  return { blocked: userBlockedIds(actor).has(target.id) };
+}
+
+export async function setUserBlockStatus(input: {
+  actorUserId: string;
+  targetUserId: string;
+  blocked: boolean;
+}) {
+  const db = await readDb({ bypassCache: true });
+  let committedBlocked = false;
+  const applyBlockStatus = (snapshot: AlphaExchangeDb) => {
+    const actorIndex = snapshot.users.findIndex((user) => user.id === input.actorUserId);
+    if (actorIndex === -1) throw new Error("User not found.");
+    const target = snapshot.users.find((user) => user.id === input.targetUserId);
+    if (!target) throw new Error("Target account not found.");
+    if (input.actorUserId === input.targetUserId) throw new Error("You cannot block your own account.");
+
+    const actor = snapshot.users[actorIndex];
+    const blockedIds = userBlockedIds(actor);
+    if (input.blocked) blockedIds.add(target.id);
+    else blockedIds.delete(target.id);
+    const nextBlockedIds = Array.from(blockedIds).slice(0, 1000);
+    committedBlocked = nextBlockedIds.includes(target.id);
+    snapshot.users[actorIndex] = {
+      ...actor,
+      blockedUserIds: nextBlockedIds,
+      updatedAt: nowIso(),
+    };
+    return snapshot;
+  };
+
+  applyBlockStatus(db);
+  await writeDb(db, {
+    selectedTables: ["users"],
+    rebaseOnLatest: applyBlockStatus,
+  });
+  return { blocked: committedBlocked };
+}
+
 export async function createAuthSession(userId: string, token: string, durationDays = 14) {
   const createdAt = new Date();
   const expiresAt = new Date(createdAt);
@@ -6551,7 +6621,7 @@ export async function overrideSellerPrestigeByAdmin(input: {
   return db.users[sellerIndex];
 }
 
-export async function getMarketplaceListings(status?: string, dbInput?: AlphaExchangeDb) {
+export async function getMarketplaceListings(status?: string, dbInput?: AlphaExchangeDb, viewerUserId?: string) {
   const db = dbInput ?? await readDb();
   await ensureDevelopmentTesterMarketplaceListing(db);
   const nowMs = Date.now();
@@ -6571,12 +6641,22 @@ export async function getMarketplaceListings(status?: string, dbInput?: AlphaExc
       .filter((user) => user.isProfileHidden === true || user.sellerStatus === "suspended")
       .map((user) => user.id),
   );
+  const interactionBlockedSellerIds = new Set<string>();
+  if (viewerUserId) {
+    const viewerBlockedIds = userBlockedIds(db.users.find((user) => user.id === viewerUserId));
+    for (const seller of db.users) {
+      if (viewerBlockedIds.has(seller.id) || userBlockedIds(seller).has(viewerUserId)) {
+        interactionBlockedSellerIds.add(seller.id);
+      }
+    }
+  }
   const isPublicFeed = !status || status === "all" || status === "active";
   const rawListings =
     isPublicFeed
       ? db.marketplaceListings.filter((listing) => {
           if (!canListingReceiveRequests(listing)) return false;
           if (hiddenSellerIds.has(listing.sellerId)) return false;
+          if (interactionBlockedSellerIds.has(listing.sellerId)) return false;
           if (sellersBlockedByCommission.has(listing.sellerId)) return false;
           if (sellersBlockedByEnforcement.has(listing.sellerId)) return false;
           const seller = sellerById.get(listing.sellerId);
@@ -6589,7 +6669,9 @@ export async function getMarketplaceListings(status?: string, dbInput?: AlphaExc
           }
           return true;
         })
-      : db.marketplaceListings.filter((listing) => listing.status === status && !hiddenSellerIds.has(listing.sellerId));
+      : db.marketplaceListings.filter((listing) => listing.status === status
+          && !hiddenSellerIds.has(listing.sellerId)
+          && !interactionBlockedSellerIds.has(listing.sellerId));
   const snapshots = computeTrustSnapshotMap(db);
   const sortedListings = qualitySortListings(db, rawListings, snapshots);
   return enrichListingsWithSellerData(db, sortedListings, snapshots);
@@ -6998,7 +7080,13 @@ function canRevealTradeBankDetailsToActor(request: PurchaseRequest, actorUserId:
   const participant = request.buyerId === actorUserId || request.sellerId === actorUserId;
   const elevated = actorRole === "admin" || actorRole === "owner";
   if (!participant && !elevated) return false;
-  return request.status !== "pending" && request.status !== "declined" && request.status !== "cancelled";
+  return Boolean(
+    request.sellerBankAccountId
+    && isBankTransferPaymentMethod(request.paymentMethod)
+    && request.status !== "pending"
+    && request.status !== "declined"
+    && request.status !== "cancelled",
+  );
 }
 export async function createMarketplaceListing(input: {
   sellerId: string;
@@ -8117,6 +8205,14 @@ export async function createPurchaseRequest(input: {
   }
   if (listing.sellerId === input.buyerId) throw new Error("You cannot submit a purchase request to your own listing.");
   const seller = db.users.find((user) => user.id === listing.sellerId);
+  if (seller && isUserInteractionBlocked(db, input.buyerId, seller.id)) {
+    throw new TradeBlockedError(
+      "USER_INTERACTION_BLOCKED",
+      "A user block prevents this new trade. Unblock the account before starting another trade.",
+      undefined,
+      { guard: "user-block", listingId: listing.id },
+    );
+  }
   if (!seller || isSellerUnavailableForNewBuyers(seller.availabilityStatus)) {
     pushNotification(db, {
       userId: input.buyerId,
@@ -8939,48 +9035,82 @@ export async function getTradeRoomData(input: {
   };
 }
 
+type TradeRoomBankDetailsResult = {
+  requestId: string;
+  tradeId: string;
+  bankAccountId: string;
+  accountHolderName: string;
+  bankName: string;
+  branchNumber: string;
+  accountNumber: string;
+  accountLast4: string;
+};
+
 export async function getTradeRoomBankDetails(input: {
   purchaseRequestId: string;
   actorUserId: string;
   actorRole: UserRole;
 }) {
-  const db = await readDb();
+  // Bank account numbers are sensitive and become available immediately after
+  // acceptance. Bypass the short-lived read cache so another instance cannot
+  // authorize disclosure from a trade state that has already been cancelled.
+  const db = await readDb({ bypassCache: true });
   const lookupCandidates = buildPurchaseRequestLookupCandidates(input.purchaseRequestId);
-  const requestIndex = db.purchaseRequests.findIndex((item) => lookupCandidates.includes(item.id));
-  if (requestIndex === -1) throw new Error("Trade not found.");
-  const request = db.purchaseRequests[requestIndex];
+  let shouldPersistAudit = false;
+  let resolvedBankDetails: TradeRoomBankDetailsResult | null = null;
 
-  assertTradeParticipantOrAdmin(request, input.actorUserId, input.actorRole);
-  if (!canRevealTradeBankDetailsToActor(request, input.actorUserId, input.actorRole)) {
-    throw new Error("Bank details are available only after the seller accepts the trade.");
-  }
+  const applyBankDetailsRevealToCanonicalSnapshot = async (snapshot: AlphaExchangeDb) => {
+    const requestIndex = snapshot.purchaseRequests.findIndex((item) => lookupCandidates.includes(item.id));
+    if (requestIndex === -1) throw new Error("Trade not found.");
+    const request = snapshot.purchaseRequests[requestIndex];
 
-  const seller = db.users.find((user) => user.id === request.sellerId);
-  if (!seller) throw new Error("Seller not found.");
-  const bankAccount = request.sellerBankAccountId
-    ? getSellerBankAccountById(seller, request.sellerBankAccountId)
-    : undefined;
-  if (!bankAccount) {
-    throw new Error("No bank account is linked to this trade.");
-  }
+    // Re-run every disclosure guard when a concurrent writer made our initial
+    // snapshot stale. A cancellation that wins the persistence lock must also
+    // prevent the stale request from receiving the account number.
+    assertTradeParticipantOrAdmin(request, input.actorUserId, input.actorRole);
+    if (!canRevealTradeBankDetailsToActor(request, input.actorUserId, input.actorRole)) {
+      throw new Error("Bank details are available only after the seller accepts the trade.");
+    }
 
-  const now = nowIso();
-  const recentlyLogged = (request.timeline ?? []).some((entry) =>
-    entry.type === "bank_details_revealed"
-    && entry.actorUserId === input.actorUserId
-    && new Date(entry.createdAt).getTime() >= Date.now() - 5 * 60 * 1000,
-  );
-  if (!recentlyLogged) {
+    const seller = snapshot.users.find((user) => user.id === request.sellerId);
+    if (!seller) throw new Error("Seller not found.");
+    const bankAccount = request.sellerBankAccountId
+      ? getSellerBankAccountById(seller, request.sellerBankAccountId)
+      : undefined;
+    if (!bankAccount) {
+      throw new Error("No bank account is linked to this trade.");
+    }
+
+    resolvedBankDetails = {
+      requestId: request.id,
+      tradeId: request.tradeId ?? request.id,
+      bankAccountId: bankAccount.id,
+      accountHolderName: bankAccount.accountHolderName,
+      bankName: bankAccount.bankName,
+      branchNumber: bankAccount.branchNumber,
+      accountNumber: bankAccount.accountNumber,
+      accountLast4: bankAccount.accountLast4,
+    };
+
+    const recentlyLogged = (request.timeline ?? []).some((entry) =>
+      entry.type === "bank_details_revealed"
+      && entry.actorUserId === input.actorUserId
+      && new Date(entry.createdAt).getTime() >= Date.now() - 5 * 60 * 1000,
+    );
+    shouldPersistAudit = !recentlyLogged;
+    if (!shouldPersistAudit) return snapshot;
+
+    const now = nowIsoAfter(request.updatedAt);
     appendTradeTimelineEntry(request, {
       type: "bank_details_revealed",
       actorUserId: input.actorUserId,
-      actorRole: resolveActorRole(db, input.actorUserId),
+      actorRole: resolveActorRole(snapshot, input.actorUserId),
       message: "Trade bank details viewed",
       createdAt: now,
     });
     request.updatedAt = now;
-    db.purchaseRequests[requestIndex] = request;
-    await appendAuditLog(db, {
+    snapshot.purchaseRequests[requestIndex] = request;
+    await appendAuditLog(snapshot, {
       action: "trade_bank_details_revealed",
       actorUserId: input.actorUserId,
       targetUserId: request.sellerId,
@@ -8989,19 +9119,22 @@ export async function getTradeRoomBankDetails(input: {
       details: `Bank details viewed for trade ${request.tradeId ?? request.id}.`,
       newValue: { bankAccountId: bankAccount.id, bankName: bankAccount.bankName, branchNumber: bankAccount.branchNumber, accountLast4: bankAccount.accountLast4 },
     });
-    await writeDb(db, { selectedTables: TRADE_BANK_DETAILS_AUDIT_TABLES });
+    return snapshot;
+  };
+
+  await applyBankDetailsRevealToCanonicalSnapshot(db);
+  if (shouldPersistAudit) {
+    await writeDb(db, {
+      selectedTables: TRADE_BANK_DETAILS_AUDIT_TABLES,
+      // Preserve concurrent Trade Room mutations and revalidate disclosure at
+      // the canonical state protected by the repository transaction lock.
+      rebaseOnLatest: applyBankDetailsRevealToCanonicalSnapshot,
+    });
   }
 
-  return {
-    requestId: request.id,
-    tradeId: request.tradeId ?? request.id,
-    bankAccountId: bankAccount.id,
-    accountHolderName: bankAccount.accountHolderName,
-    bankName: bankAccount.bankName,
-    branchNumber: bankAccount.branchNumber,
-    accountNumber: bankAccount.accountNumber,
-    accountLast4: bankAccount.accountLast4,
-  };
+  const committedBankDetails = resolvedBankDetails as TradeRoomBankDetailsResult | null;
+  if (!committedBankDetails) throw new Error("No bank account is linked to this trade.");
+  return committedBankDetails;
 }
 
 type ClosePurchaseRequestInput = {

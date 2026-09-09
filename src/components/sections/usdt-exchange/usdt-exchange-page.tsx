@@ -3076,12 +3076,12 @@ export function UsdtExchangePage({
     });
   }, [sortedDashboardListings]);
   const handlePrefetchTradeRoom = useCallback((requestId: string) => {
-    prefetchTradeRoom(router, requestId);
-  }, [router]);
+    prefetchTradeRoom(router, requestId, sessionUser?.id);
+  }, [router, sessionUser?.id]);
   const handleOpenTradeRoom = useCallback((requestId: string) => {
-    prefetchTradeRoom(router, requestId);
+    prefetchTradeRoom(router, requestId, sessionUser?.id);
     router.push(`/trade-room/${requestId}`);
-  }, [router]);
+  }, [router, sessionUser?.id]);
   const pendingSellerRequests = useMemo(() => sellerRequests.filter((request) => request.status === "pending"), [sellerRequests]);
   const myListingsById = useMemo(() => new Map(myListings.map((listing) => [listing.id, listing])), [myListings]);
   const listingsById = useMemo(() => new Map(listings.map((listing) => [listing.id, listing])), [listings]);

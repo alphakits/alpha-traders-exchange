@@ -60,5 +60,12 @@ async function SellerProfileRouteContent(
   if (!data?.profile) {
     notFound();
   }
-  return <PremiumSellerProfilePage locale={locale as "ar" | "en"} data={data} viewerOwnsProfile={viewer?.id === data.profile.sellerId} />;
+  return (
+    <PremiumSellerProfilePage
+      locale={locale as "ar" | "en"}
+      data={data}
+      viewerOwnsProfile={viewer?.id === data.profile.sellerId}
+      viewerSignedIn={Boolean(viewer)}
+    />
+  );
 }

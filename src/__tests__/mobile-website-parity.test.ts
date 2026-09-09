@@ -21,13 +21,14 @@ describe("mobile website parity", () => {
 
     expect(root).toContain("<WebsiteAppShell");
     expect(root).toContain("screenLayout={() => <WebsiteScreen />}");
+    expect(root).toContain("<NetworkProvider>");
     expect(root).not.toContain("{children}");
     expect(shell).toContain('from "react-native-webview"');
     expect(shell).toContain("source={source}");
     expect(shell).toContain("sharedCookiesEnabled");
     expect(shell).toContain("cacheEnabled");
     expect(shell).toContain("allowsBackForwardNavigationGestures");
-    expect(shell).toContain('if (!request.isTopFrame) return decision !== "block"');
+    expect(shell).toContain('if (!request.isTopFrame) return decision === "allow"');
     expect(shell).not.toContain("injectedJavaScript=");
     expect(shell).toContain("onMessage={handleWebsiteMessage}");
     expect(shell).toContain("addNotificationResponseReceivedListener");
@@ -39,6 +40,13 @@ describe("mobile website parity", () => {
     expect(shell).toContain("Linking.openSettings()");
     expect(shell).toContain('accessibilityRole="alert"');
     expect(shell).toContain('message.type === "alpha.web.push-registration"');
+    expect(shell).toContain("isTrustedWebsiteDocumentUrl(event.nativeEvent.url)");
+    expect(shell).toContain('mixedContentMode="never"');
+    expect(shell).toContain("thirdPartyCookiesEnabled={false}");
+    expect(shell).toContain("allowFileAccess={false}");
+    expect(shell).toContain('readiness.status === "update_required"');
+    expect(shell).toContain("useMobileAppReadiness(locale, isOnline)");
+    expect(shell).toContain('accessibilityLiveRegion="polite"');
     expect(websiteBridge).toContain('status: "registered"');
     expect(websiteBridge).toContain('status: "failed"');
     expect(shell).toContain('AppState.currentState !== "active"');
@@ -57,6 +65,7 @@ describe("mobile website parity", () => {
     expect(mobileConfig).toContain('"expo-notifications"');
     expect(mobileConfig).toContain('"cameraPermission": "Allow Alpha Traders');
     expect(mobileConfig).toContain('"microphonePermission": false');
+    expect(mobileConfig).toContain('"NSAllowsArbitraryLoads": false');
     expect(installedIphoneWorkflow).toContain("type: apple-device-registration-request");
     expect(installedIphoneWorkflow).toContain("profile: preview");
     expect(installedIphoneWorkflow).toContain("refresh_ad_hoc_provisioning_profile: true");

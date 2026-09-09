@@ -27,5 +27,5 @@ export default async function NotificationsRoute({ params }: { params: Promise<{
     redirect(`/${locale}/trade-room/${activeTrade.id}`);
   }
 
-  return <NotificationsPage locale={locale === "ar" ? "ar" : "en"} />;
+  return <NotificationsPage locale={locale === "ar" ? "ar" : "en"} userId={user.id} />;
 }

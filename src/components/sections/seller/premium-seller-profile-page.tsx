@@ -11,6 +11,7 @@ import { deriveSellerPresence } from "@/lib/seller-presence";
 import { normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { cn } from "@/lib/utils";
 import type { PremiumSellerProfileData, SellerBadge, SellerLevel } from "@/types/alpha-exchange";
+import { UserSafetyActions } from "@/components/account/user-safety-actions";
 
 function formatSellerLevelLabel(level: SellerLevel | undefined, isAr: boolean) {
   if (level === "elite") return isAr ? "بائع ألفا النخبة" : "Alpha Elite Seller";
@@ -161,6 +162,7 @@ function StatCard({ label, value, accent = false, isUsdt = false }: { label: str
 type PremiumSellerProfilePageProps = {
   locale: "ar" | "en";
   viewerOwnsProfile?: boolean;
+  viewerSignedIn?: boolean;
   data: {
     profile: PremiumSellerProfileData | null;
     sellerListings: Array<{
@@ -185,7 +187,7 @@ type PremiumSellerProfilePageProps = {
   };
 };
 
-export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, data }: PremiumSellerProfilePageProps) {
+export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, viewerSignedIn = false, data }: PremiumSellerProfilePageProps) {
   const isAr = locale === "ar";
   const listSeparator = isAr ? "، " : ", ";
   const profile = data.profile;
@@ -488,6 +490,14 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, da
             </div>
           </CardContent>
         </Card>
+
+        <UserSafetyActions
+          context="profile"
+          locale={locale}
+          targetUserId={profile.sellerId}
+          viewerOwnsTarget={viewerOwnsProfile}
+          viewerSignedIn={viewerSignedIn}
+        />
 
         <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
           <Card id="seller-active-listings" className="border-white/10 bg-[#0B0B0B]/95">

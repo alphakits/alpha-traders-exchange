@@ -43,10 +43,16 @@ import {
 } from "../auth/session-storage";
 import {
   ALPHA_TRADERS_WEB_ORIGIN,
+  isTrustedWebsiteDocumentUrl,
   trustedWebsiteResumeUrl,
   trustedWebsiteReturnPath,
   websiteNavigationDecision,
 } from "../web/website-navigation";
+import {
+  pendingPushUrlAfterConsumption,
+  resolvePreparedWebsiteSource,
+  type WebsiteSource,
+} from "../web/push-navigation-recovery";
 import {
   registerForNativePushNotifications,
   requestAppReviewAfterCompletedTrade,
@@ -58,15 +64,12 @@ import {
   pushSetupRecoveryCopy,
   type PushSetupIssue,
 } from "../notifications/push-registration-recovery";
+import { useNetworkStatus } from "../network/network-context";
+import { useMobileAppReadiness } from "../readiness/use-mobile-app-readiness";
 
 const LEGACY_LOCALE_KEY = "alpha.mobile.locale.v1";
 const RESUME_URL_KEY = "alpha.mobile.website.resume-url.v1";
 const SESSION_MIGRATED_KEY = "alpha.mobile.website.session-migrated.v1";
-
-type WebSource = {
-  uri: string;
-  headers?: Record<string, string>;
-};
 
 type WebsiteAppShellProps = {
   onNativeReady?: () => void;
@@ -110,7 +113,7 @@ async function currentNativeTokens(locale: MobileLocale): Promise<MobileAuthToke
   }
 }
 
-async function createInitialSource(): Promise<{ locale: MobileLocale; source: WebSource }> {
+async function createInitialSource(): Promise<{ locale: MobileLocale; source: WebsiteSource }> {
   const locale = await resolvedLocale();
   const savedUrl = trustedWebsiteResumeUrl(await AsyncStorage.getItem(RESUME_URL_KEY), locale);
   const migrationComplete = await AsyncStorage.getItem(SESSION_MIGRATED_KEY) === "1";
@@ -148,12 +151,28 @@ function copy(locale: MobileLocale) {
         errorBody: "تحقق من اتصال الإنترنت ثم حاول مرة أخرى.",
         retry: "إعادة المحاولة",
         openWebsite: "فتح الموقع",
+        offline: "أنت غير متصل. سيعرض Alpha Traders أي محتوى محفوظ مؤقتًا وسيعيد الاتصال تلقائيًا.",
+        updateTitle: "يلزم تحديث آمن للتطبيق",
+        updateBody: "لم يعد هذا الإصدار مدعومًا. حدّث Alpha Traders قبل تسجيل الدخول أو التداول.",
+        currentVersion: "الإصدار الحالي",
+        minimumVersion: "الحد الأدنى للإصدار",
+        updateHelp: "الحصول على مساعدة للتحديث",
+        privacyTitle: "Alpha Traders محمي",
+        privacyBody: "تم إخفاء محتوى حسابك وصفقاتك بينما التطبيق غير نشط.",
       }
     : {
         errorTitle: "Alpha Traders could not open",
         errorBody: "Check your internet connection and try again.",
         retry: "Try again",
         openWebsite: "Open website",
+        offline: "You are offline. Alpha Traders will show cached content when available and reconnect automatically.",
+        updateTitle: "A secure update is required",
+        updateBody: "This version is no longer supported. Update Alpha Traders before signing in or trading.",
+        currentVersion: "Current version",
+        minimumVersion: "Minimum version",
+        updateHelp: "Get update help",
+        privacyTitle: "Alpha Traders is protected",
+        privacyBody: "Your account and trade content is hidden while the app is inactive.",
       };
 }
 
@@ -167,6 +186,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   const pendingBadgeRef = useRef<{ userId: string; unreadCount: number } | null>(null);
   const pendingReviewRef = useRef<string | null>(null);
   const pendingPushUrlRef = useRef<string | null>(null);
+  const sourcePreparationInFlightRef = useRef(true);
   const pushRegistrationKeyRef = useRef<string | null>(null);
   const pushRegistrationResultRef = useRef<NativeToWebBridgeMessage | null>(null);
   const pendingPushRegistrationRef = useRef<{
@@ -175,12 +195,15 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
     forceRefresh: boolean;
   } | null>(null);
   const pushRegistrationInFlightRef = useRef<Promise<void> | null>(null);
-  const [source, setSource] = useState<WebSource | null>(null);
+  const [source, setSource] = useState<WebsiteSource | null>(null);
   const [locale, setLocale] = useState<MobileLocale>(inferredLocale);
   const [canGoBack, setCanGoBack] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
+  const [isPrivacyMasked, setIsPrivacyMasked] = useState(AppState.currentState !== "active");
   const [pushSetupIssue, setPushSetupIssue] = useState<PushSetupIssue | null>(null);
+  const { isOnline } = useNetworkStatus();
+  const readiness = useMobileAppReadiness(locale, isOnline);
   const labels = useMemo(() => copy(locale), [locale]);
   const pushRecoveryLabels = useMemo(
     () => pushSetupIssue ? pushSetupRecoveryCopy(locale, pushSetupIssue) : null,
@@ -194,6 +217,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   }, [onNativeReady]);
 
   const prepare = useCallback(async () => {
+    sourcePreparationInFlightRef.current = true;
     hasLoadedContentRef.current = false;
     loadErrorRef.current = false;
     setLoadFailed(false);
@@ -202,18 +226,39 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       const initial = await createInitialSource();
       localeRef.current = initial.locale;
       setLocale(initial.locale);
-      setSource(pendingPushUrlRef.current ? { uri: pendingPushUrlRef.current } : initial.source);
+      const prepared = resolvePreparedWebsiteSource(initial.source, pendingPushUrlRef.current);
+      pendingPushUrlRef.current = pendingPushUrlAfterConsumption(
+        pendingPushUrlRef.current,
+        prepared.consumedPushUrl,
+      );
+      sourcePreparationInFlightRef.current = false;
+      setSource(prepared.source);
     } catch {
       const fallbackLocale = inferredLocale();
       localeRef.current = fallbackLocale;
       setLocale(fallbackLocale);
-      setSource({ uri: pendingPushUrlRef.current ?? `${ALPHA_TRADERS_WEB_ORIGIN}/${fallbackLocale}` });
+      const prepared = resolvePreparedWebsiteSource(
+        { uri: `${ALPHA_TRADERS_WEB_ORIGIN}/${fallbackLocale}` },
+        pendingPushUrlRef.current,
+      );
+      pendingPushUrlRef.current = pendingPushUrlAfterConsumption(
+        pendingPushUrlRef.current,
+        prepared.consumedPushUrl,
+      );
+      sourcePreparationInFlightRef.current = false;
+      setSource(prepared.source);
     }
   }, []);
 
   useEffect(() => {
+    if (readiness.status === "checking") return;
+    if (readiness.status === "update_required") {
+      setIsLoading(false);
+      reportNativeReady();
+      return;
+    }
     void prepare();
-  }, [prepare]);
+  }, [prepare, readiness.status, reportNativeReady]);
 
   const sendMessageToWebsite = useCallback((message: unknown) => {
     try {
@@ -310,7 +355,10 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   const openPushDestination = useCallback((data: unknown) => {
     const target = trustedPushWebsiteUrl(data, localeRef.current);
     if (target) {
-      pendingPushUrlRef.current = target;
+      // Queue only while startup/session migration can still overwrite the
+      // WebView source. Once preparation ends, a tap is a direct one-time
+      // navigation and must not become a future resume destination.
+      pendingPushUrlRef.current = sourcePreparationInFlightRef.current ? target : null;
       loadErrorRef.current = false;
       setLoadFailed(false);
       setIsLoading(!hasLoadedContentRef.current);
@@ -345,6 +393,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
       if (session) ensurePushRegistration(session.userId, session.locale);
     });
     const appStateSubscription = AppState.addEventListener("change", (state) => {
+      setIsPrivacyMasked(state !== "active");
       if (state !== "active") return;
       const session = activeSessionRef.current;
       if (session) ensurePushRegistration(session.userId, session.locale, true);
@@ -375,7 +424,7 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
 
   const shouldStart = useCallback((request: ShouldStartLoadRequest) => {
     const decision = websiteNavigationDecision(request.url);
-    if (!request.isTopFrame) return decision !== "block";
+    if (!request.isTopFrame) return decision === "allow";
     if (decision === "allow") return true;
     if (decision === "external") openExternally(request.url);
     return false;
@@ -397,6 +446,9 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
   }, []);
 
   const handleWebsiteMessage = useCallback((event: WebViewMessageEvent) => {
+    // The bridge can register push tokens and update native state. Only a
+    // first-party top-level document may send privileged messages into it.
+    if (!isTrustedWebsiteDocumentUrl(event.nativeEvent.url)) return;
     const message = parseWebToNativeBridgeMessage(event.nativeEvent.data);
     if (!message) return;
     if (message.type === "alpha.web.session") {
@@ -533,15 +585,59 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
     webViewRef.current?.reload();
   }, []);
 
+  if (readiness.status === "update_required") {
+    return (
+      <SafeAreaView edges={["top", "left", "right", "bottom"]} style={styles.safeArea}>
+        <StatusBar style="light" />
+        <View accessibilityRole="alert" style={styles.updateOverlay}>
+          <View style={styles.updateIcon}>
+            <Text style={styles.updateIconText}>↑</Text>
+          </View>
+          <Text style={[styles.updateTitle, locale === "ar" && styles.rtlText]}>{labels.updateTitle}</Text>
+          <Text style={[styles.updateBody, locale === "ar" && styles.rtlText]}>{labels.updateBody}</Text>
+          <View style={styles.updateVersions}>
+            <View style={[styles.updateVersionRow, locale === "ar" && styles.reverseRow]}>
+              <Text style={styles.updateVersionLabel}>{labels.currentVersion}</Text>
+              <Text style={styles.updateVersionValue}>{readiness.config.currentVersion}</Text>
+            </View>
+            <View style={[styles.updateVersionRow, locale === "ar" && styles.reverseRow]}>
+              <Text style={styles.updateVersionLabel}>{labels.minimumVersion}</Text>
+              <Text style={styles.updateVersionValue}>{readiness.config.minimumSupportedVersion}</Text>
+            </View>
+          </View>
+          <Pressable
+            accessibilityRole="link"
+            onPress={() => openExternally(`${ALPHA_TRADERS_WEB_ORIGIN}/${locale}/support`)}
+            style={styles.primaryButton}
+          >
+            <Text style={styles.primaryButtonText}>{labels.updateHelp}</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView edges={["top", "left", "right", "bottom"]} style={styles.safeArea}>
       <StatusBar style="light" />
+      {isOnline === false ? (
+        <View accessibilityLiveRegion="polite" accessibilityRole="alert" style={styles.offlineBanner}>
+          <Text style={[styles.offlineText, locale === "ar" && styles.rtlText]}>{labels.offline}</Text>
+        </View>
+      ) : null}
       {source ? (
         <WebView
           ref={webViewRef}
           source={source}
           style={styles.webView}
-          originWhitelist={["https://*", "about:*", "blob:*", "data:*"]}
+          originWhitelist={[
+            "https://alphatraders.co.il",
+            "https://www.alphatraders.co.il",
+            "https://discord.com",
+            "https://www.discord.com",
+            "about:blank",
+            "blob:*",
+          ]}
           onShouldStartLoadWithRequest={shouldStart}
           onNavigationStateChange={rememberNavigation}
           onLoadStart={() => {
@@ -562,6 +658,9 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
           }}
           allowsBackForwardNavigationGestures
           allowsInlineMediaPlayback
+          allowFileAccess={false}
+          allowFileAccessFromFileURLs={false}
+          allowUniversalAccessFromFileURLs={false}
           cacheEnabled
           cacheMode="LOAD_DEFAULT"
           contentInsetAdjustmentBehavior="never"
@@ -569,10 +668,11 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
           javaScriptCanOpenWindowsAutomatically
           javaScriptEnabled
           mediaPlaybackRequiresUserAction={false}
+          mixedContentMode="never"
           pullToRefreshEnabled
           setSupportMultipleWindows={false}
           sharedCookiesEnabled
-          thirdPartyCookiesEnabled
+          thirdPartyCookiesEnabled={false}
         />
       ) : null}
 
@@ -623,6 +723,25 @@ export function WebsiteAppShell({ onNativeReady }: WebsiteAppShellProps) {
           </Pressable>
         </View>
       ) : null}
+
+      {isPrivacyMasked ? (
+        <View
+          accessibilityRole="summary"
+          accessibilityViewIsModal
+          importantForAccessibility="yes"
+          style={styles.privacyMask}
+        >
+          <View style={styles.privacyMark}>
+            <Text style={styles.privacyMarkText}>A</Text>
+          </View>
+          <Text style={[styles.privacyTitle, locale === "ar" && styles.rtlText]}>
+            {labels.privacyTitle}
+          </Text>
+          <Text style={[styles.privacyBody, locale === "ar" && styles.rtlText]}>
+            {labels.privacyBody}
+          </Text>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -635,6 +754,20 @@ const styles = StyleSheet.create({
   webView: {
     backgroundColor: "#050505",
     flex: 1,
+  },
+  offlineBanner: {
+    backgroundColor: "#17130A",
+    borderBottomColor: "rgba(212, 175, 55, 0.72)",
+    borderBottomWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+  },
+  offlineText: {
+    color: "#F4D978",
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+    textAlign: "center",
   },
   pushRecoveryBanner: {
     backgroundColor: "#17130A",
@@ -712,6 +845,107 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 0,
     top: 0,
+  },
+  privacyMask: {
+    alignItems: "center",
+    backgroundColor: "#050505",
+    bottom: 0,
+    elevation: 30,
+    justifyContent: "center",
+    left: 0,
+    padding: 28,
+    position: "absolute",
+    right: 0,
+    top: 0,
+    zIndex: 30,
+  },
+  privacyMark: {
+    alignItems: "center",
+    backgroundColor: "#D4AF37",
+    borderRadius: 22,
+    height: 72,
+    justifyContent: "center",
+    width: 72,
+  },
+  privacyMarkText: {
+    color: "#050505",
+    fontSize: 38,
+    fontWeight: "900",
+  },
+  privacyTitle: {
+    color: "#FFFFFF",
+    fontSize: 20,
+    fontWeight: "800",
+    marginTop: 20,
+    textAlign: "center",
+  },
+  privacyBody: {
+    color: "#BFC6D2",
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 8,
+    maxWidth: 360,
+    textAlign: "center",
+  },
+  updateOverlay: {
+    alignSelf: "center",
+    backgroundColor: "#101114",
+    borderColor: "rgba(212, 175, 55, 0.58)",
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 16,
+    justifyContent: "center",
+    margin: 24,
+    maxWidth: 520,
+    padding: 24,
+  },
+  updateIcon: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(212, 175, 55, 0.12)",
+    borderColor: "rgba(212, 175, 55, 0.58)",
+    borderRadius: 26,
+    borderWidth: 1,
+    height: 52,
+    justifyContent: "center",
+    width: 52,
+  },
+  updateIconText: {
+    color: "#F4D978",
+    fontSize: 28,
+    fontWeight: "900",
+  },
+  updateTitle: {
+    color: "#FFFFFF",
+    fontSize: 23,
+    fontWeight: "900",
+    lineHeight: 31,
+  },
+  updateBody: {
+    color: "#B4BDC9",
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  updateVersions: {
+    backgroundColor: "#191B20",
+    borderRadius: 14,
+    gap: 12,
+    padding: 16,
+  },
+  updateVersionRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
+  },
+  updateVersionLabel: {
+    color: "#B4BDC9",
+    fontSize: 13,
+  },
+  updateVersionValue: {
+    color: "#F4D978",
+    fontSize: 13,
+    fontWeight: "900",
   },
   errorOverlay: {
     alignItems: "stretch",

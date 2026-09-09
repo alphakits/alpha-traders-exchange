@@ -95,6 +95,48 @@ function currentSnapshot() {
   return globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
 }
 
+function seedAcceptedBankTransferTrade(requestId = "req-1") {
+  const now = new Date().toISOString();
+  const snapshot = currentSnapshot();
+  const seller = snapshot.users.find((user) => user.id === SELLER_ID);
+  if (!seller) throw new Error("seller fixture missing");
+
+  (seller as { sellerBankAccounts?: unknown[] }).sellerBankAccounts = [
+    {
+      id: "bank-1",
+      sellerId: SELLER_ID,
+      accountHolderName: "Seller One",
+      bankName: "Bank Hapoalim",
+      branchNumber: "123",
+      accountNumber: "1234567890",
+      accountLast4: "7890",
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+
+  snapshot.purchaseRequests.push({
+    id: requestId,
+    listingId: "listing-1",
+    buyerId: BUYER_ID,
+    buyerName: "Buyer",
+    buyerWhatsapp: "+972500000000",
+    buyerNotes: "",
+    sellerId: SELLER_ID,
+    usdtAmount: "250",
+    fiatAmount: "900",
+    currency: "ILS",
+    network: "TRC20",
+    paymentMethod: "Bank Transfer",
+    status: "accepted",
+    sellerBankAccountId: "bank-1",
+    timeline: [],
+    createdAt: now,
+    updatedAt: now,
+  } as never);
+}
+
 describe("seller bank accounts and trade guardrails", () => {
   beforeEach(() => {
     globalThis.__alphaExchangeMemorySnapshot = seedDb() as never;
@@ -162,45 +204,7 @@ describe("seller bank accounts and trade guardrails", () => {
   });
 
   it("reveals bank details only to trade participants after accept and logs reveal once in short window", async () => {
-    const now = new Date().toISOString();
-    const snapshot = currentSnapshot();
-    const seller = snapshot.users.find((user) => user.id === SELLER_ID);
-    if (!seller) throw new Error("seller fixture missing");
-
-    (seller as { sellerBankAccounts?: unknown[] }).sellerBankAccounts = [
-      {
-        id: "bank-1",
-        sellerId: SELLER_ID,
-        accountHolderName: "Seller One",
-        bankName: "Bank Hapoalim",
-        branchNumber: "123",
-        accountNumber: "1234567890",
-        accountLast4: "7890",
-        isDefault: true,
-        createdAt: now,
-        updatedAt: now,
-      },
-    ];
-
-    snapshot.purchaseRequests.push({
-      id: "req-1",
-      listingId: "listing-1",
-      buyerId: BUYER_ID,
-      buyerName: "Buyer",
-      buyerWhatsapp: "+972500000000",
-      buyerNotes: "",
-      sellerId: SELLER_ID,
-      usdtAmount: "250",
-      fiatAmount: "900",
-      currency: "ILS",
-      network: "TRC20",
-      paymentMethod: "Bank Transfer",
-      status: "accepted",
-      sellerBankAccountId: "bank-1",
-      timeline: [],
-      createdAt: now,
-      updatedAt: now,
-    } as never);
+    seedAcceptedBankTransferTrade();
 
     const firstReveal = await getTradeRoomBankDetails({
       purchaseRequestId: "req-1",
@@ -226,6 +230,92 @@ describe("seller bank accounts and trade guardrails", () => {
         actorRole: "buyer",
       }),
     ).rejects.toThrow("not allowed");
+  });
+
+  it("never reveals bank details from a cached trade state after another instance cancels it", async () => {
+    seedAcceptedBankTransferTrade("req-stale-bank-details");
+
+    // Warm the ordinary read cache with the accepted state, then emulate a
+    // different instance committing cancellation at the next repository version.
+    await getTradeRoomData({
+      purchaseRequestId: "req-stale-bank-details",
+      actorUserId: BUYER_ID,
+      actorRole: "buyer",
+      markMessagesRead: false,
+    });
+    const canonical = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb & { __runtimeVersion: number };
+    const requestIndex = canonical.purchaseRequests.findIndex((request) => request.id === "req-stale-bank-details");
+    canonical.purchaseRequests[requestIndex] = {
+      ...canonical.purchaseRequests[requestIndex],
+      status: "cancelled",
+      updatedAt: new Date(Date.now() + 1_000).toISOString(),
+    } as AlphaExchangeDb["purchaseRequests"][number];
+    canonical.__runtimeVersion += 1;
+
+    await expect(getTradeRoomBankDetails({
+      purchaseRequestId: "req-stale-bank-details",
+      actorUserId: BUYER_ID,
+      actorRole: "buyer",
+    })).rejects.toThrow("only after the seller accepts");
+
+    const committed = currentSnapshot().purchaseRequests.find((request) => request.id === "req-stale-bank-details");
+    expect(committed?.status).toBe("cancelled");
+    expect(committed?.timeline.some((entry) => entry.type === "bank_details_revealed")).toBe(false);
+  });
+
+  it("never reveals a linked bank account when this trade selected a different payment rail", async () => {
+    seedAcceptedBankTransferTrade("req-atm-bank-details");
+    const request = currentSnapshot().purchaseRequests.find((item) => item.id === "req-atm-bank-details");
+    if (!request) throw new Error("trade fixture missing");
+    request.paymentMethod = "Cardless ATM Withdrawal";
+
+    await expect(getTradeRoomBankDetails({
+      purchaseRequestId: "req-atm-bank-details",
+      actorUserId: BUYER_ID,
+      actorRole: "buyer",
+    })).rejects.toThrow("only after the seller accepts");
+
+    const room = await getTradeRoomData({
+      purchaseRequestId: "req-atm-bank-details",
+      actorUserId: BUYER_ID,
+      actorRole: "buyer",
+      markMessagesRead: false,
+      strongConsistency: true,
+    });
+    expect(room.request.sellerBankAccountId).toBeUndefined();
+    expect(currentSnapshot().auditLogs.some((entry) => entry.action === "trade_bank_details_revealed")).toBe(false);
+  });
+
+  it("rechecks bank-detail disclosure under the persistence lock when cancellation races the reveal", async () => {
+    seedAcceptedBankTransferTrade("req-racing-bank-details");
+    const repository = await getAlphaExchangeRepository();
+    const saveSnapshot = repository.saveSnapshot.bind(repository);
+    const saveSpy = vi.spyOn(repository, "saveSnapshot").mockImplementationOnce(async (incoming, options) => {
+      const canonical = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb & { __runtimeVersion: number };
+      const requestIndex = canonical.purchaseRequests.findIndex((request) => request.id === "req-racing-bank-details");
+      canonical.purchaseRequests[requestIndex] = {
+        ...canonical.purchaseRequests[requestIndex],
+        status: "cancelled",
+        updatedAt: new Date(Date.now() + 1_000).toISOString(),
+      } as AlphaExchangeDb["purchaseRequests"][number];
+      canonical.__runtimeVersion += 1;
+      return saveSnapshot(incoming, options);
+    });
+
+    try {
+      await expect(getTradeRoomBankDetails({
+        purchaseRequestId: "req-racing-bank-details",
+        actorUserId: BUYER_ID,
+        actorRole: "buyer",
+      })).rejects.toThrow("only after the seller accepts");
+    } finally {
+      saveSpy.mockRestore();
+    }
+
+    const committed = currentSnapshot().purchaseRequests.find((request) => request.id === "req-racing-bank-details");
+    expect(committed?.status).toBe("cancelled");
+    expect(committed?.timeline.some((entry) => entry.type === "bank_details_revealed")).toBe(false);
+    expect(currentSnapshot().auditLogs.some((entry) => entry.action === "trade_bank_details_revealed")).toBe(false);
   });
 
   it("scrubs legacy seller profile contact data from both Trade Room participant responses", async () => {

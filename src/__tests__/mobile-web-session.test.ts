@@ -5,10 +5,15 @@ import { NextRequest, NextResponse } from "next/server";
 import type { AlphaExchangeUser } from "@/types/alpha-exchange";
 import {
   ALPHA_TRADERS_WEB_ORIGIN,
+  isTrustedWebsiteDocumentUrl,
   trustedWebsiteResumeUrl,
   trustedWebsiteReturnPath,
   websiteNavigationDecision,
 } from "../../apps/mobile/src/web/website-navigation";
+import {
+  pendingPushUrlAfterConsumption,
+  resolvePreparedWebsiteSource,
+} from "../../apps/mobile/src/web/push-navigation-recovery";
 import { resolveMobileWebSessionDestination } from "@/lib/mobile-web-session";
 
 const mocks = vi.hoisted(() => ({
@@ -93,6 +98,15 @@ describe("website-backed mobile shell", () => {
     expect(websiteNavigationDecision("mailto:support@alphatraders.co.il")).toBe("external");
     expect(websiteNavigationDecision("javascript:alert(1)")).toBe("block");
     expect(websiteNavigationDecision("http://www.alphatraders.co.il/en")).toBe("block");
+    expect(websiteNavigationDecision(`blob:${ALPHA_TRADERS_WEB_ORIGIN}/asset-id`)).toBe("allow");
+    expect(websiteNavigationDecision("blob:https://example.com/asset-id")).toBe("block");
+    expect(websiteNavigationDecision("data:text/html,<script>alert(1)</script>")).toBe("block");
+    expect(websiteNavigationDecision("https://www.alphatraders.co.il:444/en")).toBe("block");
+    expect(websiteNavigationDecision("https://user:pass@www.alphatraders.co.il/en")).toBe("block");
+    expect(websiteNavigationDecision("https://discord.com:444/oauth2/authorize")).toBe("block");
+    expect(isTrustedWebsiteDocumentUrl(`${ALPHA_TRADERS_WEB_ORIGIN}/en`)).toBe(true);
+    expect(isTrustedWebsiteDocumentUrl("https://www.alphatraders.co.il:444/en")).toBe(false);
+    expect(isTrustedWebsiteDocumentUrl("https://discord.com/oauth2/authorize")).toBe(false);
   });
 
   it("resumes only a localized first-party website URL", () => {
@@ -105,6 +119,38 @@ describe("website-backed mobile shell", () => {
     expect(trustedWebsiteResumeUrl("https://example.com/phishing", "en")).toBe(
       `${ALPHA_TRADERS_WEB_ORIGIN}/en`,
     );
+    expect(trustedWebsiteResumeUrl("https://www.alphatraders.co.il:444/en/profile", "en")).toBe(
+      `${ALPHA_TRADERS_WEB_ORIGIN}/en`,
+    );
+  });
+
+  it("uses a cold-start push destination once without forwarding session headers", () => {
+    const tradeRoomUrl = `${ALPHA_TRADERS_WEB_ORIGIN}/en/usdt-exchange/trades/review-trade`;
+    const prepared = resolvePreparedWebsiteSource(
+      {
+        uri: `${ALPHA_TRADERS_WEB_ORIGIN}/api/mobile/v1/auth/web-session`,
+        headers: { Authorization: "Bearer private-migration-token" },
+      },
+      tradeRoomUrl,
+    );
+
+    expect(prepared).toEqual({
+      source: { uri: tradeRoomUrl },
+      consumedPushUrl: tradeRoomUrl,
+    });
+    expect(pendingPushUrlAfterConsumption(tradeRoomUrl, prepared.consumedPushUrl)).toBeNull();
+  });
+
+  it("does not let an older push completion erase a newer notification tap", () => {
+    const olderTrade = `${ALPHA_TRADERS_WEB_ORIGIN}/en/usdt-exchange/trades/older`;
+    const newerTrade = `${ALPHA_TRADERS_WEB_ORIGIN}/en/usdt-exchange/trades/newer`;
+
+    expect(pendingPushUrlAfterConsumption(newerTrade, olderTrade)).toBe(newerTrade);
+    expect(resolvePreparedWebsiteSource({ uri: `${ALPHA_TRADERS_WEB_ORIGIN}/en/profile` }, null))
+      .toEqual({
+        source: { uri: `${ALPHA_TRADERS_WEB_ORIGIN}/en/profile` },
+        consumedPushUrl: null,
+      });
   });
 
   it("rejects cross-origin and cross-locale handoff redirects", () => {

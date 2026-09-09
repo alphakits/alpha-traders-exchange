@@ -5,6 +5,7 @@ import { buildPageMetadata } from "@/lib/seo";
 import { getCurrentSessionUser } from "@/lib/auth";
 import { getPremiumSellerProfile, getPublicUserProfileRouteData } from "@/lib/alpha-exchange-store";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { UserSafetyActions } from "@/components/account/user-safety-actions";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string; username: string }> }) {
   const { locale, username } = await params;
@@ -293,6 +294,14 @@ export default async function PublicUserProfilePage({
             </div>
           </div>
         </div>
+
+        <UserSafetyActions
+          context="profile"
+          locale={locale === "ar" ? "ar" : "en"}
+          targetUserId={data.profile.id}
+          viewerOwnsTarget={viewer?.id === data.profile.id}
+          viewerSignedIn={Boolean(viewer)}
+        />
 
         <div className="grid gap-6 lg:grid-cols-3">
           <Card className="border-white/10 bg-[#0B0B0B]/92 lg:col-span-2">

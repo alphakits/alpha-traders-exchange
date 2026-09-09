@@ -1,4 +1,5 @@
 import { buildPageMetadata } from "@/lib/seo";
+import { ContactForm } from "@/components/sections/contact/contact-form";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -13,9 +14,22 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   });
 }
 
-export default async function ReportAbusePage({ params }: { params: Promise<{ locale: string }> }) {
-  const { locale } = await params;
+export default async function ReportAbusePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ locale: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const [{ locale }, query] = await Promise.all([params, searchParams]);
   const isAr = locale === "ar";
+  const rawTarget = Array.isArray(query.user) ? query.user[0] : query.user;
+  const targetUserId = typeof rawTarget === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(rawTarget)
+    ? rawTarget
+    : "";
+  const initialMessage = isAr
+    ? `مرجع حساب المستخدم: ${targetUserId || ""}\nمعرّف الصفقة أو العرض: \nوقت الحادثة: \nوصف ما حدث: `
+    : `User account reference: ${targetUserId || ""}\nTrade or listing ID: \nIncident time: \nDescription of what happened: `;
   return (
     <section className="section-container page-shell">
       <div className="surface-panel mx-auto max-w-4xl p-6 md:p-8">
@@ -37,6 +51,15 @@ export default async function ReportAbusePage({ params }: { params: Promise<{ lo
               : "Reporting channel: support@alphatraders.co.il or the official contact page."}
           </p>
         </div>
+      </div>
+      <div className="mx-auto max-w-4xl">
+        <ContactForm
+          initialValues={{
+            subject: isAr ? "بلاغ إساءة أو نشاط مشبوه" : "Abuse or suspicious activity report",
+            message: initialMessage,
+          }}
+          locale={isAr ? "ar" : "en"}
+        />
       </div>
     </section>
   );

@@ -146,7 +146,7 @@ export async function GET(request: NextRequest) {
       if (!auth.user) return auth.unauthorized;
       viewerUserId = auth.user.id;
     }
-    const visibleListings = (await getMarketplaceListings())
+    const visibleListings = (await getMarketplaceListings(undefined, undefined, viewerUserId))
       .filter((listing) => listing.status === "active" && listing.approvalStatus !== "rejected")
       .filter((listing) => !listingId || listing.id === listingId)
       .map((listing) => toMobileListing(listing, viewerUserId));

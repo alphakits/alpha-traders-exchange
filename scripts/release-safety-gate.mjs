@@ -22,6 +22,16 @@ const steps = [
     arguments: ["./node_modules/vitest/vitest.mjs", "run"],
   },
   {
+    label: "Full Exchange App Review rehearsal",
+    executable: npmExecutable,
+    arguments: ["run", "mobile:review-rehearsal"],
+  },
+  {
+    label: "Ten-trade Exchange scale rehearsal",
+    executable: npmExecutable,
+    arguments: ["run", "mobile:scale-rehearsal"],
+  },
+  {
     label: "Code-quality checks",
     executable: process.execPath,
     arguments: ["./node_modules/eslint/bin/eslint.js", "."],
@@ -40,6 +50,11 @@ const steps = [
     label: "Native app configuration and dependency validation",
     executable: npmExecutable,
     arguments: ["run", "mobile:doctor"],
+  },
+  {
+    label: "Mobile App Store source readiness",
+    executable: npmExecutable,
+    arguments: ["run", "mobile:store-readiness"],
   },
   {
     label: "Generated build cleanup",
