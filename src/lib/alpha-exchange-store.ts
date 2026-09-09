@@ -50,6 +50,7 @@ import {
   MAX_LISTING_PAYMENT_METHODS,
   isBankTransferPaymentMethod,
   isCardlessAtmPaymentMethod,
+  isFaceToFaceCompletionAvailable,
   isFaceToFacePaymentMethod,
   requiresIsraeliBankSelection,
   isSellerEvidenceRequiredForPaymentMethod,
@@ -10610,6 +10611,7 @@ type UpdatePurchaseRequestStatusInput = {
   actorUserId: string;
   actorRole: UserRole;
   nextStatus: PurchaseRequestStatus;
+  completionMode?: "face_to_face";
   safetyAcknowledged?: boolean;
   traceId?: string;
 };
@@ -10677,6 +10679,9 @@ async function updatePurchaseRequestStatusAttempt(
   const isSeller = request.sellerId === input.actorUserId;
   const isBuyer = request.buyerId === input.actorUserId;
   const isAdmin = input.actorRole === "admin" || input.actorRole === "owner";
+  const requestPaymentMethod = normalizeMarketplacePaymentMethod(request.paymentMethod) ?? "Bank Transfer";
+  const isFaceToFaceTrade = isFaceToFacePaymentMethod(requestPaymentMethod);
+  const isFaceToFaceCompletion = input.completionMode === "face_to_face";
 
   if (!isSeller && !isBuyer && !isAdmin) {
     throw new TradeBlockedError("actor-not-allowed", "You are not allowed to update this request.", request.id, {
@@ -10688,7 +10693,30 @@ async function updatePurchaseRequestStatusAttempt(
     });
   }
 
-  if (isSeller && !["accepted", "declined", "funds_received", "usdt_release_pending", "usdt_sent"].includes(input.nextStatus)) {
+  if (isFaceToFaceCompletion && input.nextStatus !== "completed") {
+    throw new TradeBlockedError("face-to-face-completion-command-invalid", "Face-to-Face completion can only complete a trade.", request.id, {
+      guard: "face-to-face-completion-command",
+      nextStatus: input.nextStatus,
+      actorUserId: input.actorUserId,
+    });
+  }
+  if (isFaceToFaceCompletion && !isFaceToFaceTrade) {
+    throw new TradeBlockedError("face-to-face-completion-payment-method-required", "This completion option is available only for Face-to-Face trades.", request.id, {
+      guard: "face-to-face-payment-method",
+      paymentMethod: requestPaymentMethod,
+      nextStatus: input.nextStatus,
+      actorUserId: input.actorUserId,
+    });
+  }
+  if (isFaceToFaceCompletion && !isSeller && !isBuyer) {
+    throw new TradeBlockedError("face-to-face-completion-participant-required", "Only the buyer or seller can complete a Face-to-Face trade.", request.id, {
+      guard: "face-to-face-participant",
+      nextStatus: input.nextStatus,
+      actorUserId: input.actorUserId,
+    });
+  }
+
+  if (isSeller && !["accepted", "declined", "funds_received", "usdt_release_pending", "usdt_sent"].includes(input.nextStatus) && !isFaceToFaceCompletion) {
     throw new TradeBlockedError("seller-transition-not-allowed", "Seller can only set accepted, declined, funds_received, usdt_release_pending, or usdt_sent.", request.id, {
       guard: "seller-next-status-allowlist",
       nextStatus: input.nextStatus,
@@ -10737,7 +10765,7 @@ async function updatePurchaseRequestStatusAttempt(
       },
     };
   }
-  if (input.nextStatus === "completed" && currentStatus !== "usdt_sent") {
+  if (input.nextStatus === "completed" && !isFaceToFaceCompletion && currentStatus !== "usdt_sent") {
     const strongDb = await readDb({ bypassCache: true });
     const strongIndex = strongDb.purchaseRequests.findIndex((item) => item.id === input.requestId);
     if (strongIndex !== -1) {
@@ -10780,8 +10808,6 @@ async function updatePurchaseRequestStatusAttempt(
       currentStatus,
     });
   }
-  const requestPaymentMethod = normalizeMarketplacePaymentMethod(request.paymentMethod) ?? "Bank Transfer";
-  const isFaceToFaceTrade = isFaceToFacePaymentMethod(requestPaymentMethod);
   const isAtmTrade = isCardlessAtmPaymentMethod(requestPaymentMethod);
   const isBankTransferTrade = isBankTransferPaymentMethod(requestPaymentMethod);
   const listingCommitBasis = listing
@@ -10815,7 +10841,15 @@ async function updatePurchaseRequestStatusAttempt(
     declined: [],
     cancelled: [],
   };
-  if (input.nextStatus === "completed" && currentStatus !== "usdt_sent") {
+  if (isFaceToFaceCompletion && !isFaceToFaceCompletionAvailable(requestPaymentMethod, currentStatus)) {
+    throw new TradeBlockedError("face-to-face-completion-status-not-eligible", "This Face-to-Face trade must be accepted and active before it can be completed.", request.id, {
+      guard: "face-to-face-active-status",
+      currentStatus,
+      nextStatus: input.nextStatus,
+      actorUserId: input.actorUserId,
+    });
+  }
+  if (input.nextStatus === "completed" && !isFaceToFaceCompletion && currentStatus !== "usdt_sent") {
     throw new TradeBlockedError("confirmation-prerequisite-missing", "Buyer confirmation requires seller release (status usdt_sent) before completion.", request.id, {
       guard: "completed-requires-usdt-sent",
       currentStatus,
@@ -10824,7 +10858,7 @@ async function updatePurchaseRequestStatusAttempt(
       actorUserId: input.actorUserId,
     });
   }
-  if (!allowedByStatus[currentStatus].includes(input.nextStatus)) {
+  if (!isFaceToFaceCompletion && !allowedByStatus[currentStatus].includes(input.nextStatus)) {
     throw new TradeBlockedError("invalid-status-transition", `Invalid status transition from ${currentStatus} to ${input.nextStatus}.`, request.id, {
       guard: "allowed-by-status",
       currentStatus,
@@ -10951,9 +10985,11 @@ async function updatePurchaseRequestStatusAttempt(
     appendSystemTradeMessage(db, next, {
       senderUserId: input.actorUserId,
       senderRole: actorRole,
-      message: isPriceOffer
-        ? `Seller accepted the price offer of ₪${next.pricePerUsdt ?? next.listingPriceAtRequest} per USDT. Buyer can now upload the payment receipt.`
-        : "Seller accepted the trade request. Buyer can now upload the payment receipt.",
+      message: isFaceToFaceTrade
+        ? "Seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can mark the trade complete without uploading evidence."
+        : isPriceOffer
+          ? `Seller accepted the price offer of ₪${next.pricePerUsdt ?? next.listingPriceAtRequest} per USDT. Buyer can now upload the payment receipt.`
+          : "Seller accepted the trade request. Buyer can now upload the payment receipt.",
       createdAt: now,
     });
     for (let siblingIndex = 0; siblingIndex < db.purchaseRequests.length; siblingIndex += 1) {
@@ -11164,8 +11200,13 @@ async function updatePurchaseRequestStatusAttempt(
     });
     queueSmsDelivery(db, { eventType: "usdt_sent", eventKey: `trade:${request.id}:usdt-sent:buyer:${request.buyerId}`, recipientUserId: request.buyerId, destinationPath: requestDetailsHref(request.id) });
   } else if (input.nextStatus === "completed") {
+    const completionActorLabel = isSeller ? "Seller" : "Buyer";
+    const completionTitle = isFaceToFaceCompletion ? "Face-to-Face trade completed" : "Trade completed";
+    const completionMessage = isFaceToFaceCompletion
+      ? `${completionActorLabel} marked the Face-to-Face trade complete.`
+      : "Buyer confirmed trade completed";
     next.completedAt = now;
-    appendTradeTimelineEntry(next, { type: "trade_completed", actorUserId: input.actorUserId, actorRole, message: "Buyer confirmed trade completed", createdAt: now });
+    appendTradeTimelineEntry(next, { type: "trade_completed", actorUserId: input.actorUserId, actorRole, message: completionMessage, createdAt: now });
     next.lockedAt = now;
     appendTradeTimelineEntry(next, { type: "trade_locked", actorUserId: input.actorUserId, actorRole, message: "Trade locked", createdAt: now });
     next.reviewUnlockedAt = now;
@@ -11174,7 +11215,9 @@ async function updatePurchaseRequestStatusAttempt(
     appendSystemTradeMessage(db, next, {
       senderUserId: input.actorUserId,
       senderRole: actorRole,
-      message: "Buyer confirmed USDT receipt. The trade is complete and has moved to history.",
+      message: isFaceToFaceCompletion
+        ? `${completionActorLabel} marked the Face-to-Face trade complete. The trade has moved to history and review.`
+        : "Buyer confirmed USDT receipt. The trade is complete and has moved to history.",
       createdAt: now,
     });
 
@@ -11271,13 +11314,17 @@ async function updatePurchaseRequestStatusAttempt(
       targetUserId: request.sellerId,
       listingId: request.listingId,
       purchaseRequestId: request.id,
-      details: `Completed trade ${next.tradeId ?? request.id}`,
+      details: isFaceToFaceCompletion
+        ? `Completed Face-to-Face trade ${next.tradeId ?? request.id}; marked complete by ${completionActorLabel}.`
+        : `Completed trade ${next.tradeId ?? request.id}`,
     });
     pushNotification(db, {
       userId: request.buyerId,
       category: "trade",
-      title: "Trade completed",
-      message: `Your trade is complete and has been moved to your trade history.`,
+      title: completionTitle,
+      message: isFaceToFaceCompletion
+        ? `${completionActorLabel} marked the in-person exchange complete. The trade is now in your history.`
+        : `Your trade is complete and has been moved to your trade history.`,
       relatedTradeId: next.tradeId,
       relatedListingId: request.listingId,
       relatedHref: requestDetailsHref(request.id),
@@ -11294,8 +11341,10 @@ async function updatePurchaseRequestStatusAttempt(
     pushNotification(db, {
       userId: request.sellerId,
       category: "trade",
-      title: "Trade completed",
-      message: `Buyer confirmed receipt. The trade is complete. Check your commission due.`,
+      title: completionTitle,
+      message: isFaceToFaceCompletion
+        ? `${completionActorLabel} marked the in-person exchange complete. Check your commission due.`
+        : `Buyer confirmed receipt. The trade is complete. Check your commission due.`,
       relatedTradeId: next.tradeId,
       relatedRequestId: request.id,
       relatedListingId: request.listingId,

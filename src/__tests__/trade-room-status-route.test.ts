@@ -43,6 +43,14 @@ function statusRequest(status: string) {
   });
 }
 
+function actionRequest(action: string) {
+  return new NextRequest("http://localhost/api/alpha-exchange/purchase-requests/purchase-1", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
+  });
+}
+
 describe("Trade Room status route post-commit reliability", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -91,5 +99,51 @@ describe("Trade Room status route post-commit reliability", () => {
       resourceId: "purchase-1",
       reason: "status_post_commit_schedule_failed",
     }));
+  });
+
+  it("maps the explicit Face-to-Face command to canonical completion mode", async () => {
+    mocks.updatePurchaseRequestStatus.mockResolvedValueOnce({
+      request: {
+        id: "purchase-1",
+        buyerId: "buyer-1",
+        sellerId: "seller-1",
+        listingId: "listing-1",
+        status: "review_open",
+      },
+      statusChanged: true,
+      additionallyDeclinedRequests: [],
+      metrics: {
+        totalMs: 1,
+        readDbMs: 0,
+        timelineMs: 0,
+        chatMs: 0,
+        notificationMs: 0,
+        writeDbMs: 1,
+        sseMs: 0,
+        trustMs: 0,
+      },
+    });
+
+    const response = await PATCH(actionRequest("complete_face_to_face"), {
+      params: Promise.resolve({ requestId: "purchase-1" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.updatePurchaseRequestStatus).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "purchase-1",
+      actorUserId: "seller-1",
+      nextStatus: "completed",
+      completionMode: "face_to_face",
+    }));
+  });
+
+  it("rejects unknown trade commands before calling the store", async () => {
+    const response = await PATCH(actionRequest("complete_any_trade"), {
+      params: Promise.resolve({ requestId: "purchase-1" }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ code: "invalid-action" });
+    expect(mocks.updatePurchaseRequestStatus).not.toHaveBeenCalled();
   });
 });

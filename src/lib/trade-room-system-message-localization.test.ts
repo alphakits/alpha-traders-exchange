@@ -25,6 +25,18 @@ const currentExactMessages = [
     "Buyer confirmed USDT receipt. The trade is complete and has moved to history.",
     "أكّد المشتري استلام USDT. اكتملت الصفقة وانتقلت إلى السجل.",
   ],
+  [
+    "Seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can mark the trade complete without uploading evidence.",
+    "وافق البائع على صفقة اللقاء الشخصي. أكملوا التبادل وجهًا لوجه أولًا، وبعد ذلك يمكن لأي من الطرفين إنهاء الصفقة دون رفع إثبات.",
+  ],
+  [
+    "Buyer marked the Face-to-Face trade complete. The trade has moved to history and review.",
+    "أنهى المشتري صفقة اللقاء الشخصي. انتقلت الصفقة إلى السجل والتقييم.",
+  ],
+  [
+    "Seller marked the Face-to-Face trade complete. The trade has moved to history and review.",
+    "أنهى البائع صفقة اللقاء الشخصي. انتقلت الصفقة إلى السجل والتقييم.",
+  ],
   ["Buyer sent a reminder to continue this Trade Room.", "أرسل المشتري تذكيرًا لمتابعة غرفة الصفقة."],
   ["Seller sent a reminder to continue this Trade Room.", "أرسل البائع تذكيرًا لمتابعة غرفة الصفقة."],
 ] as const;

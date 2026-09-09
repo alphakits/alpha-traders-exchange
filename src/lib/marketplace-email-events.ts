@@ -10,6 +10,7 @@ import {
 import type { MarketplaceListing, PurchaseRequest } from "@/types/alpha-exchange";
 import { logEvent } from "@/lib/structured-logging";
 import { normalizePreferredLocale } from "@/lib/preferred-locale";
+import { isFaceToFacePaymentMethod } from "@/lib/marketplace-payment-methods";
 
 type EmailRecipient = {
   id: string;
@@ -117,6 +118,19 @@ function tradeEmailContent(
     };
   }
   if (event === "trade_accepted") {
+    if (isFaceToFacePaymentMethod(request.paymentMethod)) {
+      const title = request.priceMode === "buyer_offer"
+        ? { ar: "تم قبول عرض السعر", en: "Price Offer Accepted" }
+        : { ar: "تم قبول صفقة اللقاء الشخصي", en: "Face-to-Face Trade Accepted" };
+      return {
+        ...common,
+        title,
+        message: {
+          ar: "وافق البائع على صفقة اللقاء الشخصي. أكملوا التبادل وجهًا لوجه أولًا، وبعد ذلك يمكن لأي من الطرفين إنهاء الصفقة دون رفع إثبات.",
+          en: "The seller accepted the Face-to-Face trade. Complete the in-person exchange first; afterward, either participant can complete the trade without uploading evidence.",
+        },
+      };
+    }
     if (request.priceMode === "buyer_offer") {
       return {
         ...common,

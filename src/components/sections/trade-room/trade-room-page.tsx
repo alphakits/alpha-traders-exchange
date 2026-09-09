@@ -21,7 +21,7 @@ import {
   releaseTradeRoomMutation,
 } from "@/lib/trade-room-actions";
 import { clearTradeRoomCache, readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
-import { isBankTransferPaymentMethod, isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import { isBankTransferPaymentMethod, isFaceToFaceCompletionAvailable, isFaceToFacePaymentMethod, isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { getIsraeliBankDisplayName, parseIsraeliBankSelection } from "@/lib/israeli-banks";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { localizeTradeRoomSystemMessage } from "@/lib/trade-room-system-message-localization";
@@ -99,6 +99,8 @@ type StatusPrimaryAction = {
   successLabel: string;
   mode: "status";
   nextStatus: PrimaryStatus;
+  command?: "complete_face_to_face";
+  confirmationMessage?: string;
   requiresEvidenceSide?: "buyer" | "seller";
 };
 
@@ -123,7 +125,9 @@ const TRADE_ROOM_DEBUG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM
 const COMPLETED_TRADE_STATUSES = new Set<PurchaseRequest["status"]>(["review_open", "completed", "locked"]);
 const PERF_LOG = process.env.NEXT_PUBLIC_ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1";
 
-const STEP_ORDER: Array<{ id: StepId; icon: string; label: { en: string; ar: string } }> = [
+type TradeStep = { id: StepId; icon: string; label: { en: string; ar: string } };
+
+const STEP_ORDER: TradeStep[] = [
   { id: "request", icon: "📝", label: { en: "Request Submitted", ar: "تم إرسال الطلب" } },
   { id: "accepted", icon: "🤝", label: { en: "Seller Accepted", ar: "وافق البائع" } },
   { id: "payment", icon: "💳", label: { en: "Buyer Sent Payment", ar: "أرسل المشتري الدفع" } },
@@ -132,7 +136,13 @@ const STEP_ORDER: Array<{ id: StepId; icon: string; label: { en: string; ar: str
   { id: "completed", icon: "⭐", label: { en: "Trade Completed", ar: "اكتملت الصفقة" } },
 ];
 
-function tradeStepLabel(step: (typeof STEP_ORDER)[number] | undefined, isAr: boolean, isPriceOffer: boolean) {
+const FACE_TO_FACE_STEP_ORDER: TradeStep[] = [
+  { id: "request", icon: "📝", label: { en: "Request Submitted", ar: "تم إرسال الطلب" } },
+  { id: "accepted", icon: "🤝", label: { en: "Meeting Agreed", ar: "تم الاتفاق على اللقاء" } },
+  { id: "completed", icon: "⭐", label: { en: "Trade Completed", ar: "اكتملت الصفقة" } },
+];
+
+function tradeStepLabel(step: TradeStep | undefined, isAr: boolean, isPriceOffer: boolean) {
   if (!step) return "";
   if (step.id === "request" && isPriceOffer) return isAr ? "تم إرسال عرض السعر" : "Price Offer Submitted";
   return isAr ? step.label.ar : step.label.en;
@@ -235,7 +245,10 @@ function bankSelectionDisplayLabel(rawValue: string, locale: Locale) {
   return banks.map((bank) => getIsraeliBankDisplayName(bank, locale)).join(locale === "ar" ? "، " : ", ");
 }
 
-function tradeStatusLabel(status: PurchaseRequest["status"], isAr: boolean, isOverdue = false) {
+function tradeStatusLabel(status: PurchaseRequest["status"], isAr: boolean, isOverdue = false, isFaceToFace = false) {
+  if (isFaceToFace && isFaceToFaceCompletionAvailable("Face-to-Face (Meet in Person)", status)) {
+    return isAr ? "صفقة اللقاء الشخصي جارية" : "In-person exchange in progress";
+  }
   if (status === "pending") return isAr ? "في انتظار القبول" : "Waiting for acceptance";
   if (status === "accepted") return isAr ? "في انتظار دفع المشتري" : "Waiting for buyer payment";
   if (status === "payment_sent") return isAr ? "في انتظار تأكيد البائع" : "Waiting for seller confirmation";
@@ -258,12 +271,20 @@ function getStepId(status: PurchaseRequest["status"]): StepId {
   return "request";
 }
 
-function getStepIndex(status: PurchaseRequest["status"]) {
+function getStepIndex(status: PurchaseRequest["status"], isFaceToFace = false) {
+  if (isFaceToFace) {
+    if (COMPLETED_TRADE_STATUSES.has(status)) return FACE_TO_FACE_STEP_ORDER.length - 1;
+    return status === "pending" ? 0 : 1;
+  }
   const id = getStepId(status);
   return STEP_ORDER.findIndex((item) => item.id === id);
 }
 
-function getPrimaryAction(request: PurchaseRequest, isSeller: boolean, isAr: boolean, sellerEvidenceRequired: boolean): PrimaryAction | null {
+export function getPrimaryAction(request: PurchaseRequest, actorUserId: string, isAr: boolean, sellerEvidenceRequired: boolean): PrimaryAction | null {
+  const isSeller = request.sellerId === actorUserId;
+  const isBuyer = request.buyerId === actorUserId;
+  if (!isSeller && !isBuyer) return null;
+
   if (request.status === "pending" && isSeller) {
     return {
       label: request.priceMode === "buyer_offer" ? (isAr ? "قبول عرض السعر" : "Accept Price Offer") : (isAr ? "قبول الطلب" : "Accept Trade"),
@@ -273,7 +294,20 @@ function getPrimaryAction(request: PurchaseRequest, isSeller: boolean, isAr: boo
     };
   }
 
-  if (request.status === "accepted" && !isSeller) {
+  if (isFaceToFaceCompletionAvailable(request.paymentMethod, request.status)) {
+    return {
+      label: isAr ? "إكمال صفقة اللقاء الشخصي" : "Complete Face-to-Face Trade",
+      successLabel: isAr ? "اكتملت صفقة اللقاء الشخصي" : "Face-to-Face Trade Completed",
+      mode: "status",
+      nextStatus: "completed",
+      command: "complete_face_to_face",
+      confirmationMessage: isAr
+        ? "أكد فقط بعد اكتمال اللقاء واستلام الطرفين لكل ما تم الاتفاق عليه. يمكن للمشتري أو البائع إنهاء الصفقة، ولا يمكن التراجع عن هذا الإجراء."
+        : "Confirm only after the in-person exchange is fully finished and both parties received everything agreed. Either participant can complete the trade, and this action cannot be undone.",
+    };
+  }
+
+  if (request.status === "accepted" && isBuyer) {
     if (!request.buyerEvidence) {
       return {
         label: isAr ? "رفع إيصال الدفع" : "Upload Payment Receipt",
@@ -323,7 +357,7 @@ function getPrimaryAction(request: PurchaseRequest, isSeller: boolean, isAr: boo
       requiresEvidenceSide: sellerEvidenceRequired ? "seller" : undefined,
     };
   }
-  if (request.status === "usdt_sent" && !isSeller) {
+  if (request.status === "usdt_sent" && isBuyer) {
     return {
       label: isAr ? "تأكيد استلام USDT" : "Confirm USDT Received",
       successLabel: isAr ? "تم تأكيد استلام USDT" : "USDT Receipt Confirmed",
@@ -335,6 +369,9 @@ function getPrimaryAction(request: PurchaseRequest, isSeller: boolean, isAr: boo
 }
 
 function getWaitingEstimate(request: PurchaseRequest, isSeller: boolean, isAr: boolean, isOverdue: boolean) {
+  if (isFaceToFaceCompletionAvailable(request.paymentMethod, request.status)) {
+    return isAr ? "حتى يكتمل اللقاء والتبادل بين الطرفين" : "Until the in-person exchange is finished";
+  }
   if (request.status === "pending") return isAr ? "حتى يراجع البائع الطلب" : "Until the seller reviews the request";
   if (request.status === "accepted") return isSeller
     ? (isAr ? "حتى يرسل المشتري إثبات الدفع" : "Until the buyer submits payment proof")
@@ -375,7 +412,21 @@ function getDeliveryConfirmation(request: PurchaseRequest, isAr: boolean) {
 }
 
 function getStatusBannerContent(request: PurchaseRequest, isSeller: boolean, isAr: boolean, primaryAction: PrimaryAction | null, isOverdue: boolean) {
-  const currentStatus = tradeStatusLabel(request.status, isAr, isOverdue);
+  const isFaceToFace = isFaceToFacePaymentMethod(request.paymentMethod);
+  const currentStatus = tradeStatusLabel(request.status, isAr, isOverdue, isFaceToFace);
+  if (isFaceToFaceCompletionAvailable(request.paymentMethod, request.status)) {
+    return {
+      icon: "🤝",
+      title: isAr ? "صفقة لقاء شخصي" : "Face-to-Face Trade",
+      headline: isAr ? "أكمل الصفقة بعد انتهاء اللقاء" : "Complete the Trade After Your Meeting",
+      detail: isAr
+        ? "لا يلزم رفع إثبات. بعد اكتمال التبادل واستلام الطرفين لما تم الاتفاق عليه، يمكن للمشتري أو البائع إنهاء الصفقة."
+        : "No evidence upload is required. After the exchange is finished and both parties received what was agreed, either the buyer or seller can complete the trade.",
+      yourAction: primaryAction?.label ?? (isAr ? "إكمال صفقة اللقاء الشخصي" : "Complete Face-to-Face Trade"),
+      counterpartyAction: isAr ? "يمكن لأي من الطرفين إنهاء الصفقة" : "Either participant can complete the trade",
+      tradeStatus: currentStatus,
+    };
+  }
   if (request.status === "pending") {
     return isSeller
       ? {
@@ -547,6 +598,16 @@ function getTurnPanel(request: PurchaseRequest, isSeller: boolean, isAr: boolean
       isYourTurn: false,
       title: isAr ? "اكتملت الصفقة" : "TRADE COMPLETE",
       detail: isAr ? "تمت العملية بنجاح ويمكنك مراجعة السجل." : "The trade finished successfully and is now in history/review state.",
+    };
+  }
+
+  if (isFaceToFaceCompletionAvailable(request.paymentMethod, request.status)) {
+    return {
+      isYourTurn: true,
+      title: isAr ? "يمكنك إنهاء الصفقة" : "READY WHEN FINISHED",
+      detail: isAr
+        ? "بعد اكتمال اللقاء والتبادل، اضغط زر الإكمال. لا يلزم رفع إثبات."
+        : "After the in-person exchange is fully finished, use the completion button. No evidence upload is required.",
     };
   }
 
@@ -794,7 +855,12 @@ function createOptimisticEvidence(request: PurchaseRequest, side: "buyer" | "sel
   };
 }
 
-function buildOptimisticRoom(room: TradeRoomData, nextStatus: PrimaryStatus, actor: ActorSession) {
+function buildOptimisticRoom(
+  room: TradeRoomData,
+  nextStatus: PrimaryStatus,
+  actor: ActorSession,
+  command?: StatusPrimaryAction["command"],
+) {
   const now = new Date();
   const nextRequest: PurchaseRequest = {
     ...room.request,
@@ -810,7 +876,9 @@ function buildOptimisticRoom(room: TradeRoomData, nextStatus: PrimaryStatus, act
     usdt_sent: { type: "usdt_sent", message: "Seller marked USDT sent" },
     completed: { type: "buyer_confirmed_receipt", message: "Buyer confirmed USDT receipt" },
   };
-  const timelineEvent = timelineByStatus[nextStatus];
+  const timelineEvent = command === "complete_face_to_face"
+    ? { type: "trade_completed" as const, message: `${room.request.sellerId === actor.id ? "Seller" : "Buyer"} marked the Face-to-Face trade complete.` }
+    : timelineByStatus[nextStatus];
   nextRequest.timeline.push({
     id: `optimistic-${nextStatus}-${now.getTime()}`,
     type: timelineEvent.type,
@@ -1524,15 +1592,17 @@ function TradeRoomPageSession({
   const sellerWalletAddress = isSeller ? request?.buyerReceivingWalletAddress : undefined;
   const requestPaymentMethod = request ? (normalizeMarketplacePaymentMethod(request.paymentMethod) ?? request.paymentMethod) : "";
   const requestPaymentMethodLabel = paymentMethodDisplayLabel(requestPaymentMethod, isAr);
+  const isFaceToFaceTrade = isFaceToFacePaymentMethod(requestPaymentMethod);
   const requestBankNamesLabel = request?.bankName ? bankSelectionDisplayLabel(request.bankName, locale) : "";
   const sellerEvidenceRequired = request ? isSellerEvidenceRequiredForPaymentMethod(requestPaymentMethod) : false;
   const counterpartName = request
     ? (isSeller ? room?.counterpart.buyerName : room?.counterpart.sellerName)
     : "";
-  const currentStepIndex = request ? getStepIndex(request.status) : 0;
-  const progressPercent = Math.round((currentStepIndex / (STEP_ORDER.length - 1)) * 100);
+  const tradeSteps = isFaceToFaceTrade ? FACE_TO_FACE_STEP_ORDER : STEP_ORDER;
+  const currentStepIndex = request ? getStepIndex(request.status, isFaceToFaceTrade) : 0;
+  const progressPercent = Math.round((currentStepIndex / Math.max(1, tradeSteps.length - 1)) * 100);
   const turn = request ? getTurnPanel(request, isSeller, isAr) : null;
-  const primaryAction = request ? getPrimaryAction(request, isSeller, isAr, sellerEvidenceRequired) : null;
+  const primaryAction = request ? getPrimaryAction(request, actor.id, isAr, sellerEvidenceRequired) : null;
   const isOverdueTrade = Boolean(room?.isOverdue);
   const statusBanner = request ? getStatusBannerContent(request, isSeller, isAr, primaryAction, isOverdueTrade) : null;
   const waitingEstimate = request ? getWaitingEstimate(request, isSeller, isAr, isOverdueTrade) : null;
@@ -1689,13 +1759,15 @@ function TradeRoomPageSession({
   const handleStatusUpdate = useCallback(async (action: StatusPrimaryAction) => {
     const nextStatus = action.nextStatus;
     if (!request || !room) return;
-    const mutationKey = `${request.id}:${request.status}:${nextStatus}`;
+    const mutationKey = `${request.id}:${request.status}:${action.command ?? nextStatus}`;
     if (!acquireTradeRoomMutation(actionInFlightRef, mutationKey)) return;
     const previousRoom = room;
-    const optimisticRoom = buildOptimisticRoom(room, nextStatus, actor);
-    const payload = nextStatus === "accepted"
-      ? { status: nextStatus, safetyAcknowledged: true }
-      : { status: nextStatus };
+    const optimisticRoom = buildOptimisticRoom(room, nextStatus, actor, action.command);
+    const payload = action.command
+      ? { action: action.command }
+      : nextStatus === "accepted"
+        ? { status: nextStatus, safetyAcknowledged: true }
+        : { status: nextStatus };
     // T0: click timestamp
     const clickTs = performance.now();
     perfClickTsRef.current = clickTs;
@@ -2129,6 +2201,7 @@ function TradeRoomPageSession({
       await handleUploadEvidence(side);
       return;
     }
+    if (primaryAction.confirmationMessage && !window.confirm(primaryAction.confirmationMessage)) return;
     await handleStatusUpdate(primaryAction);
   }, [buyerEvidenceFile, handleStatusUpdate, handleUploadEvidence, primaryAction, sellerEvidenceFile]);
 
@@ -2505,7 +2578,7 @@ function TradeRoomPageSession({
               </div>
               <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-right text-xs text-[#D1D5DB]">
                 <p>{isAr ? "حالة الاتصال" : "Live updates"}: <span className={streamConnected ? "text-emerald-300" : "text-amber-300"}>{streamConnected ? (isAr ? "متصل" : "Connected") : (isAr ? "إعادة الاتصال..." : "Reconnecting...")}</span></p>
-                <p className="mt-1">{isAr ? "الحالة الحالية" : "Current status"}: <span className={isOverdueTrade ? "text-red-300" : "text-white"}>{tradeStatusLabel(request.status, isAr, isOverdueTrade)}</span></p>
+                <p className="mt-1">{isAr ? "الحالة الحالية" : "Current status"}: <span className={isOverdueTrade && !isFaceToFaceTrade ? "text-red-300" : "text-white"}>{tradeStatusLabel(request.status, isAr, isOverdueTrade, isFaceToFaceTrade)}</span></p>
               </div>
               <UserSafetyActions
                 context="trade"
@@ -2529,7 +2602,7 @@ function TradeRoomPageSession({
         <section className="hidden sticky top-2 z-20 rounded-2xl border border-white/10 bg-black/65 p-3 backdrop-blur-md md:block">
           <div className="overflow-x-auto">
             <div className="flex min-w-max items-start gap-2">
-              {STEP_ORDER.map((step, index) => {
+              {tradeSteps.map((step, index) => {
                 const isCompleted = index < currentStepIndex || (index === currentStepIndex && COMPLETED_TRADE_STATUSES.has(request.status));
                 const isCurrent = index === currentStepIndex;
                 return (
@@ -2552,7 +2625,7 @@ function TradeRoomPageSession({
                       <p className="font-medium text-white">{tradeStepLabel(step, isAr, request.priceMode === "buyer_offer")}</p>
                       {isCurrent ? <p className="text-[#C9A227]">{isAr ? "المرحلة الحالية" : "Current step"}</p> : null}
                     </div>
-                    {index < STEP_ORDER.length - 1 ? <div className={`h-0.5 w-10 ${index < currentStepIndex ? "bg-emerald-400" : "bg-white/15"}`} /> : null}
+                    {index < tradeSteps.length - 1 ? <div className={`h-0.5 w-10 ${index < currentStepIndex ? "bg-emerald-400" : "bg-white/15"}`} /> : null}
                   </div>
                 );
               })}
@@ -2569,7 +2642,7 @@ function TradeRoomPageSession({
           <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm text-white">
             <span className="min-w-0 truncate">
               <span className="text-[#9CA3AF]">{isAr ? "الخطوة الحالية" : "Current step"}: </span>
-              <span className="font-semibold text-[#FDE68A]">{tradeStepLabel(STEP_ORDER[currentStepIndex], isAr, request.priceMode === "buyer_offer")}</span>
+              <span className="font-semibold text-[#FDE68A]">{tradeStepLabel(tradeSteps[currentStepIndex], isAr, request.priceMode === "buyer_offer")}</span>
             </span>
             <span className="shrink-0 text-xs text-[#C9A227]"><bdi dir="ltr">{progressPercent}{isAr ? "٪" : "%"}</bdi></span>
           </summary>
@@ -2578,7 +2651,7 @@ function TradeRoomPageSession({
               <div className="h-full bg-gradient-to-r from-[#C9A227] to-[#FDE68A]" style={{ width: `${progressPercent}%` }} />
             </div>
             <div className="grid grid-cols-3 gap-1.5 text-[10px] text-[#9CA3AF]">
-              {STEP_ORDER.map((step, index) => (
+              {tradeSteps.map((step, index) => (
                 <button
                   key={step.id}
                   type="button"
@@ -2671,9 +2744,9 @@ function TradeRoomPageSession({
                       : "Your trade has been fully completed and recorded."}
                   </p>
                   <p>
-                    {isAr
-                      ? "شكرًا لتأكيد استلام USDT."
-                      : "Thank you for confirming that you received your USDT."}
+                    {isFaceToFaceTrade
+                      ? (isAr ? "شكرًا لتأكيد اكتمال التبادل وجهًا لوجه." : "Thank you for confirming that the in-person exchange was completed.")
+                      : (isAr ? "شكرًا لتأكيد استلام USDT." : "Thank you for confirming that you received your USDT.")}
                   </p>
                   <p>
                     {isAr
@@ -2698,10 +2771,20 @@ function TradeRoomPageSession({
               <CardTitle className="text-2xl">{isAr ? "🎉 اكتملت الصفقة بنجاح" : "🎉 Trade Completed Successfully"}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm text-[#D1FAE5]">
-              <p>{isAr ? `${toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT تم استلامها.` : `${toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT received.`}</p>
-              <p>{isAr ? "البائع أكد الدفع وأرسل USDT، والمشتري أكد الاستلام." : "Seller confirmed payment and released USDT, and buyer confirmed receipt."}</p>
-              <p>{isAr ? `تأكيد البائع: ${request.usdtSentAt ? new Date(request.usdtSentAt).toLocaleString(dateLocale) : "تم"}` : `Seller confirmation: ${request.usdtSentAt ? new Date(request.usdtSentAt).toLocaleString(dateLocale) : "Confirmed"}`}</p>
-              <p>{isAr ? `تأكيد المشتري: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "تم"}` : `Buyer confirmation: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "Confirmed"}`}</p>
+              {isFaceToFaceTrade ? (
+                <>
+                  <p>{isAr ? "تم تسجيل صفقة اللقاء الشخصي كمكتملة." : "The Face-to-Face trade has been recorded as complete."}</p>
+                  <p>{isAr ? "لم تكن هناك حاجة لرفع إثبات، وانتقلت الصفقة الآن إلى السجل والتقييم." : "No evidence upload was required, and the trade is now in history and review."}</p>
+                  <p>{isAr ? `وقت الإكمال: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "تم"}` : `Completed: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "Confirmed"}`}</p>
+                </>
+              ) : (
+                <>
+                  <p>{isAr ? `${toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT تم استلامها.` : `${toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT received.`}</p>
+                  <p>{isAr ? "البائع أكد الدفع وأرسل USDT، والمشتري أكد الاستلام." : "Seller confirmed payment and released USDT, and buyer confirmed receipt."}</p>
+                  <p>{isAr ? `تأكيد البائع: ${request.usdtSentAt ? new Date(request.usdtSentAt).toLocaleString(dateLocale) : "تم"}` : `Seller confirmation: ${request.usdtSentAt ? new Date(request.usdtSentAt).toLocaleString(dateLocale) : "Confirmed"}`}</p>
+                  <p>{isAr ? `تأكيد المشتري: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "تم"}` : `Buyer confirmation: ${request.completedAt ? new Date(request.completedAt).toLocaleString(dateLocale) : "Confirmed"}`}</p>
+                </>
+              )}
               {room.sellerCommissionDueCount > 0 && isSeller ? (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
                   <p className="font-medium">{isAr ? "عمولة مستحقة" : "Commission Due"}</p>
@@ -2832,7 +2915,7 @@ function TradeRoomPageSession({
               <CardContent className="space-y-3">
                 <div className="rounded-xl border border-white/10 bg-black/30 p-4">
                   <p className="text-xs uppercase tracking-[0.14em] text-[#C9A227]">{isAr ? "الحالة" : "Status"}</p>
-                  <p className={`mt-1 text-2xl font-semibold ${isOverdueTrade ? "text-red-300" : ""}`}>{tradeStatusLabel(request.status, isAr, isOverdueTrade)}</p>
+                  <p className={`mt-1 text-2xl font-semibold ${isOverdueTrade && !isFaceToFaceTrade ? "text-red-300" : ""}`}>{tradeStatusLabel(request.status, isAr, isOverdueTrade, isFaceToFaceTrade)}</p>
                   <p className="mt-2 text-sm text-[#D1D5DB]">
                     {isAr
                       ? `المبلغ المطلوب ${toNumber(request.fiatAmount).toLocaleString("en-IL")} ${request.currency} مقابل ${toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT.`
@@ -2877,7 +2960,7 @@ function TradeRoomPageSession({
                       ) : primaryActionButtonLabel}
                     </Button>
                     {primaryActionDisabledReason ? <p className="text-xs text-amber-300">{primaryActionDisabledReason}</p> : null}
-                    {!isSeller && request.status === "accepted" ? (
+                    {!isSeller && request.status === "accepted" && !isFaceToFaceTrade ? (
                       <p className="text-xs text-[#9CA3AF]">
                         {isAr ? "زر الإجراء الرئيسي سيقودك خلال الخطوة التالية مباشرة." : "The primary action above always guides you to the next step."}
                       </p>
@@ -2886,7 +2969,7 @@ function TradeRoomPageSession({
                 ) : (
                   <p className="text-sm text-[#9CA3AF]">{isAr ? "لا يوجد إجراء مطلوب الآن." : "No required action at this moment."}</p>
                 )}
-                {isSeller && request.status === "accepted" ? (
+                {isSeller && request.status === "accepted" && !isFaceToFaceTrade ? (
                   <div className="rounded-xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-3 text-sm text-[#DBEAFE]">
                     <p className="font-medium text-white">{isAr ? "بانتظار دفع المشتري" : "Waiting for Buyer Payment"}</p>
                     <p className="mt-1">
@@ -2983,9 +3066,13 @@ function TradeRoomPageSession({
                         ? (isAr
                             ? (request.priceMode === "buyer_offer" ? "لم يرد البائع على عرض السعر بعد. يمكنك إلغاء العرض إذا كنت لا تريد الانتظار." : "لم يقبل البائع الطلب بعد. يمكنك إلغاء الطلب إذا كنت لا تريد الانتظار.")
                             : (request.priceMode === "buyer_offer" ? "The seller has not responded to your price offer yet. You can cancel the offer if you no longer wish to wait." : "The seller has not accepted yet. You can cancel if you no longer wish to wait."))
-                        : (isAr
-                            ? "يمكنك إلغاء الصفقة قبل إرسال إثبات الدفع."
-                            : "You can cancel this trade before submitting payment evidence.")}
+                        : isFaceToFaceTrade
+                          ? (isAr
+                              ? "يمكنك إلغاء الصفقة قبل تسجيلها كمكتملة إذا تعذر إجراء اللقاء."
+                              : "You can cancel before marking the trade complete if the meeting cannot proceed.")
+                          : (isAr
+                              ? "يمكنك إلغاء الصفقة قبل إرسال إثبات الدفع."
+                              : "You can cancel this trade before submitting payment evidence.")}
                     </p>
                     <Button
                       type="button"
@@ -3070,10 +3157,27 @@ function TradeRoomPageSession({
             <div className="grid gap-4 2xl:grid-cols-2">
               <Card className="border-white/10 bg-[#0B0B0B]/90">
                 <CardHeader>
-                  <CardTitle className="text-lg">{isAr ? "مهلة إصدار USDT" : "USDT Release Deadline"}</CardTitle>
+                  <CardTitle className="text-lg">
+                    {isFaceToFaceTrade
+                      ? (isAr ? "إكمال صفقة اللقاء الشخصي" : "Face-to-Face Completion")
+                      : (isAr ? "مهلة إصدار USDT" : "USDT Release Deadline")}
+                  </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3 text-sm text-[#D1D5DB]">
-                  {room.releaseDeadlineActive && timeRemainingSeconds !== null ? (
+                  {isFaceToFaceTrade ? (
+                    <>
+                      <p className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-emerald-100">
+                        {isAr
+                          ? "لا يلزم رفع إيصال أو إثبات. أكمل التبادل وجهًا لوجه أولًا، ثم يمكن لأي من الطرفين إنهاء الصفقة."
+                          : "No receipt or evidence upload is required. Finish the in-person exchange first, then either participant can complete the trade."}
+                      </p>
+                      <p className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-amber-100">
+                        {isAr
+                          ? "لا تضغط زر الإكمال إلا بعد استلام الطرفين لكل ما تم الاتفاق عليه."
+                          : "Do not complete the trade until both parties have received everything agreed."}
+                      </p>
+                    </>
+                  ) : room.releaseDeadlineActive && timeRemainingSeconds !== null ? (
                     <div className={`rounded-xl border p-4 ${
                       deadlineCritical
                         ? "border-red-500/40 bg-red-500/15 text-red-100"
@@ -3091,7 +3195,7 @@ function TradeRoomPageSession({
                   <p className="rounded-xl border border-[#6CAEFF]/30 bg-[#6CAEFF]/10 p-3">
                     {isAr ? "تذكير الإرسال: يرسل البائع USDT فقط بعد تأكيد الدفع داخل Alpha Exchange." : "Release reminder: The seller sends USDT only after confirming payment inside Alpha Exchange."}
                   </p>
-                  {room.releaseDeadlineActive ? (
+                  {!isFaceToFaceTrade && room.releaseDeadlineActive ? (
                     <p className="rounded-xl border border-red-500/35 bg-red-500/10 p-3 text-xs text-red-100">
                       {isSeller
                         ? (isAr
@@ -3110,12 +3214,16 @@ function TradeRoomPageSession({
                   <CardTitle className="flex items-center gap-2 text-lg"><WalletCards className="h-4 w-4 text-[#C9A227]" />{isAr ? "حالة مسار الصفقة" : "Trade Flow Status"}</CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-2 text-sm md:grid-cols-2 2xl:grid-cols-2">
-                  {[
+                  {(isFaceToFaceTrade ? [
+                    { label: isAr ? "تم الاتفاق على اللقاء" : "Meeting Agreed", active: isFaceToFaceCompletionAvailable(request.paymentMethod, request.status) },
+                    { label: isAr ? "لا يلزم إثبات" : "No Evidence Required", active: isFaceToFaceCompletionAvailable(request.paymentMethod, request.status) },
+                    { label: isAr ? "مكتمل" : "Completed", active: COMPLETED_TRADE_STATUSES.has(request.status) },
+                  ] : [
                     { label: isAr ? "بانتظار إرسال USDT" : "Awaiting USDT Release", active: request.status !== "review_open" && request.status !== "completed" && request.status !== "locked" },
                     { label: isAr ? "بانتظار الدفع" : "Waiting Payment", active: request.status === "accepted" || request.status === "payment_sent" },
                     { label: isAr ? "قيد التحرير" : "Released", active: request.status === "funds_received" || request.status === "usdt_release_pending" || request.status === "usdt_sent" },
                     { label: isAr ? "مكتمل" : "Completed", active: request.status === "review_open" || request.status === "completed" || request.status === "locked" },
-                  ].map((item) => (
+                  ]).map((item) => (
                     <div key={item.label} className={`rounded-xl border px-3 py-2 ${item.active ? "border-[#C9A227]/40 bg-[#C9A227]/10 text-white" : "border-white/10 bg-black/20 text-[#9CA3AF]"}`}>
                       {item.label}
                     </div>
@@ -3125,6 +3233,28 @@ function TradeRoomPageSession({
             </div>
 
             <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+            {isFaceToFaceTrade ? (
+              <Card id="evidence" ref={evidenceSectionRef} tabIndex={-1} className="border-emerald-400/25 bg-emerald-500/5">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <ShieldCheck className="h-5 w-5 text-emerald-300" />
+                    {isAr ? "لا يلزم رفع إثبات" : "No Evidence Upload Required"}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm text-[#D1FAE5]">
+                  <p>
+                    {isAr
+                      ? "هذه صفقة لقاء شخصي. بعد اكتمال التبادل في الواقع واستلام الطرفين لما تم الاتفاق عليه، يكفي أن ينهي أحد الطرفين الصفقة."
+                      : "This is an in-person trade. Once the real-world exchange is finished and both parties received what was agreed, either participant can complete it."}
+                  </p>
+                  <p className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-amber-100">
+                    {isAr
+                      ? "يتم تسجيل هوية الطرف الذي أنهى الصفقة ووقت الإكمال لحماية سجل التداول."
+                      : "The participant who completes the trade and the completion time are recorded in the trade history."}
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
             <Card id="evidence" ref={evidenceSectionRef} tabIndex={-1} className="border-white/10 bg-[#0B0B0B]/90">
               <CardHeader>
                 <CardTitle className="text-lg">{isAr ? "قسم الإثبات" : "Evidence"}</CardTitle>
@@ -3269,6 +3399,7 @@ function TradeRoomPageSession({
                 </div>
               </CardContent>
             </Card>
+            )}
 
             <Card className="border-white/10 bg-[#0B0B0B]/90">
               <CardHeader>
@@ -3337,7 +3468,7 @@ function TradeRoomPageSession({
               <CardContent className="space-y-3">
                 <div className="mb-3 rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-[#D1D5DB]">
                   <div className="grid gap-1 md:grid-cols-2 xl:grid-cols-3">
-                    <p><span className="text-[#9CA3AF]">{isAr ? "الحالة" : "Status"}:</span> {tradeStatusLabel(request.status, isAr, isOverdueTrade)}</p>
+                    <p><span className="text-[#9CA3AF]">{isAr ? "الحالة" : "Status"}:</span> {tradeStatusLabel(request.status, isAr, isOverdueTrade, isFaceToFaceTrade)}</p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "البائع" : "Seller"}:</span> <bdi dir="auto">{request.sellerId === actor.id ? actor.fullName : counterpartName}</bdi></p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "المشتري" : "Buyer"}:</span> <bdi dir="auto">{request.buyerId === actor.id ? actor.fullName : counterpartName}</bdi></p>
                     <p><span className="text-[#9CA3AF]">{isAr ? "المبلغ" : "Amount"}:</span> <bdi dir="ltr">{toNumber(request.usdtAmount).toLocaleString("en-IL")} USDT</bdi></p>
@@ -3492,8 +3623,17 @@ function TradeRoomPageSession({
                 <CardTitle className="flex items-center gap-2 text-base"><ShieldCheck className="h-4 w-4 text-[#C9A227]" />{isAr ? "سلامة الصفقة" : "Trade Safety"}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-sm text-[#D1D5DB]">
-                <p>{isAr ? "لن يتم تحرير USDT إلا بعد تأكيد الدفع داخل Alpha Exchange." : "USDT is released only after seller confirms payment inside Alpha Exchange."}</p>
-                <p>{isAr ? "لا ترسل أي دفعة خارج مسار الصفقة المعتمد." : "Never send payment outside the Alpha Exchange process."}</p>
+                {isFaceToFaceTrade ? (
+                  <>
+                    <p>{isAr ? "التقِ في مكان عام وآمن، وتحقق من كل شيء قبل إنهاء الصفقة." : "Meet in a safe public place and verify everything before completing the trade."}</p>
+                    <p>{isAr ? "لا تسجل الصفقة كمكتملة إلا بعد استلام الطرفين لكل ما تم الاتفاق عليه." : "Mark the trade complete only after both parties received everything agreed."}</p>
+                  </>
+                ) : (
+                  <>
+                    <p>{isAr ? "لن يتم تحرير USDT إلا بعد تأكيد الدفع داخل Alpha Exchange." : "USDT is released only after seller confirms payment inside Alpha Exchange."}</p>
+                    <p>{isAr ? "لا ترسل أي دفعة خارج مسار الصفقة المعتمد." : "Never send payment outside the Alpha Exchange process."}</p>
+                  </>
+                )}
               </CardContent>
             </Card>
 

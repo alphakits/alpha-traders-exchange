@@ -800,6 +800,19 @@ export function updateMobileTrade(
   });
 }
 
+export function completeMobileFaceToFaceTrade(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  requestId: string,
+) {
+  return mobileRequest<MobileTradeResponse>(`/api/mobile/v1/trades/${encodeURIComponent(requestId)}`, {
+    locale,
+    method: "PATCH",
+    accessToken: tokens.accessToken,
+    body: { action: "complete_face_to_face" },
+  });
+}
+
 export function getMobileTradeBankDetails(
   tokens: MobileAuthTokens,
   locale: MobileLocale,

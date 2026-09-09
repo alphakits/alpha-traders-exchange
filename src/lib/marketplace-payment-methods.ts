@@ -7,6 +7,14 @@ export const MARKETPLACE_PAYMENT_METHODS = [
 export type MarketplacePaymentMethod = (typeof MARKETPLACE_PAYMENT_METHODS)[number];
 export const MAX_LISTING_PAYMENT_METHODS = 3;
 
+export const FACE_TO_FACE_COMPLETION_ELIGIBLE_STATUSES = [
+  "accepted",
+  "payment_sent",
+  "funds_received",
+  "usdt_release_pending",
+  "usdt_sent",
+] as const;
+
 function normalizeToken(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -40,6 +48,12 @@ export function resolveListingPaymentMethods(rawMethods: unknown, fallbackMethod
 
 export function isFaceToFacePaymentMethod(method: unknown) {
   return normalizeMarketplacePaymentMethod(method) === "Face-to-Face (Meet in Person)";
+}
+
+export function isFaceToFaceCompletionAvailable(method: unknown, status: unknown) {
+  return isFaceToFacePaymentMethod(method)
+    && typeof status === "string"
+    && (FACE_TO_FACE_COMPLETION_ELIGIBLE_STATUSES as readonly string[]).includes(status);
 }
 
 export function isCardlessAtmPaymentMethod(method: unknown) {

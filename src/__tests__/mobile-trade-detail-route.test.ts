@@ -134,7 +134,7 @@ describe("mobile trade detail route", () => {
       id: "purchase-1",
       side: "buyer",
       counterpartyDisplayName: "Verified Seller",
-      actions: { canViewBankDetails: true },
+      actions: { canViewBankDetails: true, canCompleteFaceToFace: false },
       timeline: [{ type: "request_accepted" }],
       messages: [{ sender: "counterparty", message: "Ready when you are" }],
     });
@@ -188,6 +188,73 @@ describe("mobile trade detail route", () => {
       actorRole: "buyer",
       nextStatus: "cancelled",
     }));
+  });
+
+  it("exposes and executes the participant-only Face-to-Face completion command", async () => {
+    mocks.getTradeRoomData.mockResolvedValue(room({
+      paymentMethod: "Face-to-Face (Meet in Person)",
+      status: "accepted",
+      buyerEvidence: undefined,
+    }));
+    mocks.updatePurchaseRequestStatus.mockResolvedValueOnce({
+      request: room({
+        paymentMethod: "Face-to-Face (Meet in Person)",
+        status: "review_open",
+        buyerEvidence: undefined,
+      }).request,
+      statusChanged: true,
+      additionallyDeclinedRequests: [],
+    });
+
+    const detailResponse = await GET(request("GET"), { params: Promise.resolve({ requestId: "purchase-1" }) });
+    await expect(detailResponse.json()).resolves.toMatchObject({
+      trade: { actions: { canCompleteFaceToFace: true } },
+    });
+
+    const response = await PATCH(request("PATCH", { action: "complete_face_to_face" }), {
+      params: Promise.resolve({ requestId: "purchase-1" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.updatePurchaseRequestStatus).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "purchase-1",
+      actorUserId: "buyer-1",
+      nextStatus: "completed",
+      completionMode: "face_to_face",
+    }));
+  });
+
+  it("exposes Face-to-Face completion to the seller in the native Trade Room", async () => {
+    mocks.requireMobileApiUser.mockResolvedValueOnce({
+      user: { id: "private-seller-id", role: "approved_seller" },
+      accessToken: "access",
+      unauthorized: null,
+    });
+    mocks.getTradeRoomData.mockResolvedValueOnce(room({
+      paymentMethod: "Face-to-Face (Meet in Person)",
+      status: "accepted",
+      buyerEvidence: undefined,
+    }));
+
+    const response = await GET(request("GET"), { params: Promise.resolve({ requestId: "purchase-1" }) });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      trade: {
+        side: "seller",
+        actions: { canCompleteFaceToFace: true },
+      },
+    });
+  });
+
+  it("rejects unknown native trade commands before mutation", async () => {
+    const response = await PATCH(request("PATCH", { action: "complete_any_trade" }), {
+      params: Promise.resolve({ requestId: "purchase-1" }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "INVALID_REQUEST" } });
+    expect(mocks.updatePurchaseRequestStatus).not.toHaveBeenCalled();
   });
 
   it("blocks a non-participant before calling the mutation store", async () => {
