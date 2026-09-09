@@ -4,6 +4,7 @@ import { requireApiUser, requireEmailVerificationForTrading } from "@/lib/api-au
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 import { prepareTradeEventEmails } from "@/lib/marketplace-email-events";
 import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
+import { logEvent } from "@/lib/structured-logging";
 
 type RouteContext = {
   params: Promise<{ requestId: string }>;
@@ -81,13 +82,32 @@ export async function POST(request: NextRequest, context: RouteContext) {
       sizeBytes: Number.isFinite(suppliedSize) && suppliedSize > 0 ? suppliedSize : Math.ceil((payload.contentBase64.length * 3) / 4),
       contentBase64: payload.contentBase64,
     });
-    if (uploaded.metrics.autoAdvancedToPaymentSent) {
-      const deliverTradeEmails = await prepareTradeEventEmails({ event: "buyer_payment_sent", request: uploaded.request });
-      after(deliverTradeEmails);
-    }
-    if (uploaded.metrics.autoAdvancedToUsdtSent) {
-      const deliverTradeEmails = await prepareTradeEventEmails({ event: "seller_usdt_released", request: uploaded.request });
-      after(deliverTradeEmails);
+    try {
+      if (uploaded.metrics.autoAdvancedToPaymentSent) {
+        const deliverTradeEmails = await prepareTradeEventEmails({ event: "buyer_payment_sent", request: uploaded.request });
+        after(deliverTradeEmails);
+      }
+      if (uploaded.metrics.autoAdvancedToUsdtSent) {
+        const deliverTradeEmails = await prepareTradeEventEmails({ event: "seller_usdt_released", request: uploaded.request });
+        after(deliverTradeEmails);
+      }
+    } catch (emailScheduleError) {
+      // Evidence, lifecycle state, in-app notifications, and realtime updates
+      // are already committed. Provider preparation must not turn that durable
+      // success into a misleading upload failure and a duplicate user retry.
+      logEvent("error", {
+        event: "trade_lifecycle_email_schedule",
+        actorUserId: user.id,
+        actorRole: user.role,
+        resourceId: uploaded.request.id,
+        outcome: "failed",
+        reason: "evidence_post_commit_schedule_failed",
+        metadata: {
+          autoAdvancedToPaymentSent: uploaded.metrics.autoAdvancedToPaymentSent,
+          autoAdvancedToUsdtSent: uploaded.metrics.autoAdvancedToUsdtSent,
+          errorType: emailScheduleError instanceof Error ? emailScheduleError.name : typeof emailScheduleError,
+        },
+      });
     }
     const routeMs = Date.now() - routeStartedAt;
     if (allowsRuntimeDiagnostics() && process.env.ALPHA_EXCHANGE_DEBUG_TRADE_ROOM === "1") {

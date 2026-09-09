@@ -92,7 +92,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       if (!auth.user) return auth.unauthorized;
       viewerUserId = auth.user.id;
     }
-    const listing = (await getMarketplaceListings("active"))
+    const listing = (await getMarketplaceListings("active", undefined, viewerUserId))
       .find((candidate) => candidate.id === listingId);
     if (!listing) return mobileError("NOT_FOUND", requestId, locale, 404);
 

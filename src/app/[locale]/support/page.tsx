@@ -1,3 +1,5 @@
+import { ContactForm } from "@/components/sections/contact/contact-form";
+import { BRAND_SUPPORT_EMAIL } from "@/lib/brand";
 import { buildPageMetadata } from "@/lib/seo";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
@@ -11,7 +13,8 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 }
 
 export default async function SupportPage({ params }: { params: Promise<{ locale: string }> }) {
-  const { locale } = await params;
+  const { locale: rawLocale } = await params;
+  const locale = rawLocale === "ar" ? "ar" : "en";
   const isAr = locale === "ar";
   return (
     <section className="section-container page-shell">
@@ -23,9 +26,29 @@ export default async function SupportPage({ params }: { params: Promise<{ locale
               ? "للمساعدة في الحساب، التسجيل، أو مشاكل التداول، تواصل مع دعم Alpha Traders."
               : "For account, onboarding, or trade support, contact Alpha Traders support."}
           </p>
-          <p>{isAr ? "البريد: support@alphatraders.co.il" : "Email: support@alphatraders.co.il"}</p>
-          <p>{isAr ? "أو استخدم صفحة التواصل الرسمية لإرسال تفاصيل المشكلة." : "Or use the official contact page to submit full issue details."}</p>
+          <p>
+            {isAr ? "البريد:" : "Email:"}{" "}
+            <a
+              className="break-all text-[#D4AF37] underline underline-offset-4"
+              href={`mailto:${BRAND_SUPPORT_EMAIL}?subject=${encodeURIComponent("Alpha Traders support request")}`}
+            >
+              {BRAND_SUPPORT_EMAIL}
+            </a>
+          </p>
+          <p>
+            {isAr
+              ? "يمكنك أيضًا إرسال تفاصيل المشكلة مباشرة من نموذج الدعم الآمن أدناه. لا ترسل كلمة المرور أو رموز الاسترداد أو المفاتيح الخاصة."
+              : "You can also send the full issue details directly through the secure support form below. Never include a password, recovery code, or private key."}
+          </p>
         </div>
+      </div>
+      <div className="mx-auto max-w-4xl">
+        <ContactForm
+          initialValues={{
+            subject: isAr ? "طلب دعم Alpha Traders" : "Alpha Traders support request",
+          }}
+          locale={locale}
+        />
       </div>
     </section>
   );

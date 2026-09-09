@@ -22,6 +22,11 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     // Disabled to avoid intermittent missing-vendor-chunk errors in development.
+    // Keep static export writes deterministic. With multiple export workers,
+    // Next can recreate `.next/export/500.html` while the parent process removes
+    // the temporary directory, intermittently failing an otherwise valid build
+    // with ENOTEMPTY after every page has been generated.
+    cpus: 1,
   },
   async headers() {
     return [

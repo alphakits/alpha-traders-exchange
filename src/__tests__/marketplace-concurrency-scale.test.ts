@@ -1,23 +1,49 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AlphaExchangeDb, AlphaExchangeUser, MarketplaceListing, SellerStatus, UserRole } from "@/types/alpha-exchange";
 
+const mocks = vi.hoisted(() => ({
+  checkSharedRateLimit: vi.fn(),
+  publishRealtimeEvent: vi.fn(),
+}));
+
 vi.mock("@/lib/postgres-runtime", () => ({
   getRuntimePostgresPool: () => null,
+}));
+
+vi.mock("@/lib/rate-limit", () => ({
+  checkSharedRateLimit: mocks.checkSharedRateLimit,
+}));
+
+vi.mock("@/lib/realtime", () => ({
+  publishRealtimeEvent: mocks.publishRealtimeEvent,
 }));
 
 import {
   createMarketplaceListing,
   createPurchaseRequest,
+  getCommissionRecordsForAdmin,
   getFirstActiveTradeForUser,
+  getSellerReviews,
   invalidateAlphaExchangeStoreCache,
+  postTradeRoomMessage,
   reviewMarketplaceListingByOwner,
+  submitBuyerTradeReview,
+  submitSellerReviewResponse,
   updatePurchaseRequestStatus,
+  uploadTradeEvidence,
 } from "@/lib/alpha-exchange-store";
 
 const OWNER_ID = "scale-owner";
 const SELLER_IDS = Array.from({ length: 10 }, (_, index) => `scale-seller-${index + 1}`);
 const BUYER_IDS = Array.from({ length: 10 }, (_, index) => `scale-buyer-${index + 1}`);
 const WALLET = "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE";
+const PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9Wl8cAAAAASUVORK5CYII=";
+
+function clientMessageId(side: "buyer" | "seller", index: number) {
+  const prefix = side === "buyer" ? "1" : "2";
+  const suffix = String(index + 1).padStart(12, "0");
+  return `${prefix.repeat(8)}-${prefix.repeat(4)}-4${prefix.repeat(3)}-8${prefix.repeat(3)}-${suffix}`;
+}
 
 function createUser(id: string, role: "owner" | "buyer" | "approved_seller"): AlphaExchangeUser {
   const now = new Date().toISOString();
@@ -138,6 +164,7 @@ describe("marketplace concurrency at ten-seller scale", () => {
     globalThis.__alphaExchangeMemoryEvidenceContent = undefined as never;
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
     invalidateAlphaExchangeStoreCache();
+    mocks.checkSharedRateLimit.mockResolvedValue({ allowed: true, retryAfterSeconds: 0, reason: null });
   });
 
   it("preserves ten concurrent seller-buyer trade openings and every linked notification", async () => {
@@ -247,4 +274,175 @@ describe("marketplace concurrency at ten-seller scale", () => {
       )).toBe(true);
     }
   }, 30_000);
+
+  it("preserves ten simultaneous complete trade lifecycles, reviews, commissions, and reopened listings", async () => {
+    const listings: MarketplaceListing[] = [];
+    for (const [index, sellerId] of SELLER_IDS.entries()) {
+      listings.push(await createApprovedListing(sellerId, index));
+    }
+
+    const submissions = await Promise.all(
+      listings.map((listing, index) => submitPurchase(listing.id, BUYER_IDS[index]!, index)),
+    );
+    await Promise.all(
+      submissions.map((submission, index) => updatePurchaseRequestStatus({
+        requestId: submission.request.id,
+        actorUserId: SELLER_IDS[index]!,
+        actorRole: "approved_seller",
+        nextStatus: "accepted",
+      })),
+    );
+
+    const buyerMessages = submissions.map((submission, index) => ({
+      purchaseRequestId: submission.request.id,
+      actorUserId: BUYER_IDS[index]!,
+      clientMessageId: clientMessageId("buyer", index),
+      message: `Fictional scale buyer update ${index + 1}.`,
+    }));
+    const sellerMessages = submissions.map((submission, index) => ({
+      purchaseRequestId: submission.request.id,
+      actorUserId: SELLER_IDS[index]!,
+      clientMessageId: clientMessageId("seller", index),
+      message: `Fictional scale seller update ${index + 1}.`,
+    }));
+    await Promise.all([
+      ...buyerMessages.map((message) => postTradeRoomMessage(message)),
+      ...sellerMessages.map((message) => postTradeRoomMessage(message)),
+    ]);
+
+    const buyerEvidence = await Promise.all(
+      submissions.map((submission, index) => uploadTradeEvidence({
+        purchaseRequestId: submission.request.id,
+        actorUserId: BUYER_IDS[index]!,
+        actorRole: "buyer",
+        side: "buyer",
+        fileName: `fictional-scale-buyer-${index + 1}.png`,
+        mimeType: "image/png",
+        sizeBytes: 68,
+        contentBase64: PNG_BASE64,
+      })),
+    );
+    expect(buyerEvidence.every((result) => result.request.status === "payment_sent")).toBe(true);
+
+    await Promise.all(
+      submissions.map((submission, index) => updatePurchaseRequestStatus({
+        requestId: submission.request.id,
+        actorUserId: SELLER_IDS[index]!,
+        actorRole: "approved_seller",
+        nextStatus: "funds_received",
+      })),
+    );
+    await Promise.all(
+      submissions.map((submission, index) => updatePurchaseRequestStatus({
+        requestId: submission.request.id,
+        actorUserId: SELLER_IDS[index]!,
+        actorRole: "approved_seller",
+        nextStatus: "usdt_release_pending",
+      })),
+    );
+    const sellerEvidence = await Promise.all(
+      submissions.map((submission, index) => uploadTradeEvidence({
+        purchaseRequestId: submission.request.id,
+        actorUserId: SELLER_IDS[index]!,
+        actorRole: "approved_seller",
+        side: "seller",
+        fileName: `fictional-scale-seller-${index + 1}.png`,
+        mimeType: "image/png",
+        sizeBytes: 68,
+        contentBase64: PNG_BASE64,
+      })),
+    );
+    expect(sellerEvidence.every((result) => result.request.status === "usdt_sent")).toBe(true);
+
+    const completions = await Promise.all(
+      submissions.map((submission, index) => updatePurchaseRequestStatus({
+        requestId: submission.request.id,
+        actorUserId: BUYER_IDS[index]!,
+        actorRole: "buyer",
+        nextStatus: "completed",
+      })),
+    );
+    expect(completions.every((result) => result.request.status === "review_open")).toBe(true);
+    for (const completion of completions) {
+      if (completion.deferredTrustWrite) await completion.deferredTrustWrite();
+    }
+
+    await Promise.all(
+      submissions.map((submission, index) => submitBuyerTradeReview({
+        requestId: submission.request.id,
+        buyerUserId: BUYER_IDS[index]!,
+        rating: 5,
+        comment: `Verified fictional scale review ${index + 1}.`,
+      })),
+    );
+    await Promise.all(
+      submissions.map((submission, index) => submitSellerReviewResponse({
+        requestId: submission.request.id,
+        sellerUserId: SELLER_IDS[index]!,
+        message: `Verified fictional scale seller response ${index + 1}.`,
+      })),
+    );
+
+    invalidateAlphaExchangeStoreCache();
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    const requestIds = new Set(submissions.map((submission) => submission.request.id));
+    const completedRequests = snapshot.purchaseRequests.filter((request) => requestIds.has(request.id));
+    const completedListings = snapshot.marketplaceListings.filter((listing) => listings.some((created) => created.id === listing.id));
+    const commissions = (await getCommissionRecordsForAdmin()).filter((record) => requestIds.has(record.purchaseRequestId));
+
+    expect(completedRequests).toHaveLength(10);
+    expect(completedRequests.every((request) => request.status === "review_open")).toBe(true);
+    expect(completedListings).toHaveLength(10);
+    expect(completedListings.every((listing) => (
+      listing.status === "active"
+      && listing.activeTradeRequestId === undefined
+      && listing.availableAmount === "400"
+    ))).toBe(true);
+    expect(commissions).toHaveLength(10);
+    expect(new Set(commissions.map((record) => record.purchaseRequestId))).toEqual(requestIds);
+    expect(commissions.every((record) => record.paymentStatus === "pending" && record.commissionAmount === 1)).toBe(true);
+
+    const requiredTimelineTypes = [
+      "request_submitted",
+      "request_accepted",
+      "buyer_evidence_uploaded",
+      "payment_sent",
+      "seller_confirmed_funds",
+      "usdt_release_started",
+      "seller_evidence_uploaded",
+      "usdt_sent",
+      "trade_completed",
+      "trade_locked",
+      "review_unlocked",
+      "commission_recorded",
+    ];
+    for (const request of completedRequests) {
+      const index = submissions.findIndex((submission) => submission.request.id === request.id);
+      expect(index).toBeGreaterThanOrEqual(0);
+      expect(request.buyerId).toBe(BUYER_IDS[index]);
+      expect(request.sellerId).toBe(SELLER_IDS[index]);
+      expect(request.messages?.filter((message) => message.kind === "user")).toHaveLength(2);
+      expect(request.timeline.map((entry) => entry.type)).toEqual(expect.arrayContaining(requiredTimelineTypes));
+
+      const reviews = await getSellerReviews({
+        sellerId: SELLER_IDS[index]!,
+        actorUserId: BUYER_IDS[index]!,
+        actorRole: "buyer",
+      });
+      expect(reviews).toEqual([
+        expect.objectContaining({
+          tradeId: request.tradeId,
+          rating: 5,
+          verifiedTrade: true,
+          sellerReply: `Verified fictional scale seller response ${index + 1}.`,
+        }),
+      ]);
+    }
+
+    const notificationCopy = snapshot.notifications.map((notification) => notification.message).join("\n");
+    for (const message of [...buyerMessages, ...sellerMessages]) {
+      expect(notificationCopy).not.toContain(message.message);
+    }
+    expect(snapshot.users.every((user) => user.email.endsWith("@example.test"))).toBe(true);
+  }, 60_000);
 });

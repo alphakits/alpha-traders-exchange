@@ -86,7 +86,7 @@ function createUser(id: string, email: string, role: "owner" | "buyer" | "approv
 function seedDb(): AlphaExchangeDb & { __runtimeVersion: number } {
   return {
     users: [
-      createUser(OWNER_ID, "jozenmark834@yahoo.com", "owner"),
+      createUser(OWNER_ID, "owner@example.test", "owner"),
       createUser(SELLER_ID, "seller@example.com", "approved_seller"),
       createUser(BUYER_ONE_ID, "buyer-one@example.com", "buyer"),
       createUser(BUYER_TWO_ID, "buyer-two@example.com", "buyer"),
@@ -878,7 +878,10 @@ describe("partial listing preservation", () => {
       availableAmount: "0",
       activeTradeRequestId: undefined,
     });
-  }, 120_000);
+  // The 100 complete lifecycles take roughly 85 seconds in isolation and can
+  // exceed two minutes while the full 240+ file suite shares CI CPU. Keep the
+  // scenario intact and allow scheduling headroom instead of reducing coverage.
+  }, 180_000);
 
   it("covers full trade lifecycle transitions, notifications, and commission record creation", async () => {
     const listing = await createMarketplaceListing({

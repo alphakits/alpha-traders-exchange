@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { canBuyerCancelTrade, canSellerDeclineTrade } from "@/lib/trade-room-actions";
+import {
+  acquireTradeRoomMutation,
+  canBuyerCancelTrade,
+  canSellerDeclineTrade,
+  releaseTradeRoomMutation,
+} from "@/lib/trade-room-actions";
 import type { PurchaseRequest } from "@/types/alpha-exchange";
 
 const request = {
@@ -10,6 +15,21 @@ const request = {
 } as PurchaseRequest;
 
 describe("Trade Room secondary actions", () => {
+  it("allows only one rapid Trade Room mutation and only its owner can release the lock", () => {
+    const lock = { current: null as string | null };
+
+    expect(acquireTradeRoomMutation(lock, "trade-1:pending:accepted")).toBe(true);
+    expect(acquireTradeRoomMutation(lock, "trade-1:pending:declined")).toBe(false);
+    expect(lock.current).toBe("trade-1:pending:accepted");
+
+    releaseTradeRoomMutation(lock, "trade-1:pending:declined");
+    expect(lock.current).toBe("trade-1:pending:accepted");
+
+    releaseTradeRoomMutation(lock, "trade-1:pending:accepted");
+    expect(lock.current).toBeNull();
+    expect(acquireTradeRoomMutation(lock, "trade-1:cancel")).toBe(true);
+  });
+
   it("allows the buyer to cancel until payment evidence is submitted", () => {
     expect(canBuyerCancelTrade(request, "buyer-1")).toBe(true);
     expect(canBuyerCancelTrade({ ...request, status: "accepted" }, "buyer-1")).toBe(true);

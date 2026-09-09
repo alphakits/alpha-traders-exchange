@@ -8,6 +8,7 @@ import { MAX_LISTING_PAYMENT_METHODS, requiresIsraeliBankSelection, resolveListi
 import type { SupportedNetwork } from "@/types/alpha-exchange";
 import { sellerListingWorkspaceDestination } from "@/lib/action-destinations";
 import { allowsRuntimeDiagnostics } from "@/lib/runtime-safety";
+import { getCurrentSessionUser } from "@/lib/auth";
 
 function toNumber(value: unknown) {
   return Number(String(value ?? "").replace(/[^\d.]/g, ""));
@@ -18,8 +19,17 @@ function isValidNetwork(value: unknown): value is SupportedNetwork {
 }
 
 export async function GET() {
-  const listings = await getMarketplaceListings();
-  return NextResponse.json({ listings }, { status: 200 });
+  const viewer = await getCurrentSessionUser();
+  const listings = await getMarketplaceListings(undefined, undefined, viewer?.id);
+  return NextResponse.json(
+    { listings },
+    {
+      status: 200,
+      headers: viewer
+        ? { "Cache-Control": "private, no-store, max-age=0", Vary: "Cookie" }
+        : { "Cache-Control": "public, max-age=5, stale-while-revalidate=20", Vary: "Cookie" },
+    },
+  );
 }
 
 function isListingCreateProfilingEnabled() {

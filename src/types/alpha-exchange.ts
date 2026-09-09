@@ -125,6 +125,8 @@ export interface AlphaExchangeUser {
   allowProfileSearch?: boolean;
   showPhonePublic?: boolean;
   showEmailPublic?: boolean;
+  /** Accounts this user has blocked from future marketplace interactions. */
+  blockedUserIds?: string[];
   notificationPreferences?: NotificationPreferences;
   role: UserRole;
   roles?: UserRole[];

@@ -7,13 +7,16 @@ vi.mock("@/lib/postgres-runtime", () => ({
 
 import {
   createMarketplaceListing,
+  createPurchaseRequest,
   deleteMarketplaceListingForSeller,
+  getUserBlockStatus,
   getListingReliabilityForAdmin,
   getMarketplaceListings,
   getNotificationsForUser,
   getPremiumSellerProfile,
   invalidateAlphaExchangeStoreCache,
   reviewMarketplaceListingByOwner,
+  setUserBlockStatus,
   updateUserSellerSettings,
   updateMarketplaceListingForSeller,
 } from "@/lib/alpha-exchange-store";
@@ -22,8 +25,9 @@ import { DIRECT_CONTACT_CONTENT_ERROR } from "@/lib/privacy-redaction";
 const OWNER_ID = "owner-1";
 const SELLER_ID = "seller-1";
 const SELLER_TWO_ID = "seller-2";
+const BUYER_ID = "buyer-1";
 
-function createUser(id: string, email: string, role: "owner" | "approved_seller") {
+function createUser(id: string, email: string, role: "owner" | "approved_seller" | "buyer") {
   const now = new Date().toISOString();
   return {
     id,
@@ -62,7 +66,12 @@ function createUser(id: string, email: string, role: "owner" | "approved_seller"
 
 function seedDb(): AlphaExchangeDb & { __runtimeVersion: number } {
   return {
-    users: [createUser(OWNER_ID, "jozenmark834@yahoo.com", "owner"), createUser(SELLER_ID, "seller@example.com", "approved_seller"), createUser(SELLER_TWO_ID, "seller-two@example.com", "approved_seller")] as AlphaExchangeDb["users"],
+    users: [
+      createUser(OWNER_ID, "owner@example.test", "owner"),
+      createUser(SELLER_ID, "seller@example.com", "approved_seller"),
+      createUser(SELLER_TWO_ID, "seller-two@example.com", "approved_seller"),
+      createUser(BUYER_ID, "buyer@example.com", "buyer"),
+    ] as AlphaExchangeDb["users"],
     sellerApplications: [],
     marketplaceListings: [],
     purchaseRequests: [],
@@ -380,5 +389,34 @@ describe("listing accountability: reason + audit + reliability", () => {
     expect(serialized).not.toContain("wa.me");
     expect(serialized).not.toContain("t.me");
     expect(publicListing?.photos).toEqual([]);
+  });
+
+  it("lets either account block future marketplace matches and restore them on unblock", async () => {
+    const listing = await createApprovedListing("1000", "3.60");
+
+    expect(await getUserBlockStatus({ actorUserId: BUYER_ID, targetUserId: SELLER_ID })).toEqual({ blocked: false });
+    await setUserBlockStatus({ actorUserId: BUYER_ID, targetUserId: SELLER_ID, blocked: true });
+    expect(await getUserBlockStatus({ actorUserId: BUYER_ID, targetUserId: SELLER_ID })).toEqual({ blocked: true });
+    expect((await getMarketplaceListings("active", undefined, BUYER_ID)).some((item) => item.id === listing.id)).toBe(false);
+    expect((await getMarketplaceListings("active", undefined, SELLER_TWO_ID)).some((item) => item.id === listing.id)).toBe(true);
+
+    await expect(createPurchaseRequest({
+      buyerId: BUYER_ID,
+      listingId: listing.id,
+      usdtAmount: "100",
+      buyerName: "Buyer",
+      buyerReceivingWalletAddress: "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+      paymentMethod: "Bank Transfer",
+      actorUserId: BUYER_ID,
+    })).rejects.toMatchObject({ code: "USER_INTERACTION_BLOCKED" });
+
+    await setUserBlockStatus({ actorUserId: BUYER_ID, targetUserId: SELLER_ID, blocked: false });
+    expect(await getUserBlockStatus({ actorUserId: BUYER_ID, targetUserId: SELLER_ID })).toEqual({ blocked: false });
+    expect((await getMarketplaceListings("active", undefined, BUYER_ID)).some((item) => item.id === listing.id)).toBe(true);
+
+    await setUserBlockStatus({ actorUserId: SELLER_ID, targetUserId: BUYER_ID, blocked: true });
+    expect((await getMarketplaceListings("active", undefined, BUYER_ID)).some((item) => item.id === listing.id)).toBe(false);
+    await setUserBlockStatus({ actorUserId: SELLER_ID, targetUserId: BUYER_ID, blocked: false });
+    expect((await getMarketplaceListings("active", undefined, BUYER_ID)).some((item) => item.id === listing.id)).toBe(true);
   });
 });

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "primaryCategory": "FINANCE",
+  "secondaryCategory": "EDUCATION",
+  "localizations": {
+    "en-US": {
+      "name": "Alpha Traders",
+      "subtitle": "Learn, list and trade USDT",
+      "promotionalText": "Learn in Arabic or English, browse approved seller listings, and manage each peer-to-peer trade in one structured Trade Room.",
+      "description": "Alpha Traders brings bilingual trading education and a structured peer-to-peer USDT marketplace to iPhone.\n\nLEARN\nFollow practical lessons in Arabic or English, track progress, and return to saved material.\n\nDISCOVER\nBrowse Alpha Traders-approved seller listings. Compare price, payment method, network, availability, trust signals, and verified post-trade reviews.\n\nMANAGE A TRADE\nUse one guided Trade Room for each transaction. Follow the status timeline, keep chat in the platform, upload payment or transfer evidence, receive reminders, and use dispute, reporting, and user-blocking tools when something is wrong.\n\nSTAY UPDATED\nReceive privacy-safe native notifications, open the correct trade from a notification, and manage notification preferences and account settings.\n\nAlpha Traders coordinates the workflow but does not custody principal funds. Buyers and sellers settle directly using the agreed payment method and blockchain network. Digital assets and peer-to-peer payments involve risk. Availability depends on your location and applicable law. No trade, price, outcome, or profit is guaranteed.",
+      "keywords": "USDT,P2P,trading,academy,crypto,marketplace,Arabic,English,trade room,sellers",
+      "marketingUrl": "https://www.alphatraders.co.il/en",
+      "supportUrl": "https://www.alphatraders.co.il/en/support",
+      "privacyPolicyUrl": "https://www.alphatraders.co.il/en/privacy-policy",
+      "whatsNew": "The complete Alpha Traders experience for iPhone, with bilingual lessons, the USDT marketplace, guided Trade Rooms, privacy-safe notifications, account safety tools, and post-trade feedback."
+    },
+    "ar-SA": {
+      "name": "Alpha Traders",
+      "subtitle": "تعلّم وتداول USDT بثقة",
+      "promotionalText": "تعلّم بالعربية أو الإنجليزية، تصفّح عروض البائعين المعتمدين، وأدِر كل صفقة بين الأفراد داخل غرفة تداول منظّمة.",
+      "description": "يجمع Alpha Traders بين تعليم التداول بالعربية والإنجليزية وسوق منظّم لتداول USDT بين الأفراد على iPhone.\n\nتعلّم\nتابع دروسًا عملية بالعربية أو الإنجليزية، واحفظ تقدّمك، وعُد إلى المواد المحفوظة.\n\nاستكشف\nتصفّح عروض البائعين المعتمدين لدى Alpha Traders، وقارن السعر وطريقة الدفع والشبكة والتوفّر ومؤشرات الثقة والتقييمات الموثّقة بعد الصفقات.\n\nأدِر الصفقة\nاستخدم غرفة تداول موجّهة لكل صفقة. تابع المراحل، واحتفظ بالمحادثة داخل المنصة، وارفع إثبات الدفع أو التحويل، واستلم التنبيهات، واستخدم أدوات النزاع والإبلاغ وحظر المستخدم عند حدوث مشكلة.\n\nابقَ على اطلاع\nاستلم إشعارات أصلية تحافظ على الخصوصية، وافتح الصفقة الصحيحة من الإشعار، وتحكّم في تفضيلات الإشعارات وإعدادات الحساب.\n\nينظّم Alpha Traders سير العمل لكنه لا يحتفظ بالأموال الأساسية. تتم التسوية مباشرة بين المشتري والبائع باستخدام طريقة الدفع وشبكة البلوكشين المتفق عليهما. تنطوي الأصول الرقمية والمدفوعات بين الأفراد على مخاطر. يعتمد التوفّر على موقعك والقانون المطبّق. لا يوجد ضمان لأي صفقة أو سعر أو نتيجة أو ربح.",
+      "keywords": "USDT,تداول,تعليم,عملات رقمية,سوق,بائعون,صفقات,عربي,إنجليزي,P2P",
+      "marketingUrl": "https://www.alphatraders.co.il/ar",
+      "supportUrl": "https://www.alphatraders.co.il/ar/support",
+      "privacyPolicyUrl": "https://www.alphatraders.co.il/ar/privacy-policy",
+      "whatsNew": "تجربة Alpha Traders الكاملة على iPhone: دروس ثنائية اللغة، سوق USDT، غرف تداول موجّهة، إشعارات تحافظ على الخصوصية، أدوات أمان الحساب، وتقييمات ما بعد الصفقة."
+    }
+  }
+}

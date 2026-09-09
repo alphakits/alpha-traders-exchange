@@ -14,12 +14,18 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { AlphaExchangeNotification, MarketplaceListing, PurchaseRequest, TradeChatMessage, TradeEvidenceFile, TradeTimelineEntry, UserRole } from "@/types/alpha-exchange";
 import { formatTradeId } from "@/lib/format-id";
-import { canBuyerCancelTrade, canSellerDeclineTrade } from "@/lib/trade-room-actions";
-import { readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
-import { isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
+import {
+  acquireTradeRoomMutation,
+  canBuyerCancelTrade,
+  canSellerDeclineTrade,
+  releaseTradeRoomMutation,
+} from "@/lib/trade-room-actions";
+import { clearTradeRoomCache, readTradeRoomCache, writeTradeRoomCache } from "@/lib/trade-room-client";
+import { isBankTransferPaymentMethod, isSellerEvidenceRequiredForPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { getIsraeliBankDisplayName, parseIsraeliBankSelection } from "@/lib/israeli-banks";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { localizeTradeRoomSystemMessage } from "@/lib/trade-room-system-message-localization";
+import { UserSafetyActions } from "@/components/account/user-safety-actions";
 
 type Locale = "ar" | "en";
 
@@ -78,6 +84,12 @@ type ActorSession = {
   fullName: string;
 };
 
+type TradeRoomPageProps = {
+  locale: Locale;
+  requestId: string;
+  actor: ActorSession;
+};
+
 type StepId = "request" | "accepted" | "payment" | "verifying" | "release" | "completed";
 
 type PrimaryStatus = "accepted" | "declined" | "payment_sent" | "funds_received" | "usdt_release_pending" | "usdt_sent" | "completed";
@@ -102,6 +114,7 @@ type PrimaryAction = StatusPrimaryAction | UploadPrimaryAction;
 type TradeRoomDeepLinkTarget = "status-banner" | "action-required" | "evidence" | "chat";
 
 const ALLOWED_EVIDENCE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "application/pdf"]);
+const ALLOWED_CHAT_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const MAX_EVIDENCE_SIZE_BYTES = 8 * 1024 * 1024;
 const CHAT_SEND_TIMEOUT_MS = 12_000;
 const TRADE_ROOM_RECONNECT_BASE_MS = 1_000;
@@ -169,6 +182,26 @@ function createTradeRoomClientMessageId() {
   const bytes = new Uint8Array(16);
   cryptoApi.getRandomValues(bytes);
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export function tradeRoomChatAttemptSignature(
+  message: string,
+  image: Pick<File, "name" | "size" | "type" | "lastModified"> | null,
+) {
+  return JSON.stringify([
+    message.trim(),
+    image ? [image.name, image.size, image.type, image.lastModified] : null,
+  ]);
+}
+
+export function resolveTradeRoomChatAttempt(
+  previous: { signature: string; clientMessageId: string } | null,
+  signature: string,
+  createId: () => string = createTradeRoomClientMessageId,
+) {
+  return previous?.signature === signature
+    ? previous
+    : { signature, clientMessageId: createId() };
 }
 
 function readTradeRoomChatError(
@@ -953,15 +986,31 @@ export function shouldShowTradeRoomNewMessageIndicator(input: {
   return input.initialized && !input.wasNearBottom && input.hasNewCounterpartyMessage;
 }
 
-export function TradeRoomPage({
+export function getTradeRoomSessionKey(actorUserId: string, requestId: string) {
+  return `${actorUserId}:${requestId}`;
+}
+
+export function canRevealTradeRoomBankDetails(request: PurchaseRequest | null, isSeller: boolean) {
+  return Boolean(
+    request
+    && !isSeller
+    && Boolean(request.sellerBankAccountId)
+    && isBankTransferPaymentMethod(request.paymentMethod)
+    && request.status !== "pending"
+    && request.status !== "declined"
+    && request.status !== "cancelled",
+  );
+}
+
+export function TradeRoomPage(props: TradeRoomPageProps) {
+  return <TradeRoomPageSession key={getTradeRoomSessionKey(props.actor.id, props.requestId)} {...props} />;
+}
+
+function TradeRoomPageSession({
   locale,
   requestId,
   actor,
-}: {
-  locale: Locale;
-  requestId: string;
-  actor: ActorSession;
-}) {
+}: TradeRoomPageProps) {
   const isAr = locale === "ar";
   const dateLocale = isAr ? "ar-IL-u-nu-latn" : "en-IL";
   const router = useRouter();
@@ -1033,7 +1082,9 @@ export function TradeRoomPage({
   const streamReconnectAttemptsRef = useRef(0);
   const actionNoticeTimeoutRef = useRef<number | null>(null);
   const actionInFlightRef = useRef<string | null>(null);
+  const pokeInFlightRef = useRef<string | null>(null);
   const chatMessageInFlightRef = useRef(false);
+  const pendingChatAttemptRef = useRef<{ signature: string; clientMessageId: string } | null>(null);
   const completedActionTimeoutRef = useRef<number | null>(null);
   const buyerRedirectTimeoutRef = useRef<number | null>(null);
   const buyerRedirectFadeTimeoutRef = useRef<number | null>(null);
@@ -1090,6 +1141,11 @@ export function TradeRoomPage({
       const payload = (await response.json()) as TradeRoomData & { error?: string; message?: string };
       if (!response.ok) {
         if (response.status === 401) void refreshCanonicalSession?.({ force: true });
+        if (response.status === 401 || response.status === 403 || response.status === 404) {
+          roomRef.current = null;
+          setRoom(null);
+          clearTradeRoomCache(requestId, actor.id);
+        }
         throw new Error(readApiErrorFallback(payload, isAr ? "تعذر تحميل غرفة الصفقة." : "Failed to load trade room.", isAr));
       }
       const apiLatencyMs = Math.round(performance.now() - startedAt);
@@ -1113,7 +1169,7 @@ export function TradeRoomPage({
         return currentRoom;
       }
       roomRef.current = nextRoom;
-      writeTradeRoomCache(requestId, nextRoom);
+      writeTradeRoomCache(requestId, actor.id, nextRoom);
       setRoom(nextRoom);
       return nextRoom;
     } catch (error) {
@@ -1123,7 +1179,7 @@ export function TradeRoomPage({
     } finally {
       if (!silent) setIsLoading(false);
     }
-  }, [canonicalSessionReady, isAr, refreshCanonicalSession, requestId]);
+  }, [actor.id, canonicalSessionReady, isAr, refreshCanonicalSession, requestId]);
 
   useEffect(() => {
     if (!canonicalSessionReady) {
@@ -1133,7 +1189,9 @@ export function TradeRoomPage({
       setIsLoading(canonicalSessionResolving);
       return;
     }
-    const cached = readTradeRoomCache<TradeRoomData>(requestId);
+    const cachedCandidate = readTradeRoomCache<TradeRoomData>(requestId, actor.id);
+    const cached = cachedCandidate?.request?.id === requestId ? cachedCandidate : null;
+    if (cachedCandidate && !cached) clearTradeRoomCache(requestId, actor.id);
     if (cached) {
       roomRef.current = cached;
       setRoom(cached);
@@ -1142,7 +1200,7 @@ export function TradeRoomPage({
     // Cached data is only a fast first paint; the canonical server snapshot
     // must win after a refresh, second tab update, or return to the room.
     void fetchRoom(Boolean(cached));
-  }, [canonicalSessionReady, canonicalSessionResolving, fetchRoom, requestId]);
+  }, [actor.id, canonicalSessionReady, canonicalSessionResolving, fetchRoom, requestId]);
 
   useEffect(() => {
     roomRef.current = room;
@@ -1360,7 +1418,7 @@ export function TradeRoomPage({
           : false;
         if (!shouldIgnore && (!currentRoom || tradeRoomSnapshotSignature(currentRoom) !== tradeRoomSnapshotSignature(reconciledPayload))) {
           roomRef.current = reconciledPayload;
-          writeTradeRoomCache(requestId, reconciledPayload);
+          writeTradeRoomCache(requestId, actor.id, reconciledPayload);
           setRoom(reconciledPayload);
           setIsLoading(false);
         }
@@ -1435,7 +1493,7 @@ export function TradeRoomPage({
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
     };
-  }, [canonicalSessionReady, fetchRoom, refreshCanonicalSession, requestId, streamCycle]);
+  }, [actor.id, canonicalSessionReady, fetchRoom, refreshCanonicalSession, requestId, streamCycle]);
 
   useEffect(() => {
     if (!canonicalSessionReady || streamConnected) return;
@@ -1537,16 +1595,12 @@ export function TradeRoomPage({
     }
   }, [isAr, sellerWalletAddress]);
 
-  const canRevealBankDetails = Boolean(
-    request
-    && !isSeller
-    && request.status !== "pending"
-    && request.status !== "declined"
-    && request.status !== "cancelled",
-  );
+  const canRevealBankDetails = canRevealTradeRoomBankDetails(request, isSeller);
+  const bankDetailsRequestId = request?.id ?? null;
+  const bankDetailsAccountId = request?.sellerBankAccountId ?? null;
 
   useEffect(() => {
-    if (!request) {
+    if (!bankDetailsRequestId) {
       setBankDetails(null);
       setBankDetailsError(null);
       return;
@@ -1557,9 +1611,10 @@ export function TradeRoomPage({
       return;
     }
     let cancelled = false;
+    setBankDetails(null);
     setBankDetailsBusy(true);
     setBankDetailsError(null);
-    void fetch(`/api/alpha-exchange/trade-room/${request.id}/bank-details`, { cache: "no-store" })
+    void fetch(`/api/alpha-exchange/trade-room/${bankDetailsRequestId}/bank-details`, { cache: "no-store" })
       .then(async (response) => {
         const payload = await response.json().catch(() => ({})) as { error?: string; bankDetails?: TradeRoomBankDetails };
         if (!response.ok) {
@@ -1579,7 +1634,7 @@ export function TradeRoomPage({
     return () => {
       cancelled = true;
     };
-  }, [canRevealBankDetails, isAr, request]);
+  }, [bankDetailsAccountId, bankDetailsRequestId, canRevealBankDetails, isAr]);
 
   const selectedStepEvent = useMemo(() => {
     if (!request) return null;
@@ -1635,8 +1690,7 @@ export function TradeRoomPage({
     const nextStatus = action.nextStatus;
     if (!request || !room) return;
     const mutationKey = `${request.id}:${request.status}:${nextStatus}`;
-    if (actionInFlightRef.current === mutationKey) return;
-    actionInFlightRef.current = mutationKey;
+    if (!acquireTradeRoomMutation(actionInFlightRef, mutationKey)) return;
     const previousRoom = room;
     const optimisticRoom = buildOptimisticRoom(room, nextStatus, actor);
     const payload = nextStatus === "accepted"
@@ -1649,7 +1703,7 @@ export function TradeRoomPage({
     const optimisticStartedAt = performance.now();
     roomRef.current = optimisticRoom;
     setRoom(optimisticRoom);
-    writeTradeRoomCache(requestId, optimisticRoom);
+    writeTradeRoomCache(requestId, actor.id, optimisticRoom);
     const optimisticUiMs = Math.round(performance.now() - optimisticStartedAt);
     setActionBusy(true);
     setActionNotice(null);
@@ -1722,7 +1776,7 @@ export function TradeRoomPage({
         const nextRoom = applyRequestToRoom(optimisticRoom, responsePayload.request);
         roomRef.current = nextRoom;
         setRoom(nextRoom);
-        writeTradeRoomCache(requestId, nextRoom);
+        writeTradeRoomCache(requestId, actor.id, nextRoom);
       }
       if (completedActionTimeoutRef.current) {
         window.clearTimeout(completedActionTimeoutRef.current);
@@ -1763,7 +1817,7 @@ export function TradeRoomPage({
       } else {
         roomRef.current = previousRoom;
         setRoom(previousRoom);
-        writeTradeRoomCache(requestId, previousRoom);
+        writeTradeRoomCache(requestId, actor.id, previousRoom);
         const message = localizedCaughtError(error, isAr ? "تعذر تحديث حالة الصفقة." : "Failed to update trade status.", isAr);
         setActionError(message);
         setActionNotice(null);
@@ -1773,7 +1827,7 @@ export function TradeRoomPage({
         window.clearTimeout(actionNoticeTimeoutRef.current);
         actionNoticeTimeoutRef.current = null;
       }
-      actionInFlightRef.current = null;
+      releaseTradeRoomMutation(actionInFlightRef, mutationKey);
       setActionBusy(false);
     }
   }, [actor, fetchRoom, isAr, request, requestId, room, router, startBuyerCompletionSuccessFlow, streamConnected]);
@@ -1785,7 +1839,18 @@ export function TradeRoomPage({
     if (!currentRoom) return;
     const message = chatDraft.trim();
     if (!message && !chatImage) return;
-    const clientMessageId = createTradeRoomClientMessageId();
+    if (chatImage && !ALLOWED_CHAT_IMAGE_TYPES.has(chatImage.type)) {
+      setChatErrorMessage(isAr ? "يجب أن يكون مرفق المحادثة صورة PNG أو JPEG أو WebP." : "Chat attachments must be PNG, JPEG, or WebP images.");
+      return;
+    }
+    if (chatImage && chatImage.size > MAX_EVIDENCE_SIZE_BYTES) {
+      setChatErrorMessage(isAr ? "حجم صورة المحادثة كبير جدًا (الحد 8MB)." : "Chat image is too large (max 8MB).");
+      return;
+    }
+    const attemptSignature = tradeRoomChatAttemptSignature(message, chatImage);
+    const pendingAttempt = resolveTradeRoomChatAttempt(pendingChatAttemptRef.current, attemptSignature);
+    pendingChatAttemptRef.current = pendingAttempt;
+    const clientMessageId = pendingAttempt.clientMessageId;
     // Optimistically append the message so it appears instantly for the sender.
     const optimisticMsg: TradeChatMessage = {
       id: `optimistic-msg-${Date.now()}`,
@@ -1807,7 +1872,7 @@ export function TradeRoomPage({
     forceChatScrollRef.current = true;
     chatMessageInFlightRef.current = true;
     roomRef.current = optimisticRoom;
-    writeTradeRoomCache(requestId, optimisticRoom);
+    writeTradeRoomCache(requestId, actor.id, optimisticRoom);
     setRoom(optimisticRoom);
     setChatDraft("");
     setChatErrorMessage(null);
@@ -1862,6 +1927,12 @@ export function TradeRoomPage({
       if (!response.ok) {
         throw new Error(readTradeRoomChatError(payload, isAr));
       }
+      // Keep the same client id across uncertain retries, but retire it as soon
+      // as the server confirms this exact content. This mirrors the native app
+      // and makes a timeout-after-commit safe from duplicate chat messages.
+      if (pendingChatAttemptRef.current?.clientMessageId === clientMessageId) {
+        pendingChatAttemptRef.current = null;
+      }
       setChatImage(null);
       if (chatImageInputRef.current) chatImageInputRef.current.value = "";
       const confirmedMessage = payload?.message;
@@ -1873,7 +1944,7 @@ export function TradeRoomPage({
             messages: mergeTradeRoomMessages(confirmedRoom.messages, confirmedMessage, optimisticMsg.id),
           };
           roomRef.current = nextRoom;
-          writeTradeRoomCache(requestId, nextRoom);
+          writeTradeRoomCache(requestId, actor.id, nextRoom);
           setRoom(nextRoom);
         }
       }
@@ -1885,7 +1956,7 @@ export function TradeRoomPage({
           messages: failedRoom.messages.filter((candidate) => candidate.id !== optimisticMsg.id),
         };
         roomRef.current = revertedRoom;
-        writeTradeRoomCache(requestId, revertedRoom);
+        writeTradeRoomCache(requestId, actor.id, revertedRoom);
         setRoom(revertedRoom);
       }
       setChatDraft((current) => current.trim() ? `${message}\n${current}` : message);
@@ -1896,8 +1967,22 @@ export function TradeRoomPage({
     }
   }, [actor.id, actor.role, chatDraft, chatImage, isAr, refreshCanonicalSession, requestId, room]);
 
+  const handleCopyChatDraft = useCallback(async () => {
+    if (!chatDraft) return;
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(chatDraft);
+      setChatErrorMessage(null);
+      setStatusMessage(isAr ? "تم نسخ الرسالة." : "Message copied.");
+    } catch {
+      setChatErrorMessage(isAr ? "تعذر نسخ الرسالة." : "Could not copy the message.");
+    }
+  }, [chatDraft, isAr]);
+
   const handlePoke = useCallback(async () => {
     if (!request || !room?.poke?.available || pokeBusy) return;
+    const mutationKey = `${request.id}:poke`;
+    if (!acquireTradeRoomMutation(pokeInFlightRef, mutationKey)) return;
     setPokeBusy(true);
     try {
       const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}/poke`, {
@@ -1935,6 +2020,7 @@ export function TradeRoomPage({
     } catch (error) {
       setStatusMessage(localizedCaughtError(error, isAr ? "تعذر إرسال التذكير." : "Could not send the reminder.", isAr));
     } finally {
+      releaseTradeRoomMutation(pokeInFlightRef, mutationKey);
       setPokeBusy(false);
     }
   }, [fetchRoom, isAr, pokeBusy, pokeCounterpartLabel, request, room?.poke?.available]);
@@ -1952,6 +2038,9 @@ export function TradeRoomPage({
       return;
     }
 
+    const mutationKey = `${request.id}:evidence:${side}`;
+    if (!acquireTradeRoomMutation(actionInFlightRef, mutationKey)) return;
+
     setEvidenceBusy(side);
     setActionNotice(null);
     setActionError(null);
@@ -1968,7 +2057,7 @@ export function TradeRoomPage({
     });
     roomRef.current = optimisticRoom;
     setRoom(optimisticRoom);
-    writeTradeRoomCache(requestId, optimisticRoom);
+    writeTradeRoomCache(requestId, actor.id, optimisticRoom);
     try {
       const fileData = await encodeFileToDataUrl(file);
       const response = await fetch(`/api/alpha-exchange/purchase-requests/${request.id}/evidence`, {
@@ -1989,7 +2078,7 @@ export function TradeRoomPage({
       const nextRoom = payload.request ? applyRequestToRoom(previousRoom, payload.request) : optimisticRoom;
       roomRef.current = nextRoom;
       setRoom(nextRoom);
-      writeTradeRoomCache(requestId, nextRoom);
+      writeTradeRoomCache(requestId, actor.id, nextRoom);
       if (side === "buyer") setBuyerEvidenceFile(null);
       else setSellerEvidenceFile(null);
       if (completedActionTimeoutRef.current) {
@@ -2016,9 +2105,10 @@ export function TradeRoomPage({
     } catch (error) {
       roomRef.current = previousRoom;
       setRoom(previousRoom);
-      writeTradeRoomCache(requestId, previousRoom);
+      writeTradeRoomCache(requestId, actor.id, previousRoom);
       setStatusMessage(localizedCaughtError(error, isAr ? "تعذر رفع الإثبات." : "Failed to upload evidence.", isAr));
     } finally {
+      releaseTradeRoomMutation(actionInFlightRef, mutationKey);
       setEvidenceBusy(null);
     }
   }, [actor.id, buyerEvidenceFile, isAr, request, requestId, room, sellerEvidenceFile]);
@@ -2044,6 +2134,13 @@ export function TradeRoomPage({
 
   const handleOpenDispute = useCallback(async () => {
     if (!request) return;
+    const reason = disputeReason.trim();
+    if (!reason) {
+      setStatusMessage(isAr ? "سبب النزاع مطلوب." : "Dispute reason is required.");
+      return;
+    }
+    const mutationKey = `${request.id}:dispute`;
+    if (!acquireTradeRoomMutation(actionInFlightRef, mutationKey)) return;
     setDisputeBusy(true);
     try {
       const response = await fetch("/api/alpha-exchange/disputes", {
@@ -2051,7 +2148,7 @@ export function TradeRoomPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           purchaseRequestId: request.id,
-          reason: disputeReason.trim(),
+          reason,
         }),
       });
       const payload = (await response.json()) as { error?: string; message?: string };
@@ -2065,12 +2162,15 @@ export function TradeRoomPage({
     } catch (error) {
       setStatusMessage(localizedCaughtError(error, isAr ? "تعذر فتح النزاع." : "Failed to open dispute.", isAr));
     } finally {
+      releaseTradeRoomMutation(actionInFlightRef, mutationKey);
       setDisputeBusy(false);
     }
   }, [disputeReason, fetchRoom, isAr, request]);
 
   const handleCancelTrade = useCallback(async () => {
     if (!request || !canBuyerCancelTrade(request, actor.id) || cancelBusy) return;
+    const mutationKey = `${request.id}:cancel`;
+    if (!acquireTradeRoomMutation(actionInFlightRef, mutationKey)) return;
     setCancelBusy(true);
     setStatusMessage(null);
     try {
@@ -2088,6 +2188,7 @@ export function TradeRoomPage({
     } catch {
       setStatusMessage(isAr ? "تعذر إلغاء الطلب." : "Failed to cancel the request.");
     } finally {
+      releaseTradeRoomMutation(actionInFlightRef, mutationKey);
       setCancelBusy(false);
     }
   }, [actor.id, cancelBusy, isAr, request, router]);
@@ -2110,6 +2211,8 @@ export function TradeRoomPage({
       setStatusMessage(isAr ? "سبب الإغلاق مطلوب." : "Close reason is required.");
       return;
     }
+    const mutationKey = `${request.id}:manual-close`;
+    if (!acquireTradeRoomMutation(actionInFlightRef, mutationKey)) return;
     setManualCloseBusy(true);
     setStatusMessage(null);
     try {
@@ -2127,7 +2230,7 @@ export function TradeRoomPage({
         const nextRoom = applyRequestToRoom(room, payload.request);
         roomRef.current = nextRoom;
         setRoom(nextRoom);
-        writeTradeRoomCache(requestId, nextRoom);
+        writeTradeRoomCache(requestId, actor.id, nextRoom);
       } else {
         await fetchRoom(true);
       }
@@ -2138,9 +2241,10 @@ export function TradeRoomPage({
     } catch {
       setStatusMessage(isAr ? "تعذر إغلاق الصفقة يدويًا." : "Failed to close trade manually.");
     } finally {
+      releaseTradeRoomMutation(actionInFlightRef, mutationKey);
       setManualCloseBusy(false);
     }
-  }, [fetchRoom, isAr, manualCloseBusy, manualCloseExplanation, manualCloseReason, request, requestId, room]);
+  }, [actor.id, fetchRoom, isAr, manualCloseBusy, manualCloseExplanation, manualCloseReason, request, requestId, room]);
 
   const handleSubmitBuyerReview = useCallback(async () => {
     if (actionBusy || Boolean(actionInFlightRef.current)) {
@@ -2403,6 +2507,12 @@ export function TradeRoomPage({
                 <p>{isAr ? "حالة الاتصال" : "Live updates"}: <span className={streamConnected ? "text-emerald-300" : "text-amber-300"}>{streamConnected ? (isAr ? "متصل" : "Connected") : (isAr ? "إعادة الاتصال..." : "Reconnecting...")}</span></p>
                 <p className="mt-1">{isAr ? "الحالة الحالية" : "Current status"}: <span className={isOverdueTrade ? "text-red-300" : "text-white"}>{tradeStatusLabel(request.status, isAr, isOverdueTrade)}</span></p>
               </div>
+              <UserSafetyActions
+                context="trade"
+                locale={locale}
+                targetUserId={isSeller ? request.buyerId : request.sellerId}
+                viewerSignedIn
+              />
             </div>
             <div>
               <div className="mb-1 flex items-center justify-between text-xs text-[#D1D5DB]">
@@ -2627,6 +2737,7 @@ export function TradeRoomPage({
                       <select
                         value={reviewRating}
                         onChange={(event) => setReviewRating(Number(event.target.value))}
+                        aria-label={isAr ? "تقييم البائع" : "Seller rating"}
                         className="h-10 rounded-xl border border-white/15 bg-[#101010] px-3 text-sm text-white"
                         disabled={reviewBusy || actionBusy}
                       >
@@ -2644,6 +2755,8 @@ export function TradeRoomPage({
                           setReviewComment(event.target.value);
                         }}
                         placeholder={isAr ? "اكتب تقييمك للبائع..." : "Share your seller feedback..."}
+                        aria-label={isAr ? "تعليق تقييم البائع" : "Seller review comment"}
+                        maxLength={500}
                         className={reviewCommentError ? "border-red-400/60 focus-visible:ring-red-400" : undefined}
                         aria-invalid={reviewCommentError ? true : undefined}
                         disabled={reviewBusy || actionBusy}
@@ -2813,7 +2926,7 @@ export function TradeRoomPage({
                       <p className="mt-2 text-sm text-[#D1D5DB]">{isAr ? "سيتم إظهار التفاصيل بعد قبول البائع للصفقة." : "Details appear after seller accepts the trade."}</p>
                     )}
                   </div>
-                ) : !isSeller && request.status === "pending" ? (
+                ) : !isSeller && request.status === "pending" && isBankTransferPaymentMethod(requestPaymentMethod) ? (
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-[#9CA3AF]">
                     {request.priceMode === "buyer_offer"
                       ? (isAr ? "عرض السعر بانتظار قرار البائع. ستظهر تفاصيل الحساب البنكي بعد موافقته." : "Your price offer is waiting for the seller. Bank details appear after acceptance.")
@@ -2921,6 +3034,7 @@ export function TradeRoomPage({
                           onChange={(event) => setManualCloseExplanation(event.target.value)}
                           aria-label={isAr ? "تفاصيل إضافية" : "Additional details"}
                           placeholder={isAr ? "تفاصيل إضافية (اختياري)" : "Additional details (optional)"}
+                          maxLength={1000}
                         />
                         <Button type="button" size="sm" disabled={manualCloseBusy} onClick={() => void handleManualCloseTrade()}>
                           {manualCloseBusy
@@ -2942,8 +3056,8 @@ export function TradeRoomPage({
                     </div>
                     {showDisputeComposer ? (
                       <div className="mt-2 space-y-2">
-                        <Textarea value={disputeReason} onChange={(event) => setDisputeReason(event.target.value)} aria-label={isAr ? "سبب النزاع" : "Dispute reason"} placeholder={isAr ? "اكتب سبب النزاع..." : "Describe the dispute reason..."} />
-                        <Button type="button" size="sm" disabled={disputeBusy} onClick={() => void handleOpenDispute()}>
+                        <Textarea value={disputeReason} onChange={(event) => setDisputeReason(event.target.value)} aria-label={isAr ? "سبب النزاع" : "Dispute reason"} placeholder={isAr ? "اكتب سبب النزاع..." : "Describe the dispute reason..."} maxLength={500} />
+                        <Button type="button" size="sm" disabled={disputeBusy || !disputeReason.trim()} onClick={() => void handleOpenDispute()}>
                           {disputeBusy ? (isAr ? "جاري الإرسال..." : "Submitting...") : (isAr ? "تأكيد فتح النزاع" : "Submit Dispute")}
                         </Button>
                       </div>
@@ -3315,6 +3429,7 @@ export function TradeRoomPage({
                     value={chatDraft}
                     onChange={handleChatDraftChange}
                     placeholder={isAr ? "اكتب رسالة..." : "Type a message..."}
+                    maxLength={1200}
                     className="min-h-[56px] resize-none sm:min-h-[96px]"
                     aria-invalid={Boolean(chatErrorMessage)}
                     aria-describedby={chatErrorMessage ? "trade-chat-error trade-chat-safety" : "trade-chat-safety"}
@@ -3364,7 +3479,7 @@ export function TradeRoomPage({
                         <span className="inline-flex items-center gap-2"><LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />{isAr ? "جاري الإرسال..." : "Sending..."}</span>
                       ) : (isAr ? "إرسال الرسالة" : "Send Message")}
                     </Button>
-                    <Button type="button" variant="secondary" onClick={() => navigator.clipboard.writeText(chatDraft)}>
+                    <Button type="button" variant="secondary" disabled={!chatDraft} onClick={() => void handleCopyChatDraft()}>
                       {isAr ? "نسخ" : "Copy"}
                     </Button>
                   </div>

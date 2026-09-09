@@ -117,7 +117,7 @@ describe("NotificationsPage mobile hierarchy", () => {
     ];
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(notificationsResponse(items)));
 
-    const { container } = render(<NotificationsPage locale="en" />);
+    const { container } = render(<NotificationsPage locale="en" userId="user-1" />);
 
     await screen.findByRole("heading", { name: "Needs your action" });
     expect(screen.getByRole("heading", { name: "Today" })).toBeTruthy();
@@ -135,10 +135,32 @@ describe("NotificationsPage mobile hierarchy", () => {
     expect(screen.getByRole("button", { name: "All" }).className).toContain("min-h-11");
   });
 
+  it("does not reuse another account's cached notification inbox", async () => {
+    const privateItem = notification({
+      id: "private-user-one",
+      createdAt: "2026-08-27T11:50:00.000Z",
+      title: "Private user one notification",
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(notificationsResponse([privateItem]))
+      .mockResolvedValue(notificationsResponse([]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const firstAccount = render(<NotificationsPage locale="en" userId="user-1" />);
+    await screen.findByText("Private user one notification");
+    firstAccount.unmount();
+
+    render(<NotificationsPage locale="en" userId="user-2" />);
+    await screen.findByText("Nothing here right now");
+
+    expect(screen.queryByText("Private user one notification")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("announces the selected notification summary as a pressed toggle", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(notificationsResponse([])));
 
-    render(<NotificationsPage locale="en" />);
+    render(<NotificationsPage locale="en" userId="user-1" />);
     await screen.findByText("Nothing here right now");
 
     const actionsSummary = screen.getByRole("button", { name: "Show notifications that need action: 0" });
@@ -204,7 +226,7 @@ describe("NotificationsPage mobile hierarchy", () => {
     ];
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(notificationsResponse(items)));
 
-    const { container } = render(<NotificationsPage locale="ar" />);
+    const { container } = render(<NotificationsPage locale="ar" userId="user-1" />);
 
     await screen.findByRole("heading", { name: "تحتاج إلى إجراء الآن" });
     expect(container.querySelector("section[dir='rtl']")).toBeTruthy();
@@ -250,7 +272,7 @@ describe("NotificationsPage mobile hierarchy", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<NotificationsPage locale="en" />);
+    render(<NotificationsPage locale="en" userId="user-1" />);
     fireEvent.click(await screen.findByRole("button", { name: "Manage Listing" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
@@ -288,7 +310,7 @@ describe("NotificationsPage mobile hierarchy", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<NotificationsPage locale="en" />);
+    render(<NotificationsPage locale="en" userId="user-1" />);
     const approve = await screen.findByRole("button", { name: "Approve application" }) as HTMLButtonElement;
     const reject = screen.getByRole("button", { name: "Reject application" }) as HTMLButtonElement;
     fireEvent.click(approve);
@@ -327,7 +349,7 @@ describe("NotificationsPage mobile hierarchy", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<NotificationsPage locale="en" />);
+    render(<NotificationsPage locale="en" userId="user-1" />);
     await screen.findByText("Nothing here right now");
     expect(eventSourceInstances).toHaveLength(1);
 
