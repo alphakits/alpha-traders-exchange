@@ -134,4 +134,32 @@ describe("buildMarketplaceOperationalSnapshot", () => {
     expect(result.stalledTrades).toBe(1);
     expect(result.incidents[0]).toMatchObject({ kind: "stalled_trade", severity: "warning", ageMinutes: 20 });
   });
+
+  it("flags a seller who remains idle after an hourly payment-verification reminder", () => {
+    const activeRequest = request({
+      status: "payment_sent",
+      paymentSentAt: "2026-09-03T18:00:00.000Z",
+      inactivityWarningSentAt: "2026-09-03T19:40:00.000Z",
+      actionReminderState: {
+        stage: "payment_sent",
+        actionStartedAt: "2026-09-03T18:00:00.000Z",
+        seller: {
+          userId: "seller-1",
+          lastSentAt: "2026-09-03T19:40:00.000Z",
+          reminderCount: 1,
+        },
+      },
+    });
+    const result = buildMarketplaceOperationalSnapshot({
+      marketplaceListings: [listing({ status: "in_trade", activeTradeRequestId: activeRequest.id })],
+      purchaseRequests: [activeRequest],
+    }, NOW);
+
+    expect(result.stalledTrades).toBe(1);
+    expect(result.incidents).toContainEqual(expect.objectContaining({
+      kind: "stalled_trade",
+      status: "payment_sent",
+      ageMinutes: 20,
+    }));
+  });
 });

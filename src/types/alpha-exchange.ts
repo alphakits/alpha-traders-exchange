@@ -552,6 +552,32 @@ export interface TradeRoomPokeState {
   sellerToBuyerAt?: string;
 }
 
+export type TradeActionReminderStage =
+  | "pending"
+  | "accepted"
+  | "payment_sent"
+  | "funds_received"
+  | "usdt_release_pending"
+  | "usdt_sent";
+
+export interface TradeActionReminderRecipientState {
+  userId: string;
+  lastSentAt: string;
+  reminderCount: number;
+}
+
+/**
+ * Durable, server-owned delivery markers for automatic Trade Room reminders.
+ * The stage timestamp deliberately ignores chat, reconnect, and manual Poke
+ * activity: only a real lifecycle action starts a new one-hour clock.
+ */
+export interface TradeActionReminderState {
+  stage: TradeActionReminderStage;
+  actionStartedAt: string;
+  buyer?: TradeActionReminderRecipientState;
+  seller?: TradeActionReminderRecipientState;
+}
+
 export type NotificationCategory = "trade" | "listing" | "account" | "trust" | "application" | "dispute" | "report" | "system" | "review";
 
 export interface AlphaExchangeNotification {
@@ -812,6 +838,7 @@ export interface PurchaseRequest {
   closeExplanation?: string;
   messages?: TradeChatMessage[];
   pokeState?: TradeRoomPokeState;
+  actionReminderState?: TradeActionReminderState;
   status: PurchaseRequestStatus;
   createdAt: string;
   updatedAt: string;
