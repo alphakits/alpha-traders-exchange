@@ -107,6 +107,98 @@ it("repairs cardless support for an approved seller's existing bank listing", as
   ]);
 });
 
+it("repairs a configured Bank Hapoalim listing when legacy submission lost only cardless", async () => {
+  const now = new Date().toISOString();
+  const seller = {
+    ...legacy("legacy-hapoalim-cardless"),
+    role: "approved_seller",
+    roles: ["buyer", "approved_seller"],
+    sellerStatus: "approved_seller",
+    availabilityStatus: "available",
+    preferredPaymentMethods: ["Bank Transfer", "Face-to-Face (Meet in Person)"],
+  };
+  const listing = {
+    id: "listing-legacy-hapoalim-cardless",
+    sellerId: "legacy-hapoalim-cardless",
+    sellerDisplayName: "Legacy Hapoalim Seller",
+    photos: [],
+    originalAmount: "700",
+    availableAmount: "700",
+    price: "3.22",
+    currency: "ILS",
+    network: "BEP20",
+    paymentMethod: "Bank Transfer",
+    paymentMethods: ["Bank Transfer", "Face-to-Face (Meet in Person)"],
+    bankName: "Bank Hapoalim",
+    minimumTrade: "50",
+    maximumTrade: "700",
+    sellerDescription: "Available now",
+    responseTime: "5 min",
+    status: "active",
+    approvalStatus: "approved",
+    createdAt: now,
+    updatedAt: now,
+  };
+  loadSnapshot.mockResolvedValue({
+    ...base(seller),
+    marketplaceListings: [listing],
+  } as unknown as AlphaExchangeDb);
+
+  const normalizedSeller = await findUserById("legacy-hapoalim-cardless");
+  const [normalizedListing] = await getMarketplaceListings("active");
+
+  expect(normalizedSeller?.preferredPaymentMethods).toContain("Cardless ATM Withdrawal");
+  expect(normalizedListing.paymentMethods).toEqual([
+    "Bank Transfer",
+    "Face-to-Face (Meet in Person)",
+    "Cardless ATM Withdrawal",
+  ]);
+});
+
+it("does not add cardless to an intentionally bank-only listing", async () => {
+  const now = new Date().toISOString();
+  const seller = {
+    ...legacy("bank-only"),
+    role: "approved_seller",
+    roles: ["buyer", "approved_seller"],
+    sellerStatus: "approved_seller",
+    availabilityStatus: "available",
+    preferredPaymentMethods: ["Bank Transfer"],
+  };
+  const listing = {
+    id: "listing-bank-only",
+    sellerId: "bank-only",
+    sellerDisplayName: "Bank Only Seller",
+    photos: [],
+    originalAmount: "700",
+    availableAmount: "700",
+    price: "3.22",
+    currency: "ILS",
+    network: "BEP20",
+    paymentMethod: "Bank Transfer",
+    paymentMethods: ["Bank Transfer"],
+    bankName: "Bank Hapoalim",
+    minimumTrade: "50",
+    maximumTrade: "700",
+    sellerDescription: "Available now",
+    responseTime: "5 min",
+    status: "active",
+    approvalStatus: "approved",
+    createdAt: now,
+    updatedAt: now,
+  };
+  loadSnapshot.mockResolvedValue({
+    ...base(seller),
+    marketplaceListings: [listing],
+  } as unknown as AlphaExchangeDb);
+
+  const normalizedSeller = await findUserById("bank-only");
+  const [normalizedListing] = await getMarketplaceListings("active");
+
+  expect(normalizedSeller?.preferredPaymentMethods).toEqual(["Bank Transfer"]);
+  expect(normalizedListing.paymentMethods).toEqual(["Bank Transfer"]);
+});
+
 it("recovers the exact orphaned legacy seller applicant to Buyer/reapply", async () => {
   loadSnapshot.mockResolvedValue(base(orphan()));
 
