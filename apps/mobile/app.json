@@ -26,6 +26,10 @@
     "android": {
       "package": "com.alphakits.alphatraders",
       "allowBackup": false,
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.RECORD_AUDIO"
+      ],
       "predictiveBackGestureEnabled": true,
       "adaptiveIcon": {
         "foregroundImage": "../../public/images/brand/alpha-traders-app-icon-maskable-1024.png",

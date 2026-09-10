@@ -25,5 +25,26 @@
       "privacyPolicyUrl": "https://www.alphatraders.co.il/ar/privacy-policy",
       "whatsNew": "تجربة Alpha Traders الكاملة على iPhone: دروس ثنائية اللغة، سوق USDT، غرف تداول موجّهة، إشعارات تحافظ على الخصوصية، أدوات أمان الحساب، وتقييمات ما بعد الصفقة."
     }
+  },
+  "googlePlay": {
+    "category": "FINANCE",
+    "supportEmail": "support@alphatraders.co.il",
+    "websiteUrl": "https://www.alphatraders.co.il/en",
+    "privacyPolicyUrl": "https://www.alphatraders.co.il/en/privacy-policy",
+    "accountDeletionUrl": "https://www.alphatraders.co.il/en/account-deletion",
+    "localizations": {
+      "en-US": {
+        "title": "Alpha Traders",
+        "shortDescription": "Learn and manage structured peer-to-peer USDT trades in Arabic or English.",
+        "fullDescription": "Alpha Traders brings bilingual trading education and a structured peer-to-peer USDT marketplace to Android.\n\nLEARN\nFollow practical lessons in Arabic or English, track progress, and return to saved material.\n\nDISCOVER\nBrowse Alpha Traders-approved seller listings. Compare price, payment method, network, availability, trust signals, and verified post-trade reviews.\n\nMANAGE A TRADE\nUse one guided Trade Room for each transaction. Follow the status timeline, keep chat in the platform, upload payment or transfer evidence, receive reminders, and use dispute, reporting, and user-blocking tools when something is wrong.\n\nSTAY UPDATED\nReceive privacy-safe native notifications, open the exact authorized destination from an alert, dismiss an action for later without it returning after sign-in, and manage notification preferences and account settings.\n\nAlpha Traders coordinates the workflow but does not custody principal funds. Buyers and sellers settle directly using the agreed payment method and blockchain network. Digital assets and peer-to-peer payments involve risk. Availability depends on your location and applicable law. No trade, price, outcome, or profit is guaranteed.",
+        "releaseNotes": "The complete Alpha Traders experience for Android, with bilingual lessons, the USDT marketplace, guided Trade Rooms, reliable privacy-safe notifications and deep links, account safety tools, and post-trade feedback."
+      },
+      "ar": {
+        "title": "Alpha Traders",
+        "shortDescription": "تعلّم وأدِر صفقات USDT منظّمة بين الأفراد بالعربية أو الإنجليزية.",
+        "fullDescription": "يجمع Alpha Traders بين تعليم التداول بالعربية والإنجليزية وسوق منظّم لتداول USDT بين الأفراد على Android.\n\nتعلّم\nتابع دروسًا عملية بالعربية أو الإنجليزية، واحفظ تقدّمك، وعُد إلى المواد المحفوظة.\n\nاستكشف\nتصفّح عروض البائعين المعتمدين لدى Alpha Traders، وقارن السعر وطريقة الدفع والشبكة والتوفّر ومؤشرات الثقة والتقييمات الموثّقة بعد الصفقات.\n\nأدِر الصفقة\nاستخدم غرفة تداول موجّهة لكل صفقة. تابع المراحل، واحتفظ بالمحادثة داخل المنصة، وارفع إثبات الدفع أو التحويل، واستلم التنبيهات، واستخدم أدوات النزاع والإبلاغ وحظر المستخدم عند حدوث مشكلة.\n\nابقَ على اطلاع\nاستلم إشعارات أصلية تحافظ على الخصوصية، وافتح الوجهة المصرّح بها بدقة من التنبيه، وأجّل الإجراء من دون عودة الإشعار بعد تسجيل الدخول، وتحكّم في تفضيلات الإشعارات وإعدادات الحساب.\n\nينظّم Alpha Traders سير العمل لكنه لا يحتفظ بالأموال الأساسية. تتم التسوية مباشرة بين المشتري والبائع باستخدام طريقة الدفع وشبكة البلوكشين المتفق عليهما. تنطوي الأصول الرقمية والمدفوعات بين الأفراد على مخاطر. يعتمد التوفّر على موقعك والقانون المطبّق. لا يوجد ضمان لأي صفقة أو سعر أو نتيجة أو ربح.",
+        "releaseNotes": "تجربة Alpha Traders الكاملة على Android: دروس ثنائية اللغة، سوق USDT، غرف تداول موجّهة، إشعارات وروابط موثوقة تحافظ على الخصوصية، أدوات أمان الحساب، وتقييمات ما بعد الصفقة."
+      }
+    }
   }
 }

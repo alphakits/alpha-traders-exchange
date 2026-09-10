@@ -28,7 +28,8 @@ before deployment.
 transport security, full-app shipping shell, native push/review hooks, public
 privacy/support/deletion/report routes, and submission documentation. The
 manual public-submission confirmations are intentionally separate; see
-`docs/mobile/app-store-connect-submission-pack.md`.
+`docs/mobile/app-store-connect-submission-pack.md` for iOS and
+`docs/mobile/google-play-submission-pack.md` for Android.
 
 `mobile:verify` includes Expo Doctor validation and must report every check as
 passing. This blocks invalid app config and duplicate native-module versions
@@ -83,7 +84,7 @@ If enhanced Expo push security is enabled for the EAS project, set the server-on
 `EXPO_ACCESS_TOKEN` in Vercel. Never expose that value to the app or browser, and
 never substitute the repository `EXPO_TOKEN`, which is only for EAS build access.
 
-## 2. Android internal build
+## 2. Android signed build and Play testing
 
 After GitHub Actions billing is restored, dispatch **Mobile Preview** with
 `platform=android`. The repository `EXPO_TOKEN` secret must already be present;
@@ -93,6 +94,21 @@ SHA, profile (`preview`), and completion status.
 Install the resulting internal APK only on named test devices. Do not upload it
 to a public file host. A successful cloud build is not acceptance: complete the
 device matrix in section 4.
+
+For Play distribution, build the same approved commit with the EAS `production`
+profile and confirm the output is a signed Android App Bundle for
+`com.alphakits.alphatraders`. Keep the keystore and any Google service-account
+credential in managed EAS/Google systems, never in the repository. Put the
+bundle on the Play internal testing track first, record its EAS URL and Play
+version code, and complete the Android device matrix plus Play pre-launch report.
+
+Before moving to a closed/open/production track, complete the localized listing,
+App access instructions, Data safety form, Financial features declaration,
+content rating, target audience, account-deletion declaration, country/legal
+matrix, and staged-rollout plan in
+`docs/mobile/google-play-submission-pack.md`. Run
+`npm run mobile:store-readiness:submission:android` only after the release owner
+has confirmed those external steps.
 
 ## 3. iOS internal build
 
@@ -145,6 +161,11 @@ public App Store or Google Play submission, the responsible business owner must
 confirm the submitting legal entity, supported countries, and all licensing or
 permissions required for a cryptocurrency marketplace. Do not claim that Alpha
 Traders is licensed or approved unless current documentary evidence exists.
+
+Use `npm run mobile:store-readiness:submission:ios` for the Apple handoff,
+`npm run mobile:store-readiness:submission:android` for the Google Play handoff,
+or the combined `npm run mobile:store-readiness:submission` only when both
+platforms are ready from the same exact release commit.
 
 For review metadata:
 
