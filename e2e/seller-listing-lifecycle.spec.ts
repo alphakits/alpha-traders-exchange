@@ -890,6 +890,39 @@ test("seller dashboard and exchange route consolidate recent work, exact commiss
   await expect(commissionStatus.getByRole("button", { name: /Trade #9202/ })).toHaveCount(1);
   await expect(main.getByRole("button", { name: /^Commission Due:/ })).toContainText("2");
 
+  // A record-specific Pay Now action from the already-mounted exchange page
+  // must reveal the form in place. This regresses the mobile failure where a
+  // same-route push only jumped the seller back to the top of the page.
+  await commissionStatus.getByRole("button", { name: /Trade #9201/ }).click();
+  const commissionPaymentPanel = main.locator("#commission-payment");
+  await expect(commissionPaymentPanel).toBeVisible();
+  await expect(commissionPaymentPanel).toContainText("2.00 USDT");
+  await commissionPaymentPanel.getByRole("button", { name: "Close commission payment" }).click();
+  await expect(commissionPaymentPanel).toHaveCount(0);
+
+  // Leave exactly one commission unpaid so both Pay Now buttons shown in the
+  // seller's recording are exercised: Commission Status and Create Listing.
+  await updateRuntimeDb(seller.page.request, (db) => {
+    const firstCommission = db.commissionRecords.find((record) => record.id === `dashboard-commission-a-${suffix}`);
+    if (!firstCommission) throw new Error("First dashboard commission fixture was not found.");
+    firstCommission.paymentStatus = "paid";
+    firstCommission.paidAt = "2030-02-03T00:00:00.000Z";
+    firstCommission.updatedAt = firstCommission.paidAt;
+  });
+  await seller.page.reload({ waitUntil: "domcontentloaded" });
+  await expect(commissionStatus).toContainText("3.00 USDT");
+
+  await commissionStatus.getByRole("button", { name: "Pay Now", exact: true }).click();
+  await expect(commissionPaymentPanel).toBeVisible();
+  await expect(commissionPaymentPanel).toContainText("3.00 USDT");
+  await commissionPaymentPanel.getByRole("button", { name: "Close commission payment" }).click();
+  await expect(commissionPaymentPanel).toHaveCount(0);
+
+  const createListingSection = main.locator("#create-listing");
+  await createListingSection.getByRole("button", { name: "Pay Now", exact: true }).click();
+  await expect(commissionPaymentPanel).toBeVisible();
+  await expect(commissionPaymentPanel).toContainText("3.00 USDT");
+
   await updateRuntimeDb(seller.page.request, (db) => {
     for (const record of db.commissionRecords) {
       if (record.id.startsWith("dashboard-commission-")) {
