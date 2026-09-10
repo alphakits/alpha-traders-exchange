@@ -30,7 +30,10 @@ import { canBuyerCancelTrade } from "@/lib/trade-room-actions";
 import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
 import { commissionPaymentDestination, getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
 import { getCommissionWorkspaceAction, sortDashboardActivityNewestFirst } from "@/lib/dashboard-workspace";
-import { getExplicitNonTradeRoomNotificationDestination } from "@/lib/notification-action-destination";
+import {
+  getExplicitNonTradeRoomNotificationDestination,
+  getSafeInternalNotificationDestination,
+} from "@/lib/notification-action-destination";
 import { getWalletAddressValidationError, normalizeWalletAddress } from "@/lib/wallet-address";
 import { deriveListingCountdown, deriveSellerPresence } from "@/lib/seller-presence";
 import { LISTING_CHANGE_REASONS, listingEditRequiresReason, validateListingChangeReason } from "@/lib/listing-change-reasons";
@@ -3875,7 +3878,7 @@ export function UsdtExchangePage({
     const inferredTradeDestination = resolveTradeRoomDestinationFromRequests(notification);
     if (inferredTradeDestination) return inferredTradeDestination;
 
-    const explicit = (notification.actionHref ?? notification.relatedHref ?? "").trim();
+    const explicit = getSafeInternalNotificationDestination(notification);
     if (explicit) return explicit;
     if (notification.relatedListingId) return `/usdt-exchange#listing-${notification.relatedListingId}`;
     const text = `${notification.title} ${notification.message}`.toLowerCase();
@@ -3888,16 +3891,16 @@ export function UsdtExchangePage({
   }, [extractTradeRoomHrefFromRelatedHref, inferTradeActionFromNotification, isOwnerViewer, isTradeIntentNotification, resolveTradeRoomDestinationFromRequests, resolveTradeRoomDestinationFromSnapshot, tradeActionHash]);
 
   const handleNotificationActionClick = useCallback((notification: AlphaExchangeNotification) => {
-    const destination = resolveNotificationHref(notification) ?? "/trade-room?includePending=1";
+    const destination = resolveNotificationHref(notification);
     if (!destination) return;
     const isTradeIntent = isTradeIntentNotification(notification);
     if (isTradeIntent) {
       const routerDestination = destination.replace(/^\/(en|ar)(?=\/)/i, "") || destination;
       router.push(routerDestination);
-      return;
+    } else {
+      router.push(destination);
     }
-    router.push(destination);
-    if (!isTradeIntent && !notification.isRead) {
+    if (!notification.isRead) {
       void handleNotificationReadState(notification.id, true);
     }
   }, [handleNotificationReadState, isTradeIntentNotification, resolveNotificationHref, router]);
@@ -4513,8 +4516,7 @@ export function UsdtExchangePage({
                 const copy = localizeNotificationCopy(notification, locale);
                 const actionLabel = localizeNotificationActionLabel(resolveNotificationLabel(notification), locale, notification);
                 const actionHref = resolveNotificationHref(notification);
-                const looksTradeRelated = /trade/i.test(`${notification.title} ${notification.message}`);
-                const hasAction = Boolean(actionHref) || looksTradeRelated || isTradeIntentNotification(notification);
+                const hasAction = Boolean(actionHref);
                 return (
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0 space-y-2">

@@ -3,6 +3,7 @@ import { after } from "next/server";
 import type { Pool, PoolClient } from "pg";
 import type { MobileLocale, MobilePlatform } from "@alpha-traders/contracts";
 import { toMobileNotification } from "@/lib/mobile-notifications";
+import { getSafeInternalNotificationDestination } from "@/lib/notification-action-destination";
 import { getRuntimePostgresPool } from "@/lib/postgres-runtime";
 import { logEvent } from "@/lib/structured-logging";
 import type { AlphaExchangeNotification } from "@/types/alpha-exchange";
@@ -217,6 +218,16 @@ function websitePathForMobileDestination(
   notification: AlphaExchangeNotification,
   locale: MobileLocale,
 ) {
+  const explicitDestination = getSafeInternalNotificationDestination(notification);
+  if (explicitDestination) {
+    try {
+      const parsed = new URL(explicitDestination, "https://www.alphatraders.co.il");
+      const pathname = parsed.pathname.replace(/^\/(?:ar|en)(?=\/|$)/i, "") || "/";
+      return `/${locale}${pathname}${parsed.search}${parsed.hash}`;
+    } catch {
+      // Fall through to the strict native destination allowlist.
+    }
+  }
   const destination = toMobileNotification(notification, locale).destination;
   switch (destination?.screen) {
     case "trade":
