@@ -1441,6 +1441,81 @@ function mergeTimestampedRecords<T extends IdentifiedSnapshotRecord>(latest: T[]
   return orderedIds.map((id) => merged.get(id)).filter((record): record is T => Boolean(record));
 }
 
+/**
+ * Commission settlement is monotonic: once the canonical snapshot says a
+ * commission is paid, a stale maintenance writer must never make it unpaid
+ * again. The exact TRC20 amount is also an issued payment instruction, so its
+ * allocation fields follow the canonical record even when a stale copy has a
+ * later `updatedAt` timestamp (for example after marking the row overdue).
+ */
+function mergeCommissionRecords(latest: CommissionRecord[], incoming: CommissionRecord[]) {
+  const latestById = new Map(latest.map((record) => [record.id, record]));
+  const incomingById = new Map(incoming.map((record) => [record.id, record]));
+  const incomingIds = new Set(incoming.map((record) => record.id));
+  const orderedIds = [
+    ...incoming.map((record) => record.id),
+    ...latest.map((record) => record.id).filter((id) => !incomingIds.has(id)),
+  ];
+
+  return orderedIds.map((id) => {
+    const canonical = latestById.get(id);
+    const candidate = incomingById.get(id);
+    if (!canonical) return candidate as CommissionRecord;
+    if (!candidate) return canonical;
+
+    // A paid canonical row is final for stale-snapshot merging. Deliberate
+    // owner corrections still use the normal, version-current write path.
+    if (canonical.paymentStatus === "paid") return canonical;
+
+    const selected = snapshotRecordTimestamp(candidate) > snapshotRecordTimestamp(canonical)
+      ? candidate
+      : canonical;
+    const issuedIntent = typeof canonical.paymentExpectedAmount === "number"
+      ? canonical
+      : typeof candidate.paymentExpectedAmount === "number"
+        ? candidate
+        : null;
+    const submittedPayment = canonical.paymentSignature
+      ? canonical
+      : candidate.paymentSignature
+        ? candidate
+        : null;
+    const reservedExpectedAmounts = Array.from(new Set([
+      ...(canonical.paymentReservedExpectedAmounts ?? []),
+      ...(candidate.paymentReservedExpectedAmounts ?? []),
+    ]));
+
+    return {
+      ...selected,
+      ...(issuedIntent
+        ? {
+            paymentExpectedAmount: issuedIntent.paymentExpectedAmount,
+            paymentExpectedAmountMode: issuedIntent.paymentExpectedAmountMode,
+            paymentExpectedAmountAssignedAt: issuedIntent.paymentExpectedAmountAssignedAt,
+        }
+        : {}),
+      ...(reservedExpectedAmounts.length > 0
+        ? { paymentReservedExpectedAmounts: reservedExpectedAmounts }
+        : {}),
+      // Default stale merges are used by background maintenance. Payment
+      // writers perform a locked canonical rebase, so maintenance may advance
+      // overdue status but may not erase or replace a submitted TxID.
+      ...(submittedPayment
+        ? {
+            paymentProvider: submittedPayment.paymentProvider,
+            paymentNetwork: submittedPayment.paymentNetwork,
+            payerWalletAddress: submittedPayment.payerWalletAddress,
+            recipientWalletAddress: submittedPayment.recipientWalletAddress,
+            paymentSignature: submittedPayment.paymentSignature,
+            paymentSubmittedAt: submittedPayment.paymentSubmittedAt,
+            paymentVerificationStatus: submittedPayment.paymentVerificationStatus,
+            paymentVerificationNotes: submittedPayment.paymentVerificationNotes,
+          }
+        : {}),
+    };
+  });
+}
+
 function mergeAppendOnlyRecords<T extends IdentifiedSnapshotRecord>(latest: T[], incoming: T[]) {
   const merged = new Map(latest.map((record) => [record.id, record]));
   for (const record of incoming) merged.set(record.id, record);
@@ -1502,7 +1577,7 @@ function mergeSnapshotWithLatest(latest: AlphaExchangeDb, incoming: AlphaExchang
     getCollection(latest.marketplaceListings, []),
     getCollection(incoming.marketplaceListings, []),
   );
-  const mergedCommissionRecords = mergeTimestampedRecords(
+  const mergedCommissionRecords = mergeCommissionRecords(
     getCollection(latest.commissionRecords, []),
     getCollection(incoming.commissionRecords, []),
   );

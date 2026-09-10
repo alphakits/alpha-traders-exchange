@@ -174,6 +174,12 @@ export type SellerCommissionStatus = {
   payableRecords?: Array<{
     commissionId: string;
     amountDue: number;
+    paymentAmountDue?: number;
+    paymentVerificationStatus?: "pending_verification" | "verified" | "failed";
+    paymentVerificationNotes?: string;
+    paymentSignature?: string;
+    paymentSubmittedAt?: string;
+    paymentExpectedAmountMode?: "unique_v1" | "legacy_base";
     dueAt?: string;
     relatedRequestId?: string;
     relatedTradeId?: string;
@@ -470,6 +476,13 @@ export function formatUsdt(value: number) {
   return `${value.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
+  })} USDT`;
+}
+
+export function formatExactCommissionUsdt(value: number) {
+  return `${value.toLocaleString("en-US", {
+    minimumFractionDigits: 6,
+    maximumFractionDigits: 6,
   })} USDT`;
 }
 
@@ -1660,6 +1673,7 @@ export function UsdtExchangePage({
   const [sellerApplicationMethods, setSellerApplicationMethods] = useState<SellerApplicationMethod[]>(["USDT (ERC20 / Ethereum)"]);
   const sellerStatusForLanding = sessionUser?.sellerStatus ?? "buyer";
   const isApprovedSellerSession = sellerStatusForLanding === "approved_seller";
+  const hasSellerWorkspaceAccess = isApprovedSellerSession || sellerStatusForLanding === "suspended";
   const isAdminSession = Boolean(sessionUser && hasRole(sessionUser, "admin"));
 
   const tracedFetch = useCallback(async (label: string, input: string, init?: RequestInit) => {
@@ -1681,7 +1695,7 @@ export function UsdtExchangePage({
   }, [refreshCanonicalSession]);
 
   const refreshBuyerProfileSummary = useCallback(async () => {
-    if (!sessionUser || isApprovedSellerSession) {
+    if (!sessionUser || hasSellerWorkspaceAccess) {
       setBuyerProfileSummary(null);
       return;
     }
@@ -1708,7 +1722,7 @@ export function UsdtExchangePage({
     } catch {
       // Preserve current state if the profile payload is temporarily unavailable.
     }
-  }, [isApprovedSellerSession, sessionUser, tracedFetch]);
+  }, [hasSellerWorkspaceAccess, sessionUser, tracedFetch]);
 
   useEffect(() => () => {
     for (const timer of discordSharePollTimersRef.current) window.clearTimeout(timer);
@@ -1810,6 +1824,67 @@ export function UsdtExchangePage({
     void refreshSellerWorkspace();
   }, [refreshSellerWorkspace]);
 
+  const hasPendingCommissionVerification = sellerCommissionStatus?.payableRecords?.some(
+    (record) => record.paymentVerificationStatus === "pending_verification",
+  ) === true;
+  const selectedCommissionIdForRefresh = sellerCommissionStatus?.commissionId?.trim() || undefined;
+
+  useEffect(() => {
+    if (!hasSellerWorkspaceAccess || !hasPendingCommissionVerification) return;
+
+    let disposed = false;
+    let refreshInFlight = false;
+    const refreshPendingCommission = async () => {
+      if (disposed || refreshInFlight) return;
+      refreshInFlight = true;
+      try {
+        const refreshed = await refreshSellerWorkspace(
+          selectedCommissionIdForRefresh
+            ? { commissionId: selectedCommissionIdForRefresh }
+            : undefined,
+        );
+        const selectedRecordStillPayable = !selectedCommissionIdForRefresh
+          || refreshed?.payableRecords?.some((record) => record.commissionId === selectedCommissionIdForRefresh) === true;
+        // The cron may have settled the selected record between polls. Close
+        // its panel before restoring the ordinary selection so pending copy or
+        // a 0.000000 amount cannot silently move to another commission.
+        if (!disposed && refreshed && !selectedRecordStillPayable) {
+          const fallbackStatus = await refreshSellerWorkspace();
+          if (disposed) return;
+          setCommissionPayMessage(null);
+          setCommissionPayOpen(false);
+          setCommissionPayerType(null);
+          setCommissionAdvancedOpen(false);
+          setSellerWorkspaceMessage(fallbackStatus?.pendingCount
+            ? (isAr ? "تم تحديث حالة الدفع. اختر العمولة التالية المستحقة عندما تكون مستعدًا." : "Payment status updated. Select the next outstanding commission when you are ready.")
+            : (isAr ? "تم التحقق من الدفع وتسوية جميع العمولات المستحقة." : "Payment verified. All commission dues are settled."));
+        }
+      } finally {
+        refreshInFlight = false;
+      }
+    };
+    const refreshAfterResume = () => {
+      if (document.visibilityState === "visible") void refreshPendingCommission();
+    };
+    const intervalId = window.setInterval(() => {
+      void refreshPendingCommission();
+    }, 30_000);
+    window.addEventListener("focus", refreshAfterResume);
+    document.addEventListener("visibilitychange", refreshAfterResume);
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshAfterResume);
+      document.removeEventListener("visibilitychange", refreshAfterResume);
+    };
+  }, [
+    hasPendingCommissionVerification,
+    hasSellerWorkspaceAccess,
+    isAr,
+    refreshSellerWorkspace,
+    selectedCommissionIdForRefresh,
+  ]);
+
   const refreshDiscordSharingStatus = useCallback(async () => {
     const response = await tracedFetch(
       "Discord sharing status refresh",
@@ -1875,7 +1950,7 @@ export function UsdtExchangePage({
         setSellerCommissionStatus((current) => current ? {
           ...current,
           commissionId: payableRecord.commissionId,
-          payableAmountDue: payableRecord.amountDue,
+          payableAmountDue: payableRecord.paymentAmountDue ?? payableRecord.amountDue,
           dueAt: payableRecord.dueAt,
           relatedRequestId: payableRecord.relatedRequestId,
           relatedTradeId: payableRecord.relatedTradeId,
@@ -1935,7 +2010,7 @@ export function UsdtExchangePage({
     commissionPayIntentHandledRef.current = intentKey;
     commissionPayDeepLinkHandledRef.current = true;
 
-    if (!sessionUser || !isApprovedSellerSession) {
+    if (!sessionUser || !hasSellerWorkspaceAccess) {
       clearCommissionPayDeepLink();
       setSellerWorkspaceMessage(isAr ? "يلزم وجود مساحة عمل للبائع لدفع العمولة." : "A seller workspace is required to pay a commission.");
       return;
@@ -1986,7 +2061,7 @@ export function UsdtExchangePage({
     commissionPaymentIntent,
     commissionPaymentIntentId,
     isAr,
-    isApprovedSellerSession,
+    hasSellerWorkspaceAccess,
     isSessionResolving,
     isWorkspaceWidgetsLoading,
     openCommissionPaymentPanel,
@@ -2217,7 +2292,7 @@ export function UsdtExchangePage({
         try {
           const [applicationRes] = await Promise.all([
             tracedFetch("Workspace data loading: seller application", "/api/alpha-exchange/seller-application", { cache: "no-store" }),
-            isApprovedSellerSession ? refreshSellerWorkspace() : refreshMyPurchaseRequests(),
+            hasSellerWorkspaceAccess ? refreshSellerWorkspace() : refreshMyPurchaseRequests(),
             refreshNotificationPreferences(),
           ]);
           if (cancelled) return;
@@ -2240,10 +2315,10 @@ export function UsdtExchangePage({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [isApprovedSellerSession, isAr, isSessionResolving, refreshMyPurchaseRequests, refreshNotificationPreferences, refreshSellerWorkspace, sessionUser, tracedFetch]);
+  }, [hasSellerWorkspaceAccess, isAr, isSessionResolving, refreshMyPurchaseRequests, refreshNotificationPreferences, refreshSellerWorkspace, sessionUser, tracedFetch]);
 
   useEffect(() => {
-    if (!isApprovedSellerSession || isSessionResolving || deferredSellerPanelsReady) return;
+    if (!hasSellerWorkspaceAccess || isSessionResolving || deferredSellerPanelsReady) return;
     const sentinel = sellerDeferredPanelsSentinelRef.current;
     if (!sentinel) return;
     if (typeof IntersectionObserver === "undefined") {
@@ -2261,13 +2336,13 @@ export function UsdtExchangePage({
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [deferredSellerPanelsReady, isApprovedSellerSession, isSessionResolving]);
+  }, [deferredSellerPanelsReady, hasSellerWorkspaceAccess, isSessionResolving]);
 
   useEffect(() => {
-    if (!isApprovedSellerSession) {
+    if (!hasSellerWorkspaceAccess) {
       setDeferredSellerPanelsReady(false);
     }
-  }, [isApprovedSellerSession]);
+  }, [hasSellerWorkspaceAccess]);
 
   useEffect(() => {
     if (!sessionUser || notificationsInitialized) return;
@@ -2276,9 +2351,9 @@ export function UsdtExchangePage({
   }, [isSessionResolving, notificationsInitialized, sessionUser]);
 
   useEffect(() => {
-    if (!sessionUser || isApprovedSellerSession) return;
+    if (!sessionUser || hasSellerWorkspaceAccess) return;
     void refreshBuyerProfileSummary();
-  }, [isApprovedSellerSession, myRequests, refreshBuyerProfileSummary, sessionUser]);
+  }, [hasSellerWorkspaceAccess, myRequests, refreshBuyerProfileSummary, sessionUser]);
 
   useEffect(() => {
     if (!sessionUser || !notificationsInitialized) return;
@@ -2952,6 +3027,7 @@ export function UsdtExchangePage({
   const estimatedTotal = selectedTradeAmount * selectedTradePrice + commission;
 
   const isApprovedSeller = isApprovedSellerSession;
+  const isSellerWorkspaceUser = hasSellerWorkspaceAccess;
   const hasBuyerRole = Boolean(sessionUser && hasRole(sessionUser, "buyer"));
   const sellerApplicationEligibility = getSellerApplicationEligibility({ isCanonicalUserLoading: isSessionResolving, canonicalUserError: sessionResolutionError, canonicalUser: sessionUser, application: sellerApplication, applicationSubmitted });
   const canAccessListingCreation = isApprovedSeller || isAdminSession;
@@ -2959,7 +3035,7 @@ export function UsdtExchangePage({
   const showBuyerSellerApplicationUpFront = Boolean(
     sessionUser
     && hasBuyerRole
-    && !isApprovedSeller
+    && !isSellerWorkspaceUser
     && !isAdminSession,
   );
   const buyerRequests = useMemo(() => myRequests.filter((request) => request.buyerId === sessionUser?.id), [myRequests, sessionUser?.id]);
@@ -2969,11 +3045,11 @@ export function UsdtExchangePage({
     if (!sessionUser) return;
     if (typeof window === "undefined") return;
     if (!/^\/(ar|en)\/dashboard\/seller\/?$/.test(window.location.pathname)) return;
-    const canAccessSellerDashboard = isApprovedSeller || sessionUser.role === "admin" || sessionUser.role === "owner";
+    const canAccessSellerDashboard = isSellerWorkspaceUser || sessionUser.role === "admin" || sessionUser.role === "owner";
     if (!canAccessSellerDashboard) {
       router.replace("/dashboard");
     }
-  }, [isApprovedSeller, router, sessionUser]);
+  }, [isSellerWorkspaceUser, router, sessionUser]);
 
   const marketPricePerUsdt = marketSnapshot?.pairs.usdtIls.price ?? DEFAULT_MARKET_PRICE_PER_USDT;
   const maxAllowedListingPrice = marketPricePerUsdt + MAX_PRICE_MARKUP_ILS;
@@ -3003,9 +3079,11 @@ export function UsdtExchangePage({
     || !listingCommissionAgreement;
   const listingCreateTotalIls = listingCreateAmount * listingCreatePrice;
   const listingCreateCurrencyValue = Number.isFinite(listingCreateTotalIls) ? Math.round(listingCreateTotalIls) : 0;
-  const listingCreationBlocked = Boolean(sellerWorkspaceSummary && !sellerWorkspaceSummary.canCreateListing);
-  const listingCreationBlockedReason = sellerWorkspaceSummary?.blockedReason
-    ?? (isAr ? "إنشاء العروض متوقف حالياً. راجع العروض النشطة أو العمولة أو حالة الامتثال." : "Listing creation is currently blocked.");
+  const listingCreationBlocked = !canAccessListingCreation || Boolean(sellerWorkspaceSummary && !sellerWorkspaceSummary.canCreateListing);
+  const listingCreationBlockedReason = !canAccessListingCreation
+    ? (isAr ? "حساب البائع معلّق. يمكنك دفع العمولة المستحقة، لكن لا يمكنك إنشاء عروض جديدة حتى إعادة تفعيل الحساب." : "Your seller account is suspended. You can pay outstanding commissions, but cannot create new listings until the account is reactivated.")
+    : (sellerWorkspaceSummary?.blockedReason
+      ?? (isAr ? "إنشاء العروض متوقف حالياً. راجع العروض النشطة أو العمولة أو حالة الامتثال." : "Listing creation is currently blocked."));
   const listingBlockedByMarketplaceEnforcement = Boolean(sellerWorkspaceSummary?.enforcement?.restricted);
   const listingBlockedByCommission = !listingBlockedByMarketplaceEnforcement && (sellerWorkspaceSummary?.pendingCommissionCount ?? 0) > 0;
   const listingBlockedByActiveLimit = Boolean(
@@ -3358,13 +3436,15 @@ export function UsdtExchangePage({
     return () => window.clearInterval(interval);
   }, [isAr]);
   const sellerApprovalDate = sellerApplication?.updatedAt ?? sessionUser?.createdAt;
-  const workspaceDisplayId = toWorkspaceDisplayId(sessionUser, isApprovedSeller);
+  const workspaceDisplayId = toWorkspaceDisplayId(sessionUser, isSellerWorkspaceUser);
   const workspacePrimaryName = safeText(sessionUser?.fullName, isAr ? "المتداول" : "Trader").split(" ")[0] || (isAr ? "المتداول" : "Trader");
-  const workspacePositiveMessage = isApprovedSeller
-    ? (isAr ? "كل شيء تحت سيطرتك. عروضك وصفقاتك وتنبيهاتك جاهزة." : "You are in control. Your listings, trades, and alerts are ready.")
+  const workspacePositiveMessage = isSellerWorkspaceUser
+    ? sellerStatusForLanding === "suspended"
+      ? (isAr ? "حساب البائع معلّق، لكن يمكنك دفع العمولات المستحقة ومتابعة التحقق منها هنا." : "Your seller account is suspended, but you can pay outstanding commissions and track verification here.")
+      : (isAr ? "كل شيء تحت سيطرتك. عروضك وصفقاتك وتنبيهاتك جاهزة." : "You are in control. Your listings, trades, and alerts are ready.")
     : (isAr ? "مساحة عملك جاهزة. راقب نشاطك أولاً، ثم انتقل إلى السوق." : "Your workspace is ready. Track activity first, then jump into the marketplace.");
 
-  const openTradeCount = isApprovedSeller
+  const openTradeCount = isSellerWorkspaceUser
     ? sellerRequests.filter((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status)).length
     : buyerRequests.filter((request) => !["completed", "review_open", "declined", "cancelled"].includes(request.status)).length;
   const totalBuyerRequests = buyerRequests.length;
@@ -3394,7 +3474,7 @@ export function UsdtExchangePage({
     handleOpenTradeRoom(tradeId);
   }, [handleOpenTradeRoom, isApprovedSeller, latestSellerInProgressTrade?.id, sessionUser]);
   const commissionWorkspaceAction = getCommissionWorkspaceAction(sellerCommissionStatus);
-  const standardCommissionDueActive = isApprovedSeller && commissionWorkspaceAction.kind !== "none";
+  const standardCommissionDueActive = isSellerWorkspaceUser && commissionWorkspaceAction.kind !== "none";
   const marketplaceComplianceActive = Boolean(sellerWorkspaceSummary?.enforcement?.restricted);
   const workspaceIdentityName = isAr ? `السيد/السيدة ${workspacePrimaryName}` : `Mr./Mrs. ${workspacePrimaryName}`;
   type AttentionItem = {
@@ -3404,13 +3484,13 @@ export function UsdtExchangePage({
     onClick: () => void;
   };
   const isAttentionItem = (item: AttentionItem | null): item is AttentionItem => item !== null;
-  const urgentSellerListing = isApprovedSeller
+  const urgentSellerListing = isSellerWorkspaceUser
     ? myListings.find((listing) => {
         const countdown = deriveListingCountdown(listing.expiresAt, Date.now());
         return countdown.visible && countdown.tier === "urgent";
       })
     : null;
-  const needsAttentionItems: AttentionItem[] = isApprovedSeller
+  const needsAttentionItems: AttentionItem[] = isSellerWorkspaceUser
     ? [
         pendingBuyerReviewTrade
           ? {
@@ -3523,7 +3603,7 @@ export function UsdtExchangePage({
       ].filter(isAttentionItem);
   const shouldCondenseSellerApplication = Boolean(
     sessionUser
-    && !isApprovedSeller
+    && !isSellerWorkspaceUser
     && hasBuyerRole
     && sellerApplication?.status !== "pending"
     && !applicationSubmitted,
@@ -3537,7 +3617,7 @@ export function UsdtExchangePage({
     onClick: () => void;
     icon: typeof Trophy;
     tone?: "gold" | "blue" | "green" | "amber";
-  }> = isApprovedSeller
+  }> = isSellerWorkspaceUser
     ? [
       {
         key: "create-listing",
@@ -3731,7 +3811,7 @@ export function UsdtExchangePage({
           ? `راجع ${sellerCommissionStatus?.pendingCount ?? 0} من العمولات غير المدفوعة`
           : `Review ${sellerCommissionStatus?.pendingCount ?? 0} unpaid commissions`),
       stat: commissionWorkspaceAction.kind === "pay-one"
-        ? formatUsdt(sellerCommissionStatus?.payableAmountDue ?? 0)
+        ? formatExactCommissionUsdt(sellerCommissionStatus?.payableAmountDue ?? 0)
         : `${sellerCommissionStatus?.pendingCount ?? 0}`,
       onClick: commissionWorkspaceAction.kind === "pay-one"
         ? () => openCommissionPayment(commissionWorkspaceAction.commissionId)
@@ -3752,7 +3832,7 @@ export function UsdtExchangePage({
     });
   }
 
-  const heroPrimaryActions = isApprovedSeller
+  const heroPrimaryActions = isSellerWorkspaceUser
     ? [
       {
         key: "hero-create-listing",
@@ -4409,12 +4489,13 @@ export function UsdtExchangePage({
       setCommissionPayMessage(isAr ? "لم يتم العثور على سجل عمولة قابل للدفع." : "No payable commission record was found.");
       return;
     }
+    const submittedCommissionId = sellerCommissionStatus.commissionId;
     if (!(commissionPayableAmountDue > 0)) {
       setCommissionPayMessage(isAr ? "مبلغ العمولة المحدد غير متاح. أعد فتح طلب الدفع." : "The exact commission amount is unavailable. Please reopen the payment request.");
       return;
     }
-    if (!commissionTxSignature.trim()) {
-      setCommissionPayMessage(isAr ? "ألصق معرّف المعاملة قبل التأكيد." : "Please paste your transaction hash before confirming.");
+    if (!/^(?:0x)?[a-fA-F0-9]{64}$/.test(commissionTxSignature.trim())) {
+      setCommissionPayMessage(isAr ? "ألصق معرّف معاملة TRON الكامل المكوّن من 64 رمزًا." : "Paste the full 64-character TRON TxID before confirming.");
       return;
     }
     if (!selectedCommissionWalletAvailable) {
@@ -4428,7 +4509,7 @@ export function UsdtExchangePage({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          commissionId: sellerCommissionStatus.commissionId,
+          commissionId: submittedCommissionId,
           network: commissionNetwork,
           paymentSignature: commissionTxSignature.trim(),
         }),
@@ -4438,13 +4519,39 @@ export function UsdtExchangePage({
         setCommissionPayMessage(isAr ? "تعذر التحقق من دفع العمولة." : (payload.error ?? "Unable to verify commission payment."));
         return;
       }
-      setCommissionPayMessage(payload.verification?.verified
-        ? (isAr ? "✅ تم التحقق من دفع العمولة واستعادة صلاحيات البائع." : "✅ Commission payment verified. Seller access has been unlocked.")
-        : payload.verification?.pending
-          ? (isAr ? "⏳ تم إرسال الدفعة. ستتحقق Alpha Traders منها تلقائيًا بعد التأكيد النهائي على شبكة TRON." : "⏳ Payment submitted. Alpha Traders will verify it automatically after TRON final confirmation.")
-          : (isAr ? "فشل التحقق من الدفع." : (payload.verification?.notes ?? "Verification failed.")));
       setCommissionTxSignature("");
-      await refreshSellerWorkspace();
+      if (payload.verification?.verified) {
+        const refreshedStatus = await refreshSellerWorkspace();
+        const remainingCommissionCount = refreshedStatus?.pendingCount
+          ?? Math.max(0, (sellerCommissionStatus.pendingCount ?? 1) - 1);
+        const successMessage = remainingCommissionCount === 0
+          ? (isAr ? "✅ تم التحقق من الدفع وتسوية جميع العمولات. أزيلت القيود المتعلقة بالعمولة؛ وتظل أي قيود أخرى على الحساب سارية." : "✅ Payment verified. All commission dues are settled and commission-related restrictions are cleared; any other account restrictions still apply.")
+          : (isAr ? `✅ تم التحقق من هذه الدفعة. ما زالت هناك ${remainingCommissionCount} عمولة مستحقة.` : `✅ This payment was verified. ${remainingCommissionCount} other commission payment${remainingCommissionCount === 1 ? " remains" : "s remain"} due.`);
+        // A verified record is no longer payable. Close and reset the old panel
+        // so it cannot silently retarget its green result at a different due.
+        setCommissionPayMessage(null);
+        setCommissionPayOpen(false);
+        setCommissionPayerType(null);
+        setCommissionAdvancedOpen(false);
+        setSellerWorkspaceMessage(successMessage);
+        return;
+      }
+
+      setCommissionPayMessage(payload.verification?.pending
+        ? (isAr ? "⏳ تم إرسال الدفعة. ستتحقق Alpha Traders منها تلقائيًا بعد التأكيد النهائي على شبكة TRON." : "⏳ Payment submitted. Alpha Traders will verify it automatically after TRON final confirmation.")
+        : (isAr ? "فشل التحقق من الدفع." : (payload.verification?.notes ?? "Verification failed.")));
+      // Keep the panel bound to the exact record whose TxID was submitted.
+      // A generic refresh would select the oldest unpaid commission and could
+      // display this result beside a different trade and amount.
+      const refreshedStatus = await refreshSellerWorkspace({ commissionId: submittedCommissionId });
+      if (refreshedStatus?.selectionError) {
+        await refreshSellerWorkspace();
+        setCommissionPayMessage(null);
+        setCommissionPayOpen(false);
+        setSellerWorkspaceMessage(isAr
+          ? "تغيّرت حالة دفعة العمولة أثناء التحقق. تم تحديث مساحة العمل إلى أحدث حالة."
+          : "The commission payment changed while it was being verified. The workspace has been refreshed to the latest state.");
+      }
     } catch {
       setCommissionPayMessage(isAr ? "تعذر التحقق من دفع العمولة." : "Unable to verify commission payment.");
     } finally {
@@ -4637,7 +4744,7 @@ export function UsdtExchangePage({
     );
   }
 
-  const marketInsightsCard = sessionUser && isApprovedSeller ? (
+  const marketInsightsCard = sessionUser && isSellerWorkspaceUser ? (
     <Card className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
       <CardHeader>
         <CardTitle>{isAr ? "إحصاءات السوق" : "Marketplace Insights"}</CardTitle>
@@ -4712,7 +4819,7 @@ export function UsdtExchangePage({
       </CardContent>
     </Card>
   ) : null;
-  const buyerOverviewCard = sessionUser && !isApprovedSeller ? (
+  const buyerOverviewCard = sessionUser && !isSellerWorkspaceUser ? (
     <Card className="border-white/10 bg-[#0B0B0B]/90 md:col-span-2">
       <CardHeader className="pb-4">
         <CardTitle>{isAr ? "لوحة المشتري" : "Buyer Dashboard"}</CardTitle>
@@ -4773,7 +4880,7 @@ export function UsdtExchangePage({
       </CardContent>
     </Card>
   ) : null;
-  const sellerApplicationPanel = showDeferredSections && !isApprovedSeller && !isAdminSession ? (
+  const sellerApplicationPanel = showDeferredSections && !isSellerWorkspaceUser && !isAdminSession ? (
     <SellerApplicationSection
       isAr={isAr}
       prominent={showBuyerSellerApplicationUpFront}
@@ -4811,11 +4918,11 @@ export function UsdtExchangePage({
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_16%_18%,rgba(201,162,39,0.18),transparent_42%),radial-gradient(circle_at_85%_25%,rgba(59,130,246,0.16),transparent_40%),linear-gradient(120deg,rgba(201,162,39,0.08),transparent_40%)]" />
             </div>
             <div className="relative z-10">
-              {isApprovedSeller ? (
+              {isSellerWorkspaceUser ? (
                 <div className="inline-flex flex-wrap items-center gap-2 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-1.5 text-xs text-[#F4D87A]">
                   <span className="font-semibold uppercase tracking-[0.12em]">{isAr ? "حالة البائع" : "Seller Status"}</span>
-                  <RoleBadge variant="approved_seller" locale={isAr ? "ar" : "en"} />
-                  <span className="text-[#E5E7EB]">{isAr ? "بائع معتمد" : "Approved Seller"}</span>
+                  {isApprovedSeller ? <RoleBadge variant="approved_seller" locale={isAr ? "ar" : "en"} /> : <AlertTriangle className="h-3.5 w-3.5 text-amber-300" />}
+                  <span className="text-[#E5E7EB]">{isApprovedSeller ? (isAr ? "بائع معتمد" : "Approved Seller") : (isAr ? "حساب البائع معلّق" : "Seller account suspended")}</span>
                 </div>
               ) : (
                 <p className="text-xs uppercase tracking-[0.18em] text-[#D4AF37]">{greetingLabel}</p>
@@ -4824,7 +4931,7 @@ export function UsdtExchangePage({
                 {isAr ? `مرحباً بعودتك، ${workspacePrimaryName}` : `Welcome back, ${workspacePrimaryName}`}
               </h1>
               <p className="mt-1 text-sm text-[#D1D5DB]">{workspacePositiveMessage}</p>
-              {!isApprovedSeller ? (
+              {!isSellerWorkspaceUser ? (
                 <div className="buyer-rank-hero-card mt-5">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                     <div className="flex items-start gap-3">
@@ -4911,8 +5018,8 @@ export function UsdtExchangePage({
                   <p className="mt-1 text-sm font-semibold text-white">{safeText(sessionUser.fullName, isAr ? "المتداول" : "Trader")}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
-                  <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isApprovedSeller ? (isAr ? "مستوى البائع" : "Seller Level") : (isAr ? "رتبة المشتري" : "Buyer Rank")}</p>
-                  <p className="mt-1 text-sm font-semibold text-white">{isApprovedSeller ? sellerLevelLabel(sellerOverviewStats.reputation?.level, isAr) : (isAr ? (buyerProfileSummary?.labelAr ?? "مشتري برونزي") : (buyerProfileSummary?.label ?? "Bronze Buyer"))}</p>
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isSellerWorkspaceUser ? (isAr ? "مستوى البائع" : "Seller Level") : (isAr ? "رتبة المشتري" : "Buyer Rank")}</p>
+                  <p className="mt-1 text-sm font-semibold text-white">{isSellerWorkspaceUser ? sellerLevelLabel(sellerOverviewStats.reputation?.level, isAr) : (isAr ? (buyerProfileSummary?.labelAr ?? "مشتري برونزي") : (buyerProfileSummary?.label ?? "Bronze Buyer"))}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
                   <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "معرّف AT" : "AT ID"}</p>
@@ -4927,7 +5034,7 @@ export function UsdtExchangePage({
                         if (typeof navigator !== "undefined" && navigator.clipboard) {
                           void navigator.clipboard.writeText(workspaceDisplayId);
                         }
-                        if (isApprovedSeller) setSellerWorkspaceMessage(isAr ? `تم نسخ ${workspaceDisplayId}` : `Copied ${workspaceDisplayId}`);
+                        if (isSellerWorkspaceUser) setSellerWorkspaceMessage(isAr ? `تم نسخ ${workspaceDisplayId}` : `Copied ${workspaceDisplayId}`);
                         else setStatusMessage(isAr ? `تم نسخ ${workspaceDisplayId}` : `Copied ${workspaceDisplayId}`);
                       }}
                     >
@@ -5461,7 +5568,7 @@ export function UsdtExchangePage({
       ) : null}
 
       {!isDashboardWorkspace && !showBuyerSellerApplicationUpFront ? sellerApplicationPanel : null}
-      {isApprovedSeller && showSellerWorkspace ? (
+      {isSellerWorkspaceUser && showSellerWorkspace ? (
 <SellerWorkspaceSection
           {...{
             activityHistory,
@@ -5596,7 +5703,7 @@ export function UsdtExchangePage({
             tradeStatusLabel,
           }}
         />
-      ) : isApprovedSeller ? (
+      ) : isSellerWorkspaceUser ? (
         <div className="mt-8 md:hidden">
           <Card className="border-white/10 bg-[#0B0B0B]/90">
             <CardContent className="p-4">

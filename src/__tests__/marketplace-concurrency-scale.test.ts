@@ -401,6 +401,11 @@ describe("marketplace concurrency at ten-seller scale", () => {
     expect(commissions).toHaveLength(10);
     expect(new Set(commissions.map((record) => record.purchaseRequestId))).toEqual(requestIds);
     expect(commissions.every((record) => record.paymentStatus === "pending" && record.commissionAmount === 1)).toBe(true);
+    expect(new Set(commissions.map((record) => record.paymentExpectedAmount)).size).toBe(10);
+    expect(commissions.every((record) => (
+      record.paymentExpectedAmountMode === "unique_v1"
+      && typeof record.paymentExpectedAmountAssignedAt === "string"
+    ))).toBe(true);
 
     const requiredTimelineTypes = [
       "request_submitted",

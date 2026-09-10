@@ -29,7 +29,7 @@ export default async function DashboardPage({ params }: { params: Promise<{ loca
     redirect(`/${locale}/admin/alpha-exchange`);
   }
 
-  if (hasRole(user, "approved_seller")) {
+  if (hasRole(user, "approved_seller") || user.sellerStatus === "suspended") {
     redirect(`/${locale}/dashboard/seller`);
   }
 

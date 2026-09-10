@@ -1,6 +1,6 @@
 "use client";
 
-import type { Dispatch, FormEvent, ReactNode, RefObject, SetStateAction } from "react";
+import { useState, type Dispatch, type FormEvent, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { AlertTriangle, Building2, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Copy, Loader2, LockKeyhole, MessageCircle, ShieldCheck, Star, TrendingUp, Trophy, Users, Wallet, WalletCards, X } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,13 @@ import type { MarketSnapshot } from "@/types/market";
 import type { AlphaExchangeActivityLogEntry, MarketplaceListing, PurchaseRequest, PurchaseRequestStatus, SellerApplication, SellerReputationSnapshot, SupportedNetwork } from "@/types/alpha-exchange";
 import type { ClientSessionUser } from "@/lib/client-session-user";
 import type { ListingCreateResult, SellerBankAccount, SellerCommissionStatus, TradeQueueSectionKey } from "@/components/sections/usdt-exchange/usdt-exchange-page";
+
+function formatExactCommissionUsdt(value: number) {
+  return `${value.toLocaleString("en-US", {
+    minimumFractionDigits: 6,
+    maximumFractionDigits: 6,
+  })} USDT`;
+}
 
 type ListingCreateForm = {
   availableAmount: string;
@@ -193,6 +200,20 @@ export type SellerWorkspaceSectionProps = {
   tradeStatusLabel: typeof import("@/components/sections/usdt-exchange/usdt-exchange-page").tradeStatusLabel;
 };
 
+type PayableCommissionWithVerification = NonNullable<SellerCommissionStatus["payableRecords"]>[number] & {
+  paymentVerificationStatus?: "pending_verification" | "verified" | "failed";
+  paymentVerificationNotes?: string;
+  paymentSignature?: string;
+  paymentSubmittedAt?: string;
+  paymentExpectedAmountMode?: "unique_v1" | "legacy_base";
+};
+
+function abbreviatedTronTxId(value: string) {
+  const normalized = value.trim();
+  if (normalized.length <= 20) return normalized;
+  return `${normalized.slice(0, 8)}…${normalized.slice(-8)}`;
+}
+
 export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
   const {
     activityHistory,
@@ -327,6 +348,33 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
     tradeStatusLabel,
   } = props;
 
+  const selectedCommissionId = sellerCommissionStatus?.commissionId?.trim()
+    || (commissionWorkspaceAction.kind === "pay-one" ? commissionWorkspaceAction.commissionId.trim() : "");
+  const selectedCommissionPayment = (sellerCommissionStatus?.payableRecords as PayableCommissionWithVerification[] | undefined)
+    ?.find((record) => record.commissionId.trim() === selectedCommissionId);
+  const selectedCommissionSubmittedAt = selectedCommissionPayment?.paymentSubmittedAt
+    ? new Date(selectedCommissionPayment.paymentSubmittedAt)
+    : null;
+  const selectedCommissionSubmittedAtLabel = selectedCommissionSubmittedAt && !Number.isNaN(selectedCommissionSubmittedAt.getTime())
+    ? selectedCommissionSubmittedAt.toLocaleString(isAr ? "ar-IL" : "en-IL")
+    : null;
+  const selectedCommissionTxId = selectedCommissionPayment?.paymentSignature?.trim() ?? "";
+  const isLegacyPendingCommissionPayment = selectedCommissionPayment?.paymentVerificationStatus === "pending_verification"
+    && selectedCommissionPayment.paymentExpectedAmountMode === "legacy_base";
+  const isSuspendedSeller = sessionUser?.sellerStatus === "suspended";
+  const [commissionAmountCopied, setCommissionAmountCopied] = useState(false);
+
+  async function copyExactCommissionAmount() {
+    try {
+      await navigator.clipboard.writeText(commissionPayableAmountDue.toFixed(6));
+      setCommissionAmountCopied(true);
+      window.setTimeout(() => setCommissionAmountCopied(false), 2_000);
+    } catch {
+      setCommissionAmountCopied(false);
+      setCommissionPayMessage(isAr ? "تعذر نسخ المبلغ. أدخل الخانات الست كما تظهر." : "The amount could not be copied. Enter all six decimals exactly as shown.");
+    }
+  }
+
   return (
 <div className="mt-6 flex flex-col gap-5 xl:gap-6">
           {/* Seller Dashboard Hero */}
@@ -338,8 +386,8 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
               <div>
                 <div className="inline-flex flex-wrap items-center gap-2 rounded-full border border-[#C9A227]/35 bg-[#C9A227]/10 px-3 py-1.5 text-xs text-[#F4D87A]">
                   <span className="font-semibold uppercase tracking-[0.12em]">{isAr ? "حالة البائع" : "Seller Status"}</span>
-                  <RoleBadge variant="approved_seller" locale={isAr ? "ar" : "en"} />
-                  <span className="text-[#E5E7EB]">{isAr ? "بائع معتمد" : "Approved Seller"}</span>
+                  {isSuspendedSeller ? <AlertTriangle className="h-3.5 w-3.5 text-amber-300" /> : <RoleBadge variant="approved_seller" locale={isAr ? "ar" : "en"} />}
+                  <span className="text-[#E5E7EB]">{isSuspendedSeller ? (isAr ? "حساب البائع معلّق" : "Seller account suspended") : (isAr ? "بائع معتمد" : "Approved Seller")}</span>
                 </div>
                 <h2 className="mt-2 text-2xl font-semibold text-white">
                   {isAr ? `مرحباً بعودتك، ${sessionUser?.fullName?.split(" ")[0] ?? "البائع"}` : `Welcome back, ${sessionUser?.fullName?.split(" ")[0] ?? "Seller"}`}
@@ -482,7 +530,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         <span>
                           {record.relatedTradeDisplayNumber ? `${isAr ? "الصفقة" : "Trade"} #${record.relatedTradeDisplayNumber}` : (isAr ? "سجل العمولة" : "Commission record")}
                         </span>
-                        <span className="text-[#FDE68A]">{formatUsdt(record.amountDue)}</span>
+                        <span className="text-[#FDE68A]">{formatExactCommissionUsdt(record.paymentAmountDue ?? record.amountDue)}</span>
                       </Button>
                     ))}
                   </div>
@@ -507,12 +555,23 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
-                {/* Amount badge */}
+                {!isLegacyPendingCommissionPayment ? (
                 <div className="flex items-center gap-3 rounded-xl border border-[#C9A227]/20 bg-[#C9A227]/5 px-4 py-3 mt-1">
                   <div className="flex-1">
                     <p className="text-xs text-[#9CA3AF]">{isAr ? "ادفع هذه العمولة" : "Pay this commission"}</p>
-                    <p className="text-2xl font-bold text-white">{formatUsdt(commissionPayableAmountDue)}</p>
+                    <p className="select-all text-2xl font-bold text-white">{formatExactCommissionUsdt(commissionPayableAmountDue)}</p>
                   </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    aria-label={isAr ? "نسخ مبلغ العمولة الدقيق" : "Copy exact commission amount"}
+                    className="h-9 shrink-0 px-3"
+                    onClick={() => void copyExactCommissionAmount()}
+                  >
+                    {commissionAmountCopied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                    <span className="ms-1.5">{commissionAmountCopied ? (isAr ? "تم النسخ" : "Copied") : (isAr ? "نسخ المبلغ" : "Copy amount")}</span>
+                  </Button>
                   {sellerCommissionStatus?.relatedTradeDisplayNumber ? (
                     <div className="text-end">
                       <p className="text-xs text-[#9CA3AF]">{isAr ? "الصفقة" : "Trade"}</p>
@@ -520,16 +579,84 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                     </div>
                   ) : null}
                 </div>
+                ) : null}
                 {sellerCommissionStatus && sellerCommissionStatus.pendingCount > 1 ? (
                   <p className="text-xs text-[#D1D5DB]">
                     {isAr ? `إجمالي المستحق ${formatUsdt(commissionTotalAmountDue)} موزع على ${sellerCommissionStatus.pendingCount} عمولات. هذه الدفعة تسدد الصفقة المحددة أعلاه فقط.` : `Total outstanding: ${formatUsdt(commissionTotalAmountDue)} across ${sellerCommissionStatus.pendingCount} commissions. This payment settles only the selected trade above.`}
                   </p>
                 ) : null}
+                <p className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-100">
+                  {isLegacyPendingCommissionPayment
+                    ? (isAr
+                      ? "هذه دفعة قديمة تم إرسالها بالفعل. لا ترسل المبلغ مرة أخرى؛ سيستمر التحقق من معرّف المعاملة الأصلي تلقائياً."
+                      : "This pre-upgrade payment was already submitted. Do not send the amount again; automatic verification will continue for the original TxID.")
+                    : (isAr
+                      ? "هذا المبلغ يحتوي على لاحقة تحقق فريدة. أرسله كاملاً كما هو من 6 خانات عشرية ولا تقرّبه."
+                      : "This amount includes a unique verification suffix. Send all 6 decimal places exactly as shown—do not round it.")}
+                </p>
               </CardHeader>
               <CardContent className="space-y-5">
 
+                {selectedCommissionPayment?.paymentVerificationStatus === "pending_verification" ? (
+                  <div data-testid="commission-payment-pending" role="status" className="flex items-start gap-3 rounded-2xl border border-blue-500/35 bg-blue-950/35 p-4 text-sm text-blue-100">
+                    <Clock3 className="mt-0.5 h-5 w-5 shrink-0 text-blue-300" />
+                    <div className="min-w-0 space-y-1.5">
+                      <p className="font-semibold text-blue-200">{isAr ? "التحقق من الدفع قيد الانتظار" : "Payment verification pending"}</p>
+                      <p className="text-xs leading-5">
+                        {isAr
+                          ? "تم حفظ معرّف المعاملة، وستواصل Alpha Traders التحقق منه تلقائياً بعد التأكيد النهائي على شبكة TRON. لا ترسل دفعة أخرى أثناء الانتظار."
+                          : "Your TxID is saved. Alpha Traders will keep checking it automatically after TRON final confirmation. Do not send another payment while it is pending."}
+                      </p>
+                      {selectedCommissionPayment.paymentVerificationNotes ? (
+                        <p className="rounded-lg border border-blue-400/20 bg-blue-950/40 px-2.5 py-2 text-xs text-blue-100">
+                          {selectedCommissionPayment.paymentVerificationNotes}
+                        </p>
+                      ) : null}
+                      {selectedCommissionTxId || selectedCommissionSubmittedAtLabel ? (
+                        <p className="break-words text-[11px] text-blue-300">
+                          {selectedCommissionTxId ? <><span>{isAr ? "المعرّف المحفوظ" : "Saved TxID"}: </span><code dir="ltr" title={selectedCommissionTxId}>{abbreviatedTronTxId(selectedCommissionTxId)}</code></> : null}
+                          {selectedCommissionTxId && selectedCommissionSubmittedAtLabel ? <span> · </span> : null}
+                          {selectedCommissionSubmittedAtLabel ? <span>{isAr ? "تم الإرسال" : "Submitted"}: {selectedCommissionSubmittedAtLabel}</span> : null}
+                        </p>
+                      ) : null}
+                      <p className="text-xs font-medium text-blue-200">
+                        {isLegacyPendingCommissionPayment
+                          ? (isAr
+                            ? "معرّف المعاملة الأصلي مرتبط بهذه الدفعة القديمة ولا يمكن استبداله أثناء التحقق. سيستمر التحقق تلقائياً؛ لا تدفع مرة أخرى. إذا كان المعرّف المحفوظ غير صحيح، فتواصل مع دعم Alpha Traders."
+                            : "The original TxID is bound to this pre-upgrade payment and cannot be replaced while verification is pending. Automatic verification will continue; do not pay again. If the saved TxID is wrong, contact Alpha Traders support.")
+                          : (isAr
+                            ? "إذا كان المعرّف المحفوظ غير صحيح، الصق معرّف TRON البديل أدناه وأرسله للتحقق."
+                            : "If the saved TxID is wrong, paste a replacement TRON TxID below and submit it for verification.")}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+
+                {selectedCommissionPayment?.paymentVerificationStatus === "failed" ? (
+                  <div data-testid="commission-payment-failed" role="alert" className="flex items-start gap-3 rounded-2xl border border-red-500/40 bg-red-950/35 p-4 text-sm text-red-100">
+                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
+                    <div className="min-w-0 space-y-1.5">
+                      <p className="font-semibold text-red-200">{isAr ? "فشل التحقق من الدفع" : "Payment verification failed"}</p>
+                      <p className="text-xs leading-5">
+                        {selectedCommissionPayment.paymentVerificationNotes
+                          ?? (isAr ? "تعذّر مطابقة معرّف المعاملة المحفوظ مع دفعة العمولة المطلوبة." : "The saved TxID could not be matched to the required commission payment.")}
+                      </p>
+                      {selectedCommissionTxId || selectedCommissionSubmittedAtLabel ? (
+                        <p className="break-words text-[11px] text-red-300">
+                          {selectedCommissionTxId ? <><span>{isAr ? "المعرّف المرفوض" : "Rejected TxID"}: </span><code dir="ltr" title={selectedCommissionTxId}>{abbreviatedTronTxId(selectedCommissionTxId)}</code></> : null}
+                          {selectedCommissionTxId && selectedCommissionSubmittedAtLabel ? <span> · </span> : null}
+                          {selectedCommissionSubmittedAtLabel ? <span>{isAr ? "تم الإرسال" : "Submitted"}: {selectedCommissionSubmittedAtLabel}</span> : null}
+                        </p>
+                      ) : null}
+                      <p className="text-xs font-semibold text-amber-200">
+                        {isAr ? "راجع السبب أعلاه، ثم الصق معرّف TRON الصحيح أدناه واضغط على التحقق من الدفع مرة أخرى." : "Review the reason above, then paste the correct TRON TxID below and select Verify Payment again."}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+
                 {/* ── Step 0: Payer type selection ── */}
-                {!commissionPayerType ? (
+                {isLegacyPendingCommissionPayment ? null : !commissionPayerType ? (
                   <div className="space-y-4">
                     <p className="text-sm font-medium text-white">{isAr ? "كيف ستدفع العمولة؟" : "How are you paying your commission?"}</p>
                     <div className="grid gap-3">
@@ -544,7 +671,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-white text-sm">{isAr ? "محفظة شخصية" : "Personal Wallet"}</p>
-                          <p className="text-xs text-[#6B7280] mt-0.5">MetaMask · Phantom · Trust Wallet · Rabby · Ledger · Trezor</p>
+                          <p className="text-xs text-[#6B7280] mt-0.5">TronLink · Trust Wallet · SafePal · Ledger</p>
                           <p className="text-xs text-[#9CA3AF] mt-2 leading-relaxed">{isAr ? "أرسل مباشرةً من محفظتك. ستحاول Alpha Traders اكتشاف دفعتك تلقائياً." : "Send directly from your wallet. Alpha Traders will attempt to detect your payment automatically."}</p>
                         </div>
                         <ChevronRight className="mt-3 h-4 w-4 shrink-0 text-[#6B7280] group-hover:text-[#C9A227]" />
@@ -665,7 +792,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                             isAr ? `اختر شبكة ${COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.sublabel ?? commissionNetwork}.` : `Select the ${COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.sublabel ?? commissionNetwork} network.`,
                             isAr ? "اختر USDT كعملة الإرسال." : "Select USDT as the token.",
                             isAr ? "الصق عنوان عمولة Alpha Traders الظاهر أعلاه." : "Paste the Alpha Traders commission address above.",
-                            isAr ? `أدخل المبلغ الدقيق: ${formatUsdt(commissionPayableAmountDue)}.` : `Enter the exact amount: ${formatUsdt(commissionPayableAmountDue)}.`,
+                            isAr ? `أدخل المبلغ الدقيق: ${formatExactCommissionUsdt(commissionPayableAmountDue)}.` : `Enter the exact amount: ${formatExactCommissionUsdt(commissionPayableAmountDue)}.`,
                             isAr ? "أكد الإرسال وانتظر تأكيد المعاملة." : "Confirm and send. Wait for the transaction to be confirmed.",
                           ].map((step, i) => (
                             <li key={i} className="flex items-start gap-2.5 text-xs text-[#D1D5DB]">
@@ -690,7 +817,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                           {[
                             isAr ? `انتقل إلى صفحة السحب أو الإرسال في المنصة واختر USDT على شبكة ${COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.sublabel ?? commissionNetwork}.` : `Go to your exchange's Withdraw or Send page and select USDT on ${COMMISSION_NETWORKS.find((n) => n.id === commissionNetwork)?.sublabel ?? commissionNetwork}.`,
                             isAr ? "الصق عنوان عمولة Alpha Traders كمستلم." : "Paste the Alpha Traders commission address as the recipient.",
-                            isAr ? `أدخل المبلغ الدقيق: ${formatUsdt(commissionPayableAmountDue)}.` : `Enter the exact amount: ${formatUsdt(commissionPayableAmountDue)}.`,
+                            isAr ? `أدخل المبلغ الدقيق: ${formatExactCommissionUsdt(commissionPayableAmountDue)} وتأكد أن مبلغ الاستلام بعد الرسوم مطابق.` : `Enter exactly ${formatExactCommissionUsdt(commissionPayableAmountDue)} and make sure the amount received after fees matches.`,
                             isAr ? "أكد السحب وانتظر تأكيد شبكة البلوك تشين." : "Confirm the withdrawal and wait for blockchain confirmation.",
                             isAr ? "انسخ رمز معاملة السحب من سجل المنصة." : "Copy the withdrawal transaction hash from your exchange history.",
                             isAr ? "الصقه أدناه واضغط على التحقق." : "Paste it below and click Verify.",
@@ -703,6 +830,11 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                             </li>
                           ))}
                         </ol>
+                        <p className="text-xs text-[#93C5FD] pt-1">
+                          {isAr
+                            ? "إذا رفضت Binance المبلغ بسبب الحد الأدنى للسحب، استخدم محفظة TRC20 شخصية أو منصة أخرى. لا تغيّر أو تقرّب المبلغ المطلوب."
+                            : "If Binance rejects the amount because of its withdrawal minimum, use a personal TRC20 wallet or another exchange. Never change or round the required amount."}
+                        </p>
                       </div>
                     )}
 
