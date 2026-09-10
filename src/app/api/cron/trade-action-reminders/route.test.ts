@@ -84,6 +84,10 @@ describe("hourly trade action reminder cron", () => {
         path: "/api/cron/trade-action-reminders",
         schedule: "*/5 * * * *",
       },
+      {
+        path: "/api/cron/commission-payment-verification",
+        schedule: "*/5 * * * *",
+      },
     ]);
   });
 });

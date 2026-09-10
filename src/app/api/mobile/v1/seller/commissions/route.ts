@@ -24,7 +24,7 @@ import { logEvent } from "@/lib/structured-logging";
 const RESOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
 function isCommissionNetwork(value: string): value is CommissionNetworkId {
-  return value === "ERC20" || value === "POLYGON" || value === "SOL";
+  return value === "TRC20";
 }
 
 function paymentNetworks() {
@@ -105,14 +105,17 @@ export async function POST(request: NextRequest) {
     if (!RESOURCE_ID_PATTERN.test(commissionId) || !isCommissionNetwork(network) || paymentSignature.length < 16 || paymentSignature.length > 200) {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
-    await submitSellerCommissionWalletPayment({
+    const submission = await submitSellerCommissionWalletPayment({
       sellerUserId: auth.user.id,
       commissionId,
       network,
       payerWalletAddress: "",
       paymentSignature,
     });
-    return mobileJson(await responsePayload(auth.user.id), requestId);
+    return mobileJson({
+      ...await responsePayload(auth.user.id),
+      verification: submission.verification,
+    }, requestId);
   } catch (error) {
     logEvent("error", {
       event: "mobile_seller_commission_payment",

@@ -136,7 +136,7 @@ import type {
   MarketplaceEnforcementStatus,
   OwnerSettings,
 } from "@/types/alpha-exchange";
-import { getWalletAddressValidationError, normalizeWalletAddress } from "@/lib/wallet-address";
+import { getWalletAddressValidationError, normalizeWalletAddress, tronAddressToHex } from "@/lib/wallet-address";
 import {
   adminCommissionDestination,
   adminMarketplaceEnforcementDestination,
@@ -11989,6 +11989,7 @@ export async function getCommissionRecordsForAdmin(dbInput?: AlphaExchangeDb) {
 
 type CommissionWalletVerificationResult = {
   verified: boolean;
+  pending?: boolean;
   reference: string;
   notes: string;
 };
@@ -12038,6 +12039,10 @@ const EVM_RPC_FALLBACKS: Record<string, string> = {
 };
 const SOLANA_USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
 const ERC20_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+const TRON_USDT_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+const TRON_USDT_CONTRACT_HEX = tronAddressToHex(TRON_USDT_CONTRACT)?.slice(2) ?? "";
+const TRON_TRANSFER_TOPIC = ERC20_TRANSFER_TOPIC.slice(2);
+const TRONGRID_MAINNET_URL = "https://api.trongrid.io";
 
 export { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 
@@ -12059,6 +12064,20 @@ interface SolanaTokenBalance {
   mint: string;
   owner?: string;
   uiTokenAmount?: { uiAmount?: number | null };
+}
+interface TronReceiptLog {
+  address?: string;
+  topics?: string[];
+  data?: string;
+}
+interface TronTransactionInfo {
+  id?: string;
+  blockNumber?: number;
+  receipt?: { result?: string };
+  log?: TronReceiptLog[];
+}
+interface TronTransaction {
+  txID?: string;
 }
 
 /** Logs API key presence on first use (no secret values exposed). */
@@ -12424,6 +12443,142 @@ async function verifyEvmUsdtPayment(input: {
   }
 }
 
+async function verifyTronUsdtPayment(input: {
+  recipientWalletAddress: string;
+  txHash: string;
+  amountDueUsdt: number;
+}): Promise<CommissionWalletVerificationResult> {
+  const baseUrl = (process.env.ALPHA_EXCHANGE_TRON_RPC_URL ?? TRONGRID_MAINNET_URL).replace(/\/+$/, "");
+  const apiKey = process.env.ALPHA_EXCHANGE_TRONGRID_API_KEY?.trim();
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  };
+  if (apiKey) headers["TRON-PRO-API-KEY"] = apiKey;
+
+  const tronPost = async <T>(pathName: string): Promise<T> => {
+    const response = await fetch(`${baseUrl}${pathName}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ value: input.txHash }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) throw new Error(`TRON RPC HTTP ${response.status}`);
+    const payload = await response.json() as T & { Error?: string; error?: string };
+    const rpcError = payload.Error ?? payload.error;
+    if (rpcError) throw new Error(`TRON RPC: ${rpcError}`);
+    return payload;
+  };
+
+  logLocalMarketplaceDiagnostic("info", "[commission-verify] tron-lookup-start", {
+    txHash: input.txHash,
+    recipientWalletAddress: input.recipientWalletAddress,
+    amountDueUsdt: input.amountDueUsdt,
+    apiKeyPresent: Boolean(apiKey),
+    rpcUrlConfigured: Boolean(process.env.ALPHA_EXCHANGE_TRON_RPC_URL),
+  });
+
+  // SolidityNode exposes only solidified transactions, so an accepted payment
+  // cannot later disappear because of a short-lived fork.
+  const transactionInfo = await tronPost<TronTransactionInfo>("/walletsolidity/gettransactioninfobyid");
+  if (!transactionInfo.id) {
+    const pendingTransaction = await tronPost<TronTransaction>("/wallet/gettransactionbyid");
+    if (pendingTransaction.txID) {
+      return {
+        verified: false,
+        pending: true,
+        reference: input.txHash,
+        notes: "Transaction was found on TRON and is waiting for final confirmation. Alpha Traders will verify it automatically.",
+      };
+    }
+    return {
+      verified: false,
+      reference: input.txHash,
+      notes: "Transaction was not found on TRON. Please paste the USDT TRC20 transaction ID from Binance withdrawal history.",
+    };
+  }
+
+  if (transactionInfo.id.toLowerCase() !== input.txHash.toLowerCase()) {
+    throw new Error("TRON RPC returned a different transaction ID");
+  }
+  if (transactionInfo.receipt?.result !== "SUCCESS") {
+    return {
+      verified: false,
+      reference: input.txHash,
+      notes: `TRON transaction failed on-chain (status: ${transactionInfo.receipt?.result ?? "unknown"}) and cannot be used as commission payment.`,
+    };
+  }
+
+  const recipientHex = tronAddressToHex(input.recipientWalletAddress);
+  if (!recipientHex) {
+    throw new Error("Configured TRON commission address is invalid");
+  }
+  const recipientTopic = recipientHex.slice(2).toLowerCase().padStart(64, "0");
+  const normalizedLogAddress = (value?: string) => {
+    const normalized = value?.toLowerCase().replace(/^0x/, "") ?? "";
+    return normalized.length === 42 && normalized.startsWith("41") ? normalized.slice(2) : normalized;
+  };
+  const normalizedTopic = (value?: string) => value?.toLowerCase().replace(/^0x/, "") ?? "";
+
+  let receivedMicros = BigInt(0);
+  let officialUsdtTransferSeen = false;
+  let anyTokenToRecipientSeen = false;
+  for (const log of transactionInfo.log ?? []) {
+    if (normalizedTopic(log.topics?.[0]) !== TRON_TRANSFER_TOPIC) continue;
+    const sentToRecipient = normalizedTopic(log.topics?.[2]) === recipientTopic;
+    if (sentToRecipient) anyTokenToRecipientSeen = true;
+    if (normalizedLogAddress(log.address) !== TRON_USDT_CONTRACT_HEX) continue;
+    officialUsdtTransferSeen = true;
+    if (!sentToRecipient || !log.data) continue;
+    const amountHex = normalizedTopic(log.data);
+    if (!/^[a-f0-9]+$/.test(amountHex)) throw new Error("TRON RPC returned malformed transfer data");
+    receivedMicros += BigInt(`0x${amountHex}`);
+  }
+
+  if (receivedMicros === BigInt(0)) {
+    let notes: string;
+    if (anyTokenToRecipientSeen) {
+      notes = `A token reached the correct TRON wallet, but it was not official USDT (${TRON_USDT_CONTRACT}). Send USDT on TRC20 only.`;
+    } else if (officialUsdtTransferSeen) {
+      notes = "This transaction contains a USDT TRC20 transfer, but not to the Alpha Traders commission wallet. Please verify the destination address.";
+    } else {
+      notes = "No official USDT TRC20 transfer to the Alpha Traders commission wallet was found in this transaction.";
+    }
+    logLocalMarketplaceDiagnostic("info", "[commission-verify] tron-transfer-not-found", {
+      txHash: input.txHash,
+      logsCount: transactionInfo.log?.length ?? 0,
+      officialUsdtTransferSeen,
+      anyTokenToRecipientSeen,
+    });
+    return { verified: false, reference: input.txHash, notes };
+  }
+
+  if (!Number.isFinite(input.amountDueUsdt) || input.amountDueUsdt <= 0) {
+    throw new Error("Commission amount is invalid");
+  }
+  const amountDueMicros = BigInt(Math.round(input.amountDueUsdt * 1_000_000));
+  const amountReceived = Number(receivedMicros) / 1_000_000;
+  if (receivedMicros < amountDueMicros) {
+    return {
+      verified: false,
+      reference: input.txHash,
+      notes: `Insufficient payment. Received ${amountReceived.toFixed(2)} USDT on TRON, but ${input.amountDueUsdt.toFixed(2)} USDT is required.`,
+    };
+  }
+
+  logLocalMarketplaceDiagnostic("info", "[commission-verify] tron-usdt-received", {
+    txHash: input.txHash,
+    blockNumber: transactionInfo.blockNumber,
+    amountReceived,
+    recipientWalletAddress: input.recipientWalletAddress,
+  });
+  return {
+    verified: true,
+    reference: input.txHash,
+    notes: `Verified: ${amountReceived.toFixed(2)} USDT received on TRON (TRC20).`,
+  };
+}
+
 async function verifySolanaUsdtPayment(input: {
   recipientWalletAddress: string;
   txHash: string;
@@ -12528,13 +12683,14 @@ async function verifySolanaUsdtPayment(input: {
 }
 
 /**
- * A transaction's EVM checksum casing is display-only. Use a stable key for
- * duplicate settlement detection while preserving the submitted signature for
- * display and chain verification. Solana/base58 signatures remain case-sensitive.
+ * EVM and TRON transaction IDs are hexadecimal and case-insensitive. Use one
+ * prefix-independent key for duplicate settlement detection while keeping
+ * Solana/base58 signatures case-sensitive.
  */
 function getCommissionPaymentSignatureKey(raw: string) {
   const normalized = normalizeTransactionHash(raw);
-  return /^0x[a-fA-F0-9]{64}$/.test(normalized) ? normalized.toLowerCase() : normalized;
+  const hex = normalized.replace(/^0x/i, "");
+  return /^[a-fA-F0-9]{64}$/.test(hex) ? hex.toLowerCase() : normalized;
 }
 
 async function verifyCommissionWalletPayment(input: {
@@ -12545,7 +12701,10 @@ async function verifyCommissionWalletPayment(input: {
   paymentSignature: string;
   existingSignatures?: string[];
 }): Promise<CommissionWalletVerificationResult> {
-  const txHash = normalizeTransactionHash(input.paymentSignature);
+  const normalizedHash = normalizeTransactionHash(input.paymentSignature);
+  const txHash = input.network === "TRC20" && /^0x/i.test(normalizedHash)
+    ? normalizedHash.slice(2)
+    : normalizedHash;
   const transactionSignatureKey = getCommissionPaymentSignatureKey(txHash);
   const logCtx = { txHash, network: input.network, amountDue: input.amountDue, payerWallet: input.payerWalletAddress };
   logLocalMarketplaceDiagnostic("info", "[commission-verify] verification-started", logCtx);
@@ -12558,6 +12717,10 @@ async function verifyCommissionWalletPayment(input: {
   if ((input.network === "ERC20" || input.network === "POLYGON") && !/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
     logLocalMarketplaceDiagnostic("info", "[commission-verify] rejected:invalid-evm-hash-format", logCtx);
     return { verified: false, reference: txHash, notes: "Invalid transaction hash for the selected EVM network. Please paste the full 0x transaction hash." };
+  }
+  if (input.network === "TRC20" && !/^[a-fA-F0-9]{64}$/.test(txHash)) {
+    logLocalMarketplaceDiagnostic("info", "[commission-verify] rejected:invalid-tron-hash-format", logCtx);
+    return { verified: false, reference: txHash, notes: "Invalid TRON transaction ID. Please paste the full 64-character TxID from Binance withdrawal history." };
   }
   if (input.network === "SOL" && !/^[1-9A-HJ-NP-Za-km-z]{43,88}$/.test(txHash)) {
     logLocalMarketplaceDiagnostic("info", "[commission-verify] rejected:invalid-solana-sig-format", logCtx);
@@ -12579,7 +12742,13 @@ async function verifyCommissionWalletPayment(input: {
   // 4. Network-specific on-chain verification
   let result: CommissionWalletVerificationResult;
   try {
-    if (input.network === "ERC20" || input.network === "POLYGON") {
+    if (input.network === "TRC20") {
+      result = await verifyTronUsdtPayment({
+        recipientWalletAddress: input.recipientWalletAddress,
+        txHash,
+        amountDueUsdt: input.amountDue,
+      });
+    } else if (input.network === "ERC20" || input.network === "POLYGON") {
       result = await verifyEvmUsdtPayment({
         network: input.network,
         recipientWalletAddress: input.recipientWalletAddress,
@@ -12594,12 +12763,17 @@ async function verifyCommissionWalletPayment(input: {
       });
     } else {
       logLocalMarketplaceDiagnostic("info", "[commission-verify] rejected:unsupported-network", logCtx);
-      result = { verified: false, reference: txHash, notes: `Network '${input.network}' is not supported. Accepted: ERC20, POLYGON, SOL.` };
+      result = { verified: false, reference: txHash, notes: `Network '${input.network}' is not supported. Accepted: TRC20, ERC20, POLYGON, SOL.` };
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     logLocalMarketplaceDiagnostic("error", "[commission-verify] blockchain-service-error", { ...logCtx, error: msg });
-    return { verified: false, reference: txHash, notes: "Blockchain verification service temporarily unavailable. Please try again in a few minutes." };
+    return {
+      verified: false,
+      pending: true,
+      reference: txHash,
+      notes: "Blockchain verification is temporarily unavailable. Alpha Traders will retry this payment automatically.",
+    };
   }
   logLocalMarketplaceDiagnostic("info", "[commission-verify] verification-complete", {
     ...logCtx,
@@ -12692,8 +12866,12 @@ export async function submitSellerCommissionWalletPayment(input: {
       payerWalletAddress: input.payerWalletAddress.trim() || undefined,
       recipientWalletAddress,
       paymentSignature: input.paymentSignature.trim(),
-      paymentSubmittedAt: now,
-      paymentVerificationStatus: verification.verified ? "verified" : "failed",
+      paymentSubmittedAt: canonicalRecord.paymentSubmittedAt ?? now,
+      paymentVerificationStatus: verification.verified
+        ? "verified"
+        : verification.pending
+          ? "pending_verification"
+          : "failed",
       paymentVerificationNotes: verification.notes,
       paymentStatus: verification.verified ? "paid" : canonicalRecord.paymentStatus,
       paidAt: verification.verified ? now : canonicalRecord.paidAt,
@@ -12709,7 +12887,7 @@ export async function submitSellerCommissionWalletPayment(input: {
       purchaseRequestId: canonicalRecord.purchaseRequestId,
       details: verification.verified
         ? `Commission ${canonicalRecord.id} verified via ${chosenNetwork}. Amount: ${canonicalAmountDueUsdt.toFixed(2)} USDT. Tx: ${input.paymentSignature.trim()}.`
-        : `Commission ${canonicalRecord.id} payment rejected via ${chosenNetwork}. Tx: ${input.paymentSignature.trim()}. Reason: ${verification.notes}`,
+        : `Commission ${canonicalRecord.id} payment ${verification.pending ? "queued for automatic reverification" : "rejected"} via ${chosenNetwork}. Tx: ${input.paymentSignature.trim()}. Reason: ${verification.notes}`,
     });
 
     const notificationPublications: DeferredNotificationPublication[] = [];
@@ -12789,6 +12967,64 @@ export async function submitSellerCommissionWalletPayment(input: {
       businessMs,
       writeDbMs: writeMs,
     },
+  };
+}
+
+/**
+ * Rechecks seller-submitted payments that reached TRON but had not yet
+ * solidified, or whose public RPC lookup was temporarily unavailable.
+ */
+export async function reverifyPendingCommissionPayments(input?: { limit?: number }) {
+  const requestedLimit = Math.trunc(input?.limit ?? 4);
+  const limit = Math.min(10, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 4));
+  const { resolveCommissionWalletForNetwork } = await import("@/lib/commission-config");
+  const commissionWallet = resolveCommissionWalletForNetwork("TRC20");
+  if (!commissionWallet.available) {
+    throw new Error(commissionWallet.error);
+  }
+  const db = await readDb({ bypassCache: true });
+  const candidates = db.commissionRecords
+    .filter((record) => (
+      record.paymentVerificationStatus === "pending_verification"
+      && normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid"
+      && record.paymentNetwork === "TRC20"
+      && Boolean(record.paymentSignature)
+      && record.recipientWalletAddress === commissionWallet.walletAddress
+    ))
+    .sort((left, right) => String(left.paymentSubmittedAt ?? left.updatedAt).localeCompare(String(right.paymentSubmittedAt ?? right.updatedAt)))
+    .slice(0, limit);
+
+  let verified = 0;
+  let stillPending = 0;
+  let failed = 0;
+  let errors = 0;
+  for (const record of candidates) {
+    try {
+      const result = await submitSellerCommissionWalletPayment({
+        sellerUserId: record.sellerId,
+        commissionId: record.id,
+        network: "TRC20",
+        payerWalletAddress: record.payerWalletAddress ?? "",
+        paymentSignature: record.paymentSignature as string,
+      });
+      if (result.verification.verified) verified += 1;
+      else if (result.verification.pending) stillPending += 1;
+      else failed += 1;
+    } catch (error) {
+      errors += 1;
+      logLocalMarketplaceDiagnostic("error", "[commission-verify] automatic-reverification-failed", {
+        commissionId: record.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return {
+    checked: candidates.length,
+    verified,
+    stillPending,
+    failed,
+    errors,
   };
 }
 
@@ -14680,7 +14916,7 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
   const index = db.commissionRecords.findIndex((r) => r.id === input.commissionId);
   if (index === -1) throw new Error("Commission record not found.");
   const record = db.commissionRecords[index];
-  if (!record.paymentSignature || !record.payerWalletAddress || !record.recipientWalletAddress || !record.paymentNetwork) {
+  if (!record.paymentSignature || !record.recipientWalletAddress || !record.paymentNetwork) {
     throw new Error("Commission has no payment details to reverify.");
   }
   const existingSignatures = db.commissionRecords
@@ -14690,7 +14926,7 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
   const result = await verifyCommissionWalletPayment({
     amountDue: record.commissionAmount,
     network: record.paymentNetwork,
-    payerWalletAddress: record.payerWalletAddress,
+    payerWalletAddress: record.payerWalletAddress ?? "",
     recipientWalletAddress: record.recipientWalletAddress,
     paymentSignature: record.paymentSignature,
     existingSignatures,
