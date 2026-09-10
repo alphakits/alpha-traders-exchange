@@ -1,7 +1,7 @@
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
 import { ArrowRight, BadgeCheck, HandCoins, MessageCircle, Network, Settings, ShieldCheck, Sparkles, Star, TrendingUp, WalletCards, Zap } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { UsdtIcon } from "@/components/ui/usdt-icon";
@@ -156,6 +156,31 @@ function StatCard({ label, value, accent = false, isUsdt = false }: { label: str
       </p>
       <p className="mt-2 text-xl font-semibold text-white"><bdi dir="ltr">{value}</bdi></p>
     </div>
+  );
+}
+
+export function SellerListingPurchaseAction({
+  locale,
+  listingId,
+  viewerOwnsProfile = false,
+}: {
+  locale: "ar" | "en";
+  listingId: string;
+  viewerOwnsProfile?: boolean;
+}) {
+  const href = viewerOwnsProfile
+    ? "/dashboard/seller#my-listings-section"
+    : `/usdt-exchange?listing=${encodeURIComponent(listingId)}`;
+  return (
+    <Link
+      href={href}
+      locale={locale}
+      className={cn(buttonVariants(), "mt-4 w-full")}
+    >
+      {viewerOwnsProfile
+        ? (locale === "ar" ? "إدارة العرض" : "Manage listing")
+        : (locale === "ar" ? "شراء" : "Buy")}
+    </Link>
   );
 }
 
@@ -586,7 +611,11 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1"><Network className="h-4 w-4 text-[#C9A227]" /><bdi dir="ltr">{listing.network}</bdi></span>
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-[#B91C1C]/20 bg-[#B91C1C]/10 px-2.5 py-1 text-[#FCA5A5]"><ShieldCheck className="h-4 w-4" />{isAr ? "مسار صفقة مسجّل عبر Alpha Traders" : "Trade flow recorded by Alpha Traders"}</span>
                   </div>
-                  <Button className="mt-4 w-full">{isAr ? "شراء" : "Buy"}</Button>
+                  <SellerListingPurchaseAction
+                    locale={locale}
+                    listingId={listing.id}
+                    viewerOwnsProfile={viewerOwnsProfile}
+                  />
                 </div>
               )) : <p className="empty-state-panel">{isAr ? "لا توجد عروض نشطة حاليًا." : "No active listings right now."}</p>}
             </CardContent>
