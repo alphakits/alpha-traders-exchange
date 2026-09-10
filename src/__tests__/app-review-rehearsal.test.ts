@@ -130,7 +130,7 @@ function snapshot() {
   return globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
 }
 
-async function createApprovedReviewListing() {
+async function createApprovedReviewListing(paymentMethods = ["Bank Transfer"]) {
   const bankAccount = await addSellerBankAccount({
     sellerId: SELLER_ID,
     actorUserId: SELLER_ID,
@@ -147,7 +147,7 @@ async function createApprovedReviewListing() {
     price: "3.30",
     currency: "ILS",
     network: "TRC20",
-    paymentMethods: ["Bank Transfer"],
+    paymentMethods,
     bankAccountId: bankAccount.id,
     bankName: "Bank Hapoalim",
     minimumTrade: "50",
@@ -348,6 +348,107 @@ describe("full Exchange App Review rehearsal", () => {
     expect(notificationCopy).not.toContain(buyerMessageText);
     expect(notificationCopy).not.toContain(sellerMessageText);
     expect(notificationCopy).not.toContain("0000000001");
+  });
+
+  it("completes a cardless ATM withdrawal from request through review without exposing bank details", async () => {
+    const { bankAccount, listing } = await createApprovedReviewListing([
+      "Bank Transfer",
+      "Face-to-Face (Meet in Person)",
+      "Cardless ATM Withdrawal",
+    ]);
+    const created = await createPurchaseRequest({
+      ...purchaseInput(listing.id),
+      paymentMethod: "Cardless ATM Withdrawal",
+    });
+    expect(created.request).toMatchObject({
+      status: "pending",
+      paymentMethod: "Cardless ATM Withdrawal",
+      sellerBankAccountId: bankAccount.id,
+    });
+
+    await updatePurchaseRequestStatus({
+      requestId: created.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "accepted",
+    });
+    await expect(getTradeRoomBankDetails({
+      purchaseRequestId: created.request.id,
+      actorUserId: BUYER_ID,
+      actorRole: "buyer",
+    })).rejects.toThrow("Bank details are available only after the seller accepts the trade.");
+
+    const buyerEvidence = await uploadTradeEvidence({
+      purchaseRequestId: created.request.id,
+      actorUserId: BUYER_ID,
+      actorRole: "buyer",
+      side: "buyer",
+      fileName: "fictional-cardless-withdrawal.png",
+      mimeType: "image/png",
+      sizeBytes: 68,
+      contentBase64: PNG_BASE64,
+    });
+    expect(buyerEvidence.request.status).toBe("payment_sent");
+    await updatePurchaseRequestStatus({
+      requestId: created.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "funds_received",
+    });
+    await updatePurchaseRequestStatus({
+      requestId: created.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "usdt_release_pending",
+    });
+    await updatePurchaseRequestStatus({
+      requestId: created.request.id,
+      actorUserId: SELLER_ID,
+      actorRole: "approved_seller",
+      nextStatus: "usdt_sent",
+    });
+    const completion = await updatePurchaseRequestStatus({
+      requestId: created.request.id,
+      actorUserId: BUYER_ID,
+      actorRole: "buyer",
+      nextStatus: "completed",
+    });
+    expect(completion.request.status).toBe("review_open");
+    if (completion.deferredTrustWrite) await completion.deferredTrustWrite();
+
+    await submitBuyerTradeReview({
+      requestId: created.request.id,
+      buyerUserId: BUYER_ID,
+      rating: 5,
+      comment: "The fictional cardless withdrawal completed successfully.",
+    });
+
+    const saved = snapshot();
+    expect(saved.marketplaceListings.find((entry) => entry.id === listing.id)).toMatchObject({
+      availableAmount: "900",
+      status: "active",
+      activeTradeRequestId: undefined,
+    });
+    expect(saved.notifications).toEqual(expect.arrayContaining([
+      expect.objectContaining({ userId: SELLER_ID, title: "Withdrawal ready" }),
+      expect.objectContaining({ userId: BUYER_ID, title: "Seller confirmed cash collected" }),
+    ]));
+    expect(saved.purchaseRequests.find((entry) => entry.id === created.request.id)?.timeline.map((entry) => entry.type))
+      .toEqual(expect.arrayContaining([
+        "request_submitted",
+        "request_accepted",
+        "buyer_evidence_uploaded",
+        "payment_sent",
+        "seller_confirmed_funds",
+        "usdt_release_started",
+        "usdt_sent",
+        "trade_completed",
+        "trade_locked",
+        "review_unlocked",
+        "commission_recorded",
+      ]));
+    expect((await getCommissionRecordsForAdmin()).filter((entry) => entry.purchaseRequestId === created.request.id))
+      .toHaveLength(1);
   });
 
   it("enforces block, privacy, participant, report, and dispute protections", async () => {

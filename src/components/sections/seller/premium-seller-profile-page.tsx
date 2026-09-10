@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { RoleBadge } from "@/components/ui/role-badge";
 import { UsdtIcon } from "@/components/ui/usdt-icon";
 import { MarketplaceEnforcementOwnerPanel } from "@/components/sections/seller/marketplace-enforcement-owner-panel";
+import { resolveSellerListingPaymentMethods } from "@/lib/alpha-exchange-seller-profile";
 import { buildSellerReviewStats, getVisibleSellerReviews } from "@/lib/reviews";
 import { deriveSellerPresence } from "@/lib/seller-presence";
 import { normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
@@ -198,6 +199,7 @@ type PremiumSellerProfilePageProps = {
       availableAmount: string;
       network: string;
       paymentMethod: string;
+      paymentMethods?: string[];
       sellerProfile?: { profilePhotoUrl?: string };
       sellerReputation?: { level?: SellerLevel; trustScore?: number; publicVolumeRange?: string };
     }>;
@@ -226,7 +228,7 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
   const reviewStats = buildSellerReviewStats(visibleReviews as never[]);
   const paymentMethods = seller.preferredPaymentMethods?.length
     ? seller.preferredPaymentMethods
-    : Array.from(new Set(data.sellerListings.map((listing) => listing.paymentMethod).filter(Boolean)));
+    : Array.from(new Set(data.sellerListings.flatMap(resolveSellerListingPaymentMethods)));
   const supportedNetworks = seller.preferredNetworks?.length
     ? seller.preferredNetworks
     : Array.from(new Set(data.sellerListings.map((listing) => listing.network).filter(Boolean)));
@@ -607,7 +609,11 @@ export function PremiumSellerProfilePage({ locale, viewerOwnsProfile = false, vi
                     <span className="rounded-full border border-[#C9A227]/20 bg-[#C9A227]/10 px-3 py-1 text-xs text-[#FDE68A]"><bdi dir="ltr">{listing.network}</bdi></span>
                   </div>
                   <div className={`mt-3 flex flex-wrap items-center gap-2 text-sm text-[#D1D5DB] ${isAr ? "flex-row-reverse" : ""}`}>
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1"><WalletCards className="h-4 w-4 text-[#C9A227]" />{paymentMethodLabel(listing.paymentMethod, isAr)}</span>
+                    {resolveSellerListingPaymentMethods(listing).map((method) => (
+                      <span key={method} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1">
+                        <WalletCards className="h-4 w-4 text-[#C9A227]" />{paymentMethodLabel(method, isAr)}
+                      </span>
+                    ))}
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1"><Network className="h-4 w-4 text-[#C9A227]" /><bdi dir="ltr">{listing.network}</bdi></span>
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-[#B91C1C]/20 bg-[#B91C1C]/10 px-2.5 py-1 text-[#FCA5A5]"><ShieldCheck className="h-4 w-4" />{isAr ? "مسار صفقة مسجّل عبر Alpha Traders" : "Trade flow recorded by Alpha Traders"}</span>
                   </div>
