@@ -21,6 +21,7 @@ import type {
 } from "@alpha-traders/contracts";
 import { colors, radius, spacing, typography } from "@alpha-traders/design-tokens";
 import {
+  dismissMobileNotification,
   markAllMobileNotificationsRead,
   setMobileNotificationRead,
 } from "../api/mobile-api";
@@ -76,12 +77,34 @@ function updateReadState(
   };
 }
 
+function removeNotification(
+  payload: InfiniteData<MobileNotificationsResponse, number> | undefined,
+  notificationId: string,
+) {
+  if (!payload) return payload;
+  const current = payload.pages
+    .flatMap((page) => page.notifications)
+    .find((item) => item.id === notificationId);
+  if (!current) return payload;
+  return {
+    ...payload,
+    pages: payload.pages.map((page) => ({
+      ...page,
+      total: Math.max(0, page.total - 1),
+      unreadCount: Math.max(0, page.unreadCount - (current.isRead ? 0 : 1)),
+      notifications: page.notifications.filter((item) => item.id !== notificationId),
+    })),
+  };
+}
+
 function NotificationCard({
   notification,
+  onDismiss,
   onPress,
   usdIlsRate,
 }: {
   notification: MobileNotification;
+  onDismiss?: () => void;
   onPress: () => void;
   usdIlsRate: number;
 }) {
@@ -120,11 +143,26 @@ function NotificationCard({
         <Text style={[styles.time, isRTL && styles.rtlText]}>
           {time}
         </Text>
-        {notification.actionRequired ? (
-          <Text style={styles.actionPill}>{t("needsAction")}</Text>
-        ) : notification.destination ? (
-          <Text style={styles.openLabel}>{t("openNotification")} {isRTL ? "‹" : "›"}</Text>
-        ) : null}
+        <View style={[styles.cardActions, isRTL && styles.rowReverse]}>
+          {notification.actionRequired ? (
+            <Text style={styles.actionPill}>{t("needsAction")}</Text>
+          ) : notification.destination ? (
+            <Text style={styles.openLabel}>{t("openNotification")} {isRTL ? "‹" : "›"}</Text>
+          ) : null}
+          {notification.actionRequired && onDismiss ? (
+            <Pressable
+              accessibilityLabel={t("later")}
+              accessibilityRole="button"
+              onPress={(event) => {
+                event.stopPropagation();
+                onDismiss();
+              }}
+              style={styles.laterButton}
+            >
+              <Text style={styles.laterText}>{t("later")}</Text>
+            </Pressable>
+          ) : null}
+        </View>
       </View>
     </Pressable>
   );
@@ -180,6 +218,24 @@ export function NotificationsScreen() {
     onSettled: () => queryClient.invalidateQueries({ queryKey }),
   });
 
+  const dismissNotification = useMutation({
+    mutationFn: (notificationId: string) => requestWithSession((tokens, requestLocale) =>
+      dismissMobileNotification(tokens, requestLocale, notificationId)),
+    onMutate: async (notificationId) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<InfiniteData<MobileNotificationsResponse, number>>(queryKey);
+      queryClient.setQueryData<InfiniteData<MobileNotificationsResponse, number>>(
+        queryKey,
+        (current) => removeNotification(current, notificationId),
+      );
+      return { previous };
+    },
+    onError: (_error, _notificationId, context) => {
+      if (context?.previous) queryClient.setQueryData(queryKey, context.previous);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey }),
+  });
+
   const openNotification = useCallback((notification: MobileNotification) => {
     if (!notification.isRead) {
       markRead.mutate({ notificationId: notification.id, isRead: true });
@@ -222,7 +278,12 @@ export function NotificationsScreen() {
           />
         )}
         renderItem={({ item }) => (
-          <NotificationCard notification={item} onPress={() => openNotification(item)} usdIlsRate={usdIlsRate} />
+          <NotificationCard
+            notification={item}
+            onDismiss={item.actionRequired ? () => dismissNotification.mutate(item.id) : undefined}
+            onPress={() => openNotification(item)}
+            usdIlsRate={usdIlsRate}
+          />
         )}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         ListHeaderComponent={(
@@ -304,9 +365,12 @@ const styles = StyleSheet.create({
   unreadDot: { backgroundColor: colors.goldBright, borderRadius: 5, height: 9, marginTop: 5, width: 9 },
   cardMessage: { color: colors.textMuted, fontSize: typography.small, lineHeight: 20 },
   cardFooter: { alignItems: "center", flexDirection: "row", gap: spacing.sm, justifyContent: "space-between" },
+  cardActions: { alignItems: "center", flexDirection: "row", gap: spacing.sm },
   time: { color: colors.textMuted, flex: 1, fontSize: typography.caption },
   actionPill: { backgroundColor: colors.gold, borderRadius: radius.pill, color: colors.background, fontSize: typography.caption, fontWeight: "900", overflow: "hidden", paddingHorizontal: spacing.sm, paddingVertical: 5 },
   openLabel: { color: colors.goldMuted, fontSize: typography.caption, fontWeight: "800" },
+  laterButton: { borderColor: colors.border, borderRadius: radius.pill, borderWidth: 1, paddingHorizontal: spacing.sm, paddingVertical: 5 },
+  laterText: { color: colors.textMuted, fontSize: typography.caption, fontWeight: "800" },
   loader: { marginTop: spacing.hero },
   empty: { gap: spacing.lg, marginTop: spacing.hero },
   emptyTitle: { color: colors.text, fontSize: typography.section, fontWeight: "900", textAlign: "center" },

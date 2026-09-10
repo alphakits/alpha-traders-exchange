@@ -11,6 +11,7 @@ import {
   invalidateAlphaExchangeStoreCache,
   markAllNotificationsRead,
   markNotificationReadState,
+  updateNotificationState,
 } from "@/lib/alpha-exchange-store";
 
 const USER_ID = "notification-reader";
@@ -164,5 +165,32 @@ describe("notification read persistence", () => {
     expect(currentUser.notifications.map((item) => item.id)).toEqual(["notification-two"]);
     expect(currentUser.notifications[0]).toMatchObject({ state: "read", isRead: true });
     expect(otherUser.notifications).toEqual([expect.objectContaining({ id: "notification-other", state: "unread" })]);
+  });
+
+  it("keeps a dismissed notification archived after a fresh login cache", async () => {
+    await updateNotificationState({
+      userId: USER_ID,
+      notificationId: "notification-one",
+      state: "archived",
+    });
+    invalidateAlphaExchangeStoreCache();
+
+    const activeInbox = await getNotificationsForUser({ userId: USER_ID, includeActivity: false });
+    const history = await getNotificationsForUser({
+      userId: USER_ID,
+      includeActivity: false,
+      state: "archived",
+    });
+
+    expect(activeInbox.notifications.map((item) => item.id)).toEqual(["notification-two"]);
+    expect(activeInbox.unreadCount).toBe(1);
+    expect(history.notifications).toEqual([
+      expect.objectContaining({
+        id: "notification-one",
+        isRead: true,
+        state: "archived",
+        archivedAt: expect.any(String),
+      }),
+    ]);
   });
 });

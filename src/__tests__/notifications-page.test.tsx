@@ -246,7 +246,7 @@ describe("NotificationsPage mobile hierarchy", () => {
     expect(screen.queryByText("تحديث على الحساب")).toBeNull();
   });
 
-  it("keeps the exact action destination and marks an unread notification as read", async () => {
+  it("opens the exact action immediately while persisting read state in the background", async () => {
     const item = notification({
       id: "listing-route",
       createdAt: "2026-08-27T10:00:00.000Z",
@@ -279,9 +279,48 @@ describe("NotificationsPage mobile hierarchy", () => {
       "/api/alpha-exchange/notifications/listing-route",
       expect.objectContaining({ method: "PATCH" }),
     ));
-    expect(routerPush).not.toHaveBeenCalled();
+    expect(routerPush).toHaveBeenCalledWith("/usdt-exchange?listing=listing-1#my-listings");
     confirmRead?.({ ok: true, status: 200, json: async () => ({}) });
-    await waitFor(() => expect(routerPush).toHaveBeenCalledWith("/usdt-exchange?listing=listing-1#my-listings"));
+  });
+
+  it("archives Later durably and does not resurrect it from session state after re-login", async () => {
+    const item = notification({
+      id: "seller-application-later",
+      createdAt: "2026-08-27T10:00:00.000Z",
+      category: "application",
+      title: "Seller application pending",
+      message: "Review this seller application.",
+      actionHref: "/admin/alpha-exchange?section=seller-applications&sellerApplication=application-1",
+      actionLabel: "Review Application",
+      state: "unread",
+    });
+    let dismissed = false;
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/alpha-exchange/notifications?") && !init?.method) {
+        return Promise.resolve(notificationsResponse(dismissed ? [] : [item]));
+      }
+      if (url.endsWith("/api/alpha-exchange/notifications/seller-application-later") && init?.method === "PATCH") {
+        dismissed = true;
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const firstLogin = render(<NotificationsPage locale="en" userId="user-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Later" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/alpha-exchange/notifications/seller-application-later",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ action: "dismiss" }) }),
+    ));
+    await waitFor(() => expect(screen.queryByText("Seller application pending")).toBeNull());
+    firstLogin.unmount();
+
+    render(<NotificationsPage locale="en" userId="user-1" />);
+    await screen.findByText("Nothing here right now");
+    expect(screen.queryByText("Seller application pending")).toBeNull();
   });
 
   it("serializes owner seller-application decisions and surfaces a failed action", async () => {

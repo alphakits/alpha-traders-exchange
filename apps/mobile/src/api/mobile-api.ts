@@ -465,6 +465,22 @@ export function setMobileNotificationRead(
   );
 }
 
+export function dismissMobileNotification(
+  tokens: MobileAuthTokens,
+  locale: MobileLocale,
+  notificationId: string,
+) {
+  return mobileRequest<MobileNotificationResponse>(
+    `/api/mobile/v1/notifications/${encodeURIComponent(notificationId)}`,
+    {
+      locale,
+      method: "PATCH",
+      accessToken: tokens.accessToken,
+      body: { action: "dismiss" },
+    },
+  );
+}
+
 export function markAllMobileNotificationsRead(
   tokens: MobileAuthTokens,
   locale: MobileLocale,

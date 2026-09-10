@@ -14,7 +14,10 @@ import { formatNotificationRelativeTime } from "@/lib/notification-time";
 import { sortNotificationsNewestFirst } from "@/lib/notification-sort";
 import { getTradeRoomConversationDestination } from "@/lib/trade-room-notification-destination";
 import { getCommissionPaymentNotificationDestination } from "@/lib/commission-payment-destination";
-import { getExplicitNonTradeRoomNotificationDestination } from "@/lib/notification-action-destination";
+import {
+  getExplicitNonTradeRoomNotificationDestination,
+  getSafeInternalNotificationDestination,
+} from "@/lib/notification-action-destination";
 import { isNotificationActionRequired } from "@/lib/notification-action-required";
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
@@ -91,6 +94,10 @@ function formatNotificationTitle(notification: AlphaExchangeNotification, locale
 
 function formatNotificationMessage(notification: AlphaExchangeNotification, locale: AppLocale) {
   return replaceExchangeEntityIdsWithHints(localizeNotificationCopy(notification, locale).message, notification);
+}
+
+function activeBellNotifications(notifications: AlphaExchangeNotification[]) {
+  return notifications.filter((notification) => notification.state !== "archived" && !notification.isRead);
 }
 
 function buildTradeRoomHashForAction(action: string) {
@@ -236,7 +243,10 @@ function NotificationBellSession({
     };
   }, [isOpen]);
 
-  const loadNotifications = useCallback(async (limit: number, options?: { preserveOpenList?: boolean }) => {
+  const loadNotifications = useCallback(async (
+    limit: number,
+    options?: { preserveOpenList?: boolean; forceListUpdate?: boolean },
+  ) => {
     if (!canLoadNotifications) return;
     const operationScope = notificationAccountScope;
     const startedAt = Date.now();
@@ -247,17 +257,22 @@ function NotificationBellSession({
     setError(null);
     try {
       incrementLoginJourneyApiCall("/api/alpha-exchange/notifications");
-      const response = await fetch(`/api/alpha-exchange/notifications?limit=${limit}&includeActivity=0`, { cache: "no-store" });
+      const response = await fetch(`/api/alpha-exchange/notifications?limit=${limit}&includeActivity=0&unreadOnly=1`, { cache: "no-store" });
       if (!response.ok) {
         if (response.status === 401) void canonicalSession?.refresh({ force: true });
         throw new Error(isAr ? "تعذر تحميل الإشعارات." : "Failed to load notifications.");
       }
       const payload = (await response.json()) as NotificationsPayload;
       if (activeNotificationAccountScopeRef.current !== operationScope) return;
-      forwardCompletedTradesToNative(payload.notifications ?? [], canonicalSession?.user?.id, locale);
-      const keepVisibleList = isOpenRef.current && notificationsCountRef.current > 0;
+      const incoming = activeBellNotifications(payload.notifications ?? []);
+      forwardCompletedTradesToNative(incoming, canonicalSession?.user?.id, locale);
+      const keepVisibleList = !options?.forceListUpdate && isOpenRef.current && notificationsCountRef.current > 0;
       if (!shouldPreserveList && !keepVisibleList) {
-        setNotifications(sortNotificationsNewestFirst(payload.notifications ?? []));
+        const sortedIncoming = sortNotificationsNewestFirst(incoming);
+        setNotifications(sortedIncoming);
+        if (options?.forceListUpdate && isOpenRef.current) {
+          setOpenNotificationsSnapshot(sortedIncoming);
+        }
       }
       applyUnreadCount(payload.unreadCount ?? 0);
       setLastLoadedAt(Date.now());
@@ -283,13 +298,16 @@ function NotificationBellSession({
     const messageEvent = event as MessageEvent<string>;
     try {
       const payload = JSON.parse(messageEvent.data) as NotificationsStreamPayload;
-      forwardCompletedTradesToNative(
+      const incoming = activeBellNotifications(
         Array.isArray(payload.notifications) ? payload.notifications : [],
+      );
+      forwardCompletedTradesToNative(
+        incoming,
         canonicalSession?.user?.id,
         locale,
       );
       if (!isOpenRef.current) {
-        setNotifications(sortNotificationsNewestFirst(Array.isArray(payload.notifications) ? payload.notifications : []));
+        setNotifications(sortNotificationsNewestFirst(incoming));
       }
       applyUnreadCount(typeof payload.unreadCount === "number" ? payload.unreadCount : 0);
     } catch {
@@ -313,12 +331,13 @@ function NotificationBellSession({
   }
 
   async function handleMarkOneRead(notificationId: string) {
-    const target = notifications.find((item) => item.id === notificationId);
+    const target = notifications.find((item) => item.id === notificationId)
+      ?? openNotificationsSnapshot?.find((item) => item.id === notificationId);
     if (!target || target.isRead) return;
-    // Optimistic update — reflect the change immediately without waiting for the server.
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === notificationId ? { ...n, isRead: true, state: "read" as const } : n)),
-    );
+    // The bell is an active-inbox surface. Read items remain available in the
+    // full Notification Center, but disappear from this quick-action list.
+    setNotifications((prev) => prev.filter((item) => item.id !== notificationId));
+    setOpenNotificationsSnapshot((prev) => prev?.filter((item) => item.id !== notificationId) ?? prev);
     applyUnreadCount(Math.max(0, unreadCountRef.current - 1));
     try {
       const response = await fetch(`/api/alpha-exchange/notifications/${notificationId}`, {
@@ -328,16 +347,40 @@ function NotificationBellSession({
       });
       if (!response.ok) {
         // Revert on failure with a fresh server fetch.
-        await loadNotifications(20);
+        await loadNotifications(20, { forceListUpdate: true });
       }
     } catch {
-      await loadNotifications(20);
+      await loadNotifications(20, { forceListUpdate: true });
+    }
+  }
+
+  async function handleDismissNotification(notification: AlphaExchangeNotification) {
+    const actionKey = `${notification.id}:dismiss`;
+    if (actionLoading[actionKey]) return;
+    setActionLoading((prev) => ({ ...prev, [actionKey]: true }));
+    setNotifications((prev) => prev.filter((item) => item.id !== notification.id));
+    setOpenNotificationsSnapshot((prev) => prev?.filter((item) => item.id !== notification.id) ?? prev);
+    if (!notification.isRead) applyUnreadCount(Math.max(0, unreadCountRef.current - 1));
+    try {
+      const response = await fetch(`/api/alpha-exchange/notifications/${notification.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "dismiss" }),
+      });
+      if (!response.ok) throw new Error("notification_dismiss_failed");
+    } catch {
+      setError(isAr ? "تعذر حفظ الإشعار لوقت لاحق." : "Failed to save this notification for later.");
+      await loadNotifications(20, { forceListUpdate: true });
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [actionKey]: false }));
     }
   }
 
   async function handleMarkAllRead() {
-    // Optimistic update — mark everything read locally before the server confirms.
-    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true, state: "read" as const })));
+    // The quick-action bell contains unread items only. Keep read history in
+    // the Notification Center and clear this surface immediately.
+    setNotifications([]);
+    setOpenNotificationsSnapshot([]);
     applyUnreadCount(0);
     try {
       const response = await fetch("/api/alpha-exchange/notifications", {
@@ -346,10 +389,10 @@ function NotificationBellSession({
         body: JSON.stringify({ action: "mark_all_read" }),
       });
       if (!response.ok) {
-        await loadNotifications(20);
+        await loadNotifications(20, { forceListUpdate: true });
       }
     } catch {
-      await loadNotifications(20);
+      await loadNotifications(20, { forceListUpdate: true });
     }
   }
 
@@ -359,9 +402,7 @@ function NotificationBellSession({
 
     const requestId = extractRequestIdFromTradeRoomHref(destination);
     if (requestId) prefetchTradeRoom(router, requestId, canonicalSession?.user?.id ?? notification.userId);
-    if (!notification.isRead) {
-      await handleMarkOneRead(notification.id);
-    }
+    if (!notification.isRead) void handleMarkOneRead(notification.id);
     setIsOpen(false);
     router.push(destination);
   }
@@ -381,18 +422,19 @@ function NotificationBellSession({
       const fallbackHref = resolveTradeRoomHref(notification);
       return buildTradeDestinationFromNotification(notification) ?? fallbackHref;
     }
-    return notification.actionHref ?? notification.relatedHref ?? null;
+    return getSafeInternalNotificationDestination(notification);
   }
 
   function extractSellerApplicationId(notification: AlphaExchangeNotification) {
-    const href = (notification.actionHref ?? notification.relatedHref ?? "").trim();
-    if (!href) return null;
-    try {
-      const parsed = new URL(href, "https://www.alphatraders.co.il");
-      const byQuery = parsed.searchParams.get("sellerApplication");
-      if (byQuery?.trim()) return byQuery.trim();
-    } catch {
-      return null;
+    for (const href of [notification.actionHref, notification.relatedHref]) {
+      if (!href?.trim()) continue;
+      try {
+        const parsed = new URL(href, "https://www.alphatraders.co.il");
+        const byQuery = parsed.searchParams.get("sellerApplication");
+        if (byQuery?.trim()) return byQuery.trim();
+      } catch {
+        // Continue to a valid related fallback.
+      }
     }
     return null;
   }
@@ -401,7 +443,7 @@ function NotificationBellSession({
     const applicationId = extractSellerApplicationId(notification);
     if (!applicationId) return;
     const actionKey = `${notification.id}:${decision}`;
-    if (actionLoading[`${notification.id}:approve`] || actionLoading[`${notification.id}:reject`]) return;
+    if (actionLoading[`${notification.id}:approve`] || actionLoading[`${notification.id}:reject`] || actionLoading[`${notification.id}:dismiss`]) return;
     setActionLoading((prev) => ({ ...prev, [actionKey]: true }));
     try {
       const reason = decision === "approve" ? "Approved from notification workflow" : "Rejected from notification workflow";
@@ -417,7 +459,7 @@ function NotificationBellSession({
       // The server archives every matching admin action notification after a
       // decision. Reload instead of marking this item read, which would
       // otherwise turn an archived action back into a visible read item.
-      await loadNotifications(20);
+      await loadNotifications(20, { forceListUpdate: true });
     } catch {
       setError(isAr ? "تعذر تحديث طلب البائع." : "Failed to update seller application.");
     } finally {
@@ -509,7 +551,7 @@ function NotificationBellSession({
           {renderedNotifications.length === 0 ? <p className="empty-state-panel p-3 text-xs">{isAr ? "لا توجد إشعارات حتى الآن." : "No notifications yet."}</p> : null}
           {renderedNotifications.map((notification) => {
                 const Icon = notificationIcon(notification);
-                const destination = isTradeNotification(notification) ? resolveNotificationDestination(notification) : null;
+                const destination = resolveNotificationDestination(notification);
                 const actionRequired = isNotificationActionRequired(notification);
                 return (
                   <div
@@ -568,7 +610,7 @@ function NotificationBellSession({
                               {resolveNotificationActionLabel(notification)}
                             </Button>
                           ) : null}
-                          {!isTradeNotification(notification) && (notification.actionHref || notification.relatedHref) ? (
+                          {!isTradeNotification(notification) && destination ? (
                             <Button
                               type="button"
                               size="sm"
@@ -586,7 +628,7 @@ function NotificationBellSession({
                                 size="sm"
                                 variant="secondary"
                                 className="h-7 px-2.5 text-[11px]"
-                                disabled={Boolean(actionLoading[`${notification.id}:approve`] || actionLoading[`${notification.id}:reject`])}
+                                disabled={Boolean(actionLoading[`${notification.id}:approve`] || actionLoading[`${notification.id}:reject`] || actionLoading[`${notification.id}:dismiss`])}
                                 onClick={() => void handleSellerApplicationDecision(notification, "approve")}
                               >
                                 {isAr ? "موافقة" : "Approve"}
@@ -596,7 +638,7 @@ function NotificationBellSession({
                                 size="sm"
                                 variant="secondary"
                                 className="h-7 px-2.5 text-[11px]"
-                                disabled={Boolean(actionLoading[`${notification.id}:approve`] || actionLoading[`${notification.id}:reject`])}
+                                disabled={Boolean(actionLoading[`${notification.id}:approve`] || actionLoading[`${notification.id}:reject`] || actionLoading[`${notification.id}:dismiss`])}
                                 onClick={() => void handleSellerApplicationDecision(notification, "reject")}
                               >
                                 {isAr ? "رفض" : "Reject"}
@@ -606,14 +648,14 @@ function NotificationBellSession({
                                 size="sm"
                                 variant="secondary"
                                 className="h-7 px-2.5 text-[11px]"
+                                disabled={Boolean(actionLoading[`${notification.id}:dismiss`] || actionLoading[`${notification.id}:approve`] || actionLoading[`${notification.id}:reject`])}
                                 onClick={() => {
-                                  if (!notification.isRead) {
-                                    void handleMarkOneRead(notification.id);
-                                  }
-                                  setIsOpen(false);
+                                  void handleDismissNotification(notification);
                                 }}
                               >
-                                {isAr ? "لاحقاً" : "Later"}
+                                {actionLoading[`${notification.id}:dismiss`]
+                                  ? (isAr ? "جاري الحفظ..." : "Saving...")
+                                  : (isAr ? "لاحقاً" : "Later")}
                               </Button>
                             </>
                           ) : (

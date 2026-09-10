@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { markNotificationReadState } from "@/lib/alpha-exchange-store";
+import { markNotificationReadState, updateNotificationState } from "@/lib/alpha-exchange-store";
 import { requireMobileApiUser } from "@/lib/mobile-api-auth";
 import {
   createMobileRequestId,
@@ -33,12 +33,13 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const auth = await requireMobileApiUser(request, requestId, metadata);
     if (!auth.user) return auth.unauthorized;
     const body = await readMobileJsonBody(request);
-    if (typeof body?.isRead !== "boolean") {
+    const shouldArchive = body?.action === "dismiss" || body?.state === "archived";
+    if (!shouldArchive && typeof body?.isRead !== "boolean") {
       return mobileError("INVALID_REQUEST", requestId, locale, 400);
     }
     const rate = await checkSharedRateLimit({
       headers: request.headers,
-      key: "mobile:notifications:read-state",
+      key: "mobile:notifications:update-state",
       identifier: auth.user.id,
       maxRequests: 40,
       windowMs: 60_000,
@@ -49,11 +50,17 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       });
     }
 
-    const notification = await markNotificationReadState({
-      userId: auth.user.id,
-      notificationId,
-      isRead: body.isRead,
-    });
+    const notification = shouldArchive
+      ? await updateNotificationState({
+          userId: auth.user.id,
+          notificationId,
+          state: "archived",
+        })
+      : await markNotificationReadState({
+          userId: auth.user.id,
+          notificationId,
+          isRead: body?.isRead as boolean,
+        });
     return mobileJson({ notification: toMobileNotification(notification, locale) }, requestId);
   } catch (error) {
     if (error instanceof Error && error.message === "Notification not found.") {
