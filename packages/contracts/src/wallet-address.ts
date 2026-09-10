@@ -108,11 +108,16 @@ function sha256(input: Uint8Array) {
   return output;
 }
 
-function isValidTronAddress(address: string) {
+export function tronAddressToHex(address: string) {
   const decoded = decodeBase58(address);
-  if (!decoded || decoded.length !== 25 || decoded[0] !== 0x41) return false;
+  if (!decoded || decoded.length !== 25 || decoded[0] !== 0x41) return null;
   const checksum = sha256(sha256(decoded.slice(0, 21))).slice(0, 4);
-  return checksum.every((byte, index) => byte === (decoded[21 + index] ?? -1));
+  if (!checksum.every((byte, index) => byte === (decoded[21 + index] ?? -1))) return null;
+  return Array.from(decoded.slice(0, 21), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function isValidTronAddress(address: string) {
+  return tronAddressToHex(address) !== null;
 }
 
 export function normalizeWalletAddress(value: string) {

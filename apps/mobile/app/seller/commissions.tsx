@@ -27,7 +27,7 @@ export default function SellerCommissionsScreen() {
       getMobileSellerCommissions(tokens, requestLocale, signal)),
   });
   const [commissionId, setCommissionId] = useState("");
-  const [network, setNetwork] = useState<MobileCommissionNetwork>("ERC20");
+  const [network, setNetwork] = useState<MobileCommissionNetwork>("TRC20");
   const [transactionHash, setTransactionHash] = useState("");
   const [error, setError] = useState("");
 
@@ -54,9 +54,14 @@ export default function SellerCommissionsScreen() {
       void queryClient.invalidateQueries({ queryKey: ["mobile-seller-listings"] });
       setTransactionHash("");
       setError("");
-      Alert.alert(isAr ? "تم التحقق" : "Payment checked", response.pendingCount === 0
-        ? (isAr ? "تمت تسوية العمولة واستعادة صلاحيات البائع." : "The commission was settled and seller access is unlocked.")
-        : (isAr ? "تم تحديث حالة العمولات." : "The commission status was updated."));
+      const message = response.verification?.verified
+        ? response.pendingCount === 0
+          ? (isAr ? "تمت تسوية العمولة واستعادة صلاحيات البائع." : "The commission was settled and seller access is unlocked.")
+          : (isAr ? "تم التحقق من هذه الدفعة. ما زالت هناك عمولات أخرى مستحقة." : "This payment was verified. Other commissions are still due.")
+        : response.verification?.pending
+          ? (isAr ? "تم إرسال الدفعة. سيتم التحقق منها تلقائيًا بعد التأكيد النهائي على شبكة TRON." : "Payment submitted. It will be verified automatically after TRON final confirmation.")
+          : (isAr ? "تعذر التحقق من الدفع." : (response.verification?.notes ?? "The payment could not be verified."));
+      Alert.alert(isAr ? "حالة الدفع" : "Payment status", message);
     },
     onError: (mutationError) => setError(mutationError instanceof Error ? mutationError.message : (isAr ? "تعذر التحقق من الدفع." : "The payment could not be verified.")),
   });

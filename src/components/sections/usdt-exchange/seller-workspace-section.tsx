@@ -536,7 +536,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                       {/* Personal Wallet */}
                       <button
                         type="button"
-                        onClick={() => { setCommissionPayerType("personal"); setCommissionAdvancedOpen(false); }}
+                        onClick={() => { setCommissionPayerType("personal"); setCommissionAdvancedOpen(true); }}
                         className="group flex w-full items-start gap-4 rounded-2xl border border-white/12 bg-white/[0.03] px-4 py-4 text-start transition-all hover:border-[#C9A227]/50 hover:bg-[#C9A227]/5"
                       >
                         <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-950/40 group-hover:border-emerald-400/60">
@@ -714,14 +714,14 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                           onClick={() => setCommissionAdvancedOpen((v) => !v)}
                           className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-xs text-[#9CA3AF] hover:text-white transition-colors"
                         >
-                          <span className="font-medium">{isAr ? "تحقق يدوي — الصق رمز المعاملة" : "Manual Verification — paste transaction hash"}</span>
+                          <span className="font-medium">{isAr ? "مطلوب — الصق معرّف معاملة TRON" : "Required — paste TRON transaction ID"}</span>
                           {commissionAdvancedOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                         </button>
                         {commissionAdvancedOpen ? (
                           <div className="mt-2 space-y-1 rounded-xl border border-white/8 bg-black/20 px-4 py-3">
                             <Input
                               dir="ltr"
-                              placeholder={isAr ? "0x… أو توقيع Solana" : "0x… or Solana signature"}
+                              placeholder={isAr ? "معرّف TRON من 64 رمزًا" : "64-character TRON TxID"}
                               value={commissionTxSignature}
                               onChange={(event) => setCommissionTxSignature(event.target.value)}
                              onPaste={(event) => {
@@ -741,7 +741,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                         <p className="text-xs font-medium text-[#9CA3AF] uppercase tracking-wider">{isAr ? "رمز المعاملة" : "Transaction Hash"}</p>
                         <Input
                          dir="ltr"
-                         placeholder={isAr ? "0x… أو توقيع Solana" : "0x… or Solana signature"}
+                         placeholder={isAr ? "معرّف TRON من 64 رمزًا" : "64-character TRON TxID"}
                          value={commissionTxSignature}
                          onChange={(event) => setCommissionTxSignature(event.target.value)}
                          onPaste={(event) => {
@@ -766,6 +766,14 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                             </div>
                           );
                         }
+                        if (msg.startsWith("⏳")) {
+                          return (
+                            <div className="flex items-start gap-2.5 rounded-xl border border-blue-500/30 bg-blue-950/30 p-3 text-xs text-blue-100">
+                              <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-blue-300" />
+                              <span>{msg.replace("⏳ ", "")}</span>
+                            </div>
+                          );
+                        }
                         const wrongNetwork = msg.match(/found on (\w+), not (\w+)/i);
                         if (wrongNetwork) {
                           return (
@@ -778,7 +786,7 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
                             </div>
                           );
                         }
-                        if (msg.includes("but not the supported USDT contract") || msg.includes("send USDT (not USDC")) {
+                        if (msg.includes("but not the supported USDT contract") || msg.includes("not official USDT") || msg.includes("send USDT (not USDC")) {
                           return (
                             <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 p-3 text-xs space-y-1 text-amber-100">
                               <p className="flex items-center gap-1.5 font-semibold text-amber-300">

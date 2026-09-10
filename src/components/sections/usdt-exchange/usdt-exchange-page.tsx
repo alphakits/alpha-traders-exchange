@@ -1441,7 +1441,7 @@ export function UsdtExchangePage({
   const [qaCommissionModeEnabled, setQaCommissionModeEnabled] = useState(false);
   const [qaCommissionResetEnabled, setQaCommissionResetEnabled] = useState(false);
   const [commissionPayOpen, setCommissionPayOpen] = useState(false);
-  const [commissionNetwork, setCommissionNetwork] = useState<CommissionNetworkId>("ERC20");
+  const [commissionNetwork, setCommissionNetwork] = useState<CommissionNetworkId>("TRC20");
   const [commissionTxSignature, setCommissionTxSignature] = useState("");
   const [commissionPayBusy, setCommissionPayBusy] = useState(false);
   const [commissionPayMessage, setCommissionPayMessage] = useState<string | null>(null);
@@ -4433,14 +4433,16 @@ export function UsdtExchangePage({
           paymentSignature: commissionTxSignature.trim(),
         }),
       });
-      const payload = (await response.json()) as { error?: string; verification?: { verified: boolean; notes: string } };
+      const payload = (await response.json()) as { error?: string; verification?: { verified: boolean; pending?: boolean; notes: string } };
       if (!response.ok) {
         setCommissionPayMessage(isAr ? "تعذر التحقق من دفع العمولة." : (payload.error ?? "Unable to verify commission payment."));
         return;
       }
       setCommissionPayMessage(payload.verification?.verified
         ? (isAr ? "✅ تم التحقق من دفع العمولة واستعادة صلاحيات البائع." : "✅ Commission payment verified. Seller access has been unlocked.")
-        : (isAr ? "فشل التحقق من الدفع." : (payload.verification?.notes ?? "Verification failed.")));
+        : payload.verification?.pending
+          ? (isAr ? "⏳ تم إرسال الدفعة. ستتحقق Alpha Traders منها تلقائيًا بعد التأكيد النهائي على شبكة TRON." : "⏳ Payment submitted. Alpha Traders will verify it automatically after TRON final confirmation.")
+          : (isAr ? "فشل التحقق من الدفع." : (payload.verification?.notes ?? "Verification failed.")));
       setCommissionTxSignature("");
       await refreshSellerWorkspace();
     } catch {

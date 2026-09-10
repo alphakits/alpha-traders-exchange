@@ -9,6 +9,7 @@ import {
   getNotificationsForUser,
   getSellerCommissionStatus,
   invalidateAlphaExchangeStoreCache,
+  reverifyPendingCommissionPayments,
   reverifyCommissionByAdmin,
   submitSellerCommissionWalletPayment,
   updateCommissionPaymentStatus,
@@ -19,11 +20,12 @@ const SELLER_ID = "commission-seller";
 const BUYER_ID = "commission-buyer";
 const COMMISSION_ID = "commission-1";
 const ERC20_WALLET = "0x1111111111111111111111111111111111111111";
-const POLYGON_WALLET = "0x2222222222222222222222222222222222222222";
-const SOL_WALLET = "11111111111111111111111111111111";
-const SOLANA_USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
-const VERIFIED_SOL_SIGNATURE_A = "3".repeat(44);
-const VERIFIED_SOL_SIGNATURE_B = "4".repeat(44);
+const TRC20_WALLET = "TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8";
+const TRC20_WALLET_HEX = "7b662c86c643c01397eff6568df2e4ebc17f779b";
+const TRON_USDT_CONTRACT_HEX = "a614f803b6fd780986a42c78ec9c7f77e6ded13c";
+const TRON_TRANSFER_TOPIC = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+const VERIFIED_TRON_TX_A = "c".repeat(64);
+const VERIFIED_TRON_TX_B = "d".repeat(64);
 
 function seedDb(): AlphaExchangeDb & { __runtimeVersion: number } {
   const now = new Date().toISOString();
@@ -34,7 +36,7 @@ function seedDb(): AlphaExchangeDb & { __runtimeVersion: number } {
         fullName: "Commission Seller",
         email: "commission-seller@example.test",
         passwordHash: "hash",
-        whatsappNumber: "+972500000000",
+        whatsappNumber: "",
         role: "approved_seller",
         roles: ["approved_seller"],
         sellerStatus: "approved_seller",
@@ -91,14 +93,8 @@ function seedDb(): AlphaExchangeDb & { __runtimeVersion: number } {
 
 function clearCommissionWalletEnvironment() {
   for (const key of [
-    "NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_ERC20",
-    "ALPHA_EXCHANGE_COMMISSION_WALLET_ERC20",
-    "NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_POLYGON",
-    "ALPHA_EXCHANGE_COMMISSION_WALLET_POLYGON",
-    "NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_SOL",
-    "ALPHA_EXCHANGE_COMMISSION_WALLET_SOL",
-    "NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_ADDRESS",
-    "ALPHA_EXCHANGE_COMMISSION_WALLET_ADDRESS",
+    "ALPHA_EXCHANGE_TRONGRID_API_KEY",
+    "ALPHA_EXCHANGE_TRON_RPC_URL",
   ]) {
     vi.stubEnv(key, "");
   }
@@ -122,7 +118,7 @@ function addCommissionRequest(db: AlphaExchangeDb, id: string, listingId: string
     usdtAmount: "500",
     fiatAmount: "1500",
     currency: "ILS",
-    network: "SOL",
+    network: "TRC20",
     paymentMethod: "Bank Transfer",
     timeline: [],
     status: "review_open",
@@ -143,48 +139,50 @@ function addCommission(db: AlphaExchangeDb, id: string, requestId: string, listi
   });
 }
 
-function mockVerifiedSolanaPayments(expectedStatusRequests: number) {
-  let statusRequests = 0;
-  let releaseStatusBarrier: (() => void) | undefined;
-  const statusBarrier = new Promise<void>((resolve) => {
-    releaseStatusBarrier = resolve;
-  });
-  const jsonResponse = (payload: unknown) => ({
+function tronReceipt(input?: { txId?: string; contractHex?: string; recipientHex?: string; amountMicros?: bigint }) {
+  const txId = input?.txId ?? VERIFIED_TRON_TX_A;
+  const contractHex = input?.contractHex ?? TRON_USDT_CONTRACT_HEX;
+  const recipientHex = input?.recipientHex ?? TRC20_WALLET_HEX;
+  const amountMicros = input?.amountMicros ?? BigInt(5_000_000);
+  return {
+    id: txId,
+    blockNumber: 86_000_000,
+    receipt: { result: "SUCCESS" },
+    log: [{
+      address: contractHex,
+      topics: [
+        TRON_TRANSFER_TOPIC,
+        "1".repeat(64),
+        recipientHex.padStart(64, "0"),
+      ],
+      data: amountMicros.toString(16).padStart(64, "0"),
+    }],
+  };
+}
+
+function jsonResponse(payload: unknown) {
+  return {
     ok: true,
     status: 200,
     json: async () => payload,
-  }) as Response;
+  } as Response;
+}
 
-  const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-    const payload = JSON.parse(String(init?.body ?? "{}")) as { method?: string };
-    if (payload.method === "getSignatureStatuses") {
-      statusRequests += 1;
-      if (statusRequests === expectedStatusRequests) releaseStatusBarrier?.();
-      await statusBarrier;
-      return jsonResponse({ result: { value: [{ confirmationStatus: "finalized", err: null }] } });
+function mockVerifiedTronPayments(expectedReceiptRequests: number) {
+  let receiptRequests = 0;
+  let releaseReceiptBarrier: (() => void) | undefined;
+  const receiptBarrier = new Promise<void>((resolve) => {
+    releaseReceiptBarrier = resolve;
+  });
+  const fetchMock = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
+    if (!String(request).includes("walletsolidity/gettransactioninfobyid")) {
+      throw new Error(`Unexpected TRON RPC endpoint: ${String(request)}`);
     }
-    if (payload.method === "getTransaction") {
-      return jsonResponse({
-        result: {
-          meta: {
-            err: null,
-            preTokenBalances: [{
-              accountIndex: 1,
-              mint: SOLANA_USDT_MINT,
-              owner: SOL_WALLET,
-              uiTokenAmount: { uiAmount: 0 },
-            }],
-            postTokenBalances: [{
-              accountIndex: 1,
-              mint: SOLANA_USDT_MINT,
-              owner: SOL_WALLET,
-              uiTokenAmount: { uiAmount: 5 },
-            }],
-          },
-        },
-      });
-    }
-    throw new Error(`Unexpected Solana RPC method: ${payload.method ?? "unknown"}`);
+    const payload = JSON.parse(String(init?.body ?? "{}")) as { value?: string };
+    receiptRequests += 1;
+    if (receiptRequests === expectedReceiptRequests) releaseReceiptBarrier?.();
+    await receiptBarrier;
+    return jsonResponse(tronReceipt({ txId: payload.value }));
   });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
@@ -208,17 +206,11 @@ describe("commission wallet payment routing", () => {
     globalThis.__alphaExchangeRepositoryPromise = undefined as never;
   });
 
-  it.each([
-    ["ERC20", "NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_ERC20", ERC20_WALLET],
-    ["POLYGON", "NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_POLYGON", POLYGON_WALLET],
-    ["SOL", "NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_SOL", SOL_WALLET],
-  ] as const)("records the selected %s rail with its matching canonical recipient", async (network, envKey, wallet) => {
-    vi.stubEnv(envKey, wallet);
-
+  it("records only the canonical TRC20 rail and Binance recipient", async () => {
     await submitSellerCommissionWalletPayment({
       sellerUserId: SELLER_ID,
       commissionId: COMMISSION_ID,
-      network,
+      network: "TRC20",
       payerWalletAddress: "",
       // A deliberately short hash prevents any real RPC call while preserving
       // the same record-write path used for an unverified submission.
@@ -226,51 +218,173 @@ describe("commission wallet payment routing", () => {
     });
 
     expect(currentCommission()).toMatchObject({
-      paymentNetwork: network,
-      recipientWalletAddress: wallet,
+      paymentNetwork: "TRC20",
+      recipientWalletAddress: TRC20_WALLET,
       paymentSignature: "too-short",
       paymentVerificationStatus: "failed",
       paymentStatus: "pending",
     });
   });
 
-  it("fails before record mutation when the selected network has no canonical destination", async () => {
-    vi.stubEnv("NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_ADDRESS", "TLegacyGenericWalletAddress");
-    vi.stubEnv("ALPHA_EXCHANGE_COMMISSION_WALLET_SOL", SOL_WALLET);
-    const original = structuredClone(currentCommission());
+  it("verifies a solidified official USDT TRC20 transfer and unlocks the seller automatically", async () => {
+    const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    addCommissionRequest(db, "request-1", "listing-1");
+    vi.stubEnv("ALPHA_EXCHANGE_TRONGRID_API_KEY", "test-trongrid-key");
+    const fetchMock = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(request)).toMatch(/walletsolidity\/gettransactioninfobyid$/);
+      expect(init?.headers).toMatchObject({ "TRON-PRO-API-KEY": "test-trongrid-key" });
+      expect(JSON.parse(String(init?.body))).toEqual({ value: VERIFIED_TRON_TX_A });
+      return jsonResponse(tronReceipt());
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
-    await expect(submitSellerCommissionWalletPayment({
-      sellerUserId: SELLER_ID,
-      commissionId: COMMISSION_ID,
-      network: "SOL",
-      payerWalletAddress: "",
-      paymentSignature: "too-short",
-    })).rejects.toThrow(/No public commission wallet/i);
-
-    expect(currentCommission()).toEqual(original);
-  });
-
-  it("fails before record mutation for a mismatched or unsupported network configuration", async () => {
-    vi.stubEnv("NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_ERC20", ERC20_WALLET);
-    vi.stubEnv("ALPHA_EXCHANGE_COMMISSION_WALLET_ERC20", POLYGON_WALLET);
-    const original = structuredClone(currentCommission());
-
-    await expect(submitSellerCommissionWalletPayment({
-      sellerUserId: SELLER_ID,
-      commissionId: COMMISSION_ID,
-      network: "ERC20",
-      payerWalletAddress: "",
-      paymentSignature: "too-short",
-    })).rejects.toThrow(/inconsistent/i);
-    expect(currentCommission()).toEqual(original);
-
-    await expect(submitSellerCommissionWalletPayment({
+    const result = await submitSellerCommissionWalletPayment({
       sellerUserId: SELLER_ID,
       commissionId: COMMISSION_ID,
       network: "TRC20",
       payerWalletAddress: "",
+      paymentSignature: VERIFIED_TRON_TX_A,
+    });
+
+    expect(result.verification).toMatchObject({
+      verified: true,
+      reference: VERIFIED_TRON_TX_A,
+      notes: expect.stringMatching(/USDT received on TRON \(TRC20\)/i),
+    });
+    expect(currentCommission()).toMatchObject({
+      paymentStatus: "paid",
+      paymentVerificationStatus: "verified",
+      paymentNetwork: "TRC20",
+      recipientWalletAddress: TRC20_WALLET,
+    });
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    expect(snapshot.purchaseRequests[0]?.timeline.some((entry) => entry.type === "commission_paid")).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a TRON transfer that uses a lookalike token instead of official USDT", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(tronReceipt({ contractHex: "f".repeat(40) }))));
+
+    const result = await submitSellerCommissionWalletPayment({
+      sellerUserId: SELLER_ID,
+      commissionId: COMMISSION_ID,
+      network: "TRC20",
+      payerWalletAddress: "",
+      paymentSignature: VERIFIED_TRON_TX_A,
+    });
+
+    expect(result.verification).toMatchObject({ verified: false });
+    expect(result.verification.notes).toMatch(/not official USDT/i);
+    expect(currentCommission()).toMatchObject({
+      paymentStatus: "pending",
+      paymentVerificationStatus: "failed",
+    });
+  });
+
+  it("treats a non-solidified TRON transaction as pending instead of paid", async () => {
+    const fetchMock = vi.fn(async (request: RequestInfo | URL) => {
+      if (String(request).includes("walletsolidity")) return jsonResponse({});
+      return jsonResponse({ txID: VERIFIED_TRON_TX_A });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await submitSellerCommissionWalletPayment({
+      sellerUserId: SELLER_ID,
+      commissionId: COMMISSION_ID,
+      network: "TRC20",
+      payerWalletAddress: "",
+      paymentSignature: VERIFIED_TRON_TX_A,
+    });
+
+    expect(result.verification).toMatchObject({ verified: false, pending: true });
+    expect(result.verification.notes).toMatch(/waiting for final confirmation/i);
+    expect(currentCommission()).toMatchObject({
+      paymentStatus: "pending",
+      paymentVerificationStatus: "pending_verification",
+      paymentNetwork: "TRC20",
+      recipientWalletAddress: TRC20_WALLET,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("automatically settles and unlocks a payment after TRON finality", async () => {
+    const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    addCommissionRequest(db, "request-1", "listing-1");
+    vi.stubGlobal("fetch", vi.fn(async (request: RequestInfo | URL) => (
+      String(request).includes("walletsolidity")
+        ? jsonResponse({})
+        : jsonResponse({ txID: VERIFIED_TRON_TX_A })
+    )));
+
+    const submitted = await submitSellerCommissionWalletPayment({
+      sellerUserId: SELLER_ID,
+      commissionId: COMMISSION_ID,
+      network: "TRC20",
+      payerWalletAddress: "",
+      paymentSignature: VERIFIED_TRON_TX_A,
+    });
+    const originalSubmittedAt = submitted.commission.paymentSubmittedAt;
+    expect(submitted.verification).toMatchObject({ verified: false, pending: true });
+
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(tronReceipt())));
+    await expect(reverifyPendingCommissionPayments({ limit: 4 })).resolves.toEqual({
+      checked: 1,
+      verified: 1,
+      stillPending: 0,
+      failed: 0,
+      errors: 0,
+    });
+
+    expect(currentCommission()).toMatchObject({
+      paymentStatus: "paid",
+      paymentVerificationStatus: "verified",
+      paymentNetwork: "TRC20",
+      recipientWalletAddress: TRC20_WALLET,
+      paymentSignature: VERIFIED_TRON_TX_A,
+      paymentSubmittedAt: originalSubmittedAt,
+    });
+    const snapshot = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    expect(snapshot.purchaseRequests[0]?.timeline.filter((entry) => entry.type === "commission_paid")).toHaveLength(1);
+    expect(snapshot.notifications.filter((notification) => notification.title === "Commission payment verified")).toHaveLength(1);
+  });
+
+  it("does not accept a prefixed case-variant TRON TxID twice", async () => {
+    const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
+    addCommission(db, "commission-already-paid", "request-paid", "listing-paid");
+    db.commissionRecords[1] = {
+      ...db.commissionRecords[1],
+      paymentStatus: "paid",
+      paymentVerificationStatus: "verified",
+      paymentNetwork: "TRC20",
+      paymentSignature: `0x${VERIFIED_TRON_TX_A.toUpperCase()}`,
+    };
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await submitSellerCommissionWalletPayment({
+      sellerUserId: SELLER_ID,
+      commissionId: COMMISSION_ID,
+      network: "TRC20",
+      payerWalletAddress: "",
+      paymentSignature: VERIFIED_TRON_TX_A,
+    });
+
+    expect(result.verification).toMatchObject({ verified: false });
+    expect(result.verification.notes).toMatch(/already been used/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["ERC20", "POLYGON", "SOL", "BEP20"])("rejects the legacy %s rail before mutating a new payment", async (network) => {
+    const original = structuredClone(currentCommission());
+
+    await expect(submitSellerCommissionWalletPayment({
+      sellerUserId: SELLER_ID,
+      commissionId: COMMISSION_ID,
+      network,
+      payerWalletAddress: "",
       paymentSignature: "too-short",
-    })).rejects.toThrow(/only on ERC20, Polygon, or Solana/i);
+    })).rejects.toThrow(/must use USDT on TRON \(TRC20\)/i);
+
     expect(currentCommission()).toEqual(original);
   });
 
@@ -280,42 +394,12 @@ describe("commission wallet payment routing", () => {
     await expect(submitSellerCommissionWalletPayment({
       sellerUserId: "another-seller",
       commissionId: COMMISSION_ID,
-      network: "SOL",
+      network: "TRC20",
       payerWalletAddress: "",
       paymentSignature: "too-short",
     })).rejects.toThrow(/only settle your own commission/i);
 
     expect(currentCommission()).toEqual(original);
-  });
-
-  it("does not accept an EVM hash with different checksum casing as a second commission payment", async () => {
-    const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
-    const existingHash = `0x${"a".repeat(64)}`;
-    addCommission(db, "commission-already-paid", "request-paid", "listing-paid");
-    db.commissionRecords[1] = {
-      ...db.commissionRecords[1],
-      paymentStatus: "paid",
-      paymentVerificationStatus: "verified",
-      paymentSignature: existingHash,
-    };
-    vi.stubEnv("NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_ERC20", ERC20_WALLET);
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-
-    await submitSellerCommissionWalletPayment({
-      sellerUserId: SELLER_ID,
-      commissionId: COMMISSION_ID,
-      network: "ERC20",
-      payerWalletAddress: "",
-      paymentSignature: `0x${"A".repeat(64)}`,
-    });
-
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(currentCommission()).toMatchObject({
-      paymentStatus: "pending",
-      paymentVerificationStatus: "failed",
-    });
-    expect(currentCommission().paymentVerificationNotes).toMatch(/already been used/i);
   });
 
   it("does not let an admin reverify a case-variant EVM hash already used by another commission", async () => {
@@ -486,23 +570,22 @@ describe("commission wallet payment routing", () => {
   it("commits one verified settlement when duplicate submissions race", async () => {
     const db = globalThis.__alphaExchangeMemorySnapshot as AlphaExchangeDb;
     addCommissionRequest(db, "request-1", "listing-1");
-    vi.stubEnv("NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_SOL", SOL_WALLET);
-    mockVerifiedSolanaPayments(2);
+    mockVerifiedTronPayments(2);
 
     const attempts = await Promise.allSettled([
       submitSellerCommissionWalletPayment({
         sellerUserId: SELLER_ID,
         commissionId: COMMISSION_ID,
-        network: "SOL",
+        network: "TRC20",
         payerWalletAddress: "",
-        paymentSignature: VERIFIED_SOL_SIGNATURE_A,
+        paymentSignature: VERIFIED_TRON_TX_A,
       }),
       submitSellerCommissionWalletPayment({
         sellerUserId: SELLER_ID,
         commissionId: COMMISSION_ID,
-        network: "SOL",
+        network: "TRC20",
         payerWalletAddress: "",
-        paymentSignature: VERIFIED_SOL_SIGNATURE_A,
+        paymentSignature: VERIFIED_TRON_TX_A,
       }),
     ]);
 
@@ -595,23 +678,22 @@ describe("commission wallet payment routing", () => {
     addCommissionRequest(db, "request-1", "listing-1");
     addCommissionRequest(db, "request-2", "listing-2");
     addCommission(db, "commission-2", "request-2", "listing-2");
-    vi.stubEnv("NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_SOL", SOL_WALLET);
-    mockVerifiedSolanaPayments(2);
+    mockVerifiedTronPayments(2);
 
     await expect(Promise.all([
       submitSellerCommissionWalletPayment({
         sellerUserId: SELLER_ID,
         commissionId: COMMISSION_ID,
-        network: "SOL",
+        network: "TRC20",
         payerWalletAddress: "",
-        paymentSignature: VERIFIED_SOL_SIGNATURE_A,
+        paymentSignature: VERIFIED_TRON_TX_A,
       }),
       submitSellerCommissionWalletPayment({
         sellerUserId: SELLER_ID,
         commissionId: "commission-2",
-        network: "SOL",
+        network: "TRC20",
         payerWalletAddress: "",
-        paymentSignature: VERIFIED_SOL_SIGNATURE_B,
+        paymentSignature: VERIFIED_TRON_TX_B,
       }),
     ])).resolves.toHaveLength(2);
 
@@ -627,23 +709,22 @@ describe("commission wallet payment routing", () => {
     addCommissionRequest(db, "request-1", "listing-1");
     addCommissionRequest(db, "request-2", "listing-2");
     addCommission(db, "commission-2", "request-2", "listing-2");
-    vi.stubEnv("NEXT_PUBLIC_ALPHA_EXCHANGE_COMMISSION_WALLET_SOL", SOL_WALLET);
-    mockVerifiedSolanaPayments(2);
+    mockVerifiedTronPayments(2);
 
     const attempts = await Promise.allSettled([
       submitSellerCommissionWalletPayment({
         sellerUserId: SELLER_ID,
         commissionId: COMMISSION_ID,
-        network: "SOL",
+        network: "TRC20",
         payerWalletAddress: "",
-        paymentSignature: VERIFIED_SOL_SIGNATURE_A,
+        paymentSignature: VERIFIED_TRON_TX_A,
       }),
       submitSellerCommissionWalletPayment({
         sellerUserId: SELLER_ID,
         commissionId: "commission-2",
-        network: "SOL",
+        network: "TRC20",
         payerWalletAddress: "",
-        paymentSignature: VERIFIED_SOL_SIGNATURE_A,
+        paymentSignature: VERIFIED_TRON_TX_A,
       }),
     ]);
 

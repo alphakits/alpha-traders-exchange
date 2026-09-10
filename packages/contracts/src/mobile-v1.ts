@@ -711,7 +711,7 @@ export type MobileAdminReviewRequest =
       reason: string;
     };
 
-export type MobileCommissionNetwork = "ERC20" | "POLYGON" | "SOL";
+export type MobileCommissionNetwork = "TRC20";
 
 export interface MobileSellerCommissionRecord {
   commissionId: string;
@@ -734,6 +734,12 @@ export interface MobileSellerCommissionsResponse {
     walletAddress?: string;
     error?: string;
   }>;
+  verification?: {
+    verified: boolean;
+    pending?: boolean;
+    reference: string;
+    notes: string;
+  };
   requestId: string;
 }
 

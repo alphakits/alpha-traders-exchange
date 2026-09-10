@@ -119,9 +119,7 @@ describe("seller commission Pay Now", () => {
             }],
           },
           commissionWalletConfiguration: {
-            ERC20: { available: true, error: null },
-            POLYGON: { available: true, error: null },
-            SOL: { available: true, error: null },
+            TRC20: { available: true, error: null },
           },
         });
       }
@@ -165,6 +163,13 @@ describe("seller commission Pay Now", () => {
       return element!;
     });
     expect(routerPush).not.toHaveBeenCalled();
+
+    fireEvent.click(within(firstPanel).getByRole("button", { name: /Crypto Exchange or Broker/i }));
+    await waitFor(() => {
+      expect(firstPanel.textContent).toContain("TRC20");
+      expect(firstPanel.textContent).toContain("TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8");
+      expect(within(firstPanel).getByPlaceholderText("64-character TRON TxID")).not.toBeNull();
+    });
 
     fireEvent.click(within(firstPanel).getByRole("button", { name: "Close commission payment" }));
     await waitFor(() => expect(document.getElementById("commission-payment")).toBeNull());
