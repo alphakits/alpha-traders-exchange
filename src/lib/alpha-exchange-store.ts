@@ -2465,6 +2465,19 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
     .filter((application) => application.status === "pending")
     .map((application) => application.userId));
   const sellerApplicationUserIds = new Set((db.sellerApplications ?? []).map((application) => application.userId));
+  const approvedApplicationPaymentMethodsByUserId = new Map<string, ReturnType<typeof resolveListingPaymentMethods>>();
+  for (const application of db.sellerApplications ?? []) {
+    if (application.status !== "approved") continue;
+    const methods = resolveListingPaymentMethods(application.preferredNetworks);
+    if (!methods.length) continue;
+    approvedApplicationPaymentMethodsByUserId.set(
+      application.userId,
+      resolveListingPaymentMethods([
+        ...(approvedApplicationPaymentMethodsByUserId.get(application.userId) ?? []),
+        ...methods,
+      ]),
+    );
+  }
   const normalized: AlphaExchangeDb = {
     ...defaultDb,
     ...db,
@@ -2538,6 +2551,13 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       const normalizedLanguages = Array.isArray((user as { languages?: string[] }).languages)
         ? (user as { languages: string[] }).languages.map((language) => String(language).trim()).filter(Boolean)
         : ["English"];
+      const storedPreferredPaymentMethods = Array.isArray((user as { preferredPaymentMethods?: string[] }).preferredPaymentMethods)
+        ? (user as { preferredPaymentMethods: string[] }).preferredPaymentMethods.map((item) => String(item).trim()).filter(Boolean)
+        : [];
+      const preferredPaymentMethods = Array.from(new Set([
+        ...storedPreferredPaymentMethods,
+        ...(approvedApplicationPaymentMethodsByUserId.get(user.id) ?? []),
+      ]));
       return {
         ...user,
         email,
@@ -2553,9 +2573,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         bio: typeof (user as { bio?: string }).bio === "string" ? (user as { bio: string }).bio : "",
         tradingExperience: typeof (user as { tradingExperience?: string }).tradingExperience === "string" ? (user as { tradingExperience: string }).tradingExperience.trim() : "",
         workingHours: typeof (user as { workingHours?: string }).workingHours === "string" ? (user as { workingHours: string }).workingHours.trim() : "",
-        preferredPaymentMethods: Array.isArray((user as { preferredPaymentMethods?: string[] }).preferredPaymentMethods)
-          ? (user as { preferredPaymentMethods: string[] }).preferredPaymentMethods.map((item) => String(item).trim()).filter(Boolean)
-          : [],
+        preferredPaymentMethods,
         country: typeof (user as { country?: string }).country === "string" ? (user as { country: string }).country.trim() : "",
         city: typeof (user as { city?: string }).city === "string" ? (user as { city: string }).city.trim() : "",
         coverBannerUrl: typeof (user as { coverBannerUrl?: string }).coverBannerUrl === "string" ? (user as { coverBannerUrl: string }).coverBannerUrl.trim() : "",
@@ -3094,6 +3112,13 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
           (listing as { paymentMethods?: string[] }).paymentMethods,
           (listing as { paymentMethod?: string }).paymentMethod,
         );
+        const sellerApplicationMethods = approvedApplicationPaymentMethodsByUserId.get(listing.sellerId) ?? [];
+        const canRepairLegacyCardlessListing = methods.some(isBankTransferPaymentMethod)
+          && sellerApplicationMethods.some(isCardlessAtmPaymentMethod)
+          && parseIsraeliBankSelection((listing as { bankName?: string }).bankName).length > 0;
+        if (canRepairLegacyCardlessListing && !methods.some(isCardlessAtmPaymentMethod)) {
+          methods.push("Cardless ATM Withdrawal");
+        }
         return methods.length ? methods : ["Bank Transfer"];
       })(),
       paymentMethod:
@@ -6461,11 +6486,16 @@ export async function approveSellerApplicationByAdmin(applicationId: string, adm
   const userIndex = db.users.findIndex((user) => user.id === application.userId);
   if (userIndex === -1) throw new Error("Application user not found.");
   const nextRoles = addRole(removeRole(db.users[userIndex].roles ?? [db.users[userIndex].role], "pending_seller_approval"), "approved_seller");
+  const applicationPaymentMethods = resolveListingPaymentMethods(application.preferredNetworks);
   db.users[userIndex] = {
     ...db.users[userIndex],
     roles: nextRoles,
     role: resolvePrimaryRole(nextRoles),
     sellerStatus: "approved_seller",
+    preferredPaymentMethods: Array.from(new Set([
+      ...(db.users[userIndex].preferredPaymentMethods ?? []),
+      ...applicationPaymentMethods,
+    ])),
     isFoundingSeller: db.users[userIndex].isFoundingMember === true ? true : db.users[userIndex].isFoundingSeller === true,
     updatedAt: nowIso(),
   };

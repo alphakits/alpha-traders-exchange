@@ -5,7 +5,7 @@ import type { AlphaExchangeDb } from "@/types/alpha-exchange";
 
 const loadSnapshot = vi.fn();
 vi.mock("@/lib/alpha-exchange-repository", () => ({ getAlphaExchangeRepository: vi.fn(async () => ({ loadSnapshot, saveSnapshot: vi.fn() })) }));
-import { consumeEmailVerificationToken, createEmailVerificationTokenForUser, createSellerApplication, findUserById, getSellerApplicationByUserId, invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
+import { consumeEmailVerificationToken, createEmailVerificationTokenForUser, createSellerApplication, findUserById, getMarketplaceListings, getSellerApplicationByUserId, invalidateAlphaExchangeStoreCache } from "@/lib/alpha-exchange-store";
 beforeEach(() => { invalidateAlphaExchangeStoreCache(); loadSnapshot.mockReset(); });
 const base = (user: Record<string, unknown>, applications: unknown[] = []) => ({ users: [user], sellerApplications: applications, marketplaceListings: [], purchaseRequests: [], commissionRecords: [], auditLogs: [], authSessions: [], passwordResetTokens: [], notifications: [], activityLog: [], disputes: [], sellerReports: [], trustSnapshots: [], trustScoreHistory: [], tradeEvidenceFiles: [], privateBetaInvites: [], privateBetaInviteUses: [], betaFeedback: [], betaAnnouncements: [], adminAnnouncementRuns: [], sellerReviews: [] } as unknown as AlphaExchangeDb);
 const pending = (userId: string, status = "pending") => ({ id: `app-${userId}`, userId, status, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
@@ -55,6 +55,57 @@ it("does not normalize without a matching pending application", async () => { lo
 it("does not normalize another user's application", async () => { loadSnapshot.mockResolvedValue(base(legacy(), [pending("other")])); expect(hasRole((await findUserById("edge"))!, "buyer")).toBe(false); });
 it("does not normalize rejected applications", async () => { loadSnapshot.mockResolvedValue(base(legacy(), [pending("edge", "rejected")])); expect(hasRole((await findUserById("edge"))!, "buyer")).toBe(false); });
 it("preserves approved sellers", async () => { const u = { ...legacy("approved"), role: "approved_seller", roles: ["buyer", "approved_seller"], sellerStatus: "approved_seller" }; loadSnapshot.mockResolvedValue(base(u)); const r = await findUserById("approved"); expect(hasRole(r!, "approved_seller")).toBe(true); expect(r?.sellerStatus).toBe("approved_seller"); });
+
+it("repairs cardless support for an approved seller's existing bank listing", async () => {
+  const now = new Date().toISOString();
+  const seller = {
+    ...legacy("approved-cardless"),
+    role: "approved_seller",
+    roles: ["buyer", "approved_seller"],
+    sellerStatus: "approved_seller",
+    availabilityStatus: "available",
+  };
+  const application = {
+    ...pending("approved-cardless", "approved"),
+    preferredNetworks: ["USDT (BEP20)", "Cardless Withdrawal"],
+  };
+  const listing = {
+    id: "listing-approved-cardless",
+    sellerId: "approved-cardless",
+    sellerDisplayName: "Approved Cardless Seller",
+    photos: [],
+    originalAmount: "700",
+    availableAmount: "700",
+    price: "3.22",
+    currency: "ILS",
+    network: "BEP20",
+    paymentMethod: "Bank Transfer",
+    paymentMethods: ["Bank Transfer", "Face-to-Face (Meet in Person)"],
+    bankName: "Bank Hapoalim",
+    minimumTrade: "50",
+    maximumTrade: "700",
+    sellerDescription: "Available now",
+    responseTime: "5 min",
+    status: "active",
+    approvalStatus: "approved",
+    createdAt: now,
+    updatedAt: now,
+  };
+  loadSnapshot.mockResolvedValue({
+    ...base(seller, [application]),
+    marketplaceListings: [listing],
+  } as unknown as AlphaExchangeDb);
+
+  const normalizedSeller = await findUserById("approved-cardless");
+  const [normalizedListing] = await getMarketplaceListings("active");
+
+  expect(normalizedSeller?.preferredPaymentMethods).toContain("Cardless ATM Withdrawal");
+  expect(normalizedListing.paymentMethods).toEqual([
+    "Bank Transfer",
+    "Face-to-Face (Meet in Person)",
+    "Cardless ATM Withdrawal",
+  ]);
+});
 
 it("recovers the exact orphaned legacy seller applicant to Buyer/reapply", async () => {
   loadSnapshot.mockResolvedValue(base(orphan()));

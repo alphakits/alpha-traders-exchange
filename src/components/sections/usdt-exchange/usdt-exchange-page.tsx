@@ -21,7 +21,7 @@ import { useOptionalCanonicalSession } from "@/components/auth/canonical-session
 import { useAuthenticatedNotificationStream } from "@/components/notifications/use-authenticated-notification-stream";
 import type { ClientSessionUser } from "@/lib/client-session-user";
 import { MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS, parseIsraeliBankSelection, serializeIsraeliBankSelection } from "@/lib/israeli-banks";
-import { MAX_LISTING_PAYMENT_METHODS, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
+import { getDefaultListingPaymentMethods, MAX_LISTING_PAYMENT_METHODS, normalizeMarketplacePaymentMethod, requiresIsraeliBankSelection, resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import { CLIENT_COMMISSION_WALLETS, type CommissionNetworkId, type CommissionWalletConfiguration } from "@/lib/commission-config";
 import { appendLoginJourneyServerTimeline, appendLoginJourneyStep, finalizeLoginJourneyRedirectEnd, incrementLoginJourneyApiCall, isLoginJourneyTraceEnabled } from "@/lib/login-journey-trace";
 import { formatBuyerId, formatListingId, formatSellerId, formatTradeId } from "@/lib/format-id";
@@ -1481,7 +1481,7 @@ export function UsdtExchangePage({
     price: "",
     currency: "",
     network: "TRC20" as SupportedNetwork,
-    paymentMethods: ["Bank Transfer"],
+    paymentMethods: [...getDefaultListingPaymentMethods(initialSessionUser?.preferredPaymentMethods)] as string[],
     bankAccountId: "",
     bankName: "",
     minimumTrade: "0",
@@ -4296,7 +4296,7 @@ export function UsdtExchangePage({
         availableAmount: "",
         price: "",
         currency: "",
-        paymentMethods: ["Bank Transfer"],
+        paymentMethods: getDefaultListingPaymentMethods(sessionUser?.preferredPaymentMethods),
         bankAccountId: "",
         bankName: "",
         minimumTrade: "0",

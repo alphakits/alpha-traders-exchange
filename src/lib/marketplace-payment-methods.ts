@@ -23,11 +23,11 @@ export function normalizeMarketplacePaymentMethod(value: unknown): MarketplacePa
   const text = typeof value === "string" ? value.trim() : "";
   if (!text) return null;
   const token = normalizeToken(text);
-  if (token === "bank transfer" || token === "bank transfer israel") return "Bank Transfer";
-  if (token === "face-to-face (meet in person)" || token === "face-to-face" || token === "face to face" || token === "meet in person") {
+  if (token === "bank transfer" || token === "bank transfer israel" || token === "تحويل بنكي") return "Bank Transfer";
+  if (token === "face-to-face (meet in person)" || token === "face-to-face" || token === "face to face" || token === "meet in person" || token === "لقاء شخصي" || token === "لقاء مباشر وجهًا لوجه") {
     return "Face-to-Face (Meet in Person)";
   }
-  if (token === "cardless atm withdrawal" || token === "cardless atm" || token === "atm withdrawal") {
+  if (token === "cardless atm withdrawal" || token === "cardless withdrawal" || token === "cardless atm" || token === "atm withdrawal" || token === "سحب بلا بطاقة" || token === "سحب من الصراف بلا بطاقة" || token === "سحب من الصراف دون بطاقة") {
     return "Cardless ATM Withdrawal";
   }
   return null;
@@ -52,6 +52,11 @@ export function getMarketplacePaymentMethodOptions(rawMethods: unknown, fallback
     method,
     available: availableMethods.has(method),
   }));
+}
+
+export function getDefaultListingPaymentMethods(rawSellerPreferences: unknown): MarketplacePaymentMethod[] {
+  const preferredMethods = resolveListingPaymentMethods(rawSellerPreferences);
+  return preferredMethods.length ? preferredMethods : ["Bank Transfer"];
 }
 
 export function isFaceToFacePaymentMethod(method: unknown) {
