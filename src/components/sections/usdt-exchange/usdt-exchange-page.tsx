@@ -3,6 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
+import { useSearchParams } from "next/navigation";
 import { AlertTriangle, ArrowRight, BadgePercent, BellRing, CheckCircle2, ChevronDown, Clock3, Copy, Edit3, HandCoins, Loader2, LockKeyhole, MessageCircle, Network, ShieldCheck, Sparkles, Star, Store, TrendingUp, Trophy, Upload, Users, Wallet, WalletCards, X, Zap } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
@@ -1347,6 +1348,9 @@ export function UsdtExchangePage({
   const isDashboardWorkspace = workspaceMode !== undefined;
   const isSellerDashboardWorkspace = workspaceMode === "seller";
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const commissionPaymentIntent = searchParams?.get("commission") ?? null;
+  const commissionPaymentIntentId = searchParams?.get("commissionId")?.trim() ?? "";
   const canonicalSession = useOptionalCanonicalSession();
   const refreshCanonicalSession = canonicalSession?.refresh;
   const [isMobileViewport, setIsMobileViewport] = useState(() => {
@@ -1625,6 +1629,7 @@ export function UsdtExchangePage({
   const notificationsRequestIdRef = useRef(0);
   const deepLinkAppliedRef = useRef(false);
   const commissionPayDeepLinkHandledRef = useRef(false);
+  const commissionPayIntentHandledRef = useRef<string | null>(null);
   const sellerActiveTradeRedirectedRef = useRef<string | null>(null);
   const sellerDeferredPanelsSentinelRef = useRef<HTMLDivElement | null>(null);
   const bootstrapCompletedAtRef = useRef<number | null>(null);
@@ -1831,14 +1836,64 @@ export function UsdtExchangePage({
     setCommissionAdvancedOpen(false);
   }, []);
 
+  const revealCommissionPaymentPanel = useCallback(() => {
+    if (typeof window === "undefined") return;
+    let attempts = 0;
+    const reveal = () => {
+      const target = document.getElementById("commission-payment");
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+        target.focus({ preventScroll: true });
+        return;
+      }
+      attempts += 1;
+      if (attempts < 24) window.requestAnimationFrame(reveal);
+    };
+    window.requestAnimationFrame(reveal);
+  }, []);
+
   const openCommissionPayment = useCallback((commissionId: string) => {
     const normalizedCommissionId = commissionId.trim();
     if (!normalizedCommissionId) {
       setSellerWorkspaceMessage(isAr ? "لم يتم العثور على سجل عمولة محدد قابل للدفع." : "No exact payable commission record was found.");
       return;
     }
+
+    // Pay Now is often pressed while the seller is already on this page. A
+    // same-route router push does not remount the workspace, so relying on the
+    // URL deep-link effect leaves the payment panel closed and merely jumps
+    // the seller back to the top. Select the exact server-provided record and
+    // reveal the panel immediately instead. The payment API independently
+    // revalidates ownership, amount, network, destination, and signature.
+    const payableRecord = sellerCommissionStatus?.payableRecords?.find(
+      (record) => record.commissionId.trim() === normalizedCommissionId,
+    );
+    const isCurrentPayableRecord = sellerCommissionStatus?.commissionId?.trim() === normalizedCommissionId
+      && (sellerCommissionStatus.payableAmountDue ?? 0) > 0;
+    if (payableRecord || isCurrentPayableRecord) {
+      if (payableRecord) {
+        setSellerCommissionStatus((current) => current ? {
+          ...current,
+          commissionId: payableRecord.commissionId,
+          payableAmountDue: payableRecord.amountDue,
+          dueAt: payableRecord.dueAt,
+          relatedRequestId: payableRecord.relatedRequestId,
+          relatedTradeId: payableRecord.relatedTradeId,
+          relatedTradeDisplayNumber: payableRecord.relatedTradeDisplayNumber,
+          selectionError: undefined,
+        } : current);
+      }
+      commissionPayDeepLinkHandledRef.current = true;
+      setSellerWorkspaceMessage(null);
+      openCommissionPaymentPanel();
+      revealCommissionPaymentPanel();
+      return;
+    }
+
+    // Keep a secure deep-link fallback for a stale workspace snapshot. The
+    // reactive query handler below fetches and authorizes this exact record.
     router.push(commissionPaymentDestination(normalizedCommissionId));
-  }, [isAr, router]);
+  }, [isAr, openCommissionPaymentPanel, revealCommissionPaymentPanel, router, sellerCommissionStatus]);
 
   const reviewPayableCommissions = useCallback(() => {
     if (typeof document !== "undefined") {
@@ -1865,21 +1920,27 @@ export function UsdtExchangePage({
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined" || commissionPayDeepLinkHandledRef.current) return;
-    if (new URLSearchParams(window.location.search).get("commission") !== "pay") return;
+    if (typeof window === "undefined") return;
+    if (commissionPaymentIntent !== "pay") {
+      commissionPayIntentHandledRef.current = null;
+      return;
+    }
 
     // Do not decide commission eligibility from a bootstrap role or before the
     // canonical seller workspace response has supplied the payable record.
     if (isSessionResolving || isWorkspaceWidgetsLoading) return;
 
+    const intentKey = commissionPaymentIntentId || "missing-record";
+    if (commissionPayIntentHandledRef.current === intentKey) return;
+    commissionPayIntentHandledRef.current = intentKey;
+    commissionPayDeepLinkHandledRef.current = true;
+
     if (!sessionUser || !isApprovedSellerSession) {
-      commissionPayDeepLinkHandledRef.current = true;
       clearCommissionPayDeepLink();
       setSellerWorkspaceMessage(isAr ? "يلزم وجود مساحة عمل للبائع لدفع العمولة." : "A seller workspace is required to pay a commission.");
       return;
     }
-    const requestedCommissionId = new URLSearchParams(window.location.search).get("commissionId")?.trim() || undefined;
-    commissionPayDeepLinkHandledRef.current = true;
+    const requestedCommissionId = commissionPaymentIntentId || undefined;
     // Historical generic `commission=pay` links do not identify a record. Do
     // not turn them into permission to pay whichever commission happens to be
     // first in the seller workspace; the seller must reopen an exact current
@@ -1915,22 +1976,22 @@ export function UsdtExchangePage({
       }
 
       openCommissionPaymentPanel();
-      window.requestAnimationFrame(() => {
-        document.getElementById("commission-payment")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
+      revealCommissionPaymentPanel();
     })();
     return () => {
       cancelled = true;
     };
   }, [
     clearCommissionPayDeepLink,
+    commissionPaymentIntent,
+    commissionPaymentIntentId,
     isAr,
     isApprovedSellerSession,
     isSessionResolving,
     isWorkspaceWidgetsLoading,
     openCommissionPaymentPanel,
+    revealCommissionPaymentPanel,
     refreshSellerWorkspace,
-    sellerCommissionStatus,
     sessionUser,
   ]);
 

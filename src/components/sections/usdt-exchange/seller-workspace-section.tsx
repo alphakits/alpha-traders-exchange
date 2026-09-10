@@ -496,14 +496,14 @@ export function SellerWorkspaceSection(props: SellerWorkspaceSectionProps) {
             </CardContent>
           </Card>
           {commissionPayOpen ? (
-            <Card id="commission-payment" className="order-16 border-[#C9A227]/30 bg-[#0B0B0B]/98">
+            <Card id="commission-payment" tabIndex={-1} className="order-16 scroll-mt-24 border-[#C9A227]/30 bg-[#0B0B0B]/98">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="flex items-center gap-2 text-base">
                     <LockKeyhole className="h-4 w-4 text-[#C9A227]" />
                     {isAr ? "دفع العمولة" : "Commission Payment"}
                   </CardTitle>
-                  <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0 text-[#6B7280] hover:text-white" onClick={() => setCommissionPayOpen(false)}>
+                  <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0 text-[#6B7280] hover:text-white" aria-label={isAr ? "إغلاق دفع العمولة" : "Close commission payment"} onClick={() => setCommissionPayOpen(false)}>
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
