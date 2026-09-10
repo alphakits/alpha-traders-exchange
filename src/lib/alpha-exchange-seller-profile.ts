@@ -3,10 +3,18 @@ import {
   getSellerProfileRouteData,
   matchesPublicProfileUsername,
 } from "@/lib/alpha-exchange-store";
+import { resolveListingPaymentMethods } from "@/lib/marketplace-payment-methods";
 import type { AlphaExchangeUser, PremiumSellerProfileData, SellerLevel } from "@/types/alpha-exchange";
 
 export function deriveSellerRouteUsername(input: { fullName?: string; email?: string; id?: string; publicTradingName?: string }) {
   return derivePublicProfileUsername(input);
+}
+
+export function resolveSellerListingPaymentMethods(listing: {
+  paymentMethods?: unknown;
+  paymentMethod?: unknown;
+}) {
+  return resolveListingPaymentMethods(listing.paymentMethods, listing.paymentMethod);
 }
 
 export function resolveSellerByUsername<T extends Pick<AlphaExchangeUser, "id" | "fullName" | "email" | "sellerStatus" | "buyerDisplayName">>(
@@ -74,6 +82,7 @@ export type SellerProfilePageData = {
     availableAmount: string;
     network: string;
     paymentMethod: string;
+    paymentMethods?: string[];
     sellerProfile?: { profilePhotoUrl?: string };
     sellerReputation?: { level?: SellerLevel; trustScore?: number; publicVolumeRange?: string };
   }>;

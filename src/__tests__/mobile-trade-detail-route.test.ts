@@ -154,6 +154,30 @@ describe("mobile trade detail route", () => {
     expect(mocks.getTradeRoomData).toHaveBeenCalledWith(expect.objectContaining({ markMessagesRead: true }));
   });
 
+  it("never advertises Bank Transfer details for a cardless-withdrawal trade", async () => {
+    mocks.getTradeRoomData.mockResolvedValueOnce(room({
+      paymentMethod: "Cardless ATM Withdrawal",
+      status: "accepted",
+      // A mixed-method listing can legitimately snapshot its linked account on
+      // every request. The selected trade method remains the disclosure guard.
+      sellerBankAccountId: "private-bank-id",
+      buyerEvidence: undefined,
+    }));
+
+    const response = await GET(request("GET"), { params: Promise.resolve({ requestId: "purchase-1" }) });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      trade: {
+        paymentMethod: "Cardless ATM Withdrawal",
+        actions: {
+          canViewBankDetails: false,
+          canUploadPaymentEvidence: true,
+        },
+      },
+    });
+  });
+
   it("conceals non-participant trades from ordinary native sessions", async () => {
     mocks.getTradeRoomData.mockRejectedValueOnce(new Error("You are not allowed to access trade evidence."));
 

@@ -9,6 +9,7 @@ const ACTION_COMPONENTS = new Map([
   ["Button", "onClick"],
   ["button", "onClick"],
   ["Pressable", "onPress"],
+  ["GoldButton", "onPress"],
   ["TouchableOpacity", "onPress"],
   ["TouchableHighlight", "onPress"],
   ["TouchableWithoutFeedback", "onPress"],
