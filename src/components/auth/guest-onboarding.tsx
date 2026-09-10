@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState, type ComponentType, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { GraduationCap, ShieldCheck, Store, UserCircle2, Sparkles, Clock3, CheckCircle2 } from "lucide-react";
 import { useRouter } from "@/i18n/navigation";
 import { navigateAfterSuccess } from "@/lib/client-success-navigation";
+import { sellerApplicationErrorMessage } from "@/lib/seller-application-errors";
 import { useOptionalCanonicalSession } from "@/components/auth/canonical-session-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +38,7 @@ type Props = {
 };
 
 type ApiErrorPayload = {
+  code?: string;
   error?: string;
   supportCode?: string;
   requestId?: string;
@@ -108,6 +110,14 @@ export function GuestOnboarding({
   const isLoading = loading !== null;
   const sellerNeedsReview = sellerStatus === "pending_seller_approval" || sellerStep === "applied";
   const sellerIsApproved = sellerStatus === "approved_seller";
+
+  useEffect(() => {
+    const savedWhatsappNumber = canonicalSession?.user?.whatsappNumber?.trim();
+    if (!isBuyer || !savedWhatsappNumber) return;
+    setSeller((previous) => previous.phone.trim()
+      ? previous
+      : { ...previous, phone: savedWhatsappNumber });
+  }, [canonicalSession?.user?.whatsappNumber, isBuyer]);
 
   const profileHint = useMemo(
     () => (isAr ? "يمكنك تعديل كل هذه الخيارات لاحقًا من الإعدادات." : "You can refine all of these settings later from your account settings."),
@@ -235,20 +245,20 @@ export function GuestOnboarding({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fullName: isBuyer ? undefined : `${seller.firstName} ${seller.lastName}`.trim() || undefined,
-          whatsappNumber: isBuyer ? undefined : seller.phone || undefined,
+          whatsappNumber: seller.phone.trim() || undefined,
           preferredNetworks: seller.preferredNetworks,
           expectedMonthlyTradingVolume: seller.expectedVolume,
           additionalNotes: seller.notes,
         }),
       });
-      const payload = (await res.json()) as { error?: string; destination?: string };
-      if (!res.ok) throw new Error(isAr ? "تعذر تقديم طلب البائع." : (payload.error ?? "Failed to submit seller application."));
+      const payload = (await res.json()) as ApiErrorPayload & { destination?: string };
+      if (!res.ok) throw new Error(sellerApplicationErrorMessage(payload, isAr));
       setSellerStep("applied");
       await refreshCanonicalSession();
       if (!navigateAfterSuccess(router, payload.destination)) consumePostOnboardingRedirect();
     } catch (err) {
       const detail = err instanceof Error ? err.message : "";
-      setSellerError(isAr ? "تعذر تقديم طلب البائع." : (detail || "Failed to submit seller application."));
+      setSellerError(detail || sellerApplicationErrorMessage({}, isAr));
     } finally {
       setLoading(null);
     }
@@ -406,6 +416,14 @@ export function GuestOnboarding({
                 </div>
               ) : isBuyer ? (
                 <div key="seller-buyer" className="alpha-reveal-fade grid gap-2">
+                  <Input
+                    aria-label={isAr ? "رقم واتساب المطلوب" : "Required WhatsApp number"}
+                    placeholder={isAr ? "رقم واتساب (+972 / 05...)" : "WhatsApp number (+972 / 05...)"}
+                    inputMode="tel"
+                    autoComplete="tel"
+                    value={seller.phone}
+                    onChange={(e) => setSeller((p) => ({ ...p, phone: e.target.value }))}
+                  />
                   <div className="rounded-xl border border-white/10 bg-black/25 p-3">
                     <p className="text-xs uppercase tracking-[0.12em] text-[#9CA3AF]">{isAr ? "طرق البيع المدعومة" : "Supported Selling Methods"}</p>
                     <p className="mt-1 text-xs text-[#AEB5C2]">{isAr ? "اختر طريقة أو أكثر." : "Select one or more methods."}</p>
@@ -450,7 +468,7 @@ export function GuestOnboarding({
                     loading={loading === "seller_apply"}
                     loadingLabel={isAr ? "جارٍ الإرسال..." : "Submitting..."}
                     onClick={() => void submitSellerApplication()}
-                    disabled={isLoading || seller.preferredNetworks.length === 0}
+                    disabled={isLoading || !seller.phone.trim() || seller.preferredNetworks.length === 0}
                   >
                     {isAr ? "تقديم طلب البائع" : "Submit Seller Application"}
                   </Button>
