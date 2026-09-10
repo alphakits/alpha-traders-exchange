@@ -4,6 +4,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "crypto";
 import { after } from "next/server";
 import { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 import { isAlphaExchangeOwnerEmail } from "@/lib/alpha-exchange-identity";
+import { CANONICAL_TRC20_COMMISSION_WALLET } from "@/lib/commission-config";
 import { createExchangeDisplayLookup, normalizeDisplayNumber, replaceExchangeEntityIds } from "./alpha-exchange-display";
 import { calculateSellerTrustSnapshot, rankTrustSnapshots } from "@/lib/trust-engine";
 import { computeListingReliability, RELIABILITY_NEUTRAL_BASELINE, type ListingReliability } from "@/lib/listing-reliability";
@@ -632,9 +633,12 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     notification.reason === COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON
     || /\bcommission\s+(?:due|overdue)\b/.test(commissionDueText)
   );
+  const explicitCommissionPaymentHref = notification.reason === COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON
+    ? sanitizeInternalNotificationHref(notification.actionHref) ?? sanitizeInternalNotificationHref(notification.relatedHref)
+    : undefined;
   const commissionPaymentHref = isCommissionPaymentDue && matchingSellerCommission
     ? commissionPaymentDestination(matchingSellerCommission.id)
-    : undefined;
+    : explicitCommissionPaymentHref;
   const sellerContext = resolveNotificationSellerContext(db, notification);
   const sellerProfileHref = notification.category === "trust" ? sellerContext?.profileHref : undefined;
   const relatedHref = commissionPaymentHref
@@ -700,7 +704,7 @@ function enrichNotification(db: AlphaExchangeDb, notification: AlphaExchangeNoti
     relatedHref,
     actionHref,
     actionLabel: commissionPaymentHref
-      ? "Pay Commission"
+      ? notification.actionLabel?.trim() || "Pay Commission"
       : notification.actionLabel?.trim() || (sellerProfileHref ? "Review Seller" : resolveNotificationActionLabel(notification, request)),
     reason: commissionPaymentHref ? COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON : notification.reason,
     tradeSnapshot: isTradeNotification && recipientIsTradeParticipant
@@ -898,6 +902,204 @@ function getCommissionAmountDueUsdt(db: AlphaExchangeDb, record: CommissionRecor
   }
   if (isQaCommissionModeEnabled()) return 1;
   return roundUsdt(record.commissionAmount);
+}
+
+const USDT_MICROS_PER_TOKEN = 1_000_000;
+const MAX_COMMISSION_PAYMENT_SUFFIX_MICROS = 999_999;
+const COMMISSION_PAYMENT_CLOCK_SKEW_MS = 5 * 60 * 1000;
+const TRON_TX_NOT_FOUND_RETRY_WINDOW_MS = 6 * 60 * 60 * 1000;
+
+function usdtToMicros(value: number) {
+  return Math.round(value * USDT_MICROS_PER_TOKEN);
+}
+
+function microsToUsdt(value: number) {
+  return Number((value / USDT_MICROS_PER_TOKEN).toFixed(6));
+}
+
+/**
+ * TRC20 has no memo and every seller pays one shared Binance deposit address.
+ * Give each unpaid commission an exact six-decimal amount so an incoming
+ * transfer can be bound to one record instead of merely claimed by TxID.
+ * Existing valid assignments are reserved first; new/legacy records receive
+ * the lowest free micro-USDT suffix. Paid assignments remain permanently
+ * reserved so a different transfer with a previously used amount can never
+ * be claimed for a future commission during its payment window.
+ */
+function ensureCommissionPaymentExpectedAmounts(db: AlphaExchangeDb) {
+  const assignments = new Map<string, number>();
+  const issuedUniqueExpectedMicros = new Map<number, string>();
+  const usedExpectedMicros = new Set<number>();
+  const payableRecords = db.commissionRecords.filter(
+    (record) => normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid",
+  );
+  let changed = false;
+  const assignmentUpdatedAt = nowIso();
+  const markAssignmentChanged = (record: CommissionRecord) => {
+    record.updatedAt = assignmentUpdatedAt;
+    changed = true;
+  };
+
+  // Every amount that has ever been issued is immutable and permanently
+  // reserved. Silently reallocating a stored value could strand a seller who
+  // already sent the amount that the UI showed them.
+  for (const record of db.commissionRecords) {
+    for (const reservedAmount of record.paymentReservedExpectedAmounts ?? []) {
+      if (!Number.isFinite(reservedAmount) || reservedAmount <= 0) {
+        throw new Error(`Commission ${record.id} has an invalid reserved payment amount. Contact Alpha Traders support.`);
+      }
+      usedExpectedMicros.add(usdtToMicros(reservedAmount));
+    }
+    if (typeof record.paymentExpectedAmount !== "number") continue;
+    const baseMicros = usdtToMicros(getCommissionAmountDueUsdt(db, record));
+    const storedAmount = record.paymentExpectedAmount;
+    const storedMicros = usdtToMicros(storedAmount);
+    const suffixMicros = storedMicros - baseMicros;
+    const inferredMode = record.paymentExpectedAmountMode
+      ?? (suffixMicros === 0 && record.paymentSignature && record.paymentSubmittedAt ? "legacy_base" : "unique_v1");
+    if (inferredMode === "legacy_base") {
+      if (suffixMicros !== 0 || !record.paymentSignature || !record.paymentSubmittedAt) {
+        throw new Error(`Commission ${record.id} has an invalid legacy payment assignment. Contact Alpha Traders support.`);
+      }
+      const paymentStatus = normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt);
+      const isCompatibleOriginalTrc20Submission = record.paymentNetwork === "TRC20"
+        && record.recipientWalletAddress === CANONICAL_TRC20_COMMISSION_WALLET
+        && (paymentStatus === "paid" || record.paymentVerificationStatus === "pending_verification");
+      if (!isCompatibleOriginalTrc20Submission) {
+        // A terminal or incompatible pre-upgrade submission cannot safely keep
+        // the shared base amount. Reissue it as a fresh exact intent below so
+        // the seller can self-service a new transfer and TxID.
+        record.paymentReservedExpectedAmounts = Array.from(new Set([
+          ...(record.paymentReservedExpectedAmounts ?? []),
+          storedAmount,
+        ]));
+        usedExpectedMicros.add(storedMicros);
+        record.paymentExpectedAmount = undefined;
+        record.paymentExpectedAmountMode = undefined;
+        record.paymentExpectedAmountAssignedAt = undefined;
+        if (record.paymentVerificationStatus === "pending_verification") {
+          record.paymentVerificationStatus = "failed";
+          record.paymentVerificationNotes = "This pre-upgrade payment used an unsupported network or an old recipient and cannot be checked automatically. No payment was credited. Send the newly shown exact amount as USDT on TRON (TRC20) to the Binance commission address, then submit the new TxID.";
+        }
+        markAssignmentChanged(record);
+        continue;
+      }
+      if (record.paymentExpectedAmountMode !== inferredMode) {
+        record.paymentExpectedAmountMode = inferredMode;
+        markAssignmentChanged(record);
+      }
+      if (!record.paymentExpectedAmountAssignedAt) {
+        const submittedAtMs = new Date(record.paymentSubmittedAt).getTime();
+        const createdAtMs = new Date(record.createdAt).getTime();
+        const legacyLowerBoundMs = Math.max(
+          Number.isFinite(createdAtMs) ? createdAtMs : 0,
+          Number.isFinite(submittedAtMs) ? submittedAtMs - 24 * 60 * 60 * 1000 : 0,
+        );
+        record.paymentExpectedAmountAssignedAt = new Date(legacyLowerBoundMs || Date.now()).toISOString();
+        markAssignmentChanged(record);
+      } else if (!Number.isFinite(new Date(record.paymentExpectedAmountAssignedAt).getTime())) {
+        throw new Error(`Commission ${record.id} has an invalid payment amount issue time. Contact Alpha Traders support.`);
+      }
+      assignments.set(record.id, storedMicros);
+      usedExpectedMicros.add(storedMicros);
+      continue;
+    }
+    if (
+      !Number.isFinite(storedAmount)
+      || suffixMicros < 1
+      || suffixMicros > MAX_COMMISSION_PAYMENT_SUFFIX_MICROS
+    ) {
+      throw new Error(`Commission ${record.id} has an invalid exact payment amount. Contact Alpha Traders support.`);
+    }
+    if (record.paymentExpectedAmountMode !== inferredMode) {
+      record.paymentExpectedAmountMode = inferredMode;
+      markAssignmentChanged(record);
+    }
+    const existingRecordId = issuedUniqueExpectedMicros.get(storedMicros);
+    if (existingRecordId && existingRecordId !== record.id) {
+      throw new Error(`Commission payment amount collision between ${existingRecordId} and ${record.id}. Contact Alpha Traders support.`);
+    }
+    issuedUniqueExpectedMicros.set(storedMicros, record.id);
+    usedExpectedMicros.add(storedMicros);
+    if (normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid") {
+      assignments.set(record.id, storedMicros);
+      if (!record.paymentExpectedAmountAssignedAt) {
+        record.paymentExpectedAmountAssignedAt = assignmentUpdatedAt;
+        markAssignmentChanged(record);
+      } else if (!Number.isFinite(new Date(record.paymentExpectedAmountAssignedAt).getTime())) {
+        throw new Error(`Commission ${record.id} has an invalid payment amount issue time. Contact Alpha Traders support.`);
+      }
+    }
+  }
+
+  for (const record of payableRecords) {
+    let expectedMicros = assignments.get(record.id);
+    if (expectedMicros === undefined) {
+      const baseMicros = usdtToMicros(getCommissionAmountDueUsdt(db, record));
+      const hasPriorUnassignedSubmission = Boolean(
+        record.paymentSignature
+        && record.paymentSubmittedAt
+        && (record.paymentVerificationStatus === "pending_verification" || record.paymentVerificationStatus === "failed")
+      );
+      const hasCompatibleTrc20Rail = record.paymentNetwork === "TRC20"
+        && record.recipientWalletAddress === CANONICAL_TRC20_COMMISSION_WALLET;
+      const hasLegacySubmission = hasPriorUnassignedSubmission
+        && hasCompatibleTrc20Rail
+        && record.paymentVerificationStatus === "pending_verification";
+      if (hasPriorUnassignedSubmission && !hasLegacySubmission) {
+        const baseAmount = microsToUsdt(baseMicros);
+        record.paymentReservedExpectedAmounts = Array.from(new Set([
+          ...(record.paymentReservedExpectedAmounts ?? []),
+          baseAmount,
+        ]));
+        usedExpectedMicros.add(baseMicros);
+        if (record.paymentVerificationStatus === "pending_verification") {
+          record.paymentVerificationStatus = "failed";
+          record.paymentVerificationNotes = "This pre-upgrade payment used an unsupported network or an old recipient and cannot be checked automatically. No payment was credited. Send the newly shown exact amount as USDT on TRON (TRC20) to the Binance commission address, then submit the new TxID.";
+        }
+        markAssignmentChanged(record);
+      }
+      if (hasLegacySubmission) {
+        const submittedAtMs = new Date(record.paymentSubmittedAt as string).getTime();
+        const createdAtMs = new Date(record.createdAt).getTime();
+        const legacyLowerBoundMs = Math.max(
+          Number.isFinite(createdAtMs) ? createdAtMs : 0,
+          Number.isFinite(submittedAtMs) ? submittedAtMs - 24 * 60 * 60 * 1000 : 0,
+        );
+        record.paymentExpectedAmount = microsToUsdt(baseMicros);
+        record.paymentExpectedAmountMode = "legacy_base";
+        record.paymentExpectedAmountAssignedAt = new Date(legacyLowerBoundMs || Date.now()).toISOString();
+        assignments.set(record.id, baseMicros);
+        usedExpectedMicros.add(baseMicros);
+        markAssignmentChanged(record);
+        continue;
+      }
+      expectedMicros = baseMicros + 1;
+      const upperBound = baseMicros + MAX_COMMISSION_PAYMENT_SUFFIX_MICROS;
+      while (expectedMicros <= upperBound && usedExpectedMicros.has(expectedMicros)) {
+        expectedMicros += 1;
+      }
+      if (expectedMicros > upperBound) {
+        throw new Error("Unable to assign a unique commission payment amount. Please contact Alpha Traders support.");
+      }
+      assignments.set(record.id, expectedMicros);
+      issuedUniqueExpectedMicros.set(expectedMicros, record.id);
+      usedExpectedMicros.add(expectedMicros);
+      record.paymentExpectedAmount = microsToUsdt(expectedMicros);
+      record.paymentExpectedAmountMode = "unique_v1";
+      record.paymentExpectedAmountAssignedAt = assignmentUpdatedAt;
+      markAssignmentChanged(record);
+    }
+  }
+  return changed;
+}
+
+function getCommissionPaymentAmountDueUsdt(record: CommissionRecord) {
+  const expected = Number(record.paymentExpectedAmount);
+  if (!Number.isFinite(expected) || expected <= 0) {
+    throw new Error("Commission payment amount is unavailable. Please refresh and try again.");
+  }
+  return microsToUsdt(usdtToMicros(expected));
 }
 
 function addDaysIso(value: string, days: number) {
@@ -3538,6 +3740,154 @@ async function writeDb(
   }
 }
 
+/**
+ * Legacy commission rows predate exact memo-less TRC20 payment intents. The
+ * first authenticated read allocates and commits those intents before any
+ * amount is returned to a seller. The repository rebase runs under its
+ * advisory lock, so concurrent readers cannot issue the same amount.
+ */
+async function reconcileVerifiedUnpaidCommissions(snapshot: AlphaExchangeDb) {
+  const inconsistentRecords = snapshot.commissionRecords.filter((record) => (
+    record.paymentVerificationStatus === "verified"
+    && normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid"
+  ));
+  if (inconsistentRecords.length === 0) {
+    return {
+      changed: false,
+      requests: [] as PurchaseRequest[],
+      notificationPublications: [] as DeferredNotificationPublication[],
+    };
+  }
+
+  const now = nowIso();
+  const requests: PurchaseRequest[] = [];
+  const notificationPublications: DeferredNotificationPublication[] = [];
+  const reconciledRecords: CommissionRecord[] = [];
+  for (const staleRecord of inconsistentRecords) {
+    const index = snapshot.commissionRecords.findIndex((record) => record.id === staleRecord.id);
+    if (index === -1) continue;
+    const current = snapshot.commissionRecords[index];
+    const signatureKey = getCommissionPaymentSignatureKey(current.paymentSignature ?? "");
+    const hasStoredBlockchainProof = Boolean(
+      signatureKey
+      && current.paymentNetwork
+      && current.recipientWalletAddress,
+    );
+    const hasConflictingReservedSignature = Boolean(signatureKey) && snapshot.commissionRecords.some((candidate) => (
+      candidate.id !== current.id
+      && getCommissionPaymentSignatureKey(candidate.paymentSignature ?? "") === signatureKey
+      && (
+        normalizeCommissionPaymentStatus(candidate.paymentStatus, candidate.dueAt) === "paid"
+        || candidate.paymentVerificationStatus === "verified"
+      )
+    ));
+    if (!hasStoredBlockchainProof || hasConflictingReservedSignature) {
+      snapshot.commissionRecords[index] = {
+        ...current,
+        paymentVerificationStatus: "failed",
+        paymentVerificationNotes: hasConflictingReservedSignature
+          ? "This legacy verification conflicts with a TxID already reserved by another commission, so it was not credited. Contact Alpha Traders support."
+          : "This legacy verification has no complete blockchain payment proof, so it was not credited. Submit a valid public TRON (TRC20) TxID for the newly shown exact amount.",
+        updatedAt: now,
+      };
+      await appendAuditLog(snapshot, {
+        action: "admin_override",
+        actorUserId: SYSTEM_ACTOR_USER_ID,
+        targetUserId: current.sellerId,
+        listingId: current.listingId,
+        purchaseRequestId: current.purchaseRequestId,
+        details: `Rejected unsafe verified-but-unpaid legacy state for commission ${current.id}.`,
+        reason: hasConflictingReservedSignature ? "Duplicate legacy TxID." : "Incomplete legacy blockchain proof.",
+      });
+      continue;
+    }
+    const amountDue = typeof current.paymentExpectedAmount === "number"
+      ? current.paymentExpectedAmount
+      : getCommissionAmountDueUsdt(snapshot, current);
+    snapshot.commissionRecords[index] = {
+      ...current,
+      paymentStatus: "paid",
+      paidAt: current.paidAt ?? current.paymentSubmittedAt ?? now,
+      updatedAt: now,
+    };
+    reconciledRecords.push(snapshot.commissionRecords[index]);
+    const request = snapshot.purchaseRequests.find((item) => item.id === current.purchaseRequestId);
+    if (request && !request.timeline.some((entry) => entry.type === "commission_paid")) {
+      appendTradeTimelineEntry(request, {
+        type: "commission_paid",
+        actorUserId: SYSTEM_ACTOR_USER_ID,
+        actorRole: "admin",
+        message: `Previously verified on-chain commission reconciled (${amountDue.toFixed(6)} USDT).`,
+        createdAt: now,
+      });
+      requests.push(request);
+    }
+    await appendAuditLog(snapshot, {
+      action: "commission_paid",
+      actorUserId: SYSTEM_ACTOR_USER_ID,
+      targetUserId: current.sellerId,
+      listingId: current.listingId,
+      purchaseRequestId: current.purchaseRequestId,
+      details: `Reconciled previously verified commission ${current.id} as paid.`,
+      reason: "Automatic migration of a verified pre-upgrade payment.",
+    });
+  }
+
+  for (const current of reconciledRecords) {
+    const remainingCommissions = getUnpaidSellerCommissionRecords(snapshot, current.sellerId);
+    const fullyUnlocked = remainingCommissions.length === 0;
+    const nextCommission = remainingCommissions[0];
+    const sellerPublication = pushNotification(snapshot, {
+      userId: current.sellerId,
+      category: "trade",
+      title: "Commission payment verified",
+      message: fullyUnlocked
+        ? "Your previously verified commission payment has been reconciled. All commission dues are settled and commission-related restrictions have been cleared. Any other account restrictions still apply."
+        : `Your previously verified commission payment has been reconciled. ${remainingCommissions.length} other commission payment${remainingCommissions.length === 1 ? " remains" : "s remain"} due.`,
+      relatedTradeId: current.purchaseRequestId,
+      relatedRequestId: current.purchaseRequestId,
+      relatedListingId: current.listingId,
+      relatedHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
+      actionHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
+      actionLabel: fullyUnlocked ? "Open Marketplace" : "Pay Commission",
+      reason: fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+      deferRealtime: true,
+    });
+    if (sellerPublication) notificationPublications.push(sellerPublication);
+  }
+
+  return { changed: true, requests, notificationPublications };
+}
+
+async function readDbWithPersistedCommissionPaymentExpectedAmounts() {
+  const db = await readDb();
+  let committedReconciliation = await reconcileVerifiedUnpaidCommissions(db);
+  const allocationChanged = ensureCommissionPaymentExpectedAmounts(db);
+  if (!committedReconciliation.changed && !allocationChanged) return db;
+
+  await writeDb(db, {
+    selectedTables: COMMISSION_PAYMENT_TABLES,
+    rebaseOnLatest: async (canonicalSnapshot) => {
+      committedReconciliation = await reconcileVerifiedUnpaidCommissions(canonicalSnapshot);
+      ensureCommissionPaymentExpectedAmounts(canonicalSnapshot);
+      return canonicalSnapshot;
+    },
+    validateBeforeCommit: (canonicalSnapshot) => {
+      ensureCommissionPaymentExpectedAmounts(canonicalSnapshot);
+    },
+  });
+  for (const request of committedReconciliation.requests) {
+    publishRealtimeEvent({
+      type: "trade.status_changed",
+      payload: { request: enrichRequestWithEvidence(db, request) },
+    });
+  }
+  for (const publication of committedReconciliation.notificationPublications) {
+    publishNotificationPublication(publication);
+  }
+  return readDb({ bypassCache: true });
+}
+
 // Internal delta type for targeted listing-creation writes.
 type ListingCreationWriteDelta = {
   newListing: MarketplaceListing;
@@ -4257,6 +4607,7 @@ async function unlockListingAfterCancelledTrade(db: AlphaExchangeDb, listing: Ma
 
 async function markCommissionOverdue(db: AlphaExchangeDb, record: CommissionRecord, actorUserId: string) {
   const now = nowIso();
+  const verificationPending = record.paymentVerificationStatus === "pending_verification";
   record.paymentStatus = "overdue";
   record.overdueNotifiedAt = record.overdueNotifiedAt ?? now;
   record.updatedAt = now;
@@ -4273,14 +4624,16 @@ async function markCommissionOverdue(db: AlphaExchangeDb, record: CommissionReco
   pushNotification(db, {
     userId: record.sellerId,
     category: "trade",
-    title: "Commission overdue",
-    message: `Commission for trade ${record.purchaseRequestId} is overdue and requires payment.`,
+    title: verificationPending ? "Commission verification pending" : "Commission overdue",
+    message: verificationPending
+      ? `Your commission TxID for trade ${record.purchaseRequestId} is saved and automatic verification is still running. Do not send another payment.`
+      : `Commission for trade ${record.purchaseRequestId} is overdue and requires payment.`,
     relatedRequestId: record.purchaseRequestId,
     relatedTradeId: record.purchaseRequestId,
     relatedListingId: record.listingId,
     relatedHref: commissionPaymentDestination(record.id),
     actionHref: commissionPaymentDestination(record.id),
-    actionLabel: "Pay Commission",
+    actionLabel: verificationPending ? "View Payment Status" : "Pay Commission",
     reason: COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
   });
   const owner = getOwnerUser(db);
@@ -4288,8 +4641,10 @@ async function markCommissionOverdue(db: AlphaExchangeDb, record: CommissionReco
     pushNotification(db, {
       userId: owner.id,
       category: "trade",
-      title: "Commission overdue",
-      message: `Commission for trade ${record.purchaseRequestId} is now overdue.`,
+      title: verificationPending ? "Commission verification pending" : "Commission overdue",
+      message: verificationPending
+        ? `Commission TxID for trade ${record.purchaseRequestId} is awaiting automatic verification after its due time.`
+        : `Commission for trade ${record.purchaseRequestId} is now overdue.`,
       relatedRequestId: record.purchaseRequestId,
       relatedTradeId: record.purchaseRequestId,
       relatedListingId: record.listingId,
@@ -8357,7 +8712,8 @@ export async function getSellerCommissionStatus(
   dbInput?: AlphaExchangeDb,
   options?: { commissionId?: string },
 ) {
-  const db = dbInput ?? await readDb();
+  const db = dbInput ?? await readDbWithPersistedCommissionPaymentExpectedAmounts();
+  if (dbInput) ensureCommissionPaymentExpectedAmounts(db);
   const pendingRecords = getUnpaidSellerCommissionRecords(db, sellerId);
   const requestedCommissionId = options?.commissionId?.trim() || undefined;
   // A deep link may name only a payable commission owned by this seller. Do
@@ -8367,7 +8723,7 @@ export async function getSellerCommissionStatus(
     ? pendingRecords.find((record) => record.id === requestedCommissionId)
     : pendingRecords[0];
   const totalAmountDue = pendingRecords.reduce((sum, record) => sum + getCommissionAmountDueUsdt(db, record), 0);
-  const payableAmountDue = primaryRecord ? getCommissionAmountDueUsdt(db, primaryRecord) : 0;
+  const payableAmountDue = primaryRecord ? getCommissionPaymentAmountDueUsdt(primaryRecord) : 0;
   const hasOverdue = pendingRecords.some((record) => record.paymentStatus === "overdue");
   const primaryRequest = primaryRecord
     ? db.purchaseRequests.find((request) => request.id === primaryRecord.purchaseRequestId)
@@ -8381,6 +8737,12 @@ export async function getSellerCommissionStatus(
     return {
       commissionId: record.id,
       amountDue: getCommissionAmountDueUsdt(db, record),
+      paymentAmountDue: getCommissionPaymentAmountDueUsdt(record),
+      paymentVerificationStatus: record.paymentVerificationStatus,
+      paymentVerificationNotes: record.paymentVerificationNotes,
+      paymentSignature: record.paymentSignature,
+      paymentSubmittedAt: record.paymentSubmittedAt,
+      paymentExpectedAmountMode: record.paymentExpectedAmountMode,
       dueAt: record.dueAt,
       relatedRequestId: record.purchaseRequestId,
       relatedTradeId: request?.tradeId,
@@ -8419,7 +8781,9 @@ export async function getWorkspaceBootstrapData(input: {
   role: UserRole;
   includeSellerWorkspace: boolean;
 }) {
-  const db = await readDb();
+  const db = input.includeSellerWorkspace
+    ? await readDbWithPersistedCommissionPaymentExpectedAmounts()
+    : await readDb();
   const purchaseRequests = await getMyPurchaseRequests(input.userId, input.role, db);
   const sellerApplication = await getSellerApplicationByUserId(input.userId, db);
   if (!input.includeSellerWorkspace) {
@@ -11020,6 +11384,7 @@ async function updatePurchaseRequestStatusAttempt(
   let timelineMs = 0;
   let chatMs = 0;
   let notificationMs = 0;
+  let newlyCreatedCommissionId: string | undefined;
   const additionallyDeclinedRequests: PurchaseRequest[] = [];
   let requestIndex = db.purchaseRequests.findIndex((item) => item.id === input.requestId);
   if (requestIndex === -1) {
@@ -11650,6 +12015,7 @@ async function updatePurchaseRequestStatusAttempt(
         updatedAt: now,
       };
       db.commissionRecords.push(commission);
+      newlyCreatedCommissionId = commission.id;
       appendTradeTimelineEntry(next, {
         type: "commission_recorded",
         actorUserId: input.actorUserId,
@@ -11883,6 +12249,27 @@ async function updatePurchaseRequestStatusAttempt(
           }
         }
       },
+      validateBeforeCommit: input.nextStatus === "completed"
+        ? (canonicalSnapshot) => {
+            try {
+              // Runs under the repository lock after stale snapshots are
+              // merged. This newly-created intent has not been exposed yet,
+              // so allocate it from canonical state while every older issued
+              // amount remains immutable.
+              const newCommission = newlyCreatedCommissionId
+                ? canonicalSnapshot.commissionRecords.find((record) => record.id === newlyCreatedCommissionId)
+                : undefined;
+              if (newCommission) {
+                newCommission.paymentExpectedAmount = undefined;
+                newCommission.paymentExpectedAmountMode = undefined;
+                newCommission.paymentExpectedAmountAssignedAt = undefined;
+              }
+              ensureCommissionPaymentExpectedAmounts(canonicalSnapshot);
+            } catch {
+              throw new ConcurrentTradeMutationError();
+            }
+          }
+        : undefined,
     });
   } catch (error) {
     if (error instanceof ConcurrentTradeMutationError && concurrencyRetryCount < 2) {
@@ -12043,6 +12430,7 @@ const TRON_USDT_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
 const TRON_USDT_CONTRACT_HEX = tronAddressToHex(TRON_USDT_CONTRACT)?.slice(2) ?? "";
 const TRON_TRANSFER_TOPIC = ERC20_TRANSFER_TOPIC.slice(2);
 const TRONGRID_MAINNET_URL = "https://api.trongrid.io";
+const TRON_RPC_TIMEOUT_MS = 8_000;
 
 export { normalizeTransactionHash } from "@/lib/tx-hash-utils";
 
@@ -12073,6 +12461,7 @@ interface TronReceiptLog {
 interface TronTransactionInfo {
   id?: string;
   blockNumber?: number;
+  blockTimeStamp?: number;
   receipt?: { result?: string };
   log?: TronReceiptLog[];
 }
@@ -12447,6 +12836,8 @@ async function verifyTronUsdtPayment(input: {
   recipientWalletAddress: string;
   txHash: string;
   amountDueUsdt: number;
+  earliestPaymentTimestampMs?: number;
+  allowLegacyOverpayment?: boolean;
 }): Promise<CommissionWalletVerificationResult> {
   const baseUrl = (process.env.ALPHA_EXCHANGE_TRON_RPC_URL ?? TRONGRID_MAINNET_URL).replace(/\/+$/, "");
   const apiKey = process.env.ALPHA_EXCHANGE_TRONGRID_API_KEY?.trim();
@@ -12461,7 +12852,7 @@ async function verifyTronUsdtPayment(input: {
       method: "POST",
       headers,
       body: JSON.stringify({ value: input.txHash }),
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(TRON_RPC_TIMEOUT_MS),
     });
     if (!response.ok) throw new Error(`TRON RPC HTTP ${response.status}`);
     const payload = await response.json() as T & { Error?: string; error?: string };
@@ -12493,8 +12884,9 @@ async function verifyTronUsdtPayment(input: {
     }
     return {
       verified: false,
+      pending: true,
       reference: input.txHash,
-      notes: "Transaction was not found on TRON. Please paste the USDT TRC20 transaction ID from Binance withdrawal history.",
+      notes: "This transaction is not visible on TRON yet. Alpha Traders will keep checking it automatically; make sure you pasted the USDT TRC20 TxID from Binance withdrawal history.",
     };
   }
 
@@ -12506,6 +12898,26 @@ async function verifyTronUsdtPayment(input: {
       verified: false,
       reference: input.txHash,
       notes: `TRON transaction failed on-chain (status: ${transactionInfo.receipt?.result ?? "unknown"}) and cannot be used as commission payment.`,
+    };
+  }
+  const blockTimestampMs = Number(transactionInfo.blockTimeStamp);
+  if (!Number.isFinite(blockTimestampMs) || blockTimestampMs <= 0) {
+    return {
+      verified: false,
+      pending: true,
+      reference: input.txHash,
+      notes: "TRON has not returned the transaction timestamp yet. Alpha Traders will retry this payment automatically.",
+    };
+  }
+  if (
+    typeof input.earliestPaymentTimestampMs === "number"
+    && Number.isFinite(input.earliestPaymentTimestampMs)
+    && blockTimestampMs < input.earliestPaymentTimestampMs
+  ) {
+    return {
+      verified: false,
+      reference: input.txHash,
+      notes: "This transaction predates this commission payment request and cannot be used. Submit the TxID for the new USDT TRC20 transfer.",
     };
   }
 
@@ -12558,11 +12970,16 @@ async function verifyTronUsdtPayment(input: {
   }
   const amountDueMicros = BigInt(Math.round(input.amountDueUsdt * 1_000_000));
   const amountReceived = Number(receivedMicros) / 1_000_000;
-  if (receivedMicros < amountDueMicros) {
+  const amountMatches = input.allowLegacyOverpayment
+    ? receivedMicros >= amountDueMicros
+    : receivedMicros === amountDueMicros;
+  if (!amountMatches) {
     return {
       verified: false,
       reference: input.txHash,
-      notes: `Insufficient payment. Received ${amountReceived.toFixed(2)} USDT on TRON, but ${input.amountDueUsdt.toFixed(2)} USDT is required.`,
+      notes: input.allowLegacyOverpayment
+        ? `Insufficient legacy payment. The recipient received ${amountReceived.toFixed(6)} USDT on TRON; at least ${input.amountDueUsdt.toFixed(6)} USDT is required.`
+        : `Payment amount mismatch. The recipient received ${amountReceived.toFixed(6)} USDT on TRON; this commission requires exactly ${input.amountDueUsdt.toFixed(6)} USDT.`,
     };
   }
 
@@ -12700,6 +13117,8 @@ async function verifyCommissionWalletPayment(input: {
   recipientWalletAddress: string;
   paymentSignature: string;
   existingSignatures?: string[];
+  earliestPaymentTimestampMs?: number;
+  allowLegacyTronOverpayment?: boolean;
 }): Promise<CommissionWalletVerificationResult> {
   const normalizedHash = normalizeTransactionHash(input.paymentSignature);
   const txHash = input.network === "TRC20" && /^0x/i.test(normalizedHash)
@@ -12747,6 +13166,8 @@ async function verifyCommissionWalletPayment(input: {
         recipientWalletAddress: input.recipientWalletAddress,
         txHash,
         amountDueUsdt: input.amountDue,
+        earliestPaymentTimestampMs: input.earliestPaymentTimestampMs,
+        allowLegacyOverpayment: input.allowLegacyTronOverpayment,
       });
     } else if (input.network === "ERC20" || input.network === "POLYGON") {
       result = await verifyEvmUsdtPayment({
@@ -12789,23 +13210,21 @@ export async function submitSellerCommissionWalletPayment(input: {
   payerWalletAddress: string;
   paymentSignature: string;
   network: string;
+  automaticReverification?: boolean;
 }) {
   const startedAt = Date.now();
   const dbReadStartedAt = Date.now();
-  const db = await readDb();
-  const dbReadMs = Date.now() - dbReadStartedAt;
+  let db = await readDb();
   const validationStartedAt = Date.now();
-  const index = db.commissionRecords.findIndex((record) => record.id === input.commissionId);
+  let index = db.commissionRecords.findIndex((record) => record.id === input.commissionId);
   if (index === -1) throw new Error("Commission record not found.");
-  const current = db.commissionRecords[index];
+  let current = db.commissionRecords[index];
   if (current.sellerId !== input.sellerUserId) {
     throw new Error("You can only settle your own commission.");
   }
   if (normalizeCommissionPaymentStatus(current.paymentStatus, current.dueAt) === "paid") {
     throw new Error("This commission is already settled.");
   }
-  const validationMs = Date.now() - validationStartedAt;
-
   const { resolveCommissionWalletForNetwork } = await import("@/lib/commission-config");
   const commissionWallet = resolveCommissionWalletForNetwork(input.network);
   if (!commissionWallet.available) {
@@ -12814,27 +13233,93 @@ export async function submitSellerCommissionWalletPayment(input: {
     throw new Error(commissionWallet.error);
   }
 
+  // Only an authenticated owner using the supported rail may trigger the
+  // one-time legacy intent allocation write.
+  db = await readDbWithPersistedCommissionPaymentExpectedAmounts();
+  index = db.commissionRecords.findIndex((record) => record.id === input.commissionId);
+  if (index === -1) throw new Error("Commission record not found.");
+  current = db.commissionRecords[index];
+  if (current.sellerId !== input.sellerUserId) {
+    throw new Error("You can only settle your own commission.");
+  }
+  if (normalizeCommissionPaymentStatus(current.paymentStatus, current.dueAt) === "paid") {
+    throw new Error("This commission is already settled.");
+  }
+  const dbReadMs = Date.now() - dbReadStartedAt;
+  const validationMs = Date.now() - validationStartedAt;
+
   const verificationStartedAt = Date.now();
   const chosenNetwork = commissionWallet.network;
   const recipientWalletAddress = commissionWallet.walletAddress;
 
-  // Collect all previously accepted tx hashes to prevent re-use
+  const normalizedPaymentSignature = getCommissionPaymentSignatureKey(input.paymentSignature);
+  if (
+    current.paymentExpectedAmountMode === "legacy_base"
+    && current.paymentSignature
+    && getCommissionPaymentSignatureKey(current.paymentSignature) !== normalizedPaymentSignature
+  ) {
+    throw new Error("This pre-upgrade payment can only be verified with its originally submitted TxID. Contact Alpha Traders support before making another transfer.");
+  }
+  const paymentSignatureAtRead = current.paymentSignature
+    ? getCommissionPaymentSignatureKey(current.paymentSignature)
+    : "";
+  const paymentVerificationStatusAtRead = current.paymentVerificationStatus;
+  const paymentSubmittedAtAtRead = current.paymentSubmittedAt;
+  const paymentUpdatedAtAtRead = current.updatedAt;
+  const replacesPriorSubmission = Boolean(
+    current.paymentSignature
+    && getCommissionPaymentSignatureKey(current.paymentSignature) !== normalizedPaymentSignature,
+  );
+  const paymentSubmittedAt = !current.paymentSubmittedAt || replacesPriorSubmission
+    ? nowIso()
+    : current.paymentSubmittedAt;
+  const assignmentTimestampMs = new Date(current.paymentExpectedAmountAssignedAt ?? "").getTime();
+  if (!Number.isFinite(assignmentTimestampMs) || assignmentTimestampMs <= 0) {
+    throw new Error("The commission payment intent is unavailable. Please refresh and try again.");
+  }
+  const earliestPaymentTimestampMs = assignmentTimestampMs - COMMISSION_PAYMENT_CLOCK_SKEW_MS;
+
+  // Reserve TxIDs that are already verified or awaiting finality. Excluding
+  // this record lets the cron safely recheck its own submission.
   const existingSignatures = db.commissionRecords
-    .filter((r) => r.paymentVerificationStatus === "verified" && r.paymentSignature)
+    .filter((r) => (
+      r.id !== current.id
+      && (
+        normalizeCommissionPaymentStatus(r.paymentStatus, r.dueAt) === "paid"
+        || r.paymentVerificationStatus === "verified"
+        || r.paymentVerificationStatus === "pending_verification"
+      )
+      && r.paymentSignature
+    ))
     .map((r) => getCommissionPaymentSignatureKey(r.paymentSignature as string));
 
-  const amountDueUsdt = getCommissionAmountDueUsdt(db, current);
-  const verification = await verifyCommissionWalletPayment({
+  const amountDueUsdt = getCommissionPaymentAmountDueUsdt(current);
+  let verification = await verifyCommissionWalletPayment({
     amountDue: amountDueUsdt,
     network: chosenNetwork,
     payerWalletAddress: input.payerWalletAddress.trim(),
     recipientWalletAddress,
     paymentSignature: input.paymentSignature.trim(),
     existingSignatures,
+    earliestPaymentTimestampMs,
+    allowLegacyTronOverpayment: current.paymentExpectedAmountMode === "legacy_base",
   });
+  const submittedPaymentAgeMs = Date.now() - new Date(paymentSubmittedAt).getTime();
+  if (
+    input.automaticReverification
+    && verification.pending
+    && /not visible on TRON yet/i.test(verification.notes)
+    && Number.isFinite(submittedPaymentAgeMs)
+    && submittedPaymentAgeMs >= TRON_TX_NOT_FOUND_RETRY_WINDOW_MS
+  ) {
+    verification = {
+      verified: false,
+      reference: verification.reference,
+      notes: "The submitted TxID was not found on TRON after repeated checks. No payment was credited. Confirm the Binance withdrawal used USDT on TRON (TRC20), then submit the correct TxID.",
+    };
+  }
   const verificationMs = Date.now() - verificationStartedAt;
   const businessStartedAt = Date.now();
-  const normalizedPaymentSignature = getCommissionPaymentSignatureKey(input.paymentSignature);
   const applyCommissionPaymentToCanonicalSnapshot = async (snapshot: AlphaExchangeDb) => {
     const canonicalIndex = snapshot.commissionRecords.findIndex((record) => record.id === input.commissionId);
     if (canonicalIndex === -1) throw new Error("Commission record not found.");
@@ -12845,20 +13330,62 @@ export async function submitSellerCommissionWalletPayment(input: {
     if (normalizeCommissionPaymentStatus(canonicalRecord.paymentStatus, canonicalRecord.dueAt) === "paid") {
       throw new Error("This commission is already settled.");
     }
+    const canonicalPaymentSignature = canonicalRecord.paymentSignature
+      ? getCommissionPaymentSignatureKey(canonicalRecord.paymentSignature)
+      : "";
+    const paymentStateChangedSinceRead = (
+      canonicalPaymentSignature !== paymentSignatureAtRead
+      || canonicalRecord.paymentVerificationStatus !== paymentVerificationStatusAtRead
+      || canonicalRecord.paymentSubmittedAt !== paymentSubmittedAtAtRead
+      || canonicalRecord.updatedAt !== paymentUpdatedAtAtRead
+    );
+    if (input.automaticReverification && (
+      paymentStateChangedSinceRead
+      || canonicalRecord.paymentVerificationStatus !== "pending_verification"
+      || canonicalPaymentSignature !== normalizedPaymentSignature
+    )) {
+      throw new Error("This commission payment changed while automatic verification was running. The newer submission was preserved.");
+    }
+    if (paymentStateChangedSinceRead) {
+      throw new Error("This commission payment changed while verification was running. The newer submission was preserved.");
+    }
 
-    const canonicalAmountDueUsdt = getCommissionAmountDueUsdt(snapshot, canonicalRecord);
-    if (Math.abs(canonicalAmountDueUsdt - amountDueUsdt) > 0.000001) {
+    const canonicalAmountDueUsdt = getCommissionPaymentAmountDueUsdt(canonicalRecord);
+    if (usdtToMicros(canonicalAmountDueUsdt) !== usdtToMicros(amountDueUsdt)) {
       throw new Error("The commission amount changed. Please refresh and try again.");
     }
-    if (verification.verified && snapshot.commissionRecords.some((record) => (
+    if (
+      canonicalRecord.paymentExpectedAmountMode !== current.paymentExpectedAmountMode
+      || canonicalRecord.paymentExpectedAmountAssignedAt !== current.paymentExpectedAmountAssignedAt
+    ) {
+      throw new Error("The commission payment intent changed. Please refresh and try again.");
+    }
+    if ((verification.verified || verification.pending) && snapshot.commissionRecords.some((record) => (
       record.id !== canonicalRecord.id
-      && record.paymentVerificationStatus === "verified"
+      && (
+        normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) === "paid"
+        || record.paymentVerificationStatus === "verified"
+        || record.paymentVerificationStatus === "pending_verification"
+      )
       && getCommissionPaymentSignatureKey(record.paymentSignature ?? "") === normalizedPaymentSignature
     ))) {
       throw new Error("This transaction hash has already been used for a previous commission payment.");
     }
 
-    const now = nowIso();
+    const wallClockMs = Date.now();
+    const latestCommissionUpdateMs = Math.max(
+      0,
+      ...snapshot.commissionRecords.map((record) => {
+        const timestamp = new Date(record.updatedAt).getTime();
+        return Number.isFinite(timestamp) ? timestamp : 0;
+      }),
+    );
+    // A pending automatic retry moves behind every other candidate even when
+    // allocation and verification happen within the same millisecond.
+    const mutationTimestampMs = input.automaticReverification && verification.pending
+      ? Math.max(wallClockMs, latestCommissionUpdateMs + 1)
+      : wallClockMs;
+    const now = new Date(mutationTimestampMs).toISOString();
     const nextRecord: CommissionRecord = {
       ...canonicalRecord,
       paymentProvider: "crypto_wallet",
@@ -12866,7 +13393,8 @@ export async function submitSellerCommissionWalletPayment(input: {
       payerWalletAddress: input.payerWalletAddress.trim() || undefined,
       recipientWalletAddress,
       paymentSignature: input.paymentSignature.trim(),
-      paymentSubmittedAt: canonicalRecord.paymentSubmittedAt ?? now,
+      paymentExpectedAmount: canonicalAmountDueUsdt,
+      paymentSubmittedAt,
       paymentVerificationStatus: verification.verified
         ? "verified"
         : verification.pending
@@ -12879,16 +13407,18 @@ export async function submitSellerCommissionWalletPayment(input: {
     };
     snapshot.commissionRecords[canonicalIndex] = nextRecord;
 
-    await appendAuditLog(snapshot, {
-      action: verification.verified ? "commission_paid" : "commission_recorded",
-      actorUserId: input.sellerUserId,
-      targetUserId: canonicalRecord.sellerId,
-      listingId: canonicalRecord.listingId,
-      purchaseRequestId: canonicalRecord.purchaseRequestId,
-      details: verification.verified
-        ? `Commission ${canonicalRecord.id} verified via ${chosenNetwork}. Amount: ${canonicalAmountDueUsdt.toFixed(2)} USDT. Tx: ${input.paymentSignature.trim()}.`
-        : `Commission ${canonicalRecord.id} payment ${verification.pending ? "queued for automatic reverification" : "rejected"} via ${chosenNetwork}. Tx: ${input.paymentSignature.trim()}. Reason: ${verification.notes}`,
-    });
+    if (!input.automaticReverification || verification.verified || !verification.pending) {
+      await appendAuditLog(snapshot, {
+        action: verification.verified ? "commission_paid" : "commission_recorded",
+        actorUserId: input.sellerUserId,
+        targetUserId: canonicalRecord.sellerId,
+        listingId: canonicalRecord.listingId,
+        purchaseRequestId: canonicalRecord.purchaseRequestId,
+        details: verification.verified
+          ? `Commission ${canonicalRecord.id} verified via ${chosenNetwork}. Exact payment: ${canonicalAmountDueUsdt.toFixed(6)} USDT. Tx: ${input.paymentSignature.trim()}.`
+          : `Commission ${canonicalRecord.id} payment ${verification.pending ? "queued for automatic reverification" : "rejected"} via ${chosenNetwork}. Tx: ${input.paymentSignature.trim()}. Reason: ${verification.notes}`,
+      });
+    }
 
     const notificationPublications: DeferredNotificationPublication[] = [];
     const request = snapshot.purchaseRequests.find((item) => item.id === canonicalRecord.purchaseRequestId);
@@ -12897,19 +13427,28 @@ export async function submitSellerCommissionWalletPayment(input: {
         type: "commission_paid",
         actorUserId: input.sellerUserId,
         actorRole: resolveActorRole(snapshot, input.sellerUserId),
-        message: `Commission paid on-chain (${canonicalAmountDueUsdt.toFixed(2)} USDT).`,
+        message: `Commission paid on-chain (${canonicalAmountDueUsdt.toFixed(6)} USDT).`,
         createdAt: now,
       });
     }
     if (verification.verified) {
+      const remainingCommissions = getUnpaidSellerCommissionRecords(snapshot, canonicalRecord.sellerId);
+      const fullyUnlocked = remainingCommissions.length === 0;
+      const nextCommission = remainingCommissions[0];
       const sellerPublication = pushNotification(snapshot, {
         userId: canonicalRecord.sellerId,
         category: "trade",
         title: "Commission payment verified",
-        message: `Your commission payment for trade ${canonicalRecord.purchaseRequestId} was verified. Your account is now fully unlocked.`,
+        message: fullyUnlocked
+          ? "Your commission payment was verified. All commission dues are settled and commission-related restrictions have been cleared. Any other account restrictions still apply."
+          : `Your commission payment was verified. ${remainingCommissions.length} other commission payment${remainingCommissions.length === 1 ? " remains" : "s remain"} due.`,
         relatedTradeId: canonicalRecord.purchaseRequestId,
+        relatedRequestId: canonicalRecord.purchaseRequestId,
         relatedListingId: canonicalRecord.listingId,
-        relatedHref: "/usdt-exchange",
+        relatedHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
+        actionHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
+        actionLabel: fullyUnlocked ? "Open Marketplace" : "Pay Commission",
+        reason: fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
         deferRealtime: true,
       });
       if (sellerPublication) notificationPublications.push(sellerPublication);
@@ -12920,7 +13459,7 @@ export async function submitSellerCommissionWalletPayment(input: {
           userId: ownerUser.id,
           category: "system",
           title: "Commission payment received",
-          message: `Commission ${canonicalRecord.id} paid via ${chosenNetwork}. Amount: ${canonicalAmountDueUsdt.toFixed(2)} USDT. Tx: ${input.paymentSignature.trim()}`,
+          message: `Commission ${canonicalRecord.id} paid via ${chosenNetwork}. Exact payment: ${canonicalAmountDueUsdt.toFixed(6)} USDT. Tx: ${input.paymentSignature.trim()}`,
           relatedTradeId: canonicalRecord.purchaseRequestId,
           relatedListingId: canonicalRecord.listingId,
           relatedHref: adminCommissionDestination(canonicalRecord.id),
@@ -12930,6 +13469,23 @@ export async function submitSellerCommissionWalletPayment(input: {
         });
         if (ownerPublication) notificationPublications.push(ownerPublication);
       }
+    } else if (input.automaticReverification && !verification.pending) {
+      const sellerPublication = pushNotification(snapshot, {
+        userId: canonicalRecord.sellerId,
+        category: "trade",
+        title: "Commission payment needs attention",
+        message: `The submitted TRON transaction was not credited: ${verification.notes} Open the commission payment and submit the correct TxID.`,
+        relatedTradeId: canonicalRecord.purchaseRequestId,
+        relatedRequestId: canonicalRecord.purchaseRequestId,
+        relatedListingId: canonicalRecord.listingId,
+        relatedHref: commissionPaymentDestination(canonicalRecord.id),
+        actionHref: commissionPaymentDestination(canonicalRecord.id),
+        actionLabel: "Replace TxID",
+        reason: COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+        priority: "high",
+        deferRealtime: true,
+      });
+      if (sellerPublication) notificationPublications.push(sellerPublication);
     }
 
     return { commission: nextRecord, request, notificationPublications };
@@ -12975,8 +13531,8 @@ export async function submitSellerCommissionWalletPayment(input: {
  * solidified, or whose public RPC lookup was temporarily unavailable.
  */
 export async function reverifyPendingCommissionPayments(input?: { limit?: number }) {
-  const requestedLimit = Math.trunc(input?.limit ?? 4);
-  const limit = Math.min(10, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 4));
+  const requestedLimit = Math.trunc(input?.limit ?? 2);
+  const limit = Math.min(4, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 2));
   const { resolveCommissionWalletForNetwork } = await import("@/lib/commission-config");
   const commissionWallet = resolveCommissionWalletForNetwork("TRC20");
   if (!commissionWallet.available) {
@@ -12991,7 +13547,9 @@ export async function reverifyPendingCommissionPayments(input?: { limit?: number
       && Boolean(record.paymentSignature)
       && record.recipientWalletAddress === commissionWallet.walletAddress
     ))
-    .sort((left, right) => String(left.paymentSubmittedAt ?? left.updatedAt).localeCompare(String(right.paymentSubmittedAt ?? right.updatedAt)))
+    // Every retry updates updatedAt, moving a still-pending record to the back
+    // so slow/stuck transactions cannot starve newer seller payments.
+    .sort((left, right) => String(left.updatedAt).localeCompare(String(right.updatedAt)))
     .slice(0, limit);
 
   let verified = 0;
@@ -13006,6 +13564,7 @@ export async function reverifyPendingCommissionPayments(input?: { limit?: number
         network: "TRC20",
         payerWalletAddress: record.payerWalletAddress ?? "",
         paymentSignature: record.paymentSignature as string,
+        automaticReverification: true,
       });
       if (result.verification.verified) verified += 1;
       else if (result.verification.pending) stillPending += 1;
@@ -13034,53 +13593,61 @@ export async function clearSellerQaCommissionDues(input: {
   if (!isQaCommissionModeEnabled()) {
     throw new Error("QA commission mode is not enabled.");
   }
-
   const db = await readDb();
-  const now = nowIso();
-  const sellerPendingCommissions = db.commissionRecords.filter(
-    (record) =>
-      record.sellerId === input.sellerUserId &&
-      normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid",
-  );
-
-  for (const current of sellerPendingCommissions) {
-    const index = db.commissionRecords.findIndex((record) => record.id === current.id);
-    if (index === -1) continue;
-    const amountDueUsdt = getCommissionAmountDueUsdt(db, current);
-    db.commissionRecords[index] = {
-      ...current,
-      paymentProvider: "qa_reset",
-      paymentNetwork: "QA",
-      paymentStatus: "paid",
-      paymentVerificationStatus: "verified",
-      paymentVerificationNotes: "Cleared automatically by QA commission mode.",
-      paymentSubmittedAt: now,
-      paidAt: now,
-      updatedAt: now,
-    };
-    const request = db.purchaseRequests.find((item) => item.id === current.purchaseRequestId);
-    if (request) {
-      appendTradeTimelineEntry(request, {
-        type: "commission_paid",
+  let clearedCount = 0;
+  const applyQaClear = async (snapshot: AlphaExchangeDb) => {
+    const now = nowIso();
+    const pending = snapshot.commissionRecords.filter(
+      (record) => record.sellerId === input.sellerUserId
+        && normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid",
+    );
+    clearedCount = pending.length;
+    for (const current of pending) {
+      const index = snapshot.commissionRecords.findIndex((record) => record.id === current.id);
+      if (index === -1) continue;
+      const amountDueUsdt = getCommissionAmountDueUsdt(snapshot, current);
+      snapshot.commissionRecords[index] = {
+        ...current,
+        paymentProvider: "qa_reset",
+        paymentNetwork: "QA",
+        paymentStatus: "paid",
+        paymentVerificationStatus: "verified",
+        paymentVerificationNotes: "Cleared automatically by QA commission mode.",
+        paymentSubmittedAt: now,
+        paidAt: now,
+        updatedAt: now,
+      };
+      const request = snapshot.purchaseRequests.find((item) => item.id === current.purchaseRequestId);
+      if (request) {
+        appendTradeTimelineEntry(request, {
+          type: "commission_paid",
+          actorUserId: input.sellerUserId,
+          actorRole: resolveActorRole(snapshot, input.sellerUserId),
+          message: `QA commission cleanup cleared ${amountDueUsdt.toFixed(2)} USDT.`,
+          createdAt: now,
+        });
+      }
+      await appendAuditLog(snapshot, {
+        action: "commission_paid",
         actorUserId: input.sellerUserId,
-        actorRole: resolveActorRole(db, input.sellerUserId),
-        message: `QA commission cleanup cleared ${amountDueUsdt.toFixed(2)} USDT.`,
-        createdAt: now,
+        targetUserId: current.sellerId,
+        listingId: current.listingId,
+        purchaseRequestId: current.purchaseRequestId,
+        details: `QA commission cleanup cleared ${current.id}.`,
       });
     }
-    await appendAuditLog(db, {
-      action: "commission_paid",
-      actorUserId: input.sellerUserId,
-      targetUserId: current.sellerId,
-      listingId: current.listingId,
-      purchaseRequestId: current.purchaseRequestId,
-      details: `QA commission cleanup cleared ${current.id}.`,
+    return snapshot;
+  };
+
+  await applyQaClear(db);
+  if (clearedCount > 0) {
+    await writeDb(db, {
+      selectedTables: COMMISSION_RESET_TABLES,
+      rebaseOnLatest: applyQaClear,
     });
   }
-
-  await writeDb(db, { selectedTables: COMMISSION_RESET_TABLES });
   return {
-    clearedCount: sellerPendingCommissions.length,
+    clearedCount,
   };
 }
 
@@ -13089,56 +13656,70 @@ export async function clearSellerCommissionDuesByAdmin(input: {
   adminUserId: string;
 }) {
   const db = await readDb();
-  const now = nowIso();
   const sellerUserIdSet = new Set(input.sellerUserIds.filter(Boolean));
-  const sellerPendingCommissions = db.commissionRecords.filter(
-    (record) =>
-      sellerUserIdSet.has(record.sellerId) &&
-      normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid",
-  );
-
-  for (const current of sellerPendingCommissions) {
-    const index = db.commissionRecords.findIndex((record) => record.id === current.id);
-    if (index === -1) continue;
-    const amountDueUsdt = getCommissionAmountDueUsdt(db, current);
-    db.commissionRecords[index] = {
-      ...current,
-      paymentProvider: "qa_reset",
-      paymentNetwork: "QA",
-      paymentStatus: "paid",
-      paymentVerificationStatus: "verified",
-      paymentVerificationNotes: "Cleared by admin reset-by-email action.",
-      paymentSubmittedAt: now,
-      paidAt: now,
-      updatedAt: now,
-    };
-    const request = db.purchaseRequests.find((item) => item.id === current.purchaseRequestId);
-    if (request) {
-      appendTradeTimelineEntry(request, {
-        type: "commission_paid",
+  let clearedCount = 0;
+  let committedRequests: PurchaseRequest[] = [];
+  const applyAdminClear = async (snapshot: AlphaExchangeDb) => {
+    const now = nowIso();
+    const pending = snapshot.commissionRecords.filter(
+      (record) => sellerUserIdSet.has(record.sellerId)
+        && normalizeCommissionPaymentStatus(record.paymentStatus, record.dueAt) !== "paid",
+    );
+    clearedCount = pending.length;
+    committedRequests = [];
+    for (const current of pending) {
+      const index = snapshot.commissionRecords.findIndex((record) => record.id === current.id);
+      if (index === -1) continue;
+      const amountDueUsdt = getCommissionAmountDueUsdt(snapshot, current);
+      snapshot.commissionRecords[index] = {
+        ...current,
+        paymentProvider: "qa_reset",
+        paymentNetwork: "QA",
+        paymentStatus: "paid",
+        paymentVerificationStatus: "verified",
+        paymentVerificationNotes: "Cleared by admin reset-by-email action.",
+        paymentSubmittedAt: now,
+        paidAt: now,
+        updatedAt: now,
+      };
+      const request = snapshot.purchaseRequests.find((item) => item.id === current.purchaseRequestId);
+      if (request) {
+        appendTradeTimelineEntry(request, {
+          type: "commission_paid",
+          actorUserId: input.adminUserId,
+          actorRole: resolveActorRole(snapshot, input.adminUserId),
+          message: `Admin cleared ${amountDueUsdt.toFixed(2)} USDT commission.`,
+          createdAt: now,
+        });
+        committedRequests.push(request);
+      }
+      await appendAuditLog(snapshot, {
+        action: "commission_paid",
         actorUserId: input.adminUserId,
-        actorRole: resolveActorRole(db, input.adminUserId),
-        message: `Admin cleared ${amountDueUsdt.toFixed(2)} USDT commission.`,
-        createdAt: now,
-      });
-      publishRealtimeEvent({
-        type: "trade.status_changed",
-        payload: { request: enrichRequestWithEvidence(db, request) },
+        targetUserId: current.sellerId,
+        listingId: current.listingId,
+        purchaseRequestId: current.purchaseRequestId,
+        details: `Admin reset-by-email cleared commission ${current.id}.`,
       });
     }
-    await appendAuditLog(db, {
-      action: "commission_paid",
-      actorUserId: input.adminUserId,
-      targetUserId: current.sellerId,
-      listingId: current.listingId,
-      purchaseRequestId: current.purchaseRequestId,
-      details: `Admin reset-by-email cleared commission ${current.id}.`,
+    return snapshot;
+  };
+
+  await applyAdminClear(db);
+  if (clearedCount > 0) {
+    await writeDb(db, {
+      selectedTables: COMMISSION_RESET_TABLES,
+      rebaseOnLatest: applyAdminClear,
     });
   }
-
-  await writeDb(db, { selectedTables: COMMISSION_RESET_TABLES });
+  for (const request of committedRequests) {
+    publishRealtimeEvent({
+      type: "trade.status_changed",
+      payload: { request: enrichRequestWithEvidence(db, request) },
+    });
+  }
   return {
-    clearedCount: sellerPendingCommissions.length,
+    clearedCount,
   };
 }
 
@@ -14912,7 +15493,7 @@ export async function broadcastNotificationByAdmin(input: {
 }
 
 export async function reverifyCommissionByAdmin(input: { commissionId: string; actorUserId: string; reason?: string }) {
-  const db = await readDb();
+  const db = await readDbWithPersistedCommissionPaymentExpectedAmounts();
   const index = db.commissionRecords.findIndex((r) => r.id === input.commissionId);
   if (index === -1) throw new Error("Commission record not found.");
   const record = db.commissionRecords[index];
@@ -14920,31 +15501,197 @@ export async function reverifyCommissionByAdmin(input: { commissionId: string; a
     throw new Error("Commission has no payment details to reverify.");
   }
   const existingSignatures = db.commissionRecords
-    .filter((r) => r.id !== input.commissionId && r.paymentVerificationStatus === "verified")
+    .filter((r) => (
+      r.id !== input.commissionId
+      && (
+        normalizeCommissionPaymentStatus(r.paymentStatus, r.dueAt) === "paid"
+        || r.paymentVerificationStatus === "verified"
+        || r.paymentVerificationStatus === "pending_verification"
+      )
+    ))
     .map((r) => r.paymentSignature ? getCommissionPaymentSignatureKey(r.paymentSignature) : undefined)
     .filter((s): s is string => Boolean(s));
+  const amountDue = record.paymentNetwork === "TRC20"
+    ? (typeof record.paymentExpectedAmount === "number"
+        ? getCommissionPaymentAmountDueUsdt(record)
+        : getCommissionAmountDueUsdt(db, record))
+    : getCommissionAmountDueUsdt(db, record);
+  const assignmentTimestampMs = new Date(record.paymentExpectedAmountAssignedAt ?? "").getTime();
+  const submittedAtMs = new Date(record.paymentSubmittedAt ?? "").getTime();
+  const createdAtMs = new Date(record.createdAt).getTime();
+  const legacyTimestampMs = Math.max(
+    Number.isFinite(createdAtMs) ? createdAtMs : 0,
+    Number.isFinite(submittedAtMs) ? submittedAtMs - 24 * 60 * 60 * 1000 : 0,
+  );
+  const earliestPaymentTimestampMs = record.paymentNetwork === "TRC20"
+    ? (Number.isFinite(assignmentTimestampMs) && assignmentTimestampMs > 0
+        ? assignmentTimestampMs - COMMISSION_PAYMENT_CLOCK_SKEW_MS
+        : legacyTimestampMs - COMMISSION_PAYMENT_CLOCK_SKEW_MS)
+    : undefined;
+  const signatureAtRead = getCommissionPaymentSignatureKey(record.paymentSignature);
+  const networkAtRead = record.paymentNetwork;
+  const recipientAtRead = record.recipientWalletAddress;
+  const verificationStatusAtRead = record.paymentVerificationStatus;
+  const submittedAtAtRead = record.paymentSubmittedAt;
+  const updatedAtAtRead = record.updatedAt;
+  const paymentStatusAtRead = record.paymentStatus;
+  const paidAtAtRead = record.paidAt;
   const result = await verifyCommissionWalletPayment({
-    amountDue: record.commissionAmount,
+    amountDue,
     network: record.paymentNetwork,
     payerWalletAddress: record.payerWalletAddress ?? "",
     recipientWalletAddress: record.recipientWalletAddress,
     paymentSignature: record.paymentSignature,
     existingSignatures,
+    earliestPaymentTimestampMs,
+    allowLegacyTronOverpayment: record.paymentNetwork === "TRC20"
+      && (record.paymentExpectedAmountMode === "legacy_base" || typeof record.paymentExpectedAmount !== "number"),
   });
-  db.commissionRecords[index] = {
-    ...record,
-    paymentVerificationStatus: result.verified ? "verified" : "failed",
-    paymentVerificationNotes: result.notes,
-    updatedAt: nowIso(),
+
+  type AdminReverificationCommit = {
+    request?: PurchaseRequest;
+    notificationPublications: DeferredNotificationPublication[];
+    newlySettled: boolean;
   };
-  await appendAuditLog(db, {
-    action: "admin_override",
-    actorUserId: input.actorUserId,
-    purchaseRequestId: record.purchaseRequestId,
-    details: `Commission ${input.commissionId} reverified: ${result.verified ? "verified" : "failed"} — ${result.notes}`,
-    reason: input.reason?.trim() || undefined,
+  let committed: AdminReverificationCommit = {
+    notificationPublications: [],
+    newlySettled: false,
+  };
+
+  const applyAdminReverification = async (snapshot: AlphaExchangeDb) => {
+    const canonicalIndex = snapshot.commissionRecords.findIndex((candidate) => candidate.id === input.commissionId);
+    if (canonicalIndex === -1) throw new Error("Commission record not found.");
+    const canonicalRecord = snapshot.commissionRecords[canonicalIndex];
+    if (
+      getCommissionPaymentSignatureKey(canonicalRecord.paymentSignature ?? "") !== signatureAtRead
+      || canonicalRecord.paymentNetwork !== networkAtRead
+      || canonicalRecord.recipientWalletAddress !== recipientAtRead
+      || canonicalRecord.paymentVerificationStatus !== verificationStatusAtRead
+      || canonicalRecord.paymentSubmittedAt !== submittedAtAtRead
+      || canonicalRecord.updatedAt !== updatedAtAtRead
+      || canonicalRecord.paymentStatus !== paymentStatusAtRead
+      || canonicalRecord.paidAt !== paidAtAtRead
+    ) {
+      throw new Error("Commission payment details changed while admin verification was running. The newer state was preserved.");
+    }
+    const canonicalAmountDue = canonicalRecord.paymentNetwork === "TRC20"
+      ? (typeof canonicalRecord.paymentExpectedAmount === "number"
+          ? getCommissionPaymentAmountDueUsdt(canonicalRecord)
+          : getCommissionAmountDueUsdt(snapshot, canonicalRecord))
+      : getCommissionAmountDueUsdt(snapshot, canonicalRecord);
+    if (usdtToMicros(canonicalAmountDue) !== usdtToMicros(amountDue)) {
+      throw new Error("Commission payment amount changed while admin verification was running.");
+    }
+    if ((result.verified || result.pending) && snapshot.commissionRecords.some((candidate) => (
+      candidate.id !== canonicalRecord.id
+      && (
+        normalizeCommissionPaymentStatus(candidate.paymentStatus, candidate.dueAt) === "paid"
+        || candidate.paymentVerificationStatus === "verified"
+        || candidate.paymentVerificationStatus === "pending_verification"
+      )
+      && getCommissionPaymentSignatureKey(candidate.paymentSignature ?? "") === signatureAtRead
+    ))) {
+      throw new Error("This transaction hash has already been used for a previous commission payment.");
+    }
+    const now = nowIso();
+    const wasPaid = normalizeCommissionPaymentStatus(canonicalRecord.paymentStatus, canonicalRecord.dueAt) === "paid";
+    const newlySettled = result.verified && !wasPaid;
+    const preservePaidVerification = wasPaid && !result.verified;
+    const nextRecord: CommissionRecord = {
+      ...canonicalRecord,
+      paymentVerificationStatus: preservePaidVerification
+        ? canonicalRecord.paymentVerificationStatus ?? "verified"
+        : result.verified
+          ? "verified"
+          : result.pending
+            ? "pending_verification"
+            : "failed",
+      paymentVerificationNotes: preservePaidVerification
+        ? canonicalRecord.paymentVerificationNotes
+        : result.notes,
+      paymentStatus: result.verified ? "paid" : canonicalRecord.paymentStatus,
+      paidAt: result.verified ? canonicalRecord.paidAt ?? now : canonicalRecord.paidAt,
+      updatedAt: now,
+    };
+    snapshot.commissionRecords[canonicalIndex] = nextRecord;
+
+    const request = snapshot.purchaseRequests.find((item) => item.id === canonicalRecord.purchaseRequestId);
+    const notificationPublications: DeferredNotificationPublication[] = [];
+    if (newlySettled) {
+      if (request) {
+        appendTradeTimelineEntry(request, {
+          type: "commission_paid",
+          actorUserId: input.actorUserId,
+          actorRole: resolveActorRole(snapshot, input.actorUserId),
+          message: `Commission verified on-chain by admin (${canonicalAmountDue.toFixed(6)} USDT).`,
+          createdAt: now,
+        });
+      }
+      const remainingCommissions = getUnpaidSellerCommissionRecords(snapshot, canonicalRecord.sellerId);
+      const fullyUnlocked = remainingCommissions.length === 0;
+      const nextCommission = remainingCommissions[0];
+      const sellerPublication = pushNotification(snapshot, {
+        userId: canonicalRecord.sellerId,
+        category: "trade",
+        title: "Commission payment verified",
+        message: fullyUnlocked
+          ? "Your commission payment was verified. All commission dues are settled and commission-related restrictions have been cleared. Any other account restrictions still apply."
+          : `Your commission payment was verified. ${remainingCommissions.length} other commission payment${remainingCommissions.length === 1 ? " remains" : "s remain"} due.`,
+        relatedTradeId: canonicalRecord.purchaseRequestId,
+        relatedRequestId: canonicalRecord.purchaseRequestId,
+        relatedListingId: canonicalRecord.listingId,
+        relatedHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
+        actionHref: fullyUnlocked ? "/usdt-exchange" : commissionPaymentDestination(nextCommission!.id),
+        actionLabel: fullyUnlocked ? "Open Marketplace" : "Pay Commission",
+        reason: fullyUnlocked ? undefined : COMMISSION_PAYMENT_DUE_NOTIFICATION_REASON,
+        deferRealtime: true,
+      });
+      if (sellerPublication) notificationPublications.push(sellerPublication);
+
+      const ownerUser = snapshot.users.find((user) => isAlphaExchangeOwnerEmail(user.email));
+      if (ownerUser) {
+        const ownerPublication = pushNotification(snapshot, {
+          userId: ownerUser.id,
+          category: "system",
+          title: "Commission payment received",
+          message: `Commission ${canonicalRecord.id} verified via ${canonicalRecord.paymentNetwork}. Exact payment: ${canonicalAmountDue.toFixed(6)} USDT. Tx: ${canonicalRecord.paymentSignature}`,
+          relatedTradeId: canonicalRecord.purchaseRequestId,
+          relatedListingId: canonicalRecord.listingId,
+          relatedHref: adminCommissionDestination(canonicalRecord.id),
+          actionHref: adminCommissionDestination(canonicalRecord.id),
+          actionLabel: "Review Commission",
+          deferRealtime: true,
+        });
+        if (ownerPublication) notificationPublications.push(ownerPublication);
+      }
+    }
+    await appendAuditLog(snapshot, {
+      action: newlySettled ? "commission_paid" : "admin_override",
+      actorUserId: input.actorUserId,
+      targetUserId: canonicalRecord.sellerId,
+      listingId: canonicalRecord.listingId,
+      purchaseRequestId: canonicalRecord.purchaseRequestId,
+      details: `Commission ${input.commissionId} reverified: ${result.verified ? "verified" : result.pending ? "pending" : "failed"} — ${result.notes}`,
+      reason: input.reason?.trim() || undefined,
+    });
+    committed = { request, notificationPublications, newlySettled };
+    return snapshot;
+  };
+
+  await applyAdminReverification(db);
+  await writeDb(db, {
+    selectedTables: COMMISSION_STATUS_TABLES,
+    rebaseOnLatest: applyAdminReverification,
   });
-  await writeDb(db, { selectedTables: COMMISSION_STATUS_TABLES });
+  if (committed.newlySettled && committed.request) {
+    publishRealtimeEvent({
+      type: "trade.status_changed",
+      payload: { request: enrichRequestWithEvidence(db, committed.request) },
+    });
+  }
+  for (const publication of committed.notificationPublications) {
+    publishNotificationPublication(publication);
+  }
   return result;
 }
 

@@ -67,6 +67,6 @@ describe("automatic commission payment verification cron", () => {
       failed: 0,
       errors: 0,
     });
-    expect(mocks.reverifyPendingCommissionPayments).toHaveBeenCalledWith({ limit: 4 });
+    expect(mocks.reverifyPendingCommissionPayments).toHaveBeenCalledWith({ limit: 2 });
   });
 });

@@ -865,6 +865,18 @@ export interface CommissionRecord {
   paymentSignature?: string;
   paymentVerificationStatus?: "pending_verification" | "verified" | "failed";
   paymentVerificationNotes?: string;
+  /**
+   * Exact six-decimal TRC20 amount assigned to this unpaid commission.
+   * The tiny unique suffix binds an incoming transfer to one commission when
+   * every seller pays the same memo-less Binance deposit address.
+  */
+  paymentExpectedAmount?: number;
+  /** Unique for new intents; legacy_base only grandfathers pre-cutover submitted TxIDs. */
+  paymentExpectedAmountMode?: "unique_v1" | "legacy_base";
+  /** When the exact amount was first issued to the seller; never changes. */
+  paymentExpectedAmountAssignedAt?: string;
+  /** Superseded issued amounts that remain reserved and can never be assigned again. */
+  paymentReservedExpectedAmounts?: number[];
   paymentSubmittedAt?: string;
   dueAt?: string;
   paidAt?: string;

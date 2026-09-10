@@ -3,6 +3,9 @@ import { requireApiSellerWorkspaceActor } from "@/lib/api-auth";
 import { submitSellerCommissionWalletPayment } from "@/lib/alpha-exchange-store";
 import { checkSharedRateLimit } from "@/lib/rate-limit";
 
+const RESOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+const TRON_TX_ID_PATTERN = /^(?:0x)?[A-Fa-f0-9]{64}$/;
+
 export async function POST(request: NextRequest) {
   const routeStartedAt = Date.now();
   const { user, unauthorized } = await requireApiSellerWorkspaceActor();
@@ -22,17 +25,23 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const commissionId = String(body.commissionId ?? "").trim();
     const paymentSignature = String(body.paymentSignature ?? "").trim();
-    const network = String(body.network ?? "").trim();
+    const network = String(body.network ?? "").trim().toUpperCase();
     // payerWalletAddress is optional — auto-extracted from tx hash during verification
     const payerWalletAddress = String(body.payerWalletAddress ?? "").trim();
-    if (!commissionId) {
-      return NextResponse.json({ error: "Commission ID is required." }, { status: 400 });
-    }
-    if (!paymentSignature) {
-      return NextResponse.json({ error: "Transaction hash is required." }, { status: 400 });
+    if (!RESOURCE_ID_PATTERN.test(commissionId)) {
+      return NextResponse.json({ error: "A valid commission ID is required." }, { status: 400 });
     }
     if (!network) {
       return NextResponse.json({ error: "Commission payment network is required." }, { status: 400 });
+    }
+    if (network !== "TRC20") {
+      return NextResponse.json({ error: "Commission payments must use USDT on TRON (TRC20)." }, { status: 400 });
+    }
+    if (!TRON_TX_ID_PATTERN.test(paymentSignature)) {
+      return NextResponse.json({ error: "Paste the full 64-character TRON TxID from the USDT withdrawal." }, { status: 400 });
+    }
+    if (payerWalletAddress.length > 128) {
+      return NextResponse.json({ error: "Payer wallet address is too long." }, { status: 400 });
     }
 
     const result = await submitSellerCommissionWalletPayment({

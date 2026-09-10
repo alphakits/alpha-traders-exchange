@@ -34,7 +34,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const result = await reverifyPendingCommissionPayments({ limit: 4 });
+    // Two sequential TRON checks may each use both 8-second endpoints. This
+    // leaves comfortable headroom for database work inside the 60s budget.
+    const result = await reverifyPendingCommissionPayments({ limit: 2 });
     logEvent("info", {
       event: "commission_payment_verification_cron",
       outcome: "success",

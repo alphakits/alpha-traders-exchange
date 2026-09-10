@@ -8,7 +8,14 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: [],
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "src/**/*.spec.ts", "src/**/*.spec.tsx"],
+    include: [
+      "src/**/*.test.ts",
+      "src/**/*.test.tsx",
+      "src/**/*.spec.ts",
+      "src/**/*.spec.tsx",
+      "apps/mobile/src/**/*.test.ts",
+      "apps/mobile/src/**/*.test.tsx",
+    ],
     exclude: ["e2e/**", "node_modules/**"],
   },
   resolve: {

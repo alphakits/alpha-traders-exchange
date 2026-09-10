@@ -546,6 +546,224 @@ describe("AlphaExchangeRepository", () => {
     ]));
   });
 
+  it("preserves an issued exact commission intent when stale overdue maintenance has a later timestamp", async () => {
+    const repository = new AlphaExchangeRepository(null);
+    const baseline = await repository.loadSnapshot();
+    const baseCommission = {
+      id: "commission-intent",
+      purchaseRequestId: "request-intent",
+      listingId: "listing-intent",
+      sellerId: "seller-1",
+      buyerId: "buyer-1",
+      rate: 0.01,
+      grossAmount: 700,
+      commissionAmount: 7,
+      createdAt: "2026-09-04T10:00:00.000Z",
+    };
+    const latestSnapshot = {
+      ...baseline,
+      commissionRecords: [{
+        ...baseCommission,
+        paymentStatus: "pending",
+        paymentExpectedAmount: 7.000001,
+        paymentExpectedAmountMode: "unique_v1",
+        paymentExpectedAmountAssignedAt: "2026-09-04T10:01:00.000Z",
+        paymentReservedExpectedAmounts: [7],
+        updatedAt: "2026-09-04T10:01:00.000Z",
+      }],
+      __runtimeVersion: 2,
+    } as unknown as AlphaExchangeDb & { __runtimeVersion: number };
+    globalThis.__alphaExchangeMemorySnapshot = latestSnapshot as never;
+
+    const staleMaintenanceWriter = {
+      ...baseline,
+      commissionRecords: [{
+        ...baseCommission,
+        paymentStatus: "overdue",
+        overdueNotifiedAt: "2026-09-04T10:03:00.000Z",
+        updatedAt: "2026-09-04T10:03:00.000Z",
+      }],
+      __runtimeVersion: 1,
+    } as unknown as AlphaExchangeDb & { __runtimeVersion: number };
+
+    await repository.saveSnapshot(staleMaintenanceWriter, { selectedTables: ["commissions"] });
+
+    const persisted = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    expect(persisted.commissionRecords[0]).toMatchObject({
+      id: "commission-intent",
+      paymentStatus: "overdue",
+      paymentExpectedAmount: 7.000001,
+      paymentExpectedAmountMode: "unique_v1",
+      paymentExpectedAmountAssignedAt: "2026-09-04T10:01:00.000Z",
+      paymentReservedExpectedAmounts: [7],
+    });
+  });
+
+  it("never lets stale overdue maintenance roll a paid commission back", async () => {
+    const repository = new AlphaExchangeRepository(null);
+    const baseline = await repository.loadSnapshot();
+    const baseCommission = {
+      id: "commission-paid",
+      purchaseRequestId: "request-paid",
+      listingId: "listing-paid",
+      sellerId: "seller-1",
+      buyerId: "buyer-1",
+      rate: 0.01,
+      grossAmount: 700,
+      commissionAmount: 7,
+      createdAt: "2026-09-04T10:00:00.000Z",
+    };
+    const latestSnapshot = {
+      ...baseline,
+      commissionRecords: [{
+        ...baseCommission,
+        paymentStatus: "paid",
+        paymentVerificationStatus: "verified",
+        paymentSignature: "a1".repeat(32),
+        paymentExpectedAmount: 7.000001,
+        paymentExpectedAmountMode: "unique_v1",
+        paymentExpectedAmountAssignedAt: "2026-09-04T10:01:00.000Z",
+        paidAt: "2026-09-04T10:02:00.000Z",
+        updatedAt: "2026-09-04T10:02:00.000Z",
+      }],
+      __runtimeVersion: 2,
+    } as unknown as AlphaExchangeDb & { __runtimeVersion: number };
+    globalThis.__alphaExchangeMemorySnapshot = latestSnapshot as never;
+
+    const staleMaintenanceWriter = {
+      ...baseline,
+      commissionRecords: [{
+        ...baseCommission,
+        paymentStatus: "overdue",
+        overdueNotifiedAt: "2026-09-04T10:04:00.000Z",
+        updatedAt: "2026-09-04T10:04:00.000Z",
+      }],
+      __runtimeVersion: 1,
+    } as unknown as AlphaExchangeDb & { __runtimeVersion: number };
+
+    await repository.saveSnapshot(staleMaintenanceWriter, { selectedTables: ["commissions"] });
+
+    const persisted = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    expect(persisted.commissionRecords[0]).toMatchObject({
+      id: "commission-paid",
+      paymentStatus: "paid",
+      paymentVerificationStatus: "verified",
+      paymentSignature: "a1".repeat(32),
+      paymentExpectedAmount: 7.000001,
+      paidAt: "2026-09-04T10:02:00.000Z",
+    });
+  });
+
+  it("does not let stale overdue maintenance erase a pending TxID submission", async () => {
+    const repository = new AlphaExchangeRepository(null);
+    const baseline = await repository.loadSnapshot();
+    const baseCommission = {
+      id: "commission-pending-tx",
+      purchaseRequestId: "request-pending-tx",
+      listingId: "listing-pending-tx",
+      sellerId: "seller-1",
+      buyerId: "buyer-1",
+      rate: 0.01,
+      grossAmount: 700,
+      commissionAmount: 7,
+      createdAt: "2026-09-04T10:00:00.000Z",
+    };
+    const latestSnapshot = {
+      ...baseline,
+      commissionRecords: [{
+        ...baseCommission,
+        paymentStatus: "pending",
+        paymentProvider: "crypto_wallet",
+        paymentNetwork: "TRC20",
+        recipientWalletAddress: "TMDgWpi2huECqaoR6e71ttEiVyV34HUtr8",
+        paymentSignature: "b2".repeat(32),
+        paymentSubmittedAt: "2026-09-04T10:02:00.000Z",
+        paymentVerificationStatus: "pending_verification",
+        paymentVerificationNotes: "Waiting for TRON finality.",
+        paymentExpectedAmount: 7.000001,
+        paymentExpectedAmountMode: "unique_v1",
+        paymentExpectedAmountAssignedAt: "2026-09-04T10:01:00.000Z",
+        updatedAt: "2026-09-04T10:02:00.000Z",
+      }],
+      __runtimeVersion: 2,
+    } as unknown as AlphaExchangeDb & { __runtimeVersion: number };
+    globalThis.__alphaExchangeMemorySnapshot = latestSnapshot as never;
+
+    const staleMaintenanceWriter = {
+      ...baseline,
+      commissionRecords: [{
+        ...baseCommission,
+        paymentStatus: "overdue",
+        overdueNotifiedAt: "2026-09-04T10:04:00.000Z",
+        updatedAt: "2026-09-04T10:04:00.000Z",
+      }],
+      __runtimeVersion: 1,
+    } as unknown as AlphaExchangeDb & { __runtimeVersion: number };
+
+    await repository.saveSnapshot(staleMaintenanceWriter, { selectedTables: ["commissions"] });
+
+    const persisted = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    expect(persisted.commissionRecords[0]).toMatchObject({
+      id: "commission-pending-tx",
+      paymentStatus: "overdue",
+      paymentSignature: "b2".repeat(32),
+      paymentVerificationStatus: "pending_verification",
+      paymentVerificationNotes: "Waiting for TRON finality.",
+      paymentExpectedAmount: 7.000001,
+    });
+  });
+
+  it("does not resurrect a stale paid row after a newer deliberate reversal", async () => {
+    const repository = new AlphaExchangeRepository(null);
+    const baseline = await repository.loadSnapshot();
+    const baseCommission = {
+      id: "commission-reversed",
+      purchaseRequestId: "request-reversed",
+      listingId: "listing-reversed",
+      sellerId: "seller-1",
+      buyerId: "buyer-1",
+      rate: 0.01,
+      grossAmount: 700,
+      commissionAmount: 7,
+      createdAt: "2026-09-04T10:00:00.000Z",
+    };
+    const latestSnapshot = {
+      ...baseline,
+      commissionRecords: [{
+        ...baseCommission,
+        paymentStatus: "pending",
+        paymentVerificationStatus: "failed",
+        paymentVerificationNotes: "Owner reversed an incorrect settlement.",
+        updatedAt: "2026-09-04T10:05:00.000Z",
+      }],
+      __runtimeVersion: 2,
+    } as unknown as AlphaExchangeDb & { __runtimeVersion: number };
+    globalThis.__alphaExchangeMemorySnapshot = latestSnapshot as never;
+
+    const staleWriter = {
+      ...baseline,
+      commissionRecords: [{
+        ...baseCommission,
+        paymentStatus: "paid",
+        paymentVerificationStatus: "verified",
+        paidAt: "2026-09-04T10:02:00.000Z",
+        updatedAt: "2026-09-04T10:02:00.000Z",
+      }],
+      __runtimeVersion: 1,
+    } as unknown as AlphaExchangeDb & { __runtimeVersion: number };
+
+    await repository.saveSnapshot(staleWriter, { selectedTables: ["commissions"] });
+
+    const persisted = globalThis.__alphaExchangeMemorySnapshot as unknown as AlphaExchangeDb;
+    expect(persisted.commissionRecords[0]).toMatchObject({
+      id: "commission-reversed",
+      paymentStatus: "pending",
+      paymentVerificationStatus: "failed",
+      paymentVerificationNotes: "Owner reversed an incorrect settlement.",
+    });
+    expect(persisted.commissionRecords[0].paidAt).toBeUndefined();
+  });
+
   it("runs a security validation against the canonical merged snapshot before a stale write can commit", async () => {
     const repository = new AlphaExchangeRepository(null);
     const baseline = await repository.loadSnapshot();
