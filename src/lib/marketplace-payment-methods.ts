@@ -46,6 +46,14 @@ export function resolveListingPaymentMethods(rawMethods: unknown, fallbackMethod
   return Array.from(normalized);
 }
 
+export function getMarketplacePaymentMethodOptions(rawMethods: unknown, fallbackMethod?: unknown) {
+  const availableMethods = new Set(resolveListingPaymentMethods(rawMethods, fallbackMethod));
+  return MARKETPLACE_PAYMENT_METHODS.map((method) => ({
+    method,
+    available: availableMethods.has(method),
+  }));
+}
+
 export function isFaceToFacePaymentMethod(method: unknown) {
   return normalizeMarketplacePaymentMethod(method) === "Face-to-Face (Meet in Person)";
 }

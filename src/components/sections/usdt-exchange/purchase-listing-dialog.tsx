@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { RoleBadge } from "@/components/ui/role-badge";
 import { getIsraeliBankDisplayName, parseIsraeliBankSelection } from "@/lib/israeli-banks";
-import { isBankTransferPaymentMethod, isCardlessAtmPaymentMethod } from "@/lib/marketplace-payment-methods";
+import { getMarketplacePaymentMethodOptions, isBankTransferPaymentMethod, isCardlessAtmPaymentMethod, normalizeMarketplacePaymentMethod } from "@/lib/marketplace-payment-methods";
 import { deriveSellerPresence } from "@/lib/seller-presence";
 import { formatTradeId } from "@/lib/format-id";
 import { cn } from "@/lib/utils";
@@ -144,7 +144,15 @@ export function PurchaseListingDialog({
   tradeStatusLabel,
 }: PurchaseListingDialogProps) {
   const isAr = locale === "ar";
+  const paymentMethodOptions = getMarketplacePaymentMethodOptions(selectedPaymentMethods);
+  const availablePaymentMethods = new Set(paymentMethodOptions
+    .filter((option) => option.available)
+    .map((option) => option.method));
+  const normalizedSelectedPaymentMethod = normalizeMarketplacePaymentMethod(selectedPaymentMethod);
+  const selectedPaymentMethodIsAvailable = normalizedSelectedPaymentMethod !== null
+    && availablePaymentMethods.has(normalizedSelectedPaymentMethod);
   const purchaseDisabled = isSubmittingPurchase
+    || !selectedPaymentMethodIsAvailable
     || buyerTradeAmountInvalid
     || buyerWalletInvalid
     || (priceMode === "buyer_offer" && offerPriceInvalid)
@@ -272,16 +280,18 @@ export function PurchaseListingDialog({
                 <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-[#D1D5DB]">
                   <p className="text-xs uppercase tracking-[0.14em] text-[#9CA3AF]">{isAr ? "اختر طريقة الدفع" : "Choose payment method"}</p>
                   <div className="mt-3 grid gap-2 md:grid-cols-3">
-                    {selectedPaymentMethods.map((method) => {
+                    {paymentMethodOptions.map(({ method, available }) => {
                       const selected = selectedPaymentMethod === method;
                       return (
-                        <button key={`purchase-method-${listing.id}-${method}`} type="button" onClick={() => onPaymentMethodChange(method)} className={`rounded-xl border p-3 transition-all duration-200 ${isAr ? "text-right" : "text-left"} ${selected ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]" : "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]"}`}>
-                          <p className="text-sm font-medium text-white">{paymentMethodEmoji(method)} {paymentMethodLabel(method, isAr)}</p>
+                        <button key={`purchase-method-${listing.id}-${method}`} type="button" disabled={!available} aria-disabled={!available} onClick={() => onPaymentMethodChange(method)} className={`rounded-xl border p-3 transition-all duration-200 ${isAr ? "text-right" : "text-left"} ${selected ? "border-[#6CAEFF]/70 bg-[#6CAEFF]/15 shadow-[0_10px_24px_rgba(36,121,255,0.25)]" : available ? "border-white/10 bg-black/25 hover:-translate-y-0.5 hover:border-[#6CAEFF]/45 hover:shadow-[0_10px_24px_rgba(15,23,42,0.35)]" : "cursor-not-allowed border-white/5 bg-black/15 opacity-50"}`}>
+                          <p className={`text-sm font-medium ${available ? "text-white" : "text-[#9CA3AF]"}`}>{paymentMethodEmoji(method)} {paymentMethodLabel(method, isAr)}</p>
                           {selected ? <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#93C5FD]">{isAr ? "مختارة لهذه الصفقة" : "Selected for this trade"}</p> : null}
+                          {!available ? <p className="mt-2 text-[10px] text-[#9CA3AF]">{isAr ? "غير متاحة في هذا العرض" : "Not offered on this listing"}</p> : null}
                         </button>
                       );
                     })}
                   </div>
+                  <p className={`mt-3 text-[11px] text-[#9CA3AF] ${isAr ? "text-right" : "text-left"}`}>{isAr ? "يمكن اختيار الطرق التي فعّلها البائع لهذا العرض فقط." : "Only payment methods enabled by this seller can be selected."}</p>
                   {selectedMethodUsesBanks(selectedPaymentMethod) && parseIsraeliBankSelection(listing.bankName).length ? (
                     <p className="mt-3 text-xs text-[#D1D5DB]">{isAr ? "البنوك المدعومة" : "Supported banks"}: <span className="text-white">{parseIsraeliBankSelection(listing.bankName).map((bankName) => getIsraeliBankDisplayName(bankName, locale)).join(isAr ? "، " : ", ")}</span></p>
                   ) : null}
