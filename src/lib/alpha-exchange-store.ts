@@ -59,6 +59,7 @@ import {
   resolveListingPaymentMethods,
 } from "@/lib/marketplace-payment-methods";
 import {
+  getIsraeliBankOptions,
   MAX_SUPPORTED_ISRAELI_BANK_SELECTIONS,
   parseIsraeliBankSelection,
   serializeIsraeliBankSelection,
@@ -2478,6 +2479,35 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       ]),
     );
   }
+  const configuredIsraeliBanks = new Set(
+    getIsraeliBankOptions()
+      .filter((bank) => bank.code !== "generic")
+      .map((bank) => bank.name),
+  );
+  const legacyCardlessListingIds = new Set(
+    (db.marketplaceListings ?? [])
+      .filter((listing) => {
+        const methods = resolveListingPaymentMethods(
+          (listing as { paymentMethods?: string[] }).paymentMethods,
+          (listing as { paymentMethod?: string }).paymentMethod,
+        );
+        const hasConfiguredBank = parseIsraeliBankSelection((listing as { bankName?: string }).bankName)
+          .some((bank) => configuredIsraeliBanks.has(bank));
+        // A legacy onboarding/submission failure could drop only the cardless
+        // choice from an otherwise complete fiat-method listing. Restrict the
+        // repair to that exact signature so bank-only listings stay bank-only.
+        return hasConfiguredBank
+          && methods.some(isBankTransferPaymentMethod)
+          && methods.some(isFaceToFacePaymentMethod)
+          && !methods.some(isCardlessAtmPaymentMethod);
+      })
+      .map((listing) => listing.id),
+  );
+  const legacyCardlessListingSellerIds = new Set(
+    (db.marketplaceListings ?? [])
+      .filter((listing) => legacyCardlessListingIds.has(listing.id))
+      .map((listing) => listing.sellerId),
+  );
   const normalized: AlphaExchangeDb = {
     ...defaultDb,
     ...db,
@@ -2557,6 +2587,7 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
       const preferredPaymentMethods = Array.from(new Set([
         ...storedPreferredPaymentMethods,
         ...(approvedApplicationPaymentMethodsByUserId.get(user.id) ?? []),
+        ...(legacyCardlessListingSellerIds.has(user.id) ? ["Cardless ATM Withdrawal"] : []),
       ]));
       return {
         ...user,
@@ -3114,7 +3145,10 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
         );
         const sellerApplicationMethods = approvedApplicationPaymentMethodsByUserId.get(listing.sellerId) ?? [];
         const canRepairLegacyCardlessListing = methods.some(isBankTransferPaymentMethod)
-          && sellerApplicationMethods.some(isCardlessAtmPaymentMethod)
+          && (
+            sellerApplicationMethods.some(isCardlessAtmPaymentMethod)
+            || legacyCardlessListingIds.has(listing.id)
+          )
           && parseIsraeliBankSelection((listing as { bankName?: string }).bankName).length > 0;
         if (canRepairLegacyCardlessListing && !methods.some(isCardlessAtmPaymentMethod)) {
           methods.push("Cardless ATM Withdrawal");
