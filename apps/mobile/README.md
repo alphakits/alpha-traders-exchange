@@ -63,6 +63,19 @@ build:
 npm run mobile:verify
 ```
 
+Public-store submission is a separate owner-controlled gate. Use the iOS or
+Android command only after the matching signed build, real-device matrix,
+review access, store metadata, and legal/policy declarations are complete:
+
+```bash
+npm run mobile:store-readiness:submission:ios
+npm run mobile:store-readiness:submission:android
+```
+
+The platform handoffs live in
+`docs/mobile/app-store-connect-submission-pack.md` and
+`docs/mobile/google-play-submission-pack.md`.
+
 Set `EXPO_PUBLIC_API_URL` only when testing against a local or preview backend.
 Release builds default to `https://www.alphatraders.co.il` and reject cleartext
 HTTP origins.

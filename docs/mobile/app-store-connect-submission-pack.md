@@ -315,7 +315,9 @@ Alpha Traders brand.
     access-controlled Apple correspondence record.
 12. Set every release-owner confirmation variable printed by the submission
     gate for that controlled shell session and run
-    `npm run mobile:store-readiness:submission`.
+    `npm run mobile:store-readiness:submission:ios`. Use the combined
+    `npm run mobile:store-readiness:submission` only when the Android handoff is
+    also ready from the same exact commit.
 13. Submit the exact tested build; keep the backend and review accounts live.
 14. Release only the behavior Apple reviewed. Submit later material features,
     including the economic calendar, with accurate update notes and access for
