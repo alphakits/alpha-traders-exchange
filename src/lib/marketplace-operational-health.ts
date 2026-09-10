@@ -109,10 +109,13 @@ export function buildMarketplaceOperationalSnapshot(
     }
 
     const warningAgeMinutes = ageMinutes(request.inactivityWarningSentAt, nowMs);
+    const reminderMatchesCurrentStage = request.actionReminderState?.stage === request.status;
     if (
-      request.status === "accepted"
+      (ACTIVE_TRADE_STATUSES.has(request.status) || request.status === "pending")
       && Boolean(request.inactivityWarningSentAt)
-      && !request.paymentSentAt
+      && (reminderMatchesCurrentStage || (!request.actionReminderState && request.status === "accepted"))
+      && !request.timedOutAt
+      && !request.closedAt
       && warningAgeMinutes >= STALLED_TRADE_AFTER_WARNING_MINUTES
     ) {
       incidents.push({

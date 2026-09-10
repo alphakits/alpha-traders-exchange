@@ -46,6 +46,34 @@ describe("trade room SSE reconciliation", () => {
     expect(mocks.subscribeRealtimeEvents).not.toHaveBeenCalled();
   });
 
+  it("rejects an outsider before returning a stream or starting reconciliation", async () => {
+    mocks.getTradeRoomData.mockRejectedValueOnce(new Error("You are not allowed to access trade evidence."));
+
+    const response = await GET(new NextRequest("http://localhost/api/alpha-exchange/trade-room/trade-1/stream"), {
+      params: Promise.resolve({ requestId: "trade-1" }),
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "You are not allowed to access this Trade Room.",
+      code: "TRADE_FORBIDDEN",
+    });
+    expect(mocks.getTradeRoomData).toHaveBeenCalledTimes(1);
+    expect(mocks.subscribeRealtimeEvents).not.toHaveBeenCalled();
+    expect(mocks.unsubscribe).not.toHaveBeenCalled();
+  });
+
+  it("returns a real 404 before opening a stream for a missing trade", async () => {
+    mocks.getTradeRoomData.mockRejectedValueOnce(new Error("Trade not found."));
+
+    const response = await GET(new NextRequest("http://localhost/api/alpha-exchange/trade-room/missing/stream"), {
+      params: Promise.resolve({ requestId: "missing" }),
+    });
+
+    expect(response.status).toBe(404);
+    expect(mocks.subscribeRealtimeEvents).not.toHaveBeenCalled();
+  });
+
   it("cleans up the per-connection reconciliation timer and listener on disconnect", async () => {
     const controller = new AbortController();
     await GET(new NextRequest("http://localhost/api/alpha-exchange/trade-room/trade-1/stream", { signal: controller.signal }), {

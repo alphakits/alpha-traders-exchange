@@ -10,11 +10,12 @@ import {
   closePurchaseRequestManually,
   createMarketplaceListing,
   deleteSellerBankAccount,
-  getMarketplaceListings,
   getTradeRoomData,
   getTradeRoomBankDetails,
   invalidateAlphaExchangeStoreCache,
   runAlphaExchangeMaintenance,
+  runTradeActionReminders,
+  TRADE_ACTION_REMINDER_INTERVAL_MS,
   updatePurchaseRequestStatus,
 } from "@/lib/alpha-exchange-store";
 import { getAlphaExchangeRepository } from "@/lib/alpha-exchange-repository";
@@ -389,9 +390,9 @@ describe("seller bank accounts and trade guardrails", () => {
     }
   });
 
-  it("sends inactivity warning without auto-close, dedupes warning, and clears warning once status changes", async () => {
+  it("sends the hourly action reminder without auto-close, dedupes it, and clears its state after progress", async () => {
     const snapshot = currentSnapshot();
-    const staleTime = new Date(Date.now() - 16 * 60 * 1000).toISOString();
+    const staleTime = new Date(Date.now() - TRADE_ACTION_REMINDER_INTERVAL_MS - 60_000).toISOString();
 
     snapshot.marketplaceListings.push({
       id: "listing-2",
@@ -430,12 +431,16 @@ describe("seller bank accounts and trade guardrails", () => {
       updatedAt: staleTime,
     } as never);
 
-    await getMarketplaceListings();
-    await getMarketplaceListings();
+    await runTradeActionReminders();
+    await runTradeActionReminders();
 
     const warned = currentSnapshot().purchaseRequests.find((item) => item.id === "req-2");
     expect(warned?.status).toBe("accepted");
     expect(Boolean(warned?.inactivityWarningSentAt)).toBe(true);
+    expect(warned?.actionReminderState).toMatchObject({
+      stage: "accepted",
+      buyer: { userId: BUYER_ID, reminderCount: 1 },
+    });
     const warningEvents = (warned?.timeline ?? []).filter((event) => event.type === "trade_inactivity_warning_sent");
     expect(warningEvents).toHaveLength(1);
 
@@ -462,6 +467,10 @@ describe("seller bank accounts and trade guardrails", () => {
     const paymentSent = currentSnapshot().purchaseRequests.find((item) => item.id === "req-2");
     expect(paymentSent?.status).toBe("payment_sent");
     expect(paymentSent?.inactivityWarningSentAt).toBeUndefined();
+    expect(paymentSent?.actionReminderState).toBeUndefined();
+    expect(currentSnapshot().notifications.find(
+      (item) => item.relatedRequestId === "req-2" && item.reason === "automatic_trade_action_reminder",
+    )).toMatchObject({ state: "archived", isRead: true });
   });
 
   it("allows manual close before seller acceptance and blocks a second close mutation", async () => {

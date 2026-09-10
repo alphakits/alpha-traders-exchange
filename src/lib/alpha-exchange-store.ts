@@ -113,6 +113,7 @@ import type {
   TradeEvidenceSide,
   TradeChatMessage,
   TradeTimelineEntry,
+  TradeActionReminderState,
   TradeRoomPokeState,
   TradeTimelineEventType,
   AlphaExchangeTradeReminder,
@@ -288,7 +289,6 @@ const EMAIL_VERIFICATION_TOKEN_BYTES = 32;
 const EMAIL_VERIFICATION_EXPIRY_HOURS = 24;
 const SYSTEM_ACTOR_USER_ID = "system:marketplace";
 const MAX_SELLER_BANK_ACCOUNTS = 2;
-const TRADE_INACTIVITY_WARNING_MINUTES = 15;
 export const TRADE_ROOM_POKE_COOLDOWN_MS = 5 * 60_000;
 let dbCache: { value: AlphaExchangeDb; updatedAt: number } | null = null;
 let dbReadInFlight: Promise<AlphaExchangeDb> | null = null;
@@ -777,10 +777,6 @@ function getListingExpirationIso(base: string, hours?: number | string) {
   const baseMs = new Date(base).getTime();
   const safeBaseMs = Number.isNaN(baseMs) || baseMs <= 0 ? Date.now() : baseMs;
   return new Date(safeBaseMs + getListingExpirationHours(hours) * 60 * 60 * 1000).toISOString();
-}
-
-function getStaleTradeTimeoutMinutes() {
-  return TRADE_INACTIVITY_WARNING_MINUTES;
 }
 
 function extensionForEvidenceMimeType(mimeType: string) {
@@ -2063,6 +2059,43 @@ function isValidPurchaseStatus(value: string): value is PurchaseRequestStatus {
   );
 }
 
+function isTradeActionReminderStage(value: unknown): value is TradeActionReminderState["stage"] {
+  return value === "pending"
+    || value === "accepted"
+    || value === "payment_sent"
+    || value === "funds_received"
+    || value === "usdt_release_pending"
+    || value === "usdt_sent";
+}
+
+function normalizeTradeActionReminderState(value: unknown): TradeActionReminderState | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  if (!isTradeActionReminderStage(raw.stage) || typeof raw.actionStartedAt !== "string") return undefined;
+
+  const normalizeRecipient = (candidate: unknown) => {
+    if (!candidate || typeof candidate !== "object") return undefined;
+    const recipient = candidate as Record<string, unknown>;
+    if (typeof recipient.userId !== "string" || typeof recipient.lastSentAt !== "string") return undefined;
+    const reminderCount = Math.max(1, Math.floor(Number(recipient.reminderCount ?? 1)));
+    if (!Number.isFinite(reminderCount)) return undefined;
+    return {
+      userId: recipient.userId,
+      lastSentAt: recipient.lastSentAt,
+      reminderCount,
+    };
+  };
+
+  const buyer = normalizeRecipient(raw.buyer);
+  const seller = normalizeRecipient(raw.seller);
+  return {
+    stage: raw.stage,
+    actionStartedAt: raw.actionStartedAt,
+    ...(buyer ? { buyer } : {}),
+    ...(seller ? { seller } : {}),
+  };
+}
+
 const VALID_TRADE_TIMELINE_TYPES = {
   request_submitted: true,
   price_offer_submitted: true,
@@ -2537,6 +2570,9 @@ function normalizeDb(db: AlphaExchangeDb): AlphaExchangeDb {
           ? { buyerToSellerAt, sellerToBuyerAt } satisfies TradeRoomPokeState
           : undefined;
       })(),
+      actionReminderState: normalizeTradeActionReminderState(
+        (request as { actionReminderState?: unknown }).actionReminderState,
+      ),
       lockedAt: typeof (request as { lockedAt?: string }).lockedAt === "string" ? (request as { lockedAt: string }).lockedAt : undefined,
       reviewUnlockedAt:
         typeof (request as { reviewUnlockedAt?: string }).reviewUnlockedAt === "string" ? (request as { reviewUnlockedAt: string }).reviewUnlockedAt : undefined,
@@ -2991,6 +3027,412 @@ export async function runAlphaExchangeMaintenance() {
     await writeDb(db);
   }
   return { changed: changed || numberingChanged };
+}
+
+export const TRADE_ACTION_REMINDER_INTERVAL_MS = 60 * 60_000;
+const TRADE_ACTION_REMINDER_REASON = "automatic_trade_action_reminder";
+
+type TradeActionReminderSide = "buyer" | "seller";
+
+type TradeActionReminderPlan = {
+  stage: TradeActionReminderState["stage"];
+  actionStartedAt: string;
+  recipients: Array<{ side: TradeActionReminderSide; userId: string }>;
+  title: MarketplaceEmailLocalizedText;
+  message: MarketplaceEmailLocalizedText;
+  priority: NotificationPriorityLevel;
+};
+
+type TradeActionReminderEmailDelivery = {
+  userId: string;
+  email: string;
+  recipientName: string;
+  recipientLocale: "ar" | "en";
+  requestId: string;
+  referenceLabel: string;
+  title: MarketplaceEmailLocalizedText;
+  message: MarketplaceEmailLocalizedText;
+  idempotencyKey: string;
+};
+
+type ClaimedTradeActionReminders = {
+  activeTradesChecked: number;
+  publications: DeferredNotificationPublication[];
+  emailDeliveries: TradeActionReminderEmailDelivery[];
+};
+
+function validReminderTimestamp(...values: Array<string | null | undefined>) {
+  for (const value of values) {
+    if (!value) continue;
+    const timestamp = new Date(value).getTime();
+    if (Number.isFinite(timestamp) && timestamp > 0) return new Date(timestamp).toISOString();
+  }
+  return null;
+}
+
+function latestTradeTimelineTimestamp(request: PurchaseRequest, eventTypes: TradeTimelineEventType[]) {
+  const wanted = new Set(eventTypes);
+  return [...(request.timeline ?? [])]
+    .filter((entry) => wanted.has(entry.type))
+    .map((entry) => validReminderTimestamp(entry.createdAt))
+    .filter((entry): entry is string => Boolean(entry))
+    .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] ?? null;
+}
+
+function tradeActionReminderPlan(request: PurchaseRequest): TradeActionReminderPlan | null {
+  if (request.timedOutAt || request.closedAt || request.completedAt) return null;
+
+  const referenceLabel = request.tradeId ?? request.id;
+  const title = {
+    ar: "إجراء مطلوب في صفقتك",
+    en: "Action Required on Your Trade",
+  };
+  const stageTimestamp = (primary: string | undefined, timelineTypes: TradeTimelineEventType[]) =>
+    validReminderTimestamp(
+      primary,
+      latestTradeTimelineTimestamp(request, timelineTypes),
+      request.updatedAt,
+      request.createdAt,
+    );
+
+  if (request.status === "pending") {
+    const actionStartedAt = validReminderTimestamp(request.createdAt, request.updatedAt);
+    if (!actionStartedAt) return null;
+    return {
+      stage: request.status,
+      actionStartedAt,
+      recipients: [{ side: "seller", userId: request.sellerId }],
+      title,
+      message: {
+        ar: `طلب الصفقة ${referenceLabel} ما زال بانتظار قبولك أو رفضك. افتح غرفة الصفقة الآن لاتخاذ إجراء.`,
+        en: `Trade request ${referenceLabel} is still waiting for you to accept or decline it. Open the Trade Room and take action now.`,
+      },
+      priority: "high",
+    };
+  }
+
+  if (request.status === "accepted") {
+    const actionStartedAt = stageTimestamp(request.tradeCreatedAt, ["request_accepted", "price_offer_accepted"]);
+    if (!actionStartedAt) return null;
+    const faceToFace = isFaceToFacePaymentMethod(request.paymentMethod);
+    return {
+      stage: request.status,
+      actionStartedAt,
+      recipients: faceToFace
+        ? [
+            { side: "buyer", userId: request.buyerId },
+            { side: "seller", userId: request.sellerId },
+          ]
+        : [{ side: "buyer", userId: request.buyerId }],
+      title,
+      message: faceToFace
+        ? {
+            ar: `الصفقة ${referenceLabel} ما زالت بانتظار إكمال التبادل وتأكيد إنهائها. افتح غرفة الصفقة الآن.`,
+            en: `Trade ${referenceLabel} is still waiting for the in-person exchange and completion confirmation. Open the Trade Room now.`,
+          }
+        : {
+            ar: `الصفقة ${referenceLabel} بانتظار رفع إثبات الدفع وتأكيد إرسال الدفعة منك. افتح غرفة الصفقة الآن.`,
+            en: `Trade ${referenceLabel} is waiting for you to upload payment proof and mark payment sent. Open the Trade Room now.`,
+          },
+      priority: "high",
+    };
+  }
+
+  if (request.status === "payment_sent") {
+    const actionStartedAt = stageTimestamp(request.paymentSentAt, ["payment_sent"]);
+    if (!actionStartedAt) return null;
+    return {
+      stage: request.status,
+      actionStartedAt,
+      recipients: [{ side: "seller", userId: request.sellerId }],
+      title,
+      message: {
+        ar: `الصفقة ${referenceLabel} بانتظار تحققك من وصول الأموال وتأكيد الاستلام. افتح غرفة الصفقة الآن.`,
+        en: `Trade ${referenceLabel} is waiting for you to verify the funds and confirm receipt. Open the Trade Room now.`,
+      },
+      priority: "critical",
+    };
+  }
+
+  if (request.status === "funds_received") {
+    const actionStartedAt = stageTimestamp(request.fundsReceivedAt, ["seller_confirmed_funds"]);
+    if (!actionStartedAt) return null;
+    return {
+      stage: request.status,
+      actionStartedAt,
+      recipients: [{ side: "seller", userId: request.sellerId }],
+      title,
+      message: {
+        ar: `الصفقة ${referenceLabel} بانتظار بدء إرسال USDT منك. افتح غرفة الصفقة الآن وأكمل الخطوة التالية.`,
+        en: `Trade ${referenceLabel} is waiting for you to start the USDT release. Open the Trade Room and complete the next step now.`,
+      },
+      priority: "critical",
+    };
+  }
+
+  if (request.status === "usdt_release_pending") {
+    const actionStartedAt = stageTimestamp(request.usdtReleaseStartedAt, ["usdt_release_started"]);
+    if (!actionStartedAt) return null;
+    return {
+      stage: request.status,
+      actionStartedAt,
+      recipients: [{ side: "seller", userId: request.sellerId }],
+      title,
+      message: {
+        ar: `الصفقة ${referenceLabel} بانتظار إتمام إرسال USDT ورفع إثبات الإرسال منك. افتح غرفة الصفقة الآن.`,
+        en: `Trade ${referenceLabel} is waiting for you to finish sending USDT and upload release evidence. Open the Trade Room now.`,
+      },
+      priority: "critical",
+    };
+  }
+
+  if (request.status === "usdt_sent") {
+    const actionStartedAt = stageTimestamp(request.usdtSentAt, ["usdt_sent"]);
+    if (!actionStartedAt) return null;
+    return {
+      stage: request.status,
+      actionStartedAt,
+      recipients: [{ side: "buyer", userId: request.buyerId }],
+      title,
+      message: {
+        ar: `الصفقة ${referenceLabel} بانتظار تأكيد استلام USDT منك. افتح غرفة الصفقة الآن وتحقق قبل التأكيد.`,
+        en: `Trade ${referenceLabel} is waiting for you to confirm receipt of USDT. Open the Trade Room and verify before confirming.`,
+      },
+      priority: "critical",
+    };
+  }
+
+  return null;
+}
+
+function claimDueTradeActionReminders(
+  db: AlphaExchangeDb,
+  now: Date,
+): ClaimedTradeActionReminders {
+  const nowMs = now.getTime();
+  const nowTimestamp = now.toISOString();
+  const publications: DeferredNotificationPublication[] = [];
+  const emailDeliveries: TradeActionReminderEmailDelivery[] = [];
+  let activeTradesChecked = 0;
+
+  for (const request of db.purchaseRequests) {
+    const plan = tradeActionReminderPlan(request);
+    if (!plan) continue;
+    activeTradesChecked += 1;
+    const publicationCountBeforeRequest = publications.length;
+
+    const actionStartedAtMs = new Date(plan.actionStartedAt).getTime();
+    if (!Number.isFinite(actionStartedAtMs) || actionStartedAtMs + TRADE_ACTION_REMINDER_INTERVAL_MS > nowMs) {
+      continue;
+    }
+
+    const stateMatchesAction = request.actionReminderState?.stage === plan.stage
+      && request.actionReminderState.actionStartedAt === plan.actionStartedAt;
+    const nextState: TradeActionReminderState = stateMatchesAction
+      ? { ...request.actionReminderState! }
+      : { stage: plan.stage, actionStartedAt: plan.actionStartedAt };
+
+    for (const recipient of plan.recipients) {
+      const priorRecipientState = stateMatchesAction
+        ? request.actionReminderState?.[recipient.side]
+        : undefined;
+      const priorSentAtMs = priorRecipientState?.userId === recipient.userId
+        ? new Date(priorRecipientState.lastSentAt).getTime()
+        : Number.NaN;
+      if (
+        Number.isFinite(priorSentAtMs)
+        && priorSentAtMs + TRADE_ACTION_REMINDER_INTERVAL_MS > nowMs
+      ) {
+        continue;
+      }
+
+      const user = db.users.find((candidate) => candidate.id === recipient.userId);
+      if (!user) continue;
+      const publication = pushNotification(db, {
+        userId: recipient.userId,
+        category: "trade",
+        title: plan.title.en,
+        titleEn: plan.title.en,
+        titleAr: plan.title.ar,
+        message: plan.message.en,
+        messageEn: plan.message.en,
+        messageAr: plan.message.ar,
+        relatedRequestId: request.id,
+        relatedTradeId: request.tradeId ?? request.id,
+        relatedListingId: request.listingId,
+        relatedHref: requestDetailsHref(request.id),
+        actionHref: requestDetailsHref(request.id),
+        actionLabel: "Open Trade Room",
+        reason: TRADE_ACTION_REMINDER_REASON,
+        priority: plan.priority,
+        forceInApp: true,
+        deferRealtime: true,
+      });
+      if (!publication) continue;
+
+      publications.push(publication);
+      const reminderCount = (priorRecipientState?.userId === recipient.userId
+        ? priorRecipientState.reminderCount
+        : 0) + 1;
+      nextState[recipient.side] = {
+        userId: recipient.userId,
+        lastSentAt: nowTimestamp,
+        reminderCount,
+      };
+      emailDeliveries.push({
+        userId: user.id,
+        email: user.email,
+        recipientName: user.fullName,
+        recipientLocale: normalizePreferredLocale(user.preferredLocale),
+        requestId: request.id,
+        referenceLabel: request.tradeId ?? request.id,
+        title: plan.title,
+        message: plan.message,
+        idempotencyKey: [
+          "trade-action-reminder",
+          request.id,
+          plan.stage,
+          String(actionStartedAtMs),
+          recipient.side,
+          String(reminderCount),
+        ].join(":"),
+      });
+    }
+
+    if (publications.length > publicationCountBeforeRequest) {
+      request.actionReminderState = nextState;
+      if (!stateMatchesAction) {
+        request.inactivityWarningSentAt = nowTimestamp;
+        appendTradeTimelineEntry(request, {
+          type: "trade_inactivity_warning_sent",
+          actorUserId: SYSTEM_ACTOR_USER_ID,
+          actorRole: "admin",
+          message: "Automatic hourly reminder started because the required trade action is still pending.",
+          createdAt: nowTimestamp,
+        });
+      }
+    }
+  }
+
+  return { activeTradesChecked, publications, emailDeliveries };
+}
+
+async function deliverClaimedTradeActionReminder(delivery: TradeActionReminderEmailDelivery) {
+  const result = await sendMarketplaceEmail({
+    event: "trade_action_reminder",
+    to: delivery.email,
+    recipientName: delivery.recipientName,
+    recipientLocale: delivery.recipientLocale,
+    title: delivery.title,
+    message: delivery.message,
+    actionLabel: { ar: "فتح غرفة الصفقة", en: "Open Trade Room" },
+    actionPath: `/trade-room/${encodeURIComponent(delivery.requestId)}`,
+    referenceLabel: delivery.referenceLabel,
+    idempotencyKey: delivery.idempotencyKey,
+  });
+  if (!result.ok) {
+    logEvent("error", {
+      event: "trade_action_reminder_email",
+      targetUserId: delivery.userId,
+      resourceId: delivery.requestId,
+      outcome: "failed",
+      reason: result.reason,
+      metadata: {
+        providerStatus: "providerStatus" in result ? result.providerStatus : undefined,
+      },
+    });
+  }
+  return result.ok;
+}
+
+function archiveSatisfiedTradeActionReminders(
+  db: AlphaExchangeDb,
+  request: PurchaseRequest,
+  archivedAt: string,
+) {
+  const plan = tradeActionReminderPlan(request);
+  if (!plan) return [] as AlphaExchangeNotification[];
+  const recipientIds = new Set(plan.recipients.map((recipient) => recipient.userId));
+  const archived: AlphaExchangeNotification[] = [];
+  for (let index = 0; index < db.notifications.length; index += 1) {
+    const notification = db.notifications[index];
+    if (
+      notification.reason !== TRADE_ACTION_REMINDER_REASON
+      || notification.relatedRequestId !== request.id
+      || !recipientIds.has(notification.userId)
+      || notification.state === "archived"
+    ) {
+      continue;
+    }
+    const updated = enrichNotification(db, {
+      ...notification,
+      state: "archived",
+      isRead: true,
+      archivedAt,
+      updatedAt: archivedAt,
+    });
+    db.notifications[index] = updated;
+    archived.push(updated);
+  }
+  return archived;
+}
+
+function publishArchivedTradeActionReminders(notifications: AlphaExchangeNotification[]) {
+  for (const notification of notifications) {
+    // Reconcile open notification centers, but do not create a mobile alert for
+    // a state-only archive update after the user already completed the action.
+    publishRealtimeEvent({
+      type: "notification.updated",
+      payload: { notification },
+    });
+  }
+}
+
+/**
+ * Atomically claims due hourly reminders against the latest shared snapshot,
+ * commits the in-app notification first, and only then performs email/push
+ * delivery. A concurrent cron invocation therefore cannot double-send.
+ */
+export async function runTradeActionReminders(input?: { now?: Date }) {
+  const now = input?.now ?? new Date();
+  if (!Number.isFinite(now.getTime())) throw new Error("A valid reminder timestamp is required.");
+
+  const db = await readDb({ bypassCache: true });
+  let claimed = claimDueTradeActionReminders(db, now);
+  if (claimed.publications.length === 0) {
+    return {
+      activeTradesChecked: claimed.activeTradesChecked,
+      notificationsCreated: 0,
+      emailsSent: 0,
+      emailFailures: 0,
+    };
+  }
+
+  await writeDb(db, {
+    selectedTables: TRADE_ROOM_INTERACTION_TABLES,
+    rebaseOnLatest: (latestSnapshot) => {
+      claimed = claimDueTradeActionReminders(latestSnapshot, now);
+      return latestSnapshot;
+    },
+  });
+
+  for (const publication of claimed.publications) {
+    publishNotificationPublication(publication);
+  }
+
+  const emailResults = await Promise.allSettled(
+    claimed.emailDeliveries.map((delivery) => deliverClaimedTradeActionReminder(delivery)),
+  );
+  const emailsSent = emailResults.filter(
+    (result) => result.status === "fulfilled" && result.value,
+  ).length;
+
+  return {
+    activeTradesChecked: claimed.activeTradesChecked,
+    notificationsCreated: claimed.publications.length,
+    emailsSent,
+    emailFailures: claimed.emailDeliveries.length - emailsSent,
+  };
 }
 
 const USER_PROFILE_TABLES = ["users", "seller_profiles", "seller_settings"] as const satisfies readonly SnapshotTableName[];
@@ -3861,7 +4303,6 @@ async function markCommissionOverdue(db: AlphaExchangeDb, record: CommissionReco
 async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
   let changed = false;
   const nowMs = Date.now();
-  const timeoutWindowMs = getStaleTradeTimeoutMinutes() * 60 * 1000;
 
   for (const record of db.commissionRecords) {
     if (record.paymentStatus === "paid" || !record.dueAt) continue;
@@ -3869,100 +4310,6 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
     if (!dueMs || Number.isNaN(dueMs) || dueMs > nowMs || record.overdueNotifiedAt) continue;
     changed = true;
     await markCommissionOverdue(db, record, SYSTEM_ACTOR_USER_ID);
-  }
-
-  for (const request of db.purchaseRequests) {
-    if (request.status !== "accepted" || request.paymentSentAt || request.usdtSentAt || request.completedAt) continue;
-    const startedAtMs = new Date(request.updatedAt ?? request.tradeCreatedAt ?? request.createdAt).getTime();
-    if (!startedAtMs || Number.isNaN(startedAtMs) || startedAtMs + timeoutWindowMs > nowMs) continue;
-    if (request.inactivityWarningSentAt) {
-      const warningAtMs = new Date(request.inactivityWarningSentAt).getTime();
-      if (Number.isFinite(warningAtMs) && warningAtMs >= startedAtMs) {
-        continue;
-      }
-    }
-    changed = true;
-    const now = nowIso();
-    request.inactivityWarningSentAt = now;
-    request.updatedAt = now;
-    appendTradeTimelineEntry(request, {
-      type: "trade_inactivity_warning_sent",
-      actorUserId: SYSTEM_ACTOR_USER_ID,
-      actorRole: "admin",
-      message: `Inactivity warning sent after ${TRADE_INACTIVITY_WARNING_MINUTES} minutes without buyer progress.`,
-      createdAt: now,
-    });
-    await appendAuditLog(db, {
-      action: "trade_inactivity_warning_sent",
-      actorUserId: SYSTEM_ACTOR_USER_ID,
-      targetUserId: request.buyerId,
-      listingId: request.listingId,
-      purchaseRequestId: request.id,
-      details: `Trade ${request.tradeId ?? request.id} received inactivity warning after ${TRADE_INACTIVITY_WARNING_MINUTES} minutes.`,
-      oldValue: { status: "accepted" },
-      newValue: { status: "accepted", inactivityWarningSentAt: now },
-      reason: "Buyer inactivity warning.",
-    });
-    pushNotification(db, {
-      userId: request.buyerId,
-      category: "trade",
-      title: "Action required on your trade",
-      message: `Trade ${request.tradeId ?? request.id} is still active, but requires your next step. Please upload payment proof to continue.`,
-      relatedTradeId: request.tradeId ?? request.id,
-      relatedListingId: request.listingId,
-      relatedHref: requestDetailsHref(request.id),
-    });
-    pushNotification(db, {
-      userId: request.sellerId,
-      category: "trade",
-      title: "Buyer inactivity warning sent",
-      message: `Trade ${request.tradeId ?? request.id} is still active. We reminded the buyer to continue the flow.`,
-      relatedTradeId: request.tradeId ?? request.id,
-      relatedListingId: request.listingId,
-      relatedHref: requestDetailsHref(request.id),
-    });
-    const buyer = db.users.find((user) => user.id === request.buyerId);
-    if (buyer?.notificationPreferences?.email === true) {
-      await sendMarketplaceEmail({
-        event: "trade_cancelled",
-        to: buyer.email,
-        recipientName: buyer.fullName,
-        recipientLocale: normalizePreferredLocale(buyer.preferredLocale),
-        title: {
-          ar: "إجراء مطلوب: الصفقة ما زالت بانتظارك",
-          en: "Action Required: Trade Still Waiting",
-        },
-        message: {
-          ar: `الصفقة ${request.tradeId ?? request.id} ما زالت نشطة وبانتظار تأكيد الدفع منك.`,
-          en: `Trade ${request.tradeId ?? request.id} is still active and waiting for your payment confirmation.`,
-        },
-        actionLabel: { ar: "فتح غرفة الصفقة", en: "Open Trade Room" },
-        actionPath: `/trade-room/${encodeURIComponent(request.id)}`,
-        referenceLabel: request.tradeId ?? request.id,
-        idempotencyKey: `trade-${request.id}-inactivity-warning-buyer-${request.updatedAt}`,
-      });
-    }
-    const seller = db.users.find((user) => user.id === request.sellerId);
-    if (seller?.notificationPreferences?.email === true) {
-      await sendMarketplaceEmail({
-        event: "trade_cancelled",
-        to: seller.email,
-        recipientName: seller.fullName,
-        recipientLocale: normalizePreferredLocale(seller.preferredLocale),
-        title: {
-          ar: "تحديث الصفقة: تم تذكير المشتري",
-          en: "Trade Update: Buyer Reminder Sent",
-        },
-        message: {
-          ar: `الصفقة ${request.tradeId ?? request.id} ما زالت نشطة. تلقّى المشتري تذكيرًا بسبب عدم النشاط.`,
-          en: `Trade ${request.tradeId ?? request.id} remains active. The buyer received an inactivity reminder.`,
-        },
-        actionLabel: { ar: "فتح غرفة الصفقة", en: "Open Trade Room" },
-        actionPath: `/trade-room/${encodeURIComponent(request.id)}`,
-        referenceLabel: request.tradeId ?? request.id,
-        idempotencyKey: `trade-${request.id}-inactivity-warning-seller-${request.updatedAt}`,
-      });
-    }
   }
 
   for (const request of db.purchaseRequests) {
@@ -3975,9 +4322,12 @@ async function applyMarketplaceReliabilityRules(db: AlphaExchangeDb) {
 
     const now = nowIso();
     changed = true;
+    const archivedActionReminders = archiveSatisfiedTradeActionReminders(db, request, now);
     request.timedOutAt = now;
     request.timeoutReason = "USDT release SLA expired.";
+    request.actionReminderState = undefined;
     request.updatedAt = now;
+    publishArchivedTradeActionReminders(archivedActionReminders);
     appendTradeTimelineEntry(request, {
       type: "trade_timed_out",
       actorUserId: SYSTEM_ACTOR_USER_ID,
@@ -8515,7 +8865,10 @@ export async function createPurchaseRequest(input: {
 
 export async function getMyPurchaseRequests(userId: string, role: UserRole, dbInput?: AlphaExchangeDb) {
   const db = dbInput ?? await readDb();
-  if (role === "admin" || role === "owner") return db.purchaseRequests.map((request) => enrichRequestWithEvidence(db, request));
+  if (role === "admin" || role === "owner") {
+    return db.purchaseRequests.map((request) =>
+      sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request), userId, role));
+  }
   return db.purchaseRequests
     .filter((request) => request.buyerId === userId || request.sellerId === userId)
     .map((request) => sanitizePurchaseRequestForActor(enrichRequestWithEvidence(db, request), userId, role));
@@ -8566,6 +8919,9 @@ export function sanitizePurchaseRequestForActor(request: PurchaseRequest, actorU
   if (!canRevealTradeBankDetailsToActor(request, actorUserId, actorRole)) {
     delete redacted.sellerBankAccountId;
   }
+  // Scheduler claims are internal delivery metadata. They are not part of the
+  // Trade Room contract for participants or admins.
+  delete redacted.actionReminderState;
   return redacted;
 }
 
@@ -9188,6 +9544,7 @@ async function closePurchaseRequestManuallyAttempt(
 
   const now = nowIso();
   const actorRole = resolveActorRole(db, input.actorUserId);
+  const archivedActionReminders = archiveSatisfiedTradeActionReminders(db, request, now);
   const next: PurchaseRequest = {
     ...request,
     status: "cancelled",
@@ -9199,6 +9556,7 @@ async function closePurchaseRequestManuallyAttempt(
     timedOutAt: undefined,
     timeoutReason: undefined,
     inactivityWarningSentAt: undefined,
+    actionReminderState: undefined,
     timeline: [...(request.timeline ?? [])],
   };
   appendTradeTimelineEntry(next, {
@@ -9301,6 +9659,7 @@ async function closePurchaseRequestManuallyAttempt(
     throw error;
   }
   const enriched = enrichRequestWithEvidence(db, db.purchaseRequests[requestIndex]);
+  publishArchivedTradeActionReminders(archivedActionReminders);
   publishRealtimeEvent({
     type: "trade.status_changed",
     payload: {
@@ -9398,9 +9757,6 @@ export async function postTradeRoomMessage(input: {
     };
     canonicalRequest.messages = [nextMessage, ...(canonicalRequest.messages ?? [])];
     canonicalRequest.updatedAt = createdAt;
-    if (canonicalRequest.status === "accepted") {
-      canonicalRequest.inactivityWarningSentAt = undefined;
-    }
     snapshot.purchaseRequests[canonicalRequestIndex] = canonicalRequest;
     snapshot.tradeMessages = [nextMessage, ...(snapshot.tradeMessages ?? [])];
     const notificationPublication = pushNotification(snapshot, {
@@ -10009,6 +10365,9 @@ async function uploadTradeEvidenceAttempt(
   const isBankTransferTrade = isBankTransferPaymentMethod(requestPaymentMethod);
   const shouldAutoSubmitPayment = input.side === "buyer" && request.status === "accepted";
   const shouldAutoConfirmUsdtSent = input.side === "seller" && request.status === "usdt_release_pending";
+  const archivedActionReminders = shouldAutoSubmitPayment || shouldAutoConfirmUsdtSent
+    ? archiveSatisfiedTradeActionReminders(db, request, updatedAt)
+    : [];
   const evidenceListing = shouldAutoSubmitPayment
     ? db.marketplaceListings.find((candidate) => candidate.id === request.listingId)
     : undefined;
@@ -10044,6 +10403,7 @@ async function uploadTradeEvidenceAttempt(
   });
   if (shouldAutoSubmitPayment) {
     nextRequest.status = "payment_sent";
+    nextRequest.actionReminderState = undefined;
     nextRequest.paymentSentAt = updatedAt;
     nextRequest.inactivityWarningSentAt = undefined;
     const listing = getListingByIdOrThrow(db, request.listingId);
@@ -10080,6 +10440,7 @@ async function uploadTradeEvidenceAttempt(
   }
   if (shouldAutoConfirmUsdtSent) {
     nextRequest.status = "usdt_sent";
+    nextRequest.actionReminderState = undefined;
     nextRequest.usdtSentAt = updatedAt;
     appendTradeTimelineEntry(nextRequest, {
       type: "usdt_sent",
@@ -10173,6 +10534,7 @@ async function uploadTradeEvidenceAttempt(
   }
   const dbWriteMs = Date.now() - dbWriteStartedAt;
   const storageMs = Date.now() - storageStartedAt;
+  publishArchivedTradeActionReminders(archivedActionReminders);
   publishRealtimeEvent({
     type: "trade.status_changed",
     payload: {
@@ -10882,9 +11244,11 @@ async function updatePurchaseRequestStatusAttempt(
 
   const actorRole = resolveActorRole(db, input.actorUserId);
   const now = nowIsoAfter(request.updatedAt, listing?.updatedAt);
+  const archivedActionReminders = archiveSatisfiedTradeActionReminders(db, request, now);
   const next: PurchaseRequest = {
     ...request,
     timeline: [...(request.timeline ?? [])],
+    actionReminderState: undefined,
     updatedAt: now,
   };
 
@@ -11434,9 +11798,7 @@ async function updatePurchaseRequestStatusAttempt(
   } else {
     next.status = input.nextStatus;
   }
-  if (next.status !== "accepted") {
-    next.inactivityWarningSentAt = undefined;
-  }
+  next.inactivityWarningSentAt = undefined;
   db.purchaseRequests[requestIndex] = next;
   logLocalMarketplaceDiagnostic("info", "[trade-consistency] mutation status-after", {
     requestId: input.requestId,
@@ -11550,6 +11912,7 @@ async function updatePurchaseRequestStatusAttempt(
   }
   const enriched = enrichRequestWithEvidence(db, db.purchaseRequests[requestIndex]);
   const sseStartedAt = Date.now();
+  publishArchivedTradeActionReminders(archivedActionReminders);
   publishRealtimeEvent({
     type: "trade.status_changed",
     payload: {
@@ -14079,7 +14442,15 @@ export async function forceCompleteTradeByAdmin(input: { requestId: string; reas
   if (index === -1) throw new Error("Purchase request not found.");
   const request = db.purchaseRequests[index];
   const now = nowIso();
-  db.purchaseRequests[index] = { ...request, status: "completed", completedAt: now, updatedAt: now };
+  const archivedActionReminders = archiveSatisfiedTradeActionReminders(db, request, now);
+  db.purchaseRequests[index] = {
+    ...request,
+    status: "completed",
+    completedAt: now,
+    updatedAt: now,
+    inactivityWarningSentAt: undefined,
+    actionReminderState: undefined,
+  };
   appendTradeTimelineEntry(db.purchaseRequests[index], {
     type: "trade_completed",
     actorUserId: input.actorUserId,
@@ -14094,6 +14465,7 @@ export async function forceCompleteTradeByAdmin(input: { requestId: string; reas
     reason: input.reason,
   });
   await writeDb(db, { selectedTables: TRADE_REVIEW_TABLES });
+  publishArchivedTradeActionReminders(archivedActionReminders);
 }
 
 export async function purgeMarketplaceSmokeTestByAdmin(input: { listingId: string; actorUserId: string }) {
@@ -14154,7 +14526,14 @@ export async function forceCancelTradeByAdmin(input: { requestId: string; reason
   if (index === -1) throw new Error("Purchase request not found.");
   const request = db.purchaseRequests[index];
   const now = nowIso();
-  db.purchaseRequests[index] = { ...request, status: "cancelled", updatedAt: now };
+  const archivedActionReminders = archiveSatisfiedTradeActionReminders(db, request, now);
+  db.purchaseRequests[index] = {
+    ...request,
+    status: "cancelled",
+    updatedAt: now,
+    inactivityWarningSentAt: undefined,
+    actionReminderState: undefined,
+  };
   appendTradeTimelineEntry(db.purchaseRequests[index], {
     type: "request_cancelled",
     actorUserId: input.actorUserId,
@@ -14169,6 +14548,7 @@ export async function forceCancelTradeByAdmin(input: { requestId: string; reason
     reason: input.reason,
   });
   await writeDb(db, { selectedTables: TRADE_REVIEW_TABLES });
+  publishArchivedTradeActionReminders(archivedActionReminders);
 }
 
 export async function unlockTradeReviewByAdmin(input: { requestId: string; reason: string; actorUserId: string }) {
